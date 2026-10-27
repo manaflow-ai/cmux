@@ -1,4 +1,5 @@
 internal import CmuxNextCompat
+import class CmuxSafeConcurrency.Invariant
 internal import class CmuxSafeConcurrency.OnceContinuation
 internal import enum CmuxSafeConcurrency.OnceContinuationError
 internal import func CmuxSafeConcurrency.withOnceContinuation
@@ -303,7 +304,8 @@ public final class StreamDemux<Item: StreamSinkItem>: Sendable {
                             return .now(nil)
                         }
                         guard state.waiter == nil else {
-                            assertionFailure("StreamDemux.Sink has one consumer; a second next() returns nil")
+                            Invariant.debugCheck(false, "stream-demux-sink-one-consumer",
+                                                 "StreamDemux.Sink has one consumer; a second next() returns nil")
                             return .now(nil)
                         }
                         state.waiter = continuation

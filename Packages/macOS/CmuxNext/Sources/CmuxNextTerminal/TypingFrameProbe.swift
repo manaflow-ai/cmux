@@ -1,4 +1,5 @@
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.Invariant
 import ObjectiveC
 import QuartzCore
 
@@ -69,7 +70,8 @@ enum TypingFrameProbe {
         let layerClass: AnyClass = type(of: layer)
         guard layerClass != CALayer.self else { return }
         if let hooked = installed[ObjectIdentifier(layerClass)] {
-            assert(hooked === gate, "one contents gate per layer class: build TerminalEchoStages on the runtime's gate")
+            Invariant.debugCheck(hooked === gate, "one-contents-gate-per-layer-class",
+                                 "one contents gate per layer class: build TerminalEchoStages on the runtime's gate")
             return
         }
         installed[ObjectIdentifier(layerClass)] = gate

@@ -1,3 +1,4 @@
+import class CmuxSafeConcurrency.Invariant
 public import Foundation
 import CmuxNextSignposts
 import Darwin
@@ -406,7 +407,8 @@ public final class MainFrameBudget {
                 if pending { return hold(index, \.yieldedToInput, &yieldedThisFrame) }
             case .outside:
                 // A response opens only on an input, and ``InputResponse/cap`` < ``InputResponse/burstLength``.
-                assert(!responseOpen, "an input response is open outside its typing burst")
+                Invariant.debugCheck(!responseOpen, "input-response-inside-burst",
+                                     "an input response is open outside its typing burst")
             }
         }
         if pending, !yieldedLastFrame[index] { return hold(index, \.yieldedToInput, &yieldedThisFrame) }

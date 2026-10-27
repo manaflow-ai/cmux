@@ -12,10 +12,8 @@ public struct InvariantEvent: Sendable {
         case notFatalUntil(build: UInt64)
         /// ``Invariant/dumpWillBeCheck(_:_:in:fileID:line:)``: it never traps.
         case dumpWillBeCheck
-        /// ``Invariant/debugCheck(_:_:in:fileID:line:)`` in a nightly-assert build (``Invariant/reportsDebugChecks``).
+        /// ``Invariant/debugCheck(_:_:_:in:fileID:line:)`` in a nightly-assert build (``Invariant/reportsDebugChecks``).
         case debugCheck
-        /// `assert()` or `assertionFailure()` in a nightly-assert build, in a file that imports CmuxSafeConcurrency.
-        case assertion
     }
 
     public let kind: Kind
@@ -58,11 +56,11 @@ public protocol InvariantEventSink: Sendable {
 /// - ``dumpWillBeCheck(_:_:in:fileID:line:)``, Chrome's `DUMP_WILL_BE_CHECK`: reports and goes on in every
 ///   build. Rare; each site needs a `swift.dump_will_be_check` allowlist entry that names the code that recovers.
 ///
-/// Below the three tiers, ``debugCheck(_:_:in:fileID:line:)`` is Chrome's `DCHECK`: it traps in a Debug build and
-/// is compiled out of an -O build, like `assert()`. The nightly-assert variant (`-DINVARIANT_REPORT`, an -O build
-/// for a sampled slice of Nightly: Chrome's DCHECK canary, `DCHECK_IS_CONFIGURABLE` in base/dcheck_is_on.h and
-/// base/check.cc) keeps every debug check and every `assert()` of a file that imports this module, and reports
-/// each failing site once per launch through the same table and sink; none of them traps there.
+/// Below the three tiers, ``debugCheck(_:_:_:in:fileID:line:)`` is Chrome's `DCHECK`: it traps in a Debug build and
+/// is compiled out of an -O build, like `assert()`, which the package Sources do not call (the `raw-assert`
+/// guardrail). The nightly-assert variant (`-DINVARIANT_REPORT`, an -O build for a sampled slice of Nightly:
+/// Chrome's DCHECK canary, `DCHECK_IS_CONFIGURABLE` in base/dcheck_is_on.h and base/check.cc) keeps every debug
+/// check and reports each failing site once per launch through the same table and sink; none of them traps there.
 ///
 /// Input from outside the process (a file, a peer frame, a decoded message) never goes here: it gets a typed
 /// error at its boundary.
@@ -165,25 +163,30 @@ public final class Invariant: @unchecked Sendable { // crash-allow: every word o
         return invariant.failed(.dumpWillBeCheck, id, fileID: fileID, line: line)
     }
 
-    /// Chrome's `DCHECK`: when `condition` is false, traps in a Debug build; an -O build does not evaluate
-    /// `condition`. In the nightly-assert variant (``reportsDebugChecks``) it evaluates `condition` and reports the
-    /// site's first failure of the launch, then goes on. The caller does not handle the failure: a condition that
-    /// can fail in production with a way to recover is ``notFatalUntil(_:_:build:in:fileID:line:)``.
+    /// Chrome's `DCHECK`, and what the package Sources call instead of `assert()` / `assertionFailure()`: when
+    /// `condition` is false, traps in a Debug build; an -O build evaluates neither `condition` nor `message`. In the
+    /// nightly-assert variant (``reportsDebugChecks``) it evaluates `condition` and reports the site's first failure
+    /// of the launch, then goes on (it does not evaluate `message`: a report carries the id and the site). The
+    /// caller does not handle the failure: a condition that can fail in production with a way to recover is
+    /// ``notFatalUntil(_:_:build:in:fileID:line:)``. `assertionFailure(m)` is `debugCheck(false, id, m)`.
     ///
-    /// - Parameter invariant: The table and sink of a nightly-assert report; ``process`` unless a test passes its own.
-    @inlinable
+    /// - Parameters:
+    ///   - message: The Debug trap's text after the id and the site, as `assert()`'s message.
+    ///   - invariant: The table and sink of a nightly-assert report; ``process`` when nil.
+    @inlinable @inline(__always) // as `assert()` (transparent): an -O caller keeps no closure or call
     public static func debugCheck(_ condition: @autoclosure () -> Bool, _ id: StaticString,
-                                  in invariant: Invariant = .process,
+                                  _ message: @autoclosure () -> String = String(),
+                                  in invariant: Invariant? = nil,
                                   fileID: StaticString = #fileID, line: UInt = #line) {
         #if INVARIANT_REPORT
-        if !condition() { _ = invariant.failed(.debugCheck, id, fileID: fileID, line: line) }
+        if !condition() { _ = (invariant ?? .process).failed(.debugCheck, id, fileID: fileID, line: line) }
         #else
-        if _isDebugAssertConfiguration(), !condition() { trap(id, fileID: fileID, line: line) }
+        if _isDebugAssertConfiguration(), !condition() { trap(id, message(), fileID: fileID, line: line) }
         #endif
     }
 
-    /// Whether this is the nightly-assert variant (`-DINVARIANT_REPORT`): debug checks and `assert()` report
-    /// instead of being compiled out. scripts/cmux-next/check-no-bench-hooks.sh refuses such an app for Release
+    /// Whether this is the nightly-assert variant (`-DINVARIANT_REPORT`): debug checks report instead of being
+    /// compiled out. scripts/cmux-next/check-no-bench-hooks.sh refuses such an app for Release
     /// and RC.
     public static var reportsDebugChecks: Bool {
         #if INVARIANT_REPORT
@@ -337,30 +340,10 @@ public final class Invariant: @unchecked Sendable { // crash-allow: every word o
         (hash ^ UInt64(byte)) &* 0x0000_0100_0000_01b3
     }
 
-    /// Stops the process: the one trap of the three tiers (crash-allowlist.json, swift.fatal_error).
+    /// Stops the process: the one trap of the three tiers and of a Debug build's debug check (crash-allowlist.json,
+    /// swift.fatal_error). A `message` that is not empty follows the id and the site.
     @usableFromInline
-    static func trap(_ id: StaticString, fileID: StaticString, line: UInt) -> Never {
-        fatalError("invariant \(id) failed at \(fileID):\(line)")
+    static func trap(_ id: StaticString, _ message: String = String(), fileID: StaticString, line: UInt) -> Never {
+        fatalError("invariant \(id) failed at \(fileID):\(line)" + (message.isEmpty ? "" : ": \(message)"))
     }
 }
-
-#if INVARIANT_REPORT
-// The nightly-assert variant's assert() and assertionFailure(). With the standard library's signatures they
-// shadow Swift.assert and Swift.assertionFailure in every file that imports CmuxSafeConcurrency (a module's
-// declaration shadows the standard library's with the same signature), as Chrome's DCHECK becomes a dump in a
-// DCHECK_IS_CONFIGURABLE build (base/check.cc). Only this -O variant compiles them.
-
-/// Reports the site's first failure of the launch (``InvariantEvent/Kind/assertion``) and goes on.
-@inlinable
-public func assert(_ condition: @autoclosure () -> Bool, _ message: @autoclosure () -> String = String(),
-                   file: StaticString = #file, line: UInt = #line) {
-    if !condition() { _ = Invariant.process.failed(.assertion, "assert", fileID: file, line: line) }
-}
-
-/// Reports the site's first call of the launch (``InvariantEvent/Kind/assertion``) and goes on.
-@inlinable
-public func assertionFailure(_ message: @autoclosure () -> String = String(),
-                             file: StaticString = #file, line: UInt = #line) {
-    _ = Invariant.process.failed(.assertion, "assertionFailure", fileID: file, line: line)
-}
-#endif

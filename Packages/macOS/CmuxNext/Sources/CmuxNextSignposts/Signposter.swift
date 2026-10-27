@@ -1,4 +1,5 @@
 public import CmuxNextTrace
+import class CmuxSafeConcurrency.Invariant
 public import os
 
 /// Always-on signpost intervals for one ``SignpostCategory``, the same in Debug and Release.
@@ -270,7 +271,7 @@ public nonisolated struct Signposter: Sendable {
     ///   - name: A catalog name of this signposter's category.
     ///   - message: The event's kind, target, entrypoint, presentation source, variable refresh and stage offsets.
     public func event(_ name: SignpostName, _ message: InputLatencySignpostMessage) {
-        assert(name.category == category, "\(name) is not in category \(category)")
+        Invariant.debugCheck(name.category == category, "signpost-category", "\(name) is not in category \(category)")
         signposter.emitEvent(
             name.staticName,
             "kind=\(message.kind, privacy: .public) target=\(message.target, privacy: .public) entry=\(message.entrypoint, privacy: .public) source=\(message.presentationSource, privacy: .public) vrr=\(message.variableRefresh ? 1 : 0, privacy: .public) coalesced=\(message.coalescedCount, privacy: .public) frame=\(message.causedFrameUpdate ? 1 : 0, privacy: .public) gen_ns=\(message.generatedNanos, privacy: .public) last_gen_us=\(message.lastGeneratedMicros, privacy: .public) arrived_us=\(message.arrivedMainMicros, privacy: .public) dispatch_start_us=\(message.dispatchStartMicros, privacy: .public) ti_start_us=\(message.textInputStartMicros, privacy: .public) ti_end_us=\(message.textInputEndMicros, privacy: .public) dispatch_end_us=\(message.dispatchEndMicros, privacy: .public) commit_us=\(message.mainCommitMicros, privacy: .public) content_us=\(message.contentSubmittedMicros, privacy: .public) daemon_us=\(message.daemonReceivedMicros, privacy: .public) pty_us=\(message.ptyWrittenMicros, privacy: .public) echo_read_us=\(message.echoReadMicros, privacy: .public) echo_sent_us=\(message.echoSentMicros, privacy: .public) presented_us=\(message.presentedMicros, privacy: .public)"
@@ -296,7 +297,8 @@ public nonisolated struct Signposter: Sendable {
     ///
     /// - Parameter nanos: The wait.
     public func ghosttyLockWait(nanos: UInt64) {
-        assert(SignpostName.ghosttyLockWait.category == category, "ghostty.lock_wait is not in category \(category)")
+        Invariant.debugCheck(SignpostName.ghosttyLockWait.category == category, "ghostty-lock-wait-category",
+                             "ghostty.lock_wait is not in category \(category)")
         signposter.emitEvent(SignpostName.ghosttyLockWait.staticName, "wait_us=\(nanos / 1_000, privacy: .public)")
         trace.event(.ghosttyLockWait, arg0: nanos)
     }
@@ -312,7 +314,8 @@ public nonisolated struct Signposter: Sendable {
     ///   - lateMilliseconds: How long past its turn's deadline the commit ended.
     ///   - turnMilliseconds: The run-loop turn's start to the commit's end.
     public func lateCommit(lateMilliseconds: Double, turnMilliseconds: Double) {
-        assert(SignpostName.motionLateCommits.category == category, "motion.late_commits is not in category \(category)")
+        Invariant.debugCheck(SignpostName.motionLateCommits.category == category, "motion-late-commits-category",
+                             "motion.late_commits is not in category \(category)")
         signposter.emitEvent(
             SignpostName.motionLateCommits.staticName,
             "late_ms=\(lateMilliseconds, format: .fixed(precision: 3), privacy: .public) turn_ms=\(turnMilliseconds, format: .fixed(precision: 3), privacy: .public)"
@@ -326,7 +329,8 @@ public nonisolated struct Signposter: Sendable {
     ///
     /// - Parameter message: The run's fields.
     public func presentEstimate(_ message: ActionPresentSignpostMessage) {
-        assert(SignpostName.actionPresentedEstimate.category == category, "action.presented_estimate is not in category \(category)")
+        Invariant.debugCheck(SignpostName.actionPresentedEstimate.category == category, "action-presented-estimate-category",
+                             "action.presented_estimate is not in category \(category)")
         signposter.emitEvent(
             SignpostName.actionPresentedEstimate.staticName,
             "id=\(message.id, privacy: .public) present_ms=\(message.presentMilliseconds, format: .fixed(precision: 3), privacy: .public) commit_ms=\(message.commitMilliseconds, format: .fixed(precision: 3), privacy: .public) input_age_ms=\(message.inputAgeMilliseconds, format: .fixed(precision: 2), privacy: .public) phase=\(message.phase.rawValue, privacy: .public)"
@@ -346,8 +350,9 @@ public nonisolated struct Signposter: Sendable {
     /// also needs a recording-only category on: ``beginCEFPump(reasonCode:)``).
     func openInterval(_ name: SignpostName, arg0: UInt64, arg1: UInt64 = 0, traced: Bool = true,
                       _ beginInterval: (OSSignpostID) -> OSSignpostIntervalState) -> SignpostInterval {
-        assert(name.category == category, "\(name) is not in category \(category)")
-        assert(arg1 == 0 || name.opensThreadSlice, "\(name) is an async slice: its arg1 is the async id")
+        Invariant.debugCheck(name.category == category, "interval-category", "\(name) is not in category \(category)")
+        Invariant.debugCheck(arg1 == 0 || name.opensThreadSlice, "async-slice-arg1",
+                             "\(name) is an async slice: its arg1 is the async id")
         let id = signposter.makeSignpostID()
         let beginNanos = clock.nowNanos()
         let state = beginInterval(id)

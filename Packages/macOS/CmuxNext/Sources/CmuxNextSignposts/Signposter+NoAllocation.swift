@@ -1,5 +1,6 @@
 import CmuxNextSignpostsC
 import CmuxNextTrace
+import class CmuxSafeConcurrency.Invariant
 import os
 
 // The signposts that run per key, per key hop and per scheduled main task, with no heap allocation: they emit
@@ -41,7 +42,8 @@ extension Signposter {
     }
 
     private func beginTask(_ name: SignpostName, taskClass: String, owner: String, arg0: UInt64) -> MainTaskInterval {
-        assert(name == .stallMainTask && category == .stall, "\(name) is not stall.main_task on the stall category")
+        Invariant.debugCheck(name == .stallMainTask && category == .stall, "stall-main-task-slice",
+                             "\(name) is not stall.main_task on the stall category")
         let id = cmux_signpost_stall_task_id()
         let beginNanos = clock.nowNanos()
         // A native or small String hands over its NUL-terminated bytes in place, with no heap copy.
@@ -54,7 +56,8 @@ extension Signposter {
 
     /// Ends a ``SignpostName/stallMainTask`` interval on the thread that began it.
     public func end(_ name: SignpostName, _ interval: MainTaskInterval) {
-        assert(name == .stallMainTask && category == .stall, "\(name) is not stall.main_task on the stall category")
+        Invariant.debugCheck(name == .stallMainTask && category == .stall, "stall-main-task-slice-end",
+                             "\(name) is not stall.main_task on the stall category")
         cmux_signpost_stall_task_end(interval.id)
         closeRing(name, interval.ring, arg0: EndCode.ended)
     }
@@ -72,7 +75,8 @@ extension Signposter {
     ///   - ageMicros: The key's age when its dispatch began, in microseconds, or -1 without a timestamp.
     /// - Returns: The interval to end with the ``KeyFrameInterval`` overload of `end(_:_:_:)`.
     public func begin(_ name: SignpostName, target: KeyFrameSignpost.Target, ageMicros: Int64) -> KeyFrameInterval {
-        assert(name == .keyToFrame && category == .key, "\(name) is not key.frame on the key category")
+        Invariant.debugCheck(name == .keyToFrame && category == .key, "key-frame-slice",
+                             "\(name) is not key.frame on the key category")
         let id = cmux_signpost_key_frame_id()
         let beginNanos = clock.nowNanos()
         let ageMilliseconds = ageMicros < 0 ? -1 : Double(ageMicros) / 1_000
@@ -86,7 +90,8 @@ extension Signposter {
     /// overload does: a missed end carries `commit=missed` and is not mirrored to MetricKit. The ring's AE has the
     /// begin's id and the end's code (`EndCode`) in `arg0`.
     public func end(_ name: SignpostName, _ interval: KeyFrameInterval, _ outcome: CommitBoundary.Outcome) {
-        assert(name == .keyToFrame && category == .key, "\(name) is not key.frame on the key category")
+        Invariant.debugCheck(name == .keyToFrame && category == .key, "key-frame-slice-end",
+                             "\(name) is not key.frame on the key category")
         switch outcome {
         case .committed:
             cmux_signpost_key_frame_end(interval.id, 0)
@@ -114,7 +119,8 @@ extension Signposter {
     ///   - budgetNanos: Its class's per-frame budget.
     public func event(_ name: SignpostName, taskClass: String, owner: String, classID: UInt8, ownerID: UInt32,
                       ownNanos: UInt64, budgetNanos: UInt64) {
-        assert(name == .stallOverBudget && category == .stall, "\(name) is not stall.over_budget on the stall category")
+        Invariant.debugCheck(name == .stallOverBudget && category == .stall, "stall-over-budget-event",
+                             "\(name) is not stall.over_budget on the stall category")
         let milliseconds = Double(ownNanos) / 1_000_000
         let budgetMilliseconds = Double(budgetNanos) / 1_000_000
         taskClass.withCString { taskClass in
@@ -139,7 +145,8 @@ extension Signposter {
     ///   - flow: The key press's flow id.
     ///   - ageMicroseconds: The key event's age at this hop, or -1.
     public func flowHop(_ hop: KeyFlowHop, flow: UInt64, ageMicroseconds: Int64 = -1) {
-        assert(SignpostName.keyFlow.category == category, "key.flow is not in category \(category)")
+        Invariant.debugCheck(SignpostName.keyFlow.category == category, "key-flow-category",
+                             "key.flow is not in category \(category)")
         guard !trace.isKeyTimingSuppressed else { return }
         let hopName = hop.staticName
         hopName.utf8Start.withMemoryRebound(to: CChar.self, capacity: hopName.utf8CodeUnitCount + 1) {

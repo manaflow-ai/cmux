@@ -1,4 +1,5 @@
 import CmuxNextActions
+import class CmuxSafeConcurrency.Invariant
 import os
 
 /// The action contract's App leg for the tab, pane (with columns), screen
@@ -19,7 +20,7 @@ enum HandlerCoverage {
         guard !missing.isEmpty else { return }
         let list = missing.map(\.rawValue).joined(separator: ", ")
         logger.fault("unbound actions: \(list, privacy: .public)")
-        assertionFailure("tab/pane/terminal actions without a handler: \(list)")
+        Invariant.debugCheck(false, "core-actions-have-handlers", "tab/pane/terminal actions without a handler: \(list)")
         #endif
     }
 }

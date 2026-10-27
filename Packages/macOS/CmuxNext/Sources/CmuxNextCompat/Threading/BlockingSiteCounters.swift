@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BLOCKING_CHECKS
 internal import Atomics
+import class CmuxSafeConcurrency.Invariant
 
 /// The per-site atomics of one ``BlockingContext``: a call count, a wall-time total and a maximum
 /// (nanoseconds) per site id, in one fixed allocation of three words per site. Fixed at init, so a recording
@@ -31,7 +32,7 @@ final class BlockingSiteCounters: Sendable {
 
     /// Word `index` of the table. Every caller passes an index under capacity * 3.
     private func word(_ index: Int) -> UnsafeAtomic<UInt64> {
-        assert(index >= 0 && index < capacity * 3)
+        Invariant.debugCheck(index >= 0 && index < capacity * 3, "blocking-site-counter-in-range")
         // SAFETY: 0 <= index < capacity * 3 (every caller's bound), so the word is inside the allocation, which
         // lives as long as `self`.
         return unsafe UnsafeAtomic<UInt64>(at: words + index)

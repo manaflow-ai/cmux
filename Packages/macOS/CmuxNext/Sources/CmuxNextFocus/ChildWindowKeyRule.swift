@@ -1,3 +1,5 @@
+import class CmuxSafeConcurrency.Invariant
+
 /// What a cmux window does when a window other than itself becomes key
 /// (`FocusEffectApplier.childWindowDidBecomeKey`), and whether it takes the
 /// keys back from a key Chromium page window (`reclaimKeyFromPageWindow`).
@@ -96,7 +98,7 @@ public nonisolated enum ChildWindowKeyRule {
     private static func answer(_ facts: Facts) -> Answer? {
         struct Request: Encodable { var facts: Facts }
         let answer = FocusReducer.call("focus_child_window_key", Request(facts: facts), as: Answer.self)
-        assert(answer != nil, "focus_child_window_key refused")
+        Invariant.debugCheck(answer != nil, "focus-child-window-key-answers", "focus_child_window_key refused")
         return answer
     }
 }

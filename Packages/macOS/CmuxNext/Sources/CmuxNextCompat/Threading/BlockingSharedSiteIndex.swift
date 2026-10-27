@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BLOCKING_CHECKS
 internal import Atomics
+import class CmuxSafeConcurrency.Invariant
 
 /// The pool's call sites by ``BlockingSiteKey``: the shape of ``BlockingSiteIndex`` (a fixed open-addressing
 /// table, twice the site limit, never allocates after its init), but any thread may ``find(_:)`` while one
@@ -41,7 +42,7 @@ final class BlockingSharedSiteIndex: Sendable {
     }
 
     private func word(_ slot: Int, _ field: Int) -> UnsafeAtomic<UInt> {
-        assert(slot >= 0 && slot < slotCount && field >= 0 && field < 3)
+        Invariant.debugCheck(slot >= 0 && slot < slotCount && field >= 0 && field < 3, "blocking-site-index-word-in-range")
         // SAFETY: slot * 3 + field is under slotCount * 3 (the bounds above), so the word is inside the allocation,
         // which lives as long as `self`.
         return unsafe UnsafeAtomic<UInt>(at: words + (slot * 3 + field))

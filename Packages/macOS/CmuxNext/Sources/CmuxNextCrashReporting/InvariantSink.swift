@@ -5,7 +5,7 @@ import os
 
 /// The app's ``InvariantEventSink`` (p10-stability-099): the first failure of each
 /// `Invariant.notFatalUntil` / `Invariant.dumpWillBeCheck` site in a launch (and, in the nightly-assert variant,
-/// of each `Invariant.debugCheck` and `assert()` site, p10-stability-202) becomes one Sentry event, built
+/// of each `Invariant.debugCheck` site, p10-stability-202) becomes one Sentry event, built
 /// and sent on the crash-reporting lane, never on the thread that failed.
 ///
 /// On the caller's thread ``deliver(_:)`` reads one stored flag, takes the stack's return addresses
@@ -94,9 +94,6 @@ public final class InvariantSink: InvariantEventSink {
         case .debugCheck:
             level = .warning
             tier = "debug_check"
-        case .assertion:
-            level = .warning
-            tier = "assert"
         }
         let id = failure.id.description
         let event = Event(level: level)

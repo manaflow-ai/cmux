@@ -1,4 +1,5 @@
 public import Atomics
+public import class CmuxSafeConcurrency.Invariant
 
 /// A lock-free `UInt64` at an address the caller owns (a heap block or an mmap page): chunk cursors,
 /// sequences, histogram buckets and crash keys in shared memory. ``Atomic`` allocates its own word on
@@ -21,7 +22,8 @@ public struct AtomicPointerSlot: Sendable { // its one stored property, UnsafeAt
     /// Makes a slot over the word at `pointer`, which must be 8-byte aligned.
     @inlinable
     public init(_ pointer: UnsafeMutablePointer<UInt64>) {
-        assert(unsafe Int(bitPattern: pointer) & (MemoryLayout<UInt64>.alignment - 1) == 0, "AtomicPointerSlot needs an 8-byte aligned word")
+        Invariant.debugCheck(unsafe Int(bitPattern: pointer) & (MemoryLayout<UInt64>.alignment - 1) == 0,
+                             "atomic-pointer-slot-aligned", "AtomicPointerSlot needs an 8-byte aligned word")
         // SAFETY: the slot touches only the one aligned UInt64 at `pointer`, which the caller keeps mapped while the
         // slot is used (the type's contract above); UInt64's atomic representation has UInt64's size and alignment.
         raw = unsafe UnsafeAtomic<UInt64>(at: UnsafeMutableRawPointer(pointer).assumingMemoryBound(to: UInt64.AtomicRepresentation.self))

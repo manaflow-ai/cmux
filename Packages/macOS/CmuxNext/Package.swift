@@ -26,11 +26,11 @@ import Foundation
 //     per-frame budget MainFrameBudget, and TracedTask; plans/cmux-next/idle-wakeups.md,
 //     main-thread-budget.md). Every target that calls Task.detached depends on it, except Compat.
 //   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix), Icons (OverflowButton's glyph),
-//     Wakeups, Trace, Metrics, Signposts; CmuxNextActions -> Signposts, Wakeups, Trace, Metrics;
+//     Wakeups, Trace, Metrics, Signposts; CmuxNextActions -> Signposts, Wakeups, Trace, Metrics, CmuxSafeConcurrency;
 //     CmuxNextDaemon -> Compat, Wakeups, Trace, Metrics, Signposts (the p09-observability trace points and histograms),
 //       IPC (the generated `cmux.protocol/2` requests ResourceOperationClient sends, p05-ipc-045),
 //       CmuxSafeConcurrency (OnceContinuation, p10-stability-087)
-//   CmuxNextSignposts -> Compat, Trace, Metrics, SignpostsC, system frameworks (always-on os_signpost intervals, the one
+//   CmuxNextSignposts -> Compat, Trace, Metrics, SignpostsC, CmuxSafeConcurrency, system frameworks (always-on os_signpost intervals, the one
 //     name catalog, CommitBoundary, the opt-in MetricKit mirror for hang reports, the typed ring trace points; Metrics for
 //     the key.frame and input.frame histograms, p09-observability tasks 054 and 111)
 //   CmuxNextSignpostsC -> libSystem only (C: os_signpost macros for the key and stall signposts, no heap allocation;
@@ -534,7 +534,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // client, the pasted-key Keychain store and the row state machine.
         .target(
             name: "CmuxNextCodeRouter",
-            dependencies: ["CmuxNextCompat", "CmuxNextCloud"],
+            // CmuxSafeConcurrency: Invariant.debugCheck, the package Sources' assert() (p10-stability-202).
+            dependencies: ["CmuxNextCompat", "CmuxNextCloud", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -766,7 +767,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // and rules live in Rust; cx-8w027.2). No AppKit, no app imports.
         .target(
             name: "CmuxNextFocus",
-            dependencies: ["CCmuxAppFFI"],
+            // CmuxSafeConcurrency: Invariant.debugCheck, the package Sources' assert() (p10-stability-202).
+            dependencies: ["CCmuxAppFFI", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: daemonSwiftSettings
         ),
         .target(
@@ -1301,7 +1303,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // CmuxNextRemoteView; session state is the Rust client reducer.
         .target(
             name: "CmuxNextRemoteBrowser",
-            dependencies: ["CmuxNextCompat", "CmuxNextRemoteView", "CmuxNextBrowser", "CmuxNextDesign", "CmuxNextInput", "CmuxNextInputCore", "CCmuxAppFFI", "CmuxNextWakeups"],
+            // CmuxSafeConcurrency: Invariant.debugCheck, the package Sources' assert() (p10-stability-202).
+            dependencies: ["CmuxNextCompat", "CmuxNextRemoteView", "CmuxNextBrowser", "CmuxNextDesign", "CmuxNextInput", "CmuxNextInputCore", "CCmuxAppFFI", "CmuxNextWakeups",
+                           .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
                 .process("Resources"),
             ],
@@ -1456,7 +1460,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // typed ring trace points (Signposter+Trace.swift). Metrics: the key.frame and input.frame
             // histogram records of KeyFrameSignpost and InputFrameSignpost (p09-observability 054, 111).
             // SignpostsC: the key and stall signposts with no heap allocation (p09-observability 007).
-            dependencies: ["CmuxNextCompat", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignpostsC"],
+            // CmuxSafeConcurrency: Invariant.debugCheck, the package Sources' assert() (p10-stability-202).
+            dependencies: ["CmuxNextCompat", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignpostsC",
+                           .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: daemonSwiftSettings
         ),
         // os_signpost's C macros for the key and stall signposts: a stack buffer per emit, no heap allocation.
@@ -1561,7 +1567,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // keeps a copy of environ from ghostty_init). No dependencies.
         .target(
             name: "CmuxNextProcessEnvironment",
-            dependencies: ["CmuxNextCompat"],
+            // CmuxSafeConcurrency: Invariant.debugCheck, the package Sources' assert() (p10-stability-202).
+            dependencies: ["CmuxNextCompat", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: daemonSwiftSettings
         ),
         // Opt-in hang reports from NIGHTLY (plans/cmux-next/hang-reports-DESIGN.md):
@@ -1661,6 +1668,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextFeatures",
                 "CmuxNextWakeups",
                 .product(name: "Atomics", package: "swift-atomics"),
+                // Invariant.process: the nightly-assert variant's report of a Features debug check (p10-stability-202).
+                .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -1841,7 +1850,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextActions",
             // Wakeups: the main-thread task board, where an action run is published as a span so the
             // watchdog samples a run past its 10 ms budget (ActionBudgetMonitor).
-            dependencies: ["CmuxNextCompat", "CmuxNextSignposts", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics"],
+            // CmuxSafeConcurrency: Invariant.debugCheck, the package Sources' assert() (p10-stability-202).
+            dependencies: ["CmuxNextCompat", "CmuxNextSignposts", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics",
+                           .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
                 .process("AccountsActions.xcstrings"),
                 .process("ActionCatalog.xcstrings"),

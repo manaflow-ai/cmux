@@ -1,3 +1,4 @@
+public import class CmuxSafeConcurrency.Invariant
 import os
 import CmuxNextCompat
 
@@ -29,10 +30,13 @@ public final class ProcessEnvironmentGuard: Sendable {
     ///   - performsWrites: false runs no write body, so a test can drive the
     ///     real launch order without changing its own environment.
     ///   - onViolation: called on every write after ``freeze()``, after the
-    ///     one-time fault log. The default stops debug builds and does
-    ///     nothing in release builds.
+    ///     one-time fault log. The default stops debug builds, does
+    ///     nothing in release builds and reports once in the nightly-assert
+    ///     variant (`Invariant.debugCheck`).
     public init(performsWrites: Bool = true,
-                onViolation: @escaping @Sendable (String) -> Void = { message in assertionFailure(message) }) {
+                onViolation: @escaping @Sendable (String) -> Void = { message in
+                    Invariant.debugCheck(false, "process-environment-unchanged", message)
+                }) {
         self.performsWrites = performsWrites
         self.onViolation = onViolation
     }

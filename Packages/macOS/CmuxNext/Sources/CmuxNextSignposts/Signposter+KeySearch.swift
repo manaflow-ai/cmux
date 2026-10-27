@@ -1,4 +1,5 @@
 import CmuxNextTrace
+import class CmuxSafeConcurrency.Invariant
 import os
 
 // The `key.omnibar_suggest` and `key.palette_search` slices (p09-observability task 040, perf-hot `omnibar-key` and
@@ -33,7 +34,8 @@ nonisolated extension Signposter {
     ///   - searchPass: Which pass the slice times.
     /// - Returns: The state to pass to ``end(_:_:results:)``.
     public func begin(_ name: SignpostName, searchPass: KeySearchPass) -> SignpostInterval? {
-        assert(name == .keyOmnibarSuggest || name == .keyPaletteSearch, "\(name) is not a key search slice")
+        Invariant.debugCheck(name == .keyOmnibarSuggest || name == .keyPaletteSearch, "key-search-slice",
+                             "\(name) is not a key search slice")
         guard isEnabled else { return nil }
         let code = searchPass.rawValue
         return openInterval(name, arg0: code) {

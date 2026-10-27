@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextWakeups
+import class CmuxSafeConcurrency.Invariant
 
 /// A view's place in the visibility tree (plans/cmux-next/chrome-parity/p06-scheduler.md, section B,
 /// recipe R-hide), for a view whose `VisibleObservation`s should read only while it is on screen.
@@ -45,7 +46,8 @@ public import CmuxNextWakeups
         do {
             try node.attach(to: parent)
         } catch {
-            assertionFailure("ViewVisibility: \(parent.name) cannot hold \(node.name) (\(error))")
+            Invariant.debugCheck(false, "view-visibility-node-placed",
+                                 "ViewVisibility: \(parent.name) cannot hold \(node.name) (\(error))")
         }
     }
 }

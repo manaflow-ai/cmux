@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import class CmuxSafeConcurrency.Invariant
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
@@ -204,7 +205,8 @@ public final class DaemonEventSubscription: AsyncSequence, Sendable {
                     let ready = state.withLock { state -> Take in
                         let ready = state.take()
                         if case .empty = ready {
-                            assert(state.waiter == nil, "a DaemonEventSubscription has one consumer")
+                            Invariant.debugCheck(state.waiter == nil, "daemon-event-subscription-one-consumer",
+                                                 "a DaemonEventSubscription has one consumer")
                             state.waiter = continuation
                         }
                         return ready

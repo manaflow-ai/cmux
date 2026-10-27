@@ -4,6 +4,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.Invariant
 
 /// Cloud and account actions over the kept Cloud library (`CmuxNextCloud`):
 /// Stack sign-in, `/api/vm`, and each machine's daemon tree. A machine is
@@ -34,7 +35,7 @@ enum CloudHandlers {
         let bound = registry.bind(id, unavailable: reason, invoke: { [weak registry] invocation in
             do { try body(invocation) } catch { registry?.refuse(RefusalStrings.describe(error)) }
         })
-        assert(bound, "\(id) is not in the action catalog")
+        Invariant.debugCheck(bound, "cloud-action-in-catalog", "\(id) is not in the action catalog")
     }
 
     // MARK: Resolution

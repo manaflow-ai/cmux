@@ -66,7 +66,8 @@ one move pool per push with the new-file rule (move_pools).
   scripts/cmux-next/guardrails.py --base A --head B   # exactly what B adds over A
   scripts/cmux-next/guardrails.py --list
   scripts/cmux-next/guardrails.py --self-test        # the input-monitor, target-settings, safety-todo,
-                                                     # raw-continuation, trap-api and decode-trap cases
+                                                     # raw-continuation, trap-api, decode-trap and raw-assert
+                                                     # cases
 """
 from __future__ import annotations
 
@@ -2793,6 +2794,40 @@ TRAP_API_RULES = (
 )
 RULES += TRAP_API_RULES
 # ---------------------------------------------------------------- end of trap-api (p10-stability-092, 097, 098)
+
+
+# ---------------------------------------------------------------- raw-assert (p10-stability-202)
+# A package Sources file's debug check is Invariant.debugCheck (CmuxSafeConcurrency), Chrome's DCHECK: it traps in
+# Debug, and the nightly-assert variant (-DINVARIANT_REPORT, Chrome's DCHECK_IS_CONFIGURABLE in base/check.cc)
+# reports each failing site once per launch. A raw `assert()` / `assertionFailure()` is compiled out of that
+# variant too, so it checks nothing in the field. A push may not add one to a package Sources file: per changed
+# file it is a count ratchet (file_debt and resolve, as line_rule). Vendored code (a /Vendor/ path, compiled
+# unchanged) and a declaration (`func assert(`, CmuxSafeConcurrency's own) are outside. Local only, like every
+# guardrail. The block owns its lines from here to `RULES += RAW_ASSERT_RULES`.
+RAW_ASSERT = Matcher(re.compile(r"(?<![\w.])(?<!func )(?:Swift\.)?(?:assert|assertionFailure)\s*\("),
+                     re.compile(r"//\s*raw-assert-allow:\s*\S"))
+
+
+def raw_assert(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """The raw assert() / assertionFailure() calls the push adds to package Sources files outside /Vendor/."""
+    return resolve([file_debt(change, RAW_ASSERT) for change in changes
+                    if change.path.endswith(".swift") and "/Sources/" in change.path and "/Vendor/" not in change.path])
+
+
+RAW_ASSERT_RULES = (
+    Rule("raw-assert", "A raw `assert()` / `assertionFailure()` in a package Sources file",
+         "it is compiled out of every -O build, the nightly-assert variant included, so it never reports from the "
+         "field; Invariant.debugCheck traps in Debug as assert() does and reports once per site in that variant "
+         "(p10-stability-202, Chrome's DCHECK canary)",
+         "`Invariant.debugCheck(condition, \"kebab-id\", \"message\")` with `import class "
+         "CmuxSafeConcurrency.Invariant` (`public import` in @inlinable code or a public default argument); "
+         "`assertionFailure(m)` is `Invariant.debugCheck(false, \"kebab-id\", m)`",
+         "// raw-assert-allow: <why this check must stay out of the nightly-assert variant>",
+         raw_assert,
+         scope=("Packages/",)),
+)
+RULES += RAW_ASSERT_RULES
+# ---------------------------------------------------------------- end of raw-assert (p10-stability-202)
 
 
 # ---------------------------------------------------------------- decode-trap (p10-stability-093)
@@ -5770,6 +5805,39 @@ DECODE_TRAP_CASES = (
 )
 
 
+SELF_TEST_ASSERT_APP = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Check.swift"
+SELF_TEST_ASSERT_SHARED = "Packages/Shared/Linked/Sources/Linked/Check.swift"
+SELF_TEST_ASSERT_CHECKED = "func ready(_ x: Int) {\n    Invariant.debugCheck(x > 0, \"ready-positive\")\n}\n"
+SELF_TEST_ASSERT_OLD = "func old(_ y: Int) {\n    assert(y > 0, \"old\")\n}\n"
+# The base: an app file with a debug check, a Shared file with an old raw assert.
+SELF_TEST_ASSERT_BASE = {SELF_TEST_ASSERT_APP: SELF_TEST_ASSERT_CHECKED,
+                         SELF_TEST_ASSERT_SHARED: SELF_TEST_ASSERT_OLD}
+RAW_ASSERT_CASES = (
+    ("a new assert in an app file",
+     {SELF_TEST_ASSERT_APP: SELF_TEST_ASSERT_CHECKED + "func b(_ z: Int) {\n    assert(z > 0)\n}\n"}, True),
+    ("a new assertionFailure in a Shared package",
+     {SELF_TEST_ASSERT_SHARED: SELF_TEST_ASSERT_OLD + "func c() {\n    assertionFailure(\"no\")\n}\n"}, True),
+    ("a qualified Swift.assert",
+     {SELF_TEST_ASSERT_APP: SELF_TEST_ASSERT_CHECKED + "func d(_ z: Int) {\n    Swift.assert(z > 0)\n}\n"}, True),
+    ("an old assert with a change elsewhere in its file",
+     {SELF_TEST_ASSERT_SHARED: "// notes\n" + SELF_TEST_ASSERT_OLD}, False),
+    ("the old assert moved to a debug check",
+     {SELF_TEST_ASSERT_SHARED: SELF_TEST_ASSERT_OLD.replace('assert(y > 0, "old")',
+                                                         'Invariant.debugCheck(y > 0, "old-positive", "old")')}, False),
+    ("an assert in a test",
+     {"Packages/Shared/Linked/Tests/LinkedTests/CheckTests.swift": "func t() {\n    assert(true)\n}\n"}, False),
+    ("an assert in vendored code",
+     {"Packages/Shared/Lab/Sources/Lab/Vendor/up/V.swift": "func v(_ i: Int) {\n    assert(i > 0)\n}\n"}, False),
+    ("a declaration, a comment, a string and other names",
+     {SELF_TEST_ASSERT_APP: SELF_TEST_ASSERT_CHECKED
+      + "public func assert(_ c: @autoclosure () -> Bool) {}\n// assert(x) is compiled out\n"
+      + "let note = \"assertionFailure(x)\"\nfunc e() { XCTAssert(true); m.assert(1) }\n"}, False),
+    ("a reviewed escape",
+     {SELF_TEST_ASSERT_APP: SELF_TEST_ASSERT_CHECKED
+      + "func f(_ z: Int) {\n    // raw-assert-allow: fixture for the escape\n    assert(z > 0)\n}\n"}, False),
+)
+
+
 # (rule, base files, cases): each case is one commit over its suite's base.
 SELF_TEST_SUITES = (
     ("input-monitor", SELF_TEST_BASE, SELF_TEST_CASES),
@@ -5778,6 +5846,7 @@ SELF_TEST_SUITES = (
     ("raw-continuation", SELF_TEST_CONTINUATION_BASE, RAW_CONTINUATION_CASES),
     ("trap-api", SELF_TEST_TRAP_BASE, TRAP_API_CASES),
     ("decode-trap", SELF_TEST_DECODE_BASE, DECODE_TRAP_CASES),
+    ("raw-assert", SELF_TEST_ASSERT_BASE, RAW_ASSERT_CASES),
 )
 
 
@@ -5846,8 +5915,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--list", action="store_true", help="print the rules")
     parser.add_argument("--self-test", action="store_true",
-                        help="judge the input-monitor, target-settings, safety-todo, raw-continuation, trap-api and "
-                             "decode-trap rules' "
+                        help="judge the input-monitor, target-settings, safety-todo, raw-continuation, trap-api, "
+                             "decode-trap and raw-assert rules' "
                              "refuse and escape cases in a scratch repository")
     parser.add_argument("--list-perf-hot", nargs="*", metavar="PATH_ID",
                         help=f"print the `// perf-hot:` markers per path id of {BENCHES} as this hook resolves them "

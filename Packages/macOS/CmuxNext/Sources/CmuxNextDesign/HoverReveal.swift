@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.Invariant
 
 /// What decides whether a hover-revealed region shows its views.
 public nonisolated struct HoverRevealState: Hashable, Sendable {
@@ -242,7 +243,7 @@ public final class HoverReveal {
     }
 
     private static func conflict(_ message: String) {
-        if assertsOnConflict { assertionFailure("HoverReveal: \(message)") }
+        if assertsOnConflict { Invariant.debugCheck(false, "hover-reveal-no-conflict", "HoverReveal: \(message)") }
     }
 
     private struct Weak {

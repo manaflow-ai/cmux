@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-no-bench-hooks.sh [--expect] [--invariant-report] <app bundle>
+# check-no-bench-hooks.sh [--expect] [--invariant-report --channel nightly|nightly-next|dev] <app bundle>
 # A bench build (scripts/reload.sh --config bench: Release optimization, -DDEBUG -DCMUX_BENCH_HOOKS)
 # keeps the debug.* control commands in an optimized app for the fleet benches. It must never ship:
 # its main executable carries the marker CMUX_BENCH_HOOKS_BUILD (Sources/CmuxNextApp/BenchHooksMarker.swift,
@@ -12,35 +12,66 @@
 # one may contain the flags test public key (schemas/features/bench-test-signing-key.json).
 #
 # The nightly-assert variant (scripts/reload.sh --invariant-report: an -O build with -DINVARIANT_REPORT,
-# p10-stability-202, Chrome's DCHECK canary) reports debug checks and assert(); its main executable carries
+# p10-stability-202, Chrome's DCHECK canary) reports debug checks; its main executable carries
 # CMUX_INVARIANT_REPORT_BUILD (Invariant.reportBuildMarker in CmuxSafeConcurrency). Without --invariant-report
-# the check fails when that marker is there, so the release, RC and main nightly pipelines refuse it. With
-# --invariant-report (reload.sh --invariant-report, the sampled Nightly slice's build) it fails when the marker
-# is missing or when the app is a Release or RC bundle (com.cmuxterm.app, com.cmuxterm.app.rc).
+# the check fails when that marker is there, so the release, RC and main nightly pipelines refuse it.
+# --invariant-report needs --channel, the channel the app ships on, which decides (not the bundle id: a
+# pipeline's product is com.cmuxterm.app until nightly.yml's prepare_variant renames it): nightly (the sampled
+# Nightly slice), nightly-next or dev (a reload.sh tagged build) pass, rc and release fail. The bundle id must
+# then be the build product's (com.cmuxterm.app), the channel's own after the rename (com.cmuxterm.app.nightly,
+# com.cmuxterm.app.nightly.cmux-next), or for dev not a shipped one; com.cmuxterm.app.rc always fails. A
+# pipeline that ships the variant runs this check before prepare_variant and again on the renamed bundle.
 set -euo pipefail
+usage="usage: $0 [--expect] [--invariant-report --channel nightly|nightly-next|dev] <app bundle>"
 expect=0
 invariant_report=0
+channel=""
 while [[ $# -gt 1 ]]; do
   case "$1" in
     --expect) expect=1; shift ;;
     --invariant-report) invariant_report=1; shift ;;
+    --channel) channel="$2"; shift 2 ;;
     *) break ;;
   esac
 done
-[[ $# -eq 1 && -d "$1" ]] || { echo "usage: $0 [--expect] [--invariant-report] <app bundle>" >&2; exit 2; }
+[[ $# -eq 1 && -d "$1" ]] || { echo "$usage" >&2; exit 2; }
+case "$channel" in
+  "" | nightly | nightly-next | dev | rc | release) ;;
+  *) echo "error: unknown --channel $channel" >&2; echo "$usage" >&2; exit 2 ;;
+esac
+if (( invariant_report )) && [[ -z "$channel" ]]; then
+  echo "error: --invariant-report needs --channel (the channel the app ships on; the bundle id before nightly.yml's prepare_variant does not say)" >&2
+  exit 2
+fi
+if (( ! invariant_report )) && [[ -n "$channel" ]]; then
+  echo "error: --channel goes with --invariant-report" >&2
+  exit 2
+fi
 app="$1"
 exe_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist" 2>/dev/null || true)"
 exe="$app/Contents/MacOS/$exe_name"
 [[ -n "$exe_name" && -f "$exe" ]] || { echo "error: no main executable in $app" >&2; exit 2; }
 invariant_marker="CMUX_INVARIANT_REPORT""_BUILD"
 if (( invariant_report )); then
-  bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist" 2>/dev/null || true)"
-  case "$bundle_id" in
-    com.cmuxterm.app | com.cmuxterm.app.rc)
-      echo "error: $app ($bundle_id) is a Release or RC bundle; the nightly-assert variant (INVARIANT_REPORT) ships only to a sampled Nightly slice" >&2
+  case "$channel" in
+    rc | release)
+      echo "error: the nightly-assert variant (INVARIANT_REPORT) never ships on $channel; only the sampled Nightly slice ships it" >&2
       exit 1
       ;;
   esac
+  bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist" 2>/dev/null || true)"
+  case "$channel:$bundle_id" in
+    nightly:com.cmuxterm.app | nightly:com.cmuxterm.app.nightly) ;;
+    nightly-next:com.cmuxterm.app | nightly-next:com.cmuxterm.app.nightly.cmux-next) ;;
+    dev:com.cmuxterm.app.debug | dev:com.cmuxterm.app.debug.*) ;;
+    dev:com.cmuxterm.app | dev:com.cmuxterm.app.*) bundle_id_wrong=1 ;;
+    dev:?*) ;;
+    *) bundle_id_wrong=1 ;;
+  esac
+  if [[ -n "${bundle_id_wrong:-}" ]]; then
+    echo "error: $app ($bundle_id) is not a $channel bundle; the nightly-assert variant (INVARIANT_REPORT) never ships on another channel" >&2
+    exit 1
+  fi
   if ! LC_ALL=C grep -aq "$invariant_marker" "$exe"; then
     echo "error: $app has no $invariant_marker; the -DINVARIANT_REPORT flag did not reach CmuxSafeConcurrency" >&2
     exit 1

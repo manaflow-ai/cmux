@@ -1,3 +1,4 @@
+import class CmuxSafeConcurrency.Invariant
 public import Foundation
 
 /// An account as every caller sees it: an opaque per-user `handle`
@@ -14,7 +15,7 @@ public struct AccountLabel: Sendable, Equatable, Hashable, Codable, CustomString
     /// Only ``AccountLabeler`` makes handles. `display` is redacted again
     /// here, so no value of this type can hold an email.
     init(handle: String, display: String) {
-        assert(Self.isValidHandle(handle), "not an account handle")
+        Invariant.debugCheck(Self.isValidHandle(handle), "account-label-handle-valid", "not an account handle")
         self.handle = handle
         self.display = EmailRedaction.redactEmails(in: display)
     }

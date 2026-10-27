@@ -1,5 +1,6 @@
 import CmuxNextCompat
 public import CmuxNextTrace
+import class CmuxSafeConcurrency.Invariant
 
 /// Counters of the app side of the daemon wire: bytes and lines each way, inbound lines by kind,
 /// JSON decodes of wire lines, terminal output bytes the app copied, and connections and bridge
@@ -295,7 +296,8 @@ public final class DaemonWireStats: Sendable {
     /// ``wordCount``, which is at most ``stripeWords``.
     @inline(__always)
     private func slot(_ stripe: Int, _ index: Int) -> AtomicPointerSlot {
-        assert(stripe >= 0 && stripe < Self.stripeCount && index >= 0 && index < Self.stripeWords)
+        Invariant.debugCheck(stripe >= 0 && stripe < Self.stripeCount && index >= 0 && index < Self.stripeWords,
+                             "daemon-wire-stats-slot-in-range")
         // SAFETY: stripe * stripeWords + index is under stripeCount * stripeWords (the bounds above), so the
         // word is inside the allocation, which lives as long as `self`; it is 8-byte aligned (128-byte base).
         return unsafe AtomicPointerSlot(words + (stripe * Self.stripeWords + index))

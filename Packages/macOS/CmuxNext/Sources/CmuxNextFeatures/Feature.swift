@@ -1,4 +1,5 @@
 public import CmuxNextCompat
+import class CmuxSafeConcurrency.Invariant
 
 /// One declared feature: Chromium's `base::Feature` (base/feature_list.h).
 ///
@@ -233,9 +234,10 @@ public nonisolated struct FeatureRegistry: Sendable {
         var indexByName: [String: Int] = [:]
         indexByName.reserveCapacity(features.count)
         for (slot, feature) in features.enumerated() {
-            assert(feature.index == slot, "feature \(feature.name) declares slot \(feature.index), registered at \(slot)")
+            Invariant.debugCheck(feature.index == slot, "feature-slot-matches",
+                                 "feature \(feature.name) declares slot \(feature.index), registered at \(slot)")
             let previous = indexByName.updateValue(slot, forKey: feature.name)
-            assert(previous == nil, "feature \(feature.name) is declared twice")
+            Invariant.debugCheck(previous == nil, "feature-declared-once", "feature \(feature.name) is declared twice")
         }
         self.features = features
         self.indexByName = indexByName

@@ -1,3 +1,4 @@
+import class CmuxSafeConcurrency.Invariant
 import CoreFoundation
 import Darwin
 import Foundation
@@ -465,7 +466,8 @@ public final class MainThreadWatchdog: Sendable {
            Self.hangFailsAssertion(elapsedNanos: elapsed, mainThreadCPUNanos: mainThreadCPU(sinceBeat: beat),
                                    assertNanos: hangAssertNanos) {
             state.assertedBeat = beat
-            assertionFailure("main thread hang: busy over \(configuration.hangAssertThreshold ?? .zero); see debug.hangs and the crash report")
+            Invariant.debugCheck(false, "main-thread-not-hung",
+                                 "main thread hang: busy over \(configuration.hangAssertThreshold ?? .zero); see debug.hangs and the crash report")
         }
     }
 

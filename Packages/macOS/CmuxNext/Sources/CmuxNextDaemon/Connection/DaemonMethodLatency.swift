@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import class CmuxSafeConcurrency.Invariant
 
 /// The app's send-to-reply time per daemon method: one log-linear histogram per method, in
 /// microseconds, with the daemon's bucket edges (cmux-tui `diagnostics::LogLinearHistogram`: four
@@ -86,7 +87,7 @@ final class DaemonMethodLatency: Sendable {
     /// The word at `offset`; every caller passes an offset under ``wordCount``.
     @inline(__always)
     private func word(at offset: Int) -> AtomicPointerSlot {
-        assert(offset >= 0 && offset < wordCount)
+        Invariant.debugCheck(offset >= 0 && offset < wordCount, "daemon-method-latency-word-in-range")
         // SAFETY: offset is under wordCount (callers: a slot under methods.count, checked by record and read
         // by snapshot's own loop, times methodWords plus a word index under methodWords; reset's range), so the
         // word is inside the allocation, which lives as long as `self`; allocate aligns it for UInt64.

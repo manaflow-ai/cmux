@@ -1,4 +1,5 @@
 import CmuxNextTrace
+import class CmuxSafeConcurrency.Invariant
 import os
 
 // The trace ring side of ``Signposter``: how its records encode an interval's begin, end and numbers
@@ -58,7 +59,7 @@ extension Signposter {
         case nil: return
         case .thread: trace.endRecorded(name, arg0: arg0, arg1: arg1)
         case .async(let id):
-            assert(arg1 == 0, "\(name) is an async slice: its arg1 is the async id")
+            Invariant.debugCheck(arg1 == 0, "ring-async-slice-arg1", "\(name) is an async slice: its arg1 is the async id")
             trace.asyncEndRecorded(name, id: id, arg0: arg0)
         }
     }

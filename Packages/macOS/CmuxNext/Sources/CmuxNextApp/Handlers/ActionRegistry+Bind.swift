@@ -1,4 +1,5 @@
 import CmuxNextActions
+import class CmuxSafeConcurrency.Invariant
 
 extension ActionRegistry {
     /// Binds a throwing handler; a thrown error is reported with `refuse`.
@@ -60,7 +61,7 @@ extension ActionRegistry {
     func bindUnavailable(_ ids: [ActionID], _ failure: ActionFailure) {
         for id in ids {
             let bound = bindUnavailable(id, reason: failure.message)
-            assert(bound, "\(id) is not in the action catalog")
+            Invariant.debugCheck(bound, "action-in-catalog", "\(id) is not in the action catalog")
         }
     }
 }

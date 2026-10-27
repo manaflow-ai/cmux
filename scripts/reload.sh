@@ -758,12 +758,13 @@ Options:
                          records its config in Info.plist (CMUXBuildConfiguration).
   --invariant-report     The nightly-assert variant (Chrome's DCHECK canary): adds
                          -DINVARIANT_REPORT to an optimized config (release, bench,
-                         bench-checks, profile; refused with debug), so
-                         Invariant.debugCheck and assert() in files that import
-                         CmuxSafeConcurrency report each failing site once per launch
-                         instead of being compiled out. Only a sampled Nightly slice
-                         ships it: check-no-bench-hooks.sh refuses it in the release,
-                         RC and main nightly pipelines.
+                         bench-checks, profile; refused with debug), so every
+                         Invariant.debugCheck (the package Sources' assert())
+                         reports each failing site once per launch instead of being
+                         compiled out. Only a sampled Nightly slice ships it:
+                         check-no-bench-hooks.sh refuses it in the release, RC and
+                         main nightly pipelines, and with --invariant-report on the
+                         rc and release channels.
   --credentials-file <path>
                          Bake only the path to a current-user-owned 0600 auth file.
                          The credential values never enter argv, Info.plist, or
@@ -983,7 +984,7 @@ validate_app_bundle() {
   if [[ -x "$SCRIPT_DIR/cmux-next/check-no-bench-hooks.sh" ]]; then
     local check_args=()
     if [[ "$BENCH_HOOKS" -eq 1 ]]; then check_args+=(--expect); fi
-    if [[ "$INVARIANT_REPORT" -eq 1 ]]; then check_args+=(--invariant-report); fi
+    if [[ "$INVARIANT_REPORT" -eq 1 ]]; then check_args+=(--invariant-report --channel dev); fi
     "$SCRIPT_DIR/cmux-next/check-no-bench-hooks.sh" ${check_args[@]+"${check_args[@]}"} "$app_path" || return 1
   fi
   # Every version surface (app, bundled CLIs) says the cmux-next version. A dev
@@ -1767,9 +1768,9 @@ if [[ "$BENCH_HOOKS" -eq 1 ]]; then
 fi
 if [[ "$INVARIANT_REPORT" -eq 1 ]]; then
   # Every module of the build gets it (OTHER_SWIFT_FLAGS on the command line reaches the packages), so
-  # CmuxSafeConcurrency compiles its reporting debugCheck and its assert() shadows (Invariant.swift).
+  # CmuxSafeConcurrency compiles its reporting debugCheck (Invariant.swift).
   SWIFT_OTHER_FLAGS+=" -DINVARIANT_REPORT"
-  echo "==> nightly-assert variant: -DINVARIANT_REPORT (debug checks and assert() report once per site)"
+  echo "==> nightly-assert variant: -DINVARIANT_REPORT (debug checks report once per site)"
 fi
 if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1

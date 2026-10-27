@@ -1,5 +1,6 @@
 public import CmuxNextSettings
 import CmuxNextCompat
+import class CmuxSafeConcurrency.Invariant
 
 /// A duration histogram at Chrome's resolution: exponential buckets from 50 µs to 10 s, each edge at
 /// most 1.2 times the one below (Chromium's `UMA_HISTOGRAM_CUSTOM_TIMES` buckets,
@@ -61,7 +62,7 @@ public final class MainTurnHistogram: Sendable {
     /// maximum (bucketCount).
     @inline(__always)
     private func slot(_ index: Int) -> AtomicPointerSlot {
-        assert(index >= 0 && index < Self.wordCount)
+        Invariant.debugCheck(index >= 0 && index < Self.wordCount, "main-turn-histogram-slot-in-range")
         // SAFETY: index < wordCount (see above), so the word is inside the allocation, which lives as long as
         // `self`; allocate aligns it for UInt64.
         return unsafe AtomicPointerSlot(words + index)

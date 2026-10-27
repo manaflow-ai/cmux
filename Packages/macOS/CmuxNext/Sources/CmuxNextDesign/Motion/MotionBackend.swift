@@ -1,4 +1,5 @@
 public import CmuxNextDesignTokens
+import class CmuxSafeConcurrency.Invariant
 
 /// Where a motion kind's springs run in one change.
 public nonisolated enum MotionBackend: String, Sendable {
@@ -38,7 +39,8 @@ public struct MotionBackends<Host> {
     /// `variants`: the host's registration, each kind at most once. `renderServer`: whether the
     /// render server is selected; read in each change turn, and never with nothing registered.
     public init(_ variants: [any RenderServerMotion<Host>], renderServer: @escaping () -> Bool) {
-        assert(Set(variants.map(\.kind)).count == variants.count, "a render-server motion kind is registered twice")
+        Invariant.debugCheck(Set(variants.map(\.kind)).count == variants.count, "render-server-motion-kinds-unique",
+                             "a render-server motion kind is registered twice")
         self.variants = variants
         self.renderServer = renderServer
     }

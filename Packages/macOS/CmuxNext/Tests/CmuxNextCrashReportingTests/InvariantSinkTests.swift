@@ -156,10 +156,6 @@ private final class HeldLane: Sendable {
         #expect(debugCheck.tags?["invariant_tier"] == "debug_check")
         #expect(debugCheck.tags?["build_variant"] == "nightly-assert")
         #expect(debugCheck.fingerprint == ["invariant", "dcheck", "Module/File.swift:9"])
-        let assertion = InvariantSink.event(for: InvariantEvent(kind: .assertion, id: "assert",
-                                                                fileID: "Module/File.swift", line: 11),
-                                            addresses: [], nightlyAssert: true)
-        #expect(assertion.tags?["invariant_tier"] == "assert")
         let standard = InvariantSink.event(for: InvariantEvent(kind: .dumpWillBeCheck, id: "dump",
                                                                fileID: "Module/File.swift", line: 13),
                                            addresses: [], nightlyAssert: false)

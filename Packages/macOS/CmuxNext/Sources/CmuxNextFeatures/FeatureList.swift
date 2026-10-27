@@ -1,4 +1,5 @@
 import Atomics
+public import class CmuxSafeConcurrency.Invariant
 
 /// The resolved value of every feature: Chromium's `base::FeatureList`
 /// (base/feature_list.cc), built once by the composition root and immutable
@@ -47,13 +48,15 @@ public nonisolated final class FeatureList: Sendable {
     /// this list's registry.
     @inlinable
     public func isEnabled(_ feature: Feature) -> Bool {
-        assert(registry.contains(feature), "feature \(feature.name) is not declared in this list's registry")
+        Invariant.debugCheck(registry.contains(feature), "feature-in-list-registry",
+                             "feature \(feature.name) is not declared in this list's registry")
         return resolutions[feature.index].isEnabled
     }
 
     /// The value of `feature` and the input that decided it.
     public func resolution(of feature: Feature) -> Feature.Resolution {
-        assert(registry.contains(feature), "feature \(feature.name) is not declared in this list's registry")
+        Invariant.debugCheck(registry.contains(feature), "feature-resolution-in-list-registry",
+                             "feature \(feature.name) is not declared in this list's registry")
         return resolutions[feature.index]
     }
 
@@ -198,12 +201,12 @@ extension FeatureList {
         @discardableResult
         public func install(_ list: FeatureList) -> [Feature] {
             guard list.registry.features == defaults.registry.features else {
-                assertionFailure("the installed FeatureList has another registry")
+                Invariant.debugCheck(false, "installed-feature-list-registry", "the installed FeatureList has another registry")
                 return []
             }
             let winner = installed.storeIfNilThenLoad(list)
             guard winner === list else {
-                assertionFailure("a FeatureList is installed twice")
+                Invariant.debugCheck(false, "feature-list-installed-once", "a FeatureList is installed twice")
                 return []
             }
             // Pairs with the fence in isEnabled(_:): every flag a reader set

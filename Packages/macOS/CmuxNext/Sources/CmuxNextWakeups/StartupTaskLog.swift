@@ -1,5 +1,6 @@
 import CmuxNextCompat
 public import CmuxNextSignposts
+import class CmuxSafeConcurrency.Invariant
 
 /// What ``StartupScheduler`` ran at launch: one record per task posted before completion, and per
 /// post that broke a rule at any time (for `debug.startup` and the StartupTrace ring), a
@@ -82,7 +83,8 @@ public final class StartupTaskLog: Sendable {
     ///     event go (the app: ``Signposter/launch``; tests: nil, or one on their own `TraceRuntime`).
     ///   - uptimeNanos: The clock (`CLOCK_UPTIME_RAW` nanoseconds); tests inject one they move.
     public init(signposter: Signposter? = nil, uptimeNanos: @escaping @Sendable () -> UInt64 = WakeupLedger.systemUptime) {
-        assert(signposter.map { $0.category == .launch } ?? true, "startup signposts are in the launch category")
+        Invariant.debugCheck(signposter.map { $0.category == .launch } ?? true, "startup-signposts-launch-category",
+                             "startup signposts are in the launch category")
         self.uptimeNanos = uptimeNanos
         self.signposter = signposter
     }

@@ -1,4 +1,5 @@
 import CmuxNextTrace
+import class CmuxSafeConcurrency.Invariant
 import os
 
 /// One new tab's ``SignpostName/createTab`` interval, in every build (p09-observability task 030, PL-cef-tab):
@@ -155,7 +156,7 @@ extension CreateTabInterval {
         ///   - message: Public text for the log system (fixed names, never user content).
         ///   - arg0: The ring record's first number (the name's doc comment says what it holds).
         public func event(_ name: SignpostName, _ message: String, arg0: UInt64) {
-            assert(name.category == .create, "\(name) is not a create step")
+            Invariant.debugCheck(name.category == .create, "create-step-category", "\(name) is not a create step")
             signposter.signposter.emitEvent(name.staticName, id: OSSignpostID(signpostID), "\(message, privacy: .public)")
             if isTraced { signposter.trace.event(name, arg0: arg0, arg1: intentID) }
         }
@@ -167,7 +168,8 @@ extension Signposter {
     /// while the `create` category is on, the ring's async begin keyed by the intent id (the begin's
     /// `OSSignpostID`, as every async ring slice is keyed, ``asyncID(_:beginNanos:)``).
     func beginCreateTab(_ kind: CreateTabInterval.Kind) -> (interval: SignpostInterval, id: OSSignpostID, intentID: UInt64) {
-        assert(SignpostName.createTab.category == category, "create.tab is not in category \(category)")
+        Invariant.debugCheck(SignpostName.createTab.category == category, "create-tab-category",
+                             "create.tab is not in category \(category)")
         let id = signposter.makeSignpostID()
         let beginNanos = clock.nowNanos()
         let state = signposter.beginInterval(SignpostName.createTab.staticName, id: id, "kind=\(kind.name, privacy: .public)")

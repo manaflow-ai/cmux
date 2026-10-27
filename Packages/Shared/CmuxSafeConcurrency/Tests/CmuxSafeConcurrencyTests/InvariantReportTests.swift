@@ -61,22 +61,31 @@ private final class Evaluations: Sendable {
         #expect(log.recorded.isEmpty)
     }
 
-    /// The only test of this process that installs into ``Invariant/process``: `assert()` reports there.
-    @Test func assertInAFileThatImportsTheModuleReportsOncePerSite() {
+    @Test func aDebugCheckDoesNotEvaluateItsMessageInTheVariant() {
+        let invariant = Invariant(capacity: 8)
+        let log = ReportLog()
+        invariant.install(build: 10, sink: log)
+        let evaluations = Evaluations()
+        Invariant.debugCheck(false, "debug-message", "\(evaluations.holds(true))", in: invariant)
+        #expect(evaluations.value == 0, "a report carries the id and the site, not the message")
+        #expect(log.recorded.map(\.id.description) == ["debug-message"])
+    }
+
+    /// The only test of this process that installs into ``Invariant/process``: a debug check that names no
+    /// invariant (every package Sources call) reports there.
+    @Test func aDebugCheckWithNoInvariantReportsToTheProcessOncePerSite() {
         let log = ReportLog()
         #expect(Invariant.process.install(build: nil, sink: log))
         for _ in 0 ..< 3 {
-            assert(false, "nightly-assert reports this")
+            Invariant.debugCheck(false, "debug-process", "nightly-assert reports this")
         }
-        assertionFailure("and this")
-        #expect(log.recorded.count == 2, "one event per site per launch")
-        #expect(log.recorded.allSatisfy { $0.kind == .assertion })
-        #expect(log.recorded.first?.id.description == "assert")
-        #expect(log.recorded.last?.id.description == "assertionFailure")
+        #expect(log.recorded.count == 1, "one event per site per launch")
+        #expect(log.recorded.first?.kind == .debugCheck)
+        #expect(log.recorded.first?.id.description == "debug-process")
     }
 }
 #else
-/// Outside the nightly-assert variant, ``Invariant/debugCheck(_:_:in:fileID:line:)`` is `assert()`: it traps in a
+/// Outside the nightly-assert variant, ``Invariant/debugCheck(_:_:_:in:fileID:line:)`` is `assert()`: it traps in a
 /// Debug build and is compiled out of an -O build (p10-stability-202).
 @Suite struct InvariantReportTests {
     @Test func thisIsNotTheNightlyAssertVariant() {
@@ -104,10 +113,13 @@ private final class Evaluations: Sendable {
     #endif
 
     #if DEBUG && (os(macOS) || os(Linux))
-    @Test func aFailedDebugCheckStopsADebugBuild() async {
-        await #expect(processExitsWith: .failure) {
-            Invariant.debugCheck(false, "debug-traps")
+    @Test func aFailedDebugCheckStopsADebugBuildWithItsMessage() async throws {
+        let result = try await #require(processExitsWith: .failure, observing: [\.standardErrorContent]) {
+            Invariant.debugCheck(false, "debug-traps", "the assert message")
         }
+        let output = String(decoding: result.standardErrorContent, as: UTF8.self)
+        #expect(output.contains("invariant debug-traps failed at"))
+        #expect(output.contains(": the assert message"))
     }
     #endif
 }

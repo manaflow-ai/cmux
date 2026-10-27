@@ -40,14 +40,15 @@ final class MutexStorage<Value: ~Copyable>: @unchecked Sendable { // crash-allow
         #else
         let result = pthread_mutex_init(primitive, nil)
         #endif
-        assert(result == 0, "pthread_mutex_init failed with \(result)")
+        Invariant.debugCheck(result == 0, "pthread-mutex-init", "pthread_mutex_init failed with \(result)")
         #endif
     }
 
     deinit {
         #if !canImport(os)
         let result = pthread_mutex_destroy(primitive)
-        assert(result == 0, "pthread_mutex_destroy failed with \(result) (EBUSY: the lock is still held)")
+        Invariant.debugCheck(result == 0, "pthread-mutex-destroy",
+                             "pthread_mutex_destroy failed with \(result) (EBUSY: the lock is still held)")
         #endif
         primitive.deinitialize(count: 1)
         primitive.deallocate()
@@ -62,7 +63,8 @@ final class MutexStorage<Value: ~Copyable>: @unchecked Sendable { // crash-allow
         os_unfair_lock_lock(primitive) // concurrency-allow: see `primitive`
         #else
         let result = pthread_mutex_lock(primitive)
-        assert(result == 0, "pthread_mutex_lock failed with \(result) (EDEADLK: this thread already holds the lock)")
+        Invariant.debugCheck(result == 0, "pthread-mutex-lock",
+                             "pthread_mutex_lock failed with \(result) (EDEADLK: this thread already holds the lock)")
         #endif
     }
 
@@ -73,7 +75,8 @@ final class MutexStorage<Value: ~Copyable>: @unchecked Sendable { // crash-allow
         os_unfair_lock_trylock(primitive) // concurrency-allow: see `primitive`
         #else
         let result = pthread_mutex_trylock(primitive)
-        assert(result == 0 || result == EBUSY, "pthread_mutex_trylock failed with \(result)")
+        Invariant.debugCheck(result == 0 || result == EBUSY, "pthread-mutex-trylock",
+                             "pthread_mutex_trylock failed with \(result)")
         return result == 0
         #endif
     }
@@ -85,7 +88,8 @@ final class MutexStorage<Value: ~Copyable>: @unchecked Sendable { // crash-allow
         os_unfair_lock_unlock(primitive) // concurrency-allow: see `primitive`
         #else
         let result = pthread_mutex_unlock(primitive)
-        assert(result == 0, "pthread_mutex_unlock failed with \(result) (EPERM: this thread does not hold the lock)")
+        Invariant.debugCheck(result == 0, "pthread-mutex-unlock",
+                             "pthread_mutex_unlock failed with \(result) (EPERM: this thread does not hold the lock)")
         #endif
     }
 

@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import class CmuxSafeConcurrency.Invariant
 import Darwin
 public import Dispatch
 
@@ -132,7 +133,8 @@ public final class MainOwnerLedger: Sendable {
     ///   - startNanos: When it started.
     ///   - runNanos: Its own run time.
     func ended(_ workClass: MainWorkClass, owner: UInt32, post: MainTaskPost?, startNanos: UInt64, runNanos: UInt64) { // perf-hot: 0.1us main-task-ledger (every scheduled main-thread task)
-        assert(pthread_main_np() != 0, "MainOwnerLedger is written on the main thread only")
+        Invariant.debugCheck(pthread_main_np() != 0, "main-owner-ledger-on-main",
+                             "MainOwnerLedger is written on the main thread only")
         let end = tail.load(ordering: .relaxed)
         guard end - head.load(ordering: .acquiring) < capacity else {
             droppedCount.add(1, ordering: .relaxed)

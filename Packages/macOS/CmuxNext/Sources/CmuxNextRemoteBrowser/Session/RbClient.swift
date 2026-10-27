@@ -1,6 +1,7 @@
 import CCmuxRdFFI
 import CmuxNextCompat
 public import CmuxNextRemoteView
+import class CmuxSafeConcurrency.Invariant
 public import Foundation
 
 #if DEBUG || CMUX_BENCH_HOOKS
@@ -29,7 +30,7 @@ public nonisolated final class RbClient {
     public init?() {
         // The rb client C ABI exists from ABI 2 on; an older static library
         // would fail to link, so this only guards a mismatched header.
-        assert(RemoteRdCore.abiVersion >= 2, "CCmuxAppFFI predates the rb client ABI (needs ABI 2)")
+        Invariant.debugCheck(RemoteRdCore.abiVersion >= 2, "rb-client-abi-2", "CCmuxAppFFI predates the rb client ABI (needs ABI 2)")
         guard let handle = cmux_rb_client_new() else { return nil }
         self.handle = handle
     }

@@ -285,7 +285,7 @@ public final class DiagnosticLog: Sendable {
         detail: DiagnosticAppEventDetail
     ) {
         guard detail.supports(kind) else {
-            assertionFailure("Unsupported diagnostic detail for \(kind)")
+            Invariant.debugCheck(false, "diagnostic-detail-supported", "Unsupported diagnostic detail for \(kind)")
             return
         }
         recordAppEvent(

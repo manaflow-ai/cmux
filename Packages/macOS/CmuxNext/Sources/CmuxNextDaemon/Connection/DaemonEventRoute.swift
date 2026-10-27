@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import class CmuxSafeConcurrency.Invariant
 import Dispatch
 
 /// Where a ``DaemonConnection``'s events go: its `events` stream, or, once a consumer took them
@@ -175,7 +176,8 @@ final class DaemonEventRoute: Sendable {
             state.streamTaken = true
             return first
         }
-        assert(first, "DaemonConnection.events has one consumer; take another with subscribe(filter:limit:)")
+        Invariant.debugCheck(first, "daemon-events-one-consumer",
+                             "DaemonConnection.events has one consumer; take another with subscribe(filter:limit:)")
     }
 
     /// Makes `sink` the consumer of every later event (after the ones the stream holds).

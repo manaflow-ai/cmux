@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # check-no-bench-hooks.sh and the nightly-assert variant (p10-stability-202): an app whose main executable has
 # the INVARIANT_REPORT marker fails without --invariant-report (the release, RC and main nightly pipelines);
-# with it, the marker must be there and the bundle must not be Release or RC. macOS only (PlistBuddy).
+# with it, --channel decides: the marker must be there, rc and release fail, and the bundle id must be the build
+# product's (com.cmuxterm.app, before nightly.yml's prepare_variant renames it) or the channel's own. macOS only
+# (PlistBuddy).
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 CHECK="$ROOT_DIR/scripts/cmux-next/check-no-bench-hooks.sh"
@@ -43,22 +45,43 @@ fail() {
 
 app com.cmuxterm.app.nightly "plain"
 pass "a shipped app without the marker"
-fail "--invariant-report needs the marker" --invariant-report
+fail "--invariant-report needs the marker" --invariant-report --channel nightly
 
 app com.cmuxterm.app.nightly "$invariant_marker"
 fail "the main nightly refuses a nightly-assert app"
-pass "the sampled Nightly slice's build" --invariant-report
+pass "the sampled Nightly slice's renamed bundle" --invariant-report --channel nightly
+fail "a nightly bundle is not a nightly-next one" --invariant-report --channel nightly-next
 
+# The pipeline's build product, before prepare_variant sets the channel's bundle id.
 app com.cmuxterm.app "$invariant_marker"
 fail "Release refuses a nightly-assert app"
-fail "Release refuses --invariant-report" --invariant-report
+pass "the Nightly slice's build product before the rename" --invariant-report --channel nightly
+pass "the cmux NEXT slice's build product before the rename" --invariant-report --channel nightly-next
+fail "the RC channel refuses --invariant-report" --invariant-report --channel rc
+fail "the Release channel refuses --invariant-report" --invariant-report --channel release
+fail "a tagged build is never the Release bundle" --invariant-report --channel dev
 
 app com.cmuxterm.app.rc "$invariant_marker"
 fail "RC refuses a nightly-assert app"
-fail "RC refuses --invariant-report" --invariant-report
+fail "a renamed RC bundle fails on the nightly channel" --invariant-report --channel nightly
+fail "a renamed RC bundle fails on the rc channel" --invariant-report --channel rc
+
+app com.cmuxterm.app.nightly.cmux-next "$invariant_marker"
+pass "the cmux NEXT slice's renamed bundle" --invariant-report --channel nightly-next
 
 app com.cmuxterm.app.debug.nightly-assert "$bench_marker $invariant_marker"
-pass "a bench nightly-assert tagged build" --expect --invariant-report
+pass "a bench nightly-assert tagged build" --expect --invariant-report --channel dev
 fail "a bench build without --invariant-report" --expect
+fail "a tagged build is not a nightly bundle" --expect --invariant-report --channel nightly
+
+usage() {
+  local why="$1"; shift
+  local code=0
+  "$CHECK" "$@" "$tmp/app/cmux.app" >/dev/null 2>"$tmp/err" || code=$?
+  [[ $code -eq 2 ]] || { echo "FAIL: must be a usage error (got $code): $why" >&2; cat "$tmp/err" >&2; exit 1; }
+}
+usage "--invariant-report needs --channel" --expect --invariant-report
+usage "an unknown channel" --expect --invariant-report --channel beta
+usage "--channel without --invariant-report" --expect --channel nightly
 
 echo "check-no-bench-hooks invariant report: ok"

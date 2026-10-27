@@ -1,4 +1,5 @@
 import CmuxNextFocus
+import class CmuxSafeConcurrency.Invariant
 
 /// Keys typed into a page surface before its document can take them (spec
 /// app-screens.md section 3, R59): one surface's printable text, in order,
@@ -89,7 +90,7 @@ struct TypeAheadQueue: Equatable {
             var op: Op
         }
         let response = FocusReducer.call("focus_type_ahead", Request(queue: wire, op: op), as: Response.self)
-        assert(response != nil, "focus_type_ahead refused")
+        Invariant.debugCheck(response != nil, "focus-type-ahead-answers", "focus_type_ahead refused")
         return response
     }
 

@@ -2,6 +2,7 @@ public import AppKit
 import CmuxNextCompat
 public import CmuxNextDesignTokens
 public import CmuxNextWakeups
+import class CmuxSafeConcurrency.Invariant
 
 /// `StatusIndicatorLayer` in an NSView, for view-based hosts (sidebar rows,
 /// group headers, section items, Home, pane headers). Follows the shared
@@ -188,7 +189,8 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         do {
             try visibilityNode.attach(to: parent)
         } catch {
-            assertionFailure("StatusIndicatorView: \(parent.name) cannot hold the indicator's node (\(error))")
+            Invariant.debugCheck(false, "status-indicator-node-placed",
+                                 "StatusIndicatorView: \(parent.name) cannot hold the indicator's node (\(error))")
         }
     }
 }

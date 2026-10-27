@@ -1,6 +1,7 @@
 #if DEBUG
 public import AppKit
 public import CmuxNextCompat
+import class CmuxSafeConcurrency.Invariant
 
 /// Debug menu > Main-Thread Blocking (N): how many call sites blocked the main thread since launch
 /// (the main-thread blocking detector, plans/cmux-next/threading-model.md), one row per site with
@@ -47,7 +48,7 @@ public final class BlockingCallsMenu: NSObject, NSMenuDelegate {
     /// Adds the item at the end of `debugMenu` (after a separator) and becomes its delegate, which
     /// `debugMenu` must not have yet: the Debug menu is built by `MainMenu` with no delegate.
     public func attach(to debugMenu: NSMenu) {
-        assert(debugMenu.delegate == nil, "the Debug menu has another delegate")
+        Invariant.debugCheck(debugMenu.delegate == nil, "debug-menu-delegate-free", "the Debug menu has another delegate")
         debugMenu.addItem(.separator())
         debugMenu.addItem(item)
         debugMenu.delegate = self
