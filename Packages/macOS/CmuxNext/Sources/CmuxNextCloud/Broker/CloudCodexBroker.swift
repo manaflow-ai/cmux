@@ -566,24 +566,12 @@ public actor CloudCodexBrokerRegistry {
     }
 
     /// Stops a scoped holder before releasing it. Credentials remain on disk.
-    public struct Removal: Sendable {
-        public let attempted: Set<String>
-        public let failed: Set<String>
-        fileprivate init(attempted: Set<String>, failed: Set<String>) {
-            self.attempted = attempted
-            self.failed = failed
-        }
-    }
-
-    public func remove(scope: CloudCodexBrokerScope) async -> Removal {
-        guard let broker = brokers.removeValue(forKey: scope) ?? pendingCleanup[scope] else {
-            return Removal(attempted: [], failed: [])
-        }
+    public func remove(scope: CloudCodexBrokerScope) async -> Set<String> {
+        guard let broker = brokers.removeValue(forKey: scope) ?? pendingCleanup[scope] else { return [] }
         pendingCleanup[scope] = broker
-        let attempted = await broker.registeredMachineIDs()
         let failed = await broker.shutdown()
         if failed.isEmpty { pendingCleanup.removeValue(forKey: scope) }
-        return Removal(attempted: attempted, failed: failed)
+        return failed
     }
 }
 
