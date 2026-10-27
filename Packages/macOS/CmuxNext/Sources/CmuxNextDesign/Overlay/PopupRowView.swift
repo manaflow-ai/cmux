@@ -193,7 +193,7 @@ open class PopupRowView: NSView {
         if let tracking { removeTrackingArea(tracking) }
         tracking = nil
         guard isInteractive else { return }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeForHover, .inVisibleRect],
                                   owner: self)
         addTrackingArea(area)
         tracking = area

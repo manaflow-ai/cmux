@@ -40,11 +40,11 @@ public final class ChromeHover {
         didSet { if state != oldValue { refresh() } }
     }
 
-    /// - Parameter tracking: `.activeAlways` for window chrome (hover shows
-    ///   in a background window, as in the sidebar), `.activeInKeyWindow`
-    ///   for sheets and onboarding.
+    /// - Parameter tracking: `.activeForHover` for window chrome (hover shows
+    ///   in a background window of the active app, as in the sidebar),
+    ///   `.activeInKeyWindow` for sheets and onboarding.
     public init(_ view: NSView, outset: NSSize = .zero, cornerRadius: CGFloat = Metrics.itemCornerRadius, behindContent: Bool = false,
-                tracking: NSTrackingArea.Options = .activeAlways) {
+                tracking: NSTrackingArea.Options = .activeForHover) {
         self.view = view
         self.outset = behindContent ? .zero : outset
         trackingOptions = tracking

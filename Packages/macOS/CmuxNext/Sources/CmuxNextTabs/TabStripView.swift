@@ -454,7 +454,7 @@ public final class TabStripView: NSView {
         if let trackingArea { removeTrackingArea(trackingArea) }
         let area = NSTrackingArea(
             rect: .zero,
-            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeForHover, .inVisibleRect],
             owner: self,
             userInfo: nil
         )

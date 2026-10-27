@@ -103,12 +103,12 @@ public final class HoverReveal {
     /// The reveals that watch focus in a view (`watchFocus(in:)`), by view.
     private static var focusWatchers: [ObjectIdentifier: [WeakReveal]] = [:]
 
-    /// - Parameter tracking: `.activeAlways` for window chrome (hover shows
-    ///   in a background window too), `.activeInKeyWindow` for sheets.
+    /// - Parameter tracking: `.activeForHover` for window chrome (hover shows
+    ///   in a background window of the active app too), `.activeInKeyWindow` for sheets.
     /// - Parameter tracksPointer: False for a region that already tracks
     ///   the pointer itself (the tab strip) and reports it through
     ///   `setPointerInside`; focus and window tracking still apply.
-    public init(region: NSView, tracking: NSTrackingArea.Options = .activeAlways, tracksPointer: Bool = true) {
+    public init(region: NSView, tracking: NSTrackingArea.Options = .activeForHover, tracksPointer: Bool = true) {
         self.region = region
         probe = HoverRevealProbe(tracking: tracking, tracksPointer: tracksPointer)
         let key = ObjectIdentifier(region)

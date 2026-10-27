@@ -33,7 +33,7 @@ public final class GroupCustomSwatchView: NSView {
         setAccessibilityRole(.radioButton)
         setAccessibilityLabel(label)
         themedToolTip = label
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self, userInfo: nil))
     }
 
     @available(*, unavailable)

@@ -46,7 +46,7 @@ public final class SavedGroupsBarView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.toolbar)
         setAccessibilityLabel(Strings.axSavedBar)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self, userInfo: nil))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeForHover, .inVisibleRect], owner: self, userInfo: nil))
     }
 
     @available(*, unavailable)

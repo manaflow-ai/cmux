@@ -241,7 +241,7 @@ public final class PaneToolbarView: NSView {
             reveal.setPointerInside(false)
             return
         }
-        let area = NSTrackingArea(rect: rect, options: [.mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil)
+        let area = NSTrackingArea(rect: rect, options: [.mouseEnteredAndExited, .activeForHover], owner: self, userInfo: nil)
         host.addTrackingArea(area)
         corner = area
         cornerHost = host

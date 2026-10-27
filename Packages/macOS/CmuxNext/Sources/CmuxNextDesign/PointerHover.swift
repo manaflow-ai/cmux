@@ -37,7 +37,7 @@ public final class PointerHover: NSObject {
     private var area: NSTrackingArea?
 
     /// - Parameter requiresKeyWindow: false for window chrome (hover shows in
-    ///   a background window, as in the sidebar), true for sheets.
+    ///   a background window of the active app, as in the sidebar), true for sheets.
     public init(_ view: NSView, requiresKeyWindow: Bool = false, onChange: ((Bool) -> Void)? = nil) {
         self.view = view
         self.requiresKeyWindow = requiresKeyWindow
@@ -46,7 +46,7 @@ public final class PointerHover: NSObject {
         // `.inVisibleRect` follows the view's visible rect, so the area never
         // needs replacing; the view's own `updateTrackingAreas` leaves it alone
         // (it removes only areas it owns).
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, requiresKeyWindow ? .activeInKeyWindow : .activeAlways, .inVisibleRect],
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, requiresKeyWindow ? .activeInKeyWindow : .activeForHover, .inVisibleRect],
                                   owner: self)
         view.addTrackingArea(area)
         self.area = area

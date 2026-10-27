@@ -79,6 +79,7 @@ import CmuxNextWakeups
     private func installTracking() {
         removeTracking()
         guard let strip, let host = strip.window?.contentView else { return }
+        // wakeup-allow: bounded installed only until mouse closing mode ends; the leave must end it while cmux is inactive too (Chrome's MouseWatcher)
         let tracking = NSTrackingArea(rect: host.convert(area, from: strip), options: [.mouseEnteredAndExited, .activeAlways],
                                       owner: strip, userInfo: nil)
         host.addTrackingArea(tracking)
