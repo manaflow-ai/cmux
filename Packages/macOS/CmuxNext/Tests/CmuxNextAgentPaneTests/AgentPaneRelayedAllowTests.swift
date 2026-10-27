@@ -1,5 +1,6 @@
 import Foundation
 import CmuxNextCompat
+import CryptoKit
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -331,5 +332,155 @@ struct AgentPaneRelayedAllowTests {
         let decomposed = #"{"jsonrpc":"2.0","id":8,"method":"_acpmux/permission_respond","params":{"sessionId":"s","permissionId":"p1","optionId":"yes","answers":{"Which one?":"cafe\u0301"},"_meta":{"cmuxGesture":"\#(cafe)"}}}"#
         #expect(await transport.send(connection: id, frames: [decomposed]) == .gestureRequired)
         #expect(wire.sentCount(containing: "permission_respond") == 0, "a swapped answer went out")
+    }
+
+    /// A prompt of a peer of this Mac's daemon (a chat opened with `--host`): another daemon run
+    /// than the one this connection talks to, on the local WebSocket.
+    static func peerPending() -> String {
+        #"{"jsonrpc":"2.0","method":"_acpmux/permission_pending","params":{"sessionId":"s","permissionId":"p1","decisionNonce":"\#(nonce)","personInstance":"\#(instance)","peer":"far","via":"peer","request":{"toolCall":{"toolCallId":"call-1","kind":"execute"},"options":[{"optionId":"yes","kind":"allow_once"},{"optionId":"always","kind":"allow_always"},{"optionId":"no","kind":"reject_once"}]}}}"#
+    }
+
+    /// The local daemon's own run (not the peer's) and a peer's prompt, seen by the page.
+    static func peerChat(_ server: AcpmuxStandInServer, _ inbox: PageInbox, _ transport: AgentPaneTransport) async throws -> Int {
+        // A DEV build's memory key (the app configures it at launch).
+        AcpmuxMacApprover.shared.configure(keychainService: nil)
+        let local = String(repeating: "d", count: 32)
+        server.answer("initialize", with: #"{"protocolVersion":1,"_meta":{"acpmux":{"origin":"local","personInstance":"\#(local)"}}}"#)
+        transport.deliver = { event, done in inbox.deliver(event.frames); done() }
+        let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
+        _ = await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#])
+        _ = await inbox.frame(containing: "\"origin\":\"local\"")
+        transport.sessions.add("s")
+        server.push(Self.peerPending(), to: 0)
+        _ = await inbox.frame(containing: "permission_pending")
+        return id
+    }
+
+    /// Peer-route approvals: Allow on a peer's prompt goes out signed by this Mac's approver key,
+    /// over that prompt, its tool call and the option picked; the "Remote approvals are off"
+    /// notice no longer shows. An always-allow goes unsigned, and the notice shows.
+    @Test func anAllowForAPeersPromptCarriesThisMacsSignedOneTimeAllow() async throws {
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        let inbox = PageInbox()
+        let transport = AgentPaneTransport()
+        var remoteOff = false
+        transport.onRemoteApprovalsOff = { _ in remoteOff = true }
+        let id = try await Self.peerChat(server, inbox, transport)
+
+        transport.gestures.record(click: true)
+        let ticketIntent = try #require(Self.intent(option: "yes"))
+        let ticket = try #require(transport.reserveGesture(ticketIntent))
+        let before = UInt64(Date().timeIntervalSince1970)
+        #expect(await transport.send(connection: id, frames: [Self.allow(ticket: ticket)]) == nil)
+        _ = await inbox.frame(containing: "\"id\":7")
+        let sent = try #require(server.peers.first?.frames.first { $0.contains("permission_respond") })
+        let params = try #require((try JSONSerialization.jsonObject(with: Data(sent.utf8)) as? [String: Any])?["params"] as? [String: Any])
+        let acpmux = try #require((params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any], "an unsigned allow: \(sent)")
+        #expect(acpmux["decisionNonce"] as? String == Self.nonce)
+        #expect(acpmux["personDecision"] == nil)
+        let decision = try #require(acpmux["approverDecision"] as? [String: Any])
+        let identity = try #require(AcpmuxMacApprover.shared.identity)
+        #expect(decision["approver"] as? String == identity.id)
+        let expires = try #require((decision["expiresAt"] as? NSNumber)?.uint64Value)
+        #expect(expires > before && expires <= before + 300)
+        let key = try P256.Signing.PublicKey(x963Representation: AcpmuxMacApproverTests.bytes(identity.publicKey))
+        let signature = try P256.Signing.ECDSASignature(
+            rawRepresentation: AcpmuxMacApproverTests.bytes(try #require(decision["signature"] as? String)))
+        let message = AcpmuxMacApprover.message(instance: Self.instance, mac: identity.id, session: "s", permission: "p1",
+                                                toolCall: "call-1", option: "yes", nonce: Self.nonce, expiresAt: expires, answers: "")
+        #expect(key.isValidSignature(signature, for: message))
+        #expect(!remoteOff)
+
+        // An always-allow: no signature, and the notice.
+        transport.gestures.record(click: true)
+        let alwaysIntent = try #require(Self.intent(option: "always"))
+        let always = try #require(transport.reserveGesture(alwaysIntent))
+        let alwaysFrame = Self.allow(ticket: always).replacingOccurrences(of: #""id":7"#, with: #""id":8"#)
+            .replacingOccurrences(of: #""optionId":"yes""#, with: #""optionId":"always""#)
+        #expect(await transport.send(connection: id, frames: [alwaysFrame]) == nil)
+        _ = await inbox.frame(containing: "\"id\":8")
+        let sentAlways = try #require(server.peers.first?.frames.last { $0.contains("permission_respond") })
+        #expect(!sentAlways.contains("approverDecision"), "an always-allow was signed: \(sentAlways)")
+        #expect(remoteOff)
+    }
+
+    /// A peer that has not enrolled this Mac refuses the allow, naming itself (acpmux
+    /// `permission.person_required` with `data.peer`): the pane says approvals are off there.
+    @Test func aPeersRefusalShowsTheNotice() async throws {
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        let inbox = PageInbox()
+        let transport = AgentPaneTransport()
+        var remoteOff = false
+        transport.onRemoteApprovalsOff = { _ in remoteOff = true }
+        let id = try await Self.peerChat(server, inbox, transport)
+        server.setAnswers(false)
+
+        transport.gestures.record(click: true)
+        let ticketIntent = try #require(Self.intent(option: "yes"))
+        let ticket = try #require(transport.reserveGesture(ticketIntent))
+        #expect(await transport.send(connection: id, frames: [Self.allow(ticket: ticket)]) == nil)
+        #expect(await server.wait { $0.first?.frames.contains { $0.contains("permission_respond") } == true })
+        let sent = try #require(server.peers.first?.frames.first { $0.contains("permission_respond") })
+        let relayID = try #require((try JSONSerialization.jsonObject(with: Data(sent.utf8)) as? [String: Any])?["id"] as? Int)
+        #expect(!remoteOff, "the notice showed before the peer refused")
+        server.push(#"{"jsonrpc":"2.0","id":\#(relayID),"error":{"code":-32000,"message":"approve this on the Mac app","data":{"reason":"permission.person_required","peer":"far"}}}"#, to: 0)
+        _ = await inbox.frame(containing: "person_required")
+        #expect(remoteOff)
+    }
+
+    /// The card's Allow for a batch of a peer's tool prompts (`_acpmux/permission_group_respond`),
+    /// after the person's click: one signed one-time allow per pending member of the group the
+    /// page read, over that member's prompt, tool call and the option the group's Allow selects.
+    /// Allow for this chat (a lasting grant) goes unsigned, and the notice shows.
+    @Test func aGroupAllowForAPeersPromptsSignsEachMember() async throws {
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        let inbox = PageInbox()
+        let transport = AgentPaneTransport()
+        var remoteOff = false
+        transport.onRemoteApprovalsOff = { _ in remoteOff = true }
+        let id = try await Self.peerChat(server, inbox, transport)
+        let request = #"{"toolCall":{"toolCallId":"call-1","kind":"execute"},"options":[{"optionId":"yes","kind":"allow_once"},{"optionId":"always","kind":"allow_always"},{"optionId":"no","kind":"reject_once"}]}"#
+        server.answer("_acpmux/permission_groups", with: #"{"groups":[{"groupId":"g1","sessionId":"s","revision":2,"state":"pending","items":[{"permissionId":"p1","state":"pending","request":\#(request)}],"decisions":["allow_once","deny"]}],"peer":"far"}"#)
+        #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":9,"method":"_acpmux/permission_groups","params":{"sessionId":"s"}}"#]) == nil)
+        _ = await inbox.frame(containing: "\"id\":9")
+
+        transport.gestures.record(click: true)
+        let respond = #"{"jsonrpc":"2.0","id":10,"method":"_acpmux/permission_group_respond","params":{"sessionId":"s","groupId":"g1","revision":2,"decisionKey":"k1","decision":"allow_once"}}"#
+        let before = UInt64(Date().timeIntervalSince1970)
+        #expect(await transport.send(connection: id, frames: [respond]) == nil)
+        _ = await inbox.frame(containing: "\"id\":10")
+        let sent = try #require(server.peers.first?.frames.first { $0.contains("permission_group_respond") })
+        let params = try #require((try JSONSerialization.jsonObject(with: Data(sent.utf8)) as? [String: Any])?["params"] as? [String: Any])
+        let acpmux = try #require((params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any], "an unsigned group allow: \(sent)")
+        let member = try #require((acpmux["approverDecisions"] as? [String: Any])?["p1"] as? [String: Any])
+        #expect(member["decisionNonce"] as? String == Self.nonce)
+        let decision = try #require(member["approverDecision"] as? [String: Any])
+        let identity = try #require(AcpmuxMacApprover.shared.identity)
+        #expect(decision["approver"] as? String == identity.id)
+        let expires = try #require((decision["expiresAt"] as? NSNumber)?.uint64Value)
+        #expect(expires > before && expires <= before + 300)
+        let key = try P256.Signing.PublicKey(x963Representation: AcpmuxMacApproverTests.bytes(identity.publicKey))
+        let signature = try P256.Signing.ECDSASignature(
+            rawRepresentation: AcpmuxMacApproverTests.bytes(try #require(decision["signature"] as? String)))
+        let message = AcpmuxMacApprover.message(instance: Self.instance, mac: identity.id, session: "s", permission: "p1",
+                                                toolCall: "call-1", option: "yes", nonce: Self.nonce, expiresAt: expires, answers: "")
+        #expect(key.isValidSignature(signature, for: message))
+        #expect(!remoteOff)
+
+        // Allow for this chat: no signature, and the notice.
+        transport.gestures.record(click: true)
+        let chat = respond.replacingOccurrences(of: #""id":10"#, with: #""id":11"#)
+            .replacingOccurrences(of: #""allow_once""#, with: #""allow_chat""#).replacingOccurrences(of: "k1", with: "k2")
+        #expect(await transport.send(connection: id, frames: [chat]) == nil)
+        _ = await inbox.frame(containing: "\"id\":11")
+        let sentChat = try #require(server.peers.first?.frames.last { $0.contains("permission_group_respond") })
+        #expect(!sentChat.contains("approverDecisions"), "a lasting grant was signed: \(sentChat)")
+        #expect(remoteOff)
     }
 }
