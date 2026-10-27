@@ -75,6 +75,12 @@ struct PaletteSettingsScopeTests {
         Self.expectSettingsPage(palette, "the , prefix")
     }
 
+    /// The one-second budget on every keystroke is held only with `CMUX_PALETTE_KEYSTROKE_BENCH=1`,
+    /// the opt-in of the other benches (`CMUX_HOVER_RETARGET_BENCH`, `CMUX_PANE_BENCH`): in the full
+    /// parallel test run a starved host delays a keystroke's search by seconds with no wait in the
+    /// code (11.3 s for one keystroke of eight, the other seven under half a second).
+    static let holdsTheBudget = ProcessInfo.processInfo.environment["CMUX_PALETTE_KEYSTROKE_BENCH"] == "1"
+
     /// Each keystroke's rows are on screen once its search lands: nothing waits a fixed interval
     /// before ranking or showing them. The per-keystroke latency is printed as the timing probe.
     @Test func settingsRowsFollowEachKeystrokeWithoutAFixedWait() async {
@@ -103,7 +109,12 @@ struct PaletteSettingsScopeTests {
         }
         let millis = latencies.map { Double($0.components.attoseconds) / 1e15 + Double($0.components.seconds) * 1000 }
         print("palette settings keystroke-to-rows ms: \(millis.map { String(format: "%.1f", $0) }.joined(separator: " "))")
-        // A fixed debounce (the reported ~1.5 s) would show here; a rank on a test host takes milliseconds.
+        // A fixed wait before ranking or showing the rows (the reported ~1.5 s debounce) delays every
+        // keystroke, so even the fastest one would take over a second; a loaded host delays only some
+        // of them, and a rank on a test host takes milliseconds.
+        let fastest = latencies.min() ?? .zero
+        #expect(fastest < .seconds(1), "even the fastest keystroke took \(fastest) to show its rows: a fixed wait? ms: \(millis)")
+        guard Self.holdsTheBudget else { return print("palette settings keystroke budget not held: set CMUX_PALETTE_KEYSTROKE_BENCH=1") }
         #expect(latencies.allSatisfy { $0 < .seconds(1) }, "keystroke-to-rows ms: \(millis)")
     }
 }

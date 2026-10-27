@@ -79,6 +79,7 @@ impl Hub {
             pc.peer_token.clone(),
             self.peer_notices.clone(),
         );
+        peer.set_vm_boundary(pc.vm_boundary);
         let settled = peer.settled();
         // Under the rows lock (lock order: `remote_sessions`, then `peers`): a purge or notice of
         // the instance this replaces, checked current under it (`is_current`), is done before the
@@ -124,14 +125,20 @@ impl Hub {
         {
             return Err(RpcError::invalid_params(format!("refusing that ssh peer URL: {why}")));
         }
-        let pc = crate::config::PeerConfig { url: url.to_owned(), token, peer_token };
-        {
+        let pc = {
             let mut cfg = self.config.write().await;
+            // A re-add of the same machine keeps the VM boundary its config gave it
+            // (`vm_boundary.rs`); `peer_add` itself never turns it on.
+            let vm_boundary =
+                cfg.peers.get(name).is_some_and(|old| old.url == url && old.vm_boundary);
+            let pc =
+                crate::config::PeerConfig { url: url.to_owned(), token, peer_token, vm_boundary };
             cfg.peers.insert(name.to_owned(), pc.clone());
             if let Err(e) = cfg.save() {
                 tracing::warn!("save config failed: {e}");
             }
-        }
+            pc
+        };
         let mut settled = {
             // A saved peer takes the name over from a lease (`peer_lease.rs`),
             // under the lease lock so no notice of the leased peer finds the
@@ -154,6 +161,21 @@ impl Hub {
             let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
         }
         Ok(())
+    }
+
+    /// A config reload's saved peers' VM boundaries (`catalog_reload.rs`), onto the running
+    /// peers of those names; a leased peer keeps its lease's. Lock order: `peer_leases`, then
+    /// `peers`.
+    pub(super) fn reload_peer_boundaries(&self, boundaries: &[(String, bool)]) {
+        let leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
+        let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
+        for (name, on) in boundaries {
+            if !leases.contains_key(name)
+                && let Some(peer) = peers.get(name)
+            {
+                peer.set_vm_boundary(*on);
+            }
+        }
     }
 
     /// `_acpmux/peer_add {name, url, token?, peerToken?, wait?}`.
