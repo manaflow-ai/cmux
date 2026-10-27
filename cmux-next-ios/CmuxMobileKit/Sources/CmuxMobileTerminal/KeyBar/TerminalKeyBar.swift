@@ -49,6 +49,11 @@ struct TerminalKeyBar: View {
             }
         }
         .scrollIndicators(.hidden)
+        // Nothing is drawn under the pinned glass keys themselves (keys read
+        // through them and between them); the edge effect past them stays.
+        .mask(alignment: .leading) {
+            Rectangle().padding(.leading, pinnedWidth)
+        }
         // The pinned keys are the scroller's leading bar, as a toolbar is a
         // scroll view's: the keys scroll under them and iOS draws its own soft
         // scroll edge effect there (classic dissolves them at the compose key).
