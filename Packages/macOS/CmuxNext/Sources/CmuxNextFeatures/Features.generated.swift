@@ -976,6 +976,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// The app sends its memory pressure level, Memory Saver mode and debug override to the local daemon on each change (memory.limit), and the daemon passes it on to acpmux; each takes the worse of its own level and the app's, so the app's critical level makes them release their caches at once.
+    public static let memoryDaemonLimit = Feature(
+        index: 55,
+        name: "memoryDaemonLimit",
+        owner: "PL-memory",
+        description: "The app sends its memory pressure level, Memory Saver mode and debug override to the local daemon on each change (memory.limit), and the daemon passes it on to acpmux; each takes the worse of its own level and the app's, so the app's critical level makes them release their caches at once.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Hidden agent chat pages are held to a count sized from the Mac's memory: past it, the least recently shown idle chat hidden at least 10 seconds lets its page go at once and keeps its tab and session, as after the hibernation timeout; a chat whose agent works or waits on the person keeps its page.
     public static let memoryDiscardAgentPagesOverBudget = Feature(
         index: 56,
@@ -2480,6 +2497,7 @@ nonisolated extension Feature {
         .memoryAppCaches,
         .memoryBackdropImages,
         .memoryBrowserCaches,
+        .memoryDaemonLimit,
         .memoryDiscardAgentPagesOverBudget,
         .memoryDiscardConversations,
         .memoryDiscardCrashedSubframes,
@@ -2623,6 +2641,7 @@ nonisolated extension Feature {
         .memoryAppCaches,
         .memoryBackdropImages,
         .memoryBrowserCaches,
+        .memoryDaemonLimit,
         .memoryDiscardAgentPagesOverBudget,
         .memoryDiscardConversations,
         .memoryDiscardCrashedSubframes,
