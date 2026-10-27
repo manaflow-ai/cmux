@@ -4440,7 +4440,7 @@ export class AcpmuxDirectClient {
       ...(ended ? { endedAt: at } : {}),
     };
     items[index] = { ...item, tool: { ...tool, background } };
-    this.rows.set(row.id, { ...row, version: row.version + 1, items });
+    this.rows.set(row.id, { ...row, version: row.version + 1, items }, true);
     return true;
   }
 

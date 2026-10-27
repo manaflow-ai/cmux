@@ -6,6 +6,8 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
+import { activity, tool } from "../src/gallery/fixtures/acpmux";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -200,4 +202,11 @@ test("a checkpoint's root package.json is the root output, not a package's", asy
   for (const button of buttons) await act(async () => button.click());
   expect(opened).toEqual(["/Users/me/repo/package.json"]);
   expect(outputsOpened).toEqual(["~/repo/packages/x/package.json"]);
+});
+
+test("completed searches without URLs remain named Sources", () => {
+  const sources = sessionSummary([
+    activity([tool("Search retry policies", "fetch", "completed", { inputSummary: '{"query":"retry policies"}' })], 1),
+  ]).sources;
+  expect(sources).toEqual([{ label: "Search retry policies" }]);
 });

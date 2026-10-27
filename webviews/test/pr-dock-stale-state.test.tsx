@@ -325,6 +325,10 @@ test.each(["reply", "thought"])(
       await act(async () => render());
       expect(parse).toHaveBeenCalledTimes(1);
       expect(dom.window.document.querySelector(".acpmux-pr-dock__count")?.textContent).toBe("1 PR");
+      rows.set(reply.id, { ...reply, streaming: false });
+      await act(async () => render());
+      expect(parse).toHaveBeenCalledTimes(1);
+      expect(dom.window.document.querySelector(".acpmux-pr-dock__count")?.textContent).toBe("1 PR");
       await act(async () => render("acme/other"));
       expect(parse).toHaveBeenCalledTimes(2);
       expect(dom.window.document.querySelector(".acpmux-pr-dock__count")?.textContent).toBe("1 PR");

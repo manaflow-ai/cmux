@@ -5,6 +5,7 @@
 // goes to the background and `completed`, `failed` or `stopped` when it ends, often turns later.
 // Before, every end added its own "Background task finished: <raw command>" row under the call's.
 import { expect, test } from "bun:test";
+import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnViewFrom, WORKED } from "../src/agent-session/acpmux/conversation/turns";
@@ -122,6 +123,19 @@ const callOf = (rows: AcpmuxRow[], id: string) => {
   const row = rows.find((candidate) => candidate.items?.some((item) => item.tool?.id === id));
   return { row, tool: row?.items?.find((item) => item.tool?.id === id)?.tool };
 };
+
+test("background completion invalidates a mixed streaming activity summary", async () => {
+  const thought = update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "thinking" } });
+  const daemon = fakeDaemon(record([...backgroundCall("bg", "npm run dev"), ["in", "agent_thought_chunk", thought]]));
+  const { client, rows } = await connect(daemon);
+  try {
+    expect(sessionSummary(rows()).backgroundTasks[0]?.state).toBe("running");
+    daemon.push(record([task("bg", "npm run dev", "completed")], 4));
+    expect(sessionSummary(rows()).backgroundTasks[0]?.state).toBe("completed");
+  } finally {
+    client.close();
+  }
+});
 
 test("a background shell's states land on its call's row, a later turn's end included", async () => {
   const daemon = fakeDaemon(

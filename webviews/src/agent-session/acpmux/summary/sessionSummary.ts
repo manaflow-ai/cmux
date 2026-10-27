@@ -153,7 +153,6 @@ function sources(
       });
     }
   const knownPullRequests = new Map(pullRequests.map((pr) => [pr.url, pr]));
-  const knownIssues = new Map(pullRequests.filter((pr) => pr.kind === "issue").map((pr) => [pr.url, pr]));
   const addUrls = (text: string) => {
     for (const match of text.matchAll(/https?:\/\/[^\s"'<>)]+/g)) {
       const url = match[0]!.replace(/[.,;:!?]+$/, "");
@@ -172,7 +171,7 @@ function sources(
       if (GITHUB_ISSUE_URL.test(url)) {
         const issue = GITHUB_ISSUE_URL.exec(url)!;
         const canonical = `https://github.com/${issue[1]}/${issue[2]}/issues/${issue[3]}`;
-        const known = knownIssues.get(canonical);
+        const known = knownPullRequests.get(canonical);
         if (known?.changed || known?.opened) continue;
         add({ url, label: url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, ""), kind: "issue" });
       } else {
@@ -184,12 +183,12 @@ function sources(
     if (tool.status !== "completed" || (tool.exitCode ?? 0) !== 0) continue;
     const text = `${tool.title} ${tool.inputSummary ?? ""} ${tool.output ?? ""}`;
     addUrls(text);
+    if (tool.kind === "fetch" && !/https?:\/\//.test(text)) add({ label: tool.title });
     if (tool.kind === "read") for (const path of editedPaths(tool)) add({ label: path, kind: "file" });
     const call = mcpCall(tool);
     if (call) add({ label: mcpPlainName(call), kind: "mcp" });
   }
-  // Assistant URLs become Sources only once the reply settles; streaming tokens never enter this
-  // loop during progress because the producer summary revision stays unchanged.
+  // Producer revisions keep streamed replies out of this settled scan.
   for (const row of rows) if (row.kind === "assistant" && !row.streaming) addUrls(row.text ?? "");
   return [...seen.values()];
 }
