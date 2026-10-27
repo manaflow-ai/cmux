@@ -223,19 +223,44 @@ class RouteTest(unittest.TestCase):
         self.assertIn("a/none: no switch and no base/head", output)
         self.assertIn("a/same: base and head are one commit", output)
 
-    def test_bad_inputs_exit_2(self) -> None:
-        code, _, output = self.run_route([finding("a/b", switch="missing")])
-        self.assertEqual(code, 2)
-        self.assertIn("no registry file", output)
-        code, _, output = self.run_route([finding("a/b", base="nope", head="HEAD")])
-        self.assertEqual(code, 2)
-        self.assertIn("nope: not a commit", output)
+    def test_bad_line_target_is_unrouted_and_the_rest_still_route(self) -> None:
+        """An unknown SHA or switch on one line is that line's failure: the queue is rewritten, exit 1."""
+        head = self.commit(["scripts/cmux-next/oracle/x.py"])
+        out = self.root / "route.jsonl"
+        out.write_text(json.dumps({"stale": 1}) + "\n")
+        items = [finding("a/ok", base=self.base, head=head), finding("a/bad-sha", base="deadbeef", head="HEAD"),
+                 finding("a/bad-switch", switch="missing"), finding("a/bad-sha-again", base="deadbeef", head="HEAD")]
+        code, lines, output = self.run_route(items)
+        self.assertEqual(code, 1, output)
+        self.assertEqual([line["case"] for line in lines], ["a/ok"])
+        self.assertNotIn("stale", out.read_text())
+        self.assertIn("a/bad-sha: deadbeef: not a commit", output)
+        self.assertIn("a/bad-sha-again: deadbeef: not a commit", output)
+        self.assertIn("a/bad-switch: switch missing: no registry file", output)
+
+    def test_bad_input_file_exits_2_and_removes_the_old_queue(self) -> None:
+        out = self.root / "route.jsonl"
         doc = self.root / "divergence.json"
         doc.write_text(json.dumps({"schema": "oracle-divergence-v1", "divergences": []}, indent=1))
-        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as err:
-            code = route.main([str(doc), "--out", str(self.root / "r.jsonl"), "--repo", str(self.repo)])
-        self.assertEqual(code, 2)
-        self.assertIn("run `oracle.py confirm`", err.getvalue())
+        bad_json = self.root / "bad.jsonl"
+        bad_json.write_text(json.dumps(finding("a/b")) + "\n{not json\n")
+        good = self.root / "good.jsonl"
+        good.write_text(json.dumps(finding("a/b", switch="intents")) + "\n")
+        empty_owners = self.root / "OWNERS.md"
+        empty_owners.write_text("# no table\n")
+        cases = [([doc], "run `oracle.py confirm`"), ([bad_json], "bad.jsonl:2: not JSON"),
+                 ([self.root / "absent.jsonl"], "absent.jsonl"),
+                 ([good, "--owners", self.root / "none.md"], "none.md"),
+                 ([good, "--owners", empty_owners], "no owner rows")]
+        for args, message in cases:
+            with self.subTest(message=message):
+                args = [str(arg) for arg in args]
+                out.write_text(json.dumps({"stale": 1}) + "\n")
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as err:
+                    code = route.main([*args, "--out", str(out), "--repo", str(self.repo)])
+                self.assertEqual(code, 2, err.getvalue())
+                self.assertIn(message, err.getvalue())
+                self.assertFalse(out.exists())
 
     def test_empty_input_writes_an_empty_queue(self) -> None:
         out = self.root / "route.jsonl"

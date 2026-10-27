@@ -7,8 +7,10 @@ Stdlib only, Python 3.9+, safe under `python3 -I`. `oracle.py route ARGS` runs t
 Usage:
     route.py [CONFIRMED.jsonl ...] [--out FILE] [--switch NAME | --base REF --head REF]
              [--owners FILE] [--registry DIR] [--repo DIR] [--json]
-    exit 0: every confirmed divergence routed (none is fine); 1: a confirmed divergence had no
-    switch or change to map; 2: bad input (a missing or malformed file, an unknown switch, a bad ref)
+    exit 0: every confirmed divergence routed (none is fine); 1: a confirmed divergence could not be mapped
+    (no switch or change, an unknown switch, a ref not in the checkout, a failed diff), the other lines
+    are still routed; 2: a bad input file (an unreadable or malformed input, a missing or empty OWNERS.md),
+    and --out is removed so no older queue stays
 
 Input (default /tmp/oracle/confirmed.jsonl, written by `oracle.py confirm`, task p15-oracle-184): one
 JSON object per line, a diff.py finding (`journey`, `step`, `checkpoint`, `pointer`, `a`, `b`, `replay`,
@@ -66,7 +68,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
@@ -85,7 +87,11 @@ EXIT_OK, EXIT_UNROUTED, EXIT_BAD_INPUT = 0, 1, 2
 
 
 class InputError(Exception):
-    """A missing or malformed input file, an unknown switch or a ref git cannot read: exit 2."""
+    """A missing or malformed input file or owners table: the whole run fails, exit 2."""
+
+
+class Unroutable(Exception):
+    """One line's target cannot be mapped (no change, an unknown switch, a bad ref): that line only, exit 1."""
 
 
 @dataclass(frozen=True)
@@ -226,16 +232,16 @@ def target_of(item: Dict[str, Any], default: Target) -> Target:
 
 def switch_entry(roots: Roots, name: str) -> Dict[str, Any]:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name):
-        raise InputError(f"switch {name!r} is not a registry file name")
+        raise Unroutable(f"switch {name!r} is not a registry file name")
     path = roots.registry / f"{name}.json"
     try:
         entry = json.loads(path.read_text(encoding="utf-8"))
     except OSError as error:
-        raise InputError(f"switch {name}: no registry file {path} ({error.strerror or error})") from error
+        raise Unroutable(f"switch {name}: no registry file {path} ({error.strerror or error})") from error
     except ValueError as error:
-        raise InputError(f"switch {name}: {path} is not JSON ({error})") from error
+        raise Unroutable(f"switch {name}: {path} is not JSON ({error})") from error
     if not isinstance(entry, dict):
-        raise InputError(f"switch {name}: {path} is not a JSON object")
+        raise Unroutable(f"switch {name}: {path} is not a JSON object")
     return entry
 
 
@@ -252,7 +258,7 @@ def resolve(roots: Roots, ref: str) -> str:
     proc = subprocess.run(["git", "-C", str(roots.repo), "rev-parse", "--verify", "--quiet", "--end-of-options",
                            f"{ref}^{{commit}}"], check=False, stdout=subprocess.PIPE, text=True)
     if proc.returncode != 0:
-        raise InputError(f"{ref}: not a commit in {roots.repo}")
+        raise Unroutable(f"{ref}: not a commit in {roots.repo}")
     return proc.stdout.strip()
 
 
@@ -260,7 +266,7 @@ def changed_files(roots: Roots, base: str, head: str) -> List[str]:
     proc = subprocess.run(["git", "-C", str(roots.repo), "diff", "--name-only", "--no-renames", "-z", base, head, "--"],
                           check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if proc.returncode != 0:
-        raise InputError(f"git diff {base} {head}: {proc.stderr.strip()}")
+        raise Unroutable(f"git diff {base} {head}: {proc.stderr.strip()}")
     return sorted(p for p in proc.stdout.split("\0") if p)
 
 
@@ -292,13 +298,19 @@ class Router:
         self.rows = owner_rows(text, guardrails)
         if not self.rows:
             raise InputError(f"{roots.owners}: no owner rows (Area | Paths | Owner | Read first)")
-        self.cache: Dict[Target, Mapping] = {}
+        self.cache: Dict[Target, Union[Mapping, Unroutable]] = {}
 
     def map(self, target: Target) -> Mapping:
-        """The mapping of TARGET; ValueError when it names nothing to map (no switch, no change)."""
+        """The mapping of TARGET; Unroutable when it cannot be mapped. Each target, or its failure, is found once."""
         if target not in self.cache:
-            self.cache[target] = self._map(target)
-        return self.cache[target]
+            try:
+                self.cache[target] = self._map(target)
+            except Unroutable as error:
+                self.cache[target] = error
+        found = self.cache[target]
+        if isinstance(found, Unroutable):
+            raise found
+        return found
 
     def _map(self, target: Target) -> Mapping:
         if target.switch:
@@ -312,19 +324,19 @@ class Router:
                                switch_owner=switch_owner, plan=plan)
         if bool(target.base) != bool(target.head):
             given, missing = ("base", "head") if target.base else ("head", "base")
-            raise ValueError(f"names a {given} commit but no {missing}: half a commit pair to map")
+            raise Unroutable(f"names a {given} commit but no {missing}: half a commit pair to map")
         if not target.base:
-            raise ValueError("no switch and no base/head commits to map")
+            raise Unroutable("no switch and no base/head commits to map")
         base, head = resolve(self.roots, target.base), resolve(self.roots, target.head)
         if base == head:
-            raise ValueError(f"base and head are one commit ({base}): no change to map")
+            raise Unroutable(f"base and head are one commit ({base}): no change to map")
         return self._owned("changed-files", changed_files(self.roots, base, head), fallback=None,
                            fallback_source=None, program=None, base=base, head=head)
 
     def _owned(self, mapped_from: str, files: List[str], *, fallback: Optional[str], fallback_source: Optional[str],
                program: Optional[str], **extra: Any) -> Mapping:
         if not files:
-            raise ValueError(f"{mapped_from}: no files to map")
+            raise Unroutable(f"{mapped_from}: no files to map")
         grouped = group_by_owner(files, self.rows, self.guardrails)
         owners = tuple((row, tuple(hit)) for row, hit in grouped)
         if owners:
@@ -442,7 +454,7 @@ def route(items: Sequence[Tuple[str, Dict[str, Any]]], router: Router, default: 
         target = target_of(item, default)
         try:
             mapping = router.map(target)
-        except ValueError as error:
+        except Unroutable as error:
             result.unrouted.append((where, f"{item['journey']}: {error}"))
             continue
         line = routed_line(item, mapping, target)
@@ -496,6 +508,7 @@ def main(argv: Optional[List[str]] = None, roots: Optional[Roots] = None) -> int
         result = route(items, Router(roots, load_guardrails()), Target(args.switch, args.base, args.head))
         write_jsonl(result.routed, args.out)
     except InputError as error:
+        args.out.unlink(missing_ok=True)  # a failed run leaves no queue, never the previous run's
         print(f"route: {error}", file=sys.stderr)
         return EXIT_BAD_INPUT
     if args.json:
