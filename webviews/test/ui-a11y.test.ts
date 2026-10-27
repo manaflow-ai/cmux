@@ -410,6 +410,14 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
           const page = await open(browser, `case=markdown${dir}`);
           await page.waitForFunction(() => (window as unknown as { __ready?: boolean }).__ready === true);
           expect(await axe(page, "markdown", log)).toEqual([]);
+          const editButton = page.getByRole("button", { name: md["edit.button"] });
+          await expect(editButton).toBeVisible();
+          await editButton.click();
+          await untilResult(page, "mode: source");
+          await expect(page.locator(".md-source")).toBeVisible();
+          await page.getByRole("button", { name: md["mode.rich"] }).click();
+          await untilResult(page, "mode: rich");
+          await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
           await page.keyboard.press("Tab");
           await untilFocus(
             page,
