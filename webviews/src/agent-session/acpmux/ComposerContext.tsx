@@ -14,6 +14,14 @@ import {
 } from "./EnvironmentPicker";
 import { machineColor } from "./machineColor";
 import {
+  isCloudMachineRow,
+  refreshCloudMachines,
+  runCloudMachine,
+  useCloudMachines,
+  withCloudMachines,
+  type CloudMachine,
+} from "./cloudMachines";
+import {
   environmentReady,
   environmentSections,
   knownMachines,
@@ -60,7 +68,7 @@ type Location = {
   section?: string;
   disabled?: boolean;
 };
-type Computer = Location & { kind: EnvironmentKind; connected?: boolean; state?: string };
+type Computer = Location & { kind: EnvironmentKind; connected?: boolean; state?: string; cloudMachine?: CloudMachine };
 const NO_PEER_KINDS: Record<string, "ssh" | "cloud"> = {};
 const NO_PEER_CONNECTED: Record<string, boolean> = {};
 const NO_PEER_STATES: Record<string, string> = {};
@@ -93,9 +101,11 @@ export function ComposerContext({
   onOffload,
   offloads = NO_OFFLOADS,
   saved,
-  onRefreshMachines,
+  onRefreshMachines: onRefreshPeers,
   folderNote,
   onComputer,
+  cloudMachines,
+  onCloudMachine = (machine) => void runCloudMachine(machine),
 }: {
   summary?: Summary;
   sessions?: Session[];
@@ -148,14 +158,36 @@ export function ComposerContext({
   /// A new chat's machine was picked (`local` for this Mac) where no folder of it is known; with a
   /// known folder the pick is `onProject(folder, peer)`.
   onComputer?(computer: string): void;
+  /// The account's Cloud machines (cloudMachines.ts); by default the app's list, read again as the
+  /// machine list opens. Only a new chat lists them.
+  cloudMachines?: readonly CloudMachine[];
+  /// A pick of one acpmux does not list: it resumes (paused) or opens; by default through the app.
+  onCloudMachine?(machine: CloudMachine): void;
 }) {
   const pickerEnabled = environments || started;
+  const newChat = !started && onProject !== undefined;
+  const accountMachines = useCloudMachines();
+  const shownMachines = cloudMachines ?? accountMachines;
   // Every machine acpmux lists (`_acpmux/status` peers) and every host its chats ran on, with each
-  // one's transport and state, in both the environment picker and the plain Computer menu.
-  const computers = useMemo(
-    () => availableComputers(summary, sessions, peers, peerKinds, localName, peerConnected, peerStates),
-    [summary, sessions, peers, peerKinds, peerConnected, peerStates, localName],
-  );
+  // one's transport and state, in both the environment picker and the plain Computer menu; for a
+  // new chat, then the account's Cloud machines acpmux does not list (a paused one, say).
+  const computers = useMemo(() => {
+    const listed = availableComputers(summary, sessions, peers, peerKinds, localName, peerConnected, peerStates);
+    if (!newChat) return listed;
+    const detail = t(CONTEXT_LABELS.cloud);
+    return withCloudMachines(listed, shownMachines, peers, computerId(summary)).map((row) =>
+      isCloudMachineRow(row) ? { ...row, detail } : row,
+    );
+  }, [summary, sessions, peers, peerKinds, peerConnected, peerStates, localName, newChat, shownMachines]);
+  // The list opened, and every few seconds while it is open: acpmux's peers and, for a new chat,
+  // the app's Cloud machines are read again.
+  const onRefreshMachines =
+    onRefreshPeers || (newChat && !cloudMachines)
+      ? () => {
+          onRefreshPeers?.();
+          if (newChat && !cloudMachines) void refreshCloudMachines();
+        }
+      : undefined;
   // The plain Computer menu lists them in the picker's sections and order (environments.ts), one
   // line each; a machine a chat cannot start on yet says its state on a second line.
   const menuComputers = useMemo(() => {
@@ -165,7 +197,10 @@ export function ComposerContext({
       return {
         ...computer,
         section: t(SECTION_LABELS[sections.get(computer.id) ?? "fleet"]),
-        ...(ready ? {} : { disabled: true, detail: environmentStateLabel(computer) }),
+        // An account Cloud machine acpmux does not list says what a pick does, and is a pick.
+        ...(ready
+          ? {}
+          : { ...(isCloudMachineRow(computer) ? {} : { disabled: true }), detail: environmentStateLabel(computer) }),
       };
     });
   }, [computers]);
@@ -239,7 +274,14 @@ export function ComposerContext({
           });
         }
       : undefined;
+  // An account Cloud machine acpmux does not list runs its machine action: no chat starts on it here.
+  const pickCloudMachine = (id: string) => {
+    const machine = computers.find((computer) => computer.id === id)?.cloudMachine;
+    if (machine && !readOnly) onCloudMachine(machine);
+    return machine !== undefined;
+  };
   const pickComputer = (id: string) => {
+    if (pickCloudMachine(id)) return;
     if (!readOnly && id !== selectedComputer) {
       setSelectedComputer(id);
       const folder = availableFolders(summary, sessions, id)[0]?.id;
@@ -255,6 +297,7 @@ export function ComposerContext({
   const savedRows = environmentsShown && !readOnly ? saved : undefined;
   const savedPick = savedRows?.environments.find((environment) => environment.id === savedRows.current);
   const pickEnvironment = (id: string) => {
+    if (pickCloudMachine(id)) return;
     if (savedRows?.current !== undefined) savedRows.onClear();
     pickComputer(id);
   };
