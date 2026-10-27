@@ -137,8 +137,10 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          # A failed read fails this run: a successful run with no publication
+          # would read as handled to the dispatcher, which would not retry it.
           jobs="$(gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID/jobs?filter=latest&per_page=100" \
-            --jq '.jobs[] | select(.conclusion == "success") | .name' || true)"
+            --jq '.jobs[] | select(.conclusion == "success") | .name')"
           # A push run's DEV app is its landing compile's, and only that job's.
           producers="$SOURCE_APP_PRODUCER_JOBS"
           [[ "$SOURCE_EVENT" != push ]] || producers="$SOURCE_LANDING_PRODUCER_JOB"

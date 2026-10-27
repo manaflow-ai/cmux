@@ -138,7 +138,10 @@ HARNESS = r"""
 const fixture = JSON.parse(require('fs').readFileSync(process.argv[2], 'utf8'));
 const calls = [];
 const github = { rest: {
-  git: { getRef: async () => ({ data: { object: { sha: fixture.tip } } }) },
+  git: {
+    getRef: async () => ({ data: { object: { sha: fixture.tip } } }),
+    getCommit: async () => ({ data: { committer: { date: fixture.tipDate } } }),
+  },
   actions: {
     listWorkflowRuns: async ({ workflow_id, event }) => ({ data: { workflow_runs:
       workflow_id !== 'cmux-next.yml' ? fixture.publishRuns
@@ -170,8 +173,9 @@ def app_job(conclusion):
             {"name": "cmux-next path routing", "conclusion": "success"}]
 
 
-def run(source_runs, jobs, publish_runs=(), push_runs=()):
-    fixture = {"tip": TIP, "sourceRuns": list(source_runs), "publishRuns": list(publish_runs), "pushRuns": list(push_runs),
+def run(source_runs, jobs, publish_runs=(), push_runs=(), tip_age_s=3600):
+    tip_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=tip_age_s)
+    fixture = {"tip": TIP, "tipDate": tip_date.strftime("%Y-%m-%dT%H:%M:%SZ"), "sourceRuns": list(source_runs), "publishRuns": list(publish_runs), "pushRuns": list(push_runs),
                "jobs": {str(k): v for k, v in jobs.items()}}
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / "fixture.json").write_text(json.dumps(fixture))
@@ -280,6 +284,19 @@ check(built(calls) == [], f"a push run seconds old that has not listed its place
 calls = run([], {36: [{"name": "cmux-next path routing", "status": "completed", "conclusion": "success"}]},
             push_runs=[push_run(36, age_s=10 * 60)])
 check(built(calls) == [TIP], f"a push run with no landing compile leaves the tip to a DEV build, got {calls}")
+# GitHub has not listed the push run of a tip that landed seconds ago: its landing
+# compile takes it. An older tip with no push run (a path-filtered push) is built.
+calls = run([], {}, tip_age_s=20)
+check(built(calls) == [], f"a tip seconds old with no push run listed yet waits for its landing compile, got {calls}")
+calls = run([], {}, tip_age_s=10 * 60)
+check(built(calls) == [TIP], f"a tip minutes old with no push run gets a DEV build, got {calls}")
+# The tip's own DEV run built its app but a later job failed: its app is published,
+# and the tip is not compiled again on every tick.
+calls = run([dev_run(37, TIP, "failure")], {37: app_job("success")})
+check(published(calls) == ["37"] and built(calls) == [],
+      f"a tip whose DEV run built its app is covered even when another job failed, got {calls}")
+check(re.search(r"select\(\.conclusion == \"success\"\) \| \.name' \|\| true", publish_text) is None,
+      "a failed source-job read must fail the publisher run, not succeed with nothing published")
 
 # No finished run has an app: nothing is published.
 calls = run([dev_run(7, "7" * 40, "failure"), dev_run(6, "6" * 40, "failure")],

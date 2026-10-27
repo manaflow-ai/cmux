@@ -155,7 +155,11 @@ jobs:
               (['queued', 'requested', 'waiting', 'pending', 'in_progress'].includes(run.status) ||
                (run.status === 'completed' && run.conclusion === 'success'))
             );
-            if (activeOrSucceeded) {
+            // A finished run of this tip whose app compile passed covers it too,
+            // whatever its other jobs did: its app went to the publisher above.
+            // With no spacing, rebuilding it would compile the tip every tick.
+            const builtTip = finishedDev && finishedDev.head_sha === sha && isDevRun(finishedDev);
+            if (activeOrSucceeded || builtTip) {
               core.notice(`Dev-daily source run already covers feat-cmux-next ${sha}`);
               return;
             }
@@ -221,6 +225,16 @@ jobs:
               }
               if (compiled || pending) {
                 core.notice(`The landing compile of push run ${push.id} covers feat-cmux-next ${sha}`);
+                return;
+              }
+            }
+            // A push kicks this dispatcher within seconds, sometimes before
+            // GitHub lists the push's own run. A tip landed under three minutes
+            // ago with no push run yet waits for the next push, handoff or tick.
+            if (!pushes.workflow_runs.some((run) => run.head_sha === sha)) {
+              const { data: commit } = await api.rest.git.getCommit({ owner, repo, commit_sha: sha });
+              if (Date.now() - Date.parse(commit.committer.date) < 3 * 60 * 1000) {
+                core.notice(`feat-cmux-next ${sha} has no push run yet; its landing compile takes it`);
                 return;
               }
             }
