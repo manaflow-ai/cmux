@@ -94,7 +94,13 @@ public struct RenderSpring {
     /// key path does not animate (``animates(_:in:)``) shows its value in one frame.
     public func animateGroup(_ moves: [Move], in view: NSView?, completion: Completion? = nil) {
         let shown = Motion.canAnimate(in: view)
-        let styles = moves.map { style(for: $0.keyPath, shown: shown) }
+        Self.run(moves, styles: moves.map { style(for: $0.keyPath, shown: shown) }, trace: "render.\(token.rawValue)", completion: completion)
+    }
+
+    /// Runs each move in its `style`, from one begin time, in one transaction, with one landing
+    /// (``Completion``). The caller's gate decided the styles: ``animateGroup(_:in:completion:)``, or a
+    /// fade token's view move (`MotionGate.animate(_:in:frame:alpha:completion:)`).
+    static func run(_ moves: [Move], styles: [Style], trace: String, completion: Completion?) {
         let landing = Landing(completion)
         var superseded: [Landing] = []
         for (move, style) in zip(moves, styles) {
@@ -105,9 +111,8 @@ public struct RenderSpring {
         }
         let animated = zip(moves, styles).first { $0.1 != .snap }?.0
         if MotionTrace.isEnabled, let animated {
-            landing.trace("render.\(token.rawValue)", id: ObjectIdentifier(animated.layer))
+            landing.trace(trace, id: ObjectIdentifier(animated.layer))
         }
-        let spring = parameters
         let now = CACurrentMediaTime()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -123,14 +128,17 @@ public struct RenderSpring {
             let offset = move.offsetFromModel()
             move.writeTarget()
             let begin = move.layer.convertTime(now, from: nil)
-            if case .crossfade(let duration) = style {
+            switch style {
+            case .snap:
+                break
+            case .timed(let duration):
                 if let offset, offset.extent > 0 {
                     Self.addFade(from: offset.value, on: move.layer, keyPath: move.keyPath, duration: duration, begin: begin, zero: move.zero)
                 }
-                continue
-            }
-            for part in Self.parts(offset: offset, velocity: move.velocity, progressVelocity: move.progressVelocity, omega: spring.omega) {
-                Self.add(part, on: move.layer, keyPath: move.keyPath, spring: spring, begin: begin, zero: move.zero)
+            case .spring(let spring):
+                for part in Self.parts(offset: offset, velocity: move.velocity, progressVelocity: move.progressVelocity, omega: spring.omega) {
+                    Self.add(part, on: move.layer, keyPath: move.keyPath, spring: spring, begin: begin, zero: move.zero)
+                }
             }
         }
         CATransaction.commit()
@@ -147,10 +155,11 @@ public struct RenderSpring {
     enum Style: Equatable {
         /// In one frame.
         case snap
-        /// An additive spring.
-        case spring
-        /// An additive fade of this many seconds (a fade key path while movement is off).
-        case crossfade(CFTimeInterval)
+        /// An additive spring with these parameters.
+        case spring(SpringParameters)
+        /// An additive change of this many seconds on the fade curve: a fade key path while
+        /// movement is off, or any key path a fade token moves (`MotionGate.animate(_:in:frame:alpha:completion:)`).
+        case timed(CFTimeInterval)
     }
 
     /// Opacity is a fade in the motion policy (`animatesFades`, a crossfade under Reduce
@@ -161,10 +170,10 @@ public struct RenderSpring {
 
     func style(for keyPath: String, shown: Bool) -> Style {
         guard shown else { return .snap }
-        if gate.animatesMovement { return .spring }
+        if gate.animatesMovement { return .spring(parameters) }
         guard Self.isFade(keyPath), gate.animatesFades else { return .snap }
         let crossfade = gate.duration(.crossfade)
-        return crossfade > 0 ? .crossfade(crossfade) : .snap
+        return crossfade > 0 ? .timed(crossfade) : .snap
     }
 
     /// Removes the springs `RenderSpring` added on `keyPath`, on its components and on the
