@@ -104,6 +104,16 @@
         "repo": {
           "$ref": "#/$defs/slug",
           "description": "Build the git repository tests/oracle/fixtures/git/<repo>.json under $CASE_ROOT/repos/ before the first step (make_repo.py build_for_case, which needs HOME under the case root): fixed author and committer dates, a bare origin under the case root as its only remote. The case requires git_repo."
+        },
+        "stateRoot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["writtenBy", "openedBy"],
+          "description": "A store upgrade or rollback case (suite upgrades, scripts/cmux-next/oracle/gen_upgrades.py, p15-oracle-208). writtenBy: a cmux-tui tag, whose state root tests/oracle/fixtures/state-roots/<tag>.tar.gz is unpacked as the case's state before the first step (the case starts with no daemon), or head, whose daemon runs the steps before the first restart on a fresh root. openedBy: the build every restart step starts on that root. The case requires state_root.",
+          "properties": {
+            "writtenBy": {"$ref": "#/$defs/stateRootBuild"},
+            "openedBy": {"$ref": "#/$defs/stateRootBuild"}
+          }
         }
       }
     },
@@ -113,7 +123,7 @@
       "minItems": 1,
       "uniqueItems": true,
       "items": {"$ref": "#/$defs/capability"},
-      "description": "Capabilities the product must offer. Steps imply some of them (see allOf): resource.call needs resource_api, action.run actions, key keys, mcp mcp, tui.key tui, kill and restart restart, a kill of a Chromium process chromium; fixture.repo needs git_repo (the driver builds the repository). cli needs none: every product ships the cmux CLI."
+      "description": "Capabilities the product must offer. Steps imply some of them (see allOf): resource.call needs resource_api, action.run actions, key keys, mcp mcp, tui.key tui, kill and restart restart, a kill of a Chromium process chromium; fixture.repo needs git_repo (the driver builds the repository); fixture.stateRoot needs state_root (two builds on one root: gen_upgrades.py run). cli needs none: every product ships the cmux CLI."
     },
     "switches": {
       "type": "array",
@@ -168,6 +178,11 @@
       "then": {"properties": {"requires": {"contains": {"const": "git_repo"}}}}
     },
     {
+      "$comment": "fixture.stateRoot runs two builds on one state root; only gen_upgrades.py run has state_root, so no product driver runs the case.",
+      "if": {"required": ["fixture"], "properties": {"fixture": {"required": ["stateRoot"]}}},
+      "then": {"properties": {"requires": {"contains": {"const": "state_root"}}}}
+    },
+    {
       "$comment": "advance_clock moves the daemon's virtual clock; a fixed or real clock cannot be advanced.",
       "if": {
         "required": ["steps"],
@@ -184,7 +199,12 @@
   ],
   "$defs": {
     "slug": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"},
-    "capability": {"enum": ["resource_api", "actions", "keys", "gui", "chromium", "restart", "mcp", "tui", "git_repo"]},
+    "capability": {"enum": ["resource_api", "actions", "keys", "gui", "chromium", "restart", "mcp", "tui", "git_repo", "state_root"]},
+    "stateRootBuild": {
+      "type": "string",
+      "pattern": "^(head|cmux-tui-v[0-9]+\\.[0-9]+\\.[0-9]+)$",
+      "description": "head (the build under test) or a cmux-tui release tag."
+    },
     "crashKind": {
       "enum": ["renderer", "gpu", "browser", "utility", "daemon", "holder"],
       "description": "The kinds of the crashes facet (snapshot-v1): the child processes whose exits I17 observes. The app is the observer, so a kill step cannot target it; restart the app instead."
@@ -281,7 +301,7 @@
     },
     "keystroke": {
       "type": "string",
-      "pattern": "^((cmd|ctrl|opt|alt|shift|fn)\\+)*([a-z0-9]|[-=\\[\\];',./`\\\\]|plus|f[1-9]|f1[0-9]|return|escape|tab|space|backspace|delete|left|right|up|down|home|end|pageup|pagedown)$"
+      "pattern": "^((cmd|ctrl|opt|alt|shift|fn)\\+)*([a-z0-9]|[-=\\[\\];:',./`\\\\]|plus|f[1-9]|f1[0-9]|return|escape|tab|space|backspace|delete|left|right|up|down|home|end|pageup|pagedown)$"
     },
     "keyArgs": {
       "type": "object",

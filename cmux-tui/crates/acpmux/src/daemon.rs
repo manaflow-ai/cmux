@@ -104,6 +104,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // daemon must not die when its launcher or a client goes away mid-write:
     // a closed pipe is an ordinary write error here.
     #[cfg(unix)]
+    // SAFETY: SIG_IGN is a valid disposition for SIGPIPE; no handler runs.
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_IGN);
     }
@@ -111,6 +112,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // must not hold the readiness pipe open.
     #[cfg(unix)]
     if let Some(fd) = opts.ready_fd.filter(|fd| *fd > 2) {
+        // SAFETY: fcntl takes no pointers; `fd` is the launcher's readiness
+        // descriptor (above stdio), and only its close-on-exec flag changes.
         unsafe {
             libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
         }
@@ -243,7 +246,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         Some((listen, token)) => match crate::server::bind_ws(listen).await {
             Ok(l) => Some((l, token.clone())),
             Err(e) if explicit_listen => {
-                let _ = std::fs::remove_file(socket_path());
+                let _ = tokio::fs::remove_file(socket_path()).await;
                 return Err(e.context(format!(
                     "the WebSocket listener {listen} (--listen) is taken; free the port or choose another"
                 )));
@@ -258,7 +261,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                         Some((l, token.clone()))
                     }
                     Err(e) => {
-                        let _ = std::fs::remove_file(socket_path());
+                        let _ = tokio::fs::remove_file(socket_path()).await;
                         return Err(e.context("no free loopback port for the WebSocket listener"));
                     }
                 }
@@ -528,7 +531,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     tracing::info!("shutting down");
     hub.stop_idle_reaper();
     // New clients get "connection refused" instead of a dying daemon.
-    let _ = std::fs::remove_file(socket_path());
+    let _ = tokio::fs::remove_file(socket_path()).await;
     if let Some(t) = ws_task {
         t.abort();
     }
@@ -544,9 +547,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     // After the agents: their model streams go through the router.
     let _ = tokio::task::spawn_blocking(move || release_router(kept == 0)).await;
-    let _ = std::fs::remove_file(home().join("daemon.pid"));
+    let _ = tokio::fs::remove_file(home().join("daemon.pid")).await;
     for file in [local_app_file, peer_file].into_iter().flatten() {
-        let _ = std::fs::remove_file(file);
+        let _ = tokio::fs::remove_file(file).await;
     }
     tracing::info!("stopped");
     Ok(())
@@ -1068,6 +1071,9 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
+        // SAFETY: the hook runs in the forked child before exec and calls only setsid
+        // and fcntl, both async-signal-safe, on the copied descriptor numbers; it
+        // allocates nothing and takes no lock.
         unsafe {
             cmd.pre_exec(move || {
                 // New session so the daemon outlives the terminal; keep the

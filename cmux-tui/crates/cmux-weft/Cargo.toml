@@ -29,6 +29,7 @@ cmux-stability = ["cmux-blocking/cmux-stability"]
 [dependencies]
 cmux-blocking.workspace = true
 cmux-panic-log.workspace = true
+cmux-threads.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 base64.workspace = true
@@ -52,3 +53,4 @@ zeroize.workspace = true
 
 [dev-dependencies]
 proptest = { version = "1", default-features = false, features = ["std"] }
+tempfile = "3"

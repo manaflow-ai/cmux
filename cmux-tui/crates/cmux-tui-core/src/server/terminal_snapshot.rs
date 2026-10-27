@@ -67,13 +67,14 @@ use base64::Engine as _;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::attach_streams::{StreamEndReason, checked_view_stream};
 use super::render_messages::snapshot_frames::SnapshotEvent;
 use super::terminal_io_wire::{AttachSurfaceParams, SnapshotRequestParams, wire_usize};
 use super::{
     AttachWorkerCommit, MarkedClientAttach, MessageWriter, OutboundStream,
     commit_client_attach_and_start_worker, detach_committed_attach, get_surface,
-    mark_client_attached, require_pty, rollback_failed_attach, spawn_attach_notification_stream,
-    terminal_colors_json,
+    handle_attach_send_error, mark_client_attached, report_attach_overflow, require_pty,
+    rollback_failed_attach, spawn_attach_notification_stream, terminal_colors_json,
 };
 use crate::stream_interrupt::StreamInterrupt;
 use crate::surface::snapshot_attach::{
@@ -208,12 +209,24 @@ impl SnapshotViewers {
         }
     }
 
-    fn gates(&self, client: u64, surface: SurfaceId) -> Vec<SnapshotRequestGate> {
+    /// The request gates of `client`'s viewers of `surface`: every one, or
+    /// only the one on attach stream `stream`.
+    fn gates(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        stream: Option<u64>,
+    ) -> Vec<SnapshotRequestGate> {
         self.viewers
             .lock()
             .recover_poison()
             .get(&(client, surface))
-            .map(|list| list.iter().map(|viewer| viewer.gate.clone()).collect())
+            .map(|list| {
+                list.iter()
+                    .filter(|viewer| stream.is_none_or(|stream| viewer.stream == stream))
+                    .map(|viewer| viewer.gate.clone())
+                    .collect()
+            })
             .unwrap_or_default()
     }
 }
@@ -251,6 +264,7 @@ fn validate_request(params: &SnapshotRequestParams) -> anyhow::Result<()> {
 pub(crate) fn handle_request(
     mux: &Arc<Mux>,
     client: u64,
+    writer: &MessageWriter,
     params: SnapshotRequestParams,
 ) -> anyhow::Result<Value> {
     validate_request(&params)?;
@@ -264,7 +278,12 @@ pub(crate) fn handle_request(
     {
         anyhow::bail!("unsupported_version");
     }
-    let gates = mux.control_clients.snapshot_viewers.gates(client, params.surface);
+    // A request that names its stream asks that view only.
+    let stream = params
+        .stream
+        .map(|stream| checked_view_stream(mux, client, writer, params.surface, stream))
+        .transpose()?;
+    let gates = mux.control_clients.snapshot_viewers.gates(client, params.surface, stream);
     if gates.is_empty() {
         anyhow::bail!("not_attached");
     }
@@ -738,6 +757,7 @@ impl SnapshotWorker {
             self.outbound_stream.id,
         );
         detach_committed_attach(&self.mux, self.client, self.surface_id, self.outbound_stream.id);
+        self.writer.end_client_stream(&self.outbound_stream, StreamEndReason::Detached);
     }
 }
 
@@ -745,7 +765,7 @@ impl SnapshotAttachParams {
     /// The byte attach of a snapshot viewer. Mirrors the replay attach in
     /// `server.rs`: mark the client attached, register the queue under the
     /// terminal lock, send the first READY snapshot before the reply, then
-    /// start the worker.
+    /// start the worker. The view's items go on `outbound_stream`.
     pub(crate) fn attach(
         &self,
         mux: &Arc<Mux>,
@@ -753,10 +773,10 @@ impl SnapshotAttachParams {
         surface: Arc<Surface>,
         writer: &MessageWriter,
         initial_size: Option<(u16, u16)>,
+        outbound_stream: OutboundStream,
     ) -> anyhow::Result<Value> {
         let surface_id = surface.id;
         let lifecycle = AttachLifecycle::default();
-        let outbound_stream = writer.start_stream(&attach_overflow_json(surface_id))?;
         attach(
             mux,
             client,
@@ -885,34 +905,6 @@ fn attach(
         },
     )?;
     Ok(super::attach_response(mux, surface_id, client, lease))
-}
-
-pub(super) fn report_attach_overflow(
-    writer: &MessageWriter,
-    surface_id: SurfaceId,
-    lifecycle: &AttachLifecycle,
-    outbound_stream: &OutboundStream,
-) {
-    if lifecycle.claim_overflow_report() {
-        let _ = writer.send_terminal(&attach_overflow_json(surface_id), outbound_stream);
-    }
-}
-
-pub(super) fn handle_attach_send_error(lifecycle: &AttachLifecycle, error: &std::io::Error) {
-    if error.kind() == std::io::ErrorKind::WouldBlock {
-        lifecycle.mark_overflow();
-    } else {
-        lifecycle.cancel();
-    }
-}
-
-pub(super) fn attach_overflow_json(surface: SurfaceId) -> Value {
-    json!({
-        "event": "overflow",
-        "scope": "surface",
-        "surface": surface,
-        "error": "surface stream fell behind; reattach the surface",
-    })
 }
 
 #[cfg(test)]

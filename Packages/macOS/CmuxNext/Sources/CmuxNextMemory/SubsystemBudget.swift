@@ -72,6 +72,11 @@ public nonisolated struct SubsystemBudget: Hashable, Sendable {
     /// (Chrome's subframe process reuse threshold; the fork's `cmux-shared-renderer-subframe-memory-limit`).
     public let sharedRendererSubframeMemoryCapBytes: Int
 
+    /// The fixed, bounded `image-storage-limit` per screen the app Ghostty starts with, on every Mac: what
+    /// ``kittyImageBytesPerSurface`` gives a 16 GB Mac. A program cannot fill memory with images under it, while
+    /// Ghostty's own default is far larger.
+    public static let boundedKittyImageBytesPerSurface = 4 * kittyImageBytesPerStep
+
     /// The budget for a Mac with `physicalBytes` of memory.
     ///
     /// - Parameters:

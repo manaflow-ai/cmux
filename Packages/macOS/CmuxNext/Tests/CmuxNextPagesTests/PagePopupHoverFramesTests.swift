@@ -25,7 +25,7 @@ struct PagePopupHoverFramesTests {
 
     private func makeHost(_ hoverFrameInput: FrameInputCoalescers?) -> WebUIHost {
         WebUIHost(chromium: nil, openPanel: nil, memory: QuietMemoryRegistry(),
-                  clock: PageTestClock.never, hoverFrameInput: hoverFrameInput)
+                  deadlines: LifecycleDeadlineRig.never, hoverFrameInput: hoverFrameInput)
     }
 
     private static let menu: [String: Any] = [
