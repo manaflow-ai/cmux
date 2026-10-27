@@ -80,7 +80,7 @@ extension SettingDescriptor {
                 options.append(SettingOption(value: .string(text), title: text, swatches: [selected], isCurrent: true))
             }
             return options
-        case .sound, .url, .hostList, .folderList, .timeRange, .theme, .fontFamily, .text, .numberList, .stringMap, .stringList, .orderedChoices, .choiceSet:
+        case .sound, .url, .hostList, .folderList, .timeRange, .theme, .fontFamily, .text, .numberList, .stringMap, .soundRules, .stringList, .orderedChoices, .choiceSet:
             return []
         }
     }

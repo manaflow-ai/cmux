@@ -880,6 +880,7 @@ The simplest peer is an SSH host, and `host setup` does the whole install from t
 acpmux host setup HOST                 # scp the binary, write config + launchd plist, start it, add the peer
 acpmux host ls                         # connected/offline, remote build, and "outdated" when it lags yours
 acpmux host status [HOST]              # each host asked live: reachable, round trip, disk, load, live sessions, build
+acpmux host vm-host [HOST] [on|off]    # a dedicated agent VM (no sandbox; on by default on a VM cmux created)
 acpmux host update --all               # update compatible ssh peers; use --binary-dir for another target
 acpmux host update HOST --if-idle --binary-dir DIR  # push DIR/acpmux-<target>, unless a session there is mid-turn (not counting the one running this)
 acpmux host update HOST --keep-newer --binary-dir DIR  # never a move back: a later day's build or one with local changes stays (current)
@@ -965,6 +966,29 @@ A peer on an older build that lacks the method shows as reachable, and names
 its OS or architecture differs). A remote session's `--cwd` and worktrees are on the peer's disk
 (`~/.cmux/worktrees/<project>/<name>` there). There is no move from one peer to another:
 `session export HOST/name` and `session import DIR` bring a session here.
+
+**Peer snapshots: a paused or offline peer's chat paints at once.** The daemon keeps a bounded,
+durable copy of each peer session's events as it saw them (its clients' `_acpmux/attach` and
+`_acpmux/events` pages and the peer's live records) in one file a session,
+`<ACPMUX_HOME>/peer-snapshots/<hex peer>/<hex sessionId>.json`, beside `peers/` and never in it: a
+head line (the session, its `createdAt`, `lastSeq`, the last-known row), then a record a line. Each
+write puts the whole file in a temporary file and renames it, so a full disk or a crash never leaves
+a cut one. At most 1000 records and 2 MiB a session and 64 MiB in all: past a session's bound its
+oldest records go, past the total the least recently used copy. A write that fails stays in memory
+and is tried again (1 s, doubling to 60 s), never an exit. A purge, `host remove`, or a session the
+peer recreated (another `createdAt`, or after a reconnect a `lastSeq` below the copy's) drops the
+copy. The peer's journal and its harness's own files stay the authority: the copy is never a write
+lease or an execution checkpoint.
+
+`_acpmux/peer_snapshot {sessionId, host?, limit?, maxBytes?}` is the one hook a client reads that
+copy through, whether the peer answers or not (the app's agent pane, and the VM start and resume
+path to paint a chat before the VM is back). `sessionId` is an id or `HOST/name`, or with `host` the
+peer's own id (a leased Cloud VM whose lease ended). The reply: `{events, lastSeq, generation,
+capturedAt, stale: true, hasMore, summary, peer, sessionId, qualifiedSessionId, hostLastSeq}`,
+the newest `limit` (400 by default, 1 to 1000) records oldest first. `generation` is the session's
+`createdAt`; a row naming another one drops the copy and reads nothing. Paint it marked possibly
+stale, then attach and read `afterSeq: lastSeq`, dropping duplicates by `seq`; an attach whose
+session has another `createdAt` replaces it. The app and the unix socket only.
 
 A daemon needs a working harness. launchd, the app, the Chief and a non-login ssh shell start the
 daemon with a bare environment, so every daemon reads the login shell's environment

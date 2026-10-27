@@ -72,15 +72,59 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertEqual(select('environment', **changes), 'ci-cache-writer')
         self.assertEqual(select('environment'), '')
 
+    def test_next_build_reads_its_own_fleet_runner_first(self):
+        # Leo, 2026-10-27: "WHY CANT YOU JUST FORCE A FLEET MINI" and "THE GITHUB HOSTED MACS ARE
+        # THE SLOWEST THINGS". On nightly-next the build takes vars.CI_NIGHTLY_NEXT_BUILD_RUNNER
+        # for every event and attempt; empty, it keeps the owned side pool, then Blacksmith.
+        build = 'glaeda-dev-std-xcode-26.6'
+        for changes in ({}, {'github.run_attempt': 2}, {'github.event_name': 'workflow_dispatch'},
+                        {'needs.decide.outputs.fast_build': 'true'}, {'vars.CI_PR_POOL_OWNED': '0'}):
+            with self.subTest(changes=changes):
+                self.assertEqual(select(**{'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': build, **changes}), build)
+        self.assertEqual(select(**{'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': build, 'github.ref': 'refs/heads/main',
+                                   'vars.CI_SEED_TRUSTED_POOL': ''}), 'blacksmith-12vcpu-macos-26')
+        self.assertEqual(select(**{'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': build,
+                                   'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-4vcpu-ubuntu-2404')
+        self.assertEqual(select(**{'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': build, 'github.repository_owner': 'someone'}),
+                         'macos-26')
+
+    def test_only_the_nightly_builds_read_the_next_build_runner(self):
+        readers = sorted(path.name for path in (ROOT / '.github/workflows').glob('*.y*ml')
+                         if 'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER' in path.read_text()
+                         and 'CMUX_CI_RUNNER_VARIABLES' not in path.read_text())
+        self.assertEqual(readers, ['nightly.yml'])
+        uses = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('runs-on', '')))
+        self.assertEqual(uses, ['build-nightly-app'])
+
+    def test_next_build_and_prepare_never_name_a_hosted_mac_past_the_fork_branch(self):
+        for name in ('build-nightly-app',):
+            with self.subTest(job=name):
+                source = DOC['jobs'][name]['runs-on'].replace("github.repository_owner != 'manaflow-ai' && 'macos-26'", '')
+                self.assertIsNone(re.search(r"'macos-[0-9]+'", source))
+
     def test_missing_owned_pool_uses_blacksmith_mac_fallback(self):
         self.assertEqual(select(**{'vars.CI_SIDE_LANE_RUNNER': ''}), 'blacksmith-12vcpu-macos-26')
 
-    def test_retries_use_blacksmith_after_owned_build_attempt(self):
+    def test_next_retries_overflow_to_hosted_macos(self):
+        # Blacksmith macOS had ~75 jobs queued (2026-10-26); a NEXT retry goes to hosted macos-26.
         self.assertEqual(select(**{'github.run_attempt': 2}), 'blacksmith-12vcpu-macos-26')
+        self.assertEqual(select(**{'github.run_attempt': 2, 'github.ref': 'refs/heads/main'}), 'blacksmith-12vcpu-macos-26')
+
+    def test_prepare_runs_on_linux_on_every_attempt(self):
+        def prepare(**changes):
+            source = DOC['jobs']['prepare-nightly-variant-primary']['runs-on'].removeprefix('${{').removesuffix('}}')
+            context = {'github.repository_owner': 'manaflow-ai', 'github.repository': 'manaflow-ai/cmux',
+                       'github.event_name': 'push', 'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
+                       'vars.CI_PR_POOL_OWNED': '1', **changes}
+            return evaluate(parse_expression(source), context)
+        self.assertEqual(prepare(), 'blacksmith-4vcpu-ubuntu-2404')
+        self.assertEqual(prepare(**{'github.run_attempt': 2}), 'blacksmith-4vcpu-ubuntu-2404')
+        self.assertEqual(prepare(**{'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-4vcpu-ubuntu-2404')
+        self.assertEqual(prepare(**{'github.repository_owner': 'someone'}), 'ubuntu-24.04')
 
     def test_dispatch_fast_retries_rc_and_disabled_owned_use_blacksmith_pool(self):
         cases = [
-            {'github.event_name': 'workflow_dispatch'}, {'github.run_attempt': 2},
+            {'github.event_name': 'workflow_dispatch'},
             {'needs.decide.outputs.fast_build': 'true'}, {'vars.CI_PR_POOL_OWNED': '0'},
             {'github.ref': 'refs/heads/rc/1.2'}, {'github.repository': 'manaflow-ai/another'}, {'github.ref': 'refs/heads/feat-cmux-next'},
         ]

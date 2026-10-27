@@ -381,6 +381,8 @@ export type AgentHarnessRow = {
   default: boolean;
   family?: string;
   icon?: string;
+  /** The icon acpmux resolved (`_acpmux/harnesses` `iconSpec`; shared/harnessIcons.ts). */
+  iconSpec?: unknown;
   unavailable?: string;
   probeError?: string;
   sourcePath?: string;
@@ -424,6 +426,7 @@ export type AgentsState = {
 
 /** One Settings > Agents gesture (`cmux.settings.agents.run`). */
 export type AgentsRun =
+  | AgentsSymbolRun
   | { action: "refresh" }
   | { action: "registry"; refresh?: boolean }
   | {
@@ -438,7 +441,11 @@ export type AgentsRun =
     }
   | { action: "remove"; id: string }
   | { action: "restore"; backup?: string }
-  | { action: "doctor"; id: string; noPrompt?: boolean };
+  | { action: "doctor"; id: string; noPrompt?: boolean }
+  /** A user profile's icon: a typed value, an image's base64 bytes, or Automatic (`clear`). */
+  | { action: "icon"; id: string; icon?: string; data?: string; ext?: "png" | "svg"; clear?: true };
+/** The template PNG of an SF Symbol a harness icon names, as a `data:` URL (`{src}`). */
+export type AgentsSymbolRun = { action: "symbol"; name: string };
 /** One acpmux harness of Settings > Agents > Harnesses (`cmux.settings.harnesses.state`). */
 export type HarnessRow = {
   id: string;
@@ -750,6 +757,13 @@ export type ChannelSwitch = {
   detail: string;
 };
 
+/**
+ * Settings > Updates' row of other machines: one line each; `updates` (beside `lines`) is the id
+ * the line's Update button sends (`cmux.settings.channels.update_machine`), null for no button.
+ * An app that offers no button sends neither `updates` nor `updateLabel`.
+ */
+export type ChannelMachines = { title: string; lines: string[]; updates?: (string | null)[]; updateLabel?: string };
+
 /** Settings > Updates' Channels card (`cmux.settings.channels.state`). */
 export type ChannelsState = {
   title: string;
@@ -760,7 +774,7 @@ export type ChannelsState = {
   /** The app's local acpmux daemon: its build, and whether it is up to date or restarting. */
   daemon?: { title: string; value: string } | null;
   /** Other machines the app updates that cannot update in place or whose update failed, one line each. */
-  machines?: { title: string; lines: string[] } | null;
+  machines?: ChannelMachines | null;
 };
 
 /** Every op the page calls: params and result. */
@@ -776,6 +790,7 @@ export type SettingsOps = {
   "cmux.settings.channels.state": [{ ring?: string }, ChannelsState];
   /** Native: the card's Go Back: restarts once into a kept build of a slower channel (the person's gesture only). */
   "cmux.settings.channels.go_back": [{ ring: string; build: string }, Record<string, never>];
+  "cmux.settings.channels.update_machine": [{ id: string }, Record<string, never>];
   /** Native: Settings > Mobile's Remove: the phone leaves the account's devices (the person's gesture only). */
   "cmux.settings.mobile.remove_phone": [{ id: string }, Record<string, never>];
   /** Native: Settings > Devices' Remove: the device leaves every store that lets it in (the person's gesture only). */
