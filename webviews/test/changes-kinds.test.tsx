@@ -372,6 +372,36 @@ test("a view opened on a relative tool path keeps that generated file open once 
   }
 });
 
+test("a generated file folded under its relative tool path stays folded once the checkpoint lists it absolutely", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const folded = () =>
+    [...container.querySelectorAll<HTMLElement>(".acpmux-diff-file")]
+      .filter((block) => block.dataset.collapsed !== undefined)
+      .map((block) => block.dataset.path);
+  try {
+    await act(async () =>
+      root.render(<DiffPanel files={turn(["src/a.ts", "bun.lock"])} root="/repo" onClose={() => {}} />),
+    );
+    await settle();
+    expect(folded()).toEqual(["bun.lock"]);
+    await act(async () =>
+      root.render(
+        <DiffPanel
+          files={turn(["/repo/src/a.ts", "/repo/bun.lock"])}
+          turn={{ source: "checkpoint" }}
+          root="/repo"
+          onClose={() => {}}
+        />,
+      ),
+    );
+    await settle();
+    expect(folded()).toEqual(["/repo/bun.lock"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("a generated file the reader opened by its relative tool path stays open once the checkpoint lists it absolutely", async () => {
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);

@@ -286,23 +286,38 @@ export function DiffPanel({
   // one from its header or the tree. Each file folds once, so one the reader opened stays open,
   // and the file the view was opened on is never folded.
   // A file is remembered by its absolute path, so the checkpoint's absolute spelling of a file a
-  // tool call named relatively is the same file and does not fold again.
-  const generated = useMemo(
-    () =>
-      files
-        .filter((file) => fileKind(kindPath(scope, file, root)) === "generated")
-        .map((file) => ({ path: file.path, id: fileIdentity(file, root) })),
-    [files, scope, root],
-  );
-  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
+  // tool call named relatively is the same file: it does not fold again, and a fold or an open the
+  // reader chose moves to the new spelling.
+  const generated = useMemo(() => {
+    const seen = new Set<string>();
+    return files
+      .filter((file) => fileKind(kindPath(scope, file, root)) === "generated")
+      .map((file) => ({ path: file.path, id: fileIdentity(file, root) }))
+      .filter((file) => !seen.has(file.id) && Boolean(seen.add(file.id)));
+  }, [files, scope, root]);
+  // Each generated file's identity, with the path the list last named it by.
+  const [folded, setFolded] = useState<ReadonlyMap<string, string>>(() => new Map());
   // The file the view was opened on, as the list names it now (a tool call's relative path, then
   // the checkpoint's absolute one).
   const openedPath = initialPath === undefined ? undefined : listedPath(files, initialPath, root);
-  const unfolded = generated.filter((file) => !folded.has(file.id));
-  if (unfolded.length > 0) {
-    setFolded(new Set([...folded, ...unfolded.map((file) => file.id)]));
-    const fold = unfolded.map((file) => file.path).filter((path) => path !== openedPath);
-    if (fold.length > 0) setCollapsed((current) => new Set([...current, ...fold]));
+  const changed = generated.filter((file) => folded.get(file.id) !== file.path);
+  if (changed.length > 0) {
+    const next = new Map(folded);
+    const fold: string[] = [];
+    const moved: [string, string][] = [];
+    for (const file of changed) {
+      const before = folded.get(file.id);
+      next.set(file.id, file.path);
+      if (before !== undefined) moved.push([before, file.path]);
+      else if (file.path !== openedPath) fold.push(file.path);
+    }
+    setFolded(next);
+    setCollapsed((current) => {
+      const out = new Set(current);
+      for (const [before, after] of moved) if (out.delete(before)) out.add(after);
+      for (const path of fold) out.add(path);
+      return out;
+    });
   }
   const [viewed, setViewed] = useState<ReadonlySet<string>>(() => new Set());
   const [selected, setSelected] = useState<string | undefined>(initialPath ?? files[0]?.path);
@@ -585,7 +600,7 @@ export function DiffPanel({
             stopRevealing();
             setScope(next);
             setCollapsed(new Set());
-            setFolded(new Set());
+            setFolded(new Map());
             setViewed(new Set());
             setSelected(undefined);
             latestOpen.current += 1;
