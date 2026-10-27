@@ -65,6 +65,26 @@ bool IsHang(const Message& message, hang::Hang expected) {
   return message.op == hang::kOpHostHang && hang::ReadHang(message, &got) && got == expected;
 }
 
+// cmux's rule (ChromiumHostHang.isFirstReport): an ongoing report, or an end the watcher did not report.
+bool IsFirstReport(const Message& message) {
+  hang::Hang got;
+  if (message.op != hang::kOpHostHang || !hang::ReadHang(message, &got)) return false;
+  return (got.flags & hang::kHangOngoing) != 0 || (got.flags & hang::kHangReported) == 0;
+}
+
+int FirstReports(const std::vector<Message>& messages) {
+  int count = 0;
+  for (const Message& message : messages) count += IsFirstReport(message) ? 1 : 0;
+  return count;
+}
+
+cmux_host::Header Frame(uint32_t kind, uint32_t seq) {
+  cmux_host::Header frame;
+  frame.kind = kind;
+  frame.seq = seq;
+  return frame;
+}
+
 bool IsDispatched(const Message& message, uint32_t expected) {
   uint32_t seq = 0;
   return message.op == hang::kOpInputDispatched && hang::ReadDispatched(message, &seq) && seq == expected;
@@ -79,6 +99,9 @@ void TestWire() {
   Check(hang::ReadDispatched(hang::DispatchedMessage(0xfffffffeu), &seq) && seq == 0xfffffffeu,
         "a dispatched seq round-trips with its bit pattern");
   Check(!hang::ReadDispatched(hang::DispatchedMessage(0), &seq), "seq 0 is malformed");
+  Check(hang::ReadHang(hang::HangMessage({1, hang::kHangReported | hang::kHangDumped}), &read) &&
+            read == hang::Hang{1, hang::kHangReported | hang::kHangDumped},
+        "a reported end round-trips");
   Message bad_flags = hang::HangMessage({1, 8});
   Check(!hang::ReadHang(bad_flags, &read), "an unknown hang flag is malformed");
   Message extra = hang::DispatchedMessage(3);
@@ -128,6 +151,34 @@ void TestDispatchAcks() {
   Check(sent.Take().empty(), "a turn that dispatched nothing acks nothing");
 }
 
+// A kPing's or kStats' seq is its request id: the turn acks the key's seq,
+// whether the request id is below it or past the newest input written.
+void TestRequestIdsAreNotAcked() {
+  Sent sent;
+  hang::Watch watch(&FakeNow, sent.Sink(), nullptr);
+  fake_now = 6000;
+  watch.BeginTurn();
+  watch.FrameDispatched(Frame(cmux_host::kKey, 9));
+  watch.FrameDispatched(Frame(cmux_host::kPing, 3));
+  watch.EndTurn();
+  std::vector<Message> got = sent.Take();
+  Check(got.size() == 1 && IsDispatched(got[0], 9), "a ping after a key: the key's seq is acked, not the request id");
+  watch.BeginTurn();
+  watch.FrameDispatched(Frame(cmux_host::kKey, 10));
+  watch.FrameDispatched(Frame(cmux_host::kStats, 500));
+  watch.EndTurn();
+  got = sent.Take();
+  Check(got.size() == 1 && IsDispatched(got[0], 10), "a stats request id past the newest seq is not acked");
+  watch.FrameDispatched(Frame(cmux_host::kPing, 11));
+  Check(sent.Take().empty(), "a ping alone acks nothing");
+  watch.BeginTurn();
+  watch.InputDispatched(13);
+  watch.InputDispatched(12);
+  watch.EndTurn();
+  got = sent.Take();
+  Check(got.size() == 1 && IsDispatched(got[0], 13), "the turn acks the newest seq, not the last one");
+}
+
 // The watcher parks with no turn, sleeps until the open turn is 10 s old,
 // dumps it once and parks again; the turn's end then says it was dumped.
 void TestWatcherDecisions() {
@@ -156,11 +207,60 @@ void TestWatcherDecisions() {
   fake_now = begin + 12'000 * kMs;
   watch.EndTurn();
   got = sent.Take();
-  Check(got.size() == 1 && IsHang(got[0], {12'000 * kMs, hang::kHangDumped}), "its end reports 12 s, dumped");
+  Check(got.size() == 1 && IsHang(got[0], {12'000 * kMs, hang::kHangDumped | hang::kHangReported}) &&
+            !IsFirstReport(got[0]),
+        "its end reports 12 s, dumped, already reported");
   watch.BeginTurn();
   Check(watch.Check(fake_now).kind == hang::Next::Kind::kSleep, "the next turn is watched");
   watch.DumpTurn(next.turn, fake_now + 10'000 * kMs);
   Check(dumps == 1, "a stale turn is never dumped");
+}
+
+// A turn that ends after its dump deadline but before the late watcher looks:
+// its end claims it, the watcher then dumps nothing, and cmux takes one report.
+void TestTurnEndsBeforeTheLateWatcher() {
+  Sent sent;
+  int dumps = 0;
+  hang::Watch watch(&FakeNow, sent.Sink(), [&dumps] {
+    ++dumps;
+    return true;
+  });
+  fake_now = 80'000;
+  watch.BeginTurn();
+  const uint64_t begin = fake_now;
+  const hang::Next next = watch.Check(begin + 10'000 * kMs);
+  Check(next.kind == hang::Next::Kind::kDump, "the watcher decided to dump");
+  fake_now = begin + 10'000 * kMs + 1;
+  watch.EndTurn();
+  watch.DumpTurn(next.turn, fake_now + 5 * kMs);
+  std::vector<Message> got = sent.Take();
+  Check(dumps == 0, "a turn its end reported is not dumped");
+  Check(got.size() == 1 && IsHang(got[0], {10'000 * kMs + 1, 0}) && FirstReports(got) == 1,
+        "one first report of a 10 s hang the watcher missed");
+  // The other order: the watcher's ongoing report first, then the end says it was reported.
+  watch.BeginTurn();
+  const uint64_t second = fake_now;
+  watch.DumpTurn(watch.Check(second + 10'000 * kMs).turn, second + 10'000 * kMs);
+  fake_now = second + 11'000 * kMs;
+  watch.EndTurn();
+  got = sent.Take();
+  Check(got.size() == 2 && IsHang(got[1], {11'000 * kMs, hang::kHangDumped | hang::kHangReported}) &&
+            FirstReports(got) == 1,
+        "dumped then ended: one first report, the end marked reported");
+}
+
+// No watcher thread (Start failed or never ran): turns still report, and a
+// 12 s hang is one first report.
+void TestNoWatcherThread() {
+  Sent sent;
+  hang::Watch watch(&FakeNow, sent.Sink(), [] { return true; });
+  fake_now = 90'000;
+  watch.BeginTurn();
+  fake_now += 12'000 * kMs;
+  watch.EndTurn();
+  std::vector<Message> got = sent.Take();
+  Check(got.size() == 1 && IsHang(got[0], {12'000 * kMs, 0}) && FirstReports(got) == 1,
+        "with no watcher a long hang is reported once, as first");
 }
 
 // A dump that writes nothing still reports the hang, with no dumped flag.
@@ -212,9 +312,9 @@ void TestWatcherThread() {
     hang::Hang h;
     if (message.op != hang::kOpHostHang || !hang::ReadHang(message, &h)) continue;
     if (h.flags == (hang::kHangOngoing | hang::kHangDumped) && h.duration_ns >= 100 * kMs) ongoing = true;
-    if (h.flags == hang::kHangDumped && h.duration_ns >= 400 * kMs) ended = true;
+    if (h.flags == (hang::kHangDumped | hang::kHangReported) && h.duration_ns >= 400 * kMs) ended = true;
   }
-  Check(ongoing && ended, "the long turn is reported at its dump and at its end");
+  Check(ongoing && ended && FirstReports(got) == 1, "the long turn is reported at its dump and at its end, first once");
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
   const uint64_t wakes = watch.wakes();
   std::this_thread::sleep_for(std::chrono::milliseconds(300));
@@ -248,7 +348,10 @@ int main() {
   TestWire();
   TestTurnReports();
   TestDispatchAcks();
+  TestRequestIdsAreNotAcked();
   TestWatcherDecisions();
+  TestTurnEndsBeforeTheLateWatcher();
+  TestNoWatcherThread();
   TestDumpRefused();
   TestWatcherThread();
   TestInputAcks();

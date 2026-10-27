@@ -7,23 +7,24 @@ public nonisolated struct ChromiumHostHang: Equatable, Sendable {
     public var isOngoing: Bool
     /// The host wrote a dump of it without crashing.
     public var dumped: Bool
+    /// The turn's end of a hang the host already reported while it ran (the watcher's ``isOngoing`` report).
+    public var wasReported: Bool
 
-    public init(duration: Duration, isOngoing: Bool, dumped: Bool) {
+    public init(duration: Duration, isOngoing: Bool, dumped: Bool, wasReported: Bool = false) {
         self.duration = duration
         self.isOngoing = isOngoing
         self.dumped = dumped
+        self.wasReported = wasReported
     }
 
-    /// The host's watcher dumps a turn this old and reports it then, still running (`Limits::dump_ns`,
-    /// host_hang_watcher.h; Chrome's `kDefaultHangWatchTime`).
-    public static let dumpAfter: Duration = .seconds(10)
+    /// A hang report takes each hang once: the host's first report of it, the watcher's while it runs or
+    /// else its end. The host says which (it alone knows whether its watcher reported the turn), so a hang
+    /// the watcher missed (no watcher thread, or the turn ended before the late watcher looked) still counts.
+    public var isFirstReport: Bool { isOngoing || !wasReported }
 
-    /// The host reports a turn that reaches ``dumpAfter`` twice, at the dump and at its end: a hang report
-    /// takes it once, at the dump, which comes even when the person then reloads the host.
-    public var isFirstReport: Bool { isOngoing || duration < Self.dumpAfter }
-
-    /// `kOpHostHang`'s flags (host_hang_watcher.h): 1 still running, 2 dumped.
+    /// `kOpHostHang`'s flags (host_hang_watcher.h): 1 still running, 2 dumped, 4 already reported.
     init(durationNanos: Int64, flags: Int64) {
-        self.init(duration: .nanoseconds(max(durationNanos, 0)), isOngoing: flags & 1 != 0, dumped: flags & 2 != 0)
+        self.init(duration: .nanoseconds(max(durationNanos, 0)), isOngoing: flags & 1 != 0, dumped: flags & 2 != 0,
+                  wasReported: flags & 4 != 0)
     }
 }

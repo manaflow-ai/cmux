@@ -26,21 +26,27 @@
 // its report). It waits in poll on a non-blocking pipe, with no timeout while
 // parked, as the control channel's reader waits on its wake byte
 // (chromium_host_control.cc): no lock, and the UI thread's wake is one write
-// that never blocks. The park is Dekker's: the watcher publishes `parked_` and
+// that never blocks. A turn's hang is claimed once, by the watcher's dump or
+// by the turn's end, whichever comes first (a monotonic compare-exchange on
+// `claimed_`): the end's report says kHangReported when the watcher's ongoing
+// report claimed it, so cmux takes each hang once whether or not the watcher
+// ran. The park is Dekker's: the watcher publishes `parked_` and
 // then reads the turn again; BeginTurn publishes the turn and then reads
 // `parked_` (all sequentially consistent), so one of them sees the other.
 //
 // Input acks. The host acks input at dispatch on its UI thread, not at the
-// renderer (p01-process.md 3.1, "Ack"): InputDispatched records the input seq
-// the dispatch gave Chromium, and the turn's end sends the newest one as one
-// kOpInputDispatched, so a turn that dispatched a batch acks it once. cmux's
+// renderer (p01-process.md 3.1, "Ack"): FrameDispatched records the input seq
+// of each ordered input frame the dispatch gave Chromium (IsOrderedInput: a
+// kPing's or kStats' `seq` is its request id, never acked), and the turn's end
+// sends the newest one as one kOpInputDispatched, so a turn that dispatched a
+// batch acks it once. cmux's
 // ChromiumHostHangMonitor arms one deadline only while a seq is not acked and
 // shows "Chromium is busy" when none came for 2 s (InputAcks below is its
 // count, kept by the remote shim).
 //
 // Wire (host -> cmux; remote_shim.mm takes both, the HELLO lists
 // kHangWatchHelloName when the host sends them):
-//   kOpHostHang        i64 duration (ns), i32 flags (kHangOngoing, kHangDumped)
+//   kOpHostHang        i64 duration (ns), i32 flags (kHangOngoing, kHangDumped, kHangReported)
 //   kOpInputDispatched i32 the newest input seq dispatched (its bit pattern)
 #pragma once
 
@@ -72,6 +78,8 @@ inline constexpr const char* kWatcherLabel = "com.cmuxterm.chromium-host.hang-wa
 // kOpHostHang flags.
 inline constexpr int32_t kHangOngoing = 1;  // the turn still runs (the watcher's report at the dump)
 inline constexpr int32_t kHangDumped = 2;   // a dump of the hang was written
+inline constexpr int32_t kHangReported = 4;  // the turn's end: the watcher's ongoing report already sent this hang
+inline constexpr int32_t kHangFlags = kHangOngoing | kHangDumped | kHangReported;
 
 struct Limits {
   // A turn this long is a hang report: cmux's own jank threshold (MainThreadWatchdog's 250 ms lag spike).
@@ -101,7 +109,7 @@ inline bool ReadHang(const control::Message& message, Hang* out) {
   control::TlvReader r(message.fields);
   const int64_t duration = r.I64();
   const int32_t flags = r.I32();
-  if (!r.ok() || !r.AtEnd() || duration < 0 || (flags & ~(kHangOngoing | kHangDumped)) != 0) return false;
+  if (!r.ok() || !r.AtEnd() || duration < 0 || (flags & ~kHangFlags) != 0) return false;
   *out = Hang{static_cast<uint64_t>(duration), flags};
   return true;
 }
@@ -166,11 +174,17 @@ class Watch {
     if (open_) Close(now_());
   }
 
+  // UI thread: the input dispatch handed `frame` to Chromium. Only ordered
+  // input carries an input seq (a kPing's or kStats' seq is its request id).
+  void FrameDispatched(const Header& frame) {
+    if (IsOrderedInput(frame)) InputDispatched(frame.seq);
+  }
+
   // UI thread: the input dispatch gave Chromium the frame of input seq `seq`.
   // The turn's end acks the newest one; outside a turn it is acked now.
   void InputDispatched(uint32_t seq) {
     if (seq == 0) return;
-    dispatched_ = seq;
+    if (dispatched_ == 0 || SeqAtOrBefore(dispatched_, seq)) dispatched_ = seq;
     if (!open_) FlushDispatched();
   }
 
@@ -206,7 +220,7 @@ class Watch {
       turn = turn_id_.load(std::memory_order_seq_cst);
       begin = turn_begin_.load(std::memory_order_seq_cst);
     }
-    if (begin == 0 || dump_tried_.load(std::memory_order_acquire) == turn) return Next{Next::Kind::kPark, 0, turn};
+    if (begin == 0 || claimed_.load(std::memory_order_seq_cst) >= turn) return Next{Next::Kind::kPark, 0, turn};
     const uint64_t due = begin + limits_.dump_ns;
     if (now >= due) return Next{Next::Kind::kDump, 0, turn};
     return Next{Next::Kind::kSleep, due, turn};
@@ -218,8 +232,7 @@ class Watch {
   void DumpTurn(uint64_t turn, uint64_t now) {
     const uint64_t begin = turn_begin_.load(std::memory_order_seq_cst);
     if (turn_id_.load(std::memory_order_seq_cst) != turn || begin == 0) return;
-    if (dump_tried_.load(std::memory_order_acquire) == turn) return;
-    dump_tried_.store(turn, std::memory_order_release);
+    if (!Claim(turn)) return;  // dumped already, or its end reported it
     const bool written = dump_ && dump_();
     if (written) dump_written_.store(turn, std::memory_order_release);
     ++dumps_;
@@ -238,12 +251,23 @@ class Watch {
     const uint64_t begin = turn_begin_.load(std::memory_order_relaxed);
     turn_begin_.store(0, std::memory_order_seq_cst);
     open_ = false;
+    // False: the watcher claimed this turn first, and its ongoing report has gone or goes.
+    const bool first = Claim(turn_);
     const uint64_t duration = now > begin ? now - begin : 0;
     if (duration >= limits_.report_ns) {
       const bool dumped = dump_written_.load(std::memory_order_acquire) == turn_;
-      send_(HangMessage(Hang{duration, dumped ? kHangDumped : 0}));
+      send_(HangMessage(Hang{duration, (dumped ? kHangDumped : 0) | (first ? 0 : kHangReported)}));
     }
     FlushDispatched();
+  }
+
+  // Either thread: true for the first claim of `turn` (claims only move forward).
+  bool Claim(uint64_t turn) {
+    uint64_t claimed = claimed_.load(std::memory_order_seq_cst);
+    do {
+      if (claimed >= turn) return false;
+    } while (!claimed_.compare_exchange_weak(claimed, turn, std::memory_order_seq_cst));
+    return true;
   }
 
   void FlushDispatched() {
@@ -330,8 +354,9 @@ class Watch {
   // Written by the UI thread, read by the watcher.
   std::atomic<uint64_t> turn_id_{0};
   std::atomic<uint64_t> turn_begin_{0};  // 0 while no turn is open
+  // The newest turn whose hang was claimed: by the watcher's dump or by the turn's end (Claim).
+  std::atomic<uint64_t> claimed_{0};
   // Written by the watcher, read by the UI thread.
-  std::atomic<uint64_t> dump_tried_{0};
   std::atomic<uint64_t> dump_written_{0};
   // Set by the watcher before it waits with no deadline; cleared by the BeginTurn that wakes it.
   std::atomic<bool> parked_{false};
@@ -408,8 +433,8 @@ class HostHangWatch {
   HostHangWatch& operator=(const HostHangWatch&) = delete;
   ~HostHangWatch();
 
-  // The input dispatch's ack (Watch::InputDispatched). UI thread.
-  void InputDispatched(uint32_t seq) { watch_.InputDispatched(seq); }
+  // The input dispatch's ack of each frame it handed Chromium (Watch::FrameDispatched). UI thread.
+  void FrameDispatched(const Header& frame) { watch_.FrameDispatched(frame); }
   // Ends the watcher and removes the observers (before the channel closes).
   void Stop();
 

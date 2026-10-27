@@ -39,10 +39,12 @@ extension CEFPaneHost {
     }
 
     /// Host mode: the pane's page view showed or stopped showing; the busy deadline runs only while a
-    /// hosted page shows.
+    /// hosted page shows. A pane that starts to show while the host is already busy gets the banner too.
     func hostPageShownChanged() {
         guard let page = hostedPageView, let monitor = runtime.hostStart?.hangMonitor else { return }
-        monitor.pageShown(ObjectIdentifier(page), page.pageVisibility == .visible)
+        let shown = page.pageVisibility == .visible
+        monitor.pageShown(ObjectIdentifier(page), shown)
+        showHostBusy(monitor.isBusy && shown ? monitor : nil)
     }
 }
 

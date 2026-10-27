@@ -113,7 +113,8 @@ typedef enum {
   CMUX_REMOTE_HOST_INPUT_PROGRESS = 1,     // the host dispatched input; later input still waits
   CMUX_REMOTE_HOST_INPUT_SETTLED = 2,      // the host dispatched every seq written (or went away)
   CMUX_REMOTE_HOST_HANG = 3,               // a UI-thread hang of the host: `a` its length in ns, `b` its
-                                           // kOpHostHang flags (1 still running, 2 dumped)
+                                           // kOpHostHang flags (1 still running, 2 dumped, 4 the
+                                           // turn's end of a hang the still-running report sent)
 } cmux_remote_host_watch_event;
 // Main thread, in the order the host's frames came, and from inside cmux_remote_shim_order_input
 // (OUTSTANDING) and cmux_remote_shim_detach (SETTLED). `a` and `b` are 0 but for a hang.

@@ -540,15 +540,16 @@ int main(int argc, char* argv[]) {
   // Main thread only, like `host`. The input ring (task 041) attaches its
   // dispatch here (AttachInput) and hands each frame to AddInput; until then
   // no frame comes and cmux stamps no ordered op with an input seq. Each
-  // frame dispatched is acked at the end of its turn (the host's ack is its
-  // dispatch, p01-process.md 3.1).
+  // ordered input frame dispatched is acked at the end of its turn (the host's
+  // ack is its dispatch, p01-process.md 3.1); a kPing's or kStats' seq is its
+  // request id and is never acked.
   cmux_host::WheelPixelCarry wheel_carry;
   cmux_host::control::OrderedStream ordered(
       [&host](std::vector<cmux_host::control::Message> messages) { host.OnMessages(std::move(messages)); });
   ordered.AttachInput([&host, &wheel_carry, &hang_watch, set_event_time = fork_input.set_input_event_time](
                           const cmux_host::Header& frame) {
     DispatchInput(host, wheel_carry, set_event_time, frame);
-    hang_watch.InputDispatched(frame.seq);
+    hang_watch.FrameDispatched(frame);
   });
   // The host's one input queue (host_user_input.h): Chromium's user-input
   // queue, or CefPostTask(TID_UI) on a fork without it, chosen here once; the

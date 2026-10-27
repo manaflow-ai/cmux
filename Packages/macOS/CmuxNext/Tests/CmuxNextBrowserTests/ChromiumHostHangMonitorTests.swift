@@ -170,12 +170,15 @@ import Testing
     }
 
     /// A turn that reaches the host's 10 s dump is reported at the dump and at its end; a hang report takes it once.
+    /// The host says whether the end's hang was reported already (flag 4), so one its watcher missed still counts.
     @Test func aHangIsReportedOnce() {
         let short = ChromiumHostHang(durationNanos: 400_000_000, flags: 0)
         #expect(short == ChromiumHostHang(duration: .milliseconds(400), isOngoing: false, dumped: false) && short.isFirstReport)
         let atDump = ChromiumHostHang(durationNanos: 10_000_000_000, flags: 3)
         #expect(atDump.isOngoing && atDump.dumped && atDump.isFirstReport)
-        let end = ChromiumHostHang(durationNanos: 12_000_000_000, flags: 2)
-        #expect(!end.isOngoing && !end.isFirstReport, "its end was reported at the dump")
+        let end = ChromiumHostHang(durationNanos: 12_000_000_000, flags: 6)
+        #expect(!end.isOngoing && end.wasReported && !end.isFirstReport, "its end was reported at the dump")
+        let missed = ChromiumHostHang(durationNanos: 12_000_000_000, flags: 0)
+        #expect(!missed.wasReported && missed.isFirstReport, "no watcher report came: the end is the first report")
     }
 }
