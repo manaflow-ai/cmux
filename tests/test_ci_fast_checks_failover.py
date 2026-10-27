@@ -5,7 +5,9 @@ On 2026-10-27 Blacksmith Linux started no job for the organization for a while.
 ci-cloud-overflow-probe.yml pointed LINUX_RUNNER at GitHub-hosted Linux and wrote
 CI_CLOUD_OVERFLOW_SAVED, but fast-checks.yml named blacksmith-32vcpu-ubuntu-2404
 directly, so its runs got no runner at all. While the record is set these jobs
-take ubuntu-24.04; an unset variable is falsy, so healthy routing is unchanged.
+take LINUX_RUNNER, which the switch has pointed at its failover; an unset record
+is falsy, so healthy routing is unchanged. No literal GitHub-hosted label is named
+(tests/test_ci_self_hosted_guard.sh).
 Sticky disks exist only on Blacksmith, so fast checks skip them (and the
 sanitizer that works inside the mounted checkout) elsewhere.
 """
@@ -18,7 +20,7 @@ from pathlib import Path
 
 WORKFLOWS = Path(__file__).resolve().parents[1] / ".github" / "workflows"
 LABEL = re.compile(r"'blacksmith-[0-9]+vcpu-ubuntu-2404'")
-FAILOVER = "vars.CI_CLOUD_OVERFLOW_SAVED && 'ubuntu-24.04' || 'blacksmith-"
+FAILOVER = "vars.CI_CLOUD_OVERFLOW_SAVED && vars.LINUX_RUNNER || 'blacksmith-"
 ON_BLACKSMITH = "if: startsWith(runner.name, 'blacksmith-')"
 
 
