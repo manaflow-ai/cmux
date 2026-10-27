@@ -120,6 +120,35 @@ import Testing
         #expect(model.actionError == "no listener")
     }
 
+    @Test(arguments: ["signed_out", "disconnected", "replacement", "dismissed"])
+    func latePairReplyCannotRestoreAnOldCredential(change: String) async {
+        let fake = Fake()
+        let (started, notify) = AsyncStream<Void>.makeStream()
+        let (tickets, reply) = AsyncStream<String>.makeStream()
+        var services = fake.services()
+        services.mintTicket = { _ in
+            notify.yield(())
+            var replies = tickets.makeAsyncIterator()
+            return await replies.next() ?? ""
+        }
+        let model = TailnetNodeModel(services: services)
+        model.apply(Self.running)
+        let pairing = Task { await model.pair() }
+        var starts = started.makeAsyncIterator()
+        _ = await starts.next()
+        switch change {
+        case "signed_out": model.apply(TailnetNodeState(state: "needs_login"))
+        case "disconnected": model.markUnavailable()
+        case "replacement": model.apply(TailnetNodeState(state: "running", dnsName: "replacement.tail1.ts.net"))
+        default: model.closePair()
+        }
+        reply.yield(Fake.ticket)
+        reply.finish()
+        await pairing.value
+        notify.finish()
+        #expect(model.pairCode == nil, "a late Pair result must not restore a credential after \(change)")
+    }
+
     @Test func pairShowsTheJoinCommandForTheTicket() throws {
         let code = try #require(TailnetPairCode(address: "mac-cmux.tail1.ts.net", ticket: Fake.ticket))
         #expect(code.address == "https://mac-cmux.tail1.ts.net")
