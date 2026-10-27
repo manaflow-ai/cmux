@@ -109,9 +109,10 @@ final class CloudMachineUpdates {
                 return try await cli.machineUpdate(socket: socket, toBundled: true)
             },
             reconnect: { [weak session] restarted in await session?.reconnectAfterUpdate(restarted: restarted) },
-            legacy: { [weak session] in
+            legacy: { [weak session] build in
+                // Only the build this app pins for its own: a manifest of another build is not this app's.
                 guard let api, await CloudMachineUpdates.allowsExec(session), let pin = CloudLegacyMachineUpdate.pin(besideCLI: binary),
-                      let script = CloudLegacyMachineUpdate.script else { return nil }
+                      build.sameCommit(pin.commit), let script = CloudLegacyMachineUpdate.script else { return nil }
                 logger.info("cloud machine \(machineID, privacy: .public): too old to update in place; installing cmux-tui \(pin.commit, privacy: .public) through exec")
                 return await CloudLegacyMachineUpdate.run(pin: pin, script: script) { command, timeoutMs in
                     try await api.exec(machineID, command: command, timeoutMs: timeoutMs)

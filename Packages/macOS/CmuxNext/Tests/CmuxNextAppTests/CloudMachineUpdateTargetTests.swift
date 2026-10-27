@@ -344,7 +344,7 @@ nonisolated final class FakeCloudMachine: @unchecked Sendable {
                     self.restarts.append(restarted)
                 }
             },
-            legacy: {
+            legacy: { _ in
                 self.lock.withLock {
                     guard var answers = self.legacyAnswers else { return nil }
                     self.counts.legacy += 1

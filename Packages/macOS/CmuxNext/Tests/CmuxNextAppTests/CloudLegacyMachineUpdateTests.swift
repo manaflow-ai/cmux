@@ -58,26 +58,74 @@ struct CloudLegacyMachineUpdateTests {
         #expect(machine.reconnectRestarts == [true])
     }
 
-    /// One exec carries the whole run: the pinned install and the guest script, started as root in
-    /// a transient unit the exec waits on, with the route's longest timeout. Its result line is
-    /// the answer.
-    @Test func oneExecRunsTheGuestScriptWithThePinnedInstall() async throws {
-        let calls = ExecRecorder(stdout: "OK upgraded terminals=3->3 daemon=812 hosts-before=3\n")
+    /// One exec starts the run, detached as root with the pinned install and the guest script;
+    /// later ones wait on it, each within the provider's 5-minute exec. A wait the provider ended
+    /// (exit 124) or one before the result is followed by the next; the result line is the answer.
+    @Test func theRunStartsDetachedThenWaitsForItsResult() async throws {
+        let calls = ExecRecorder(answers: [
+            CloudExecResult(exitCode: 0, stdout: "started\n", stderr: ""),
+            CloudExecResult(exitCode: 124, stdout: "", stderr: "cmux: the command did not exit within 290s; it may still be running"),
+            CloudExecResult(exitCode: 0, stdout: "running\n", stderr: ""),
+            CloudExecResult(exitCode: 0, stdout: "OK upgraded terminals=3->3 daemon=812 hosts-before=3\n", stderr: ""),
+        ])
         let answer = await CloudLegacyMachineUpdate.run(pin: Self.pin, script: "echo guest\n", nonce: "0123456789abcdef", exec: calls.exec)
 
         #expect(answer == CloudMoveCLI.Answer(ok: true, updated: true, build: Self.pin.commit))
-        let (command, timeout) = try #require(calls.only)
-        #expect(timeout == 900_000)
-        #expect(command.contains("r=/var/lib/cmux-tui-upgrade/app-0123456789abcdef"))
-        #expect(command.contains(Data(CloudLegacyMachineUpdate.installCommand(Self.pin).utf8).base64EncodedString()))
-        #expect(command.contains(Data("echo guest\n".utf8).base64EncodedString()))
-        #expect(command.contains("systemd-run --quiet --collect --wait --unit=cmux-app-tui-update-0123456789abcdef /bin/sh \"$r/upgrade.sh\" \(Self.pin.sha256) \(Self.pin.commit) \"$r\""))
+        let made = calls.calls
+        #expect(made.map(\.1) == [60_000, 290_000, 290_000, 290_000], "each exec within the provider's 5 minutes")
+        let start = try #require(made.first?.0)
+        #expect(start.contains(#"r="$d/app-0123456789abcdef""#))
+        #expect(start.contains(Data(CloudLegacyMachineUpdate.installCommand(Self.pin).utf8).base64EncodedString()))
+        #expect(start.contains(Data("echo guest\n".utf8).base64EncodedString()))
+        #expect(start.contains("systemd-run --quiet --collect --unit=cmux-app-tui-update-0123456789abcdef /bin/sh \"$r/upgrade.sh\" \(Self.pin.sha256) \(Self.pin.commit) \"$r\""))
+        #expect(!start.contains("--wait"), "the start exec waits for nothing")
+        #expect(Set(made.dropFirst().map(\.0)) == [CloudLegacyMachineUpdate.waitCommand(nonce: "0123456789abcdef")])
         let install = CloudLegacyMachineUpdate.installCommand(Self.pin)
         #expect(install.contains("'https://files.cmux.com/cmux-tui/\(Self.pin.commit)/cmux-tui-x86_64-unknown-linux-musl'"))
         #expect(install.contains("printf '%s  %s\\n' \(Self.pin.sha256) \"$tmp\" | sha256sum -c"), "the download is checked against the pin")
+    }
 
+    /// A start that did not answer may have started the run, and a run past every wait goes on:
+    /// both are unresolved (asked again later). A start from an account that cannot become root
+    /// changed nothing: the machine cannot update this way.
+    @Test func aStartOrRunWithNoOutcomeIsUnresolved() async {
         let lost = await CloudLegacyMachineUpdate.run(pin: Self.pin, script: "", exec: { _, _ in throw CloudAPIError.timedOut("exec") })
-        #expect(lost.errorCode == "machine_update_unresolved", "an exec that did not answer may have left the run going")
+        #expect(lost.errorCode == "machine_update_unresolved")
+
+        let long = ExecRecorder(answers: [CloudExecResult(exitCode: 0, stdout: "started\n", stderr: "")]
+            + Array(repeating: CloudExecResult(exitCode: 0, stdout: "running\n", stderr: ""), count: 3))
+        let running = await CloudLegacyMachineUpdate.run(pin: Self.pin, script: "", waits: 3, exec: long.exec)
+        #expect(running.errorCode == "machine_update_unresolved")
+        #expect(long.calls.count == 4)
+
+        let noRoot = ExecRecorder(answers: [CloudExecResult(exitCode: 0, stdout: "NOROOT\n", stderr: "")])
+        #expect(await CloudLegacyMachineUpdate.run(pin: Self.pin, script: "", exec: noRoot.exec).errorCode == "machine_update_unsupported")
+        #expect(noRoot.calls.count == 1)
+    }
+
+    /// The start and wait commands run for real under /bin/sh, with stand-ins for sudo, systemd
+    /// and the guest script: through a systemd unit, and under setsid when the unit does not start.
+    /// The run gets the pin's digest, commit and directory, its outcome is the answer, and the run
+    /// takes its files and the old binary's backup with it.
+    @Test(arguments: [true, false]) func theCommandsRunTheGuestScriptToItsResult(systemd: Bool) async throws {
+        let shell = try ShellMachine(systemd: systemd)
+        defer { shell.remove() }
+        let guest = #"""
+            echo running > "$3/result"; echo "$1 $2 $3" > "$3/args"; touch "$3/cmux-tui.prev"
+            sleep 1
+            echo "OK upgraded terminals=2->2 daemon=99 hosts-before=2" > "$3/result"
+            """#
+        let answer = await CloudLegacyMachineUpdate.run(pin: Self.pin, script: guest, nonce: "feedfacecafebeef", directory: shell.directory.path,
+                                                        waitSeconds: 20, exec: shell.exec)
+
+        #expect(answer == CloudMoveCLI.Answer(ok: true, updated: true, build: Self.pin.commit))
+        let run = shell.directory.appendingPathComponent("app-feedfacecafebeef")
+        #expect(try String(contentsOf: run.appendingPathComponent("args"), encoding: .utf8)
+            == "\(Self.pin.sha256) \(Self.pin.commit) \(run.path)\n")
+        for gone in ["install.cmd", "upgrade.sh", "cmux-tui.prev"] {
+            #expect(!FileManager.default.fileExists(atPath: run.appendingPathComponent(gone).path), "\(gone) left behind")
+        }
+        #expect(shell.unitStarted == systemd)
     }
 
     /// Each result line of the guest script as a `link machine update` answer.
@@ -97,7 +145,8 @@ struct CloudLegacyMachineUpdateTests {
         #expect(code("NOROOT\n") == "machine_update_unsupported", "an account that cannot become root")
         #expect(code("running\n") == "machine_update_unresolved")
         #expect(code("") == "machine_update_unresolved")
-        #expect(code("", exit: 1) == "machine_update_failed", "the command stopped before the run")
+        #expect(code("", exit: 124) == "machine_update_unresolved", "the provider ended the wait; the run may go on")
+        #expect(code("garbage", exit: 124) == "machine_update_unresolved")
     }
 
     /// The pin is the app bundle's own manifest; anything that is not plain hex is refused.
@@ -125,20 +174,77 @@ struct CloudLegacyMachineUpdateTests {
     }
 }
 
-/// Records each exec and answers `stdout`.
+/// Records each exec and answers the next of `answers` (the last again once they run out).
 nonisolated final class ExecRecorder: @unchecked Sendable {
     private let lock = NSLock()
-    private var calls: [(String, Int)] = []
-    private let stdout: String
+    private var made: [(String, Int)] = []
+    private let answers: [CloudExecResult]
 
-    init(stdout: String) { self.stdout = stdout }
+    init(answers: [CloudExecResult]) { self.answers = answers }
 
-    var only: (String, Int)? { lock.withLock { calls.count == 1 ? calls[0] : nil } }
+    var calls: [(String, Int)] { lock.withLock { made } }
 
-    var exec: @Sendable (String, Int) async throws -> CloudExecResult {
+    var exec: CloudLegacyMachineUpdate.Exec {
         { command, timeout in
-            self.lock.withLock { self.calls.append((command, timeout)) }
-            return CloudExecResult(exitCode: 0, stdout: self.stdout, stderr: "")
+            self.lock.withLock {
+                self.made.append((command, timeout))
+                return self.answers[min(self.made.count, self.answers.count) - 1]
+            }
         }
     }
+}
+
+/// A machine for the exec commands: /bin/sh with stand-ins on PATH for sudo (runs the command),
+/// systemd-run (starts it in the background and keeps its pid for systemctl; with `systemd`
+/// false it fails to start, as without systemd), setsid, timeout and `tail --pid`.
+nonisolated final class ShellMachine: @unchecked Sendable {
+    let root: URL
+    var directory: URL { root.appendingPathComponent("upgrade") }
+    private var stubs: URL { root.appendingPathComponent("bin") }
+    var unitStarted: Bool { FileManager.default.fileExists(atPath: root.appendingPathComponent("mainpid").path) }
+
+    init(systemd: Bool) throws {
+        root = FileManager.default.temporaryDirectory.appendingPathComponent("legacy-shell-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("bin"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("upgrade"), withIntermediateDirectories: true)
+        let state = root.path
+        let scripts = [
+            "sudo": #"[ "$1" = -n ] && shift; exec "$@""#,
+            "systemd-run": systemd
+                ? #"while [ "${1#--}" != "$1" ]; do shift; done; nohup "$@" >/dev/null 2>&1 & echo $! > "\#(state)/mainpid""#
+                : "exit 1",
+            "systemctl": #"cat "\#(state)/mainpid""#,
+            "setsid": #"exec "$@""#,
+            "timeout": #"shift; exec "$@""#,
+            "tail": #"case "$1" in --pid=*) p=${1#--pid=}; while kill -0 "$p" 2>/dev/null; do sleep 0.1; done ;; *) exec /usr/bin/tail "$@" ;; esac"#,
+        ]
+        for (name, body) in scripts {
+            let file = stubs.appendingPathComponent(name)
+            try Data("#!/bin/sh\n\(body)\n".utf8).write(to: file)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+        }
+    }
+
+    var exec: CloudLegacyMachineUpdate.Exec {
+        let path = "\(stubs.path):/usr/bin:/bin:/usr/sbin:/sbin"
+        return { command, _ in try await Self.sh(command, path: path) }
+    }
+
+    @concurrent private static func sh(_ command: String, path: String) async throws -> CloudExecResult {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ["PATH": path, "HOME": NSTemporaryDirectory()]
+        let out = Pipe(), err = Pipe()
+        process.standardOutput = out
+        process.standardError = err
+        try process.run()
+        let stdout = out.fileHandleForReading.readDataToEndOfFile()
+        let stderr = err.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return CloudExecResult(exitCode: Int(process.terminationStatus), stdout: String(decoding: stdout, as: UTF8.self),
+                               stderr: String(decoding: stderr, as: UTF8.self))
+    }
+
+    func remove() { try? FileManager.default.removeItem(at: root) }
 }

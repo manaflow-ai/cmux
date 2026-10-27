@@ -8,7 +8,8 @@ import Foundation
 /// use. Through it the app runs the fleet's own guest upgrade (`cmux-tui-upgrade.sh`, a copy of
 /// `web/scripts/cloud-vm/cmux-tui-upgrade.sh`; docs/cloud-guest-upgrades.md) to install the app's
 /// own pinned Linux build: as root, detached from the exec in a transient systemd unit, under the
-/// machine's one upgrade lock. It backs up the running binary, installs the pinned one, ends only
+/// machine's one upgrade lock. One exec starts the run; each later one waits on it, at most a few
+/// minutes (the provider ends an exec after 5), until it writes its result. It backs up the running binary, installs the pinned one, ends only
 /// the daemon (every terminal host and chat keeps running), waits for the new daemon to serve and
 /// to keep every host, and rolls back otherwise. The new build serves `fs-v1`, so the machine's
 /// later updates go in place.
@@ -34,9 +35,12 @@ nonisolated enum CloudLegacyMachineUpdate {
     /// The fleet upgrade's directory: its runs share `lock`, so the app's run and an operator's
     /// never overlap on one machine.
     static let directory = "/var/lib/cmux-tui-upgrade"
-    /// How long the one exec may wait for the run: the route's cap. A run past it goes on, and
-    /// the machine then reports its build.
-    static let timeoutMs = 900_000
+    /// One wait's bound on the machine, under the provider's 5-minute exec.
+    static let waitSeconds = 270
+    /// Waits before the app stops asking (about 27 minutes, past the guest script's own bounds
+    /// for a healthy daemon, like `cmux link machine update`'s 25). A run that goes on after it
+    /// ends by itself, and the machine then reports its build.
+    static let waits = 6
 
     /// The pin in the manifest beside the app's `cmux` client, nil when the app ships none (dev
     /// builds) or it is malformed.
@@ -63,48 +67,82 @@ nonisolated enum CloudLegacyMachineUpdate {
         Bundle.module.url(forResource: "cmux-tui-upgrade", withExtension: "sh").flatMap { try? String(contentsOf: $0, encoding: .utf8) }
     }
 
-    /// Runs the update of a machine through `exec` (one call, the whole run) and answers as
-    /// `cmux link machine update` would. An exec that did not answer may have left the run going:
-    /// `machine_update_unresolved`, so the policy asks again and the machine reports its build.
-    static func run(pin: Pin, script: String, nonce: String = newNonce(),
-                    exec: @Sendable (_ command: String, _ timeoutMs: Int) async throws -> CloudExecResult) async -> CloudMoveCLI.Answer {
+    /// One exec on the machine: the command and its timeout in milliseconds.
+    typealias Exec = @Sendable (_ command: String, _ timeoutMs: Int) async throws -> CloudExecResult
+
+    /// Runs the update of a machine through `exec` and answers as `cmux link machine update`
+    /// would: one exec starts the run, then up to ``waits`` wait on it. A wait that did not answer
+    /// (the provider's timeout, a dropped request) is followed by the next; with none left, or a
+    /// start that did not answer, the answer is `machine_update_unresolved`, so the policy asks
+    /// again and the machine then reports its build.
+    static func run(pin: Pin, script: String, nonce: String = newNonce(), directory: String = directory,
+                    waitSeconds: Int = waitSeconds, waits: Int = waits, exec: Exec) async -> CloudMoveCLI.Answer {
+        let started: CloudExecResult
         do {
-            return answer(try await exec(command(pin: pin, script: script, nonce: nonce), timeoutMs), pin: pin)
+            started = try await exec(startCommand(pin: pin, script: script, nonce: nonce, directory: directory), 60_000)
         } catch {
-            return CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_unresolved",
-                                       error: "the machine's update did not answer: \(error)")
+            return unresolved("the machine's update did not answer its start: \(error)")
         }
+        switch lastLine(started) {
+        case "started": break
+        case "NOROOT": return answer(started, pin: pin)
+        default: return CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_failed", error: detail(started))
+        }
+        let wait = waitCommand(nonce: nonce, directory: directory, seconds: waitSeconds)
+        for _ in 0..<waits {
+            guard let ran = try? await exec(wait, (waitSeconds + 20) * 1000) else { continue }
+            let reply = answer(ran, pin: pin)
+            if reply.errorCode != "machine_update_unresolved" { return reply }
+        }
+        return unresolved("the machine's update did not end within \(waits * waitSeconds / 60) minutes")
     }
 
-    /// The exec body: the run's files go to a fresh directory, and the guest script runs as root
-    /// in a transient systemd unit the exec waits on (without systemd, under `setsid`). Only the
-    /// result line goes to stdout, and the log's tail to stderr.
-    static func command(pin: Pin, script: String, nonce: String) -> String {
-        let run = "\(directory)/app-\(nonce)"
+    /// The start exec: the run's files go to a fresh directory (runs older than a week go), and the
+    /// guest script starts as root in a transient systemd unit (without systemd, under `setsid` in
+    /// its own session), detached from the exec. Its pid goes to `pid` for the waits. Says
+    /// `started`, or `NOROOT` from an account that cannot become root (nothing changed).
+    static func startCommand(pin: Pin, script: String, nonce: String, directory: String = directory) -> String {
         let args = "\(pin.sha256) \(pin.commit) \"$r\""
         return [
             "set -eu",
-            #"root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }"#,
-            // An account that cannot become root cannot run the upgrade: said so, and nothing changed.
+            rootHelper,
             "root true 2>/dev/null || { echo NOROOT; exit 0; }",
-            "r=\(run)",
+            "d=\(directory); r=\"$d/app-\(nonce)\"",
             #"root mkdir -p "$r""#,
-            "\(writeFile(installCommand(pin), to: "$r/install.cmd"))",
-            "\(writeFile(script, to: "$r/upgrade.sh"))",
-            "if command -v systemd-run >/dev/null 2>&1; then root systemd-run --quiet --collect --wait --unit=cmux-app-tui-update-\(nonce) /bin/sh \"$r/upgrade.sh\" \(args) >/dev/null 2>&1 || true; fi",
-            // No unit ran it (no systemd, or it would not start): the script never wrote its result.
-            #"if [ ! -s "$r/result" ]; then root setsid nohup sh "$r/upgrade.sh" \#(args) </dev/null >/dev/null 2>&1 & wait $! || true; fi"#,
+            #"root find "$d" -maxdepth 1 -name 'app-*' -mtime +7 -exec rm -rf {} + 2>/dev/null || true"#,
+            writeFile(installCommand(pin), to: "$r/install.cmd"),
+            writeFile(script, to: "$r/upgrade.sh"),
+            "if command -v systemd-run >/dev/null 2>&1 && root systemd-run --quiet --collect --unit=cmux-app-tui-update-\(nonce) /bin/sh \"$r/upgrade.sh\" \(args) >/dev/null 2>&1; then",
+            "  pid=$(root systemctl show -p MainPID --value cmux-app-tui-update-\(nonce) 2>/dev/null || echo 0)",
+            "else",
+            // sudo's command is the shell, which ends at once: the run is its child's, not sudo's.
+            "  pid=$(root sh -c 'setsid nohup /bin/sh \"$1\" \"$2\" \"$3\" \"$4\" </dev/null >/dev/null 2>&1 & echo $!' sh \"$r/upgrade.sh\" \(args))",
+            "fi",
+            #"printf '%s\n' "${pid:-0}" | root tee "$r/pid" >/dev/null"#,
+            "echo started",
+        ].joined(separator: "\n")
+    }
+
+    /// A wait exec: until the run's process ends, at most `seconds`, then its result line on stdout
+    /// and the log's tail on stderr. A run that ended takes its files and, unless its rollback
+    /// failed, the backup of the old binary with it.
+    static func waitCommand(nonce: String, directory: String = directory, seconds: Int = waitSeconds) -> String {
+        [
+            "set -eu",
+            rootHelper,
+            "r=\(directory)/app-\(nonce)",
+            #"pid=$(root cat "$r/pid" 2>/dev/null || echo 0)"#,
+            "if [ \"${pid:-0}\" -gt 0 ] 2>/dev/null && root kill -0 \"$pid\" 2>/dev/null; then root timeout \(seconds) tail --pid=\"$pid\" -f /dev/null >/dev/null 2>&1 || true; fi",
             #"line=$(root cat "$r/result" 2>/dev/null || true); root tail -n 15 "$r/log" >&2 2>/dev/null || true"#,
-            // The backup is the rollback's only; a run that ended well needs it no longer.
-            #"case "$line" in OK*|UNVERIFIED*) root rm -f "$r/cmux-tui.prev" ;; esac"#,
+            #"case "$line" in ""|running|PENDING*) ;; "FAIL rollback"*) root rm -f "$r/install.cmd" "$r/upgrade.sh" ;; *) root rm -f "$r/install.cmd" "$r/upgrade.sh" "$r/cmux-tui.prev" ;; esac"#,
             #"printf '%s\n' "$line""#,
         ].joined(separator: "\n")
     }
 
     /// The pinned install the guest script runs as root (`install.cmd`): the daemon's own layout
     /// (`cmuxTuiLayoutSelector` in web/services/vms/drivers/cmuxTuiDaemon.ts), the pinned binary
-    /// downloaded and checked beside it, then renamed over it. A binary that already matches the
-    /// pin stays.
+    /// downloaded and checked beside it, then renamed over it, owned by the daemon's user so its
+    /// later in-place updates can replace it. A binary that already matches the pin stays.
     static func installCommand(_ pin: Pin) -> String {
         let check = { (file: String) in "printf '%s  %s\\n' \(pin.sha256) \"\(file)\" | sha256sum -c >/dev/null 2>&1" }
         return [
@@ -120,11 +158,12 @@ nonisolated enum CloudLegacyMachineUpdate {
         ].joined(separator: "\n") + "\n"
     }
 
-    /// The guest script's result line as a `link machine update` answer.
+    /// The guest script's result line (the last line of a wait's stdout) as a `link machine
+    /// update` answer. No line yet, `running`, or an exec the provider ended (exit 124: the run
+    /// may still go on) is `machine_update_unresolved`: the next wait asks again.
     static func answer(_ ran: CloudExecResult, pin: Pin) -> CloudMoveCLI.Answer {
-        let line = ran.stdout.split(whereSeparator: \.isNewline).last.map(String.init) ?? ""
-        let detail = line.isEmpty ? String(ran.stderr.suffix(400)) : line
-        func failed(_ code: String) -> CloudMoveCLI.Answer { CloudMoveCLI.Answer(ok: false, errorCode: code, error: detail) }
+        let line = lastLine(ran)
+        func failed(_ code: String) -> CloudMoveCLI.Answer { CloudMoveCLI.Answer(ok: false, errorCode: code, error: detail(ran)) }
         switch line.split(separator: " ").first.map(String.init) ?? "" {
         // UNVERIFIED: the new daemon serves and kept every host; only the terminal count was unreadable.
         case "OK", "UNVERIFIED":
@@ -143,10 +182,7 @@ nonisolated enum CloudLegacyMachineUpdate {
             if line.hasPrefix("SKIP unsupported-cloud-auth") { return failed("machine_update_unsupported") }
             return failed("machine_update_failed")
         default:
-            // The command stopped before the run (it wrote nothing): nothing changed.
-            if line.isEmpty && ran.exitCode != 0 { return failed("machine_update_failed") }
-            // No result yet: the run did not end within the exec, or reports no outcome.
-            if line.isEmpty || line == "running" || line == "PENDING" { return failed("machine_update_unresolved") }
+            if line.isEmpty || line == "running" || line.hasPrefix("PENDING") || ran.exitCode == 124 { return failed("machine_update_unresolved") }
             return failed("machine_update_failed")
         }
     }
@@ -154,6 +190,23 @@ nonisolated enum CloudLegacyMachineUpdate {
     /// 16 hex characters: names the run's directory and unit.
     static func newNonce() -> String {
         String(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(16))
+    }
+
+    /// `root CMD`: CMD as root, from the machine's user (passwordless sudo) or root.
+    private static let rootHelper = #"root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }"#
+
+    private static func unresolved(_ why: String) -> CloudMoveCLI.Answer {
+        CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_unresolved", error: why)
+    }
+
+    private static func lastLine(_ ran: CloudExecResult) -> String {
+        ran.stdout.split(whereSeparator: \.isNewline).last.map(String.init) ?? ""
+    }
+
+    /// What a failure says: the result line, else the end of stderr.
+    private static func detail(_ ran: CloudExecResult) -> String {
+        let line = lastLine(ran)
+        return line.isEmpty ? String(ran.stderr.suffix(400)) : line
     }
 
     /// `echo BASE64 | base64 -d | root tee FILE`: the exec body carries no quoting of its own.
