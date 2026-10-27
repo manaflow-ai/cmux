@@ -17,7 +17,7 @@ shared Sentry project (CrashReportingPolicy.swift: release `cmux-next@<version>+
   with the release Sentry saw it in first.
 - With --db, each new top signature is one alert group in the lab store (state `new`, one sheriff_history row by
   actor perf-lab-stability), so the sheriff loop (sheriff.py) triages it like a perf group. Its field_signatures
-  row (store migration 4) keys the group, so a signature gets one group, ever, and marks it a field group: Pinpoint
+  row (store migration 5) keys the group, so a signature gets one group, ever, and marks it a field group: Pinpoint
   never bisects it and the perf SLO leaves it out. Each run also reads every open field group's last release from
   Sentry and stores the newer cmux NEXT releases with sessions that did not crash with it; the sheriff's `fixed`
   needs sheriff.FIELD_CLEAN_RELEASES of them.

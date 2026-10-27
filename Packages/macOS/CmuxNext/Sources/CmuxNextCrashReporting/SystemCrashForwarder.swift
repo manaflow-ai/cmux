@@ -61,10 +61,15 @@ public final class SystemCrashForwarder: Sendable {
     /// time macOS writes into the report folder, off the main thread (with
     /// `sends` false: marks them done).
     public func start() {
-        queue.async { [self] in
-            forwardNew(now: Date())
-            watch()
-        }
+        queue.async { [self] in forwardAndWatch() }
+    }
+
+    /// ``start()``'s work on the calling thread, which may block on files (a launch lane post,
+    /// ``CrashForwarders/run()``): sends the reports written since the last run, then watches the
+    /// folder on the forwarder's queue. Call it, or ``start()``, once.
+    public func forwardAndWatch() {
+        forwardNew(now: Date())
+        watch()
     }
 
     /// Sends the reports newer than the saved watermark and moves it.
