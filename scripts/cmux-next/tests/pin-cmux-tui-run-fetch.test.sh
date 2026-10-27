@@ -123,24 +123,56 @@ for word in $after_remote; do
 done
 [[ "$(git -C "$TMP/job" rev-parse --is-shallow-repository)" == true ]] || fail "(a) the job checkout lost its shallow marker"
 
-# (b) No fetch budget: nothing is fetched, the unread runs make the answer
+# (b) No fetch budget, in a partial (blob-filtered) shallow clone: nothing is
+# fetched, not even lazily by a presence check, the unread runs make the answer
 # unknown (never "no publisher"), and the probe still writes its state at once.
-rm -rf "$TMP/job2"; git_q clone --depth=1 --branch job "file://$TMP/origin.git" "$TMP/job2"
-mv "$TMP/job" "$TMP/job-a"; mv "$TMP/job2" "$TMP/job"
+fresh_job() { rm -rf "$TMP/job"; git_q clone --depth=1 --filter=blob:none --branch job "file://$TMP/origin.git" "$TMP/job"; }
+fresh_job
+[[ -n "$(git -C "$TMP/job" config --get remote.origin.promisor)" ]] || fail "setup: the (b) checkout is not a partial clone"
 probe CMUX_TUI_TREE_RUN_FETCH_SECONDS=0
 [[ "$status" == 0 && -n "$state" ]] || fail "(b) the probe wrote no state (exit $status)" "$out"
 [[ ! -s "$TMP/fetches.log" ]] || fail "(b) a fetch ran with no budget:" "$(cat "$TMP/fetches.log")"
+for sha in "${lane_shas[@]}" "$publisher"; do
+  ! GIT_NO_LAZY_FETCH=1 git -C "$TMP/job" cat-file -e "$sha^{commit}" 2>/dev/null || fail "(b) $sha was fetched (lazily) with no budget" "$out"
+done
 grep -qF "7 active run commits were not fetched within 0s" <<<"$out" || fail "(b) the unread runs were not reported" "$out"
 
-# (c) A hanging fetch is stopped at the budget: the probe answers in seconds.
-if command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1; then
-  started=$SECONDS
-  probe SLOW_FETCH=1 CMUX_TUI_TREE_RUN_FETCH_SECONDS=2
-  took=$((SECONDS - started))
-  [[ "$status" == 0 && -n "$state" ]] || fail "(c) the probe wrote no state (exit $status)" "$out"
-  (( took < 20 )) || fail "(c) a hanging run-commit fetch held the probe ${took}s past a 2 s budget" "$out"
-  grep -qF "were not fetched within 2s" <<<"$out" || fail "(c) the unread runs were not reported" "$out"
-else
-  echo "note: (c) skipped: no timeout(1) on this host"
-fi
+# (c) A hanging fetch is stopped at the budget: the probe answers in seconds,
+# and every run the deadline cut off is unread (unknown), not absent.
+fresh_job
+started=$SECONDS
+probe SLOW_FETCH=1 CMUX_TUI_TREE_RUN_FETCH_SECONDS=2
+took=$((SECONDS - started))
+[[ "$status" == 0 && -n "$state" ]] || fail "(c) the probe wrote no state (exit $status)" "$out"
+(( took < 20 )) || fail "(c) a hanging run-commit fetch held the probe ${took}s past a 2 s budget" "$out"
+grep -qF "7 active run commits were not fetched within 2s" <<<"$out" || fail "(c) the unread runs were not reported" "$out"
+
+# (d) The batch fails at once (one run commit is gone from every remote) and
+# the last single fetch is cut off by the deadline: that run is unread, so the
+# answer is unknown, not "no publisher". The gone commit alone is skipped.
+fresh_job
+gone=$(printf 'e%.0s' {1..40})
+python3 -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+d["workflow_runs"] = [{"status": "queued", "head_sha": sys.argv[2], "head_branch": "cp/gone"},
+                      {"status": "queued", "head_sha": sys.argv[3], "head_branch": "cp/1"}]
+json.dump(d, open(sys.argv[1], "w"))' "$TMP/runs.json" "$gone" "${lane_shas[0]}"
+# Batches (two SHAs) fail at once; a single-SHA fetch of the lane commit hangs.
+cat > "$TMP/bin/git" <<SHIM
+#!/usr/bin/env bash
+for arg; do
+  if [[ "\$arg" == fetch ]]; then
+    printf '%s\n' "\$*" >> "$TMP/fetches.log"
+    [[ "\$*" == *" $gone"* ]] && exit 128
+    sleep 30 </dev/null >/dev/null 2>&1
+    break
+  fi
+done
+exec "$real_git" "\$@"
+SHIM
+probe CMUX_TUI_TREE_RUN_FETCH_SECONDS=2
+[[ "$status" == 0 && -n "$state" ]] || fail "(d) the probe wrote no state (exit $status)" "$out"
+grep -qF "1 active run commits were not fetched within 2s" <<<"$out" || fail "(d) the cut-off run was not unread" "$out"
+grep -qF "cannot read active run commit ${gone:0:12}" <<<"$out" || fail "(d) the gone commit was not skipped" "$out"
 printf 'pin-cmux-tui run-fetch tests: ok\n'

@@ -404,7 +404,9 @@ github_api() {
 # active runs, so one fetch per run held cmux-next path routing past its limit
 # (2026-10-27). A full clone stays full (no depth) and complete (no filter).
 # All fetches share CMUX_TUI_TREE_RUN_FETCH_SECONDS (default 60); runs on the
-# cmux-next branches are compared first. A commit no remote serves is skipped.
+# cmux-next branches are compared first. A commit no remote serves is skipped;
+# one the deadline cut off is unread. Presence checks never lazy-fetch (a
+# partial clone would otherwise fetch each missing commit outside the deadline).
 active_publisher_for_key() {
   local key="$1" body candidate fetch_args=() candidates=() missing=() unread=0 deadline left
   local budget="${CMUX_TUI_TREE_RUN_FETCH_SECONDS:-60}" public
@@ -429,7 +431,7 @@ assert isinstance(runs, list) and all(isinstance(r, dict) and isinstance(r.get("
   while read -r candidate; do
     [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || continue
     candidates+=("$candidate")
-    git -C "$repo_root" cat-file -e "$candidate^{commit}" 2>/dev/null || missing+=("$candidate")
+    GIT_NO_LAZY_FETCH=1 git -C "$repo_root" cat-file -e "$candidate^{commit}" 2>/dev/null || missing+=("$candidate")
   done < <(python3 -c '
 import json, sys
 try:
@@ -456,13 +458,15 @@ for run in active:
       || bounded_run_fetch "$deadline" "$public" "${missing[@]}" || true
   fi
   for candidate in "${candidates[@]}"; do
-    if ! git -C "$repo_root" cat-file -e "$candidate^{commit}" 2>/dev/null; then
+    if ! GIT_NO_LAZY_FETCH=1 git -C "$repo_root" cat-file -e "$candidate^{commit}" 2>/dev/null; then
       # A batch fails as a whole when one commit is gone; fetch the rest alone.
-      left=$(( deadline - $(date +%s) ))
-      if (( left <= 0 )); then unread=$((unread + 1)); continue; fi
-      bounded_run_fetch "$deadline" origin "$candidate" \
-        || bounded_run_fetch "$deadline" "$public" "$candidate" \
-        || { echo "note: cannot read active run commit ${candidate:0:12} to compare its tree" >&2; continue; }
+      if ! bounded_run_fetch "$deadline" origin "$candidate" \
+        && ! bounded_run_fetch "$deadline" "$public" "$candidate"; then
+        # Cut off by the deadline (or no limiter): unread, not absent.
+        if (( $(date +%s) >= deadline )) || ! command -v perl >/dev/null 2>&1; then unread=$((unread + 1))
+        else echo "note: cannot read active run commit ${candidate:0:12} to compare its tree" >&2; fi
+        continue
+      fi
     fi
     if [[ "$(tree_key "$candidate" 2>/dev/null)" == "$key" ]]; then echo "$candidate"; return 0; fi
   done
@@ -475,15 +479,21 @@ for run in active:
 
 # bounded_run_fetch <deadline> <remote> <sha>...: fetches exactly those
 # commits (fetch_args from the caller), no tags, no submodules and no
-# FETCH_HEAD, stopped at <deadline> (epoch seconds) where timeout(1) exists.
+# FETCH_HEAD, stopped at <deadline> (epoch seconds): SIGTERM like timeout(1),
+# so git removes its lock files, then SIGKILL 2 s later. perl does the timing
+# (it ships with macOS and with git on Linux; timeout(1) does not ship with
+# macOS). Without perl nothing is fetched: an unbounded fetch is what this replaces.
 bounded_run_fetch() {
-  local deadline="$1" remote="$2" left limiter=()
+  local deadline="$1" remote="$2" left
   shift 2
   left=$(( deadline - $(date +%s) ))
   (( left > 0 )) || return 1
-  if command -v timeout >/dev/null 2>&1; then limiter=(timeout "$left")
-  elif command -v gtimeout >/dev/null 2>&1; then limiter=(gtimeout "$left"); fi
-  ${limiter[@]+"${limiter[@]}"} git -C "$repo_root" fetch -q --no-tags --no-recurse-submodules --no-write-fetch-head \
+  command -v perl >/dev/null 2>&1 || return 1
+  perl -e 'my $t = shift; my $pid = fork; defined $pid or exit 125; if (!$pid) { exec @ARGV or exit 127 }
+    $SIG{ALRM} = sub { kill "TERM", $pid; for (1 .. 20) { exit 124 if waitpid($pid, 1) > 0; select undef, undef, undef, 0.1 }
+      kill "KILL", $pid; waitpid $pid, 0; exit 124 };
+    alarm $t; waitpid $pid, 0; exit(($? & 127) ? 128 + ($? & 127) : $? >> 8)' "$left" \
+    git -C "$repo_root" fetch -q --no-tags --no-recurse-submodules --no-write-fetch-head \
     ${fetch_args[@]+"${fetch_args[@]}"} "$remote" "$@" 2>/dev/null
 }
 
