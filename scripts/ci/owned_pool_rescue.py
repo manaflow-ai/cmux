@@ -491,7 +491,10 @@ LAST_OWNED_ATTEMPT = 2
 # re-run as attempt 4, which cmux-next.yml sends to Blacksmith. Minis-first
 # still holds for attempts 1 to 3, and no attempt past 3 is watched.
 REFUSAL_RESCUE_ATTEMPT = LAST_OWNED_ATTEMPT + 1
-RESCUE_ACTOR = "github-actions[bot]"
+# The bot's re-runs: the workflow token's, and cmux-bot's since ci-owned-pool-rescue.yml mints that App's
+# token for its mutations. A re-run by anyone else is a person's (owned_rerun()). Run 40444295785, a DEV
+# daily, went through 10 cmux-bot attempts on the minis while only github-actions[bot] counted here.
+RESCUE_ACTORS = frozenset({"github-actions[bot]", "cmux-bot[bot]"})
 # Why a pull request's run at its open head is left alone (queue_janitor.py shares it).
 OPEN_HEAD_RULE = ("never cancelled: an open pull request's run at its head is never cancelled by anything "
                   "automatic; the controller's fall-through moves its compile instead")
@@ -499,7 +502,7 @@ OPEN_HEAD_RULE = ("never cancelled: an open pull request's run at its head is ne
 
 def owned_rerun(run: Mapping[str, Any]) -> bool:
     """A re-run of a CI run whose owned jobs go back to the minis, so it is watched like attempt 1: attempt 2,
-    or a later one of a pull request someone other than github-actions[bot] started."""
+    or a later one of a pull request someone other than the bot (RESCUE_ACTORS) started."""
     attempt = int(run.get("run_attempt") or 0)
     if attempt <= 1:
         return False
@@ -508,9 +511,9 @@ def owned_rerun(run: Mapping[str, Any]) -> bool:
         # Manual side-lane reruns stay minis-first at any attempt. The bot's
         # second attempt is still watched so a second long queue can overflow
         # on attempt three; bot attempt three is watched for refusals only.
-        return actor != RESCUE_ACTOR or attempt <= REFUSAL_RESCUE_ATTEMPT
+        return actor not in RESCUE_ACTORS or attempt <= REFUSAL_RESCUE_ATTEMPT
     return run.get("path") == CI_WORKFLOW_PATH and (attempt <= LAST_OWNED_ATTEMPT or (
-        run.get("event") == "pull_request" and actor != RESCUE_ACTOR))
+        run.get("event") == "pull_request" and actor not in RESCUE_ACTORS))
 # The runner's own steps, which run before glaeda's hook decides.
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 XCODE_SELECTION_STEPS = frozenset({"Select Xcode", "Select helper Xcode"})
@@ -1322,6 +1325,21 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
                   e2e=e2e, side=side, path=str(path), attempt_started_at=attempt_started)
 
 
+def completed_target(event: Mapping[str, Any], repository: str) -> Target | str:
+    """A cmux-next run that finished red (workflow_run `completed`): the attempt that failed, any attempt.
+
+    ci-owned-pool-rescue.yml wakes on a failed DEV daily dispatch or feat-cmux-next push of cmux-next.yml,
+    so a refused DEV compile gets its own watch instead of waiting for the sweeper, whose listings run
+    out of the hour's API budget. The attempt is resolved the sweeper's way (sweep_target()): a bot attempt
+    3 is refusals only, and a bot attempt past it is on Blacksmith and left alone.
+    """
+    run = event.get("workflow_run") or {}
+    if run.get("path") != CMUX_NEXT_WORKFLOW_PATH:
+        return (f"a finished run of {run.get('path') or 'an unknown workflow'}; only {CMUX_NEXT_WORKFLOW_PATH} "
+                "wakes a rescue when it finishes")
+    return sweep_target(run, repository, late=False)
+
+
 def nightly_target(run: Mapping[str, Any], repository: str) -> Target | str:
     """Attempt 1 of main push/schedule or nightly-next push, from this repository."""
     if run.get("event") not in NIGHTLY_EVENTS:
@@ -1798,7 +1816,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     else:
         with open(env["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
             event = json.load(handle)
-    target = target_from_event(event, repository)
+    target = completed_target(event, repository) if event.get("action") == "completed" else \
+        target_from_event(event, repository)
     if isinstance(target, str):
         return finish(f"not watched: {target}")
     if ((env.get("LATE_PLACEMENT") or "").strip() == "1" and target.attempt == 1
@@ -2010,7 +2029,7 @@ def sweep_target(run: Mapping[str, Any], repository: str, *, late: bool, full_re
         actor = str((run.get("triggering_actor") or {}).get("login") or "")
         return dataclasses.replace(target, attempt=attempt, full_rerun=full_rerun,
                                    late=full_rerun and not (target.e2e or target.main or target.side),
-                                   refusals_only=(run.get("path") == CMUX_NEXT_WORKFLOW_PATH and actor == RESCUE_ACTOR
+                                   refusals_only=(run.get("path") == CMUX_NEXT_WORKFLOW_PATH and actor in RESCUE_ACTORS
                                                   and attempt == REFUSAL_RESCUE_ATTEMPT))
     if late and not (target.e2e or target.main or target.side):
         return dataclasses.replace(target, late=True)
