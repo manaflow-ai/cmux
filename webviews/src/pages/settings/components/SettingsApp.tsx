@@ -127,7 +127,7 @@ export function SettingsApp() {
 
   return (
     <div className="settings" ref={keyboardRef}>
-      <aside className="sidebar">
+      <aside className="sidebar" data-page-scroll="sections">
         <SearchField
           query={query}
           onQuery={setQuery}
@@ -138,7 +138,7 @@ export function SettingsApp() {
         />
         <SectionList current={searching ? null : section} onSelect={clearField} />
       </aside>
-      <main className="content">
+      <main className="content" data-page-scroll="content">
         <div className="column">
           {!state.connected ? (
             <ReadOnlyBanner />

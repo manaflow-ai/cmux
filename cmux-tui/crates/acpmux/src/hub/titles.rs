@@ -283,7 +283,7 @@ impl Hub {
         // `rg --files --hidden` over its cwd at start, and one titler per
         // finished chat over all of `$TMPDIR` pegged the Mac's CPU.
         let cwd =
-            tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd).await.ok()?;
+            crate::daemon::spawn_blocking(crate::protected_folders::unattended_cwd).await.ok()?;
         let cfg = self.config.read().await;
         if cfg.titles.generate == Some(false) {
             return None;
