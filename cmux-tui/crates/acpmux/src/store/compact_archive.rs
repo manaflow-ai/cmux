@@ -27,9 +27,10 @@ mod unix {
 
     /// A pass's archive folder, held open (module docs).
     pub(in crate::store) struct Archive {
-        /// The folders to sync: every one the pass made above the named one with the folder that
-        /// names it, then the named one, the chat's and the pass's own.
+        /// The folders to sync above the pass's: every one the pass made above the named one
+        /// with the folder that names it, then the named one and the chat's.
         dirs: Vec<File>,
+        pass: File,
         events: File,
     }
 
@@ -189,8 +190,7 @@ mod unix {
         /// pass's, refused.
         pub(in crate::store) fn create(root: &Path, id: &str, pass: &str) -> Result<Self> {
             let mut dirs = Vec::new();
-            let root = resolve(root, &mut dirs)?;
-            dirs.push(root);
+            let mut parent = resolve(root, &mut dirs)?;
             let mut path = PathBuf::new();
             for (part, made_before) in [(id, true), (pass, false)] {
                 ensure!(
@@ -202,8 +202,7 @@ mod unix {
                 );
                 path.push(part);
                 let part = name(OsStr::new(part))?;
-                let parent = dirs.last().expect("the root");
-                match mkdir_at(parent, &part) {
+                match mkdir_at(&parent, &part) {
                     Ok(()) => {}
                     // The chat's folder an earlier pass made; never the pass's own.
                     Err(e) if made_before && e.kind() == std::io::ErrorKind::AlreadyExists => {}
@@ -212,16 +211,15 @@ mod unix {
                             .with_context(|| format!("make archive folder {}", path.display()));
                     }
                 }
-                let dir = own_dir_at(parent, &part, &path)?;
-                dirs.push(dir);
+                let dir = own_dir_at(&parent, &part, &path)?;
+                dirs.push(std::mem::replace(&mut parent, dir));
             }
             let events = name(OsStr::new("events"))?;
-            let pass_dir = dirs.last().expect("the pass's folder");
-            mkdir_at(pass_dir, &events).with_context(|| {
+            mkdir_at(&parent, &events).with_context(|| {
                 format!("make archive folder {}", path.join("events").display())
             })?;
-            let events = own_dir_at(pass_dir, &events, &path.join("events"))?;
-            Ok(Self { dirs, events })
+            let events = own_dir_at(&parent, &events, &path.join("events"))?;
+            Ok(Self { dirs, pass: parent, events })
         }
 
         /// Keeps `from` (a file of the chat's own folder) in the pass's folder, or its `events`:
@@ -233,8 +231,7 @@ mod unix {
             in_events: bool,
             copy: bool,
         ) -> Result<()> {
-            let dir =
-                if in_events { &self.events } else { self.dirs.last().expect("the pass's folder") };
+            let dir = if in_events { &self.events } else { &self.pass };
             let to = name(from.file_name().context("an archived file has no name")?)?;
             if !copy {
                 let source = name(from.as_os_str())?;
@@ -267,6 +264,7 @@ mod unix {
         /// for them are on disk before a segment is replaced.
         pub(in crate::store) fn sync(&self) -> Result<()> {
             self.events.sync_all()?;
+            self.pass.sync_all()?;
             for dir in self.dirs.iter().rev() {
                 dir.sync_all()?;
             }
