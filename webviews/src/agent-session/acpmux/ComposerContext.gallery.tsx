@@ -423,6 +423,34 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
     },
+    "environment-picker-sandboxed-option": {
+      note: "Labs (hq#3367): Sandboxed is New Cloud Machine's other face, with no row of its own. Holding ⌥ while the list is open shows it, as a Mac menu's alternate: a pick runs the new chat's first message once on a throwaway Cloud VM.",
+      props: { ...baseProps, environments: true, runMode: { mode: "persistent", onMode: () => undefined } },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+        ctx.document.defaultView?.dispatchEvent(new KeyboardEvent("keydown", { key: "Alt", altKey: true }));
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="sandboxed"]'));
+      },
+    },
+    "environment-picker-sandboxed-search": {
+      note: "Labs (hq#3367): searching for it shows Sandboxed in New Cloud Machine's place.",
+      props: { ...baseProps, environments: true, runMode: { mode: "persistent", onMode: () => undefined } },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+        await ctx.type("sandbox");
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="sandboxed"]'));
+      },
+    },
+    "environment-picker-sandboxed-picked": {
+      note: "Labs (hq#3367): Sandboxed picked. The control names it where the machine was, and its row stays checked in New Cloud Machine's place; any machine goes back to a Persistent chat.",
+      props: { ...baseProps, environments: true, runMode: { mode: "sandboxed", onMode: () => undefined } },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="sandboxed"]'));
+      },
+    },
     "environment-picker-cloud-machines": {
       note: "Preview: the environment picker above, then the account's Cloud machines acpmux does not list (`cloudMachine.list`) in Cloud and VMs, each with its stage: build box is paused (a pick resumes it), eval box is ready (a pick opens it), fresh box is still booting. They take no ⌥⌘ digit and are not greyed.",
       props: {

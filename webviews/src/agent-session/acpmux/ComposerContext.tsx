@@ -242,6 +242,7 @@ export function ComposerContext({
   const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
   if (!currentComputer && !currentFolder && !projectChoices) return <div className="acpmux-composer-strip" />;
   const readOnly = started || onProject === undefined;
+  const sandboxPicked = runMode?.mode === "sandboxed" && !started && !readOnly;
   const newChats = started && onNewChat !== undefined;
   const branch = summary?.branch;
   // The folder control names the repository (projectRepos.ts), and a worktree's branch while no
@@ -395,18 +396,27 @@ export function ComposerContext({
             <EnvironmentPicker
               label={t(CONTEXT_LABELS.environment)}
               menu="Computer"
-              value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
+              value={
+                sandboxPicked
+                  ? t("composer.sandboxed")
+                  : (savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer))
+              }
               face={
-                <LocationFace
-                  icon={
-                    <EnvironmentIcon
-                      kind={savedPick?.kind ?? currentComputer?.kind ?? "local"}
-                      name={savedPick ? undefined : currentComputer?.label}
-                    />
-                  }
-                  value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
-                  chevron
-                />
+                // Sandboxed picked (hq#3367): the control names it where the machine was.
+                sandboxPicked ? (
+                  <LocationFace icon={<EnvironmentIcon kind="cloud" />} value={t("composer.sandboxed")} chevron />
+                ) : (
+                  <LocationFace
+                    icon={
+                      <EnvironmentIcon
+                        kind={savedPick?.kind ?? currentComputer?.kind ?? "local"}
+                        name={savedPick ? undefined : currentComputer?.label}
+                      />
+                    }
+                    value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
+                    chevron
+                  />
+                )
               }
               environments={started && currentComputer ? [currentComputer] : computers}
               current={selectedComputer}

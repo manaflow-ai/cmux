@@ -870,3 +870,34 @@ test("a chat's machine the daemon no longer lists is shown not connected, and is
     ["removed", false, false],
   ]);
 });
+
+test("Labs: Sandboxed is New Cloud Machine's other face, shown while ⌥ is held or searched, never a row of its own", async () => {
+  const calls: unknown[][] = [];
+  const runMode = { mode: "persistent", onMode: (mode: string) => calls.push(["mode", mode]) };
+  await mount(true, { runMode });
+  await openPicker();
+  const before = rows().length;
+  expect(doc().querySelector('.acpmux-env-popover [data-mode="sandboxed"]')).toBeNull();
+  await press(doc().body, { key: "Alt", altKey: true });
+  expect(rows()).toHaveLength(before);
+  const sandbox = rows().find((row) => row.querySelector('[data-mode="sandboxed"]'))!;
+  expect(rowText(sandbox)).toContain(t("composer.sandboxed"));
+  await act(async () => sandbox.click());
+  expect(calls).toEqual([["mode", "sandboxed"]]);
+  await openPicker();
+  await type("sandbox");
+  expect(doc().querySelector('.acpmux-env-popover [data-mode="sandboxed"]')).toBeTruthy();
+});
+
+test("Labs: with Sandboxed picked the control names it, no machine is checked, and a machine pick goes back to Persistent", async () => {
+  const calls: unknown[][] = [];
+  const runMode = { mode: "sandboxed", onMode: (mode: string) => calls.push(["mode", mode]) };
+  const picks = await mount(true, { runMode });
+  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: ${t("composer.sandboxed")}`);
+  await openPicker();
+  expect(doc().querySelector('.acpmux-env-popover [data-mode="sandboxed"][data-current]')).toBeTruthy();
+  expect(machineRows().some((row) => row.querySelector("[data-current]"))).toBe(false);
+  await act(async () => machineRows()[1]!.click());
+  expect(calls).toEqual([["mode", "persistent"]]);
+  expect(picks.at(-1)?.[0]).toBe("project");
+});

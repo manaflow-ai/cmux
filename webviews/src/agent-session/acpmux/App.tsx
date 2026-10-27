@@ -9061,8 +9061,13 @@ function AcpmuxPane() {
         </Notice>
         {/* The tab's Sandboxed run while a chat shows here: it has no session to go back to, so it is
             offered here. */}
-        {/* No read of the host's sandbox state answered after a reload: say so, with Check again. */}
-        <Notice id="sandbox-unchecked" tier="status" when={sandbox.host.kind === "unknown" && !sandboxHoldsChat}>
+        {/* No read of the host's sandbox state answered after a reload: say so, with Check again
+            (Labs only: without it there is no Sandboxed send to lose). */}
+        <Notice
+          id="sandbox-unchecked"
+          tier="status"
+          when={preview && sandbox.host.kind === "unknown" && !sandboxHoldsChat}
+        >
           <output className="acpmux-switch-notice acpmux-folder-choice">
             <span>{t("sandbox.unchecked")}</span>{" "}
             <button type="button" className="acpmux-folder-choice-button" onClick={() => void sandbox.read()}>
@@ -9075,7 +9080,16 @@ function AcpmuxPane() {
             <span>
               {t(sandboxElsewhere?.state === "running" ? "sandbox.elsewhereRunning" : "sandbox.elsewhereDone")}
             </span>{" "}
-            <button type="button" className="acpmux-folder-choice-button" onClick={() => setSandboxViewing(true)}>
+            <button
+              type="button"
+              className="acpmux-folder-choice-button"
+              onClick={() => {
+                // The receipt takes the composer's place: what only the composer holds (shell
+                // mode, its line, attachments) comes back with it on Back.
+                pendingWake.current = composerHandle.current?.wakeState();
+                setSandboxViewing(true);
+              }}
+            >
               {t("sandbox.show")}
             </button>
           </output>
