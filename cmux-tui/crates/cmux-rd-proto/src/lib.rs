@@ -7,6 +7,8 @@
 //! packets of that frame, plus optional parity packets. All integers are
 //! little-endian. This crate does no I/O.
 
+#![forbid(unsafe_code)]
+
 mod bulk;
 mod clock;
 #[cfg(feature = "serde")]

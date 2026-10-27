@@ -20,6 +20,7 @@
         clippy::exit
     )
 )]
+#![forbid(unsafe_code)]
 
 pub mod catalog;
 pub mod event;

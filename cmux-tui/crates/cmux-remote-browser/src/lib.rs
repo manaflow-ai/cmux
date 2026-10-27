@@ -7,6 +7,8 @@
 //! and the cookie sync conflict rule. It does no I/O and reads no clock; time
 //! is always an input. Shared test vectors: `schemas/remote-tab/`.
 
+#![forbid(unsafe_code)]
+
 pub mod client;
 pub mod cookie;
 pub mod menu;

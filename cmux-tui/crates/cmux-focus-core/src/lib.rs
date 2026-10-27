@@ -16,6 +16,8 @@
 //! shapes: the journal checkpoints and replay use them, and [`wire`] holds
 //! the per-key JSON rules.
 
+#![forbid(unsafe_code)]
+
 pub mod child_window;
 pub mod close_focus;
 pub mod event;

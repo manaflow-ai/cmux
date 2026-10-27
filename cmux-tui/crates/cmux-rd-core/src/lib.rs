@@ -5,6 +5,8 @@
 //! session table with its access policy. No I/O; every function
 //! that needs time takes it as an argument. Design: plans/cmux-next/remote-desktop.md.
 
+#![forbid(unsafe_code)]
+
 pub mod bulk;
 pub mod cc;
 pub mod clock;
