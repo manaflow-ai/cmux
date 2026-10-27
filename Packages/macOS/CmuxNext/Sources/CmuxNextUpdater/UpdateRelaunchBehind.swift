@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCompat
+import CmuxNextWakeups
 public import Foundation
 
 /// An automatic install reopens the app without activating it. Sparkle relaunches into an
@@ -60,19 +61,23 @@ public nonisolated enum UpdateRelaunchBehind {
     /// helper is told to stop): the update is staged again.
     @MainActor public static func afterExit(_ app: URL, declined: @escaping @MainActor () -> Void) {
         let arguments = arguments(app: app, installerJob: installerJobLabel(bundleIdentifier: Bundle.main.bundleIdentifier ?? ""))
-        // task-owner: one spawn (off main: posix_spawn is a fork and exec), the quit, and the
-        // deadline; all end with the app, or at the deadline.
+        // task-owner: one spawn (off main: posix_spawn is a fork and exec), then the quit; the
+        // deadline is `quitTimer`'s, which fires once or ends with the app.
         Task { @MainActor in
             let helper = await Task.detached(priority: .userInitiated) { spawn(arguments) }.value
             guard let helper else { return declined() }
+            quitTimer.schedule(after: quitDeadline) { @MainActor in
+                // Still running: the quit was refused. The helper ends on the line; reap it off main.
+                refuse(helper.writeEnd)
+                Task.detached(priority: .utility) { _ = waitpid(helper.pid, nil, 0) }
+                declined()
+            }
             NSApplication.terminateFromRunLoop()
-            try? await Task.sleep(for: quitDeadline)
-            // Still running: the quit was refused. The helper ends on the line; reap it off main.
-            refuse(helper.writeEnd)
-            Task.detached(priority: .utility) { _ = waitpid(helper.pid, nil, 0) }
-            declined()
         }
     }
+
+    /// The quit's deadline (``quitDeadline``): stop condition, it fires once, or the app ends first.
+    @MainActor static let quitTimer = DemandTimer(owner: "UpdateRelaunchBehind.quit")
 
     /// Tells the helper the quit was refused (it ends, opening nothing), and closes the pipe.
     static func refuse(_ writeEnd: Int32) {
