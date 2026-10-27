@@ -32,6 +32,8 @@ use std::sync::Arc;
 
 pub use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
 
+#[cfg(any(windows, test))]
+mod console_ctrl_c;
 #[cfg(target_vendor = "apple")]
 mod input_queue;
 #[cfg(unix)]
@@ -274,6 +276,12 @@ mod platform {
         for (key, value) in command.environment {
             builder.env(key, value);
         }
+        // The child inherits the spawning process's ignore-Ctrl+C attribute,
+        // which a CREATE_NEW_PROCESS_GROUP start sets; clear it so Ctrl+C in
+        // the terminal reaches the child (console_ctrl_c.rs).
+        super::console_ctrl_c::set_for_the_next_child().map_err(|error| {
+            anyhow::anyhow!("failed to let the terminal's child process Ctrl+C: {error}")
+        })?;
         let child = slave.0.spawn_command(builder)?;
         Ok(Box::new(super::windows_jobs::JobChild::new(child)))
     }
@@ -779,5 +787,109 @@ mod tests {
         let output = read_until(&mut *reader, ".");
         assert!(spawned.child.wait().unwrap().success());
         assert!(output.contains("limit=200."), "{output}");
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use std::io::{Read, Write};
+    use std::sync::mpsc::{self, RecvTimeoutError};
+    use std::time::{Duration, Instant};
+
+    use super::*;
+
+    const NAME: &str = "windows_tests::a_pty_child_processes_ctrl_c_from_a_spawner_that_ignores_it";
+    const PROBE: &str = "CMUX_PTY_CTRL_C_PROBE";
+    const SLEEPER: &str = "CMUX_PTY_CTRL_C_SLEEPER";
+    /// The exit code of a process the default Ctrl+C handler ended.
+    const STATUS_CONTROL_C_EXIT: u32 = 0xC000_013A;
+
+    /// A 0x03 written to the terminal ends its child even when the spawning
+    /// process ignores Ctrl+C. The probe runs in a re-executed copy of this
+    /// test binary started the way the terminal owner starts
+    /// (`DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`, local_owner.rs), which
+    /// sets its ignore-Ctrl+C attribute. Its PTY child is a third copy that
+    /// prints a line and sleeps with the default Ctrl+C handler; before the
+    /// fix it inherited the attribute and slept on.
+    #[test]
+    fn a_pty_child_processes_ctrl_c_from_a_spawner_that_ignores_it()
+    -> Result<(), Box<dyn std::error::Error>> {
+        if std::env::var_os(SLEEPER).is_some() {
+            println!("sleeper-ready");
+            std::thread::sleep(Duration::from_secs(60));
+            return Ok(());
+        }
+        if std::env::var_os(PROBE).is_some() {
+            println!("probe: {}", interrupt_a_pty_child()?);
+            return Ok(());
+        }
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        let output = cmux_process::Command::new(std::env::current_exe()?)
+            .args(["--exact", NAME, "--nocapture", "--test-threads=1"])
+            .env(PROBE, "1")
+            .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+            .output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let line = stdout
+            .lines()
+            .find_map(|line| line.split("probe: ").nth(1))
+            .ok_or_else(|| format!("the probe reported nothing: {stdout}{stderr}"))?;
+        assert_eq!(line.trim(), format!("exited {STATUS_CONTROL_C_EXIT:#x}"), "{stdout}{stderr}");
+        Ok(())
+    }
+
+    /// Spawn the sleeper on a PTY, write 0x03 once it is ready, and say how
+    /// it ended.
+    fn interrupt_a_pty_child() -> Result<String, Box<dyn std::error::Error>> {
+        let pair = open(PtySize { rows: 24, cols: 120, pixel_width: 0, pixel_height: 0 })?;
+        let mut command = PtyCommand::new(std::env::current_exe()?.to_string_lossy());
+        command.args(["--exact", NAME, "--nocapture", "--test-threads=1"]);
+        command.env(SLEEPER, "1");
+        let mut spawned = pair.spawn(command)?;
+        let mut reader = spawned.master.try_clone_reader()?;
+        let mut writer = spawned.master.take_writer()?;
+        let (sender, chunks) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut buffer = [0u8; 4096];
+            while let Ok(count) = reader.read(&mut buffer) {
+                if count == 0 || sender.send(buffer[..count].to_vec()).is_err() {
+                    break;
+                }
+            }
+        });
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let mut output = Vec::new();
+        let (mut answered, mut interrupted) = (false, false);
+        while Instant::now() < deadline {
+            if let Some(status) = spawned.child.try_wait()? {
+                return Ok(format!("exited {:#x}", status.exit_code()));
+            }
+            match chunks.recv_timeout(Duration::from_millis(100)) {
+                Ok(chunk) => output.extend_from_slice(&chunk),
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => {
+                    let status = spawned.child.wait()?;
+                    return Ok(format!("output closed, then exited {:#x}", status.exit_code()));
+                }
+            }
+            let text = String::from_utf8_lossy(&output);
+            // portable-pty's PSEUDOCONSOLE_INHERIT_CURSOR asks the terminal
+            // for the cursor position first; answer as a terminal would.
+            if !answered && text.contains("\x1b[6n") {
+                writer.write_all(b"\x1b[1;1R")?;
+                writer.flush()?;
+                answered = true;
+            }
+            if !interrupted && text.contains("sleeper-ready") {
+                writer.write_all(b"\x03")?;
+                writer.flush()?;
+                interrupted = true;
+            }
+        }
+        spawned.child.kill()?;
+        let text = String::from_utf8_lossy(&output).escape_debug().to_string();
+        Ok(format!("still running after 30 s (0x03 written: {interrupted}): {text}"))
     }
 }
