@@ -185,10 +185,10 @@ mod tests {
         // A long id is not echoed: every answer stays small whatever a client sends.
         let long = "x".repeat(MAX_ID + 1);
         let header = json!({"id": long, "method": method::MUX_FILE_PUT_DATA}).to_string();
-        let mut f = b"AMUP".to_vec();
-        f.extend_from_slice(&u32::try_from(header.len()).unwrap().to_be_bytes());
-        f.extend_from_slice(header.as_bytes());
-        assert_eq!(parse(&f).unwrap().0, Value::Null);
+        let mut long_id = b"AMUP".to_vec();
+        long_id.extend_from_slice(&u32::try_from(header.len()).unwrap().to_be_bytes());
+        long_id.extend_from_slice(header.as_bytes());
+        assert_eq!(parse(&long_id).unwrap().0, Value::Null);
         let mut other = f.clone();
         let at = other.windows(9).position(|w| w == b"file_put_").unwrap();
         other[at] = b'F';
