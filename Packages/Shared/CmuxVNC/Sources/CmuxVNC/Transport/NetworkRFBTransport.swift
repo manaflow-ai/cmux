@@ -127,5 +127,11 @@ extension VNCClient {
         self.init(endpoint: endpoint, options: options,
                   transport: NetworkRFBTransport(host: endpoint.host, port: endpoint.port))
     }
+
+    /// A session over `transport`, or over TCP to `endpoint` when it is nil.
+    public init(endpoint: VNCEndpoint, options: VNCSessionOptions = VNCSessionOptions(), transport: (any RFBTransport)?) {
+        let resolved: any RFBTransport = transport ?? NetworkRFBTransport(host: endpoint.host, port: endpoint.port)
+        self.init(endpoint: endpoint, options: options, transport: resolved)
+    }
 }
 #endif
