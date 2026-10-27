@@ -109,7 +109,11 @@ how long it may take (it plans the leases). Copy `journeys/p0/type.json` (the sm
 | `key` | `key`, `modifiers`, `mark` | one `debug.key` (`modifiers`: `control`, `shift`, `option`, `cmd`; named keys: `return`, `escape`, `tab`, `space`, `up`, `down`, `left`, `right`, `delete`, `pageup`, ...) |
 | `rpc` | `method`, `params` | one control-socket request (set-up the person does through UI the driver cannot click yet) |
 | `wait` | `seconds` | only when nothing observable can be waited on |
-| `expect` | `all`, `since`, `within`, `timeout`, `title` | polls every condition in `all` (about every 50 ms plus the reads) until all hold or `timeout` seconds pass |
+| `expect` | `all`, `since`, `within`, `timeout`, `settle`, `title` | polls every condition in `all` (about every 50 ms plus the reads) until all hold or `timeout` seconds pass; `settle`: the negative conditions must keep holding that many more seconds |
+| `mouse` | `action`, `dx`, `dy`, `phase`, `modifiers`, `button`, `count`, `interval`, `mark` | `debug.mouse` at the center of the journey's pane, `count` times: `scroll` (default; `dy` > 0 is a wheel turned up, toward older rows), `click`, `double_click` |
+| `select_text` | `text`, `how`, `occurrence`, `mark` | selects TEXT where the pane shows it, with the pointer: `drag` (default: press on its first cell, drag to its last) or `double_click` (a word); the cells come from the pane's viewport text and grid (`debug.surfaces`) |
+| `clipboard_set` | `text` or `lines` (`format`, `count`, `start`) | set-up: puts the text on the Mac's general pasteboard (what Cmd+V reads; `pbcopy`) and reads it back; binds `${clip_sha}` (sha256) and `${clip_lines}` |
+| `file` | `path`, `text` or `lines` | set-up: writes a helper program to `/tmp/jr-*` (only there; not substituted, so it takes the run's values as arguments); removed when the journey ends |
 
 `mark` names the moment of a step (for `type` with `enter`, the moment Return is pressed);
 `expect`'s `since` measures from it. Strings may use `${nonce}` (six digits, new each run, so
@@ -129,6 +133,17 @@ no fixture or earlier run can show the expected text) and `${prompt}` (`J> `).
 | `{"process_present": {"match": "RE", "bind": "NAME", "foreground": true}}` | process | a process under the terminal matches RE (its full command line); `foreground`: it has a controlling tty and is in the tty's foreground group (`ps` stat `+`); `bind` keeps it as NAME |
 | `{"process_gone": "NAME"}` | process | the bound process is gone (or a zombie) |
 | `{"frame_text": "TEXT"}` | frame | a fresh snapshot of the window shows TEXT to text recognition (spaces dropped, look-alike letters folded) |
+| `{"daemon_lacks": "TEXT"}` | daemon | negative: the daemon's screen does not contain TEXT |
+| `{"app_text_lacks": "TEXT"}` | app | negative: the pane's viewport text does not contain TEXT |
+| `{"daemon_history": {...}}` | daemon | the daemon's scrollback (`terminal ID history read`): `rows` `oldest`/`newest`, `count`; `contains`, `lacks` (negative) TEXT; `pattern` (one group: a row number) with `contiguous` and `last` N |
+| `{"app_rows": {...}}` | app | the numbered rows the viewport shows (after any scroll): `pattern`, `min_rows`, `contiguous`; `top`/`last`: `{eq\|ne\|gt\|lt\|ge\|le: N, a bound NAME, or "daemon_oldest"}`; `bind` NAME (sets `${NAME_top}`, `${NAME_mid}`); `hold` makes it negative-style (read every poll and through `settle`) |
+| `{"frame_screen": {"shows": [...], "lacks": [...]}}` | frame | one fresh frame shows every `shows` text and none of `lacks` (a negative read only on a frame that shows the run's own text) |
+| `{"clipboard": "TEXT"}` | clipboard | the general pasteboard is exactly TEXT (`pbpaste`) |
+
+A negative condition (`*_lacks`, `daemon_history` with `lacks`, `app_rows` with `hold`) is read again
+every poll and holds only when it holds together with the positive ones at the end (and through
+`settle`); a positive one holds once it has held. The capture minis share one pasteboard per login:
+`clipboard_set` reads its text back before the paste, and the `clipboard` check runs within a second.
 
 `within` (seconds) makes a timing claim: each condition must first hold within that long of
 `since`, or it fails with the measured time. Frame checks are read after the other conditions
@@ -186,10 +201,10 @@ that is the author refuses the build.
 
 - Generated journeys: one per action catalog row, settings schema entry and keyboard shortcut
   (planned as a generator writing `journeys/generated/`; P0 is hand-written now).
-- Pointer journeys (drag-resize a window, divider drags, clicks): `debug.mouse` works in a slot
-  (`cmux-ci capture` steps use it) but the driver has no step for it yet. The next P0 is live
-  resize, the second dogfood v1 bug (scrollback jumped: test 33cd577dcd8, fix 673587c97dc); it
-  needs a `mouse` step and a scrollback-position condition.
+- Window and divider drags: the `mouse` and `select_text` steps cover the pane (wheel, clicks,
+  text selection); a step that drags window edges or dividers is not written. The next P0 is live
+  resize, the second dogfood v1 bug (scrollback jumped: test 33cd577dcd8, fix 673587c97dc); its
+  scrollback-position check can use `app_rows`.
 - Quit and relaunch (session restore) inside a journey: `restore-journey.py` covers it today;
   a `relaunch` step (`capture-host relaunch`) is not written.
 - Browser-pane journeys, two windows, display and scale changes, sleep and wake.

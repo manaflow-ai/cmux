@@ -25,6 +25,7 @@ step ran, every condition held, and the passing evidence covers app state, the d
 and a frame. Exit 0 when every journey passed, 1 otherwise.
 """
 import argparse
+import hashlib
 import json
 import os
 import random
@@ -55,7 +56,10 @@ FRAME_GRACE = 10.0
 REQUIRED_KINDS = ("app", "daemon", "frame")
 KIND = {"daemon_line": "daemon", "daemon_contains": "daemon", "daemon_prompt": "daemon",
         "app_text_line": "app", "app_text_contains": "app", "app_prompt": "app", "app_pane": "app",
-        "process_present": "process", "process_gone": "process", "frame_text": "frame"}
+        "process_present": "process", "process_gone": "process", "frame_text": "frame",
+        # Negative reads, scrollback rows and the clipboard ("Scroll, paste, select" below).
+        "daemon_lacks": "daemon", "daemon_history": "daemon", "app_text_lacks": "app", "app_rows": "app",
+        "frame_screen": "frame", "clipboard": "clipboard"}
 
 
 def now():
@@ -261,6 +265,15 @@ def ocr_contains(lines, wanted):
     return any(target in fold(line) for line in lines) or target in fold("".join(lines))
 
 
+def negative(name, want):
+    """Whether a condition claims something is NOT there: read again every poll, never latched."""
+    if name in ("daemon_lacks", "app_text_lacks"):
+        return True
+    # daemon_history with `lacks`; app_rows with `hold` (the view must stay as it is, e.g. while output arrives).
+    return isinstance(want, dict) and ((name == "daemon_history" and "lacks" in want)
+                                       or (name == "app_rows" and bool(want.get("hold"))))
+
+
 # ---- one journey ---------------------------------------------------------------------------
 
 class Journey:
@@ -278,6 +291,7 @@ class Journey:
         self.marks, self.binds = {}, {}
         self.term = self.pane = self.host_pid = None
         self.steps, self.evidence, self.checks = [], [], 0
+        self.files = []
 
     def sub(self, value):
         if isinstance(value, str):
@@ -380,6 +394,98 @@ class Journey:
     def step_rpc(self, step):
         return {"reply": self.app.rpc(step["method"], self.sub(step.get("params") or {}))}
 
+    # -- scroll, paste, select: the pointer, the clipboard, helper files --
+
+    def step_mouse(self, step):
+        """`debug.mouse` over the journey's pane (its center): `action` scroll (default; `dy` > 0 moves
+        toward older rows, as a wheel turned up does), click, double_click; `count` times, `interval`
+        seconds apart."""
+        params = {k: self.sub(v) for k, v in step.items() if k in ("action", "dx", "dy", "phase", "modifiers", "button")}
+        params.setdefault("action", "scroll")
+        params["pane"] = self.need_pane()
+        if step.get("mark"):
+            self.marks[step["mark"]] = now()
+        replies = []
+        for index in range(int(step.get("count", 1))):
+            if index:
+                time.sleep(float(step.get("interval", 0.05)))
+            replies.append(self.app.rpc("debug.mouse", params))
+        return {"params": params, "count": len(replies), "replies": replies[:2]}
+
+    def step_select_text(self, step):
+        """Selects TEXT where the pane shows it, as a person does with the pointer: `how` drag (press on
+        its first cell, drag to its last, release) or double_click (on its middle: a word). The cells come
+        from the pane's viewport text and grid (debug.surfaces); `occurrence` last (default) or first."""
+        text = self.sub(step["text"])
+        pane = self.pane_report()
+        grid, viewport = pane.get("grid"), pane.get("text") or ""
+        if not isinstance(grid, dict) or not grid.get("cell_width"):
+            raise StepError(f"pane {self.pane} reports no grid: {json.dumps(grid)[:200]}")
+        lines = viewport.split("\n")
+        hits = [i for i, line in enumerate(lines) if text in line]
+        if not hits:
+            raise StepError(f"the pane does not show {text!r}; it ends {[l for l in lines if l.strip()][-4:]}")
+        index = hits[-1] if step.get("occurrence", "last") == "last" else hits[0]
+        # The viewport text is logical lines; the grid wraps each at its column count.
+        cw, ch = float(grid["cell_width"]), float(grid["cell_height"])
+        cols = max(1, int((grid["frame_width"] - 2 * (grid["origin_x"] - grid["frame_x"])) // cw))
+        col = lines[index].index(text)
+        row = sum(max(1, -(-len(line) // cols)) for line in lines[:index]) + col // cols
+        col %= cols
+        y = grid["origin_y"] + (row + 0.5) * ch
+        first_x = grid["origin_x"] + (col + 0.25) * cw
+        last_x = grid["origin_x"] + (col + len(text) - 0.25) * cw
+        if step.get("mark"):
+            self.marks[step["mark"]] = now()
+        if step.get("how", "drag") == "double_click":
+            params = {"window": grid["window"], "action": "double_click", "x": (first_x + last_x) / 2, "y": y}
+        else:
+            params = {"window": grid["window"], "action": "drag", "x": first_x, "y": y, "to_x": last_x, "to_y": y,
+                      "steps": int(step.get("steps", 12))}
+        return {"text": text, "row": row, "col": col, "cols": cols, "params": params, "reply": self.app.rpc("debug.mouse", params)}
+
+    def step_clipboard_set(self, step):
+        """Set-up: puts `text` (or `lines`: {"format": "L%05d-${nonce}", "count": N}, joined by LF) on the
+        Mac's general pasteboard, the one Cmd+V reads, and reads it back; binds ${clip_sha} and ${clip_lines}."""
+        if "lines" in step:
+            spec = self.sub(step["lines"])
+            fmt, start = spec["format"], int(spec.get("start", 1))
+            text = "\n".join(fmt % n for n in range(start, start + int(spec["count"])))
+        else:
+            text = self.sub(step["text"])
+        data = text.encode()
+        env = {"LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "PATH": "/usr/bin:/bin"}
+        subprocess.run(["/usr/bin/pbcopy"], input=data, env=env, check=True, timeout=30)
+        back = subprocess.run(["/usr/bin/pbpaste"], env=env, capture_output=True, timeout=30).stdout
+        if back != data:
+            raise StepError(f"the pasteboard did not take the text ({len(data)} bytes set, {len(back)} read back)")
+        self.vars["clip_sha"] = hashlib.sha256(data).hexdigest()
+        self.vars["clip_lines"] = str(text.count("\n") + 1)
+        return {"bytes": len(data), "lines": text.count("\n") + 1, "sha256": self.vars["clip_sha"], "head": text[:60]}
+
+    def step_file(self, step):
+        """Set-up: writes a helper file the journey runs (a program under test's stand-in), only at
+        /tmp/jr-*; removed when the journey ends. `text`, or `lines` (joined by LF). The content is not
+        substituted: a helper takes the run's values as arguments."""
+        path = self.sub(step["path"])
+        if not re.fullmatch(r"/tmp/jr-[A-Za-z0-9._-]+", path):
+            raise StepError(f"a helper file goes to /tmp/jr-*, not {path!r}")
+        text = "\n".join(step["lines"]) + "\n" if "lines" in step else step["text"]
+        Path(path).write_text(text)
+        self.files.append(path)
+        return {"path": path, "bytes": len(text.encode())}
+
+    def need_pane(self):
+        if not self.pane:
+            raise StepError("no pane: the journey needs a new_terminal step first")
+        return self.pane
+
+    def pane_report(self):
+        pane = next((p for p in self.app.panes() if p.get("pane") == self.need_pane()), None)
+        if pane is None:
+            raise StepError(f"pane {self.pane} is not in debug.surfaces")
+        return pane
+
     def key(self, key, modifiers):
         return self.app.rpc("debug.key", {"key": key, "modifiers": modifiers})
 
@@ -387,6 +493,134 @@ class Journey:
         if not self.term:
             raise StepError("no terminal: the journey needs a new_terminal step first")
         return self.term
+
+    # -- conditions for scroll, paste, select (README "Conditions") --
+
+    def cached_pane(self, cache):
+        if "pane" not in cache:
+            cache["pane"] = next((p for p in self.app.panes() if p.get("pane") == self.pane), None)
+        if cache["pane"] is None:
+            raise StepError(f"pane {self.pane} is not in debug.surfaces")
+        return cache["pane"]
+
+    def history(self, which, count, cache):
+        """The daemon's scrollback rows (`terminal ID history read`): the `count` oldest or newest, as
+        text, and the number of rows it holds."""
+        key = ("history", which, count)
+        if key not in cache:
+            args = ["terminal", self.need_term(), "history", "read", "--limit", str(count)]
+            if which == "oldest":
+                args += ["--before", str(count)]
+            answer = self.app.cmux(*args)
+            for _ in range(3):
+                if isinstance(answer, dict) and "rows" not in answer:
+                    answer = next((answer[k] for k in ("value", "result", "data") if isinstance(answer.get(k), dict)), answer)
+            if not isinstance(answer, dict) or not isinstance(answer.get("rows"), list):
+                raise StepError(f"terminal {self.term} history read gave no rows: {json.dumps(answer)[:200]}")
+            texts = ["".join(str(run.get("text", "")) for run in row.get("runs", []) if isinstance(run, dict))
+                     for row in answer["rows"] if isinstance(row, dict)]
+            start = int(answer.get("start") or 0)
+            total = start + len(texts) if which == "newest" else None
+            cache[key] = (texts, total)
+        return cache[key]
+
+    @staticmethod
+    def numbered(lines, pattern):
+        """(number, line) of each line `pattern` (one group: the number) finds, in order."""
+        found = []
+        for line in lines:
+            match = re.search(pattern, line)
+            if match:
+                found.append((int(match.group(1)), line.strip()))
+        return found
+
+    @staticmethod
+    def gaps(numbers):
+        """Where `numbers` is not each one after the last: [(index, previous, next)]."""
+        return [(i, a, b) for i, (a, b) in enumerate(zip(numbers, numbers[1:]), 1) if b != a + 1][:5]
+
+    def cond_app_rows(self, want, cache):
+        """The numbered rows the pane's viewport shows (what the person sees, after any scroll):
+        `pattern` (one group: the row's number), `min_rows` (default 3), `contiguous` (default true:
+        each row the one after the last, nothing dropped, repeated or out of order), `top` / `last`:
+        {eq|ne|gt|lt|ge|le: N, a NAME an earlier app_rows bound, or "daemon_oldest" (the first numbered
+        row the daemon's scrollback still holds)}; `bind` NAME keeps the top and last numbers and sets
+        ${NAME_top} and ${NAME_mid} to the top and middle rows' text."""
+        pane = self.cached_pane(cache)
+        lines = lines_of(pane.get("text") or "")
+        rows = self.numbered(lines, want["pattern"])
+        numbers = [n for n, _ in rows]
+        detail = {"rows": len(rows), "top": numbers[0] if numbers else None, "last": numbers[-1] if numbers else None,
+                  "viewport_lines": len(lines), "head": [l for l in lines if l.strip()][:2],
+                  "tail": [l for l in lines if l.strip()][-2:]}
+        if len(rows) < int(want.get("min_rows", 3)):
+            return False, dict(detail, why="too few numbered rows in the viewport")
+        if want.get("contiguous", True) and self.gaps(numbers):
+            return False, dict(detail, why="rows out of order or missing", gaps=self.gaps(numbers))
+        ops = {"eq": lambda a, b: a == b, "ne": lambda a, b: a != b, "gt": lambda a, b: a > b,
+               "lt": lambda a, b: a < b, "ge": lambda a, b: a >= b, "le": lambda a, b: a <= b}
+        for field in ("top", "last"):
+            for op, ref in (want.get(field) or {}).items():
+                if ref == "daemon_oldest":
+                    oldest = self.numbered(self.history("oldest", 200, cache)[0], want["pattern"])
+                    if not oldest:
+                        return False, dict(detail, why="the daemon's oldest 200 scrollback rows hold no numbered row")
+                    value = oldest[0][0]
+                elif isinstance(ref, str):
+                    if ref not in self.binds:
+                        return False, dict(detail, why=f"no rows bound as {ref!r}")
+                    value = self.binds[ref][field]
+                else:
+                    value = int(ref)
+                detail[f"{field}_{op}"] = value
+                if not ops[op](detail[field], value):
+                    return False, dict(detail, why=f"{field} {detail[field]} is not {op} {value}")
+        if want.get("bind"):
+            self.binds[want["bind"]] = {"top": numbers[0], "last": numbers[-1]}
+            self.vars[want["bind"] + "_top"] = rows[0][1]
+            self.vars[want["bind"] + "_mid"] = rows[len(rows) // 2][1]
+        return True, detail
+
+    def cond_daemon_history(self, want, cache):
+        """The daemon's scrollback (`history read`): `rows` oldest|newest, `count` (default 200, at most
+        10000) rows; `contains` / `lacks` TEXT in any of them; `pattern` (one group: a row's number) with
+        `contiguous` (default true) and `last` N (the last numbered row's number)."""
+        which, count = want.get("rows", "newest"), int(want.get("count", 200))
+        texts, total = self.history(which, count, cache)
+        detail = {"rows_read": len(texts), "history_rows": total, "head": texts[:2], "tail": texts[-2:]}
+        if "contains" in want and not any(want["contains"] in t for t in texts):
+            return False, dict(detail, why=f"no row has {want['contains']!r}")
+        if "lacks" in want:
+            hits = [t for t in texts if want["lacks"] in t]
+            if hits:
+                return False, dict(detail, why=f"{len(hits)} rows have {want['lacks']!r}", hit=hits[0])
+        if "pattern" in want:
+            numbers = [n for n, _ in self.numbered(texts, want["pattern"])]
+            detail.update(numbered=len(numbers), first=numbers[0] if numbers else None, last=numbers[-1] if numbers else None)
+            if not numbers:
+                return False, dict(detail, why="no numbered rows")
+            if want.get("contiguous", True) and self.gaps(numbers):
+                return False, dict(detail, why="rows out of order or missing", gaps=self.gaps(numbers))
+            if "last" in want and numbers[-1] != int(want["last"]):
+                return False, dict(detail, why=f"the last numbered row is {numbers[-1]}, not {want['last']}")
+        return True, detail
+
+    def cond_frame_screen(self, want, cache):
+        """One fresh frame (the app's own drawing of the window) that shows every text of `shows` and
+        none of `lacks` to text recognition: what is gone is checked on a frame that is not blank."""
+        self.checks += 1
+        image = self.app.snapshot(self.out / f"check-{self.checks:02d}.png")
+        lines = self.app.read_text(image)
+        missing = [t for t in want.get("shows", []) if not ocr_contains(lines, t)]
+        present = [t for t in want.get("lacks", []) if ocr_contains(lines, t)]
+        detail = {"image": image.name, "text": lines[-12:], "lines": len(lines), "missing": missing, "present": present}
+        return bool(want.get("shows")) and not missing and not present, detail
+
+    def cond_clipboard(self, want, cache):
+        """The Mac's general pasteboard (what Cmd+V pastes, `pbpaste`) is exactly `want`."""
+        env = {"LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "PATH": "/usr/bin:/bin"}
+        got = subprocess.run(["/usr/bin/pbpaste"], env=env, capture_output=True, timeout=30).stdout.decode(errors="replace")
+        return got == want, {"got": got[:200], "bytes": len(got.encode())}
 
     # -- conditions --
 
@@ -399,21 +633,38 @@ class Journey:
         within = step.get("within")
         timeout_at = t0 + float(step.get("timeout", 10))
         state = [{"cond": c, "name": next(iter(c)), "ok": False, "at": None, "detail": None} for c in conds]
-        live = [s for s in state if s["name"] != "frame_text"]
-        frames = [s for s in state if s["name"] == "frame_text"]
+        for s in state:
+            s["negative"] = negative(s["name"], s["cond"][s["name"]])
+        live = [s for s in state if KIND.get(s["name"]) != "frame"]
+        frames = [s for s in state if KIND.get(s["name"]) == "frame"]
         ticks = 0
         while True:
             ticks += 1
             cache = {}
             for s in live:
-                if not s["ok"]:
+                # A positive condition holds once it has held; a negative one (something must NOT
+                # show) is read again every poll, so it holds only together with the positive ones.
+                if not s["ok"] or s["negative"]:
                     ok, detail = self.evaluate(s["name"], s["cond"][s["name"]], cache)
                     s["detail"] = detail
-                    if ok:
-                        s["ok"], s["at"] = True, now()
+                    if ok and not s["ok"]:
+                        s["at"] = now()
+                    s["ok"] = ok
             if all(s["ok"] for s in live) or now() >= timeout_at:
                 break
             time.sleep(POLL_SECONDS)
+        # `settle` (seconds): the negative conditions must keep holding that much longer, so what the
+        # step must not cause cannot show up late (a scrolled view that jumps, a paste that runs).
+        settle_until = now() + float(step.get("settle", 0)) if all(s["ok"] for s in live) else now()
+        while now() < settle_until:
+            time.sleep(POLL_SECONDS * 4)
+            cache = {}
+            for s in live:
+                if s["negative"] and s["ok"]:
+                    ok, detail = self.evaluate(s["name"], s["cond"][s["name"]], cache)
+                    if not ok:
+                        s["ok"] = False
+                        s["detail"] = dict(detail, broke_during_settle=True) if isinstance(detail, dict) else detail
         # A frame is read after the state it should show holds: the window draws it on its next frame,
         # so it gets FRAME_GRACE more seconds of fresh snapshots (text recognition time not counted
         # against the step's timeout), and at least two tries.
@@ -423,7 +674,7 @@ class Journey:
             while not s["ok"]:
                 time.sleep(0.25)
                 tries += 1
-                ok, detail = self.evaluate("frame_text", s["cond"]["frame_text"], {})
+                ok, detail = self.evaluate(s["name"], s["cond"][s["name"]], {})
                 s["detail"] = dict(detail, tries=tries) if isinstance(detail, dict) else detail
                 if ok:
                     s["ok"], s["at"] = True, now()
@@ -432,7 +683,7 @@ class Journey:
         failed = []
         for s in state:
             elapsed = None if s["at"] is None else round((s["at"] - t0) * 1000)
-            limit = None if within is None or s["name"] == "frame_text" else round(float(within) * 1000)
+            limit = None if within is None or KIND.get(s["name"]) == "frame" else round(float(within) * 1000)
             passed = s["ok"] and (limit is None or elapsed <= limit)
             row = {"kind": KIND.get(s["name"], "other"), "check": s["name"], "want": s["cond"][s["name"]],
                    "pass": passed, "elapsed_ms": elapsed, "within_ms": limit, "detail": s["detail"],
@@ -440,7 +691,8 @@ class Journey:
             self.evidence.append(row)
             if not passed:
                 failed.append(f"{s['name']} {json.dumps(s['cond'][s['name']])}"
-                              + (f" took {elapsed} ms > {limit} ms" if s["ok"] else " never held"))
+                              + (f" took {elapsed} ms > {limit} ms" if s["ok"]
+                                 else " did not hold at the end" if s["negative"] else " never held"))
         result = {"polls": ticks, "since": since, "conditions": len(state)}
         if failed:
             raise StepError("; ".join(failed))
@@ -449,6 +701,9 @@ class Journey:
     def evaluate(self, name, want, cache):
         """(holds, detail) of one condition; `cache` keeps one read of each source per poll."""
         try:
+            special = getattr(self, "cond_" + name, None)
+            if special is not None:
+                return special(want, cache)
             if name.startswith("daemon_"):
                 if "screen" not in cache:
                     cache["screen"] = self.app.screen(self.need_term())
@@ -458,6 +713,8 @@ class Journey:
                     return any(l.strip() == want.strip() for l in lines_of(text)), {"tail": tail}
                 if name == "daemon_contains":
                     return want in text, {"tail": tail}
+                if name == "daemon_lacks":
+                    return want not in text, {"tail": tail}
                 if name == "daemon_prompt":
                     return last_line(text) == PROMPT.rstrip(), {"last_line": last_line(text)}
             if name.startswith("app_"):
@@ -472,6 +729,8 @@ class Journey:
                     return any(l.strip() == want.strip() for l in lines_of(text)), {"tail": tail, "link": pane.get("link")}
                 if name == "app_text_contains":
                     return want in text, {"tail": tail}
+                if name == "app_text_lacks":
+                    return want not in text, {"tail": tail}
                 if name == "app_prompt":
                     return last_line(text) == PROMPT.rstrip(), {"last_line": last_line(text), "link": pane.get("link")}
                 if name == "app_pane":
@@ -540,6 +799,11 @@ class Journey:
         finally:
             frames.stopped.set()
             frames.join(timeout=SNAPSHOT_TIMEOUT)
+            for path in self.files:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
         if status == "pass":
             kinds = {e["kind"] for e in self.evidence if e["pass"]}
             missing = [k for k in REQUIRED_KINDS if k not in kinds]
