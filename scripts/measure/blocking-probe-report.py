@@ -30,14 +30,16 @@ With --until-mark NAME, a fifth section, listed first:
 
 Then the filing (p02-threads.md task 301), in blocking-probe-filing.json, perf-lead-rows.md and at the end of the
 Markdown: one MQ-11 task per cmux function on the main thread with 1 ms or more in total, one MQ-13 task per daemon
-(site, kind, thread), the app_chromium total handed to the CEF helper-app program as an open number, and RUN-2's
+(location, kind, thread), the app_chromium total handed to the CEF helper-app program as an open number, and RUN-2's
 verdict (fail: a single cmux wait of 1 ms or more; pass: the run's whole cmux main off-CPU time under the 0.5 ms
-per-action bound, with every dump complete; otherwise unproved). perf-lead-rows.md holds perf-lead.md section 5's
-RUN-2 and RUN-5 daemon rows with sha, host and macOS from the sweep's every-action.json.
+per-action bound, with a complete STRESS session, no failed session, a sweep that exited 0 and every dump complete;
+otherwise unproved). The probe has no per-action time, so the per-action p99 is not measured. perf-lead-rows.md
+holds perf-lead.md section 5's RUN-2 row and the daemon (MQ-13) row with sha, host and macOS from the sweep's
+every-action.json.
 
   scripts/measure/blocking-probe-report.py --app APP.app [--launches N] [--until-mark NAME] --out DIR \
-      [--sweep-json every-action.json] [--known-sites mq13-record-sites.json] [--config NAME] \
-      dump1.tsv [dump2.tsv ...] [dump1.tsv.window ...]
+      [--sweep-json every-action.json] [--sweep-status N] [--known-sites mq13-record-sites.json \
+      --known-sites-sha SHA] [--config NAME] dump1.tsv [dump2.tsv ...] [dump1.tsv.window ...]
   scripts/measure/blocking-probe-report.py --select main|daemon dump1.tsv ...   prints the app's or daemon's dumps
   scripts/measure/blocking-probe-report.py --preflight [--until-mark NAME] dump1.tsv ...   the harness's preflight
 """
@@ -72,6 +74,11 @@ SWIFT_MODULE = re.compile(r"^\$s(\d+)(\w+)")
 # A Rust symbol in one of cmux's crates (resolved `cmux_tui_core::server::...`, `<cmux_x::Y as std::io::Read>`,
 # or mangled `_ZN13cmux_tui_core...`); Rust std, core and third-party crates are not.
 RUST_CRATE = re.compile(r"(?<![A-Za-z])((?:cmux|acpmux)\w*?)(?:::|\d|$)")
+# cmux_threads' blocking wrappers (checked::fs::read, checked::sync::wait, the sync and lock_wait locks,
+# scoped_blocking_call), resolved or mangled (`12cmux_threads7checked`): each is its own frame above the std call,
+# so a daemon site is the first crate frame below them, the code that called the wrapper, the location the
+# wrapper's #[track_caller] records in server.blocking.
+BLOCKING_WRAPPER = re.compile(r"(?<![A-Za-z])cmux_threads(?:::|\d+)(?:checked|sync|lock_wait|blocking)(?=::|\d|\W|$)")
 # The preflight program's watched thread pattern (blocking-probe.sh).
 PREFLIGHT_THREAD = "probe-test-*-host"
 
@@ -301,15 +308,18 @@ def classify(daemon, kind, frames, images, resolved):
     """(section, site frame, via frame): the frame that names the site and, for Chromium, cmux's frame below."""
     if daemon:
         section = "daemon_input_wait" if kind.startswith(INPUT_WAIT) else "daemon_request"
-        first_cmux = None
+        first_cmux = first_wrapper = None
         for frame in frames:
             image, offset, symbol = split_frame(frame)
             if image not in images:
                 continue
             first_cmux = first_cmux or frame
-            if RUST_CRATE.search(symbol_part(resolved.get((image, offset), "")) or symbol):
-                return section, frame, None
-        return section, first_cmux or (frames[0] if frames else "?|?|?"), None
+            name = symbol_part(resolved.get((image, offset), "")) or symbol
+            if RUST_CRATE.search(name):
+                if not BLOCKING_WRAPPER.search(name):
+                    return section, frame, None
+                first_wrapper = first_wrapper or frame
+        return section, first_wrapper or first_cmux or (frames[0] if frames else "?|?|?"), None
     for index, frame in enumerate(frames):
         image, _, _ = split_frame(frame)
         if image in CHROMIUM_IMAGES:
@@ -480,8 +490,25 @@ CEF_PROGRAM = "p01-process"
 CEF_DESIGN = "plans/cmux-next/cef-helper-app-DESIGN.md"
 # The ` (File.swift:123)` tail of an atos line; atos names the file without its folders.
 SOURCE = re.compile(r"\(([\w.+-]+\.(?:swift|rs|mm|m|cc|cpp|c|h)):(\d+)\)\s*$")
-# A location in a fixed MQ-13 list, such as p02-threads-303's mq13-record-sites.json ("crates/x/src/y.rs:469:21").
-KNOWN_LOCATION = re.compile(r"([^/]+\.rs):(\d+)(?::\d+)?$")
+# A location in a fixed MQ-13 list, such as p02-threads-303's mq13-record-sites.json ("crates/x/src/y.rs:469:21",
+# relative to cmux-tui/).
+KNOWN_LOCATION = re.compile(r"^(crates/.+\.rs):(\d+)(?::\d+)?$")
+# The cmux_threads BlockingKind names (blocking.rs, as server.blocking and the 303 list write them) that a probe kind
+# can be: the probe sees the libc call under the checked primitive, so file-io under checked::fs is "fs", or
+# "sqlite" when rusqlite makes it.
+CHECKED_KINDS = {
+    "file-io": {"fs", "sqlite"},
+    "io": {"fs", "sqlite", "fd-read", "fd-write", "ipc-reply"},
+    "socket": {"ipc-reply", "fd-read", "fd-write"},
+    "socket-read": {"ipc-reply", "fd-read"},
+    "socket-write": {"ipc-reply", "fd-write"},
+    "lock-wait": {"lock-wait", "sqlite", "priority-inversion"},
+    "sync-wait": {"condvar-wait", "recv", "join", "block-on", "lock-wait", "ipc-reply"},
+    "process-spawn": {"process-spawn"},
+    "sleep": {"sleep"},
+    "input-wait": {"process-wait", "recv", "fd-read", "ipc-reply"},
+}
+HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,(\d+))? @@", re.M)
 
 
 def source_index(repo_root):
@@ -564,34 +591,118 @@ def mq11_tasks(rows, index):
     return sorted(tasks, key=lambda t: -t["total_ms"])
 
 
-def known_locations(path):
-    """{("file.rs", "line"): the list's file name} of a fixed MQ-13 list, so a site it holds is marked, not filed
-    as new work."""
+def thread_class(thread):
+    """A thread name pattern as both lists write it: the probe's `surface-*-host` is the 303 list's `surface-N-host`."""
+    return thread.replace("*", "N")
+
+
+def git_output(repo_root, *args):
+    """git's output, or None when git fails (a commit this checkout does not have, a shallow clone)."""
+    try:
+        run = subprocess.run(["git", "-C", repo_root, *args], capture_output=True, text=True)
+    except OSError:
+        return None
+    return run.stdout if run.returncode == 0 else None
+
+
+def moved_line(hunks, line):
+    """Where an old line is after a diff's hunks [(old start, old count, new count)], or None when a hunk changed
+    it (git blame's rule: an unchanged line keeps its identity, a changed one does not)."""
+    shift = 0
+    for start, old_count, new_count in hunks:
+        if old_count == 0:  # an insertion after line `start`
+            if line <= start:
+                break
+        elif line < start:
+            break
+        elif line < start + old_count:
+            return None
+        shift += new_count - old_count
+    return line + shift
+
+
+NO_KNOWN_LIST = ("", frozenset(), "")
+
+
+def known_sites(path, list_sha, measured_sha, repo_root):
+    """A fixed MQ-13 list at the measured commit: (its file name, {(repo path, line, kind, thread class)}, why no
+    site can be matched, or ""). Each row's line moves from the list's commit to the measured one through git's
+    diff of its file; a row whose line changed in between is left out, so that site is filed as new. Fixture rows
+    (test threads) are left out."""
     if not path:
-        return {}
+        return NO_KNOWN_LIST
+    name = os.path.basename(path)
     with open(path) as f:
         rows = json.load(f)
-    known = {}
-    for row in rows if isinstance(rows, list) else rows.get("sites", []):
-        match = KNOWN_LOCATION.search(str(row.get("location", "")))
-        if match:
-            known[(match.group(1), match.group(2))] = os.path.basename(path)
-    return known
+    rows = [row for row in (rows if isinstance(rows, list) else rows.get("sites", [])) if not row.get("fixture")]
+    if not list_sha:
+        return name, frozenset(), f"{name}'s commit is not given (--known-sites-sha)"
+    if not measured_sha:
+        return name, frozenset(), "the sweep recorded no sha"
+    old, new = (git_output(repo_root, "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}")
+                for sha in (list_sha, measured_sha))
+    if not old or not new:
+        return name, frozenset(), f"this checkout cannot resolve {list_sha if not old else measured_sha}"
+    old, new = old.strip(), new.strip()
+    hunks, known = {}, set()
+    for row in rows:
+        match = KNOWN_LOCATION.match(str(row.get("location", "")))
+        if not match:
+            continue
+        repo_path = f"cmux-tui/{match.group(1)}"
+        if repo_path not in hunks:
+            diff = "" if old == new else git_output(repo_root, "diff", "-U0", "--no-renames", old, new, "--",
+                                                     repo_path)
+            if diff is None:
+                return name, frozenset(), f"git cannot diff {old[:11]}..{new[:11]}"
+            # findall gives "" for a count git leaves out: a count of 1.
+            hunks[repo_path] = [(int(a), int(b or 1), int(c or 1)) for a, b, c in HUNK.findall(diff)]
+        line = moved_line(hunks[repo_path], int(match.group(2)))
+        if line is not None:
+            known.add((repo_path, line, str(row.get("kind", "")), thread_class(str(row.get("thread", "")))))
+    return name, frozenset(known), ""
 
 
-def mq13_tasks(rows, index, known):
-    """One task per daemon (site, kind, thread pattern), worst first; a site on a known list says which."""
+def site_location(row, index):
+    """(the site's repo path:line, None when atos named no single file; the location its MQ-13 id hashes: that,
+    else the whole atos line)."""
+    source, candidates = source_of(row, index)
+    if len(candidates) == 1:
+        located = f"{candidates[0]}:{source.rsplit(':', 1)[1]}"
+        return located, located
+    return None, row["site"]
+
+
+def known_status(located, kind, thread, known):
+    """("known", the list's name), ("new", None) or ("unknown", why): a site is on the list only at its own repo
+    path and line, with a kind the probe's call can be and the same thread."""
+    name, sites, reason = known
+    if not name:
+        return "new", None
+    if reason:
+        return "unknown", reason
+    if located is None:
+        return "unknown", "atos named no single repo file"
+    path, line = located.rsplit(":", 1)
+    kinds = CHECKED_KINDS.get(kind.split(":")[0], set())
+    if any((path, int(line), checked, thread_class(thread)) in sites for checked in kinds):
+        return "known", name
+    return "new", None
+
+
+def mq13_tasks(rows, index, known=NO_KNOWN_LIST):
+    """One task per daemon (location, kind, thread pattern), worst first; a site on a known list says which."""
     tasks = []
     for row in rows:
         function = symbol_part(row["site"])
-        source, _ = source_of(row, index)
+        located, location = site_location(row, index)
         files, sources, unresolved = where([row], index)
-        known_from = known.get(tuple(source.split(":"))) if source else None
         for pair in row["pairs"]:
+            status, detail = known_status(located, pair["kind"], pair["thread"], known)
             tasks.append({
-                "id": task_id("B13", function, pair["kind"], pair["thread"]),
+                "id": task_id("B13", location, pair["kind"], pair["thread"]),
                 "title": f"MQ-13 {pair['kind']} on {pair['thread']}: {function[:100]}",
-                "files": files,
+                "files": files, "location": located,
                 "change": f"Take the {pair['kind']} off {pair['thread']}, a request or echo thread (p02-threads.md "
                           f"section C; a cmux_threads checked primitive on a worker): {pair['count']} calls, "
                           f"{pair['total_ms']} ms in total, longest {pair['max_ms']} ms, at {sources[0]}.",
@@ -601,7 +712,9 @@ def mq13_tasks(rows, index, known):
                 "size": "S", "depends_on": ["p02-threads-301"], "machine_queue": "MQ-13",
                 "module": row["module"], "owner": row["owner"], "kind": pair["kind"], "thread": pair["thread"],
                 "count": pair["count"], "total_ms": pair["total_ms"], "max_ms": pair["max_ms"],
-                "known_from": known_from, "unresolved": unresolved, "stack": row["stack"]})
+                "known": status, "known_from": detail if status == "known" else None,
+                "known_unknown_reason": detail if status == "unknown" else None,
+                "unresolved": unresolved, "stack": row["stack"]})
     return sorted(tasks, key=lambda t: -t["total_ms"])
 
 
@@ -615,11 +728,12 @@ def chromium_handoff(rows):
             "top": [{key: r[key] for key in ("site", "via", "total_ms", "max_ms", "kinds")} for r in rows[:15]]}
 
 
-def sweep_facts(path):
-    """Host, macOS, sha, sessions and the measured actions (each row's repeats), from the sweep's every-action.json;
-    empty when the sweep wrote none."""
+def sweep_facts(path, status=None):
+    """Host, macOS, sha, the sessions that ran and failed, the sweep's exit status and the measured actions (each
+    row's repeats), from the sweep's every-action.json; only the exit status when the sweep wrote none."""
+    facts = {"sweep_status": status}
     if not path or not os.path.exists(path):
-        return {}
+        return facts
     with open(path) as f:
         data = json.load(f)
     env = data.get("env") or {}
@@ -629,14 +743,25 @@ def sweep_facts(path):
         for row in (session.get("rows") or []) + (session.get("interactions") or []):
             if not row.get("skipped"):
                 actions += max(1, int((row.get("commit_ms") or {}).get("n") or 1))
-    return {"host": env.get("host", ""), "macos": env.get("macos", ""), "machine": env.get("machine", ""),
-            "sha": env.get("sha", ""), "sessions": [s.get("name", "") for s in sessions], "actions": actions}
+    failed = [str(f.get("name", "")) for f in data.get("failed_sessions") or []]
+    facts.update({"host": env.get("host", ""), "macos": env.get("macos", ""), "machine": env.get("machine", ""),
+                  "sha": env.get("sha", ""), "sessions": [s.get("name", "") for s in sessions],
+                  "failed_sessions": failed, "actions": actions})
+    return facts
+
+
+def sessions_label(facts):
+    """The sessions that ran, as perf-lead.md names them (light + STRESS)."""
+    names = ["STRESS" if name == "stress" else name for name in facts.get("sessions") or []]
+    return " + ".join(names) or "no session recorded"
 
 
 def run2_verdict(rows, chromium, summary, facts):
-    """RUN-2 for cmux's code. Any single wait of 1 ms or more fails. The probe sums each stack over the whole run,
-    so the per-action p99 bound is proved only when the run's whole cmux main off-CPU time is under it (then every
-    action is); a larger total is unproved, never a pass, and so is a run with missing dumps or dropped entries."""
+    """RUN-2 for cmux's code, defined on STRESS. Any single wait of 1 ms or more fails. The probe sums each stack
+    over the whole run, so it has no per-action time and the per-action p99 is not measured: the bound is proved
+    only when the run's whole cmux main off-CPU time is under it (every action's time is at most that total); a
+    larger total is unproved, never a pass, and so is a run without a complete STRESS session, with a failed
+    session or sweep, missing dumps or dropped entries."""
     cmux = [r for r in rows if r["cmux_frame"]]
     long_sites = sorted((r for r in cmux if r["max_ms"] >= WAIT_MS), key=lambda r: -r["max_ms"])
     cmux_ms = round(sum(r["total_ms"] for r in cmux), 3)
@@ -650,6 +775,12 @@ def run2_verdict(rows, chromium, summary, facts):
         incomplete.append("no daemon dump")
     if not actions:
         incomplete.append("no sweep actions read")
+    if "stress" not in (facts.get("sessions") or []):
+        incomplete.append(f"no STRESS session (sessions: {sessions_label(facts)})")
+    if facts.get("failed_sessions"):
+        incomplete.append(f"failed sessions: {', '.join(facts['failed_sessions'])}")
+    if facts.get("sweep_status"):
+        incomplete.append(f"the sweep exited {facts['sweep_status']}")
     if long_sites:
         verdict = "fail"
     elif cmux_ms < PER_ACTION_MS and not incomplete:
@@ -659,7 +790,7 @@ def run2_verdict(rows, chromium, summary, facts):
     return {"verdict": verdict, "waits_ge_1ms_sites": len(long_sites),
             "worst": [{key: r[key] for key in ("site", "max_ms", "total_ms")} for r in long_sites[:5]],
             "cmux_main_ms": cmux_ms, "actions": actions,
-            "per_action_mean_ms": round(cmux_ms / actions, 3) if actions else None,
+            "per_action_p99_ms": None, "per_action_p99_at_most_ms": cmux_ms,
             "no_cmux_frame_ms": round(sum(r["total_ms"] for r in rows if not r["cmux_frame"]), 3),
             "incomplete": incomplete, "app_chromium_ms": chromium["total_ms"],
             "target_met": verdict == "pass" and chromium["total_ms"] == 0}
@@ -669,49 +800,58 @@ def filing(report, summary, facts, index, known, config):
     """The run's tasks, RUN-2 and the Chromium hand-off (blocking-probe-filing.json)."""
     chromium = chromium_handoff(report["app_chromium"])
     mq13 = mq13_tasks(report["daemon_request"], index, known)
+    statuses = collections.Counter(t["known"] for t in mq13)
     return {"date": datetime.date.today().isoformat(), "config": config, "facts": facts,
             "run2": run2_verdict(report["app_main"], chromium, summary, facts),
             "mq11": mq11_tasks(report["app_main"], index), "mq13": mq13, "app_chromium": chromium,
             "daemon": {"sites": len(report["daemon_request"]),
                        "blocked_ms": summary["sections"]["daemon_request"]["blocked_ms"],
                        "input_wait_ms": summary["sections"]["daemon_input_wait"]["blocked_ms"],
-                       "known": sorted({t["known_from"] for t in mq13 if t["known_from"]}),
-                       "known_tasks": sum(1 for t in mq13 if t["known_from"])}}
+                       "known_list": known[0], "known_unknown_reason": known[2],
+                       "known_tasks": statuses["known"], "new_tasks": statuses["new"],
+                       "unknown_tasks": statuses["unknown"]}}
 
 
 def run2_line(filed):
     run2 = filed["run2"]
     return (f"RUN-2 {run2['verdict']} waits_ge_1ms_sites={run2['waits_ge_1ms_sites']} "
-            f"cmux_main_ms={run2['cmux_main_ms']} actions={run2['actions']} mq11_tasks={len(filed['mq11'])} "
-            f"mq13_tasks={len(filed['mq13'])} app_chromium_ms={run2['app_chromium_ms']} "
-            f"chromium={filed['app_chromium']['status']} target_met={str(run2['target_met']).lower()}")
+            f"cmux_main_ms={run2['cmux_main_ms']} actions={run2['actions']} per_action_p99=not_measured "
+            f"mq11_tasks={len(filed['mq11'])} mq13_tasks={len(filed['mq13'])} "
+            f"app_chromium_ms={run2['app_chromium_ms']} chromium={filed['app_chromium']['status']} "
+            f"target_met={str(run2['target_met']).lower()}")
 
 
 def perf_lead_rows(filed):
     """perf-lead.md section 5 rows (Date | Workstream | sha | Row | Before | After), host, macOS and sha in each."""
     facts, run2, chromium, daemon = filed["facts"], filed["run2"], filed["app_chromium"], filed["daemon"]
+    sessions = sessions_label(facts)
     where_run = (f"{facts.get('host') or 'host not recorded'}, macOS {facts.get('macos') or 'not recorded'}, "
-                 f"{facts.get('machine') or 'arch not recorded'}, config {filed['config']}, sessions "
-                 f"{'+'.join(facts.get('sessions') or []) or 'not recorded'}")
+                 f"{facts.get('machine') or 'arch not recorded'}, config {filed['config']}, sessions {sessions}")
     sha = facts.get("sha") or "sha not recorded"
     worst = "; ".join(f"`{w['site'][:80]}` {w['max_ms']} ms" for w in run2["worst"][:3]) or "none"
-    mean = f"{run2['per_action_mean_ms']} ms mean" if run2["per_action_mean_ms"] is not None else "no action count"
     incomplete = f" Incomplete: {', '.join(run2['incomplete'])}." if run2["incomplete"] else ""
     app = (f"| {filed['date']} | p02-threads-301 RUN-2 (blocking probe, MQ-11) | {sha} | RUN-2: main-thread waits "
-           f"in cmux code, every action light + STRESS | - | {run2['verdict']}: {run2['waits_ge_1ms_sites']} cmux "
-           f"sites with a single wait of {WAIT_MS:g} ms or more (worst: {worst}); cmux main off-CPU "
-           f"{run2['cmux_main_ms']} ms over {run2['actions']} actions ({mean}; the per-action p99 < "
-           f"{PER_ACTION_MS:g} ms bound is proved only when the run's total is under it); {len(filed['mq11'])} "
-           f"MQ-11 tasks; no cmux frame {run2['no_cmux_frame_ms']} ms. app_chromium OPEN: {chromium['total_ms']} "
-           f"ms over {chromium['sites']} sites, longest {chromium['max_ms']} ms, to {CEF_PROGRAM} ({CEF_DESIGN}); "
-           f"the 0-blocking target is not met while it is above 0.{incomplete} {where_run} |")
-    known = (f", {daemon['known_tasks']} at a location already on {', '.join(daemon['known'])}"
-             if daemon["known_tasks"] else "")
-    daemon_row = (f"| {filed['date']} | p02-threads-301 RUN-5 daemon half (blocking probe, MQ-13) | {sha} | RUN-5: "
-                  f"the app session owner's request and echo threads under the same sweep | - | daemon_request "
-                  f"{daemon['sites']} sites, {daemon['blocked_ms']} ms; {len(filed['mq13'])} MQ-13 tasks (site, "
-                  f"kind, thread){known}; daemon_input_wait {daemon['input_wait_ms']} ms (a wait for the next "
-                  f"input, not blocking work). {where_run} |")
+           f"in cmux code, every action {sessions} | - | {run2['verdict']}: {run2['waits_ge_1ms_sites']} cmux "
+           f"sites with a single wait of {WAIT_MS:g} ms or more (worst: {worst}); per-action p99 not measured (the "
+           f"probe sums each stack over the run: each action's cmux main off-CPU time is at most the run's "
+           f"{run2['cmux_main_ms']} ms over {run2['actions']} actions, which proves the < {PER_ACTION_MS:g} ms "
+           f"bound only below it); {len(filed['mq11'])} MQ-11 tasks; no cmux frame {run2['no_cmux_frame_ms']} ms. "
+           f"app_chromium OPEN: {chromium['total_ms']} ms over {chromium['sites']} sites, longest "
+           f"{chromium['max_ms']} ms, to {CEF_PROGRAM} ({CEF_DESIGN}); the 0-blocking target is not met while it is "
+           f"above 0.{incomplete} {where_run} |")
+    if daemon["known_list"]:
+        known = (f"; against {daemon['known_list']}: {daemon['known_tasks']} known, {daemon['new_tasks']} new, "
+                 f"{daemon['unknown_tasks']} unknown")
+        if daemon["known_unknown_reason"]:
+            known += f" ({daemon['known_unknown_reason']})"
+    else:
+        known = ""
+    daemon_row = (f"| {filed['date']} | p02-threads-301 daemon request and echo threads (blocking probe, MQ-13; not "
+                  f"RUN-5's server.blocking bench) | {sha} | MQ-13 sites: the app session owner's request and echo "
+                  f"threads under the same sweep | - | daemon_request {daemon['sites']} sites, "
+                  f"{daemon['blocked_ms']} ms; {len(filed['mq13'])} MQ-13 tasks (location, kind, thread){known}; "
+                  f"daemon_input_wait {daemon['input_wait_ms']} ms (a wait for the next input, not blocking work). "
+                  f"{where_run} |")
     return [app, daemon_row]
 
 
@@ -739,7 +879,8 @@ def write_filing_markdown(path, filed):
             for task in tasks:
                 files = ", ".join(task["files"]) or ("unresolved: " + ", ".join(u["source"] for u in task["unresolved"])
                                                      if task["unresolved"] else "no source line")
-                known = f" (on {task['known_from']})" if task.get("known_from") else ""
+                known = (f" (on {task['known_from']})" if task.get("known_from")
+                         else " (known: unknown)" if task.get("known") == "unknown" else "")
                 md.write(f"| {task['id']} | {task['total_ms']} | {task['max_ms']} | `{task['title'][:110]}`{known} | "
                          f"{files} | {task['owner']} |\n")
 
@@ -793,8 +934,12 @@ def main():
     parser.add_argument("--sweep-json", metavar="PATH",
                         help="the sweep's every-action.json: host, macOS, sha and the action count for RUN-2")
     parser.add_argument("--known-sites", metavar="PATH",
-                        help="a fixed MQ-13 list (location rows, p02-threads-303's mq13-record-sites.json): a "
-                             "daemon task at one of its locations is marked known_from")
+                        help="a fixed MQ-13 list (location, kind and thread rows, p02-threads-303's "
+                             "mq13-record-sites.json): a daemon task at one of its rows, moved to the measured sha, "
+                             "is marked known_from")
+    parser.add_argument("--known-sites-sha", metavar="SHA",
+                        help="the commit the --known-sites list was recorded at (without it no task is marked known)")
+    parser.add_argument("--sweep-status", type=int, help="the sweep's exit status (not 0: RUN-2 is incomplete)")
     parser.add_argument("--config", default="debug", help="the build configuration, for the perf-lead.md rows")
     opts = parser.parse_args()
     if opts.select:
@@ -836,8 +981,9 @@ def main():
     write_markdown(os.path.join(opts.out, "blocking-probe.md"), summary, report, overhead_ms)
     print(json.dumps(summary))
     repo_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../..")
-    filed = filing(report, summary, sweep_facts(opts.sweep_json), source_index(repo_root),
-                   known_locations(opts.known_sites), opts.config)
+    facts = sweep_facts(opts.sweep_json, opts.sweep_status)
+    known = known_sites(opts.known_sites, opts.known_sites_sha, facts.get("sha"), repo_root)
+    filed = filing(report, summary, facts, source_index(repo_root), known, opts.config)
     write_filing(opts.out, filed)
     write_filing_markdown(os.path.join(opts.out, "blocking-probe.md"), filed)
     print(run2_line(filed))

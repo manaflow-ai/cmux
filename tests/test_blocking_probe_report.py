@@ -447,10 +447,10 @@ WORSE_APP = "#final\t1\n#threads\tmain\nfile-io:fsync\tmain\t1\t9000000\t9000000
             "cmux DEV.debug.dylib|0x110|$s14CmuxNextTheme4saveyyF;\n"
 
 
-class Filing(unittest.TestCase):
-    """Task 301: MQ-11 and MQ-13 tasks, the app_chromium hand-off and RUN-2, from the report's own rows."""
+class FilingRun(unittest.TestCase):
+    """Runs the report with a sweep's every-action.json and reads its filing (no tests of its own)."""
 
-    def run_filing(self, dumps, sweep=SWEEP_JSON, known=None):
+    def run_filing(self, dumps, sweep=SWEEP_JSON, known=None, status=None):
         work = tempfile.mkdtemp(prefix="blocking-probe-filing-")
         self.addCleanup(shutil.rmtree, work, True)
         app = os.path.join(work, "cmux DEV.app")
@@ -468,6 +468,8 @@ class Filing(unittest.TestCase):
             with open(os.path.join(work, "known.json"), "w") as f:
                 json.dump(known, f)
             args += ["--known-sites", os.path.join(work, "known.json")]
+        if status is not None:
+            args += ["--sweep-status", str(status)]
         run = report_cli(*args, *write_dumps(work, dumps))
         self.assertEqual(run.returncode, 0, run.stderr)
         out = os.path.join(work, "out")
@@ -478,6 +480,10 @@ class Filing(unittest.TestCase):
         with open(os.path.join(out, "blocking-probe.md")) as f:
             markdown = f.read()
         return filed, rows, markdown, run.stdout
+
+
+class Filing(FilingRun):
+    """Task 301: MQ-11 and MQ-13 tasks, the app_chromium hand-off and RUN-2, from the report's own rows."""
 
     def test_a_cmux_wait_of_1_ms_fails_run2_and_files_one_task_per_queue_entry(self):
         filed, rows, markdown, stdout = self.run_filing([APP_DUMP, DAEMON_DUMP])
@@ -508,12 +514,12 @@ class Filing(unittest.TestCase):
         self.assertEqual(len(rows), 2)
         for row in rows:
             self.assertEqual(row.count(" | "), 5, row)
-            for fact in ("0123456789ab", "cmux20", "macOS 27.0.1", "config bench", "light+stress"):
+            for fact in ("0123456789ab", "cmux20", "macOS 27.0.1", "config bench", "light + STRESS"):
                 self.assertIn(fact, row)
         self.assertIn("RUN-2", rows[0])
         self.assertIn("app_chromium OPEN: 2.0 ms", rows[0])
         self.assertIn("1 dumps periodic only", rows[0])  # the daemon dump had no final write
-        self.assertIn("RUN-5 daemon half", rows[1])
+        self.assertIn("MQ-13; not RUN-5", rows[1])
         self.assertIn("2 MQ-13 tasks", rows[1])
 
     def test_a_quiet_complete_run_passes_but_the_chromium_number_keeps_the_target_open(self):
@@ -585,21 +591,193 @@ class FilingSources(unittest.TestCase):
         self.assertEqual(task["files"], [])
         self.assertEqual(task["unresolved"], [{"source": "NoSuchFile.swift:3", "candidates": []}])
 
-    def test_a_site_on_the_known_mq13_list_is_marked(self):
-        known = {("bounded_outbound.rs", "469"): "mq13-record-sites.json"}
-        hit = self.row("serve (in cmux-tui) (bounded_outbound.rs:469)", "cmux_tui_core")
-        miss = self.row("serve (in cmux-tui) (bounded_outbound.rs:470)", "cmux_tui_core")
-        tasks = self.report.mq13_tasks([hit, miss], self.index, known)
-        self.assertEqual(sorted(str(t["known_from"]) for t in tasks), ["None", "mq13-record-sites.json"])
+    def test_two_lines_of_one_function_are_two_mq13_tasks(self):
+        # MQ-13 files each (location, kind, thread): the function alone would give both lines one id.
+        first = self.row("serve (in cmux-tui) (bounded_outbound.rs:469)", "cmux_tui_core")
+        second = self.row("serve (in cmux-tui) (bounded_outbound.rs:470)", "cmux_tui_core")
+        tasks = self.report.mq13_tasks([first, second], self.index)
+        self.assertEqual(len({t["id"] for t in tasks}), 2)
+        self.assertEqual(sorted(t["location"] for t in tasks),
+                         ["cmux-tui/crates/cmux-tui-core/src/server/bounded_outbound.rs:469",
+                          "cmux-tui/crates/cmux-tui-core/src/server/bounded_outbound.rs:470"])
+        # With no line from atos, the whole atos line is the location: two symbols stay two tasks.
+        bare = [self.row("cmux_tui_core::a::f", "cmux_tui_core"), self.row("cmux_tui_core::a::g", "cmux_tui_core")]
+        self.assertEqual(len({t["id"] for t in self.report.mq13_tasks(bare, self.index)}), 2)
 
-    def test_the_harness_hands_the_303_list_and_the_sweep_json_to_the_report(self):
+    def known_list(self, rows, list_sha="HEAD", measured_sha="HEAD", root=ROOT):
+        work = tempfile.mkdtemp(prefix="blocking-probe-known-")
+        self.addCleanup(shutil.rmtree, work, True)
+        path = os.path.join(work, "mq13-record-sites.json")
+        with open(path, "w") as f:
+            json.dump(rows, f)
+        return self.report.known_sites(path, list_sha, measured_sha, root)
+
+    def test_a_site_on_the_known_mq13_list_is_marked_at_its_path_kind_and_thread(self):
+        known = self.known_list([{"location": "crates/cmux-tui-core/src/server/bounded_outbound.rs:469:21",
+                                  "kind": "condvar-wait", "thread": "mux-line-out", "fixture": False}])
+        self.assertEqual(known[2], "")
+        site = "serve (in cmux-tui) (bounded_outbound.rs:469)"
+        wait = self.row(site, "cmux_tui_core", pairs=[
+            {"kind": "sync-wait:pthread_cond_wait", "thread": "mux-line-out", "count": 1, "total_ms": 2.0,
+             "max_ms": 2.0},
+            # The same location with another kind (a file open is no condition wait) and another thread: new.
+            {"kind": "file-io:open", "thread": "mux-line-out", "count": 1, "total_ms": 2.0, "max_ms": 2.0},
+            {"kind": "sync-wait:pthread_cond_wait", "thread": "mux-conn", "count": 1, "total_ms": 2.0,
+             "max_ms": 2.0}])
+        moved = self.row("serve (in cmux-tui) (bounded_outbound.rs:470)", "cmux_tui_core",
+                         pairs=[wait["pairs"][0]])
+        tasks = self.report.mq13_tasks([wait, moved], self.index, known)
+        marked = {(t["kind"], t["thread"], t["location"].rsplit(":", 1)[1]): (t["known"], t["known_from"])
+                  for t in tasks}
+        self.assertEqual(marked, {
+            ("sync-wait:pthread_cond_wait", "mux-line-out", "469"): ("known", "mq13-record-sites.json"),
+            ("file-io:open", "mux-line-out", "469"): ("new", None),
+            ("sync-wait:pthread_cond_wait", "mux-conn", "469"): ("new", None),
+            ("sync-wait:pthread_cond_wait", "mux-line-out", "470"): ("new", None)})
+
+    def test_a_same_named_file_is_never_the_known_one(self):
+        known = self.known_list([{"location": "crates/cmux-tui-core/src/session/mod.rs:10:1", "kind": "sqlite",
+                                  "thread": "surface-N-host"}])
+        pair = {"kind": "file-io:pwrite", "thread": "surface-*-host", "count": 1, "total_ms": 2.0, "max_ms": 2.0}
+        row = self.row("f (in cmux-tui) (mod.rs:10)", "cmux_tui_core", pairs=[pair])
+        # Many mod.rs in the crate: atos names no single file, so the site is not marked known.
+        (task,) = self.report.mq13_tasks([row], self.index, known)
+        self.assertEqual((task["known"], task["known_from"]), ("unknown", None))
+        self.assertIn("no single repo file", task["known_unknown_reason"])
+        # Another mod.rs at the same line: new, not known.
+        other = {"mod.rs": ["cmux-tui/crates/cmux-tui-core/src/mux/mod.rs"]}
+        (task,) = self.report.mq13_tasks([row], other, known)
+        self.assertEqual((task["known"], task["known_from"]), ("new", None))
+        # The listed file itself, with the probe's surface-*-host pattern: known.
+        listed = {"mod.rs": ["cmux-tui/crates/cmux-tui-core/src/session/mod.rs"]}
+        (task,) = self.report.mq13_tasks([row], listed, known)
+        self.assertEqual(task["known"], "known")
+
+    def test_the_list_moves_to_the_measured_commit_or_marks_nothing(self):
+        repo = tempfile.mkdtemp(prefix="blocking-probe-known-repo-")
+        self.addCleanup(shutil.rmtree, repo, True)
+        source = os.path.join(repo, "cmux-tui/crates/x/src/a.rs")
+        os.makedirs(os.path.dirname(source))
+
+        def commit(lines):
+            with open(source, "w") as f:
+                f.write("\n".join(lines) + "\n")
+            for args in (["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c"]):
+                subprocess.run(["git", "-C", repo, *args], check=True, capture_output=True)
+            return subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"], check=True, capture_output=True,
+                                  text=True).stdout.strip()
+
+        subprocess.run(["git", "init", "-q", repo], check=True, capture_output=True)
+        lines = [f"line {n}" for n in range(1, 11)]
+        old = commit(lines)
+        lines[7] = "line 8 changed"
+        new = commit(["added 1", "added 2", "added 3"] + lines)
+        rows = [{"location": f"crates/x/src/a.rs:{line}:1", "kind": "fs", "thread": "mux-conn"} for line in (5, 8)]
+        name, sites, reason = self.known_list(rows, old, new, repo)
+        self.assertEqual(reason, "")
+        # Line 5 is line 8 now; the old line 8 changed, so its site is filed as new.
+        self.assertEqual(sites, {("cmux-tui/crates/x/src/a.rs", 8, "fs", "mux-conn")})
+        _, sites, reason = self.known_list(rows, "0" * 40, new, repo)
+        self.assertEqual(sites, frozenset())
+        self.assertIn("cannot resolve", reason)
+        _, _, reason = self.known_list(rows, old, "", repo)
+        self.assertEqual(reason, "the sweep recorded no sha")
+        row = self.row("f (in cmux-tui) (a.rs:8)", "x", pairs=[
+            {"kind": "file-io:open", "thread": "mux-conn", "count": 1, "total_ms": 2.0, "max_ms": 2.0}])
+        (task,) = self.report.mq13_tasks([row], {"a.rs": ["cmux-tui/crates/x/src/a.rs"]},
+                                         (name, frozenset(), "the sweep recorded no sha"))
+        self.assertEqual((task["known"], task["known_from"]), ("unknown", None))
+
+    def test_moved_line_follows_git_hunks(self):
+        moved = self.report.moved_line
+        hunks = [(2, 0, 3), (5, 2, 1)]  # 3 lines added after line 2; lines 5-6 replaced by one line
+        self.assertEqual([moved(hunks, line) for line in (1, 2, 3, 4, 5, 6, 7)], [1, 2, 6, 7, None, None, 9])
+
+    def test_the_harness_hands_the_303_list_its_commit_and_the_sweep_to_the_report(self):
         with open(HARNESS) as f:
             harness = f.read()
         path = re.search(r'known_sites="([^"]+)"', harness).group(1)
+        sha = re.search(r'known_sites_sha="([0-9a-f]{40})"', harness).group(1)
         self.assertTrue(os.path.isfile(os.path.join(ROOT, path)), path)
-        known = self.report.known_locations(os.path.join(ROOT, path))
-        self.assertIn(("bounded_outbound.rs", "469"), known)
-        self.assertIn('--sweep-json "$out/sweep/every-action.json"', harness)
+        with open(os.path.join(ROOT, os.path.dirname(path), "README.md")) as f:
+            self.assertIn(f"({sha[:11]};", f.read())  # the README's "Head" commit
+        self.assertIn('--known-sites-sha "$known_sites_sha"', harness)
+        self.assertIn('--sweep-json "$out/sweep/every-action.json" --sweep-status "$status"', harness)
+        name, sites, reason = self.report.known_sites(os.path.join(ROOT, path), sha, sha, ROOT)
+        if "cannot resolve" in reason:
+            self.skipTest(f"this clone lacks the list's commit {sha[:11]}")
+        self.assertEqual(reason, "")
+        self.assertIn(("cmux-tui/crates/cmux-tui-core/src/server/bounded_outbound.rs", 469, "condvar-wait",
+                       "mux-line-out"), sites)
+
+
+class DaemonSite(unittest.TestCase):
+    """A daemon site is the cmux code that calls a cmux_threads blocking wrapper, not the wrapper."""
+
+    def run_daemon(self, frames):
+        work = tempfile.mkdtemp(prefix="blocking-probe-daemon-")
+        self.addCleanup(shutil.rmtree, work, True)
+        app = os.path.join(work, "cmux DEV.app")
+        for relative in ("Contents/MacOS/cmux DEV", "Contents/Resources/bin/cmux-tui"):
+            os.makedirs(os.path.dirname(os.path.join(app, relative)), exist_ok=True)
+            open(os.path.join(app, relative), "w").close()
+        dump = "#final\t1\n#threads\tmux-conn\nfile-io:open\tmux-conn\t1\t2000000\t2000000\t" \
+               "libsystem_kernel.dylib|0x30|open;" + ";".join(frames) + ";\n"
+        run = report_cli("--app", app, "--out", os.path.join(work, "out"), *write_dumps(work, [dump]))
+        self.assertEqual(run.returncode, 0, run.stderr)
+        with open(os.path.join(work, "out", "blocking-probe.json")) as f:
+            return json.load(f)["sections"]["daemon_request"]
+
+    def test_a_checked_wrapper_files_its_caller(self):
+        (site,) = self.run_daemon([
+            "cmux-tui|0x1000|_ZN3std2fs4File4open17h0123456789abcdefE",
+            "cmux-tui|0x1100|_ZN12cmux_threads7checked2fs4read17h0123456789abcdefE",
+            "cmux-tui|0x2000|_ZN13cmux_tui_core6server1x17h0123456789abcdefE",
+            "cmux-tui|0x3000|_ZN12cmux_threads4work3run17h0123456789abcdefE"])
+        self.assertEqual(site["site"], "_ZN13cmux_tui_core6server1x17h0123456789abcdefE")
+        self.assertEqual(site["module"], "cmux_tui_core")
+
+    def test_a_wait_with_only_wrapper_frames_stays_at_the_wrapper(self):
+        (site,) = self.run_daemon(["cmux-tui|0x1100|_ZN12cmux_threads4sync5Mutex4lock17h0123456789abcdefE"])
+        self.assertEqual(site["module"], "cmux_threads")
+
+    def test_the_wrapper_pattern_names_only_the_blocking_modules(self):
+        wrapper = load_report_module().BLOCKING_WRAPPER
+        for name in ("cmux_threads::checked::fs::read", "cmux_threads::checked::sync::wait::h12",
+                     "<cmux_threads::sync::Mutex<T>>::lock", "cmux_threads::lock_wait::wait",
+                     "cmux_threads::blocking::scoped_blocking_call", "_ZN12cmux_threads7checked2fs4read17hE"):
+            self.assertTrue(wrapper.search(name), name)
+        for name in ("cmux_threads::work::run", "cmux_threads::blocking_kind", "cmux_tui_core::sync::x",
+                     "cmux_threads::checkedx"):
+            self.assertFalse(wrapper.search(name), name)
+
+
+class Run2Sessions(FilingRun):
+    """RUN-2 is defined on STRESS: a run without a complete STRESS session, or a failed sweep, never passes."""
+
+    def test_a_light_only_sweep_never_passes_and_its_row_says_light(self):
+        light = {"env": SWEEP_JSON["env"], "sessions": SWEEP_JSON["sessions"][:1]}
+        filed, rows, _, _ = self.run_filing([QUIET_APP, QUIET_DAEMON], sweep=light, status=0)
+        self.assertEqual(filed["run2"]["verdict"], "unproved")
+        self.assertIn("no STRESS session (sessions: light)", filed["run2"]["incomplete"])
+        self.assertIn("every action light |", rows[0])
+        self.assertNotIn("STRESS |", rows[0])
+
+    def test_a_failed_stress_session_or_sweep_never_passes(self):
+        failed = dict(SWEEP_JSON, failed_sessions=[{"name": "stress", "error": "LaunchError()", "rows": 1}])
+        filed, rows, _, _ = self.run_filing([QUIET_APP, QUIET_DAEMON], sweep=failed, status=3)
+        self.assertEqual(filed["run2"]["verdict"], "unproved")
+        self.assertIn("failed sessions: stress", filed["run2"]["incomplete"])
+        self.assertIn("the sweep exited 3", filed["run2"]["incomplete"])
+        filed, _, _, _ = self.run_filing([QUIET_APP, QUIET_DAEMON], status=3)
+        self.assertEqual(filed["run2"]["incomplete"], ["the sweep exited 3"])
+
+    def test_the_row_never_presents_a_mean_as_the_p99(self):
+        filed, rows, _, stdout = self.run_filing([BUSY_APP, QUIET_DAEMON], status=0)
+        self.assertIsNone(filed["run2"]["per_action_p99_ms"])
+        self.assertNotIn("mean", rows[0])
+        self.assertIn("per-action p99 not measured", rows[0])
+        self.assertIn("per_action_p99=not_measured", stdout)
 
 
 if __name__ == "__main__":
