@@ -162,6 +162,37 @@ await requireBrowserLane("scroll-intent-rail.test.ts", async () => {
     expect(anchor.correction).toBeGreaterThan(20);
     expect(anchor.frames.every((delta) => Math.abs(delta) <= 1)).toBe(true);
   });
+  test("manual input cancels a native smooth footnote ride before another painted frame", async () => {
+    const page = await browser!.newPage();
+    await installPaintedFrames(page);
+    const { port } = vite!.httpServer!.address() as { port: number };
+    await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
+    const result = await page.evaluate(async (modulePath) => {
+      const { attachUserScrollIntent } = await import(modulePath);
+      const node = document.createElement("div");
+      node.style.cssText = "height:100px;overflow:auto";
+      node.innerHTML = '<div style="height:2000px">Footnote target</div>';
+      document.body.append(node);
+      const detach = attachUserScrollIntent(node);
+      node.scrollTo({ top: 1500, behavior: "smooth" });
+      do {
+        await window.cmuxPaintFrame();
+      } while (node.scrollTop === 0);
+      node.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, buttons: 1 }));
+      const stopped = node.scrollTop;
+      const frames: number[] = [];
+      for (let frame = 0; frame < 12; frame++) {
+        await window.cmuxPaintFrame();
+        frames.push(node.scrollTop);
+      }
+      detach();
+      node.remove();
+      return { stopped, frames };
+    }, "/src/agent-session/acpmux/conversation/userScroll.ts");
+    await page.close();
+    expect(result.stopped).toBeLessThan(1500);
+    expect(result.frames.every((top) => top === result.stopped)).toBe(true);
+  });
   test("manual inputs invalidate explicit requests and hold until one second after release", async () => {
     const page = await browser!.newPage();
     const { port } = vite!.httpServer!.address() as { port: number };
