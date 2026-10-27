@@ -43,6 +43,9 @@ statically, so a reordered step fails in review and not on a release day:
    runner) checks it on every feat-cmux-next pull request and push: pointing one
    of those variables at an owned mini turns it red. It detects; it does not stop
    a signing job that starts before it.
+8. A job that signs with the release signer (RELEASE_POOL_SIGNERS) makes no
+   keychain: it runs on a literal ubuntu label and hands the certificate only
+   to its signer script, which keeps the key in its own temporary directory.
 
 Not covered by rule 6: other environments and credentials (artifacts,
 package registries, CI cache, Sentry, Cloudflare, Vercel, CEF R2) and a job
@@ -109,6 +112,11 @@ SCRIPT_MADE_KEYCHAINS = {
     ("auto-resume-nightly-notarization.yml", "wait-and-staple"): "scripts/ci/resume-stapled-app-notarization.sh",
     ("auto-resume-nightly-notarization.yml", "staple-outer"): "scripts/ci/resume-stapled-app-notarization.sh",
     ("resume-nightly-notarization.yml", "resume"): "scripts/ci/resume-stapled-app-notarization.sh",
+}
+# Jobs that sign with the release signer (rule 8), each with the script that gets the certificate.
+RELEASE_POOL_SIGNERS = {
+    ("nightly.yml", "signer-app"): "scripts/ci/release-signer/sign-app.sh",
+    ("nightly.yml", "signer-dmg"): "scripts/ci/release-signer/notarize-dmg.sh",
 }
 # Jobs that keep bundle code in the signing job, outside the keychain window
 # only (rule 1, not rule 6). Each entry names its follow-up.
@@ -258,7 +266,17 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                 )
 
     text = json.dumps(job)
-    if "secrets.APPLE_CERTIFICATE_BASE64" in text and name not in {
+    pool_signer = RELEASE_POOL_SIGNERS.get(tuple(name.split(" ", 1)))
+    if pool_signer:
+        runner = str(job.get("runs-on", ""))
+        if "keychain" in text or pool_signer not in text or "ubuntu" not in runner or "macos" in runner:
+            failures.append(f"{name}: a release-pool signer runs on a literal ubuntu label, calls {pool_signer} and makes no keychain")
+        certificate_steps = [step for step in steps if isinstance(step, dict) and "secrets.APPLE_CERTIFICATE_BASE64" in json.dumps(step)]
+        if not certificate_steps or any(pool_signer not in str(step.get("run", "")) for step in certificate_steps):
+            failures.append(f"{name}: only the step that runs {pool_signer} may hold the Developer ID certificate")
+        if SECRET_OR_TOKEN.search(json.dumps(job.get("env") or {})):
+            failures.append(f"{name}: job-level env holds a secret or the job token; set it on the steps that use it")
+    elif "secrets.APPLE_CERTIFICATE_BASE64" in text and name not in {
         f"{workflow} {job_name}" for workflow, job_name in INLINE_DEVELOPER_ID_KEYCHAINS
     }:
         script = SCRIPT_MADE_KEYCHAINS.get(tuple(name.split(" ", 1)))
