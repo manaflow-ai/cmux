@@ -659,7 +659,7 @@
     "setting.sidebar.showSearchButton": true,
     "setting.sidebar.showSpaces": true,
     "setting.sidebar.showTimestamps": false,
-    "setting.sidebar.showWorkspaceTabs": true,
+    "setting.sidebar.showWorkspaceTabs": false,
     "setting.sidebar.side": "left",
     "setting.sidebar.spacesPosition": "bottom",
     "setting.sidebar.spacesVisibility": "hover",
