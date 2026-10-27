@@ -10,6 +10,16 @@ export type AllowanceExpiry = "session_stop_or_daemon_restart";
 export interface AnswerMeta {
   /** `{device, feedItem}`, from the person's connection only. */
   answeredBy?: (AnsweredBy | null);
+  /**
+   * An enrolled approver's signed answer beside `decisionNonce`: a phone's
+   * (`hub/approvers.rs`) or a Mac's (`hub/mac_approvers.rs`).
+   */
+  approverDecision?: (ApproverDecision | null);
+  /**
+   * A group's one-time allow from an enrolled Mac (`_acpmux/permission_group_respond`):
+   * one signed allow per pending member of the group, by permission id.
+   */
+  approverDecisions?: (Record<string, MemberApproverDecision> | null);
   decisionNonce?: (string | null);
   personDecision?: (string | null);
   via?: (string | null);
@@ -18,6 +28,17 @@ export interface AnswerMeta {
 export interface AnsweredBy {
   device: string;
   feedItem: string;
+}
+
+/**
+ * `{approver, expiresAt, signature}`: ECDSA P-256 / SHA-256, raw `r || s` as
+ * lowercase hex, over the approver's message for this exact answer.
+ */
+export interface ApproverDecision {
+  approver: string;
+  /** Unix seconds, at most 300 ahead. */
+  expiresAt: number;
+  signature: string;
 }
 
 export interface AttachParams {
@@ -326,6 +347,12 @@ export type McpServerSummary = {
   status: McpServerStatus;
 } & Record<string, unknown>;
 
+/** One group member's signed one-time allow: the member prompt's nonce and the signature. */
+export interface MemberApproverDecision {
+  approverDecision: ApproverDecision;
+  decisionNonce: string;
+}
+
 export type MessageRole = "agent" | "user";
 
 /**
@@ -400,6 +427,12 @@ export type PermissionGroupList = {
   chatAllowance: ChatAllowance;
   coverage: PermissionCoverage;
   groups: PermissionGroup[];
+  /**
+   * Set (true) beside `allowRefused` when this daemon still counts a group's
+   * one-time allow signed by an enrolled Mac for every pending member
+   * (`_meta.acpmux.approverDecisions`, `hub/mac_approvers.rs`).
+   */
+  macAllowOnce?: (boolean | null);
 } & Record<string, unknown>;
 
 export type PermissionGroupReceipt = {

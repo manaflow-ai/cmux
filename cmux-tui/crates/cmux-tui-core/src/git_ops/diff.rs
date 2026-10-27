@@ -38,6 +38,7 @@ struct ChangedFile {
     deletions: u64,
     binary: bool,
     patch: Option<String>,
+    blob_fingerprint: Option<String>,
     patch_truncated: bool,
 }
 
@@ -51,6 +52,7 @@ impl ChangedFile {
             deletions: 0,
             binary: false,
             patch: None,
+            blob_fingerprint: None,
             patch_truncated: false,
         }
     }
@@ -74,6 +76,9 @@ impl ChangedFile {
         }
         if let Some(patch) = &self.patch {
             value["patch"] = json!(patch);
+        }
+        if let Some(fingerprint) = &self.blob_fingerprint {
+            value["blob_fingerprint"] = json!(fingerprint);
         }
         if self.patch_truncated {
             value["patch_truncated"] = json!(true);
@@ -151,7 +156,7 @@ fn report(
     files.truncate(max_files);
     let files_omitted = total_files - files.len();
     let wants_patch = include_patch && comparison.revisions.is_some();
-    if wants_patch && files.iter().any(ChangedFile::has_patch) {
+    if wants_patch && files.iter().any(|file| file.status != "untracked") {
         let batches = if files_omitted == 0 {
             // Every file is returned: the request's own paths select them.
             vec![paths]
@@ -276,9 +281,16 @@ fn attach_patches(
             incomplete = true;
             break;
         }
-        let arguments = diff_args(comparison, &["--patch", &unified], batch);
+        let arguments = diff_args(comparison, &["--patch", "--full-index", &unified], batch);
         let output = git(repository, operation, &arguments, MAX_PATCH_OUTPUT_BYTES)?;
         let sections = parse::patches(&output.stdout);
+        let fingerprints =
+            parse::blob_fingerprints(&output.stdout).into_iter().collect::<HashMap<_, _>>();
+        for file in files.iter_mut().filter(|file| file.status != "untracked") {
+            if let Some(fingerprint) = fingerprints.get(&file.path) {
+                file.blob_fingerprint = Some(fingerprint.clone());
+            }
+        }
         if output.truncated {
             incomplete = true;
             cut.extend(sections.last().map(|(path, _)| path.clone()));
@@ -306,7 +318,7 @@ fn attach_patches(
 fn returned_paths(files: &[ChangedFile]) -> Vec<String> {
     files
         .iter()
-        .filter(|file| file.has_patch())
+        .filter(|file| file.status != "untracked")
         .flat_map(|file| std::iter::once(file.path.clone()).chain(file.previous_path.clone()))
         .collect()
 }

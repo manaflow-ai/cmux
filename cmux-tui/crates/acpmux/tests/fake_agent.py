@@ -748,6 +748,14 @@ def handle_prompt(rid, params):
         update("child-2", {"sessionUpdate": "current_mode_update", "currentModeId": text[14:].strip()})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "set-mode-after: MS X": the turn ends; MS later, outside any turn, the harness changes its
+    # own mode to X (a daemon may have left meanwhile: its host keeps the update for the next one).
+    if text.startswith("set-mode-after:"):
+        ms, mode = text[15:].strip().split(" ", 1)
+        later = {"sessionUpdate": "current_mode_update", "currentModeId": mode.strip()}
+        threading.Timer(int(ms) / 1000, update, args=(sid, later)).start()
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "set-mode: X": the harness changes its own mode, as a real one may.
     if text.startswith("set-mode:"):
         update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[9:].strip()})

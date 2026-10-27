@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind } from "./environments";
+import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import { type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
@@ -54,6 +55,7 @@ import {
 import { BoltIcon } from "./BoltIcon";
 import {
   flushPendingDraftWrites,
+  forgetQueuedDraft,
   hasPendingDraftWrite,
   lastQueuedDraftText,
   readDurableDraft,
@@ -295,6 +297,8 @@ type Props = {
   onRefreshMachines?(): void;
   /// The folder menu's quiet line while a new chat has no folder (ComposerContext `folderNote`).
   folderNote?: string;
+  /// A new chat's Run as rows in the environment picker (Persistent or Sandboxed, hq#3367).
+  runMode?: RunModeRows;
   /// This Mac's name for the location row.
   localName?: string;
   /// Preview features on: the location row's computer is the environment picker (ComposerContext).
@@ -370,6 +374,7 @@ export function Composer({
   offloads,
   onRefreshMachines,
   folderNote,
+  runMode,
   localName,
   environments,
   onNewChat,
@@ -708,6 +713,8 @@ export function Composer({
     const carried = carryPrompt.current ? (field.current?.value() ?? text) : "";
     const previous = persistedSession.current;
     if (previous && hydratedSession.current === previous) writePersistedDraft(previous, field.current?.value() ?? text);
+    // This composer leaves that chat: only a quit compares its queued text, and only for the chat shown.
+    forgetQueuedDraft(previous);
     persistedSession.current = sessionId;
     // Another chat's prompt comes in: no key before it was typing for this one.
     notTyped();
@@ -725,6 +732,8 @@ export function Composer({
     setCaret(initial.length);
     pendingCaret.current = initial.length;
   }, [sessionId, text, draft]);
+  // The pane closes: what it queued for its chat still goes to acpmux, but no quit compares it again.
+  useEffect(() => () => forgetQueuedDraft(persistedSession.current), []);
   // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
   useKeptAttachments(sessionId, attachments, setAttachments, keptAttachments, () => carryPrompt.current);
   // WEB-SWAP: a web update reloads the page only when the prompt comes back as it is: text and
@@ -1609,6 +1618,7 @@ export function Composer({
       {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
       {...(onRefreshMachines ? { onRefreshMachines } : {})}
       {...(folderNote ? { folderNote } : {})}
+      {...(runMode ? { runMode } : {})}
       environments={environments}
       {...(onComputer ? { onComputer } : {})}
       onProject={
