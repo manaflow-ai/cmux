@@ -2902,6 +2902,8 @@ export function restoreVm(input: {
   readonly provider: ProviderId;
   readonly snapshotId: string;
   readonly idempotencyKey?: string;
+  /** Work to run after the route answers (the guest vm-kind write); detached when absent. */
+  readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
   /** Same contract as createVm: the restored machine gets its own token and edge rule. */
   readonly modelPlane?: VmModelPlaneProvisioner;
   /** Set only when the requesting client routes team networks. */
@@ -2968,6 +2970,7 @@ export function restoreVm(input: {
       modelPlane: input.modelPlane,
       teamDirectory: input.teamDirectory,
       timing: input.timing,
+      deferAfterResponse: input.deferAfterResponse,
     });
   });
 }

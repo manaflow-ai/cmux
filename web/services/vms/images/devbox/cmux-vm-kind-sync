@@ -1,7 +1,10 @@
 #!/bin/sh
-# Refreshes the root-owned machine sharing marker from the VM-bound reflection
-# route. Own agent logins are allowed only while this says `owner`; any missing
-# configuration or failed/invalid response writes `team` first (fail closed).
+# Refreshes the machine's kind record (owner or team) from the VM-bound
+# reflection route. It writes only an answer it got: missing configuration or a
+# failed/invalid response leaves the record as it is (the image bakes `team`,
+# and the Cloud backend records the kind it assigned at create), so a failed
+# fetch never turns an owner VM `team`. Readers treat a missing or unreadable
+# record as `team` (agent-auth.sh).
 set -eu
 
 kind_file=${CMUX_VM_KIND_FILE:-/etc/cmux/vm-kind}
@@ -21,7 +24,12 @@ write_kind() {
   trap - EXIT HUP INT TERM
 }
 
-write_kind team
+# The boot's snapshot-clone check asks for a reset: a clone may carry its
+# source's record, so it reads `team` until its own answer arrives.
+if [ "${CMUX_VM_KIND_RESET:-}" = team ]; then
+  write_kind team
+  exit 0
+fi
 [ -f "$env_file" ] || exit 0
 # Root-owned image data. It carries only alias origins and public placeholders.
 . "$env_file"

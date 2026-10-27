@@ -7,15 +7,16 @@ import * as Schedule from "effect/Schedule";
 import * as TestClock from "effect/TestClock";
 import * as TestContext from "effect/TestContext";
 import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingGateway";
 import { guestVmKindCommand, scheduleGuestVmKindRecord } from "../services/vms/guestVmKind";
 import type { VmGuestKind } from "../services/vms/vmKind";
-import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
+import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmRepository, type BeginBaseCreateResult, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
-import { createVm, openBaseVm, resetBaseVm } from "../services/vms/workflows";
+import { createVm, openBaseVm, resetBaseVm, restoreVm } from "../services/vms/workflows";
 import { runChild } from "./helpers/run-child";
 
 // A machine New Machine makes for its owner must read `owner` in
@@ -98,7 +99,7 @@ describe("guest vm-kind command", () => {
     expect(readdirSync(kindDir(root))).toEqual(["vm-kind"]);
   });
 
-  test("never overwrites an existing marker or a symlink", async () => {
+  test("keeps an existing record or a symlink", async () => {
     for (const [kind, plant] of [
       ["owner", (file: string) => writeFileSync(file, "team\n")],
       ["team", (file: string) => writeFileSync(file, "owner\n")],
@@ -142,6 +143,17 @@ describe("guest vm-kind command", () => {
     // The stale one is swept; a fresh one may be a live writer's (the image's sync) and stays.
     expect(readdirSync(kindDir(root)).sort()).toEqual([".vm-kind.fresh1"]);
     expect(cmuxVm(root)).toBe(false);
+  });
+
+  test("sweeps a stale temporary file even when the record already exists", async () => {
+    const root = guestRoot();
+    writeFileSync(kindFile(root), "owner\n");
+    const stale = path.join(kindDir(root), ".vm-kind.stale2");
+    writeFileSync(stale, "owner\n");
+    const old = new Date(Date.now() - 5 * 60_000);
+    utimesSync(stale, old, old);
+    expect((await runGuest(root)).stdout).toBe("kept\n");
+    expect(readdirSync(kindDir(root))).toEqual(["vm-kind"]);
   });
 
   test("creates a missing /etc/cmux", async () => {
@@ -224,6 +236,8 @@ function harness(input: { vm?: CloudVmRow; root: string; failExecs?: number; onF
     beginCreate: () => Effect.succeed({ inserted: true, vm }),
     beginBaseOpen: () => Effect.succeed(baseCreate(vm)),
     beginBaseReset: () => Effect.succeed(baseCreate(vm)),
+    hasOwnedSnapshot: () => Effect.succeed(true),
+    ownedSnapshotResourceReservation: () => Effect.succeed({ vcpus: 4, memoryMb: 8192, diskMb: 32768 }),
     claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
     recordUsageEvent: () => Effect.void,
     recordUsageEvents: () => Effect.void,
@@ -281,6 +295,7 @@ function harness(input: { vm?: CloudVmRow; root: string; failExecs?: number; onF
   };
   const create = () => Effect.runPromise(createVm(common).pipe(Effect.provide(layer)));
   const openBase = (operation: typeof openBaseVm | typeof resetBaseVm) => Effect.runPromise(operation(common).pipe(Effect.provide(layer)));
+  const restore = () => Effect.runPromise(restoreVm({ ...common, snapshotId: "snapshot-own" }).pipe(Effect.provide(layer)));
   const runDeferred = async () => { for (const work of deferred.splice(0)) await Effect.runPromise(work); };
   /** Runs the after-response work on a test clock, so the real retry schedule and budget pass at once. */
   const runDeferredOnTestClock = async () => {
@@ -293,7 +308,7 @@ function harness(input: { vm?: CloudVmRow; root: string; failExecs?: number; onF
     }
   };
   const markerExecs = () => execs.filter((exec) => exec.command === guestVmKindCommand("owner") || exec.command === guestVmKindCommand("team"));
-  return { repo, providers, state, execs, deferred, markerExecs, create, openBase, runDeferred, runDeferredOnTestClock };
+  return { repo, providers, state, execs, deferred, markerExecs, create, openBase, restore, runDeferred, runDeferredOnTestClock };
 }
 
 describe("createVm records the machine's vm-kind", () => {
@@ -384,6 +399,17 @@ describe("Base open and reset record the machine's vm-kind after the response", 
   }
 });
 
+test("a restore records the machine's vm-kind after the response", async () => {
+  const root = guestRoot();
+  const h = harness({ root });
+  const restored = await h.restore();
+  expect(restored.providerVmId).toBe(PROVIDER_VM_ID);
+  expect(h.markerExecs()).toEqual([]);
+  await h.runDeferred();
+  expect(h.markerExecs()).toEqual([{ command: guestVmKindCommand("owner"), asRoot: true }]);
+  expect(cmuxVm(root)).toBe(true);
+});
+
 describe("scheduleGuestVmKindRecord", () => {
   const running = row({ status: "running", providerVmId: PROVIDER_VM_ID });
 
@@ -458,5 +484,107 @@ describe("scheduleGuestVmKindRecord", () => {
       expect(h.markerExecs()).toHaveLength(1);
       expect(cmuxVm(root)).toBe(false);
     }
+  });
+});
+
+describe("an exec with cancelOnInterrupt", () => {
+  /** A Freestyle API that never answers and reports when a request was aborted. */
+  async function withHangingFreestyle(run: (aborted: Promise<boolean>) => Promise<void>) {
+    let markAborted!: () => void;
+    const abortedOnce = new Promise<void>((resolve) => { markAborted = resolve; });
+    let requests = 0;
+    // Never answers; the client going away closes the response.
+    const server = createServer((_request, response) => {
+      requests += 1;
+      response.on("close", () => markAborted());
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    const saved = { url: process.env.FREESTYLE_API_URL, key: process.env.FREESTYLE_API_KEY };
+    process.env.FREESTYLE_API_URL = `http://127.0.0.1:${port}`;
+    process.env.FREESTYLE_API_KEY = "test-key";
+    const aborted = Promise.race([
+      abortedOnce.then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1_500)),
+    ]);
+    try {
+      await run(aborted);
+      expect(requests).toBeGreaterThan(0);
+    } finally {
+      for (const [name, value] of [["FREESTYLE_API_URL", saved.url], ["FREESTYLE_API_KEY", saved.key]] as const) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+      server.closeAllConnections();
+      server.close();
+    }
+  }
+
+  const exec = (cancelOnInterrupt: boolean) => Effect.flatMap(VmProviderGateway, (providers) =>
+    providers.exec("freestyle", "vm-hanging", "true", { timeoutMs: 30_000, asRoot: true, cancelOnInterrupt }),
+  ).pipe(Effect.timeout("200 millis"), Effect.exit, Effect.provide(VmProviderGatewayLive));
+
+  test("a timeout ends the Freestyle request itself, not only the wait", async () => {
+    await withHangingFreestyle(async (aborted) => {
+      const exit = await Effect.runPromise(exec(true));
+      expect(exit._tag).toBe("Failure");
+      expect(await aborted).toBe(true);
+    });
+  });
+
+  test("without it, a timed-out exec's request runs on", async () => {
+    await withHangingFreestyle(async (aborted) => {
+      const exit = await Effect.runPromise(exec(false));
+      expect(exit._tag).toBe("Failure");
+      expect(await aborted).toBe(false);
+    });
+  });
+});
+
+describe("the image's cmux-vm-kind-sync", () => {
+  const SYNC = path.join(import.meta.dirname, "../services/vms/images/devbox/cmux-vm-kind-sync");
+
+  /** Runs the sync against root with a curl that answers `answer` (or fails when null). */
+  async function sync(root: string, answer: VmGuestKind | null, extraEnv: Record<string, string> = {}) {
+    const bin = path.join(root, "sync-bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(path.join(bin, "curl"), answer ? `#!/bin/sh\nprintf '{"kind":"${answer}"}'\n` : "#!/bin/sh\nexit 22\n");
+    chmodSync(path.join(bin, "curl"), 0o755);
+    const env = path.join(root, "model-plane.env");
+    writeFileSync(env, "export CMUX_CODEROUTER_URL='https://cmux.example'\n");
+    const result = await runChild("/bin/sh", [SYNC], {
+      env: { PATH: `${bin}:${process.env.PATH}`, CMUX_VM_KIND_FILE: kindFile(root), CMUX_VM_MODEL_ENV_FILE: env, ...extraEnv },
+    });
+    expect(result.status).toBe(0);
+  }
+
+  test("a failed fetch keeps the record the create wrote", async () => {
+    const root = guestRoot();
+    writeFileSync(kindFile(root), "owner\n");
+    await sync(root, null);
+    expect(readFileSync(kindFile(root), "utf8")).toBe("owner\n");
+  });
+
+  test("a failed fetch writes nothing where there is no record", async () => {
+    const root = guestRoot();
+    await sync(root, null);
+    expect(readdirSync(kindDir(root)).filter((name) => name.startsWith(".vm-kind") || name === "vm-kind")).toEqual([]);
+  });
+
+  test("an answer replaces the record", async () => {
+    const root = guestRoot();
+    writeFileSync(kindFile(root), "team\n");
+    await sync(root, "owner");
+    expect(readFileSync(kindFile(root), "utf8")).toBe("owner\n");
+  });
+
+  test("the boot's clone reset writes team without fetching", async () => {
+    const root = guestRoot();
+    writeFileSync(kindFile(root), "owner\n");
+    await sync(root, "owner", { CMUX_VM_KIND_RESET: "team" });
+    expect(readFileSync(kindFile(root), "utf8")).toBe("team\n");
+    const boot = readFileSync(path.join(import.meta.dirname, "../services/vms/images/devbox/cmux-devbox-boot"), "utf8");
+    expect(boot).toContain("CMUX_VM_KIND_RESET=team /usr/local/bin/cmux-vm-kind-sync");
   });
 });
