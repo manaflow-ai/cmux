@@ -531,15 +531,15 @@ fn diff_git_lines_split_only_when_unambiguous() {
 #[test]
 fn diff_git_lines_from_outside_input_name_nothing_or_split_cleanly() {
     assert_eq!(diff_git_names("a/ b/"), [""]);
-    assert!(diff_git_names("a/").is_empty());
-    assert!(diff_git_names("a/x").is_empty());
+    assert_eq!(diff_git_names("a/"), Vec::<String>::new());
+    assert_eq!(diff_git_names("a/x"), Vec::<String>::new());
     // The length split falls inside a two-byte character.
-    assert!(diff_git_names("a/éé b/é").is_empty());
+    assert_eq!(diff_git_names("a/éé b/é"), Vec::<String>::new());
     assert_eq!(diff_git_names("a/é b/é"), ["é"]);
     // Unterminated quotes, one ending in an escape.
-    assert!(diff_git_names("\"a/x\\").is_empty());
-    assert!(diff_git_names("\"a/x\\\"").is_empty());
-    assert!(diff_git_names("\"").is_empty());
+    assert_eq!(diff_git_names("\"a/x\\"), Vec::<String>::new());
+    assert_eq!(diff_git_names("\"a/x\\\""), Vec::<String>::new());
+    assert_eq!(diff_git_names("\""), Vec::<String>::new());
     // A quoted old name and a plain new one.
     assert_eq!(diff_git_names("\"a/x y\" b/x y"), ["x y", "x y"]);
 }
