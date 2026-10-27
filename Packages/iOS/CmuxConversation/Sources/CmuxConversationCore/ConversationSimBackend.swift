@@ -1,3 +1,7 @@
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import Foundation
 
 /// `ConversationBackend` for `services/conversation-sim` (see its PROTOCOL.md):
@@ -167,11 +171,11 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
         var task: URLSessionWebSocketTask?
         var continuation: AsyncStream<ConversationBackendEvent>.Continuation?
         var nextID = 1
-        var pending: [Int: CheckedContinuation<JSONBox, any Error>] = [:]
+        var pending: [Int: OnceContinuation<JSONBox, any Error>] = [:]
         var lastEventSeq: Int?
         var closed = false
         var runTask: Task<Void, Never>?
-        var connectedWaiters: [CheckedContinuation<Void, Never>] = []
+        var connectedWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
         var isReady = false
 
         init(endpoint: URL, clientID: String) {
@@ -245,7 +249,7 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
             isReady = true
             let waiters = connectedWaiters
             connectedWaiters = []
-            waiters.forEach { $0.resume() }
+            waiters.forEach { $0.resume(returning: ()) }
             continuation?.yield(.connected(info: info, meID: me, lagged: lagged))
             if let read = WireDecoding.readState(result) { continuation?.yield(.readState(read)) }
         }
@@ -316,7 +320,10 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
         /// A request that waits for the session to be ready (hello done).
         func request(_ method: String, params: JSONBox, timeout: Duration) async throws -> JSONBox {
             if !isReady {
-                await withCheckedContinuation { connectedWaiters.append($0) }
+                // A dropped waiter goes on to send, which fails while disconnected.
+                _ = try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in
+                    connectedWaiters.append(waiter)
+                }
             }
             return try await send(method, params: params.value, timeout: timeout)
         }
@@ -333,7 +340,7 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
                 self.timeOut(id)
             }
             defer { timeoutTask.cancel() }
-            return try await withCheckedThrowingContinuation { waiter in
+            return try await withOnceThrowingContinuation { (waiter: OnceContinuation<JSONBox, any Error>) in
                 pending[id] = waiter
                 socket.send(.string(String(decoding: data, as: UTF8.self))) { error in
                     guard let error else { return }

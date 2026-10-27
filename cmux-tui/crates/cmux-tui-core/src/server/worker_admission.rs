@@ -5,10 +5,10 @@
 use super::SERVER_SURFACE_RETAINED_BYTE_CAPACITY;
 use super::SERVER_SURFACE_WORKER_CAPACITY;
 use crate::panic_free::RecoverPoison;
+use cmux_threads::sync::Condvar;
+use cmux_threads::sync::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::Condvar;
-use std::sync::Mutex;
 #[cfg(test)]
 use std::time::Instant;
 

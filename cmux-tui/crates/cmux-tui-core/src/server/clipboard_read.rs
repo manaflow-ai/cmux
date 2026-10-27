@@ -13,8 +13,9 @@
 //! and the socket get `origin.forbidden`. Clipboard text is never logged or
 //! kept: it goes straight to the host connection.
 
+use cmux_threads::sync::Mutex;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{MutexGuard, PoisonError};
 
 use ghostty_vt::{ClipboardLocation, MAX_CLIPBOARD_READ_BYTES};
 use serde_json::{Value, json};

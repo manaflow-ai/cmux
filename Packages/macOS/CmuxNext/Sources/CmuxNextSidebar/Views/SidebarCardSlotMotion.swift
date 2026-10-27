@@ -101,6 +101,7 @@ final class SidebarCardSlotMotion {
     }
 
     private func animates(in view: NSView) -> Bool {
+        // visibility-walk-allow: this view's motion gate: a hidden view animates nothing and lands at once (no node holds one view's isHidden)
         view.window != nil && !view.inLiveResize && !view.isHiddenOrHasHiddenAncestor
             && gate.renderSpring(.appear).animates(Self.edgeKey.path, in: view)
     }

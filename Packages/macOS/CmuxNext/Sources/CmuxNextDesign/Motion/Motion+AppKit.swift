@@ -76,7 +76,7 @@ extension Motion {
             context.timingFunction = curve ?? fadeCurve
             context.allowsImplicitAnimation = duration > 0
             changes()
-        }, completionHandler: completion.map { done in { @Sendable in MainDelivery().run(done) } })
+        }, completionHandler: completion.map { done in { @Sendable in MainDelivery().run(done) } }) // main-hop-allow: AppKit calls a group's completion on main, so it runs inline there
     }
 
     /// Applies `animator()` changes at once (a zero-length group, so implicit
@@ -86,7 +86,7 @@ extension Motion {
             context.duration = 0
             context.allowsImplicitAnimation = false
             changes()
-        }, completionHandler: completion.map { done in { @Sendable in MainDelivery().run(done) } })
+        }, completionHandler: completion.map { done in { @Sendable in MainDelivery().run(done) } }) // main-hop-allow: AppKit calls a group's completion on main, so it runs inline there
     }
 
     /// A layer action for properties that fade (`CALayer.actions`). Its

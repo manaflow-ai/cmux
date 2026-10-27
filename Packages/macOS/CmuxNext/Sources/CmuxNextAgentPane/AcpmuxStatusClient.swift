@@ -199,16 +199,20 @@ nonisolated enum AcpmuxStatusClient {
     }
 
     static func start(_ connection: NWConnection) async throws {
-        let gate = AgentPaneResumeOnce()
         try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
-            connection.stateUpdateHandler = { state in
+            // The first ready, failed or cancelled state answers. Network calls this handler on the
+            // connection's queue one state at a time, so dropping it there leaves no later state to answer.
+            connection.stateUpdateHandler = { [weak connection] state in
                 switch state {
                 case .ready:
-                    gate.run { continuation.resume(returning: ()) }
+                    connection?.stateUpdateHandler = nil
+                    continuation.resume(returning: ())
                 case .failed(let error), .waiting(let error):
-                    gate.run { continuation.resume(throwing: Failure.unreachable("\(error)")) }
+                    connection?.stateUpdateHandler = nil
+                    continuation.resume(throwing: Failure.unreachable("\(error)"))
                 case .cancelled:
-                    gate.run { continuation.resume(throwing: CancellationError()) }
+                    connection?.stateUpdateHandler = nil
+                    continuation.resume(throwing: CancellationError())
                 default:
                     break
                 }

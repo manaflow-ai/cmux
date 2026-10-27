@@ -496,9 +496,9 @@ class CliCaseRun(CaseRun):
     content/common/child_process_host_impl.cc ChildProcessHostImpl::OnChannelError), never by a sleep."""
 
     def __init__(self, binary: str, sha: str, schema: normalize.Schema, case: Mapping[str, Any],
-                 ctx: Mapping[str, Any], session_ctx: Mapping[str, Any]):
-        super().__init__(binary, sha, schema, case, ctx, session_ctx)
-        runner = VmCli(CliBinary(Path(binary)), self.env, str(self.paths.home))
+                 ctx: Mapping[str, Any], session_ctx: Mapping[str, Any], isolation: Any):
+        super().__init__(binary, sha, schema, case, ctx, session_ctx, isolation)
+        runner = VmCli(CliBinary(Path(binary)), self.case_env.env, str(self.paths.home))
         self.cli = CliSteps(runner, {self.paths.session: SESSION_NAME}, self.scale)
         self.ops["cli"] = self.op_cli
         self.client_events: Any = None

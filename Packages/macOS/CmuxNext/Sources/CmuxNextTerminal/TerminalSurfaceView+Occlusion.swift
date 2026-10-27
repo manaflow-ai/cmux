@@ -29,12 +29,12 @@ extension TerminalSurfaceView {
         defer { gpu.release(releases: releases)?.setResident(false, of: self) }
         guard (pause == nil) != lastOcclusionVisible else { return }
         lastOcclusionVisible = pause == nil
-        heldFrame.hold(volatile: pause != nil, presented: presentedFrame, layer: layer)
+        heldFrame.hold(volatile: pause != nil, in: frameSource)
         TerminalHostFramePresenter.setOcclusion(of: self, visible: pause == nil)  // shown: drawn frame in this commit
     }
 
-    /// The presented frame for one reader (hover pictures; ``TerminalHeldFrame/beginRead(presented:layer:)``).
-    func beginFrameRead() -> IOSurface? { heldFrame.beginRead(presented: presentedFrame, layer: layer) }
+    /// The presented frame for one reader (hover pictures; ``TerminalHeldFrame/beginRead(from:)``).
+    func beginFrameRead() -> IOSurface? { heldFrame.beginRead(from: frameSource) }
 
     func endFrameRead(_ frame: IOSurface) { heldFrame.endRead(frame) }
 }

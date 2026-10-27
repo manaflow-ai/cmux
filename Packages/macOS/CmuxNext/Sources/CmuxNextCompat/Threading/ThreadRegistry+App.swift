@@ -85,6 +85,7 @@ extension ThreadRegistry {
         ThreadDeclaration("cmux.agent-activity.socket", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.chief-settle", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.tasks.socket", qos: .userInitiated),
+        ThreadDeclaration("com.cmuxterm.app.next.tasks.directory", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.agent-pane.socket", match: .operationQueue, qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.next.computer-use.helper-reap", qos: .utility),
         ThreadDeclaration("cua-helper-v2-stdout", qos: .utility),
