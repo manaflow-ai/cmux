@@ -559,7 +559,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         let previewURL = try #require(photo.previewURL)
         let bytes = try Data(contentsOf: previewURL)
         #expect(meta == AttachmentDerivedImage(hash: sha256Hex(bytes), mimeType: "image/jpeg", byteCount: bytes.count))
-        #expect(bytes.count <= HomeAttachmentPolicy.previewBytesLimit)
+        #expect(bytes.count <= HomeAttachmentPolicy.previewMaxBytes)
         let source = try #require(CGImageSourceCreateWithData(bytes as CFData, nil))
         let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
         #expect(max(image.width, image.height) <= HomeAttachmentPolicy.previewMaxPixel)

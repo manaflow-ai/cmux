@@ -175,6 +175,15 @@ struct ChatDraftAttachmentsTests {
         try await Self.keep([small], for: "s-1")
         #expect(try await Self.kept("s-1").map(\.id) == ["a"])
 
+        // Large originals persist as file references; the inline-data budget only covers previews.
+        let original = Chip(id: "large", kind: "link", name: "large.bin", mimeType: "application/octet-stream", size: 11_000_000_000, path: "/tmp/large.bin")
+        try await Self.keep([original], for: "s-1")
+        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: directory)
+        let restored = try await Self.kept("s-1")
+        #expect(restored.map(\.path) == ["/tmp/large.bin"])
+        #expect(restored.first?.size == original.size)
+        #expect(restored.first?.data == nil)
+
         await #expect(throws: PageError.self) { _ = try await Self.call("chat.draftAttachments.get", [:]) }
         await #expect(throws: PageError.self) {
             _ = try await Self.call("chat.draftAttachments", ["sessionId": .string("s-1"), "attachments": .string("nope")])

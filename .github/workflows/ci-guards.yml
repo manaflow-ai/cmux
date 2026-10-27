@@ -386,6 +386,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_cmux_cua_drag_cursor_harness.py
 
+      - name: Test attachment size-cap guard
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: python3 tests/test_attachment_caps_guard.py
+
       - name: Validate Python test execution registry
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         env:

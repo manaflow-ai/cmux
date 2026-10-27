@@ -8,52 +8,43 @@ MAX_*BYTES naming pattern that historically represented a hard user-file rejecti
 from __future__ import annotations
 
 import argparse
+import os
 import re
 from pathlib import Path
 
+# Protocol frames/ranges, filename validation and terminal ACK buffers do not reject an
+# original: transfer loops split files at these boundaries. Never exempt a file/total cap.
+TRANSPORT_BOUNDS = {"MAX_CHUNK_BYTES", "MAX_RANGE_BYTES", "MAX_MESSAGE_BYTES", "MAX_NAME_BYTES", "MAX_PENDING_INPUT_ACK_BYTES"}
 FORBIDDEN = re.compile(r"\bMAX_[A-Z0-9_]*BYTES\b")
-EXCLUDED = {".git", ".build", "node_modules", "dist", "fixtures", "generated"}
-SCAN_ROOTS = (
-    "webviews/src",
-    "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments",
-    "Packages/macOS/CmuxNext/Sources",
-    "Packages/iOS/CmuxMobileShellModel/Sources/CmuxMobileShellModel/TaskComposerAttachment.swift",
-    "backend/packages/home-core/src/conversation/attachments.ts",
-    "backend/apps/api/src/home-attachments.ts",
-    "cmux-tui/crates/cmux-conversation/src/attachments.rs",
-    "cmux-tui/crates/cmux-conversation/src/link_preview.rs",
-)
+EXCLUDED = {".git", ".build", "node_modules", "dist", "fixtures", "generated", "tests", "test", "__tests__", "vendor", "target", "build", "third_party"}
+SOURCE_SUFFIXES = {".swift", ".rs", ".ts", ".tsx", ".js", ".mjs"}
 
 
-def files(root: Path, paths: tuple[str, ...] | None = None) -> list[Path]:
-    if paths is None:
-        paths = SCAN_ROOTS
+def files(root: Path) -> list[Path]:
     found: list[Path] = []
-    for raw in paths:
-        path = root / raw
-        if path.is_file():
-            found.append(path)
-        elif path.is_dir():
-            found.extend(
-                sorted(
-                    item
-                    for item in path.rglob("*")
-                    if item.is_file()
-                    and any("attachment" in part.lower() or "upload" in part.lower() for part in item.relative_to(path).parts + (item.name,))
-                )
-            )
-    return found
+    for folder, directories, names in os.walk(root):
+        directories[:] = [name for name in directories if name.lower() not in EXCLUDED and not name.endswith("Tests") and not name.startswith(".")]
+        for name in names:
+            path = Path(folder) / name
+            relative = path.relative_to(root)
+            if path.suffix not in SOURCE_SUFFIXES or ".test." in name or ".spec." in name:
+                continue
+            if any("attachment" in part.lower() or "upload" in part.lower() for part in relative.parts):
+                found.append(path)
+    return sorted(found)
 
 
-def violations(root: Path, paths: tuple[str, ...] | None = None) -> list[str]:
+def violations(root: Path) -> list[str]:
     result: list[str] = []
-    for path in files(root, paths):
+    for path in files(root):
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
         except UnicodeDecodeError:
             continue
         for line_number, line in enumerate(lines, 1):
             for match in FORBIDDEN.finditer(line):
+                if match.group(0) in TRANSPORT_BOUNDS:
+                    continue
                 result.append(f"{path.relative_to(root)}:{line_number}: {match.group(0)}")
     return result
 

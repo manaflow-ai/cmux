@@ -190,7 +190,7 @@ enum AttachmentMedia {
     }
 
     /// An image's preview: a JPEG at most `previewMaxPixel` on its long edge
-    /// and `previewBytesLimit`, trying lower quality and size before giving
+    /// and `previewMaxBytes`, trying lower quality and size before giving
     /// up. Nil when the image is small enough to show itself (and not HEIC,
     /// which some readers cannot decode), when a pixel of its 512 px sample
     /// is transparent (Lawrence's rule: transparent images get no preview;
@@ -199,7 +199,7 @@ enum AttachmentMedia {
     /// opaque image with an alpha channel gets a preview.
     static func previewJPEG(of url: URL, mimeType: String, byteCount: Int, displaySize: (width: Int, height: Int)) -> Data? {
         let maxPixel = HomeAttachmentPolicy.previewMaxPixel
-        let maxBytes = HomeAttachmentPolicy.previewBytesLimit
+        let maxBytes = HomeAttachmentPolicy.previewMaxBytes
         if mimeType != "image/heic", max(displaySize.width, displaySize.height) <= maxPixel, byteCount <= maxBytes { return nil }
         guard let sample = try? thumbnailImage(of: url, maxPixel: 512),
               !isTransparent(sample.source, sample: sample.image) else { return nil }
@@ -877,7 +877,7 @@ enum AttachmentMedia {
             ref.durationMs = movie.durationMs
             // A poster over the owner's cap is dropped: the video still sends.
             if mimeType.hasPrefix("video/"), let poster = movie.poster, let posterData = try? jpeg(poster),
-               posterData.count <= HomeAttachmentPolicy.posterBytesLimit {
+               posterData.count <= HomeAttachmentPolicy.posterMaxBytes {
                 let (posterHash, url) = try ingest(data: posterData, fileExtension: "jpg", root: root)
                 ref.poster = AttachmentPoster(hash: posterHash, mimeType: "image/jpeg", byteCount: posterData.count)
                 posterURL = url

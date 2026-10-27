@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { AttachmentService, GENERIC_FILE_TYPE, hashFile, looksLikeText, refusal, resolvedType } from "../src/pages/home-channels/attachmentService";
+import {
+  AttachmentService,
+  GENERIC_FILE_TYPE,
+  hashFile,
+  looksLikeText,
+  refusal,
+  resolvedType,
+} from "../src/pages/home-channels/attachmentService";
 
 // Any file attaches (Lawrence 2026-10-20, "“index.html” can't be attached ... need to fix this"):
 // UTF-8 text of any name goes as text/plain, other bytes as a generic file; only empty files refuse.
@@ -44,7 +51,7 @@ describe("Channels attachments: any file", () => {
   });
 
   test("streamed hashes match SHA-256 across padding boundaries", async () => {
-    const vectors = ["", "a".repeat(55), "a".repeat(56), "a".repeat(64), "a".repeat(127), "a".repeat(3 * 1024 * 1024 + 127)];
+    const vectors = [...Array.from({ length: 129 }, (_, n) => "a".repeat(n)), "a".repeat(3 * 1024 * 1024 + 127)];
     // The two boundary cases exercise one and two padding blocks; expected values are checked
     // against the platform digest implementation below so this test never embeds a hand-rolled hash.
     for (const text of vectors) {
@@ -69,15 +76,23 @@ describe("Channels attachments: any file", () => {
         throw new Error("whole-file read");
       },
       slice: (start: number, end: number) =>
-        new Blob([new Uint8Array(Math.max(0, end - start)).fill(97)], { type: "text/plain" }),
+        new Blob([new Uint8Array(Math.max(0, Math.min(size, end) - start)).fill(97)], {
+          type: "text/plain",
+        }),
     } as unknown as File;
-    const chunks: { offset: number; data: string }[] = [];
+    let received = 0;
+    let chunks = 0;
     const client = {
       call: async (method: string, params: Record<string, unknown>) => {
         if (method !== "cmux.home.attachmentUpload") throw new Error(`unexpected ${method}`);
         if (params.op === "begin") return { upload: "u1", needs: ["original"] };
         if (params.op === "chunk") {
-          chunks.push({ offset: params.offset as number, data: params.data as string });
+          const decoded = atob(params.data as string);
+          expect(params.offset).toBe(received);
+          expect(decoded.length).toBe(Math.min(1024 * 1024, size - received));
+          expect(decoded).toBe("a".repeat(decoded.length));
+          received += decoded.length;
+          chunks += 1;
           return null;
         }
         if (params.op === "commit") return { stored: undefined };
@@ -87,10 +102,48 @@ describe("Channels attachments: any file", () => {
     const progress: number[] = [];
     await new AttachmentService(client as never).upload("conversation", file, (next) => progress.push(next.sent));
     expect(wholeRead).toBe(false);
-    expect(chunks.length).toBeGreaterThan(10);
-    expect(chunks[0]!.offset).toBe(0);
-    expect(chunks[1]!.offset).toBe(1024 * 1024);
-    expect(atob(chunks[0]!.data).length).toBe(1024 * 1024);
+    expect(chunks).toBe(11);
+    expect(received).toBe(size);
     expect(progress.at(-1)).toBe(size);
+  });
+
+  test("hash cancellation during a read stops before the next slice", async () => {
+    const controller = new AbortController();
+    let reads = 0;
+    const file = {
+      size: 2 ** 40,
+      slice: (_start: number, end: number) => ({
+        arrayBuffer: async () => {
+          reads += 1;
+          expect(end).toBeLessThanOrEqual(64 * 1024);
+          controller.abort();
+          return new ArrayBuffer(64 * 1024);
+        },
+      }),
+    } as unknown as File;
+    await expect(hashFile(file, controller.signal)).rejects.toThrow();
+    expect(reads).toBe(1);
+  });
+
+  test("upload cancellation releases its slot before sending another chunk", async () => {
+    const controller = new AbortController();
+    const operations: string[] = [];
+    const client = {
+      call: async (_method: string, params: Record<string, unknown>) => {
+        operations.push(params.op as string);
+        if (params.op === "begin") return { upload: "u1", needs: ["original"] };
+        if (params.op === "chunk") controller.abort();
+        return null;
+      },
+    };
+    await expect(
+      new AttachmentService(client as never).upload(
+        "conversation",
+        new File([new Uint8Array(1024 * 1024 + 1)], "binary"),
+        () => {},
+        controller.signal,
+      ),
+    ).rejects.toThrow();
+    expect(operations).toEqual(["begin", "chunk", "cancel"]);
   });
 });

@@ -1957,6 +1957,9 @@ jobs:
         id: capability-text
         continue-on-error: true
         run: bash scripts/cmux-next/tests/capability-text.test.sh
+      - name: Attachment originals have no byte caps
+        run: python3 -I scripts/cmux-next/check-attachment-caps.py
+
       # The pre-push gate again (scripts/cmux-next/prepush-gate.py, same pinned tools): on a push,
       # each pushed commit against its parent, so a commit pushed with --no-verify that adds a
       # violation is named; on a pull request, what the PR adds over its base (HEAD^1).
