@@ -14,9 +14,10 @@ a restore bead (cx-8w027.23); the perf gate's relaunch scenario budgets the rest
 
 --case NAME relaunches the way one case of the launch correctness matrix does (launch_matrix.py, p08-startup done
 check 13: a crash, a theme change, a workspace closed while the app is closed, ...) instead of the quit that ends the
-sessions, with the saved window picture on (--picture off turns it off). The first line then holds the first frame's
-stills, and the line before the sources map is the case's row: PASS, FAIL or SKIP, its problems and its still. The
-row is also printed; exit 1 on FAIL.
+sessions, with the saved window picture on (--picture off turns it off). The grid launch also opens the matrix's
+second workspace (the one workspace-closed-while-closed closes). The first line then holds the first frame's stills,
+and the line before the sources map is the case's row: PASS, FAIL or SKIP, its problems and its still; any error of
+the case (a launch that does not come up, a harness step) is its FAIL row. The row is also printed; exit 1 on FAIL.
 """
 import argparse, importlib.util, json, os, sys, time
 
@@ -78,6 +79,8 @@ def main(argv=None):
                 case.env(run)
             app.launch()
             gate.build_grid()
+            if case:
+                matrix.add_second_workspace(run)  # the workspace workspace-closed-while-closed closes
             app.quiet_counters()
             first = None
             if case:
@@ -109,6 +112,11 @@ def main(argv=None):
             out.write(json.dumps({"sources": last_sources}) + "\n")
         except matrix.Skip as reason:
             row = {"case": case.name, "result": matrix.SKIP, "skip": str(reason), "problems": [], "screenshot": None}
+            out.write(json.dumps({"case": row}) + "\n")
+        except matrix.CASE_ERRORS as error:  # with --case, any error is the case's FAIL row
+            if not case:
+                raise
+            row = matrix.error_row(case, run, error)
             out.write(json.dumps({"case": row}) + "\n")
         finally:
             app.stop()

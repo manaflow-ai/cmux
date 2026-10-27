@@ -17,6 +17,7 @@ Linux and macOS; no app, no GUI session:
 
 from __future__ import annotations
 
+import json
 import os
 import struct
 import subprocess
@@ -140,19 +141,67 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(lm.layout_of(topo)["workspaces"], [("main", ((1,),))])
 
 
+class FirstFrameTests(unittest.TestCase):
+    BEFORE = {"main": [[1, 1, 1]], lm.SECOND_WORKSPACE: [[1]]}
+
+    def test_a_first_frame_that_lists_a_closed_workspace_fails_even_before_the_topology_loads(self):
+        expected, closed = lm.layout_of(topology(self.BEFORE)), {lm.SECOND_WORKSPACE}
+        first = lm.layout_of(topology(self.BEFORE, loaded=False))
+        self.assertEqual(lm.first_frame_problems(expected, first, closed=closed),
+                         [f"the first frame lists closed workspace {lm.SECOND_WORKSPACE!r}"])
+        clean = lm.layout_of(topology({"main": [[1, 1, 1]]}, loaded=False))
+        self.assertEqual(lm.first_frame_problems(expected, clean, closed=closed), [])
+
+    def test_a_first_frame_with_a_wrong_pane_tree_or_an_unknown_workspace_fails(self):
+        expected = lm.layout_of(topology(self.BEFORE))
+        wrong = lm.layout_of(topology({"main": [[1, 1]], "other": [[1]]}, loaded=False))
+        problems = lm.first_frame_problems(expected, wrong)
+        self.assertEqual(len(problems), 2, problems)
+        self.assertIn("'main' with pane tree ((1, 1),)", problems[0])
+        self.assertIn("'other', which was not open", problems[1])
+
+    def test_a_workspace_not_drawn_yet_and_the_skip_mode_are_not_checked(self):
+        expected = lm.layout_of(topology(self.BEFORE))
+        provisional = lm.layout_of(topology({"main": [], lm.SECOND_WORKSPACE: []}, loaded=False))
+        self.assertEqual(lm.first_frame_problems(expected, provisional), [])
+        self.assertEqual(lm.first_frame_problems(expected, lm.layout_of(topology({"x": [[9]]})), "skip"), [])
+
+
 class PictureTests(unittest.TestCase):
-    SHOWN = {lm.SHOWN_MARK: 90.0, lm.REMOVED_MARK: 600.0}
+    SHOWN = {lm.DECODED_MARK: 40.0, lm.SHOWN_MARK: 90.0, lm.REMOVED_MARK: 600.0}
+    MISMATCH = {lm.DECODED_MARK: 40.0, lm.MISMATCH_MARK: 80.0}  # what LaunchSnapshotWindow.show records
 
     def test_each_expectation(self):
-        refused = {"launch_picture_refused.crashRecovery": 80.0}
         self.assertEqual(lm.picture_problems(self.SHOWN, "shown"), [])
-        self.assertTrue(lm.picture_problems(refused, "shown"))
-        self.assertEqual(lm.picture_problems(refused, "refused", ("crashRecovery",)), [])
-        self.assertIn("expected theme", lm.picture_problems(refused, "refused", ("theme",))[0])
-        self.assertIn("no refusal", lm.picture_problems({}, "refused", ("theme",))[0])
+        self.assertIn("refused: mismatch", lm.picture_problems(self.MISMATCH, "shown")[0])
         self.assertIn("showed", lm.picture_problems(self.SHOWN, "not-shown")[0])
-        self.assertEqual(lm.picture_problems(refused, "not-shown"), [])
+        self.assertIn("showed", lm.picture_problems(self.SHOWN, "refused", ("theme",))[0])
+        self.assertEqual(lm.picture_problems(self.MISMATCH, "not-shown"), [])
         self.assertEqual(lm.picture_problems(self.SHOWN, "any"), [])
+
+    def test_the_mismatch_the_app_records_is_a_refusal_for_every_meta_reason(self):
+        for reasons in (("frame", "screen", "scale"), ("appearance", "theme"), ("theme",), ("sidebarLayout",), ()):
+            with self.subTest(reasons=reasons):
+                self.assertEqual(lm.picture_problems(self.MISMATCH, "refused", reasons), [])
+
+    def test_a_meta_reason_needs_a_recorded_refusal(self):
+        self.assertIn("no refusal was recorded", lm.picture_problems({lm.DECODED_MARK: 40.0}, "refused", ("theme",))[0])
+        self.assertEqual(lm.picture_problems({lm.DECODED_MARK: 40.0, "launch_picture_refused.theme": 80.0}, "refused",
+                                             ("theme",)), [])
+
+    def test_crash_and_incognito_need_only_a_picture_read_and_not_shown(self):
+        # No launch path records launch_picture_refused.crashRecovery yet (WindowPictureStore.takeFront(matching:)).
+        read = {lm.DECODED_MARK: 40.0}
+        self.assertEqual(lm.picture_problems(read, "refused", ("crashRecovery",)), [])
+        self.assertEqual(lm.picture_problems({**read, "launch_picture_refused.crashRecovery": 80.0}, "refused",
+                                             ("crashRecovery",)), [])
+        self.assertIn("meta mismatch", lm.picture_problems(self.MISMATCH, "refused", ("incognitoLeftovers",))[0])
+        self.assertIn("expected crashRecovery", lm.picture_problems({**read, "launch_picture_refused.theme": 80.0},
+                                                                    "refused", ("crashRecovery",))[0])
+
+    def test_no_picture_read_is_a_harness_problem_not_a_refusal(self):
+        self.assertIn("harness: no saved picture was read",
+                      lm.picture_problems({lm.MISMATCH_MARK: 80.0}, "refused", ("theme",))[0])
 
     def test_the_picture_stays_at_most_its_bound(self):
         self.assertEqual(lm.stale_problems(self.SHOWN), [])
@@ -192,12 +241,35 @@ class MatrixTableTests(unittest.TestCase):
                 relaunch_e2e.parse_args(argv)
 
     def test_prepare_bench_turns_the_picture_on_and_adds_the_case_config(self):
-        bench = mock.Mock(local_features={}, config={}, window=lm.FRAME, screen="last")
+        bench = mock.Mock(local_features={}, config={}, window=(40, 40, 1440, 900), screen="last")
         lm.prepare_bench(bench, lm.CASE["translucent"], picture=True)
         self.assertEqual(bench.local_features, {lm.PICTURE_FEATURE: True})
         self.assertEqual(bench.config["appearance"]["backgroundOpacity"], 0.6)
         lm.prepare_bench(bench, lm.CASE["three-windows-two-displays"], picture=False)
         self.assertEqual((bench.window, bench.screen, bench.local_features[lm.PICTURE_FEATURE]), (None, None, False))
+
+    def test_no_picture_case_launches_under_a_test_placement(self):
+        # LaunchSnapshotWindow.open shows no picture while CMUX_NEXT_TEST_WINDOW_* places the window.
+        folder = tempfile.mkdtemp()
+        app = os.path.join(folder, "cmux DEV t.app")
+        os.makedirs(app)
+        for case in lm.CASES:
+            with self.subTest(case=case.name):
+                bench = bl.BenchApp(app, out=os.path.join(folder, case.name), config={}, window=(40, 40, 1100, 720),
+                                    screen="last")
+                lm.prepare_bench(bench, case, picture=True)
+                self.assertEqual(lm.test_placement_keys(bench.environment()), [])
+
+    def test_run_matrix_makes_its_benches_without_a_test_placement(self):
+        made = []
+
+        def bench_app(app, **kwargs):
+            made.append(kwargs)
+            return mock.Mock(local_features={}, config={}, window=kwargs["window"], screen=kwargs["screen"])
+
+        with mock.patch.object(lm, "run_case", return_value={"case": "warm", "result": lm.PASS}):
+            lm.run_matrix("/x/cmux DEV t.app", "warm", tempfile.mkdtemp(), bench_app=bench_app, log=lambda _: None)
+        self.assertEqual((made[0]["window"], made[0]["screen"]), (None, None))
 
 
 # ---------------------------------------------------------------- a stand-in app
@@ -230,17 +302,22 @@ class FakeProcess:
 
 class FakeBench:
     """The BenchApp surface launch_matrix uses: launches, the socket, stop. The app keeps its layout across launches
-    and shows its saved picture when `picture_marks` says so."""
+    and records `picture_marks` on each relaunch. `screens` is [(backing scale, [x, y, w, h])] per NSScreen; the
+    window is 100x60 points and its still is that many points times its screen's scale. `debug.window_frame` replies
+    in the app's shape (DebugLayers.setWindowFrame: [x, y, w, h] lists). `provisional`, when set, is the topology of
+    each launch's first `snapshot.get` (the launch snapshot's model the first frame draws)."""
 
-    def __init__(self, folder, still=sidebar_and_pane, fail_launch=None):
+    def __init__(self, folder, still=sidebar_and_pane, fail_launch=None, screens=((2.0, [0, 0, 1512, 982]),)):
         self.app, self.tag, self.scratch, self.cli, self.socket = "/x/cmux DEV t.app", "t", folder, "/x/cmux", "/s"
         self.extra_env, self.config, self.local_features = {}, {}, {}
-        self.window, self.screen, self.fresh_state, self.teardown, self.features = lm.FRAME, "last", True, None, None
+        self.window, self.screen, self.fresh_state, self.teardown, self.features = None, None, True, None, None
         self.process, self.launches, self.stopped, self.actions = None, [], False, []
         self.workspaces = {"Workspace 1": [[1]]}
         self.still, self.fail_launch = still, fail_launch
+        self.screens, self.on_screen, self.full_screen = list(screens), 0, False
         self.marks = {}
-        self.picture_marks = {lm.SHOWN_MARK: 90.0, lm.REMOVED_MARK: 700.0}
+        self.picture_marks = {lm.DECODED_MARK: 40.0, lm.SHOWN_MARK: 90.0, lm.REMOVED_MARK: 700.0}
+        self.provisional, self.first_read = None, False
 
     def launch(self, timeout=None, **kwargs):
         if self.fail_launch is not None and len(self.launches) == self.fail_launch:
@@ -248,6 +325,7 @@ class FakeBench:
         self.launches.append(kwargs)
         self.process = FakeProcess(100 + len(self.launches))
         self.marks = dict(self.picture_marks) if len(self.launches) > 1 else {}
+        self.first_read = len(self.launches) > 1
         return self
 
     def stop(self):
@@ -258,6 +336,16 @@ class FakeBench:
     def state_root(self):
         return self.scratch
 
+    def window_frame(self, params):
+        if "screen" in params:
+            index = len(self.screens) - 1 if params["screen"] == "last" else params["screen"]
+            if not 0 <= index < len(self.screens):
+                return {"error": "no such screen"}
+            self.on_screen = index
+        whole = self.screens[self.on_screen][1]
+        frame = list(whole) if self.full_screen else [whole[0] + 40, whole[1] + 40, 100, 60]
+        return {"frame": frame, "screen": f"Display {self.on_screen}", "visible_frame": whole, "screen_frame": whole}
+
     def rpc(self, method, params=None, timeout=60):
         params = params or {}
         if method == "action.run":
@@ -265,17 +353,28 @@ class FakeBench:
             self.actions.append(name)
             if name == "quitKeepSessions":
                 self.process.end(0)
+                os.makedirs(os.path.join(self.scratch, lm.PICTURES_FOLDER), exist_ok=True)
+                Path(self.scratch, lm.PICTURES_FOLDER, "screen.txt").write_text(str(self.on_screen))
             elif name in ("splitRight", "splitDown"):
                 self.workspaces["Workspace 1"][0].append(1)
+            elif name == "toggleFullScreen":
+                self.full_screen = not self.full_screen
             return {}
         if method == "snapshot.get":
+            if self.first_read and self.provisional is not None:
+                self.first_read = False
+                return {"topology": topology(self.provisional, loaded=False)}
+            self.first_read = False
             return {"topology": topology(self.workspaces)}
+        if method == "debug.window_frame":
+            return self.window_frame(params)
         if method == "debug.window_list":
             return {"windows": [{"id": 7, "kind": "main", "visible": True,
                                  "frame": {"x": 40, "y": 40, "width": 100, "height": 60}}]}
         if method == "debug.window_snapshot":
-            write_png(params["path"], 100, 60, self.still)
-            return {"path": params["path"], "width": 100, "height": 60}
+            scale = self.screens[self.on_screen][0]
+            write_png(params["path"], int(100 * scale), int(60 * scale), self.still)
+            return {"path": params["path"], "width": int(100 * scale), "height": int(60 * scale)}
         if method == "debug.timings":
             return {"launch_ms_since_process_start": self.marks}
         if method == "debug.crash.app":
@@ -285,9 +384,10 @@ class FakeBench:
 
 
 class FakeRun(lm.Run):
-    """Run on the stand-in: the CLI's new-workspace goes to the stand-in, the clock is a counter."""
+    """Run on the stand-in: the CLI's new-workspace and the daemon's workspace requests go to the stand-in, the clock
+    is a counter."""
 
-    def __init__(self, bench, out, **kwargs):
+    def __init__(self, bench, out, log=None, **kwargs):
         self.clock = [0.0]
         super().__init__(bench, out, log=lambda _: None, now=lambda: self.clock[0],
                          sleep=lambda s: self.clock.__setitem__(0, self.clock[0] + s), **kwargs)
@@ -296,6 +396,51 @@ class FakeRun(lm.Run):
         if args[:1] == ("new-workspace",):
             self.bench.workspaces[args[args.index("--name") + 1]] = [[1]]
         return subprocess.CompletedProcess(args, 0, "", "")
+
+    def daemon(self, cmd, **fields):
+        if cmd == "list-workspaces":
+            return {"data": {"workspaces": [{"key": name, "name": name} for name in self.bench.workspaces]}}
+        if cmd == "close-workspace":
+            self.bench.workspaces.pop(fields["key"], None)
+            return {"ok": True}
+        return {"error": f"stand-in daemon has no {cmd}"}
+
+
+class ScreenTests(unittest.TestCase):
+    """screens(), other_scale_screen() and full_screen() on `debug.window_frame` replies in the app's shape."""
+
+    TWO_SCALES = ((2.0, [0, 0, 1512, 982]), (1.0, [1512, 0, 1920, 1080]))
+
+    def run_on(self, bench):
+        return FakeRun(bench, os.path.join(bench.scratch, "case"))
+
+    def test_screens_reads_each_screen_scale_from_the_list_frames(self):
+        bench = FakeBench(tempfile.mkdtemp(), screens=self.TWO_SCALES)
+        found = lm.screens(self.run_on(bench))
+        self.assertEqual(found, [(0, 2.0, [0, 0, 1512, 982]), (1, 1.0, [1512, 0, 1920, 1080])])
+
+    def test_other_scale_screen_skips_with_one_scale(self):
+        bench = FakeBench(tempfile.mkdtemp(), screens=((2.0, [0, 0, 1512, 982]), (2.0, [1512, 0, 1512, 982])))
+        with self.assertRaises(lm.Skip):
+            lm.other_scale_screen(self.run_on(bench))
+
+    def test_other_scale_screen_keeps_the_first_screens_pictures_and_moves_the_window(self):
+        bench = FakeBench(tempfile.mkdtemp(), screens=self.TWO_SCALES)
+        run = self.run_on(bench)
+        bench.launch()
+        lm.other_scale_screen(run)
+        self.assertEqual(bench.on_screen, 1, "the relaunch's window is on the other screen")
+        self.assertEqual(Path(run.pictures_aside, "screen.txt").read_text(), "0")
+        run.quit()  # the case's own quit saves the other screen's pictures
+        lm.restore_first_pictures(run)
+        self.assertEqual(Path(bench.scratch, lm.PICTURES_FOLDER, "screen.txt").read_text(), "0")
+
+    def test_full_screen_compares_the_list_frames(self):
+        bench = FakeBench(tempfile.mkdtemp())
+        lm.full_screen(self.run_on(bench))  # toggles it on: the frame is the screen's, no Skip
+        self.assertTrue(bench.full_screen)
+        with self.assertRaises(lm.Skip):
+            lm.full_screen(self.run_on(bench))  # toggles it off: the window is not full screen
 
 
 class RunCaseTests(unittest.TestCase):
@@ -329,16 +474,56 @@ class RunCaseTests(unittest.TestCase):
 
     def test_a_crash_case_quits_and_relaunches_first_so_a_picture_is_on_disk(self):
         bench = FakeBench(self.folder)
-        bench.picture_marks = {"launch_picture_refused.crashRecovery": 80.0}
+        bench.picture_marks = {lm.DECODED_MARK: 40.0}
         row, _ = self.run_case("crash-recovery", bench)
         self.assertEqual(row["result"], lm.PASS, row["problems"])
         self.assertEqual(len(bench.launches), 3)
         self.assertEqual(bench.actions.count("quitKeepSessions"), 1)
 
+    def test_the_theme_change_passes_on_the_mismatch_mark_the_app_records(self):
+        bench = FakeBench(self.folder)
+        bench.picture_marks = {lm.DECODED_MARK: 40.0, lm.MISMATCH_MARK: 80.0}
+        row, _ = self.run_case("theme-change", bench)
+        self.assertEqual(row["result"], lm.PASS, row["problems"])
+
+    def test_scale_change_runs_on_two_scales_and_skips_on_one(self):
+        bench = FakeBench(self.folder, screens=ScreenTests.TWO_SCALES)
+        bench.picture_marks = {lm.DECODED_MARK: 40.0, lm.MISMATCH_MARK: 80.0}
+        row, _ = self.run_case("scale-change", bench)
+        self.assertEqual(row["result"], lm.PASS, row["problems"])
+        row, _ = self.run_case("scale-change", FakeBench(tempfile.mkdtemp()))
+        self.assertEqual(row["result"], lm.SKIP, row)
+
+    def test_full_screen_and_three_windows_give_a_row(self):
+        row, _ = self.run_case("full-screen", FakeBench(self.folder))
+        self.assertIn(row["result"], (lm.PASS, lm.FAIL))
+        self.assertFalse(any("AttributeError" in p for p in row["problems"]), row["problems"])
+        row, _ = self.run_case("three-windows-two-displays", FakeBench(tempfile.mkdtemp()))
+        self.assertEqual((row["result"], row["skip"]), (lm.SKIP, "one display"))
+
+    def test_workspace_closed_while_closed_checks_the_first_frame(self):
+        bench = FakeBench(self.folder)
+        bench.picture_marks = {lm.DECODED_MARK: 40.0, lm.MISMATCH_MARK: 80.0}
+        row, _ = self.run_case("workspace-closed-while-closed", bench)
+        self.assertEqual(row["result"], lm.PASS, row["problems"])
+        stale = FakeBench(tempfile.mkdtemp())
+        stale.picture_marks = dict(bench.picture_marks)
+        stale.provisional = {"Workspace 1": [[1, 1, 1]], lm.SECOND_WORKSPACE: [[1]]}  # the first frame lists it
+        row, _ = self.run_case("workspace-closed-while-closed", stale)
+        self.assertEqual(row["result"], lm.FAIL)
+        self.assertIn(f"the first frame lists closed workspace {lm.SECOND_WORKSPACE!r}", row["problems"])
+
     def test_a_launch_that_never_comes_up_fails_the_case_and_ends_the_tag(self):
         row, bench = self.run_case("crash-recovery", FakeBench(self.folder, fail_launch=1))
         self.assertEqual(row["result"], lm.FAIL)
         self.assertIn("did not come up: crashed", row["problems"][-1])
+        self.assertTrue(bench.stopped)
+
+    def test_an_unexpected_error_is_a_fail_row(self):
+        with mock.patch.object(lm, "build_layout", side_effect=AttributeError("'list' object has no attribute 'get'")):
+            row, bench = self.run_case("warm")
+        self.assertEqual(row["result"], lm.FAIL)
+        self.assertIn("harness: AttributeError", row["problems"][-1])
         self.assertTrue(bench.stopped)
 
     def test_cef_host_kill_skips_without_f2_before_any_launch(self):
@@ -355,6 +540,103 @@ class RunCaseTests(unittest.TestCase):
                 self.assertEqual(relaunch_e2e.main(["--tag", "t", "--app", app, "--matrix", "warm",
                                                     "--out", self.folder]), code)
                 self.assertEqual(ran.call_args.args[1], "warm")
+
+
+class MatrixRunTests(unittest.TestCase):
+    def test_one_case_that_raises_does_not_stop_the_matrix_and_the_report_is_written(self):
+        out = tempfile.mkdtemp()
+
+        def bench_app(app, out, **kwargs):
+            return FakeBench(out)
+
+        real = lm.build_layout
+        calls = []
+
+        def build_layout(run):
+            calls.append(run)
+            if len(calls) == 1:
+                raise AttributeError("'list' object has no attribute 'get'")
+            return real(run)
+
+        with mock.patch.object(lm, "Run", FakeRun), mock.patch.object(lm, "build_layout", side_effect=build_layout):
+            rows = lm.run_matrix("/x/cmux DEV t.app", "warm,theme-change", out, bench_app=bench_app,
+                                 log=lambda _: None)
+        self.assertEqual([(r["case"], r["result"]) for r in rows], [("warm", lm.FAIL), ("theme-change", lm.FAIL)])
+        self.assertIn("harness: AttributeError", rows[0]["problems"][-1])
+        self.assertIn("showed; expected refused", " ".join(rows[1]["problems"]))  # the stand-in's picture shows
+        report = json.loads(Path(out, "launch-matrix.json").read_text())
+        self.assertEqual([c["case"] for c in report["cases"]], ["warm", "theme-change"])
+
+
+class FakeTraceApp:
+    """perf-gate.py's App surface restore-trace.py uses, on a FakeBench."""
+
+    def __init__(self, bench):
+        self.bench = bench
+
+    def launch(self):
+        self.bench.launch()
+
+    def stop(self):
+        self.bench.stop()
+
+    def quiet_counters(self):
+        pass
+
+    def topology(self):
+        return self.bench.rpc("snapshot.get")["topology"]
+
+    def rpc(self, method, params=None, timeout=60):
+        return self.bench.rpc(method, params, timeout)
+
+    def action(self, name, args=None, target=None):
+        return self.bench.rpc("action.run", {"action": name, "args": args or {}})
+
+
+class FakeGate:
+    def __init__(self, app, opts):
+        self.app, self.grid_workspace = app, "ws_0"
+
+    def build_grid(self):
+        self.app.bench.workspaces["Workspace 1"] = [[1, 1, 1, 1]]
+
+
+class RestoreTraceCaseTests(unittest.TestCase):
+    def trace(self, bench, *patches):
+        out = tempfile.mkdtemp()
+        with mock.patch.object(restore_trace.pg, "App", lambda app, out: FakeTraceApp(bench)), \
+                mock.patch.object(restore_trace.pg, "Gate", FakeGate), \
+                mock.patch.object(restore_trace.matrix, "Run", FakeRun), mock.patch("builtins.print"):
+            for patch in patches:
+                patch.start()
+            try:
+                code = restore_trace.main(["--app", "a.app", "--out", out, "--seconds", "0",
+                                           "--case", "workspace-closed-while-closed"])
+            finally:
+                for patch in patches:
+                    patch.stop()
+        lines = [json.loads(text) for text in Path(out, "restore-trace.jsonl").read_text().splitlines()]
+        return code, next(line["case"] for line in lines if "case" in line)
+
+    def test_workspace_closed_while_closed_makes_its_workspace_and_gives_a_row(self):
+        bench = FakeBench(tempfile.mkdtemp())
+        bench.picture_marks = {lm.DECODED_MARK: 40.0, lm.MISMATCH_MARK: 80.0}
+        code, row = self.trace(bench)
+        self.assertEqual((code, row["result"]), (0, lm.PASS), row["problems"])
+        self.assertNotIn(lm.SECOND_WORKSPACE, bench.workspaces)
+
+    def test_a_harness_error_in_the_case_is_a_fail_row(self):
+        bench = FakeBench(tempfile.mkdtemp())
+        code, row = self.trace(bench, mock.patch.object(restore_trace.matrix, "add_second_workspace"))
+        self.assertEqual((code, row["result"]), (1, lm.FAIL))
+        self.assertIn(f"the daemon lists no workspace {lm.SECOND_WORKSPACE!r}", row["problems"][-1])
+        self.assertTrue(bench.stopped)
+
+    def test_a_relaunch_that_never_comes_up_is_a_fail_row(self):
+        bench = FakeBench(tempfile.mkdtemp(), fail_launch=1)
+        code, row = self.trace(bench)
+        self.assertEqual((code, row["result"]), (1, lm.FAIL))
+        self.assertIn("did not come up: crashed", row["problems"][-1])
 
 
 if __name__ == "__main__":

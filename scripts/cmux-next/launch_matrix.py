@@ -7,18 +7,24 @@ until live for at most 2 s. relaunch-e2e.py `--matrix` runs every case on a fres
 case: one display, F2 off) with the screenshot path of its first frame.
 
 Per case (``run_case``): a fresh launch, the case's layout (two workspaces, the first one split in three), then
-``relaunch_case``: when the case does not end with a quit, a quit and a relaunch first, so the last quit's saved window
-picture is on disk; the case's ``before`` on the running app, its ``end``, its ``between`` (what changes while the app
-is closed) and the relaunch. ``first_look`` takes each main window's still as soon as the relaunch answers; ``verdict``
-then checks:
+``relaunch_case``: the window placed with `debug.window_frame` (no launch sets the CMUX_NEXT_TEST_WINDOW_* knobs: the
+picture path never runs under a test placement, LaunchSnapshotWindow.open), and when the case does not end with a quit,
+a quit and a relaunch first, so the last quit's saved window picture is on disk; the case's ``before`` on the running
+app, its ``end``, its ``between`` (what changes while the app is closed) and the relaunch. ``first_look`` takes each
+main window's still and the topology as soon as the relaunch answers; ``verdict`` then checks:
 
   - every still is not blank: at most 99.7 % of its pixels within a small distance of one color (window material
     alone, the traffic lights aside, is blank);
+  - the first frame's layout: the topology as the relaunch first answers (the launch snapshot's provisional model the
+    first window draws) lists no workspace closed while the app was closed, and each workspace it already shows has
+    its saved pane tree;
   - the restored topology: the same workspaces with the same pane tree (tab counts per pane, per screen), without the
     workspaces closed while the app was closed;
-  - the saved picture (`savedWindowPicture` on, the default here): shown, refused for the case's reason
-    (`launch_picture_refused.<reason>`), or not shown, as the case expects; and when it showed, it left within 2 s
-    (`launch_picture_shown` .. `launch_picture_removed`, WindowPictureStore+LaunchRules.swift, LaunchPicturePhase.bound);
+  - the saved picture (`savedWindowPicture` on, the default here): shown, refused or not shown, as the case expects
+    (``picture_problems``: the app records a refusal as `launch_picture_mismatch` when a meta field differs,
+    LaunchSnapshotWindow.show, or as `launch_picture_refused.<reason>`); and when it showed, it left within 2 s
+    (`launch_picture_shown` .. `launch_picture_removed`, LaunchPicturePhase.bound). A picture that shows matched the
+    opening window's meta, its layout too, so it shows what the first frame's layout check checked;
   - a second still 2.5 s after the first is not blank either, and the app still runs.
 
 Chrome restores the same way: the session's tabs come back in their windows whatever ended the last run
@@ -53,6 +59,16 @@ import launch_journey_report as journey  # noqa: E402
 PASS, FAIL, SKIP = "PASS", "FAIL", "SKIP"
 PICTURE_FEATURE = "savedWindowPicture"
 SHOWN_MARK, REMOVED_MARK, REFUSED_PREFIX = "launch_picture_shown", "launch_picture_removed", "launch_picture_refused."
+# LaunchSnapshotWindow.show: the saved picture's meta differs from the opening window's (any WindowPictureMeta field).
+MISMATCH_MARK = "launch_picture_mismatch"
+# WindowPictureStore+LaunchRead.swift: the launch read found and decoded the front window's picture.
+DECODED_MARK = "launch_picture_decoded"
+# The refusals a meta mismatch proves (WindowPictureMeta.Field); the others (crashRecovery, incognitoLeftovers) only
+# their own `launch_picture_refused.<reason>` mark proves.
+META_REASONS = frozenset(("format", "window", "profile", "frame", "screen", "scale", "appearance", "theme",
+                          "sidebarWidth", "build", "sidebarLayout", "contentLayout"))
+PICTURES_FOLDER = "window-pictures"  # WindowPictureStore.directoryName, in the tag's state folder
+TEST_PLACEMENT_PREFIX = "CMUX_NEXT_TEST_WINDOW_"
 # LaunchPicturePhase.bound: the picture over the live window at most this long; the slack is one late main turn.
 STALE_LIMIT_MS, STALE_SLACK_MS = 2000, 100
 LIVE_LOOK_S = 2.5  # the second still: after the picture's bound
@@ -60,7 +76,6 @@ BLANK_FRACTION, BLANK_TOLERANCE = 0.997, 12  # one color within 12 per channel o
 SAMPLE_EDGE = 512  # stills are scaled to this many pixels on their long edge before the read (sips)
 LAUNCH_TIMEOUT, EXIT_TIMEOUT, LOADED_TIMEOUT = 120.0, 45.0, 30.0
 BASE_CONFIG = {"appearance": {"backgroundOpacity": 1}}
-FRAME = (40, 40, 1100, 720)
 SECOND_WORKSPACE = "matrix-2"
 URL = "https://example.com/?cmux-launch-matrix"
 PAGE_URL = "data:text/html,<title>launch-matrix</title><h1>launch matrix</h1>"
@@ -117,28 +132,64 @@ def layout_problems(expected, got, mode="same", closed=()):
     return problems
 
 
+def first_frame_problems(expected, first, mode="same", closed=()):
+    """What the first frame's model (``layout_of`` as the relaunch first answers, loaded or not) shows wrong: a
+    workspace closed while the app was closed, and with `mode` `same` a workspace that was not open or one whose pane
+    tree differs from the saved one. A workspace it does not show yet (no screens) is not checked."""
+    if mode == "skip" or first is None:
+        return []
+    problems = [f"the first frame lists closed workspace {name!r}" for name in sorted(closed)
+                if any(w[0] == name for w in first["workspaces"])]
+    if mode == "same":
+        saved = collections.defaultdict(list)
+        for name, shape in expected["workspaces"]:
+            saved[name].append(shape)
+        for name, shape in first["workspaces"]:
+            if name in closed:
+                continue
+            if name not in saved:
+                problems.append(f"the first frame shows workspace {name!r}, which was not open")
+            elif shape and shape not in saved[name]:
+                problems.append(f"the first frame shows {name!r} with pane tree {shape}, saved {saved[name]}")
+    return problems
+
+
 def describe(counter):
     return ", ".join(f"{key!r}" + (f" x{n}" if n > 1 else "") for key, n in sorted(counter.items())) or "none"
 
 
 def picture_problems(marks, expect, reasons=()):
     """The saved picture against the case's `expect`: `shown`, `refused` (for one of `reasons`, any when empty),
-    `not-shown` or `any`. `marks` is `debug.timings`' launch_ms_since_process_start."""
+    `not-shown` or `any`. `marks` is `debug.timings`' launch_ms_since_process_start.
+
+    `refused` needs a picture that was read (DECODED_MARK; else the case refused nothing, a harness defect) and not
+    shown. A meta reason is proven by MISMATCH_MARK or its own refusal mark; crashRecovery and incognitoLeftovers by
+    their own mark only, and no launch path records those yet, so for them a picture read and not shown is enough. A
+    refusal recorded for another reason fails."""
     shown = SHOWN_MARK in marks
     refused = sorted(name[len(REFUSED_PREFIX):] for name in marks if name.startswith(REFUSED_PREFIX))
+    mismatch = MISMATCH_MARK in marks
     if expect == "any":
         return []
     if expect == "shown":
-        return [] if shown else [f"the saved picture did not show (refused: {', '.join(refused) or 'none'})"]
+        why = ", ".join(refused + (["mismatch"] if mismatch else [])) or "none"
+        return [] if shown else [f"the saved picture did not show (refused: {why})"]
     if shown:
         return [f"the saved picture showed; expected {expect}" + (f" ({', '.join(reasons)})" if reasons else "")]
-    if expect == "refused":
-        if not refused:
-            return ["no refusal of the saved picture was recorded (was one saved?)"]
-        if reasons and not set(refused) & set(reasons):
-            return [f"the picture was refused for {', '.join(refused)}, expected {' or '.join(reasons)}"]
-    elif expect != "not-shown":
+    if expect == "not-shown":
+        return []
+    if expect != "refused":
         raise ValueError(f"picture expectation {expect!r}")
+    if DECODED_MARK not in marks:
+        return [f"harness: no saved picture was read ({DECODED_MARK} missing), so none could be refused"]
+    wanted = set(reasons)
+    if refused and wanted and not set(refused) & wanted:
+        return [f"the picture was refused for {', '.join(refused)}, expected {' or '.join(reasons)}"]
+    if mismatch and wanted and not wanted & META_REASONS:
+        return [f"the picture was refused for a meta mismatch ({MISMATCH_MARK}), expected {' or '.join(reasons)}"]
+    if not refused and not mismatch and wanted <= META_REASONS:
+        return [f"the picture did not show but no refusal was recorded ({MISMATCH_MARK} missing; expected "
+                f"{' or '.join(reasons) or 'any'})"]
     return []
 
 
@@ -192,6 +243,11 @@ def small_png(path):
     return home_pixels.read_png(path)
 
 
+def test_placement_keys(env):
+    """The CMUX_NEXT_TEST_WINDOW_* variables of a launch env: a matrix launch sets none, or no picture can show."""
+    return sorted(key for key in env if key.startswith(TEST_PLACEMENT_PREFIX))
+
+
 def result_of(problems, skipped=None):
     return SKIP if skipped else (FAIL if problems else PASS)
 
@@ -222,7 +278,7 @@ class Run:
         self.notes = []
         self.frames_before = None
         self.tabs_before = None
-        self.next_screen = None  # scale-change: the screen of the relaunch
+        self.pictures_aside = None  # scale-change: the copy of the pictures the quit on the first screen saved
         self.host_killed = None  # cef-host-kill: the Chromium Host pid killed during the relaunch
         self.watchers = []  # threads a relaunch's on_start started (URL open, host kill)
         os.makedirs(out, exist_ok=True)
@@ -368,19 +424,33 @@ def build_layout(run):
         raise RuntimeError("the first launch shows no workspace with a pane")
     run.action("splitRight", target=f"pane:{panes[0]['id']}")
     run.action("splitDown", target=f"pane:{panes[0]['id']}")
-    run.cli("new-workspace", "--name", SECOND_WORKSPACE, "--focus", "false")
 
     def built():
-        layout = run.layout()
-        names = [w[0] for w in layout["workspaces"]]
         shown = next((w for w in run.topology().get("workspaces") or [] if w.get("id") == first_id), {})
-        count = sum(len(s.get("panes") or []) for s in shown.get("screens") or [])
-        return SECOND_WORKSPACE in names and count >= 3
+        return sum(len(s.get("panes") or []) for s in shown.get("screens") or []) >= 3
 
     if not run.wait(built, 30):
-        raise RuntimeError(f"the layout did not build: {run.layout()}")
+        raise RuntimeError(f"the first workspace did not split in three: {run.layout()}")
+    add_second_workspace(run)
     run.action("goToWorkspace", {"workspace": first_id})
     run.sleep(1.0)  # test harness: the shells draw their prompts before the app ends
+
+
+def add_second_workspace(run):
+    """SECOND_WORKSPACE, one pane, not shown: the workspace workspace-closed-while-closed closes."""
+    run.cli("new-workspace", "--name", SECOND_WORKSPACE, "--focus", "false")
+    if not run.wait(lambda: any(w[0] == SECOND_WORKSPACE for w in run.layout()["workspaces"]), 30):
+        raise RuntimeError(f"new-workspace made no {SECOND_WORKSPACE!r}: {run.layout()}")
+
+
+def place_window(run):
+    """The first window centered on the last screen (debug.window_frame), where the test placement put it: no launch
+    sets CMUX_NEXT_TEST_WINDOW_*, so the quit saves this frame and the relaunch opens there."""
+    placed = run.rpc("debug.window_frame", {"screen": "last"})
+    if not isinstance(placed, dict) or placed.get("error"):
+        run.notes.append(f"debug.window_frame did not place the window ({placed})")
+        return
+    run.sleep(0.5)  # test harness: the window server places the window before the quit
 
 
 # ---------------------------------------------------------------- the cases' steps
@@ -456,6 +526,15 @@ def open_incognito(run):
         raise RuntimeError("newIncognitoWindow opened no window")
 
 
+def width_of(rect):
+    """The width of a `debug.window_frame` rect ([x, y, w, h], DebugLayers.rect), else None."""
+    return rect[2] if isinstance(rect, list) and len(rect) == 4 else None
+
+
+def height_of(rect):
+    return rect[3] if isinstance(rect, list) and len(rect) == 4 else None
+
+
 def screens(run):
     """[(NSScreen index, backing scale, screen frame)] read by moving the window to each screen (debug.window_frame)
     and taking its still (pixels over points); the window ends on the last screen read."""
@@ -466,27 +545,51 @@ def screens(run):
             break
         path = os.path.join(run.out, f"screen-{index}.png")
         shot = run.rpc("debug.window_snapshot", {"path": path, "webviews": False})
-        width = ((moved.get("frame") or {}).get("width")) or 0
+        width = width_of(moved.get("frame"))
         scale = round(shot.get("width", 0) / width, 2) if isinstance(shot, dict) and width else None
         found.append((index, scale, moved.get("screen_frame")))
     return found
 
 
+def pictures_folder(run):
+    return os.path.join(run.bench.state_root(), PICTURES_FOLDER)
+
+
 def other_scale_screen(run):
-    """Move the next launch's window to a screen of another backing scale (CMUX_NEXT_TEST_WINDOW_SCREEN)."""
+    """The saved picture from a screen of one backing scale, the relaunch's window on a screen of another: a quit on
+    the first screen, its pictures kept aside, a relaunch that moves the window to the other screen; the case's quit
+    then saves that frame, and ``restore_first_pictures`` puts the first screen's pictures back while the app is
+    closed."""
     found = screens(run)
     if not found:
         raise RuntimeError("debug.window_frame moved the window to no screen")
-    current = found[-1]
-    other = next((s for s in found if s[1] and current[1] and s[1] != current[1]), None)
+    first = found[0]
+    other = next((s for s in found if s[1] and first[1] and s[1] != first[1]), None)
     if not other:
         raise Skip(f"no display of another scale ({', '.join(f'screen {i}: {s}x' for i, s, _ in found)})")
-    run.notes.append(f"the picture saved on screen {current[0]} ({current[1]}x); relaunch on screen {other[0]} ({other[1]}x)")
-    run.next_screen = str(other[0])
+    run.rpc("debug.window_frame", {"screen": first[0]})
+    run.sleep(0.5)  # test harness: the window server places the window before the quit
+    run.quit()
+    folder = pictures_folder(run)
+    if not os.path.isdir(folder):
+        raise RuntimeError(f"the quit on screen {first[0]} saved no pictures ({folder} missing)")
+    run.pictures_aside = os.path.join(run.out, "pictures-first-screen")
+    shutil.rmtree(run.pictures_aside, ignore_errors=True)
+    shutil.copytree(folder, run.pictures_aside)
+    run.relaunch()
+    moved = run.rpc("debug.window_frame", {"screen": other[0]})
+    if not isinstance(moved, dict) or moved.get("error"):
+        raise RuntimeError(f"debug.window_frame could not move the window to screen {other[0]} ({moved})")
+    run.sleep(0.5)  # test harness: the window server places the window before the quit
+    run.notes.append(f"the picture saved on screen {first[0]} ({first[1]}x); "
+                     f"relaunch on screen {other[0]} ({other[1]}x)")
 
 
-def to_other_scale_screen(run):
-    run.bench.screen = run.next_screen
+def restore_first_pictures(run):
+    """While the app is closed: the first screen's pictures replace those the quit on the other screen saved."""
+    folder = pictures_folder(run)
+    shutil.rmtree(folder, ignore_errors=True)
+    shutil.copytree(run.pictures_aside, folder)
 
 
 def three_windows_two_displays(run):
@@ -524,9 +627,10 @@ def full_screen(run):
     run.action("toggleFullScreen")
     run.sleep(2.0)  # test harness: the full-screen transition ends before the check
     current = run.rpc("debug.window_frame", {})
-    frame, whole = (current or {}).get("frame") or {}, (current or {}).get("screen_frame") or {}
-    if not frame or not whole or (round(frame.get("width", 0)), round(frame.get("height", 0))) != (
-            round(whole.get("width", -1)), round(whole.get("height", -1))):
+    current = current if isinstance(current, dict) else {}
+    frame, whole = current.get("frame"), current.get("screen_frame")
+    size, screen = (width_of(frame), height_of(frame)), (width_of(whole), height_of(whole))
+    if None in size + screen or [round(v) for v in size] != [round(v) for v in screen]:
         raise Skip(f"the window did not enter full screen (frame {frame}, screen {whole})")
 
 
@@ -686,8 +790,6 @@ class Case:
     on_start: object = None  # (run) -> a BenchApp on_start for the relaunch
     after: object = None  # (run) -> problems, once the relaunch answered
     config: dict = dataclasses.field(default_factory=dict)
-    window: object = FRAME
-    screen: object = "last"
     env: object = None  # (run) -> None: the launch env (BenchApp.extra_env) before the first launch
     ready: str = "debug.windows"
     needs_f2: bool = False
@@ -697,7 +799,7 @@ CASES = (
     Case("first-launch", "a new tag: no daemon, no saved state, no picture", end=None, picture="not-shown", layout="skip"),
     Case("warm", "quit keeping the sessions, relaunch: the control (the picture shows)", picture="shown"),
     Case("scale-change", "the relaunch opens on a display of another scale", picture="refused",
-         reasons=("frame", "screen", "scale"), before=other_scale_screen, between=to_other_scale_screen),
+         reasons=("frame", "screen", "scale"), before=other_scale_screen, between=restore_first_pictures),
     Case("appearance-flip", "light and dark swapped since the quit", picture="refused", reasons=("appearance", "theme"),
          before=flip_appearance),
     Case("theme-change", "the terminal theme changed since the quit", picture="refused", reasons=("theme",),
@@ -707,11 +809,12 @@ CASES = (
          end=end_crash_streak, picture="not-shown", after=safe_mode_note),
     Case("incognito-leftovers", "the last run was killed with an incognito window open", end=end_kill,
          picture="refused", reasons=("incognitoLeftovers",), before=open_incognito),
-    Case("three-windows-two-displays", "three windows, one on the second display", window=None, screen=None,
+    Case("three-windows-two-displays", "three windows, one on the second display",
          before=three_windows_two_displays, after=frames_kept),
     Case("full-screen", "the window was full screen at the quit", picture="not-shown", before=full_screen),
     Case("translucent", "a translucent window (backgroundOpacity 0.6)", config={"appearance": {"backgroundOpacity": 0.6}}),
-    Case("workspace-closed-while-closed", f"{SECOND_WORKSPACE} closed through the daemon while the app was closed",
+    Case("workspace-closed-while-closed", f"{SECOND_WORKSPACE} closed through the daemon while the app was closed "
+         "(its saved picture lists it: refused)", picture="refused", reasons=("sidebarLayout",),
          between=close_second_workspace),
     Case("daemon-cold", "the daemon stopped too: the app starts it on the saved registry", between=stop_daemon),
     Case("daemon-unavailable", "no daemon can start", layout="skip", between=daemon_unavailable,
@@ -747,21 +850,20 @@ def expected_picture(case, picture_on):
 
 def prepare_bench(bench, case, picture=True):
     """The case's launch settings on `bench` before its first launch: the picture feature, the cmux.json additions,
-    the window placement."""
+    and no test placement (CMUX_NEXT_TEST_WINDOW_*: LaunchSnapshotWindow.open shows no picture under one;
+    ``place_window`` places the window instead)."""
     bench.local_features = {**(bench.local_features or {}), PICTURE_FEATURE: bool(picture)}
     config = copy.deepcopy(bench.config if bench.config else BASE_CONFIG)
     for key, value in case.config.items():
         config[key] = {**(config.get(key) or {}), **value}
     bench.config = config
-    if case.window is not FRAME:
-        bench.window = case.window
-    if case.screen != "last":
-        bench.screen = case.screen
+    bench.window = bench.screen = None
 
 
 def relaunch_case(run, case):
     """From a running app holding the layout: the case's before, end, between and relaunch. A case that does not end
     with a quit gets a quit and a relaunch first: the saved picture its relaunch refuses is on disk."""
+    place_window(run)
     if case.end is not end_quit and case.end is not end_quit_during_launch:
         run.quit()
         run.relaunch()
@@ -784,19 +886,21 @@ def loaded_layout(run):
 
 
 def first_look(run):
-    """The windows as the relaunch first answers: (monotonic time, [(still path, problem)])."""
-    return run.now(), run.stills("first", webviews=False)
+    """The windows as the relaunch first answers: (monotonic time, [(still path, problem)], ``layout_of`` the
+    topology then: the model the first frame draws)."""
+    return run.now(), run.stills("first", webviews=False), run.layout()
 
 
 def verdict(run, case, first, skip=None):
     """The case's row: PASS when nothing went wrong, FAIL with the problems, SKIP with `skip` (or a Skip an after
     check raises)."""
-    at, shots = first
+    at, shots, first_layout = first
     problems = list(run.problems)
     if case.ready == "debug.windows" and not shots:
         problems.append("the relaunch showed no window")
     problems += [problem for _, problem in shots if problem]
     problems += [p for p in (blank_problem(path) for path, _ in shots if path) if p]
+    problems += first_frame_problems(run.expected, first_layout, case.layout, run.closed)
     if case.layout != "skip":
         got = run.wait(lambda: loaded_layout(run), LOADED_TIMEOUT) or run.layout()
         problems += layout_problems(run.expected, got, case.layout, run.closed)
@@ -819,6 +923,7 @@ def verdict(run, case, first, skip=None):
     return {"case": case.name, "summary": case.summary, "result": result_of(problems, skip),
             "screenshot": next((path for path, _ in shots if path), None),
             "screenshots": [path for path, _ in shots + live if path], "problems": problems, "skip": skip,
+            "first_frame_layout": first_layout,
             "picture": {"expected": expected_picture(case, run.picture), "reasons": list(case.reasons),
                         "marks": {k: v for k, v in marks.items() if k.startswith("launch_picture")}},
             "notes": run.notes}
@@ -844,12 +949,37 @@ def run_case(run, case):
         return verdict(run, case, first_look(run))
     except Skip as reason:
         return row(SKIP, skip=str(reason))
-    except bench_launch.LaunchError as error:
-        return row(FAIL, run.problems + [f"a launch did not come up: {error.reason}: {error.report.get('detail', '')}"])
-    except (RuntimeError, OSError, subprocess.SubprocessError, ValueError) as error:
-        return row(FAIL, run.problems + [f"harness: {error}"])
+    except CASE_ERRORS as error:  # any error is this case's FAIL row, and the matrix goes on
+        return row(FAIL, run.problems + [harness_problem(error)])
     finally:
         run.bench.stop()
+
+
+# What a case may raise: any Exception, and LaunchError, a SystemExit (bench_launch.py).
+CASE_ERRORS = (Exception, bench_launch.LaunchError)
+
+
+def harness_problem(error):
+    """The FAIL row's problem for an error a case raised: a launch that did not come up, else a harness defect."""
+    if isinstance(error, bench_launch.LaunchError):
+        return f"a launch did not come up: {error.reason}: {(error.report or {}).get('detail', '')}"
+    if isinstance(error, (RuntimeError, OSError, subprocess.SubprocessError, ValueError)):
+        return f"harness: {error}"
+    return f"harness: {type(error).__name__}: {error}"
+
+
+def error_row(case, run, error):
+    """A FAIL row for `error` raised outside ``run_case`` (restore-trace.py's --case path)."""
+    return {"case": case.name, "summary": case.summary, "result": FAIL, "screenshot": None, "screenshots": [],
+            "problems": list(run.problems) + [harness_problem(error)], "skip": None, "picture": None,
+            "notes": run.notes}
+
+
+def write_report(out, app, picture, f2, rows):
+    report = os.path.join(out, "launch-matrix.json")
+    with open(report, "w") as handle:
+        json.dump({"app": app, "picture": picture, "f2": f2, "cases": rows}, handle, indent=1)
+    return report
 
 
 def run_matrix(app, names, out, picture=True, f2=False, session="light", bench_app=bench_launch.BenchApp, log=print):
@@ -858,15 +988,14 @@ def run_matrix(app, names, out, picture=True, f2=False, session="light", bench_a
     rows = []
     for case in select(names):
         folder = os.path.join(out, case.name)
-        bench = bench_app(app, out=folder, config={}, window=FRAME, screen="last", log_name="app.log",
+        bench = bench_app(app, out=folder, config={}, window=None, screen=None, log_name="app.log",
                           perf_session=session)
         prepare_bench(bench, case, picture)
         log(f"launch matrix: {case.name}: {case.summary}")
         rows.append(run_case(Run(bench, folder, picture=picture, f2=f2, log=log), case))
         log(line(rows[-1]))
-    report = os.path.join(out, "launch-matrix.json")
-    with open(report, "w") as handle:
-        json.dump({"app": app, "picture": picture, "f2": f2, "cases": rows}, handle, indent=1)
+        write_report(out, app, picture, f2, rows)  # after each case: a run stopped later keeps these rows
+    report = write_report(out, app, picture, f2, rows)
     counts = collections.Counter(row["result"] for row in rows)
     log(f"launch matrix: {counts[PASS]} PASS, {counts[FAIL]} FAIL, {counts[SKIP]} SKIP; {report}")
     return rows
