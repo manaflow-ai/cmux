@@ -112,11 +112,13 @@ public extension NSView {
         return anchor
     }
 
-    /// Tells every ``PaneResizeGestureFollowing`` view in this subtree (this view included) that a resize drag
-    /// began (`active`) or ended and landed.
-    func notifyPaneResizeGesture(active: Bool) {
-        if let follower = self as? PaneResizeGestureFollowing { follower.paneResizeGestureDidChange(active: active) }
-        for subview in subviews { subview.notifyPaneResizeGesture(active: active) }
+    /// Every ``PaneResizeGestureFollowing`` view in this subtree (this view included), to tell a resize drag's
+    /// start and, later, its end.
+    func paneResizeGestureFollowers() -> [any PaneResizeGestureFollowing] {
+        var found: [any PaneResizeGestureFollowing] = []
+        if let follower = self as? PaneResizeGestureFollowing { found.append(follower) }
+        for subview in subviews { found += subview.paneResizeGestureFollowers() }
+        return found
     }
 
     /// Tells every ``PaneMotionSettling`` view in this subtree (this view included) that its

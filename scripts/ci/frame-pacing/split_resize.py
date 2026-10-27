@@ -164,7 +164,9 @@ def judge_drag(trace: dict, refresh: float) -> dict:
     if extended:
         # The page window's left edge against the host's (both screen x): the offset at rest is kept.
         host_x = [(i, float(row[5])) for i, row in enumerate(rows)]
-        page_x = [(i, float(row[6]) - float(rows[0][6]) + float(rows[0][5])) for i, row in enumerate(rows)]
+        found = [(i, row) for i, row in enumerate(rows) if float(row[6]) >= 0]
+        rest = found[0][1] if found else rows[0]
+        page_x = [(i, float(row[6]) - float(rest[6]) + float(rest[5])) for i, row in found]
         edge_lags = lag_frames(host_x, page_x)
         gap_frames = sum(1 for (_, a), (_, w) in zip(area, page_window) if w >= 0 and a - w > 0.5)
 
@@ -193,16 +195,23 @@ def judge_drag(trace: dict, refresh: float) -> dict:
     page_times = [t for t, _ in page if walls[first] <= t <= walls[last] + refresh] if moving else []
     page_dropped = sum(max(0, round((b - a) / refresh) - 1) for a, b in zip(page_times, page_times[1:])
                        if b - a > 1.5 * refresh)
+    def spread(values: list[float], scale: float = 1.0) -> dict | None:
+        """p50/p95/max of `values` times `scale`; None when nothing was measured (never a zero lag)."""
+        if not values:
+            return None
+        return {"p50": round(p(values, 0.5) * scale, 2), "p95": round(p(values, 0.95) * scale, 2),
+                "max": round(max(values) * scale, 2), "measured": len(values)}
+
     return {
         "frames": len(samples),
         "divider_moving_frames": len(moving),
+        # Samples whose page window was not found (no width): their edge and gap are not measured.
+        "unmatched_page_window": sum(1 for _, w in page_window if w < 0),
         "area_moving_frames": sum(1 for a, b in zip(area, area[1:]) if abs(b[1] - a[1]) > 0.5),
-        "area_lag": {"p50": p(area_lags, 0.5), "max": max(area_lags, default=0)},
-        "edge_lag": {"p50": p(edge_lags, 0.5), "max": max(edge_lags, default=0), "measured": len(edge_lags)},
-        "layout_lag": {"p50": round(p(layout_lags, 0.5), 2), "p95": round(p(layout_lags, 0.95), 2),
-                       "max": round(max(layout_lags, default=0.0), 2), "measured": len(layout_lags)},
-        "layout_lag_ms": {"p50": round(p(layout_lags, 0.5) * refresh, 1), "p95": round(p(layout_lags, 0.95) * refresh, 1),
-                          "max": round(max(layout_lags, default=0.0) * refresh, 1)},
+        "area_lag": spread(area_lags),
+        "edge_lag": spread(edge_lags),
+        "layout_lag": spread(layout_lags),
+        "layout_lag_ms": spread(layout_lags, refresh),
         "stale_frames": stale,
         "relayouts": relayouts,
         "settle_ms": settle_ms,
@@ -223,22 +232,29 @@ def judge(data: dict, refresh: float) -> dict:
         return {"ok": True, "problems": [], "measured": False,
                 "note": "not measured: " + (data.get("error") or "no drag with a divider and a Chromium host")}
     settles = [drag["settle_ms"] for drag in measured if drag["settle_ms"] is not None]
+
+    def worst(key: str, field: str):
+        """The largest `field` of `key` over the drags that measured it; None when none did."""
+        values = [drag[key][field] for drag in measured if drag.get(key)]
+        return max(values) if values else None
+
     return {
         "ok": True,
         "problems": [],
         "measured": True,
         "refresh_ms": refresh,
         "drags": drags,
-        "layout_lag_p50": max(drag["layout_lag"]["p50"] for drag in measured),
-        "layout_lag_p95": max(drag["layout_lag"]["p95"] for drag in measured),
-        "layout_lag_max": max(drag["layout_lag"]["max"] for drag in measured),
-        "layout_lag_ms_p95": max(drag["layout_lag_ms"]["p95"] for drag in measured),
+        "layout_lag_p50": worst("layout_lag", "p50"),
+        "layout_lag_p95": worst("layout_lag", "p95"),
+        "layout_lag_max": worst("layout_lag", "max"),
+        "layout_lag_ms_p95": worst("layout_lag_ms", "p95"),
         "stale_frames": sum(drag["stale_frames"] for drag in measured),
         "moving_frames": sum(drag["area_moving_frames"] for drag in measured),
         "relayouts": sum(drag["relayouts"] for drag in measured),
         "settle_ms_max": max(settles, default=None),
-        "area_lag_max": max(drag["area_lag"]["max"] for drag in measured),
-        "edge_lag_max": max(drag["edge_lag"]["max"] for drag in measured),
+        "area_lag_max": worst("area_lag", "max"),
+        "edge_lag_max": worst("edge_lag", "max"),
+        "unmatched_page_window": sum(drag["unmatched_page_window"] for drag in measured),
         "gap_frames": sum(drag["gap_frames"] for drag in measured),
         "dropped": sum(drag["dropped"] for drag in measured),
         "page_dropped": sum(drag["page_dropped"] for drag in measured),
@@ -248,10 +264,14 @@ def judge(data: dict, refresh: float) -> dict:
 def markdown_row(verdict: dict) -> str:
     if not verdict.get("measured"):
         return f"| split_resize | report | | | | {verdict.get('note', 'not measured')} (reported only) |"
+    def shown(value) -> str:
+        return "n/a" if value is None else f"{value:g}"
+
     return ("| split_resize | ok | | | | Chromium page beside a dragged divider: page edge trails the divider "
-            f"≤{verdict['edge_lag_max']} frames; laid out at its area's width "
-            f"{verdict['layout_lag_p50']:g}/{verdict['layout_lag_p95']:g}/{verdict['layout_lag_max']:g} frames after it "
-            f"(p50/p95/max; p95 {verdict['layout_lag_ms_p95']:g} ms), stale in {verdict['stale_frames']} of "
+            f"≤{shown(verdict['edge_lag_max'])} frames ({verdict['unmatched_page_window']} samples with no page window); "
+            f"laid out at its area's width {shown(verdict['layout_lag_p50'])}/{shown(verdict['layout_lag_p95'])}/"
+            f"{shown(verdict['layout_lag_max'])} frames after it "
+            f"(p50/p95/max; p95 {shown(verdict['layout_lag_ms_p95'])} ms), stale in {verdict['stale_frames']} of "
             f"{verdict['moving_frames']} moving frames, {verdict['relayouts']} relayouts while moving, settled "
-            f"≤{verdict['settle_ms_max']} ms after the last move; {verdict['dropped']} app and {verdict['page_dropped']} "
+            f"≤{shown(verdict['settle_ms_max'])} ms after the last move; {verdict['dropped']} app and {verdict['page_dropped']} "
             "page frames dropped (reported only) |")

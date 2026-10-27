@@ -13,7 +13,7 @@ extension ScreenContentView {
     /// moved nothing, a still pointer) does no work.
     func step(_ dt: Double, policy: MotionPolicy = Motion.panes.policy) -> Bool { // perf-hot: 4ms motion-frame
         // A released resize drag ends for the pane contents in the frame its layout lands.
-        defer { if resizeGesture != .idle, resizeGesture != .active { finishResizeGestureIfLanded() } }
+        defer { if resizeGesture == .landing { finishResizeGestureIfLanded() } }
         guard hasMotion || reportScrollOnSettle else {
             scrollRidesFrames = false
             return false

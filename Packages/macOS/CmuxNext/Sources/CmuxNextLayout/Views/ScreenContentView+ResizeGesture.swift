@@ -13,17 +13,28 @@ enum PaneResizeGesturePhase: Equatable {
     case landing
 }
 
+/// A pane content told about a resize drag, held weakly until it hears the end.
+struct PaneResizeGestureListener {
+    weak var view: (any PaneResizeGestureFollowing)?
+}
+
 /// A person's divider or edge drag, told to the pane contents that follow it their own way
 /// (``PaneResizeGestureFollowing``: a Chromium page keeps its size until the pane's frame is final).
 /// They hear `true` on the drag's first move (a click on a divider moves nothing and tells nothing)
 /// and `false` once the release's layout landed, so a page lays out once, at the pane's final size,
-/// not once per frame of the release's spring. No timer: the layout's display-frame ticks
-/// (`step`, which the release requests) and the model sync carry it to the end, and a screen torn
-/// down ends it at once.
+/// not once per frame of the release's spring. The end goes to exactly the contents that heard the
+/// start, wherever they are by then (a pane moved to another screen, a screen torn down).
+///
+/// No timer: the release requests display frames, the end comes from the model sync that applies the
+/// release (`LayoutRootView.sync`; a frame tick that finds the sync still pending runs it,
+/// `LayoutRootView.advanceFrame`) and the frame its spring lands in (`step`), or at once when motion is
+/// settled without frames (Reduce Motion, a hidden screen, a teardown).
 extension ScreenContentView {
     func resizeGestureMoved() {
         if resizeGesture == .idle {
-            for host in displayedHosts { host.content.notifyPaneResizeGesture(active: true) }
+            resizeGestureListeners = displayedHosts.flatMap { $0.content.paneResizeGestureFollowers() }
+                .map { PaneResizeGestureListener(view: $0) }
+            for listener in resizeGestureListeners { listener.view?.paneResizeGestureDidChange(active: true) }
         }
         resizeGesture = .active
     }
@@ -43,19 +54,19 @@ extension ScreenContentView {
         finishResizeGestureIfLanded()
     }
 
-    /// Every display frame of this screen (`step`): the end comes when no pane or divider moves.
+    /// The end, once the release's layout is here and no pane or divider moves (every frame of this
+    /// screen, `step`, and each sync).
     func finishResizeGestureIfLanded() {
-        // A tick before the sync: the model's flag is already off, so the release's layout is applied
-        // this turn or was refused; either way the frames are final once nothing moves.
-        if resizeGesture == .releasing, !context.model.isGestureActive { resizeGesture = .landing }
         guard resizeGesture == .landing, !hasMotion else { return }
         finishResizeGesture()
     }
 
-    /// Tells the pane contents the drag is over, now (also when the screen goes away).
+    /// Tells the contents that heard the start that the drag is over, now.
     func finishResizeGesture() {
         guard resizeGesture != .idle else { return }
         resizeGesture = .idle
-        for host in displayedHosts { host.content.notifyPaneResizeGesture(active: false) }
+        let listeners = resizeGestureListeners
+        resizeGestureListeners = []
+        for listener in listeners { listener.view?.paneResizeGestureDidChange(active: false) }
     }
 }

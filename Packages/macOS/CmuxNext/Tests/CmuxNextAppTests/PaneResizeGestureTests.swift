@@ -86,11 +86,31 @@ struct PaneResizeGestureTests {
         }
         #expect(harness.provider.follower.heard == [true])
         handle.mouseUp(with: harness.event(.leftMouseUp, CGPoint(x: start.x - 160, y: start.y)))
-        harness.root.syncWithModel()
+        // No sync here: a display frame may come before the observation applies the release, and the
+        // end must still wait for the release's layout and its landing.
         harness.land()
         #expect(harness.provider.follower.heard == [true, false])
         let host = try #require(harness.root.context.hosts["p2"])
         #expect(harness.provider.follower.frameAtEnd == host.frame, "the follower heard the end before the pane landed")
+    }
+
+    @Test func reduceMotionDuringTheLandingStillEndsTheDrag() throws {
+        let harness = Harness()
+        let handle = try harness.handle
+        let start = try harness.center()
+        handle.mouseDown(with: harness.event(.leftMouseDown, start))
+        for step in 1...10 {
+            handle.mouseDragged(with: harness.event(.leftMouseDragged, CGPoint(x: start.x - CGFloat(step) * 12, y: start.y)))
+            harness.root.syncWithModel()
+            harness.frame()
+        }
+        handle.mouseUp(with: harness.event(.leftMouseUp, CGPoint(x: start.x - 120, y: start.y)))
+        harness.root.syncWithModel()
+        harness.frame()
+        harness.root.context.reduceMotionOverride = true
+        harness.land()
+        harness.frame()
+        #expect(harness.provider.follower.heard == [true, false])
     }
 
     @Test func aClickOnTheDividerTellsNothing() throws {

@@ -433,9 +433,16 @@ public final class LayoutRootView: NSView {
 
     func advanceFrame(_ dt: Double) -> Bool {
         defer { onFramePlaced?() }
+        // A released resize drag whose layout the observation has not applied yet: apply it before this
+        // frame, so the frame that ends the drag for the pane contents is the release's (`ScreenContentView+ResizeGesture`).
+        if !model.isGestureActive, screenViews.values.contains(where: { $0.resizeGesture == .releasing }) {
+            syncWithModel()
+            // Nothing new to apply: the screens already show the model.
+            for view in screenViews.values where view.resizeGesture == .releasing { view.resizeGestureModelSynced(gestureActive: false) }
+        }
         // Reduce Motion (or the no-animation switch) turned on mid-flight: the final layout now, no more frames.
         if context.reduceMotion {
-            for view in screenViews.values where view.hasMotion { view.settleMotion() }
+            for view in screenViews.values where view.hasMotion || view.resizeGesture == .landing { view.settleMotion() }
             for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
             applyScreenFrames()
             updateVisibility()
