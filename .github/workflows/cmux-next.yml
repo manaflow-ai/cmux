@@ -3223,14 +3223,18 @@ jobs:
       # hold made every request beside it answer `timeout`
       # (ActionRunCreatedTests, ActionBatchTests and BrowserTabMirrorTests
       # failed on every tip run, job 122086769190). The holders run after the
-      # rest, one test at a time; the rest stays parallel.
+      # rest, one test at a time; the rest stays parallel. The suites that
+      # check a production deadline itself (ActionRunCreatedTests' 2 s,
+      # TerminalStartDeadlineTests' terminal start) run in that serial pass
+      # too: the parallel pass still held the main actor past 2 s at its start
+      # on loaded minis (jobs 122242957690, 122236716988, 122240111475).
       - name: Run control package tests and callback regressions
         if: ${{ (!cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextControlTests') || contains(env.SWIFT_TARGETS, 'CmuxNextAppTests'))) && steps.reuse.outputs.hit != 'true' }}
         timeout-minutes: 20
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
-          MAIN_THREAD_HOLDERS: 'CmuxNextControlTests\.(MainThreadWatchdogPolicyTests|MainThreadWatchdogTests|MainThreadWatchdogTaskWakeTests|MainTaskBoardSpanTests|ActionBudgetSpanTests|ControlLaneTests|MainFrameBudgetTests|MainActorWorkQueueTests|HangEpisode[A-Za-z]*Tests|ActionBatchTests)\b'
+          MAIN_THREAD_HOLDERS: 'CmuxNextControlTests\.(MainThreadWatchdogPolicyTests|MainThreadWatchdogTests|MainThreadWatchdogTaskWakeTests|MainTaskBoardSpanTests|ActionBudgetSpanTests|ControlLaneTests|MainFrameBudgetTests|MainActorWorkQueueTests|HangEpisode[A-Za-z]*Tests|ActionBatchTests|ActionRunCreatedTests|TerminalStartDeadlineTests)\b'
         run: |
           set -uo pipefail
           status=0

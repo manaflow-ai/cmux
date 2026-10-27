@@ -134,6 +134,9 @@ extension ControlRouter.Configuration {
     /// shares the main actor with thousands of tests, so a queued
     /// `action.run` can wait seconds before it starts; the production 2 s
     /// deadline would then answer `timeout` and the test would check the
-    /// wrong thing. Deadline tests set their own short deadlines.
-    static let loadTolerant = ControlRouter.Configuration(requestDeadline: .seconds(30))
+    /// wrong thing. Deadline tests set their own short deadlines. An action
+    /// that starts a terminal (splitRight, agent.openSessionWorkspace) runs
+    /// under the terminal start deadline instead (6 s), which a loaded run
+    /// also passed before the action started, so it is lifted too.
+    static let loadTolerant = ControlRouter.Configuration(requestDeadline: .seconds(30), terminalStartDeadline: .seconds(30))
 }
