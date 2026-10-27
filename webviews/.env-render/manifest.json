@@ -1,0 +1,106 @@
+[
+ {
+  "id": "x--environment-folders--dark",
+  "path_or_url": "frame.html",
+  "params": {
+   "entry": "agent-pane.chat-inspector",
+   "variant": "environment-folders",
+   "locale": "en",
+   "theme": "Catppuccin Mocha",
+   "colorScheme": "dark",
+   "width": 420,
+   "height": 420
+  }
+ },
+ {
+  "id": "x--environment-folders--light",
+  "path_or_url": "frame.html",
+  "params": {
+   "entry": "agent-pane.chat-inspector",
+   "variant": "environment-folders",
+   "locale": "en",
+   "theme": "Catppuccin Latte",
+   "colorScheme": "light",
+   "width": 420,
+   "height": 420
+  }
+ },
+ {
+  "id": "x--environment-scratchpad--dark",
+  "path_or_url": "frame.html",
+  "params": {
+   "entry": "agent-pane.chat-inspector",
+   "variant": "environment-scratchpad",
+   "locale": "en",
+   "theme": "Catppuccin Mocha",
+   "colorScheme": "dark",
+   "width": 420,
+   "height": 420
+  }
+ },
+ {
+  "id": "x--environment-scratchpad--light",
+  "path_or_url": "frame.html",
+  "params": {
+   "entry": "agent-pane.chat-inspector",
+   "variant": "environment-scratchpad",
+   "locale": "en",
+   "theme": "Catppuccin Latte",
+   "colorScheme": "light",
+   "width": 420,
+   "height": 420
+  }
+ },
+ {
+  "id": "x--environment-branch-chip--dark",
+  "path_or_url": "frame.html",
+  "params": {
+   "entry": "agent-pane.chat-inspector",
+   "variant": "environment-branch-chip",
+   "locale": "en",
+   "theme": "Catppuccin Mocha",
+   "colorScheme": "dark",
+   "width": 420,
+   "height": 420
+  }
+ },
+ {
+  "id": "x--environment-branch-chip--light",
+  "path_or_url": "frame.html",
+  "params": {
+   "entry": "agent-pane.chat-inspector",
+   "variant": "environment-branch-chip",
+   "locale": "en",
+   "theme": "Catppuccin Latte",
+   "colorScheme": "light",
+   "width": 420,
+   "height": 420
+  }
+ },
+ {
+  "id": "x--environment-parent--dark",
+  "path_or_url": "frame.html",
+  "params": {
+   "entry": "agent-pane.chat-inspector",
+   "variant": "environment-parent",
+   "locale": "en",
+   "theme": "Catppuccin Mocha",
+   "colorScheme": "dark",
+   "width": 420,
+   "height": 420
+  }
+ },
+ {
+  "id": "x--environment-parent--light",
+  "path_or_url": "frame.html",
+  "params": {
+   "entry": "agent-pane.chat-inspector",
+   "variant": "environment-parent",
+   "locale": "en",
+   "theme": "Catppuccin Latte",
+   "colorScheme": "light",
+   "width": 420,
+   "height": 420
+  }
+ }
+]
