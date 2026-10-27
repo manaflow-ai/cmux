@@ -314,7 +314,6 @@ public actor CloudCodexBroker {
     /// Revocation removes the delivered access file and own marker. The local
     /// refresh holder is signed out only when the caller explicitly requests it.
     public func revoke(target: CloudCodexBrokerTarget, signOut: Bool = false) async throws {
-        try await validate(target: target, confirmed: true, requireLive: false)
         let registered = targets.removeValue(forKey: target.machineID) != nil || pendingRevocations.contains(target.machineID)
         targetGenerations[target.machineID, default: 0] += 1
         guard registered else { return }
@@ -334,7 +333,6 @@ public actor CloudCodexBroker {
         }
         try await target.removeFile(Self.accessPath)
         try await target.removeFile(Self.modePath)
-        try await ensureScope()
         if let previous = previousModeByMachine[target.machineID] ?? nil {
             try await target.writeFile(Self.modePath, previous, 0o600)
         }
@@ -349,10 +347,9 @@ public actor CloudCodexBroker {
         }
     }
 
-    private func validate(target: CloudCodexBrokerTarget, confirmed: Bool, requireLive: Bool = true) async throws {
+    private func validate(target: CloudCodexBrokerTarget, confirmed: Bool) async throws {
         guard confirmed else { throw CloudCodexBrokerError.consentRequired }
         guard await currentScope() == scope else { throw CloudCodexBrokerError.scopeChanged }
-        guard requireLive else { return }
         guard try await target.isLive() else { throw CloudCodexBrokerError.targetOffline }
         let capability = try await target.capability()
         guard capability.ownerVM else { throw CloudCodexBrokerError.sharedMachine }
@@ -419,6 +416,7 @@ public actor CloudCodexBroker {
         let suffix = UUID().uuidString.lowercased()
         let stageAccess = "/home/cmux/.config/cmux/codex-broker/.access-\(suffix).json"
         let stageMode = "/home/cmux/.config/cmux/agent-auth/.codex-\(suffix)"
+        var commitAttempted = false
         do {
             try await validate(target: target, confirmed: true)
             try await ensureScope()
@@ -441,18 +439,32 @@ public actor CloudCodexBroker {
             try await target.writeFile(stageMode, Data("own\n".utf8), 0o600)
             try await ensureScope()
             guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation else { throw CloudCodexBrokerError.cancelled }
+            commitAttempted = true
             try await target.commitFiles(stageAccess, Self.accessPath, stageMode, Self.modePath)
+            try await ensureScope()
             try? await target.removeFile(stageAccess)
             try? await target.removeFile(stageMode)
             guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation else { throw CloudCodexBrokerError.cancelled }
-        } catch let error as CloudCodexBrokerError {
-            try? await target.removeFile(stageAccess)
-            try? await target.removeFile(stageMode)
-            throw error
         } catch {
-            try? await target.removeFile(stageAccess)
-            try? await target.removeFile(stageMode)
-            throw CloudCodexBrokerError.remoteDeliveryFailed
+            if commitAttempted || Task.isCancelled || error as? CloudCodexBrokerError == .scopeChanged {
+                targets.removeValue(forKey: target.machineID)
+                targetGenerations[target.machineID, default: 0] += 1
+                pendingRevocations.insert(target.machineID)
+            }
+            let previous = previousModeByMachine[target.machineID] ?? nil
+            // Cleanup must complete even when the initiating task was cancelled.
+            let cleanup = Task {
+                try? await target.removeFile(stageAccess)
+                try? await target.removeFile(stageMode)
+                if commitAttempted {
+                    try await target.removeFile(Self.accessPath)
+                    try await target.removeFile(Self.modePath)
+                    if let previous { try await target.writeFile(Self.modePath, previous, 0o600) }
+                }
+            }
+            do { try await cleanup.value }
+            catch { throw CloudCodexBrokerError.remoteDeliveryFailed }
+            throw error as? CloudCodexBrokerError ?? (Task.isCancelled ? .cancelled : .remoteDeliveryFailed)
         }
     }
 
@@ -473,6 +485,7 @@ public actor CloudCodexBroker {
     }
 
     private func ensureScope() async throws {
+        guard !Task.isCancelled else { throw CloudCodexBrokerError.cancelled }
         guard await currentScope() == scope else { throw CloudCodexBrokerError.scopeChanged }
     }
 
