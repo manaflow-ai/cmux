@@ -88,6 +88,8 @@
         "Report the embedded Chromium engine": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Upload dSYMs to Sentry": {"nightly_only": "uploads dSYMs with Sentry token"},
         "Archive unsigned nightly app": {"plumbing": true},
+        "Look up the nightly app compiled on the same inputs": {"nightly_only": "reuses only records of nightly-next push runs; a pull request never reads or writes them (tests/test_nightly_release_product_reuse.py)"},
+        "Pack the nightly app for reuse": {"nightly_only": "records the nightly-next products for a later nightly-next build; a pull request never records one"},
         "Finish the dSYM upload to Sentry": {"nightly_only": "finishes Sentry dSYM upload (token)"},
         "Bundle the OptChat Chief and the iPhone host": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly helper builds beside the Release build", "note": "joins the background Chief and iPhone host builds and runs bundle-optchat-chief.sh and bundle-mobile-host.sh on the Release app; tests/test_nightly_helpers_beside_release_build.py runs the join on fixtures"},
         "Stop the helper builds still running": {"plumbing": true}},
@@ -240,7 +242,10 @@
         "Find the attempt that compiled the published build": {"nightly_only": "looks up the published binary's producing run and artifact; a pull request has no published nightly build"},
         "Keep the published build's dSYMs on R2": {"nightly_only": "archives the published build's symbols to R2 with release credentials after publication"}},
       "pick-nightly-sign-runner": {
-        "Pick the Blacksmith macOS label with a moving queue": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly signing jobs take a Blacksmith label with a moving queue"}},
+        "Pick the Blacksmith macOS label with a moving queue": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly signing jobs take a Blacksmith label with a moving queue"},
+        "Mint the owned-pool routing token": {"nightly_only": "mints a glaeda-route GitHub App token from GLAEDA_ROUTE_APP_KEY, only on nightly-next push attempt 1; its guard is checked by tests/test_nightly_sign_runner.py"},
+        "Mint the routing token without the org permission": {"nightly_only": "mints the glaeda-route GitHub App token with repository administration read only, when the org-permission mint failed on a nightly-next push"},
+        "Pick a free owned Mac for the verify jobs": {"nightly_only": "reads the live owned pool with the routing token through e2e_runner_pool.py --requested auto on nightly-next push attempt 1; its guard and continue-on-error are checked by tests/test_nightly_sign_runner.py, and the picker's tests (test_ci_e2e_runner_pool_auto.py) run only in ci-guards' ci group, which a feat-cmux-next pull request skips"}},
       "legacy-identity-target": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
 
@@ -266,13 +271,13 @@
       "verify-nightly-identity-legacy": {
         "Select Xcode": {"plumbing": true},
         "Check out the build's own source for the bundle checks": {"plumbing": true},
-        "Verify stapled cmux NIGHTLY DMG artifact": {"nightly_only": "statically verifies the notarized stapled legacy DMG and records its exact digest without launching app code"}},
+        "Verify stapled cmux NIGHTLY DMG artifact": {"nightly_only": "statically verifies the notarized stapled legacy DMG and records its exact digest without launching app code"},
+        "Hand the tested app's Info.plist to publish": {"nightly_only": "mounts the tested legacy DMG read-only and copies its app's Info.plist", "note": "tests/test_nightly_legacy_publish_linux.py checks it follows the verify step and the tested digest"}},
       "publish-nightly-identity-legacy": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Skip a build the old feed already has": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next release-ring tags"},
-        "Select Xcode": {"plumbing": true},
         "Refuse a DMG that is not the tested one": {"pr": "ci-guards.yml:workflow-guard-tests:Dry-run the nightly's tested-DMG gate for the old feed", "note": "tests/test_nightly_next_legacy_tested_digest.sh runs nightly-next-legacy-tested-digest.sh on fixture DMGs"},
-        "Generate the old feed's appcast": {"nightly_only": "signs old feed appcast (Sparkle)"},
+        "Generate the old feed's appcast": {"nightly_only": "signs old feed appcast (Sparkle)", "note": "tests/test_nightly_legacy_publish_linux.py: the Linux writer's RFC 8032 vector and the published item's layout"},
         "Publish the cmux NIGHTLY DMG, release notes and the old feed": {"nightly_only": "publishes DMG and feed to R2"},
         "Resolve the attempt": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow"},
         "Decide whether the attempt failed": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow"},

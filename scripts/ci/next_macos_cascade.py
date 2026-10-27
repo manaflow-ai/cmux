@@ -96,7 +96,10 @@ hosted the same way, with a 90 min timeout: a feed's freshness outranks a
 cold build (2026-10-26: the DEV feed unpublished from 21:01Z, its compile
 queued 70 min on blacksmith-6vcpu-macos-26 behind about 75 jobs while hosted
 macos-26 was free). Without the snapshot's waits nothing is stalled and nothing goes to
-hosted, which is the previous route.
+hosted, which is the previous route. A feed's compile counts a label whose
+oldest queued job has waited FRESH_STALL_MINUTES as full, sooner than the
+stall above, and so does its last resort when the runner groups are unread:
+the DEV compile takes hosted, a push's Release compile the owned label.
 
 The rescue's full re-run (attempt 2, triggered by RESCUE_ACTOR: bot_rerun()) is
 placed afresh, from what is free when it starts, instead of reading nothing:
@@ -127,6 +130,8 @@ import dataclasses
 import datetime as dt
 import json
 import time
+import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any, Callable, Mapping, Sequence
@@ -148,6 +153,11 @@ HOSTED_JOBS = ("fast-tier", "swift-canary")
 HOSTED_FRESH_JOBS = ("cmux-scheme-compile",)
 STALL_MINUTES = 25
 IDLE_STALL_MINUTES = 5
+# A feed's compile (FRESH_JOBS) counts a Blacksmith label as full once its oldest queued job has waited this
+# long, before STALL_MINUTES: 2026-10-26 22:25Z to 01:30Z, 92 jobs queued on 6 vCPU (oldest 148 min) and 27 on
+# 12 vCPU (oldest 165 min, no runner online) while a DEV Release compile queued there; the compile takes
+# hosted (HOSTED_FRESH_JOBS) or the owned label instead.
+FRESH_STALL_MINUTES = 15
 # simple_pool_picker.CAPACITY's figures for these labels. 12 vCPU: at most six
 # at once, five whenever it had a queue (2026-10-19); 6 vCPU: ten online at 21:40Z.
 CAPACITY = {LARGE: 5, SMALL: 10}
@@ -168,6 +178,25 @@ READ_BUDGET_SECONDS = 45
 QUEUE_SNAPSHOT_MINUTES = 15
 SCALE_SET_GROUP = "Blacksmith scale sets - {label}"
 API = "https://api.github.com"
+# A refused read is logged with its detail and raised, never retried here: the reads share
+# READ_BUDGET_SECONDS (45 s), which a wait would only spend before the answer is dropped.
+
+# What a refused GitHub read said: its status, the rate-limit headers and the start of its
+# body ("secondary rate limit", "Resource not accessible by integration", ...). urllib's own
+# message is only "HTTP Error 403: Forbidden", which cannot tell those apart.
+REFUSAL_HEADERS = ("Retry-After", "X-RateLimit-Remaining", "X-RateLimit-Resource")
+
+
+def refusal(error: "urllib.error.HTTPError") -> str:
+    headers = error.headers or {}
+    shown = " ".join(f"{name}={headers.get(name)}" for name in REFUSAL_HEADERS if headers.get(name) is not None)
+    try:
+        body = " ".join(error.read(2000).decode("utf-8", "replace").split())[:300]
+    except Exception:  # noqa: BLE001 - the detail is best effort
+        body = ""
+    return f"HTTP {error.code}" + (f" {shown}" if shown else "") + (f" body: {body}" if body else "")
+
+
 
 
 @dataclasses.dataclass(frozen=True)
@@ -175,6 +204,8 @@ class Placement:
     jobs: Mapping[str, tuple[str, ...]]  # Blacksmith label or HOSTED -> the jobs it takes now
     retry_runner: str
     why: str
+    # The labels a feed's compile counts as full (fresh_stalled()); release-compile's re-run route reads them.
+    fresh_stall: tuple[str, ...] = ()
 
 
 def vcpus(label: str) -> int:
@@ -311,13 +342,20 @@ def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[
                       or live.get(label, 0) == 0 and waits.get(label, 0.0) - age >= IDLE_STALL_MINUTES))
 
 
+def fresh_stalled(waits: Mapping[str, float]) -> tuple[str, ...]:
+    """The labels a feed's compile counts as full: an oldest queued wait of FRESH_STALL_MINUTES by now (seen()
+    gives a wait only to a label with a queue)."""
+    return tuple(label for label in LABELS if waits.get(label, 0.0) >= FRESH_STALL_MINUTES)
+
+
 def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, int], *,
             stall: Sequence[str] = (), hosted_free: int = 0, reserved: Sequence[str] = (),
-            fresh: Sequence[str] = ()) -> dict[str, tuple[str, ...]]:
+            fresh: Sequence[str] = (), fresh_stall: Sequence[str] = ()) -> dict[str, tuple[str, ...]]:
     """Give `jobs`, in order, the free slots of LARGE, then SMALL (unless stalled), then HOSTED for HOSTED_JOBS.
 
     A Blacksmith slot is free while its label is under CAPACITY and the shared pool fits the job (fits()).
     A `reserved` label (freshness work queued for it) gives its slots only to `fresh` jobs.
+    A `fresh` job never takes a `fresh_stall` label (fresh_stalled()).
     """
     free = {label: 0 if label in stall else CAPACITY[label] - live.get(label, 0) - waiting.get(label, 0)
             for label in LABELS}
@@ -328,7 +366,8 @@ def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, 
         targets = (*LABELS, HOSTED) if job in HOSTED_JOBS or job in fresh and job in HOSTED_FRESH_JOBS else LABELS
         label = next((label for label in targets
                       if free[label] > 0 and (label == HOSTED or fits(label, room, queue))
-                      and (label not in reserved or job in fresh)), None)
+                      and (label not in reserved or job in fresh)
+                      and not (job in fresh and label in fresh_stall)), None)
         if label is None:
             continue
         placed[label].append(job)
@@ -393,17 +432,24 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
         # Without the counts no slot is known free, so the overflow keeps the owned label, and so does
         # every job but a feed's: those take the last resort rather than an owned queue nobody measured.
         fresh = unread_fresh_jobs(env, owned)
+        fresh_stall = fresh_stalled(seen.waits) if seen is not None else ()
         if fresh:
             # A feed's compile that can run on hosted takes it: its queue is the organization's concurrency,
             # never the Blacksmith backlog nobody counted. The others take the last resort.
             hosted = tuple(job for job in fresh if job in HOSTED_FRESH_JOBS)
             small = tuple(job for job in fresh if job not in hosted)
+            # The snapshot, read even when the runner groups were refused, still shows a stalled queue: a feed's
+            # compile does not join it (2026-10-27 01:11Z: 6 vCPU's oldest job had waited 148 min).
+            if SMALL in fresh_stall:
+                why += f"; `{SMALL}`'s oldest queued job has waited {seen.waits[SMALL]:.0f} min"
+                small = ()
             moved = "; ".join(f"{', '.join(jobs)} take `{label}`" for label, jobs in ((HOSTED, hosted), (SMALL, small))
                               if jobs)
-            return Placement({**empty, HOSTED: hosted, SMALL: small}, "",
-                             f"{why}; a feed's freshness waits on them, so {moved}; the rest stay on the minis' "
-                             "queue")
-        return Placement(empty, "", f"{why}; no job leaves the minis' queue")
+            if moved:
+                return Placement({**empty, HOSTED: hosted, SMALL: small}, "",
+                                 f"{why}; a feed's freshness waits on them, so {moved}; the rest stay on the "
+                                 "minis' queue", fresh_stall)
+        return Placement(empty, "", f"{why}; no job leaves the minis' queue", fresh_stall)
     stall = stalled(live, waiting, seen.waits, seen.age) if seen is not None else ()
     runs = set((env.get("CASCADE_RUNS") or "").split())
     # idle_placement() hands the idle minis to the first JOBS, running or not, and
@@ -432,12 +478,14 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     # blacksmith-6vcpu-macos-26), no PR job of this run takes a slot there, and neither does its overflow.
     reserved = tuple(label for label in LABELS if seen is not None and seen.reserved.get(label, 0) > 0)
     fresh = tuple((env.get("FRESH_JOBS") or "").split())
+    fresh_stall = fresh_stalled(seen.waits) if seen is not None else ()
     placed = cascade(candidates, live, waiting, stall=stall, hosted_free=hosted_free, reserved=reserved,
-                     fresh=fresh)
+                     fresh=fresh, fresh_stall=fresh_stall)
     # The overflow label counts the slots this run's own jobs just took: they fit, so they start, and hold
     # the pool's vCPUs as jobs in flight do.
+    # A run with a feed's compile keeps its overflow off a fresh-stalled label too: the compile's re-run reads it.
     retry = retry_label({**live, **{label: live.get(label, 0) + len(placed.get(label, ())) for label in LABELS}},
-                        waiting, (*stall, *reserved))
+                        waiting, (*stall, *reserved, *(fresh_stall if fresh else ())))
     # A re-run's jobs that no Blacksmith label listed take the overflow label before the owned side label
     # (cmux-next.yml's runs-on), so while an idle mini would take one of them the overflow stays owned.
     rerun_owned = bot_rerun(env) and len(owned) > 0
@@ -467,7 +515,8 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     return Placement(placed, retry, why + (f"; overflow goes to `{retry}`" if retry
                                            else "; an idle mini takes the re-run, so overflow stays on the owned label"
                                            if rerun_owned
-                                           else "; no free Blacksmith slot, so overflow stays on the owned label"))
+                                           else "; no free Blacksmith slot, so overflow stays on the owned label"),
+                     fresh_stall)
 
 
 def unread_fresh_jobs(env: Mapping[str, str], owned: Sequence[str]) -> tuple[str, ...]:
@@ -491,8 +540,12 @@ class Api:
         request = urllib.request.Request(f"{API}{path}", headers={
             "Accept": "application/vnd.github+json", "Authorization": f"Bearer {self.route_token}",
             "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-next-macos-cascade"})
-        with urllib.request.urlopen(request, timeout=15) as response:
-            return json.load(response)
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as error:
+            print(f"GitHub refused GET {path.split('?')[0]}: {refusal(error)}", file=sys.stderr)
+            raise
 
     def in_flight(self) -> dict[str, int] | None:
         owner, _, name = self.repository.partition("/")
@@ -529,12 +582,15 @@ def read(env: Mapping[str, str], pool: Any, *, now: dt.datetime, log: Callable[[
         log("::warning title=macOS cascade::the runner groups took too long; the pool snapshot is not read")
         return live, None, None
     # The snapshot never stands in for the runner groups: it counts this repository's jobs, while the pool is
-    # the organization's, so a refused runner read leaves `live` None and only FRESH_JOBS move (place()).
-    if live is not None and snapshot_token and repository:
+    # the organization's, so a refused runner read leaves `live` and `waiting` None and only FRESH_JOBS move
+    # (place()). Its waits are still read then, so a feed's compile skips a stalled queue (fresh_stalled()).
+    if snapshot_token and repository:
         try:
             snapshot = pool.GitHub(snapshot_token, repository).snapshot(now=now)
-            waiting, found = queued(snapshot, now), seen(snapshot, now)
-            live = with_running(live, snapshot, now)
+            found = seen(snapshot, now)
+            if live is not None:
+                waiting = queued(snapshot, now)
+                live = with_running(live, snapshot, now)
         except Exception as error:  # noqa: BLE001 - fail closed, as above
             log(f"::warning title=macOS cascade::could not read the pool snapshot ({error})")
     return live, waiting, found
@@ -545,7 +601,7 @@ def delimited(jobs: Sequence[str]) -> str:
 
 
 def write(placement: Placement, env: Mapping[str, str]) -> None:
-    """Outputs blacksmith_12_jobs, blacksmith_6_jobs, hosted_jobs (space-delimited, as owned_jobs),
+    """Outputs blacksmith_12_jobs, blacksmith_6_jobs, hosted_jobs, fresh_stalled (space-delimited, as owned_jobs),
     hosted_runner (HOSTED when hosted_jobs names a job) and free_retry_runner (also as retry_runner)."""
     output = env.get("GITHUB_OUTPUT")
     hosted = placement.jobs.get(HOSTED, ())
@@ -554,6 +610,7 @@ def write(placement: Placement, env: Mapping[str, str]) -> None:
             handle.write(f"blacksmith_12_jobs={delimited(placement.jobs.get(LARGE, ()))}\n"
                          f"blacksmith_6_jobs={delimited(placement.jobs.get(SMALL, ()))}\n"
                          f"hosted_jobs={delimited(hosted)}\n"
+                         f"fresh_stalled={delimited(placement.fresh_stall)}\n"
                          f"hosted_runner={HOSTED if hosted else ''}\n"
                          f"retry_runner={placement.retry_runner}\n"
                          f"free_retry_runner={placement.retry_runner}\n")
