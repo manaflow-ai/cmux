@@ -113,13 +113,15 @@ mod tests {
         );
         let meta: SessionMeta = serde_json::from_value(json!({
             "schema": crate::store::META_SCHEMA, "id": "transfer-cache", "name": "cache",
-            "harness": "fake", "cwd": "/tmp", "status": "closed", "createdAt": 1, "updatedAt": 1
+            "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
         }))
         .unwrap();
+        hub.store.save(&meta).unwrap();
         let session = hub.make_session(meta);
         assert_eq!(session.transfer_blocked(), Some(false));
         hub.append(&session, "mux", "transfer_out", json!({}));
         hub.append(&session, "mux", "transferred", json!({}));
+        assert_eq!(hub.store.events(&session.id, 0, 10).unwrap().len(), 2);
         *session.transfer_authority.lock().unwrap() = None;
         assert_eq!(session.transfer_blocked(), None);
         hub.restore_transfer_authority(&session);
