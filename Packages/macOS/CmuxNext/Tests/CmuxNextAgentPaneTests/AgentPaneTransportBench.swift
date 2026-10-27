@@ -164,7 +164,7 @@ struct AgentPaneTransportBench {
             let paneWebView = try #require(pane.page.webKitEngine)
             print("PANE-STAGE awake \(Self.keepAwake(paneWebView))")
             window.contentView!.addSubview(pane)
-            if mode == .hostTurns { model.transport.pacer = AgentPaneNextTurnPacer() }
+            if mode == .hostTurns { model.transport.pacer = AgentPaneNextTurnPacer(mainWork: model.transport.mainWork) }
             // The page loads on its own; wait for it, then start.
             let deadline = ContinuousClock.now + .seconds(20)
             while ContinuousClock.now < deadline {

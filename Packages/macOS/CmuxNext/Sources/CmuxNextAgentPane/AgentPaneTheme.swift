@@ -17,7 +17,6 @@ enum AgentPaneTheme {
     /// after a drag ends.
     static func values(_ tokens: ThemeTokens, motion: MotionPolicy = Motion.web.policyIgnoringLiveResize,
                        surface: SurfaceKind = .agentPane) -> [String: any Sendable] {
-        AgentPaneTunables.followCodexToolRuns()
         let page = pageColor(tokens, surface: surface)
         var opaquePage = tokens.contentBackground
         opaquePage.alpha = 1

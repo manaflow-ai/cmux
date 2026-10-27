@@ -132,7 +132,10 @@ public final class AgentPaneModel {
     @ObservationIgnored public package(set) var allowsTabConversion: Bool
     /// The host's acpmux socket for this pane (in the app the page never holds one).
     @ObservationIgnored public let transport: AgentPaneTransport
-    @ObservationIgnored public let shell = AgentPaneShell() // shell mode: shell.run, shell.read, shell.stop
+    /// The app's one deadline placer (`AppServices.mainDeadlines`); its `work` is the app's one main-thread scheduler,
+    /// which the pane's main-thread follow-ups, observations and deadlines are posted on.
+    @ObservationIgnored public let deadlines: MainDeadlineScheduler
+    @ObservationIgnored public let shell: AgentPaneShell // shell mode: shell.run, shell.read, shell.stop
     /// The App's side of reply chips, images and the preview card's browsers.
     @ObservationIgnored public let replyLinks = AgentPaneReplyLinks()
     /// The last handshake's connection, until the page opens it: used once, so the LocalApp token is never kept beyond one handshake.
@@ -200,10 +203,14 @@ public final class AgentPaneModel {
         seed: AgentPaneSeedSource? = nil,
         newTab: AgentPaneNewTab? = nil,
         allowsTabConversion: Bool = false,
-        transport: AgentPaneTransport = AgentPaneTransport()
+        transport: AgentPaneTransport? = nil,
+        deadlines: MainDeadlineScheduler
     ) {
         self.allowsTabConversion = allowsTabConversion
         self.host = host
+        self.deadlines = deadlines
+        shell = AgentPaneShell(deadlines: deadlines)
+        let transport = transport ?? AgentPaneTransport(mainWork: deadlines.work)
         self.transport = transport
         self.sessionId = sessionId
         self.seed = seed

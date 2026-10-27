@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// cx-0q7o: an allow went to an agent daemon run on another machine that holds no person key of
 /// this app for that run, so that daemon refuses it. The pane says remote approvals are
@@ -65,15 +66,26 @@ extension AgentPaneView {
     @objc private func restartWithApprovals(_ sender: NSButton) {
         guard let approvals = remoteApprovals, let notice = remoteApprovalsNotice else { return }
         sender.isEnabled = false
+        // The restart (ssh or Cloud, then the machine's daemon) runs off main; its answer is the rest of the
+        // person's click, one userBlocking task (Chrome's PostTaskAndReplyWithResult onto the UI thread).
+        let work = model.deadlines.work
+        let answered: @MainActor @Sendable (AgentPaneRemoteApprovals.Failure?) -> Void = { [weak self, weak notice, weak sender] failure in
+            self?.restartAnswered(failure, approvals: approvals, notice: notice, sender: sender)
+        }
         // task-owner: one keyed restart per click; the notice it updates belongs to this pane
-        Task { @MainActor [weak self, weak notice, weak sender] in
+        Task { @concurrent in
             let failure = await approvals.restart()
-            guard let self, let notice, self.remoteApprovalsNotice === notice else { return }
-            guard let failure else { return self.hideRemoteApprovalsOff() }
-            sender?.isEnabled = true
-            if let detail = notice.arrangedSubviews.dropFirst().first as? any ShownText {
-                detail.stringValue = Self.remoteApprovalsRestartFailed(approvals.label, failure)
-            }
+            work.postFromAnyThread(.userBlocking, owner: "agentPane.remoteApprovals.restart") { answered(failure) }
+        }
+    }
+
+    private func restartAnswered(_ failure: AgentPaneRemoteApprovals.Failure?, approvals: AgentPaneRemoteApprovals,
+                                 notice: NSStackView?, sender: NSButton?) {
+        guard let notice, remoteApprovalsNotice === notice else { return }
+        guard let failure else { return hideRemoteApprovalsOff() }
+        sender?.isEnabled = true
+        if let detail = notice.arrangedSubviews.dropFirst().first as? any ShownText {
+            detail.stringValue = Self.remoteApprovalsRestartFailed(approvals.label, failure)
         }
     }
 }

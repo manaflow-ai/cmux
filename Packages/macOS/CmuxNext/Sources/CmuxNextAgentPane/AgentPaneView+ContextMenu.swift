@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextPages
+import CmuxNextWakeups
 public import Foundation
 import WebKit
 
@@ -80,8 +81,12 @@ extension AgentPaneView {
     func receiveContextMenuReport(_ body: Any?) {
         if let anchor = AgentPaneContextMenu.popUpAnchor(report: body) {
             let target = AgentPaneMessageTarget(report: body)
-            // task-owner: one menu per More press, after the page's message returns; it ends when the menu closes
-            Task { @MainActor [weak self] in self?.popUpMessageMenu(target: target, anchor: anchor) }
+            // The rest of the person's More press, as its own task: the menu's tracking loop must not run inside the
+            // page's message callback, which returns first (Chrome posts a context menu's show the same way,
+            // RenderViewContextMenuMac::Show).
+            model.deadlines.work.post(.userBlocking, owner: "agentPane.moreMenu") { [weak self] in
+                self?.popUpMessageMenu(target: target, anchor: anchor)
+            }
             return
         }
         messageMenuTarget = AgentPaneMessageTarget(report: body)

@@ -12,6 +12,7 @@ extension AgentPaneView {
             return drag.start(file, from: self)
         }
         model.replyLinks.confirmOutside = { [weak self] path, answer in
+            // visibility-walk-allow: a sheet AppKit shows over this pane: one that AppKit does not show refuses at once, as the sheet could not be seen; read once per ask
             guard let self, self.window != nil, !self.isHiddenOrHasHiddenAncestor else { return answer(false) }
             let spec = CmuxDialogSpec(title: Self.openOutsideTitle, lines: [path],
                                       buttons: [.cancel(), CmuxDialogButton(id: "open", title: Self.openOutsideButton)])

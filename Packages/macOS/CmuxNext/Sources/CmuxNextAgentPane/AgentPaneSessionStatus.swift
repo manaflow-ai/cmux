@@ -1,5 +1,5 @@
-import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextWakeups
 import Observation
 
 /// The in-session status cards (Claude Code desktop's live plan card and recap card) behind the
@@ -13,14 +13,15 @@ enum AgentPaneSessionStatus {
         view.deliver([.sessionStatus(view.sessionStatus)])
     }
 
-    /// Follows the tunable for `view` for as long as the view lives.
-    @MainActor static func follow(_ view: AgentPaneView) -> Task<Void, Never> {
-        // task-owner: the view (stored on it); cancelled in its close() and deinit; event-driven (Observation)
-        Task { [weak view] in
-            for await on in ObservationStream({ AgentPaneTunables.sessionStatus.value }) {
-                guard let view else { return }
-                view.sessionStatus = on
-            }
+    /// Follows the tunable for `view` while the view holds the token (cancelled in its close() and deinit). A
+    /// service observation, not a view one: the push goes to the page's own process, which applies it shown or
+    /// hidden, so a page shown later draws the current cards (Chrome sends preference changes to every renderer,
+    /// `WebContentsImpl::OnWebPreferencesChanged`).
+    @MainActor static func follow(_ view: AgentPaneView) -> ServiceObservation<Bool> {
+        ServiceObservation(.visible, owner: "AgentPaneSessionStatus.tunable", on: view.model.deadlines.work) {
+            AgentPaneTunables.sessionStatus.value
+        } apply: { [weak view] on in
+            view?.sessionStatus = on
         }
     }
 }

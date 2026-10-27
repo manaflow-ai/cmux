@@ -8,7 +8,7 @@ import CmuxNextSettings
 extension NotificationCenterService {
     func followApprovals(_ services: AppServices) {
         if approvals.answerer == nil, let environment = QuitAgents.environment(services) {
-            approvals.answerer = AcpmuxApprovalAnswerer(environment: environment)
+            approvals.answerer = AcpmuxApprovalAnswerer(environment: environment, deadlines: services.mainDeadlines)
         }
         localAgentHost = { [weak services] in services?.agentTabs.localHost }
         desktop.onApprove = { [weak self] id, surface, allow in
