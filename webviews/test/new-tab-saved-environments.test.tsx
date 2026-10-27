@@ -523,3 +523,28 @@ test("Auto selection wins over a pending New Worktree reply", async () => {
   expect(calls.find((call) => call.method === "chat.new")?.params).toMatchObject({ cwd: API });
   expect(calls.find((call) => call.method === "chat.new")?.params?.cwd).not.toBe(WORKTREE);
 });
+
+test.each([false, true])("Auto cancels a pending saved worktree launch (reject: %s)", async (reject) => {
+  let finish!: () => void;
+  const calls = await mount({
+    onNewWorktree: () =>
+      new Promise<string | undefined>((resolve, fail) => {
+        finish = () => (reject ? fail(new Error("stale worktree failure")) : resolve(WORKTREE));
+      }),
+  });
+  await click(environmentButton());
+  await click(row("API worktree"));
+  await ask("fix the button");
+  await click(environmentButton());
+  await click(row(t("composer.auto")));
+  await act(async () => finish());
+  await settle();
+  expect(environmentButton()?.textContent).toContain(t("composer.auto"));
+  expect(calls.some((call) => call.method === "chat.new")).toBe(false);
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  await ask("fix the button");
+  const chats = calls.filter((call) => call.method === "chat.new");
+  expect(chats).toHaveLength(1);
+  expect(chats[0]?.params?.cwd).not.toBe(WORKTREE);
+  expect(chats[0]?.params?.peer).toBeUndefined();
+});

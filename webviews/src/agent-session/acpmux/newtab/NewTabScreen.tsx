@@ -1129,6 +1129,7 @@ export function NewTabScreen(props: Props) {
       return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, {});
     if (worktreePending.current) return;
     worktreePending.current = true;
+    const choice = ++projectChoice.current;
     setWorktreeError(undefined);
     // No chat started: the page's create buttons work again (startChat set `created`).
     const unstarted = () => {
@@ -1137,13 +1138,14 @@ export function NewTabScreen(props: Props) {
     };
     void props.onNewWorktree(picked.folder).then(
       (folder) => {
-        if (!folder) return unstarted();
+        if (!folder || choice !== projectChoice.current) return unstarted();
         worktreePending.current = false;
         props.onAsk(agent, prompt, folder, model, undefined, extra, {});
       },
       (error: unknown) => {
         unstarted();
-        setWorktreeError((error instanceof Error && error.message) || String(error));
+        if (choice === projectChoice.current)
+          setWorktreeError((error instanceof Error && error.message) || String(error));
       },
     );
   }
