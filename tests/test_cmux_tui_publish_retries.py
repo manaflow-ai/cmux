@@ -9,9 +9,12 @@ tree publishes. On 2026-10-26 promotions stopped from 18:42 to 19:44 UTC:
   workflows had spent);
 - run 40376958903's publish-tree timed out after 120 s on a 40 MB companion,
   with no retry.
-The attestation now retries once after a bounded wait for the API budget
-(scripts/ci/gh_budget_wait.sh --reserve, as nightly.yml's daemon attestation
-does), and the retry must pass. The job timeouts leave room for that wait.
+Run 40422130372 (2026-10-27) then failed both tries of a single retry 4 s
+apart: its core budget had calls left, so the refusal was GitHub's secondary
+limit. The attestation is now tried four times, each failed try backing off
+through scripts/ci/gh_budget_wait.sh --backoff (until the reset, else 60, 120,
+240 s) within a 15 minute total, and the last try must pass. The job timeouts
+leave room for that wait.
 publish-tree's fetch retries timeouts and server errors. (A short remote read
 during manifest verification is retried in verify_published_manifest.py; its
 unit tests cover that.)
@@ -37,27 +40,34 @@ class PublishRetries(unittest.TestCase):
     def setUp(self) -> None:
         self.jobs = load()["jobs"]
 
-    def test_attestation_retries_after_a_budget_wait(self) -> None:
+    def test_attestation_retries_with_backoff(self) -> None:
         for job_name in ("publish", "publish-windows"):
             steps = self.jobs[job_name]["steps"]
             attests = [i for i, s in enumerate(steps) if str(s.get("uses", "")).startswith(ATTEST)]
-            self.assertEqual(len(attests), 2, f"{job_name}: expected a first attestation and one retry")
-            first, retry = (steps[i] for i in attests)
-            self.assertTrue(first.get("continue-on-error"), f"{job_name}: the first attestation must not fail the job")
-            step_id = first.get("id")
-            self.assertTrue(step_id, f"{job_name}: the first attestation needs an id")
-            gate = f"steps.{step_id}.outcome == 'failure'"
-            self.assertEqual(retry.get("if"), gate, f"{job_name}: the retry runs only after a failed first try")
-            self.assertFalse(retry.get("continue-on-error"), f"{job_name}: the retry must pass; nothing ships without provenance")
-            self.assertEqual(first.get("with"), retry.get("with"), f"{job_name}: the retry attests the same subjects")
-            waits = [s for s in steps[attests[0] + 1 : attests[1]] if "gh_budget_wait.sh --reserve" in str(s.get("run", ""))]
-            self.assertEqual(len(waits), 1, f"{job_name}: one bounded budget wait sits between the tries")
-            self.assertEqual(waits[0].get("if"), gate)
-            # Without a token the wait silently skips and the retry hits the same empty budget.
-            self.assertEqual(waits[0].get("env", {}).get("GH_TOKEN"), "${{ github.token }}", f"{job_name}: the wait reads the budget with the job's token")
+            self.assertEqual(len(attests), 4, f"{job_name}: expected four attestation tries")
+            tries = [steps[i] for i in attests]
+            first, last = tries[0], tries[-1]
+            self.assertIsNone(first.get("if"), f"{job_name}: the first try always runs")
+            for earlier, later, index in zip(tries, tries[1:], range(1, len(tries))):
+                self.assertEqual(earlier.get("with"), later.get("with"), f"{job_name}: every try attests the same subjects")
+                self.assertTrue(earlier.get("continue-on-error"), f"{job_name}: a try before the last must not fail the job")
+                step_id = earlier.get("id")
+                self.assertTrue(step_id, f"{job_name}: an attestation try before the last needs an id")
+                gate = f"steps.{step_id}.outcome == 'failure'"
+                self.assertEqual(later.get("if"), gate, f"{job_name}: a try runs only after the one before it failed")
+                between = steps[attests[index - 1] + 1 : attests[index]]
+                self.assertEqual(len(between), 1, f"{job_name}: exactly one backoff sits between two tries")
+                backoff = between[0]
+                self.assertEqual(backoff.get("if"), gate)
+                self.assertRegex(str(backoff.get("run", "")), rf"gh_budget_wait\.sh --backoff {index}\b")
+                env = backoff.get("env", {})
+                # Without a token the backoff cannot read the reset and the next try hits the same limit.
+                self.assertEqual(env.get("GH_TOKEN"), "${{ github.token }}", f"{job_name}: the backoff reads the budget with the job's token")
+                self.assertLessEqual(int(env.get("GH_BUDGET_WAIT_MAX_SECONDS", "3600")), 900, f"{job_name}: the backoffs wait 15 minutes at most in all")
+            self.assertFalse(last.get("continue-on-error"), f"{job_name}: the last try must pass; nothing ships without provenance")
             self.assertGreaterEqual(
-                int(self.jobs[job_name]["timeout-minutes"]), 75,
-                f"{job_name}: the timeout must leave room for the hour the budget wait may take",
+                int(self.jobs[job_name]["timeout-minutes"]), 15 + 15 + 5,
+                f"{job_name}: the timeout must leave room for the work plus the 15 minutes the backoffs may take",
             )
 
     def test_publish_tree_fetch_retries_transient_failures(self) -> None:
