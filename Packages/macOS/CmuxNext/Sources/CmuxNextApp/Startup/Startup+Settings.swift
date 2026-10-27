@@ -45,7 +45,10 @@ extension AppDelegate {
         // Every palette-exposed schema setting in the palette (R93), and the recorder's writes; neither builds the palette.
         order.startup.post(.afterFirstFrame, "Palette.settingsSource", on: .main) { [weak services, weak settings] in
             guard let services, let settings else { return }
-            services.palettes.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
+            services.palettes.sources.settings = SettingsPaletteSource(
+                settings: settings, themes: services.themes.catalog,
+                availability: { [weak services] in services?.settingsAvailability ?? SettingsAvailability() }
+            ) { [weak services] in
                 services?.windows.active.map { SettingsPaletteSource.themeColors($0.themeScope.tokens) } ?? []
             }
             services.paletteShortcutEditor = PaletteShortcutEditor(services: services, settings: settings)
@@ -54,7 +57,11 @@ extension AppDelegate {
         LaunchServicePosts.browserFollows(historyDaemonSync: { [weak services] in services?.history.startDaemonSync(settings: settings) },
                                           locationTrailScope: { [weak services] in services?.locationTrail.watchScope(settings: settings) }).post(on: order.startup)
         // The file watches and the diagnostic toasts; the launch read is applied above, and the start reloads once.
-        order.startup.post(.afterFirstFrame, "Settings.start", on: .main) { [weak settings] in settings?.start(announcingDiagnostics: true) }
+        // A diagnostic's Show in Settings follows the same availability as the page and `openSettings`.
+        order.startup.post(.afterFirstFrame, "Settings.start", on: .main) { [weak settings, weak services] in
+            settings?.start(announcingDiagnostics: true,
+                            availability: { [weak services] in services?.settingsAvailability ?? SettingsAvailability() })
+        }
         AppProcessRoot.shared.hangReports?.recordUserWrites(of: settings)  // the person's own consent, from the first write on
         order.startup.post(.afterStartup, "HangReports.start", on: .main) { [weak settings, asks = services.machineAsks, startup = order.startup] in
             if let settings { AppProcessRoot.shared.hangReports?.start(settings: settings, asks: asks, firstWindow: { await startup.afterFirstFrame() }) }
