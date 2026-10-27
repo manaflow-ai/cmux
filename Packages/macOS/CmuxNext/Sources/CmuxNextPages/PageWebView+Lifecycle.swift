@@ -45,12 +45,23 @@ extension PageWebView {
         contentProcessTerminated()
     }
 
-    /// The page's web content process ended (either engine): reload unless it keeps crashing.
+    /// The page's web content process ended (either engine): reload unless it keeps crashing or
+    /// its host shows the crash notice instead (``reloadsAfterCrash``). Logged at error level
+    /// either way, with what follows.
     func contentProcessTerminated() {
         loaded = false
         router.reset()
+        guard reloadsAfterCrash else {
+            // A renderer that crashed before the page reached the host leaves the Chromium start
+            // deadline armed: its fallback would load the page in WebKit by itself.
+            chromiumSession?.deadline.cancel()
+            logger.error("page \(self.descriptor.id, privacy: .public) web content ended; no automatic reload (the crash notice offers Reload)")
+            onCrash?(self, false)
+            return
+        }
         let reloading = crashReloads.shouldReload(at: now())
         if reloading {
+            logger.error("page \(self.descriptor.id, privacy: .public) web content ended; reloading automatically cause=renderer-exit")
             reloadPage()
         } else {
             logger.error("page \(self.descriptor.id, privacy: .public) keeps crashing; not reloaded")
@@ -62,6 +73,9 @@ extension PageWebView {
     /// notice's Reload button).
     public func reloadAfterCrashes() {
         crashReloads = PageCrashReloads()
-        reloadPage()
+        guard webKitLoadsOnReload else { return reloadPage() }
+        // Chromium ended while the notice showed: the page reopens in WebKit now.
+        webKitLoadsOnReload = false
+        webView.load(URLRequest(url: descriptor.url(route: route)))
     }
 }

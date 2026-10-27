@@ -35,6 +35,8 @@ pub mod cli;
 pub mod client;
 pub mod clock;
 pub mod codex_app_server;
+#[cfg(unix)]
+mod codex_auth_file;
 pub mod complete;
 pub mod config;
 pub mod cua_socket;
@@ -63,6 +65,7 @@ pub mod live_models;
 pub mod local_stream;
 pub mod login_env;
 pub mod mailbox;
+pub mod model_copies;
 pub mod native;
 pub mod no_panic;
 pub mod offer_mcp;

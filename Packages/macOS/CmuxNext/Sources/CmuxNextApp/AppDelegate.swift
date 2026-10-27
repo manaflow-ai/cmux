@@ -117,6 +117,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageDescriptor.registerDiffRoot()
         PageDescriptor.registerFilePageRoots()
         PageDescriptor.registerAgentActivityRoot()
+        // Peer-route approvals: where this Mac's approver key lives, before any pane connects.
+        PeerApprovalsApp.install()
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake)
@@ -310,6 +312,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.projectsImport.start(feed: services.chatsFeed)
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
         AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
+        AgentPageChats.wireSandbox(services.agentTabs, services: services)
         NewTabClosed.wire(services.agentTabs, services: services)
         NewTabPlacesFeed.wire(services.agentTabs, services: services)
         NewTabWeather.wire(services.agentTabs, services: services)

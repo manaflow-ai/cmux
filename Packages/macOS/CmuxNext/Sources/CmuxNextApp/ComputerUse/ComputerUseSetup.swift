@@ -33,11 +33,12 @@ final class ComputerUseSetup {
         case disabledByPolicy = "disabled_by_policy"
         /// `computerUse.enabled` is off: no helper runs, the grants are unknown.
         case off
-        /// On, but this build has no Developer ID signed helper (or it did not start).
+        /// On, but this build has no Developer ID signed helper.
         case unavailable
         /// On, and the helper is starting (or has not answered yet).
         case starting
-        /// The helper did not answer within the read budget, or kept exiting.
+        /// The helper could not start (copy, lock, launch or check), did not
+        /// answer within the read budget, or kept exiting: Restart Helper.
         case failed
         /// The helper answered: `permissions` are its grants.
         case ready
@@ -80,6 +81,7 @@ final class ComputerUseSetup {
     @ObservationIgnored private let openURL: @MainActor (URL) -> Void
     @ObservationIgnored private let requestGrant: @Sendable (AgentActivitySocketSource.Configuration, ComputerUsePermissionPane) async -> Void
     @ObservationIgnored private let restartHelper: @MainActor () async -> Void
+    @ObservationIgnored private let requestPermission: @MainActor (ComputerUsePermissionPane) -> Void
     @ObservationIgnored private let enableSetting: @MainActor () -> Void
     @ObservationIgnored private let notifications: NotificationCenter
     @ObservationIgnored private let distributed: NotificationCenter
@@ -108,6 +110,7 @@ final class ComputerUseSetup {
              await ComputerUseSetup.socketRequestGrant($0, $1)
          },
          restartHelper: @escaping @MainActor () async -> Void = {},
+         requestPermission: @escaping @MainActor (ComputerUsePermissionPane) -> Void = { _ in },
          enableSetting: @escaping @MainActor () -> Void = {},
          notifications: NotificationCenter = .default,
          distributed: NotificationCenter = DistributedNotificationCenter.default(),
@@ -119,6 +122,7 @@ final class ComputerUseSetup {
         self.openURL = openURL
         self.requestGrant = requestGrant
         self.restartHelper = restartHelper
+        self.requestPermission = requestPermission
         self.enableSetting = enableSetting
         self.notifications = notifications
         self.distributed = distributed
@@ -191,14 +195,29 @@ final class ComputerUseSetup {
     /// only). On macOS 26 the Screen Recording toggle alone is not enough: the
     /// helper must ask once ("bypass the system private window picker"), or
     /// its capture check stays false (seen 2026-10-27 on macOS 26.6).
+    /// Accessibility needs no such request: the toggle is enough, and the
+    /// request only raised macOS's "would like to control this computer"
+    /// alert on top of the drag panel that already guides the person.
+    /// Under the helper v2, `requestPermission` queues the grant on its control pipe instead.
     func open(_ pane: ComputerUsePermissionPane) {
-        if phase == .ready, driver == .legacy, let configuration = configuration() {
+        if Self.asksHelper(pane, accessibility: permissions.accessibility, phase: phase, driver: driver),
+           let configuration = configuration() {
             let requestGrant = requestGrant
             // task-owner: one host request to the helper; the next read (app activation, trust change) shows the answer.
             Task { await requestGrant(configuration, pane) }
         }
         guard let url = Self.settingsURL(pane) else { return }
+        requestPermission(pane)
         openURL(url)
+    }
+
+    /// Whether Allow on `pane` first asks the running helper for the grant: Screen Recording only,
+    /// with the legacy helper ready, and only once Accessibility is on. With it off, the helper's
+    /// capture request also raised macOS's "would like to control this computer" alert (seen
+    /// 2026-10-28 on macOS 26.6).
+    nonisolated static func asksHelper(_ pane: ComputerUsePermissionPane, accessibility: Bool, phase: Phase,
+                                       driver: ComputerUseDriver) -> Bool {
+        pane == .screenRecording && accessibility && phase == .ready && driver == .legacy
     }
 
     /// One `request_system_permission` to the helper with the host token.
@@ -374,6 +393,24 @@ extension ComputerUseSetup {
             },
             configuration: { helper.configuration },
             restartHelper: { await helper.restartLegacy() },
+            requestPermission: { [weak services] pane in
+                guard let services, let settings = services.settings,
+                      settings.snapshot.computerUse.driver == .upstream,
+                      !services.registry.disabledFeatures.contains(.computerUse) else { return }
+                // task-owner: one setup click; enabling finishes before queuing its grant.
+                Task {
+                    do {
+                        if !settings.snapshot.computerUse.enabled {
+                            try await settings.setSetting(at: ComputerUseSettings.enabledPath, to: .bool(true), by: SettingWriter.currentRun())
+                        }
+                        guard settings.snapshot.computerUse.enabled, settings.snapshot.computerUse.driver == .upstream,
+                              !services.registry.disabledFeatures.contains(.computerUse) else { return }
+                        await helper.upstream.requestPermission(screenRecording: pane == .screenRecording)
+                    } catch {
+                        setupLogger.error("Computer Use could not request permission: \(String(describing: error), privacy: .public)")
+                    }
+                }
+            },
             enableSetting: { [weak services] in
                 guard let settings = services?.settings else { return }
                 let writer = SettingWriter.currentRun()
