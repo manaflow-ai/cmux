@@ -24,12 +24,15 @@ pre-push hook's parser (guardrails.py), so a file's owner here is the hook's.
 The queue file holds one line per divergence (key: case, pointer, head SHA, mode and switch), each with
 its three verdicts, its owners and two replay commands: the oracle diff of that case and diff.py over the
 original runs. A later route of the same divergence replaces its line; a line in the file without three
-verdicts is dropped. Exit codes: 0 no line refused, 1 some lines refused, 2 bad input.
+verdicts is dropped. A route holds the queue's sidecar lock (.<name>.lock, fcntl.flock) from its read to its
+replace, so routes that end together keep each other's lines. Exit codes: 0 no line refused, 1 some lines refused, 2 bad input.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import importlib.util
 import json
 import os
@@ -38,7 +41,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Mapping, Optional, Sequence, Tuple
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
@@ -238,6 +241,23 @@ def write_lines(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
     temp.replace(path)
 
 
+def lock_path(out: Path) -> Path:
+    return out.with_name(f".{out.name}.lock")
+
+
+@contextlib.contextmanager
+def queue_lock(out: Path) -> Iterator[None]:
+    """The queue file's sidecar lock, held across the read, the merge and the replace: two routes that end
+    together (one confirm each) both keep their lines."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path(out).open("a", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 def queued(row: Mapping[str, Any]) -> bool:
     """A line of the queue file that still carries three verdicts (done check 12)."""
     verdicts = row.get("verdicts") or {}
@@ -264,11 +284,12 @@ def route_files(paths: Sequence[Path], options: Options) -> Dict[str, Any]:
                 continue
             line = router.line(row, path)
             routed[line["key"]] = line
-    existing = read_lines(options.out) if options.out.is_file() else []
-    dropped = [row.get("key") for row in existing if not queued(row)]
-    queue = {row["key"]: row for row in existing if queued(row)}
-    queue.update(routed)
-    write_lines(options.out, [queue[key] for key in sorted(queue)])
+    with queue_lock(options.out):
+        existing = read_lines(options.out) if options.out.is_file() else []
+        dropped = [row.get("key") for row in existing if not queued(row)]
+        queue = {row["key"]: row for row in existing if queued(row)}
+        queue.update(routed)
+        write_lines(options.out, [queue[key] for key in sorted(queue)])
     return {"out": str(options.out), "routed": len(routed), "queue": len(queue), "refused": refused,
             "skipped": skipped, "dropped": dropped, "keys": sorted(routed)}
 

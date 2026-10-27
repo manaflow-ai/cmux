@@ -28,9 +28,12 @@ Every line carries three verdicts, `head`, `head_retry` and `base`, each {"verdi
 "sha", "detail"}; a verdict that was not needed is `not-run` and says why.
 
 Reruns go through the product's own runner (the Launcher seam): the app on the fleet through
-fleet.py's cmux-ci steps, pinned to the worker of the shard it repeats; cmux-tui products on the Linux
-VM through `linux_run.sh run SHA --fresh` (the runnerd queue, never a reused receipt); elsewhere
-`oracle.py run` with the receipt's binary.
+fleet.py's cmux-ci steps, pinned to the worker of the shard it repeats, with the mutant its step applied;
+cmux-tui products on the Linux VM through `linux_run.sh run SHA --fresh` (the runnerd queue, never a
+reused receipt) with the profile, features and mutant of the side's build.json, refused when the rebuilt
+binary's sha256 is not the side's; elsewhere `oracle.py run` with the receipt's binary. A rerun the runner
+refuses leaves its cases unconfirmed; base-alone cases split into as many runs as the fleet's step
+argument limits need.
 
 Exit codes: 0 no confirmed divergence, 1 confirmed divergences, 2 bad input, 3 refused or incomplete
 (the comparison was refused, or a case stayed unconfirmed and none was confirmed).
@@ -48,19 +51,22 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import glob
+import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Protocol, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol, Sequence, Tuple
 
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 import oracle  # noqa: E402  (shard_of, merge_runs, run_diff_py, check_out_dir, RUST_PRODUCTS)
+import patch_mutants  # noqa: E402  (where the seeded mutants live, p15-oracle-026)
 
 SCHEMA = "cmux-oracle-confirmed-v1"
 SUMMARY_SCHEMA = "cmux-oracle-confirm-v1"
@@ -71,6 +77,8 @@ DEFAULT_FLAKY_OUT = Path("/tmp/oracle/flaky.jsonl")
 DEFAULT_BASE_RED_OUT = Path("/tmp/oracle/base-red.jsonl")
 EXIT_NONE, EXIT_CONFIRMED, EXIT_USAGE, EXIT_INCOMPLETE = 0, 1, 2, 3
 MAX_PARALLEL_RUNS = 16
+BUILD_SCHEMA = "cmux-oracle-build-v1"  # linux_run.sh's build.json, beside the binary it built
+MUTANT_ID = re.compile(r"^[a-z]+/[a-z0-9][a-z0-9-]*$")
 
 
 class ConfirmError(Exception):
@@ -214,6 +222,9 @@ class Launcher(Protocol):
     def run(self, request: RunRequest) -> Path:
         """Runs the request and returns its run dir (a receipt.json in it), or raises LaunchError."""
 
+    def fits(self, request: RunRequest) -> bool:
+        """Whether the runner takes the request's arguments (confirm splits the base-alone cases until they do)."""
+
 
 def last_run_dir(stdout: str, what: str, code: int) -> Path:
     lines = [line.strip() for line in stdout.splitlines() if line.strip()]
@@ -236,6 +247,9 @@ class LocalLauncher:
             command += ["--binary", str(side.config["binary"])]
         return command
 
+    def fits(self, request: RunRequest) -> bool:
+        return True
+
     def run(self, request: RunRequest) -> Path:
         code = subprocess.run(self.command(request), check=False, stdout=subprocess.DEVNULL).returncode
         if not (request.out / "receipt.json").is_file():
@@ -243,59 +257,147 @@ class LocalLauncher:
         return request.out
 
 
+def sha256_of(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def build_record(binary: Optional[str], what: str) -> Dict[str, Any]:
+    """linux_run.sh's build receipt of BINARY: build.json beside it (profile, features, mutant, binarySha256)."""
+    if not binary:
+        raise LaunchError(f"{what} records no binary, so the queue cannot rebuild the same one")
+    path = Path(binary).parent / "build.json"
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise LaunchError(f"{what}: no build receipt at {path} ({error}), so the queue cannot rebuild the same "
+                          "binary") from None
+    if not isinstance(record, dict) or record.get("schema") != BUILD_SCHEMA or not record.get("binarySha256") \
+            or not record.get("profile"):
+        raise LaunchError(f"{path}: not a {BUILD_SCHEMA} receipt with a profile and a binarySha256")
+    return record
+
+
+def mutant_patch(mutant: Mapping[str, Any]) -> Path:
+    """The checkout's patch of the mutant a build applied: linux_run.sh takes only that path, not the job's copy."""
+    mutant_id = str(mutant.get("id") or "")
+    if MUTANT_ID.match(mutant_id):
+        for root in (patch_mutants.DEFAULT_ROOT, patch_mutants.TASK_ROOT):
+            path = root / f"{mutant_id}.patch"
+            if path.is_file() and sha256_of(path) == mutant.get("sha256"):
+                return path
+    raise LaunchError(f"the build applied mutant {mutant_id or '?'}, and this checkout has no patch with its content")
+
+
 class QueueLauncher:
-    """The Linux VM's runnerd queue: `linux_run.sh run SHA --fresh` builds the SHA and reruns, never reusing a receipt."""
+    """The Linux VM's runnerd queue: `linux_run.sh run SHA --fresh` reruns, never reusing a receipt, with the side's
+    own build (the profile, features and mutant of build.json beside its binary). A rebuild into another binary is
+    refused, so the rerun repeats the build it judges."""
+
+    def build_args(self, side: SideRun) -> List[str]:
+        record = build_record(side.config.get("binary"), f"the {side.label} run")
+        args = ["--profile", str(record["profile"]), "--features", ",".join(record.get("features") or ())]
+        if record.get("mutant"):
+            args += ["--mutant", str(mutant_patch(record["mutant"]))]
+        return args
 
     def command(self, request: RunRequest) -> List[str]:
         side = request.side
         if not side.sha:
             raise LaunchError(f"the {side.label} receipt records no SHA, so the queue cannot build it again")
         return ["bash", str(HERE / "linux_run.sh"), "run", side.sha, "--suite", request.suites(),
-                "--arm", side.arm_spec(), "--side", request.run_id, "--fresh", "--", *request.selection_args()]
+                "--arm", side.arm_spec(), "--side", request.run_id, *self.build_args(side), "--fresh", "--",
+                *request.selection_args()]
+
+    def fits(self, request: RunRequest) -> bool:
+        return True
 
     def run(self, request: RunRequest) -> Path:
-        proc = subprocess.run(self.command(request), check=False, stdout=subprocess.PIPE, text=True)
-        return last_run_dir(proc.stdout, f"linux_run.sh run {request.side.sha[:12]} ({request.label})", proc.returncode)
+        side = request.side
+        command = self.command(request)
+        expected = build_record(side.config.get("binary"), f"the {side.label} run")["binarySha256"]
+        proc = subprocess.run(command, check=False, stdout=subprocess.PIPE, text=True)
+        run_dir = last_run_dir(proc.stdout, f"linux_run.sh run {side.sha[:12]} ({request.label})", proc.returncode)
+        try:
+            binary = oracle.read_receipt(run_dir)["config"].get("binary")
+        except (oracle.UsageError, KeyError) as error:
+            raise LaunchError(f"{run_dir}: {error}") from None
+        got = build_record(binary, f"the rerun {request.label}")["binarySha256"]
+        if got != expected:
+            raise LaunchError(f"the queue rebuilt {side.sha[:12]} into another binary (sha256 {got[:12]}, the "
+                              f"{side.label} run's is {expected[:12]}), so the rerun does not repeat that build")
+        return run_dir
+
+
+def log_stderr(message: str) -> None:
+    """fleet.py's progress lines: stdout carries only the summary (`--json` is one JSON document)."""
+    print(message, file=sys.stderr)
 
 
 class FleetLauncher:
-    """The app on the fleet: one fleet.py step for the shard, on the worker the repeated shard ran on."""
+    """The app on the fleet: one fleet.py step for the shard, on the worker the repeated shard ran on, with its mutant."""
 
     def __init__(self, client: Optional[str] = None) -> None:
         self.fleet_module = oracle.require_sibling("fleet", "p15-oracle-050")
-        self.client = client
-
-    def worker_of(self, pin: Optional[Path]) -> Optional[str]:
-        """fleet.py keeps a shard's run in shards/<side>/<i>/unpacked/run, beside step.json (its worker)."""
-        if pin is None:
-            return None
         try:
-            return json.loads((pin.parent.parent / "step.json").read_text(encoding="utf-8")).get("worker") or None
-        except (OSError, ValueError):
-            return None
+            self.client = self.fleet_module.find_client(client)
+        except self.fleet_module.UsageError as error:
+            raise ConfirmError(f"the app reruns on the fleet: {error}", EXIT_INCOMPLETE) from None
 
-    def run(self, request: RunRequest) -> Path:
+    def step_record(self, pin: Optional[Path]) -> Dict[str, Any]:
+        """fleet.py keeps a shard's run in shards/<side>/<i>/unpacked/run, beside step.json (its worker and args)."""
+        if pin is None:
+            return {}
+        try:
+            record = json.loads((pin.parent.parent / "step.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return record if isinstance(record, dict) else {}
+
+    def plan(self, request: RunRequest) -> Any:
+        """The request's fleet.Shard; raises fleet.UsageError when the controller would refuse its step args."""
         fleet = self.fleet_module
-        side, config = request.side, request.side.config
-        if not side.sha:
-            raise LaunchError(f"the {side.label} receipt records no SHA, so the fleet cannot build it again")
+        config = request.side.config
+        step = self.step_record(request.pin)
         extra: Tuple[Tuple[str, str], ...] = ()
         if config.get("switch"):
             extra = (("switch", config["switch"]), ("arm", config["arm"]))
         elif config.get("arm"):
             extra = (("arm", config["arm"]),)
+        # A mutant side (`fleet.py diff --head-mutant`) reruns with the patch its step applied.
+        extra += tuple(("mutant", arg.split("=", 1)[1]) for arg in fleet.decode_args(step.get("args") or ())
+                       if arg.startswith("--mutant="))
         selection = fleet.Selection(
             suites=tuple(config.get("suites") or ()), filters=request.filters, repeat=request.repeat,
             retry_limit=request.retry_limit, seed=request.seed, batch_limit=request.batch_limit,
             config=str(config["build"]))
-        fleet_side = fleet.Side(request.label, side.sha, extra)
+        fleet_side = fleet.Side(request.label, request.side.sha, extra)
         index, total = request.shard
         fleet.make_shards(fleet_side, run_id=request.confirm_id, total=total, selection=selection, out=request.out)
         shard = fleet_side.shards[index]
-        shard.target_worker = self.worker_of(request.pin)
-        client = fleet.Fleet(fleet.find_client(self.client), step_timeout=fleet.DEFAULT_STEP_TIMEOUT_S,
-                             wait_timeout=fleet.DEFAULT_WAIT_TIMEOUT_S)
-        client.complete(shard)
+        shard.target_worker = step.get("worker") or None
+        return shard
+
+    def fits(self, request: RunRequest) -> bool:
+        try:
+            self.plan(request)
+        except self.fleet_module.UsageError:
+            return False
+        return True
+
+    def run(self, request: RunRequest) -> Path:
+        fleet = self.fleet_module
+        if not request.side.sha:
+            raise LaunchError(f"the {request.side.label} receipt records no SHA, so the fleet cannot build it again")
+        try:
+            shard = self.plan(request)
+            fleet.Fleet(self.client, step_timeout=fleet.DEFAULT_STEP_TIMEOUT_S,
+                        wait_timeout=fleet.DEFAULT_WAIT_TIMEOUT_S, log=log_stderr).complete(shard)
+        except (fleet.UsageError, OSError) as error:
+            raise LaunchError(f"fleet step for {request.label}: {error}") from None
         if shard.run_dir is None:
             raise LaunchError(f"fleet step {shard.key}: {shard.state}: {shard.error or 'no receipt'}")
         return shard.run_dir
@@ -523,6 +625,22 @@ def filter_of(case_id: str) -> Optional[str]:
     return None if "," in case_id else glob.escape(case_id)
 
 
+def split_cases(ids: Sequence[str], make: Callable[[int, List[str]], RunRequest],
+                fits: Callable[[RunRequest], bool]) -> List[Tuple[RunRequest, List[str]]]:
+    """IDS in consecutive parts, each as long as `fits(make(part, ids))` allows. A case that fits in no request
+    still gets its own; its launcher refuses it, and the case stays unconfirmed."""
+    parts: List[Tuple[RunRequest, List[str]]] = []
+    chunk: List[str] = []
+    for cid in ids:
+        if chunk and not fits(make(len(parts), chunk + [cid])):
+            parts.append((make(len(parts), chunk), chunk))
+            chunk = []
+        chunk.append(cid)
+    if chunk:
+        parts.append((make(len(parts), chunk), chunk))
+    return parts
+
+
 def confirm(inputs: Inputs, launcher: Launcher, options: Options) -> List[Dict[str, Any]]:
     """The three verdicts and the class of every divergent case, in case order."""
     base, head = inputs.base, inputs.head
@@ -574,18 +692,23 @@ def confirm(inputs: Inputs, launcher: Launcher, options: Options) -> List[Dict[s
         else:
             alone.setdefault(oracle.shard_of(cid, total), []).append(cid)
 
-    # Each case alone in its own launch (batch limit 1), no retry: one run per base shard, on that shard's host.
-    alone_requests = {
-        index: RunRequest(options.confirm_id, f"alone-s{index}of{total}", base, (0, 1), None,
-                          tuple(filter_of(cid) or "" for cid in ids), 1, 1, 0, runs / "base-alone" / f"s{index}",
+    # Each case alone in its own launch (batch limit 1), no retry, on its base shard's host: one run per shard, or
+    # more when its cases do not fit the runner's argument limits in one.
+    def alone_request(index: int, part: int, ids: Sequence[str]) -> RunRequest:
+        suffix = f"-p{part}" if part else ""
+        return RunRequest(options.confirm_id, f"alone-s{index}of{total}{suffix}", base, (0, 1), None,
+                          tuple(filter_of(cid) or "" for cid in ids), 1, 1, 0, runs / "base-alone" / f"s{index}{suffix}",
                           (base_runs.get(index) or (None, ""))[0], options.corpus, options.expectations_root)
-        for index, ids in sorted(alone.items())
-    }
-    launched = launch_all(launcher, list(alone_requests.values()), options.parallel)
+
+    alone_parts: List[Tuple[RunRequest, List[str]]] = []
     for index, ids in sorted(alone.items()):
-        run_dir, error = launched[alone_requests[index].label]
+        alone_parts += split_cases(ids, lambda part, chunk, index=index: alone_request(index, part, chunk),
+                                   launcher.fits)
+    launched = launch_all(launcher, [request for request, _ in alone_parts], options.parallel)
+    for request, ids in alone_parts:
+        run_dir, error = launched[request.label]
         rerun = compare_rerun(base, run_dir, error, ids, inputs.expected,
-                              runs / "base-alone" / f"divergence-s{index}.json")
+                              request.out.with_name(f"divergence-{request.out.name}.json"))
         for cid in ids:
             verdicts[cid]["base"] = base_alone_verdict(rerun, cid, base.sha)
 

@@ -9,10 +9,12 @@ own parser, so the options confirm.py builds are the ones a real rerun would get
 
 from __future__ import annotations
 
+import fcntl
 import io
 import json
 import sys
 import tempfile
+import threading
 import unittest
 import unittest.mock
 from contextlib import redirect_stderr, redirect_stdout
@@ -24,6 +26,7 @@ sys.path.insert(0, str(HERE))
 
 import confirm  # noqa: E402
 import oracle  # noqa: E402
+import patch_mutants  # noqa: E402
 import route  # noqa: E402
 
 BASE_SHA = "a" * 40
@@ -89,10 +92,14 @@ def run_options(tmp: Path, out: Path, run_id: str, sha: str, **overrides) -> ora
 class ScriptLauncher:
     """A rerun through oracle.py's parser and runner, answered by the script for its side and stage."""
 
-    def __init__(self, tmp: Path, script: Script, fail_labels=()) -> None:
+    def __init__(self, tmp: Path, script: Script, fail_labels=(), fits=None) -> None:
         self.tmp, self.script, self.fail_labels = tmp, script, set(fail_labels)
+        self.fits_rule = fits
         self.requests: List[confirm.RunRequest] = []
         self.argv: List[List[str]] = []
+
+    def fits(self, request: confirm.RunRequest) -> bool:
+        return self.fits_rule is None or self.fits_rule(request)
 
     def run(self, request: confirm.RunRequest) -> Path:
         self.requests.append(request)
@@ -137,9 +144,10 @@ CLASSES = {"alpha/real": "confirmed", "alpha/flaky": "flake", "alpha/elsewhere":
 
 
 class Fixture:
-    def __init__(self, tmp: Path, script: Script = SET, shards: int = 1, seed: Optional[int] = None) -> None:
+    def __init__(self, tmp: Path, script: Script = SET, shards: int = 1, seed: Optional[int] = None,
+                 ids: List[str] = IDS) -> None:
         self.tmp = tmp
-        write_corpus(tmp / "corpus", IDS)
+        write_corpus(tmp / "corpus", ids)
         cases, errors = oracle.load_corpus(tmp / "corpus")
         assert not errors, errors
         sides = []
@@ -268,6 +276,58 @@ class ConfirmTests(unittest.TestCase):
             self.assertEqual(fixture.queue("route.jsonl"), [])
             self.assertEqual(summary["counts"]["unconfirmed"], 3)
 
+    def test_base_alone_cases_split_into_runs_that_fit_the_fleet_step_args(self):
+        # About 65 ids of 32 characters fill one --filter= step arg (fleet.MAX_ARG_LEN 2048); 80 need two steps.
+        ids = [f"long/regression-case-number-{i:04d}" for i in range(80)]
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            regression = Script({("head", "*", cid): ("Pass", "v-new") for cid in ids})
+            fixture = Fixture(tmp, script=regression, ids=ids)
+            fleet_launcher = confirm.FleetLauncher(client="/usr/bin/true")
+            launcher = ScriptLauncher(tmp, regression, fits=fleet_launcher.fits)
+            code, rows, summary = fixture.confirm(launcher, "--no-route")
+            self.assertEqual(code, confirm.EXIT_CONFIRMED)
+            self.assertEqual(summary["counts"]["confirmed"], 80)
+            alone = [r for r in launcher.requests if r.label.startswith("alone")]
+            self.assertGreaterEqual(len(alone), 2)
+            self.assertEqual(len({r.label for r in alone}), len(alone))
+            self.assertEqual(len({r.out for r in alone}), len(alone))
+            for request in alone:
+                self.assertTrue(fleet_launcher.fits(request), request.label)
+            self.assertEqual(sorted(f for r in alone for f in r.filters), sorted(ids))
+            # Each case's base verdict names the part it ran in.
+            by_case = {row["case"]: row for row in rows}
+            for request in alone:
+                for cid in request.filters:
+                    self.assertTrue(by_case[cid]["verdicts"]["base"]["run_id"].endswith(request.label))
+
+    def test_a_fleet_step_that_fails_in_fleet_py_leaves_the_cases_unconfirmed(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            fixture = Fixture(tmp)
+            fleet_launcher = confirm.FleetLauncher(client="/usr/bin/true")
+            fleet = fleet_launcher.fleet_module
+
+            class AloneOnFleet(ScriptLauncher):
+                def run(self, request):
+                    if request.label.startswith("alone"):
+                        return fleet_launcher.run(request)
+                    return super().run(request)
+
+            def complete(fleet_self, shard):
+                raise fleet.UsageError("shard.tar.gz: member '../x' leaves the artifact directory")
+
+            with unittest.mock.patch.object(fleet.Fleet, "complete", complete):
+                code, rows, summary = fixture.confirm(AloneOnFleet(tmp, SET))
+            self.assertEqual(code, confirm.EXIT_INCOMPLETE)
+            self.assertTrue((tmp / "cmp" / "confirm" / "confirmed.jsonl").is_file())
+            by_case = {row["case"]: row for row in rows}
+            for cid in ("alpha/real", "alpha/order", "alpha/crash"):
+                self.assertEqual(by_case[cid]["class"], "unconfirmed")
+                self.assertIn("leaves the artifact directory", by_case[cid]["verdicts"]["base"]["detail"])
+            self.assertEqual(summary["counts"], {"confirmed": 0, "flake": 2, "base-red": 0, "unconfirmed": 3})
+            self.assertEqual(sorted(r["case"] for r in fixture.queue("flaky.jsonl")), ["alpha/elsewhere", "alpha/flaky"])
+
     def test_a_clean_comparison_confirms_nothing(self):
         with tempfile.TemporaryDirectory() as raw:
             tmp = Path(raw)
@@ -292,13 +352,27 @@ class ConfirmTests(unittest.TestCase):
             self.assertEqual(code, confirm.EXIT_USAGE)
 
 
+def write_build(directory: Path, sha256: str, **fields) -> Path:
+    """A linux_run.sh build job's output: the binary and its build.json; returns the binary's path."""
+    directory.mkdir(parents=True, exist_ok=True)
+    record = {"schema": confirm.BUILD_SCHEMA, "sha": HEAD_SHA, "profile": "oracle", "features": ["oracle"],
+              "binary": str(directory / "cmux-tui"), "binarySha256": sha256, "mutant": None}
+    record.update(fields)
+    (directory / "build.json").write_text(json.dumps(record))
+    return directory / "cmux-tui"
+
+
+REPO_MUTANT = patch_mutants.DEFAULT_ROOT / "daemon" / "focus-direction-left-right-swapped.patch"
+
+
 class LauncherTests(unittest.TestCase):
-    def request(self, tmp: Path, receipt_extra=None, **overrides) -> confirm.RunRequest:
+    def request(self, tmp: Path, receipt_extra=None, build=None, **overrides) -> confirm.RunRequest:
+        binary = write_build(tmp / "build", "1" * 64, **(build or {}))
         receipt = {"schema": oracle.RUN_SCHEMA, "runId": "h", "sha": HEAD_SHA, "product": "daemon", "platform": "linux",
                    "isolation": {"mode": "netns"}, "seeds": {"2": 7}, "shards": [2],
                    "config": {"suites": ["alpha", "beta"], "filters": [], "shard_total": 4, "batch_limit": 1,
                               "repeat": 1, "retry_limit": 3, "build": "debug", "switch": "holder", "arm": "new",
-                              "tag": None, "binary": "/tmp/cmux-tui"}}
+                              "tag": None, "binary": str(binary)}}
         receipt.update(receipt_extra or {})
         side = confirm.SideRun("new", tmp / "head", receipt)
         fields = dict(confirm_id="confirm-x", label="retry-s2of4", side=side, shard=(2, 4), seed=side.seed(2), filters=(),
@@ -308,9 +382,15 @@ class LauncherTests(unittest.TestCase):
 
     def test_queue_command_rebuilds_the_sha_fresh_with_the_same_config(self):
         with tempfile.TemporaryDirectory() as raw:
-            command = confirm.QueueLauncher().command(self.request(Path(raw)))
+            command = confirm.QueueLauncher().command(self.request(Path(raw), build={"profile": "bench",
+                                                                                    "features": ["oracle", "extra"]}))
             self.assertEqual(command[2:9], ["run", HEAD_SHA, "--suite", "alpha,beta", "--arm", "holder=new", "--side"])
             self.assertIn("--fresh", command)
+            before = command[:command.index("--")]
+            # The head's own build: build.json's profile and features, not linux_run.sh's defaults.
+            self.assertEqual(before[before.index("--profile") + 1], "bench")
+            self.assertEqual(before[before.index("--features") + 1], "oracle,extra")
+            self.assertNotIn("--mutant", before)
             after = command[command.index("--") + 1:]
             for flag, value in (("--shard", "2/4"), ("--seed", "7"), ("--retry-limit", "3"), ("--batch-limit", "1"),
                                 ("--isolation", "netns"), ("--run-id", "confirm-x-retry-s2of4")):
@@ -321,12 +401,51 @@ class LauncherTests(unittest.TestCase):
             # oracle.py's own parser takes the forwarded options.
             oracle.build_parser().parse_args(["run", *after])
 
+    def test_queue_rebuilds_a_mutant_head_with_its_mutant(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            mutant = {"id": "daemon/focus-direction-left-right-swapped", "patch": str(tmp / "job" / "mutant.patch"),
+                      "sha256": confirm.sha256_of(REPO_MUTANT)}
+            command = confirm.QueueLauncher().command(self.request(tmp, build={"mutant": mutant}))
+            before = command[:command.index("--")]
+            # The checkout's patch (linux_run.sh validates its path), not the build job's copy.
+            self.assertEqual(before[before.index("--mutant") + 1], str(REPO_MUTANT))
+            changed = {**mutant, "sha256": "0" * 64}
+            with self.assertRaisesRegex(confirm.LaunchError, "no patch with its content"):
+                confirm.QueueLauncher().command(self.request(tmp, build={"mutant": changed}))
+
+    def test_queue_refuses_a_side_without_a_build_receipt(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            request = self.request(tmp)
+            (tmp / "build" / "build.json").unlink()
+            with self.assertRaisesRegex(confirm.LaunchError, "no build receipt"):
+                confirm.QueueLauncher().command(request)
+
+    def test_queue_refuses_a_rerun_of_another_binary(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            request = self.request(tmp)
+            run_dir = tmp / "rerun" / "run"
+            run_dir.mkdir(parents=True)
+
+            def rerun_with(sha256: str) -> Path:
+                binary = write_build(tmp / "rerun-build", sha256)
+                (run_dir / "receipt.json").write_text(json.dumps({"schema": oracle.RUN_SCHEMA, "config": {"binary": str(binary)}}))
+                done = confirm.subprocess.CompletedProcess([], 0, stdout=f"{run_dir}\n")
+                with unittest.mock.patch.object(confirm.subprocess, "run", return_value=done):
+                    return confirm.QueueLauncher().run(request)
+
+            with self.assertRaisesRegex(confirm.LaunchError, "into another binary"):
+                rerun_with("2" * 64)
+            self.assertEqual(rerun_with("1" * 64), run_dir)
+
     def test_local_command_runs_the_recorded_binary(self):
         with tempfile.TemporaryDirectory() as raw:
             command = confirm.LocalLauncher().command(self.request(Path(raw)))
             args = oracle.build_parser().parse_args(command[3:])
             self.assertEqual((args.switch, args.arm, args.binary, args.ref, args.shard, args.seed),
-                             ("holder", "new", "/tmp/cmux-tui", HEAD_SHA, "2/4", 7))
+                             ("holder", "new", str(Path(raw) / "build" / "cmux-tui"), HEAD_SHA, "2/4", 7))
 
     def test_queue_refuses_a_receipt_without_a_sha(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -338,22 +457,47 @@ class LauncherTests(unittest.TestCase):
             tmp = Path(raw)
             pin = tmp / "fleet" / "shards" / "new" / "2" / "unpacked" / "run"
             pin.mkdir(parents=True)
-            (pin.parent.parent / "step.json").write_text(json.dumps({"worker": "cmux17"}))
+            mutant = "tests/oracle/mutants/app/sidebar-drops-last.patch"
+            (pin.parent.parent / "step.json").write_text(json.dumps(
+                {"worker": "cmux17", "args": ["--shard=2/4", f"--mutant={mutant}", "--config=debug"]}))
             request = self.request(tmp, {"product": "app"}, pin=pin)
             launcher = confirm.FleetLauncher(client="/usr/bin/true")
             seen = []
 
             def complete(fleet_self, shard):
                 seen.append(shard)
+                fleet_self.log(f"fleet: {shard.side} shard {shard.index}/{shard.total}: run")
                 shard.run_dir = tmp / "got"
                 return shard
 
-            with unittest.mock.patch.object(launcher.fleet_module.Fleet, "complete", complete):
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with unittest.mock.patch.object(launcher.fleet_module.Fleet, "complete", complete), \
+                    redirect_stdout(stdout), redirect_stderr(stderr):
                 self.assertEqual(launcher.run(request), tmp / "got")
+            # fleet.py's progress goes to stderr: `confirm.py --json` keeps stdout one JSON document.
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertIn("fleet: retry-s2of4 shard 2/4", stderr.getvalue())
             shard = seen[0]
             self.assertEqual((shard.index, shard.total, shard.sha, shard.target_worker), (2, 4, HEAD_SHA, "cmux17"))
-            for arg in ("--shard=2/4", "--seed=7", "--retry-limit=3", "--switch=holder", "--arm=new", "--config=debug"):
+            for arg in ("--shard=2/4", "--seed=7", "--retry-limit=3", "--switch=holder", "--arm=new", "--config=debug",
+                        f"--mutant={mutant}"):
                 self.assertIn(arg, shard.args)
+
+    def test_fleet_refusals_are_launch_errors(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            launcher = confirm.FleetLauncher(client="/usr/bin/true")
+            # One --filter= step arg past fleet.MAX_ARG_LEN: fleet.make_shards refuses it.
+            request = self.request(tmp, {"product": "app"}, filters=tuple(f"case/{i:040d}" for i in range(60)))
+            self.assertFalse(launcher.fits(request))
+            with self.assertRaisesRegex(confirm.LaunchError, "do not fit the controller"):
+                launcher.run(request)
+
+    def test_a_missing_fleet_client_is_a_confirm_error(self):
+        with unittest.mock.patch.dict(confirm.os.environ, {"CMUX_CI_CLIENT": "/nonexistent/cmux-ci"}):
+            with self.assertRaisesRegex(confirm.ConfirmError, "no cmux-ci client") as caught:
+                confirm.FleetLauncher()
+        self.assertEqual(caught.exception.code, confirm.EXIT_INCOMPLETE)
 
 
 class RouteTests(unittest.TestCase):
@@ -401,6 +545,40 @@ class RouteTests(unittest.TestCase):
             lines = [json.loads(l) for l in (tmp / "route.jsonl").read_text().splitlines()]
             self.assertEqual(sorted(l["case"] for l in lines), ["alpha/other", "alpha/real"])
             self.assertTrue(all(route.queued(l) for l in lines))
+
+    def test_two_routes_that_end_together_keep_both_lines(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            first, second = tmp / "first.jsonl", tmp / "second.jsonl"
+            first.write_text(json.dumps(self.row(case="alpha/first")) + "\n")
+            second.write_text(json.dumps(self.row(case="alpha/second")) + "\n")
+            options = route.Options(out=tmp / "route.jsonl", registry=tmp / "no-registry",
+                                    changed_files=lambda base, head: [])
+            original = route.write_lines
+            inner: List[threading.Thread] = []
+            locked: List[bool] = []
+
+            def write_lines(path, rows):
+                if not inner:
+                    # The first route has read the queue and not replaced it: the queue is locked, and the second
+                    # route, started now, reads it only after this replace.
+                    with route.lock_path(options.out).open("a") as probe:
+                        try:
+                            fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                            locked.append(False)
+                            fcntl.flock(probe.fileno(), fcntl.LOCK_UN)
+                        except BlockingIOError:
+                            locked.append(True)
+                    inner.append(threading.Thread(target=route.route_files, args=([second], options)))
+                    inner[0].start()
+                original(path, rows)
+
+            with unittest.mock.patch.object(route, "write_lines", write_lines):
+                route.route_files([first], options)
+                inner[0].join()
+            self.assertEqual(locked, [True])
+            lines = [json.loads(l) for l in options.out.read_text().splitlines()]
+            self.assertEqual(sorted(l["case"] for l in lines), ["alpha/first", "alpha/second"])
 
     def test_a_switch_divergence_maps_to_its_plan_and_owner(self):
         with tempfile.TemporaryDirectory() as raw:
