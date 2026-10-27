@@ -46,9 +46,10 @@ extension CloudMachineBootstrap {
     public static var waitCommand: String { [
         "set -u", "d=\(directory)", "u=\(user)", #"h=$(getent passwd "$u" | cut -d: -f6)"#, noSymlinks,
         #"if grep -q '"state":"starting"' "$d/status.json" 2>/dev/null; then sleep 1; fi"#,
-        #"w=none; s=''"#,
-        #"if [ -f "$d/alive" ] && [ ! -L "$d/alive" ] && exec 8<"$d/alive"; then if flock -s -w \#(completionLockWait) 8; then w=free; s=$(cat "$d/status.json" 2>/dev/null || true); else w=held; fi; exec 8<&-; else s=$(cat "$d/status.json" 2>/dev/null || true); fi"#,
-        #"printf 'cmux-wait %s %s\n%s\n' "$w" "$(date +%s)" "$s""#,
+        // The clock is read just before the status, under the same lock: a `starting` never looks older than it is.
+        #"w=none; s=''; n=$(date +%s)"#,
+        #"if [ -f "$d/alive" ] && [ ! -L "$d/alive" ] && exec 8<"$d/alive"; then if flock -s -w \#(completionLockWait) 8; then w=free; n=$(date +%s); s=$(cat "$d/status.json" 2>/dev/null || true); else w=held; fi; exec 8<&-; else n=$(date +%s); s=$(cat "$d/status.json" 2>/dev/null || true); fi"#,
+        #"printf 'cmux-wait %s %s\n%s\n' "$w" "$n" "$s""#,
     ].joined(separator: "; ") }
 
     /// One read's answer: the run's end, or read again (`wait`), or an answer that says nothing (`unreadable`).

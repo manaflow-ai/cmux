@@ -103,7 +103,7 @@ extension CloudMachineRepoTests {
 
     @Test func theReadBlocksOnTheRunnersLockAndNeverLoopsOnTheMachine() throws {
         let command = CloudMachineBootstrap.waitCommand
-        #expect(command.contains(#"exec 8<"$d/alive"; then if flock -s -w 15 8; then w=free; s=$(cat "$d/status.json""#),
+        #expect(command.contains(#"exec 8<"$d/alive"; then if flock -s -w 15 8; then w=free; n=$(date +%s); s=$(cat "$d/status.json""#),
                 "a shared wait on the lock the runner holds for its life, and the status read while holding it")
         let starting = try #require(command.range(of: "then sleep 1; fi")), locked = try #require(command.range(of: "flock -s"))
         #expect(starting.upperBound < locked.lowerBound, "a `starting` read waits before it takes the lock, never between the lock and the status")
