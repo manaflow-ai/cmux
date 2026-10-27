@@ -43,22 +43,6 @@ public final class MainTaskBoard: Sendable {
         public var postedFrom: PostedFrom?
     }
 
-    /// The source location a task was posted from: Chrome's `posted_from` (`FROM_HERE`,
-    /// base/location.h), built from the ``MainPostSite`` only when a reader asks.
-    public struct PostedFrom: Sendable, Equatable, CustomStringConvertible {
-        /// The posting file's `#fileID` (`Module/File.swift`).
-        public var file: String
-        /// The posting line.
-        public var line: UInt
-
-        public init(file: String, line: UInt) {
-            self.file = file
-            self.line = line
-        }
-
-        public var description: String { "\(file):\(line)" }
-    }
-
     /// The running task's hang scope, read with atomics only: the watchdog reads it while the main
     /// thread is suspended, then resolves it with ``task(_:)`` once the main thread runs again.
     public struct HangScope: Sendable, Equatable {
@@ -124,6 +108,8 @@ public final class MainTaskBoard: Sendable {
     private let overBudgetSink = Mutex<(@Sendable (Task, _ durationNanos: UInt64) -> Void)?>(nil)
     /// Per-owner wait and run time of the finished tasks.
     public let ledger: MainOwnerLedger
+    /// Names the running task's owner in the process's crash-key page (``attachCrashKeys(_:)``).
+    let crashKeyOwner = MainTaskCrashKeyOwner()
 
     /// - Parameter ledger: Where finished tasks are recorded (default: one that folds in the background).
     public init(ledger: MainOwnerLedger = MainOwnerLedger()) {
@@ -143,6 +129,7 @@ public final class MainTaskBoard: Sendable {
             let index = UInt32(owners.names.count) & 0x00FF_FFFF
             owners.names.append(name)
             owners.indices[name] = index
+            crashKeyOwner.intern(name, at: index)
             return index
         }
     }
@@ -166,6 +153,7 @@ public final class MainTaskBoard: Sendable {
         hangAtNanos.store(hangAt &+ covered, ordering: .relaxed)
         current.store(packed, ordering: .releasing)
         endScopeWrite()
+        crashKeyOwner.name(owner & 0x00FF_FFFF)
         if notify, hookState.load(ordering: .acquiring) == 2 { taskStartHook.withLock { $0 }?() }
     }
 
@@ -173,6 +161,7 @@ public final class MainTaskBoard: Sendable {
     /// budget publishes one again (``begin(_:owner:sequence:startNanos:budgetNanos:hangAtNanos:notify:)``).
     func endParked() {
         current.store(0, ordering: .releasing)
+        crashKeyOwner.name(0)
     }
 
     /// Publishes the end of the running task (main thread); reports it when it ran past its budget,
@@ -180,6 +169,7 @@ public final class MainTaskBoard: Sendable {
     func end(_ task: @autoclosure () -> Task, durationNanos: UInt64, overBudget: Bool) {
         let ending = current.load(ordering: .relaxed)
         current.store(0, ordering: .releasing)
+        crashKeyOwner.name(0)
         guard overBudget, let sink = overBudgetSink.withLock({ $0 }) else { return }
         var finished = task()
         if ending != 0, postedFor.load(ordering: .relaxed) == ending {
@@ -418,6 +408,7 @@ public final class MainTaskBoard: Sendable {
         hangAtNanos.store(hangAt, ordering: .relaxed)
         current.store(previous.packed, ordering: .releasing)
         endScopeWrite()
+        crashKeyOwner.name(UInt32(truncatingIfNeeded: previous.packed >> 32) & 0x00FF_FFFF)
         guard token.budgetNanos > 0, elapsed > token.budgetNanos, let sink = overBudgetSink.withLock({ $0 }),
               let task = task(packed: token.packed, startNanos: token.startNanos, budgetNanos: token.budgetNanos) else { return }
         sink(task, elapsed)

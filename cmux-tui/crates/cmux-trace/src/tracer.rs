@@ -486,6 +486,13 @@ impl Tracer {
         }
     }
 
+    /// How long the tracer has run, on its start clock: now less the heap ring's
+    /// `start_uptime_ns` (written once, when the tracer was made). No allocation or lock.
+    pub fn uptime_ns(&self) -> u64 {
+        let started = self.heap.a64(off::START_UPTIME_NS).load(Ordering::Relaxed);
+        (self.config.clocks.uptime_ns)().saturating_sub(started)
+    }
+
     /// A consistent copy of the active ring, as its file would read. Allocates.
     pub fn snapshot_active(&self) -> Vec<u8> {
         copy::snapshot(self.active_ring())

@@ -73,6 +73,11 @@ public nonisolated protocol TerminalIO: Sendable {
     /// whose sends do not block returns its own serial queue and a handler that takes each record
     /// there, so a key reaches it in one thread hop. The default runs the async calls above in order.
     func inputDrain() -> TerminalInputDrain
+
+    /// The session took `bytes` of `.output` (its output lane has them). An IO that bounds the bytes
+    /// its `events` hold (``LocalPTYTerminalIO``: it stops reading the PTY at the bound) reads on once
+    /// enough are taken. The default does nothing: the daemon's terminals bound theirs on the daemon.
+    func outputConsumed(_ bytes: Int)
 }
 
 public extension TerminalIO {
@@ -84,6 +89,7 @@ public extension TerminalIO {
     func reconnectRequested() async {}
     func resyncRequested() async {}
     nonisolated func inputDrain() -> TerminalInputDrain { .awaiting(self) }
+    nonisolated func outputConsumed(_ bytes: Int) {}
 }
 
 /// One event from a ``TerminalIO``.

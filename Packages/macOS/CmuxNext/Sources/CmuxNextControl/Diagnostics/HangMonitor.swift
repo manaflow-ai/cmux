@@ -244,7 +244,8 @@ extension MainThreadWatchdog {
     /// ``threadJanks`` and, still open 2 s later, into ``threadHangs``, named in `crashKeys`' hung threads
     /// while it stays open, with a `hang.thread_hung` instant in `trace`'s ring and out through ``onThreadHang``
     /// and ``onLastHang``.
-    /// The same `crashKeys` give stall and hang records the main thread's phase (``phaseLabel(cefState:)``).
+    /// The same `crashKeys` and `trace` say whether stall and hang records caught the main thread in the Chromium
+    /// message pump (``inCEFPump(cefState:pumpKey:)``: `cef=true`, phase `cef_pump`).
     /// Once: a later call, or a slot table another monitor watches, is ignored. With no kqueue the watchdog
     /// thread does not run, so nothing is attached.
     public func attach(hangWatch: HangWatch, crashKeys: CrashKeySlots? = nil, trace: TraceRuntime? = nil) {
