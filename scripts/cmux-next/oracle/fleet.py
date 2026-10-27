@@ -8,7 +8,7 @@ through the controller with `cmux-ci`, and a client whose name says maclease is 
 Client side (the agent's host: the Linux VM or a laptop; nothing builds here):
     fleet.py run --ref SHA [--shards N] [selection]       N steps of scripts/measure/oracle.sh, one receipt
     fleet.py diff --base A --head B [--shards N] [...]    both sides per shard, head on the base step's worker
-    fleet.py diff --switch NAME --ref SHA | --arm launch-config --ref SHA
+    fleet.py diff --switch NAME --ref SHA | --arm launch-config --ref SHA | --engine webkit,chromium --ref SHA
                                                            `oracle.py diff --product app ...` hands its argv here
 Selection: --suite, --filter, --repeat, --retry-limit, --shuffle, --seed, --batch-limit, --config (bench, the
 default, or debug: oracle.py's --build of the run), --dry-run (plan only: the step builds nothing).
@@ -116,7 +116,7 @@ EXIT_OK, EXIT_UNEXPECTED, EXIT_USAGE, EXIT_INCOMPLETE = 0, 1, 2, 3
 
 # The oracle.py run options a step forwards. Values travel as `--name=value` step args; a value the controller's
 # arg pattern refuses (a glob's `*`) travels as `--name-hex=<hex>` and the step decodes it.
-VALUE_OPTIONS = ("suite", "filter", "repeat", "retry-limit", "seed", "batch-limit", "switch", "arm", "run-id")
+VALUE_OPTIONS = ("suite", "filter", "repeat", "retry-limit", "seed", "batch-limit", "switch", "arm", "engine", "run-id")
 FLAG_OPTIONS = ("shuffle",)
 
 
@@ -584,22 +584,27 @@ def diff_sides(args: argparse.Namespace) -> List[Side]:
     if args.base or args.head:
         if not (args.base and args.head):
             raise UsageError("--base and --head go together")
-        if args.switch or args.arm:
-            raise UsageError("--base/--head, --switch and --arm launch-config are separate diffs")
+        if args.switch or args.arm or args.engine:
+            raise UsageError("--base/--head, --switch, --arm launch-config and --engine are separate diffs")
         head = resolve_sha(args.head)
         return [Side("base", resolve_sha(args.base)), Side("head", head, mutant_extra(args.head_mutant, head))]
     if args.head_mutant:
         raise UsageError("--head-mutant goes with --base/--head (`--base SHA --head SHA` is one mutant's catch check)")
     if not args.ref:
-        raise UsageError("--switch and --arm launch-config run one build: pass --ref SHA")
+        raise UsageError("--switch, --arm launch-config and --engine run one build: pass --ref SHA")
     sha = resolve_sha(args.ref)
+    if args.engine:
+        if args.switch or args.arm:
+            raise UsageError("--engine runs one arm per engine at the default switches; --switch and --arm are "
+                             "separate diffs")
+        return [Side(engine, sha, (("engine", engine),)) for engine in oracle.parse_engines(args.engine)]
     if args.switch:
         if args.arm:
             raise UsageError("--switch runs arm old against arm new; --arm is for launch-config")
         return [Side(arm, sha, (("switch", args.switch), ("arm", arm))) for arm in oracle.ARMS]
     if args.arm == "launch-config":
         return [Side("default", sha, (("arm", "default"),)), Side("launch-config", sha, (("arm", "launch-config"),))]
-    raise UsageError("diff needs --base/--head, --switch NAME or --arm launch-config")
+    raise UsageError("diff needs --base/--head, --switch NAME, --arm launch-config or --engine webkit,chromium")
 
 
 def complete_pair(fleet: Fleet, first: Shard, second: Shard) -> None:
@@ -759,6 +764,7 @@ def build_parser() -> argparse.ArgumentParser:
     diff.add_argument("--head")
     diff.add_argument("--switch")
     diff.add_argument("--arm", choices=["launch-config"])
+    diff.add_argument("--engine", help="webkit,chromium: one arm per engine (oracle.py run --engine), engine parity")
     diff.add_argument("--ref")
     diff.add_argument("--head-mutant", help="build the head with tests/oracle/mutants/app/<name>.patch applied")
     add_selection_args(diff)
