@@ -104,13 +104,17 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
         local_name: &local_name,
         local_dest: None,
     };
-    for step in [Step::Peer, Step::PeerBack, Step::Identity] {
+    for step in [Step::Peer, Step::PeerBack, Step::Identity, Step::Approvals] {
         let result = match gate(step, &done) {
             Some(skip) => skip,
             None => match step {
                 Step::Peer => host_peering::peer(&client, &t, fix).await,
                 Step::PeerBack if !plan.reverse => peer_back_off(),
                 Step::PeerBack => host_peering::peer_back(&t, fix).await,
+                Step::Approvals => {
+                    let io = host_peering::Live(Some(&*client));
+                    crate::cli::host_approvals::approvals_with(&io, &t, fix).await
+                }
                 _ => host_peering::identity(&client, &t, fix).await,
             },
         };
@@ -204,7 +208,7 @@ fn needs(step: Step) -> &'static [Step] {
         Step::Reach => &[],
         Step::Install | Step::Identity => &[Step::Reach],
         Step::Daemon => &[Step::Install],
-        Step::Harness | Step::Peer | Step::PeerBack => &[Step::Daemon],
+        Step::Harness | Step::Peer | Step::PeerBack | Step::Approvals => &[Step::Daemon],
     }
 }
 
@@ -251,6 +255,7 @@ fn fail(step: Step, detail: impl Into<String>, fix: impl Into<String>) -> StepRe
         Step::Peer => "peer_unreachable",
         Step::PeerBack => "peer_back_unreachable",
         Step::Identity => "peer_identity_failed",
+        Step::Approvals => "approvals_unavailable",
     };
     let mut result = StepResult::new(step, StepState::Fail, detail).with_fix(fix);
     // A missing standalone link is an intentional handoff to the app's own

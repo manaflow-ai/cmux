@@ -781,6 +781,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_next_macos_cascade.py
 
+      - name: Validate that no job runs on a GitHub-hosted Mac
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_no_github_hosted_macos.py
+
       - name: Validate agent pane frame pacing summary
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_frame_pacing_summary.py
@@ -1028,6 +1032,10 @@ jobs:
       - name: Validate the R2 cache pruner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_r2_cache_prune.py
+
+      - name: Validate the git mirror bundle publisher
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_git_mirror_bundle.py
 
       - name: Validate the R2 binaries pruner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1495,6 +1503,14 @@ jobs:
       - name: Validate the nightly-next release-ring tags
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_ring.py
+
+      - name: Validate the Dev ring switch is read live when publishing
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_dev_ring.py
+
+      - name: Validate the published feed read-back and the shipped app's channels
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_live_feed_check.py
 
       - name: Validate the old feed's publication and appcast writer
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

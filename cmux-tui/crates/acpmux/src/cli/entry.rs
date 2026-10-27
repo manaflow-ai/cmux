@@ -55,6 +55,10 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         return crate::linux_sandbox::keeper::canary_unix(&args[1..]).map_err(anyhow::Error::msg);
     }
     #[cfg(target_os = "linux")]
+    if args.first().is_some_and(|a| a == "__remote-sandbox-canary-rename") {
+        return crate::linux_sandbox::keeper::canary_rename(&args[1..]).map_err(anyhow::Error::msg);
+    }
+    #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-init") {
         crate::linux_sandbox::init::main(args.into_iter().skip(1).collect());
     }

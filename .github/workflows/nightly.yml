@@ -3399,7 +3399,7 @@ jobs:
       # reads it, so the status is never lost and nothing polls.
       - &prove-the-browser-data-import
         name: Prove the browser-data import is compiled out (cx-f58x notary test)
-        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')) }}
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.notary_test_browser_data == 'true') }}
         run: |
           set -euo pipefail
           state="$RUNNER_TEMP/browser-data-proof"
@@ -3407,6 +3407,9 @@ jobs:
           mkdir -p "$state/snapshot"
           app="build-universal/Build/Products/Release/cmux.app"
           cp -a "$app" "$state/snapshot/cmux.app"
+          # The proof scans the whole bundle, the cmux-tui client build-nightly-app
+          # installs in Contents/Resources/bin included: the client carries only
+          # browser ids and names (#26120).
           mkfifo "$state/status.fifo"
           (
             status=0
@@ -3583,7 +3586,7 @@ jobs:
 
       - &finish-the-browser-data-import
         name: Finish the browser-data import proof
-        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')) }}
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.notary_test_browser_data == 'true') }}
         run: |
           set -euo pipefail
           state="$RUNNER_TEMP/browser-data-proof"
@@ -3938,6 +3941,9 @@ jobs:
       contents: read
     outputs:
       runner: ${{ steps.sign-runner.outputs.runner }}
+      # The other Blacksmith macOS 26 size, which the signing jobs take on a re-run
+      # (attempt 2 on), so a re-run moves off a label that stalled after this pick.
+      alternate: ${{ steps.sign-runner.outputs.alternate }}
       # An owned label (glaeda-...) with a machine free now, or empty: the verify jobs then
       # take `runner`. Only attempt 1 reads it; a re-run verifies on Blacksmith.
       owned: ${{ steps.owned.outputs.label }}
@@ -4042,7 +4048,7 @@ jobs:
     # Secret-bearing signing and notarization stay on the trusted Blacksmith
     # macOS pool; credentials remain in this protected environment and never
     # move through an artifact or worker disk.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     # Start the standalone Computer Use helper submission before Codesign apps
     # so Apple's first wait overlaps useful work; finish it before the final
     # DMG. The job budget covers both waits (see the notarize step).
@@ -4934,7 +4940,7 @@ jobs:
     if: "!cancelled() && needs.build-sign-notarize-nightly.result == 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -5048,7 +5054,7 @@ jobs:
     if: "!cancelled() && needs.build-sign-notarize-nightly.result == 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -5177,6 +5183,7 @@ jobs:
       contents: read
     outputs:
       sign_runner: ${{ steps.sign-runner.outputs.runner }}
+      sign_alternate: ${{ steps.sign-runner.outputs.alternate }}
       found: ${{ steps.find.outputs.found }}
       candidates: ${{ steps.find.outputs.candidates }}
     steps:
@@ -5243,7 +5250,7 @@ jobs:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, find-nightly-next-recovery]
     if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.find-nightly-next-recovery.outputs.found == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.find-nightly-next-recovery.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.find-nightly-next-recovery.outputs.sign_alternate || needs.find-nightly-next-recovery.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     # An accepted continuation builds, signs and notarizes the DMG around the
     # stapled app (notarize-nightly-dmg.sh, CMUX_STAPLE_APP_IN_DMG): a 20m wait
     # and packaging per candidate; a failed one moves on to the next of 3.
@@ -5401,7 +5408,7 @@ jobs:
     if: "!cancelled() && needs.recover-nightly-next-notarization.outputs.accepted == 'true'"
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.find-nightly-next-recovery.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.find-nightly-next-recovery.outputs.sign_alternate || needs.find-nightly-next-recovery.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 40
     env:
       # Set only when the 6 h stapled-app fallback shipped the first DMG.
@@ -5503,6 +5510,7 @@ jobs:
       behind_hours: ${{ steps.source.outputs.behind_hours }}
       downloads: ${{ steps.notes.outputs.downloads }}
       feed_written: ${{ steps.upload_next_appcasts.outputs.feed_written }}
+      feed_check: ${{ steps.feedcheck.outcome }}
     if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
     # The release App key remains scoped to this protected environment.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -5960,18 +5968,18 @@ jobs:
       # secondary rate-limit backoff (runs 40357982361, 40376320918). The GitHub release copy,
       # its aliases, metadata and tag follow in publish-nightly-next-github, which never holds
       # the feed. Same bytes, so the item's EdDSA signature is unchanged.
-      # The build job tagged its items from its own snapshot of the switch; the feed goes out
-      # tagged from the live one (a Dev item stays Dev only while the ring is on and no pass).
-      - name: Tag the new build's items from the live Dev ring switch
+      - name: Keep the live feed's newest Nightly item beside the new build
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}
         run: |
-          set -euo pipefail
-          for appcast in $NIGHTLY_FEEDS; do
-            python3 "$PUBLISH_TOOLING/ci/nightly_next_ring.py" retag --feed "nightly-out/$appcast" \
-              --out "nightly-out/$appcast" --mode "$DEV_RING" --verdicts-base "$NIGHTLY_NEXT_FEED_BASE"
-          done
+          bash .publish-tooling/scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh $(printf 'nightly-out/%s ' $NIGHTLY_FEEDS)
+
+      - name: Tag the new build's items from the live Dev ring switch
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        env:
+          DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}
+        run: bash .publish-tooling/scripts/ci/nightly-steps/publish-next-feed-retag.sh
 
       - name: Publish the nightly-next download to R2
         id: next_downloads
@@ -6029,6 +6037,10 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: bash "$PUBLISH_TOOLING/cmux-next/publish-cef-runtime.sh" cef-runtime
+
+      - name: Read the live nightly-next feed before the write
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        run: bash .publish-tooling/scripts/ci/nightly-steps/publish-next-feed-before.sh
 
       - name: Upload nightly-next appcasts to R2
         id: upload_next_appcasts
@@ -6198,6 +6210,15 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
+
+      # Never fails the job (later jobs need it); report-nightly-failure reads feed_check.
+      - name: Read the live nightly-next feed back
+        id: feedcheck
+        if: always() && steps.recheck.outputs.already_published != 'true' && steps.upload_next_appcasts.outcome == 'success'
+        continue-on-error: true
+        env:
+          DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}
+        run: bash .publish-tooling/scripts/ci/nightly-steps/publish-next-feed-readback.sh
 
   # cmux NEXT's GitHub release copy, after the feed went live from R2 (publish-nightly), in two
   # jobs nothing waits on. This one uploads the build's immutable assets: no concurrency group,
@@ -6638,6 +6659,7 @@ jobs:
       actions: write
     outputs:
       sign_runner: ${{ steps.sign-runner.outputs.runner }}
+      sign_alternate: ${{ steps.sign-runner.outputs.alternate }}
       action: ${{ steps.target.outputs.action }}
       build: ${{ steps.target.outputs.build }}
       pending_run: ${{ steps.target.outputs.pending_run }}
@@ -6741,7 +6763,7 @@ jobs:
       dmg_sha256: ${{ steps.handoff.outputs.dmg_sha256 }}
       minimum_system_version: ${{ steps.handoff.outputs.minimum_system_version }}
       stapled_app_fallback_id: ${{ steps.notarize.outputs.stapled_app_fallback == 'true' && steps.notarize.outputs.stapled_app_pending_id || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     # Apple's wait is 20 min, as for cmux NEXT (#20518). A submission still in
     # Apple's queue is kept (artifacts cmux-nightly-identity-pending-meta and
     # -bundle) and a later run continues that exact submission
@@ -7175,7 +7197,7 @@ jobs:
     continue-on-error: true
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     outputs:
       tested_sha256: ${{ steps.verify.outputs.tested_sha256 }}
@@ -7420,6 +7442,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          RELEASE_POKE_URL: https://presence.cmux.dev/releases/v1/poke?feed=nightly-next-legacy
         run: bash scripts/ci/nightly-steps/legacy-identity-publish.sh
 
       # Retire the continued submission once it is published, or when Apple's
@@ -7449,35 +7472,7 @@ jobs:
           # Apple's answer as the signing job saw it (a notary log or a stapled ticket).
           APPLE: ${{ needs.sign-nightly-identity-legacy.outputs.apple || 'unknown' }}
           REQUIREMENT_REFUSED: ${{ needs.sign-nightly-identity-legacy.outputs.requirement_refused || 'false' }}
-        run: |
-          set -euo pipefail
-          apple="$APPLE"
-          refused="$REQUIREMENT_REFUSED"
-          decision="$(python3 scripts/ci/nightly-next-legacy-resolve.py --action "$LEGACY_ACTION" --pending "$PENDING" \
-            --notarize "$NOTARIZE" --published "$PUBLISHED" --apple "$apple" --requirement-refused "$refused")"
-          echo "$decision" >> "$GITHUB_OUTPUT"
-          echo "attempt: action=$LEGACY_ACTION pending=$PENDING notarize=$NOTARIZE published=$PUBLISHED apple=$apple -> $(tr '\n' ' ' <<<"$decision")"
-          if [ "$LEGACY_ACTION" = continue ] && grep -Fxq retire=true <<<"$decision"; then
-            for run in "$PENDING_RUN" "$BUNDLE_RUN"; do
-              for name in cmux-nightly-identity-pending-meta cmux-nightly-identity-pending-bundle; do
-                gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?name=$name" --jq '.artifacts[].id' \
-                  | while IFS= read -r id; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" || true; done
-              done
-            done
-            echo "retired the pending submission of runs $PENDING_RUN/$BUNDLE_RUN"
-          elif [ "$LEGACY_ACTION" = continue ]; then
-            echo "kept the pending submission of run $BUNDLE_RUN"
-          fi
-          # Apple accepted it but a later step failed: store metadata that marks
-          # the bundle accepted, so later runs continue it with no time limit
-          # and never submit the build again (newest metadata wins).
-          if [ "$LEGACY_ACTION" = continue ] && grep -Fxq mark_accepted=true <<<"$decision"; then
-            [ -f pending/pending.json ] || { echo "the signing job left no metadata of the continued submission" >&2; exit 1; }
-            mkdir -p accepted-meta
-            python3 -I -c 'import json, sys; m = json.load(open(sys.argv[1])); m["accepted"] = True; m["bundle_run"] = sys.argv[2]; json.dump(m, open(sys.argv[3], "w"))' \
-              pending/pending.json "$BUNDLE_RUN" accepted-meta/pending.json
-            cat accepted-meta/pending.json
-          fi
+        run: bash scripts/ci/nightly-steps/legacy-identity-resolve.sh
 
       - name: Store the accepted submission's metadata
         if: always() && steps.resolve.outputs.mark_accepted == 'true'
@@ -7552,6 +7547,13 @@ jobs:
           echo "the cmux NIGHTLY-identity attempt for build $NIGHTLY_BUILD failed" >&2
           exit 1
 
+      # Last: the attempt accounting above reads steps.publish, not this.
+      - name: Read the old feed back
+        if: always() && steps.publish.outcome == 'success'
+        env:
+          DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}
+        run: bash scripts/ci/nightly-steps/legacy-identity-readback.sh
+
   # Leo, 2026-10-26: "I still just don't have the nightly ... we can't just break
   # the update situation." The legacy jobs are continue-on-error, so a run that
   # published cmux NEXT stayed quiet while every legacy job skipped (run
@@ -7617,7 +7619,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     strategy:
       fail-fast: false
       matrix:
@@ -7748,6 +7750,7 @@ jobs:
             scripts/ci/upload-r2-object.py
             scripts/ci/gh_app_token.sh
             scripts/ci/nightly_next_dev_ring.sh
+            scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh
           sparse-checkout-cone-mode: false
 
       - *gh-app-token-write
@@ -7826,8 +7829,10 @@ jobs:
             exit 0
           fi
           # The revised feed lists earlier builds again, all on the new build's
-          # ring: each goes back to Nightly when its canary verdict is a pass.
+          # ring: each goes back to Nightly when its canary verdict is a pass. It
+          # keeps the live feed's newest Nightly item as publish-nightly does.
           if [ "$TRACK" = nightly-next ]; then
+            bash .publish-tooling/scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh nightly-deltas/appcast*.xml
             for feed in nightly-deltas/appcast*.xml; do
               [ -f "$feed" ] || continue
               python3 .publish-tooling/scripts/ci/nightly_next_ring.py retag --feed "$feed" --out "$feed" \
@@ -8250,7 +8255,7 @@ jobs:
   # (run 37526646874 published with its notes job cancelled and no alarm).
   report-nightly-failure:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, verify-final-dmg-nightly, verify-recovered-nightly-next, publish-nightly, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
-    if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.tag_status == 'stale' || needs.publish-nightly.outputs.refusal_reason != '' || (needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
+    if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.feed_check == 'failure' || needs.publish-nightly.outputs.tag_status == 'stale' || needs.publish-nightly.outputs.refusal_reason != '' || (needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
