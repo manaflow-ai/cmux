@@ -14,7 +14,7 @@ export async function persistentWorkspaceServiceForRequest(input: {
   const configured = persistentWorkspaceService();
   if (configured) return configured;
 
-  const [drivers, images, modelPlane, adapterModule, lifecycle, storeModule, workflows] = await Promise.all([
+  const [drivers, images, modelPlane, adapterModule, lifecycle, storeModule, workflows, routeHelpers, Effect] = await Promise.all([
     import("./drivers"),
     import("./images/resolver"),
     import("./modelPlaneGateway"),
@@ -22,6 +22,8 @@ export async function persistentWorkspaceServiceForRequest(input: {
     import("./persistentWorkspace"),
     import("./runtimeWorkspaceStore"),
     import("./workflows"),
+    import("./routeHelpers"),
+    import("effect/Effect"),
   ]);
   const provider = drivers.defaultProviderId();
   const runAdapter = new adapterModule.CloudVmRunAdapter(drivers.getProvider(provider));
@@ -52,6 +54,8 @@ export async function persistentWorkspaceServiceForRequest(input: {
           idempotencyKey: request.workspaceKey,
           modelPlane: modelPlane.vmModelPlaneGatewayFor({ teamId: entitlements.billingTeamId, stackUserId: user.id }),
           origin: "create",
+          // The guest vm-kind write runs after the request's answer, kept alive by the platform.
+          deferAfterResponse: (work) => routeHelpers.runAfterResponse(() => Effect.runPromise(work)),
         }));
         return { providerVmId: vm.providerVmId };
       },

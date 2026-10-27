@@ -818,6 +818,9 @@ pub async fn serve_ws_with(
             {
                 return;
             }
+            // Binary frames are upload data (`upload_frames.rs`), written in order by their own
+            // worker; it refuses them on any connection but the local app's.
+            let frames = upload_frames::spawn(hub.clone(), origin, proof, out_tx.clone());
             let reader = tokio::spawn(async move {
                 while let Some(frame) = source.next().await {
                     let frame = match frame {
@@ -828,9 +831,16 @@ pub async fn serve_ws_with(
                             break;
                         }
                     };
-                    if let tokio_tungstenite::tungstenite::Message::Text(t) = frame
-                        && in_tx.send(t.to_string()).await.is_err()
-                    {
+                    let sent = match frame {
+                        // After the frames before it are written (`upload_frames::InFlight`).
+                        tokio_tungstenite::tungstenite::Message::Text(t) => {
+                            frames.in_flight.drained().await;
+                            in_tx.send(t.to_string()).await.is_ok()
+                        }
+                        tokio_tungstenite::tungstenite::Message::Binary(b) => frames.send(b).await,
+                        _ => true,
+                    };
+                    if !sent {
                         break;
                     }
                 }
@@ -1496,7 +1506,9 @@ mod session_files;
 mod stream;
 mod subsessions;
 pub(crate) mod trust_gate;
+pub mod upload_frames;
 mod view;
+mod vm_host;
 pub(crate) mod wait;
 #[cfg(windows)]
 mod windows_socket;

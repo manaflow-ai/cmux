@@ -4,6 +4,7 @@ import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSettings
 import CmuxNextSidebarActions
 import CmuxNextWorkspaceNaming
 import os
@@ -48,6 +49,7 @@ enum AppActions {
         WorkspaceGroupHandlers.bind(into: registry, context: context)
         SidebarArchiveActions(host: services).bind(into: registry)
         AutoArchiveActions(coordinator: services.autoArchive, host: services).bind(into: registry)
+        NotificationSoundActions(host: services, gate: services.notifications.soundGate).bind(into: registry)
         RoomHandlers.bind(into: registry, context: context)
         RoomMenuHandlers.bind(into: registry, context: context)
         ThemeHandlers.bind(into: registry, context: context)

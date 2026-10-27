@@ -112,6 +112,7 @@ extension AppServices {
             for await state in ObservationStream({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID) }) {
                 guard let self else { return }
                 self.cloudContextDidChange()
+                self.agentTabs.syncCloudCredentialTransferAvailability(services: self)
                 // The local model relay follows the signed-in user (ModelRouterLease).
                 let user = state.0 ? state.2 : nil
                 if routerUser != .some(user) {

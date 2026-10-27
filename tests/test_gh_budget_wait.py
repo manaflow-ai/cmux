@@ -256,6 +256,11 @@ PUBLISH_PATH = (
     "publish-release-notes", "publish-nightly-reel", "build-nightly-app",
 )
 INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wait\.sh --install")
+# A job timeout that differs on nightly-next: `${{ ... track == 'nightly-next' && NEXT || OTHER }}`.
+NEXT_TIMEOUT = re.compile(r"\$\{\{ needs\.decide\.outputs\.track == 'nightly-next' && (\d+) \|\| (\d+) \}\}")
+# Publish-path jobs whose nightly-next path makes no gh call (republish-nightly-deltas writes
+# deltas and feed to R2), so their nightly-next timeout needs no room for the hour's wait.
+NO_GH_ON_NIGHTLY_NEXT = ("republish-nightly-deltas",)
 
 
 class WorkflowTests(unittest.TestCase):
@@ -273,16 +278,24 @@ class WorkflowTests(unittest.TestCase):
             self.assertTrue(any("actions/checkout" in str(s.get("uses", "")) for s in steps[:at]), name)
             later_gh = [i for i, s in enumerate(steps)
                         if "github.token" in str(s.get("env", {})) or "release-tag-token" in str(s.get("env", {}))]
-            # Only prepare's reuse probe (before any checkout; a refusal prepares here) and the
+            # Only prepare's reuse probe (before any checkout; a refusal prepares here), the nightly
+            # product lookup (no gh: a bounded REST lookup whose every refusal is a miss) and the
             # unsigned-resume restore (a hand-run recovery, not the publish path) come first.
             early = [i for i in later_gh if i < at]
             for i in early:
                 resume = "nightly_next_unsigned_run != ''" in str(steps[i].get("if", ""))
-                self.assertTrue(steps[i].get("id") == "reuse" or resume, (name, steps[i].get("name")))
+                # gh_app_token.sh installs first so this wrapper wraps it (tests/test_gh_app_token.py).
+                app_token = "gh_app_token.sh --install" in str(steps[i].get("run", ""))
+                self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume or app_token, (name, steps[i].get("name")))
 
     def test_publish_path_timeouts_leave_room_for_the_wait(self) -> None:
         for name in PUBLISH_PATH:
-            timeout = self.jobs[name].get("timeout-minutes", 360)
+            timeout = str(self.jobs[name].get("timeout-minutes", 360))
+            by_track = NEXT_TIMEOUT.fullmatch(timeout)
+            if by_track:
+                # A shorter nightly-next bound only where that track makes no gh call.
+                self.assertIn(name, NO_GH_ON_NIGHTLY_NEXT, name)
+                timeout = by_track.group(2)
             self.assertGreaterEqual(int(timeout), 65, name)
             # A step bounded on its own that calls gh needs the hour too, or it times out mid-wait.
             for step in self.jobs[name]["steps"]:

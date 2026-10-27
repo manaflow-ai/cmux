@@ -1,4 +1,5 @@
 import type { VideoInfo } from "./composer/videoAttachments";
+import type { HarnessIconSpec } from "../shared/harnessIcons";
 import type { ChatUnavailable } from "./chatUnavailable";
 import type { ChatPresence, Participant } from "./multiplayer/participants";
 import { editedPaths } from "./toolPaths";
@@ -529,6 +530,19 @@ export type QueueEdit =
   /** Takes back a steer the agent has not read yet (the X beside it); false once it was read. */
   | { op: "withdraw" };
 
+/** Where a chat's running limit comes from: its own override, an ancestor's, the workspace's, the
+ *  settings' (`agents.subsessions.maxRunning`) or acpmux's default. */
+export type SubsessionLimitSource = "session" | "inherited" | "workspace" | "settings" | "default";
+
+/** How many of a chat's sub-sessions run a turn at once (acpmux `subsessionLimits.maxRunning`,
+ *  1 to 1000), and acpmux's own count of those running and waiting for a slot when it read them. */
+export type SubsessionLimits = {
+  maxRunning: number;
+  maxRunningSource?: SubsessionLimitSource;
+  running?: number;
+  queued?: number;
+};
+
 /// Claude Code's /context breakdown as acpmux keeps it (claude_stdio `context_breakdown`).
 export type AcpmuxContextBreakdown = {
   /// `id` is Claude Code's (`system_prompt`, `mcp_tools_deferred`, `free_space`, ...) when it names
@@ -586,6 +600,8 @@ export type AcpmuxSnapshot = {
   peerKinds?: Record<string, "ssh" | "cloud">;
   /// Whether each peer is connected, as `_acpmux/status` last said (environments.ts).
   peerConnected?: Record<string, boolean>;
+  /// Each peer's link state (`connected`, `reconnecting`, …), as `_acpmux/status` last said (environments.ts).
+  peerStates?: Record<string, string>;
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
   forkedAtSeq?: number;
   summary?: {
@@ -639,6 +655,9 @@ export type AcpmuxSnapshot = {
     /// The MCP servers the harness says it loaded (acpmux `mcpServers`, from Claude Code's
     /// system/init); unset when it reports none (every ACP harness).
     mcpServers?: { name: string; status: "connected" | "failed" | "pending" }[];
+    /// How many of the chats its agent started run a turn at once (acpmux `subsessionLimits`, from the attach reply's detail
+    /// and its `limits` records); unset from an acpmux without the limit.
+    subsessionLimits?: SubsessionLimits;
     status?: string;
     enforcement?: Enforcement;
     modes?: {
@@ -728,8 +747,11 @@ export type AcpmuxSnapshot = {
     pickable?: boolean;
     /** acpmux's family for the harness (`_acpmux/harnesses` `family`): joins it to a catalog harness. */
     family?: string;
-    /** `_acpmux/harnesses` `icon`: a brand id, or a file the host serves. */
+    /** `_acpmux/harnesses` `icon`: the profile's own icon value (a brand id, an emoji, an SF
+     * Symbol name or a file path). Draw `iconSpec`, not this. */
     icon?: string;
+    /** `_acpmux/harnesses` `iconSpec`: the one icon acpmux resolved for the harness. */
+    iconSpec?: HarnessIconSpec;
     /** `_acpmux/harnesses` `start`: the model and effort acpmux starts a new chat here on (the
      * person's saved pick, else the catalog's default; acpmux start_defaults.rs). */
     start?: { model?: string; effort?: string; modelSource?: StartSource; effortSource?: StartSource };
@@ -798,7 +820,7 @@ const USER_BUBBLE_PADDING = 16;
 const USER_STATUS_HEIGHT = 20;
 /// The transcript's rhythm (`--cv-meta-gap`, `--cv-meta-row`, `--cv-message-gap` and `--cv-turn-gap`
 /// in conversation/conversation.css): a meta row 4px under its message on a 24px line, 8px between
-/// messages, 24px between turns.
+/// messages, 16px between turns (the paragraph gap plus a small separator).
 const META_GAP = 4;
 const META_ROW = 24;
 const MESSAGE_GAP = 8;
@@ -865,7 +887,7 @@ function activityStepHeight(item: AcpmuxActivity): number {
 export const RECEIVED_LINES = 8;
 /// The prepared texts of those messages, for their estimates; cleared past 256, as a row's are.
 const receivedPrepared = new Map<string, PreparedText | null>();
-const TURN_GAP = 24;
+const TURN_GAP = 16;
 /// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx). A steer the agent has not read yet
 /// puts Send now first in that row (PendingSteer.tsx), including a Chief's prompt and a prompt of
 /// images alone.
@@ -1091,8 +1113,9 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return finish(40 + row.plan.length * 24);
   // A turn's footer: its meta line, then the normal turn gap. An empty footer (only hover controls,
-  // conversation/turns.ts isEmptyFooter) takes no line but keeps that same gap.
-  if (row.kind === "turnSummary") return finish((isEmptyFooter(row) ? 0 : META_ROW) + TURN_GAP);
+  // conversation/turns.ts isEmptyFooter) takes no extra line; its gap still fits the hover controls.
+  if (row.kind === "turnSummary")
+    return finish(isEmptyFooter(row) ? Math.max(META_ROW, TURN_GAP) : META_ROW + TURN_GAP);
   if (
     row.kind === "notice" ||
     row.kind === "backgroundTask" ||

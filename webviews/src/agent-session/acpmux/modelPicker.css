@@ -120,6 +120,7 @@
   color: var(--agent-muted);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-quick-menu .ui-separator {
   height: 0;
@@ -138,6 +139,7 @@
   border-radius: 8px;
   color: var(--agent-text);
   font-size: var(--text-control);
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .ui-menu-item.acpmux-quick-item:not(.acpmux-quick-sub):has(.ui-menu-shortcut, .ui-menu-check) {
   display: grid;
@@ -247,6 +249,7 @@
   opacity: 1;
   color: var(--agent-muted);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* The compact menu's search field (Lawrence 2026-10-22: "spacing + needs search"): a row-high line
@@ -276,6 +279,7 @@
   font-size: var(--text-control);
   outline: none;
   appearance: none;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-quick-search input::placeholder { color: var(--agent-muted); }
 .acpmux-quick-search input::-webkit-search-cancel-button { appearance: none; }
@@ -373,6 +377,7 @@
   border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   color: var(--agent-muted);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-quick-update > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-menu-item.acpmux-quick-update-action {
@@ -399,6 +404,7 @@
   flex: none;
   color: var(--agent-muted);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 /* The expanded version: the model's name heads its providers, which sit indented under it. */
 .acpmux-quick-model-head.ui-menu-item[data-disabled] {
