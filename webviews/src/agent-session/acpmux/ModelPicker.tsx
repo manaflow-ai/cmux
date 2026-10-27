@@ -9,7 +9,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { AgentMark, agentBrand, knownMark } from "../shared/AgentMark";
+import { AgentMark, agentBrand, hasAgentMark, knownMark } from "../shared/AgentMark";
 import { agentName } from "./agents";
 import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
@@ -760,7 +760,7 @@ export function ModelPicker(props: ModelPickerProps) {
       list.push({
         id: entry.id,
         name: entry.name,
-        ...(agentBrand(entry.mark ?? entry.id) ? { mark: entry.mark ?? entry.id } : {}),
+        ...(hasAgentMark(entry.mark ?? entry.id) ? { mark: entry.mark ?? entry.id } : {}),
         models: shown.map((model) => row(entry, model)),
         more: more.map((model) => row(entry, model)),
         ...(signedOutHere ? { note: t("harnesses.signedOut") } : {}),
@@ -1238,7 +1238,7 @@ export function ModelPicker(props: ModelPickerProps) {
                     }}
                     active={index === activeHarness}
                   >
-                    {agentBrand(entry.mark ?? entry.id) ? (
+                    {hasAgentMark(entry.mark ?? entry.id) ? (
                       <AgentMark agent={entry.mark ?? entry.id} size={16} />
                     ) : (
                       // A harness without a mark: its initial, never an empty tab.

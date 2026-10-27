@@ -123,17 +123,20 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 /* A menu's shortcut column and its search field use the type scale where the host loads no ui.css (the
    agent pane): a field does not inherit the page's font, so it drew the browser's 13.33 px. */
 :where(.ui-menu-shortcut) {
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 :where(.ui-field) {
   font-family: inherit;
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 :where(.ui-separator) {
   height: 1px;
@@ -218,13 +221,14 @@
    its own still gets this one; a feature's own rules still win. A host maps --ui-row to its row wash. */
 :where(.ui-popup.ui-menu) {
   padding: var(--ui-popup-padding);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
   -webkit-user-select: none;
   user-select: none;
   cursor: default;
   outline: none;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 :where(.ui-menu-item) {
   display: flex;

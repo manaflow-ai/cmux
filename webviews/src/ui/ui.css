@@ -15,7 +15,7 @@
   --ui-row-bar: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
   --ui-surface: var(--cmux-elevated-background, Canvas);
   --ui-ring: var(--cmux-focus-ring-color, color-mix(in srgb, var(--cmux-app-focus-ring, var(--ui-fg)) 48%, transparent));
-  --ui-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --ui-font: var(--font-ui);
   font-family: var(--ui-font);
   -webkit-user-select: none;
   user-select: none;
@@ -67,6 +67,7 @@
   outline: none;
   /* Base UI's positioner names the side the popup grows from. */
   transform-origin: var(--transform-origin);
+  letter-spacing: var(--text-control--letter-spacing);
 }
 
 /* A menu may own a submenu. Let the safe-triangle bridge extend beyond the parent surface;
@@ -104,6 +105,7 @@
   color: var(--ui-fg-2);
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .ui-menu-item[data-highlighted] {
@@ -225,6 +227,7 @@
   color: var(--ui-fg-2);
   font-size: var(--text-caption);
   font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .ui-separator {
@@ -392,4 +395,5 @@
   line-height: 1;
   color: var(--ui-fg-2);
   opacity: 0.9;
+  letter-spacing: var(--text-caption--letter-spacing);
 }

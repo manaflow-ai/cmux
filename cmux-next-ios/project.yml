@@ -255,7 +255,13 @@ targets:
         # The Mac link dials the Mac's LAN address directly (WireGuard UDP,
         # WebRTC host candidates) before falling back to the relay.
         NSLocalNetworkUsageDescription: Connect directly to your Mac on this network for a faster, private link.
-        NSCameraUsageDescription: Take a photo to attach to a message for your agent.
+        NSCameraUsageDescription: Take a photo to attach to a message for your agent, or scan the pairing code on your Mac.
+        # A Mac's pairing code (`cmux-next://pair?…`, MobileHostPairInvite): the Camera
+        # opens it here. A URL scheme, not a universal link, so cmux.com needs no AASA.
+        # Every configuration registers it; side-by-side installs share the scheme.
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.cmux.mobile.pair
+            CFBundleURLSchemes: [cmux-next]
         NSPhotoLibraryAddUsageDescription: Save images from your sessions to Photos.
         NSPhotoLibraryUsageDescription: Attach photos to messages for Chief and your agents.
         NSMicrophoneUsageDescription: Talk to Chief on calls and record audio messages for Chief and your agents.

@@ -251,3 +251,54 @@ function localPath(value: string): string {
     throw new Error("Attachment is not a local file");
   return decodeURIComponent(uri.pathname);
 }
+
+/** Display metadata for strip-mode file links. It follows the actual ACP block indexes, so
+ * acpmux persists the same filename and byte count without changing the prompt or its order. */
+export function stripFileDisplay(
+  blocks: readonly PromptBlock[],
+  attachments: readonly ComposerAttachment[],
+): DisplayPart[] {
+  const originals = new Map<string, ComposerAttachment[]>();
+  for (const image of attachments) {
+    if (image.kind !== "image") continue;
+    for (const block of attachmentBlocks(image)) {
+      if (block.type !== "resource_link") continue;
+      originals.set(block.uri, [...(originals.get(block.uri) ?? []), image]);
+    }
+  }
+  const files = new Map(
+    attachments.flatMap((file) =>
+      file.kind === "link" && !file.mimeType.startsWith("video/")
+        ? attachmentBlocks(file).flatMap((block) =>
+            block.type === "resource_link" ? [[block.uri, file] as const] : [],
+          )
+        : [],
+    ),
+  );
+  return blocks.flatMap((block, blockIndex): DisplayPart[] => {
+    const previous = blocks[blockIndex - 1];
+    if (
+      block.type === "resource_link" &&
+      previous?.type === "image" &&
+      originals
+        .get(block.uri)
+        ?.some(
+          (image) =>
+            image.data === previous.data && image.name === previous.name && image.mimeType === previous.mimeType,
+        )
+    )
+      return [{ kind: "file", blockIndex, name: block.name, companionOf: blockIndex - 1 }];
+    const file = block.type === "resource_link" ? files.get(block.uri) : undefined;
+    return file
+      ? [
+          {
+            kind: "file",
+            blockIndex,
+            name: file.name,
+            ...(file.mimeType ? { mimeType: file.mimeType } : {}),
+            ...(file.mimeType || file.size > 0 ? { size: file.size } : {}),
+          },
+        ]
+      : [];
+  });
+}
