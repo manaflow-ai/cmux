@@ -7584,6 +7584,7 @@ function AcpmuxPane() {
             const source = handoff?.source.sessionId;
             const target = handoff?.target.sessionId;
             const handoffId = handoff?.handoffId;
+            const selectionToken = client.selectionToken;
             try {
               const receipt = await client.startHandoff(review as HandoffReviewInput);
               const startedTarget = receipt?.targetSessionId;
@@ -7597,6 +7598,8 @@ function AcpmuxPane() {
                 source,
                 target,
                 handoffId,
+                selectionToken,
+                currentSelectionToken: () => client.selectionToken,
                 currentHandoffId: () => client.handoff.state.record?.handoffId,
                 selectedSession: () => client.selectedSession,
                 select: (id) => client.select(id),

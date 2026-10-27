@@ -2,6 +2,8 @@ type ForkRecovery = {
   source?: string;
   target?: string;
   handoffId?: string;
+  selectionToken: number;
+  currentSelectionToken: () => number;
   currentHandoffId: () => string | undefined;
   selectedSession: () => string | undefined;
   select: (id: string) => Promise<string | undefined>;
@@ -16,6 +18,7 @@ export async function restoreForkSource(recovery: ForkRecovery): Promise<void> {
     !source ||
     !target ||
     !handoffId ||
+    recovery.currentSelectionToken() !== recovery.selectionToken ||
     recovery.currentHandoffId() !== handoffId ||
     recovery.selectedSession() !== target
   )
@@ -23,6 +26,13 @@ export async function restoreForkSource(recovery: ForkRecovery): Promise<void> {
 
   // Selection changes synchronously; attachment can finish later. Preserve navigation that
   // happens during attachment, and retain the target so uncertain delivery can be recovered.
-  const selected = await recovery.select(source);
-  if (selected === source && recovery.selectedSession() === source) await recovery.persist(source);
+  const attaching = recovery.select(source);
+  const selectionToken = recovery.currentSelectionToken();
+  const selected = await attaching;
+  if (
+    selected === source &&
+    recovery.selectedSession() === source &&
+    recovery.currentSelectionToken() === selectionToken
+  )
+    await recovery.persist(source);
 }

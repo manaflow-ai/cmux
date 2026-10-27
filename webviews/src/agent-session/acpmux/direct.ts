@@ -4651,6 +4651,10 @@ export class AcpmuxDirectClient {
   get selectedSession(): string | undefined {
     return this.selectedSessionId;
   }
+  /** Changes on every selection, including leaving and returning to the same session. */
+  get selectionToken(): number {
+    return this.selectionGeneration;
+  }
   /** A copy of the selected session's recorded events, oldest first, for the inspector. */
   sessionEvents(): EventRecord[] {
     return this.events.slice();
