@@ -10,7 +10,7 @@ import Foundation
 
 /// `cmux session-priority`: `status` prints one line per workspace from `session_priority.status`;
 /// `difficulty` and `manual` send `session_priority.set` for the chosen workspace. Bad arguments
-/// are refused before the app is contacted.
+/// are refused with no command sent to the app.
 extension CLINotifyProcessIntegrationRegressionTests {
     func testSessionPriorityStatusCallsTheSocket() throws {
         let workspaceId = UUID().uuidString
@@ -99,6 +99,98 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotEqual(result.process.status, 0)
         XCTAssertTrue(result.process.stderr.contains("easy"), result.process.stderr)
         XCTAssertTrue(result.commands.isEmpty, "\(result.commands)")
+    }
+
+    func testSessionPriorityManualOnSendsTrueAndPrintsLiteralOn() throws {
+        let workspaceId = UUID().uuidString
+        let result = try runSessionPriorityCLI(
+            name: "session-priority-manual-on",
+            arguments: ["session-priority", "manual", "on", "--workspace", workspaceId],
+            respond: { method, id in
+                method == "session_priority.set"
+                    ? self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceId, "manual": true])
+                    : nil
+            }
+        )
+        XCTAssertEqual(result.process.status, 0, result.process.stderr)
+        let request = try XCTUnwrap(result.commands.compactMap(jsonObject).first {
+            $0["method"] as? String == "session_priority.set"
+        }, "\(result.commands)")
+        let params = try XCTUnwrap(request["params"] as? [String: Any])
+        XCTAssertEqual(params["manual"] as? Bool, true)
+        XCTAssertEqual(
+            result.process.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            "OK \(workspaceId) manual on"
+        )
+    }
+
+    func testSessionPriorityRejectsInvalidManualValueBeforeContactingTheApp() throws {
+        let result = try runSessionPriorityCLI(
+            name: "session-priority-invalid-manual",
+            arguments: ["session-priority", "manual", "maybe"],
+            respond: { _, _ in nil }
+        )
+        XCTAssertNotEqual(result.process.status, 0)
+        XCTAssertTrue(result.process.stderr.contains("maybe"), result.process.stderr)
+        XCTAssertTrue(result.commands.isEmpty, "\(result.commands)")
+    }
+
+    func testSessionPriorityRejectsUnknownSubcommand() throws {
+        let result = try runSessionPriorityCLI(
+            name: "session-priority-unknown",
+            arguments: ["session-priority", "frobnicate"],
+            respond: { _, _ in nil }
+        )
+        XCTAssertNotEqual(result.process.status, 0)
+        XCTAssertTrue(result.process.stderr.contains("frobnicate"), result.process.stderr)
+        XCTAssertTrue(result.commands.isEmpty, "\(result.commands)")
+    }
+
+    func testSessionPriorityStatusJSONPassesThePayloadThrough() throws {
+        let windowId = UUID().uuidString
+        let result = try runSessionPriorityCLI(
+            name: "session-priority-json",
+            arguments: ["session-priority", "status", "--json"],
+            respond: { method, id in
+                method == "session_priority.status"
+                    ? self.v2Response(id: id, ok: true, result: [
+                        "window_id": windowId, "enabled": false, "urgent_count": 0,
+                        "workspaces": [],
+                    ])
+                    : nil
+            }
+        )
+        XCTAssertEqual(result.process.status, 0, result.process.stderr)
+        let payload = try XCTUnwrap(jsonObject(result.process.stdout), result.process.stdout)
+        XCTAssertEqual(payload["window_id"] as? String, windowId)
+        XCTAssertEqual(payload["enabled"] as? Bool, false)
+        XCTAssertEqual(payload["urgent_count"] as? Int, 0)
+        XCTAssertFalse(result.process.stdout.contains("session priority:"), result.process.stdout)
+    }
+
+    func testSessionPriorityStatusPrintsOffHeaderAndHandlesNullTargetAndNoPanes() throws {
+        let workspaceId = UUID().uuidString
+        let result = try runSessionPriorityCLI(
+            name: "session-priority-off",
+            arguments: ["session-priority", "status"],
+            respond: { method, id in
+                method == "session_priority.status"
+                    ? self.v2Response(id: id, ok: true, result: [
+                        "window_id": NSNull(), "enabled": false, "urgent_count": 0,
+                        "workspaces": [[
+                            "workspace_id": workspaceId, "tier": NSNull(),
+                            "difficulty": "normal", "difficulty_source": "default",
+                            "target": NSNull(), "panes": [],
+                        ]],
+                    ])
+                    : nil
+            }
+        )
+        XCTAssertEqual(result.process.status, 0, result.process.stderr)
+        let lines = result.process.stdout.split(separator: "\n").map(String.init)
+        XCTAssertEqual(lines.first, "session priority: off, urgent: 0", result.process.stdout)
+        XCTAssertEqual(lines.dropFirst().first, "1. \(workspaceId)  -  normal(default)", result.process.stdout)
+        XCTAssertEqual(lines.count, 2, result.process.stdout)
     }
 
     private func runSessionPriorityCLI(
