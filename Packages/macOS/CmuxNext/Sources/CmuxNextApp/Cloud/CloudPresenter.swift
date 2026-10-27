@@ -98,7 +98,7 @@ enum CloudPresenter {
         }
         let spec = CmuxDialogSpec(
             title: "Set up \(providerName) on \(session.machine.title)?",
-            lines: [body, "This replaces \(providerName)'s login for future launches on this VM. Existing sessions are unchanged."],
+            lines: [body, "This replaces \(providerName)'s login on this VM and restarts this chat before retrying its failed prompt."],
             buttons: [.cancel("Cancel"), CmuxDialogButton(id: "transfer", title: "Transfer and restart", role: .default)],
             identifier: "cmux.dialog.cloud.credentialRecovery")
         guard let window = services.windows.active?.window else { return false }
@@ -116,10 +116,45 @@ enum CloudPresenter {
                                    currentTeamID: { services.cloud.auth.teamID },
                                    currentUserID: { services.cloud.auth.user?.id },
                                    confirmed: true, refresh: true)
+            guard services.cloud.auth.user?.id == userID, services.cloud.auth.teamID == teamID,
+                  let (currentTab, _) = services.locateTab(chat),
+                  currentTab === tab,
+                  (try? services.machines.agentDaemon(forTab: currentTab)) === daemon else { return false }
+            let pinned = services.cloud.api.pinningTeam(teamID)
+            guard try await restartCredentialSession(request.sessionID, exec: {
+                try await pinned.exec(session.machineID, command: $0, timeoutMs: 300_000)
+            }) else {
+                CloudPresenter.show("Credentials installed", "The chat could not restart yet. Wait for any running turn to finish, then retry the prompt.", in: window)
+                return false
+            }
             return true
         } catch {
             CloudPresenter.failure(error, in: window)
             return false
         }
+    }
+
+    /// Use the same installed CLI and user as the credentials. Old/root-layout machines fail
+    /// closed rather than restarting a different daemon. No provider output reaches the UI.
+    @MainActor static func restartCredentialSession(_ sessionID: String, exec: (String) async throws -> CloudExecResult) async throws -> Bool {
+        let command = """
+            set -eu
+            [ "$(cat /etc/cmux/vm-kind 2>/dev/null)" = owner ]
+            [ -x /home/cmux/.cmux/bin/cmux-tui ]
+            if [ "$(id -u)" = 0 ]; then
+              set -- setpriv --reuid=cmux --regid=cmux --init-groups
+            else
+              [ "$(id -un)" = cmux ]; set --
+            fi
+            "$@" env HOME=/home/cmux USER=cmux LOGNAME=cmux SHELL=/bin/bash TERM=xterm-256color \
+              /home/cmux/.cmux/bin/cmux-tui acp --json session restart \(CloudCredentialInstaller.quote(sessionID))
+            """
+        let result = try await exec(command)
+        guard result.exitCode == 0, result.stdout.utf8.count < 65_536,
+              let reply = try? JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+              reply["failed"] as? Int == 0, reply["after_turn"] as? Int == 0,
+              let restarted = reply["restarted"] as? Int, (0...1).contains(restarted) else { return false }
+        // Zero means the process has already exited; the retry starts it with the new login.
+        return true
     }
 }
