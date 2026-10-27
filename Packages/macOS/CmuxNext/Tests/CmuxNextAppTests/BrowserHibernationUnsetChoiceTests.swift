@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextPalette
 @testable import CmuxNextSettings
 import Foundation
@@ -27,10 +28,13 @@ import Testing
 
         /// The Settings page's row: its value and whether it shows Reset.
         func pageRow() async throws -> (value: JSONValue?, customized: Bool?) {
-            let rows = try await page.call("cmux.settings.list", params: ["section": "browser"], context: BrowserHibernationUnsetChoiceTests.gesture)
-            let row = rows.arrayValue?.first { $0["key"]?.stringValue == BrowserHibernationUnsetChoiceTests.key }
-            let value = row?["value"]
-            return (value == .null ? nil : value, row?["customized"]?.boolValue)
+            let params: JSONValue = .object(["section": .string("browser")])
+            let rows: JSONValue = try await page.call("cmux.settings.list", params: params, context: BrowserHibernationUnsetChoiceTests.gesture)
+            let key = BrowserHibernationUnsetChoiceTests.key
+            let items: [JSONValue] = rows.arrayValue ?? []
+            let row: JSONValue? = items.first(where: { (item: JSONValue) -> Bool in item["key"]?.stringValue == key })
+            let value: JSONValue? = row?["value"]
+            return (value == JSONValue.null ? nil : value, row?["customized"]?.boolValue)
         }
 
         /// The palette row's shown value and its current option.
