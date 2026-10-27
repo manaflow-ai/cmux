@@ -86,12 +86,13 @@ pub fn owned_refs(blocks: &[Value]) -> Vec<(String, String)> {
 
 /// The id, in its one spelling, of every upload `blocks` name, owned or not, by reference or by
 /// a link resolved from one (`uploadPath`, `<uploads>/<chat>/<id>/<name>`). Any chat's: the set
-/// is what a caller keeps, so a larger one deletes less.
+/// is what a caller keeps, so a larger one deletes less. A path is split on `/` and `\` alike: a
+/// peer's may be a Windows path.
 pub fn upload_ids(blocks: &[Value]) -> std::collections::HashSet<String> {
     let named = blocks.iter().filter_map(upload_of).filter_map(|u| u.get("uploadId")?.as_str());
     let linked = blocks.iter().filter_map(|b| {
-        let path = Path::new(b.pointer("/_meta/acpmux/uploadPath")?.as_str()?);
-        path.parent()?.file_name()?.to_str()
+        let path = b.pointer("/_meta/acpmux/uploadPath")?.as_str()?;
+        path.rsplit(['/', '\\']).nth(1)
     });
     let ids = named.chain(linked).filter_map(|id| uuid::Uuid::try_parse(id).ok());
     ids.map(|id| id.to_string()).collect()
@@ -334,5 +335,17 @@ mod tests {
         let refused = resolve("s", true, &mut blocks).unwrap_err();
         assert_eq!(refused.data.unwrap()["reason"], "upload.remote");
         assert!(resolve("s", true, &mut vec![json!({"type": "text", "text": "x"})]).is_ok());
+    }
+
+    #[test]
+    fn a_link_names_its_upload_on_any_platform() {
+        let (id, peer) = (uuid::Uuid::now_v7(), uuid::Uuid::now_v7());
+        let link = |path: String| json!({"type": "resource_link", "_meta": {"acpmux": {"uploadPath": path}}});
+        let blocks = [
+            link(format!("/home/me/.acpmux/uploads/chat/{id}/a.png")),
+            link(format!("C:\\Users\\me\\acpmux\\uploads\\chat\\{}\\b.png", peer.simple())),
+            link("a.png".to_owned()),
+        ];
+        assert_eq!(upload_ids(&blocks), [id.to_string(), peer.to_string()].into_iter().collect());
     }
 }
