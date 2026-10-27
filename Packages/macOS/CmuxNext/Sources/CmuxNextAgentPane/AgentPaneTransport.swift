@@ -281,7 +281,7 @@ import CmuxNextCompat
         return try await socket.callHost(method, params: params)
     }
 
-    /// Sends a chunk on the owned socket, using AMUP only when the connection advertises it.
+    /// Sends a chunk on the owned socket without routing bytes through the page.
     func uploadChunk(connection id: Int, sessionId: String, uploadId: String, offset: Int, bytes: Data) async throws -> [String: Any] {
         let socket = try uploadSocket(connection: id, sessionId: sessionId)
         return try await socket.uploadChunk(sessionId: sessionId, uploadId: uploadId, offset: offset, bytes: bytes)
