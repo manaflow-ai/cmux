@@ -124,10 +124,26 @@ def gh(*args: str) -> str:
     return subprocess.run(["gh", *args], check=True, capture_output=True, text=True).stdout
 
 
+PAGE_SIZE = 100
+
+
 def gh_items(endpoint: str) -> list[dict]:
-    """Every item of a paginated list endpoint (one JSON object per line: older gh has no --slurp)."""
-    out = gh("api", "--paginate", endpoint, "--jq", ".[] | @json")
-    return [json.loads(line) for line in out.splitlines() if line.strip()]
+    """Every item of a paginated list endpoint, one explicit `page=N` call at a time.
+
+    Not `gh api --paginate`: the quota wrapper on the autoland host refuses it while its budget is
+    charged, and a refused read is an unknown freeze state that holds every pull request.
+    """
+    separator = "&" if "?" in endpoint else "?"
+    items: list[dict] = []
+    page = 1
+    while True:
+        batch = json.loads(gh("api", f"{endpoint}{separator}per_page={PAGE_SIZE}&page={page}"))
+        if not isinstance(batch, list):
+            raise ValueError(f"{endpoint} page {page} is not a list")
+        items.extend(batch)
+        if len(batch) < PAGE_SIZE:
+            return items
+        page += 1
 
 
 def read_json_list(path: str) -> list[dict]:
@@ -193,7 +209,7 @@ def open_freezes(repo: str, issues_file: str | None = None) -> list[Freeze]:
                   if i.get("state", "open") == "open"
                   and LABEL in {label.get("name") for label in i.get("labels", [])}]
     else:
-        issues = gh_items(f"repos/{repo}/issues?state=open&labels={LABEL}&per_page=100")
+        issues = gh_items(f"repos/{repo}/issues?state=open&labels={LABEL}")
     freezes = []
     for issue in issues:
         if "pull_request" in issue:
@@ -204,7 +220,7 @@ def open_freezes(repo: str, issues_file: str | None = None) -> list[Freeze]:
             labeled_at, edited_at = issue.get("labeled_at"), issue.get("last_edited_at")
         else:
             labeler, labeled_at = last_labeler(
-                gh_items(f"repos/{repo}/issues/{freeze.number}/events?per_page=100"), LABEL)
+                gh_items(f"repos/{repo}/issues/{freeze.number}/events"), LABEL)
             role = repo_role(repo, labeler) if labeler else None
             edited_at = last_edited(repo, freeze.number)
         check_authority(freeze, labeler, role, labeled_at, edited_at)
@@ -292,7 +308,7 @@ def main(argv: list[str] | None = None) -> int:
                 files = [line.strip() for line in handle if line.strip()]
         else:
             # Both ends of a rename: moving a file out of a frozen directory touches it too.
-            entries = gh_items(f"repos/{args.repo}/pulls/{args.pr}/files?per_page=100")
+            entries = gh_items(f"repos/{args.repo}/pulls/{args.pr}/files")
             files = [e["filename"] for e in entries] + [e["previous_filename"] for e in entries
                                                         if e.get("previous_filename")]
             # The files API stops at 3000 files; an incomplete list can't clear a freeze.
@@ -302,7 +318,7 @@ def main(argv: list[str] | None = None) -> int:
         labeler = None
         if any(f.active(now) for f in freezes):
             events = (read_json_list(args.events_file) if args.events_file is not None
-                      else gh_items(f"repos/{args.repo}/issues/{args.pr}/events?per_page=100"))
+                      else gh_items(f"repos/{args.repo}/issues/{args.pr}/events"))
             labeler = ok_labeler(events)
     # TypeError, AttributeError: GitHub answered with an unexpected shape (a null issue or a missing
     # timestamp, say). Still unknown, not frozen.
