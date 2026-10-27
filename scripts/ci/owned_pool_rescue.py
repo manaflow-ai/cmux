@@ -1621,7 +1621,13 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
         if pull_moved(client, target, sleep, log):
             break
         # assess() reports a stuck job before a refusal; a refused job needs its re-run whatever the queue.
-        if any(refused(job) for job in read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)):
+        turned_away = [job for job in read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)
+                       if refused(job)]
+        if turned_away:
+            names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
+            if read(lambda: client.run(target.run_id), sleep, log).get("status") == "completed":
+                # The queued sibling ran while held: the run is over, so this is the refusal's re-run.
+                return "refused", f"{names} refused by {job_pool(turned_away[0])} at job start", held
             break
         verdict, label = move_verdict(client, target, now=now(), sleep=sleep, log=log)
         if verdict == "free" or verdict == "busy" and floor is not None and floor >= OWNED_WAIT_FLOOR_SECONDS:
@@ -1681,22 +1687,19 @@ def bot_rerun_leaves_owned(path: str, attempt: int) -> bool:
 # blacksmith-6vcpu-macos-26 was stalled, and 53 s later this rescue moved both onto that label, where they
 # queued 23 minutes.
 OWNED_WAIT_FLOOR_SECONDS = simple_pool_picker.BLACKSMITH_STALL_MINUTES * 60
-# A Blacksmith macOS label a workflow names, and a call of a reusable workflow, whose labels it does not show.
+# A Blacksmith macOS label a workflow names.
 BLACKSMITH_MACOS_LABEL = re.compile(r"blacksmith-[0-9]+vcpu-macos-[0-9]+")
-REUSABLE_CALL = re.compile(r"^\s*uses:\s*\./\.github/workflows/", re.M)
 
 
 def retry_labels(workflow_text: str | None) -> set[str]:
     """The picker Blacksmith labels a re-run of the workflow may take, as far as its file shows.
 
-    Every picker label the file names anywhere (runs-on fallbacks, matrix entries, reusable-workflow inputs
-    such as cmux-tui.yml's macos_retry_runner) counts. A file that names none, calls a reusable workflow or
-    cannot be read may route anywhere (a picker's retry output), so every picker label counts: the rescue
-    then judges the worst of them (move_verdict())."""
+    Every picker label the file names anywhere counts: runs-on fallbacks, matrix entries, and the inputs it
+    passes a reusable workflow (cmux-tui.yml's macos_retry_runner). A file that names none or cannot be
+    read may route anywhere (a picker's retry output), so every picker label counts, and the rescue judges
+    the worst of them (move_verdict())."""
     every = set(simple_pool_picker.BLACKSMITH)
-    if not workflow_text or REUSABLE_CALL.search(workflow_text):
-        return every
-    found = set(BLACKSMITH_MACOS_LABEL.findall(workflow_text)) & every
+    found = set(BLACKSMITH_MACOS_LABEL.findall(workflow_text or "")) & every
     return found or every
 
 

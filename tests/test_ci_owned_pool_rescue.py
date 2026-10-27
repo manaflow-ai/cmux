@@ -1342,14 +1342,30 @@ class BlacksmithStall(unittest.TestCase):
         # A workflow that names no picker label, calls a reusable workflow or cannot be read may go anywhere.
         self.assertEqual(rescue.retry_labels("jobs:\n  a:\n    runs-on: ${{ needs.x.outputs.retry }}\n"), every)
         self.assertEqual(rescue.retry_labels(None), every)
+        # A reusable workflow's input names the label; a call that names none may go anywhere.
         self.assertEqual(rescue.retry_labels(
-            "jobs:\n  a:\n    uses: ./.github/workflows/x.yml\n    with:\n      r: blacksmith-6vcpu-macos-26\n"), every)
+            "jobs:\n  a:\n    uses: ./.github/workflows/x.yml\n    with:\n      r: blacksmith-6vcpu-macos-15\n"),
+            {"blacksmith-6vcpu-macos-15"})
+        self.assertEqual(rescue.retry_labels("jobs:\n  a:\n    uses: ./.github/workflows/resolve-dispatch-ref.yml\n"),
+                         every)
         # A matrix entry or a reusable workflow's input counts, not only runs-on lines.
         self.assertIn("blacksmith-6vcpu-macos-15", rescue.retry_labels(
             "jobs:\n  a:\n    strategy:\n      matrix:\n        pool: [blacksmith-6vcpu-macos-15]\n"
             "    runs-on: ${{ matrix.pool }}\n"))
-        self.assertIn("blacksmith-6vcpu-macos-15",
-                      rescue.retry_labels((ROOT / ".github/workflows/cmux-tui.yml").read_text()))
+        self.assertEqual(rescue.retry_labels((ROOT / ".github/workflows/cmux-tui.yml").read_text()),
+                         {"blacksmith-6vcpu-macos-15"})
+
+    def test_only_the_labels_a_workflow_names_decide(self):
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)
+        stalled_12 = blacksmith_snapshot(queued=40, oldest=300, label="blacksmith-12vcpu-macos-26")
+        api = FakeAPI(Clock(), dev_jobs, workflow="runs-on: blacksmith-6vcpu-macos-15\n", snapshot=stalled_12)
+        self.assertEqual(rescue.move_verdict(api, target, now=START, sleep=lambda _: None, log=lambda _: None),
+                         ("free", ""))
+        # With two named, the worse decides.
+        api = FakeAPI(Clock(), dev_jobs, workflow="a: blacksmith-6vcpu-macos-15\nb: blacksmith-12vcpu-macos-26\n",
+                      snapshot=stalled_12)
+        self.assertEqual(rescue.move_verdict(api, target, now=START, sleep=lambda _: None, log=lambda _: None),
+                         ("stalled", "blacksmith-12vcpu-macos-26"))
 
     def test_states_use_the_pickers_stall_rule(self):
         now = START
@@ -1465,6 +1481,47 @@ class BlacksmithStall(unittest.TestCase):
         run_main(api, clock, payload=dev_event())
         self.assertIn("cancel", api.calls)
         self.assertLess(api.first_cancel, rescue.OWNED_WAIT_FLOOR_SECONDS)
+
+    def test_a_refusal_found_after_the_run_finished_during_a_hold_is_rerun(self):
+        # verify and tip-dmg-build stay queued while Blacksmith stalls; then verify runs and passes and
+        # tip-dmg-build is refused, and the run finishes, all between two looks of the hold.
+        ran_at = 10 * 60
+
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds < 40:
+                return found
+            verify = job("Verify signed cmux NEXT DEV", labels=[LIGHT], created=40)
+            dmg = job("Build the unsigned cmux NEXT DEV tip DMG", labels=[LIGHT], created=40)
+            if seconds >= ran_at:
+                verify = {**verify, "status": "completed", "conclusion": "success", "runner_name": "mini",
+                          "started_at": stamp(ran_at - 400), "completed_at": stamp(ran_at),
+                          "steps": [{"name": "Set up job", "conclusion": "success"},
+                                    {"name": "Verify", "conclusion": "success"}]}
+                dmg = {**dmg, "status": "completed", "conclusion": "failure", "runner_name": "mini",
+                       "started_at": stamp(ran_at - 5), "completed_at": stamp(ran_at),
+                       "steps": [{"name": "Set up job", "conclusion": "failure"}]}
+            return found + [verify, dmg]
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, workflow=DEV_WORKFLOW, conclusion="failure",
+                      finished=lambda seconds: seconds >= ran_at,
+                      snapshot=blacksmith_snapshot(queued=40, running=0, oldest=30))
+        _, summary = run_main(api, clock, payload=dev_event())
+        self.assertIn("held on the owned pool", summary)
+        self.assertIn("rerun-failed", api.calls)
+
+    def test_the_hold_hands_a_finished_refused_run_to_the_refusal_path(self):
+        clock = Clock()
+        refused_job = {**job("Build the unsigned cmux NEXT DEV tip DMG", labels=[LIGHT]), "status": "completed",
+                       "conclusion": "failure", "runner_name": "mini", "started_at": stamp(1),
+                       "completed_at": stamp(5), "steps": [{"name": "Set up job", "conclusion": "failure"}]}
+        api = FakeAPI(clock, lambda seconds: [refused_job], finished=lambda seconds: True,
+                      snapshot=blacksmith_snapshot(queued=40, running=0, oldest=30), workflow=DEV_WORKFLOW)
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)
+        outcome, _, _ = rescue.hold_for_destination(
+            api, target, "rescue", "stuck", budget_seconds=90, floor_seconds=90,
+            deadline=START + dt.timedelta(hours=1), now=clock.now, sleep=clock.sleep, log=lambda _: None, seen={})
+        self.assertEqual(outcome, "refused")
 
     def test_a_superseded_main_attempt_is_still_cancelled_while_blacksmith_stalls(self):
         clock = Clock()
