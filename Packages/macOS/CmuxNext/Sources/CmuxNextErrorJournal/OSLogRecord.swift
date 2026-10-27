@@ -3,7 +3,7 @@ import Foundation
 /// One entry of this process's unified log, as ``OSLogErrorSource`` reads it.
 struct OSLogRecord: Sendable, Equatable {
     /// The entry's level; `messageType` is the name a log store predicate compares.
-    enum Level: Sendable, Equatable {
+    enum Level: Sendable, Hashable {
         case debug, info, notice, error, fault
 
         var messageType: String {

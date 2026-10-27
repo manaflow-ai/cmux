@@ -2,7 +2,11 @@ import CmuxNextInputCore
 import CmuxNextMetrics
 import CmuxNextTrace
 public import Foundation
+#if canImport(os)
 import os
+#else
+import CmuxNextCompat
+#endif
 
 /// Runs opt-in hang reports: follows the setting, turns a trigger (a MetricKit delivery, the
 /// launch) into at most one report, checks it, keeps its readable copy, and sends it through the

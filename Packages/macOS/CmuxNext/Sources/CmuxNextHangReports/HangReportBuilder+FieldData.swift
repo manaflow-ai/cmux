@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 public import CmuxNextMetrics
 public import CmuxNextTrace
 import Foundation

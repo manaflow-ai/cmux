@@ -1,5 +1,8 @@
 @testable import CmuxNextHangReports
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Testing
 
 /// The client's answer to each status the server really sends: 204 stored, 400 and 413 dropped

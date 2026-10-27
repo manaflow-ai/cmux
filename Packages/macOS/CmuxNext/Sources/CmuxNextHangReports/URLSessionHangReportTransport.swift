@@ -1,4 +1,7 @@
 public import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Posts report bodies with an ephemeral session: no cookies, no cache, no credentials, fixed
 /// headers (``fixedHeaders``: the user agent, and `Accept-Language: en` instead of the person's
@@ -63,11 +66,14 @@ public nonisolated struct URLSessionHangReportTransport: HangReportTransport {
     }
 }
 
-/// Refuses every redirect, so the 3xx answer itself comes back. The selector is spelled out: an
-/// optional requirement whose Swift signature drifts between SDKs would otherwise stop matching
-/// silently, and the redirect would be followed.
+/// Refuses every redirect, so the 3xx answer itself comes back. On macOS the selector is spelled
+/// out: an optional requirement whose Swift signature drifts between SDKs would otherwise stop
+/// matching silently, and the redirect would be followed. FoundationNetworking (Linux) has no
+/// Objective-C runtime; its requirement is a plain protocol method.
 private final class NoRedirects: NSObject, URLSessionTaskDelegate, Sendable {
+    #if canImport(ObjectiveC)
     @objc(URLSession:task:willPerformHTTPRedirection:newRequest:completionHandler:)
+    #endif
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
         completionHandler(nil)

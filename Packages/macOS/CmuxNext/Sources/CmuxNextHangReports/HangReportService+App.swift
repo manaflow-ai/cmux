@@ -3,9 +3,11 @@ import CmuxNextTrace
 import CmuxNextWakeups
 public import Foundation
 
+#if canImport(MachO)
 extension HangReportService {
-    /// The service of this app process: the store over `folder`, the real transport, classifier and
-    /// dyld resolver, the bundle's version and build, this Mac's OS version and hardware class, and
+    /// The service of this app process (macOS only: the dyld image resolver reads Mach-O): the store
+    /// over `folder`, the real transport, classifier and dyld resolver, the bundle's version and
+    /// build, this Mac's OS version and hardware class, and
     /// (when the builder's wire schema carries them) a ``MainThreadReportLedger`` over
     /// `mainThreadHistograms`.
     ///
@@ -73,3 +75,4 @@ extension HangReportService {
                 features: features, blockingSites: blocking))
     }
 }
+#endif

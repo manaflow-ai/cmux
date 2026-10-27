@@ -10,6 +10,8 @@
       "CmuxNextWakeups",
       "CmuxNextWakeupsTestSupport",
       "CmuxNextProcessEnvironment",
+      "CmuxNextInputCore",
+      "CmuxNextInputCoreTestSupport",
       "CCmuxAppFFILinux"
     ],
     [
@@ -51,7 +53,7 @@
       "CmuxNextCLIInstall"
     ]
   ],
-  "_waves": "Wave 0 adds Trace, Metrics, Features and WakeupsTestSupport to the section H list: Signposts, Wakeups and the wave 1 targets depend on them and they import only Compat, Atomics and Foundation. Wave 3 holds the UI-free targets whose dependencies are all in the tier today; task p15-oracle-226 adds the others as their blocking edges go (PhoneAccess, Stash, HostedChief, AgentIntegrations, ChiefViews, RemoteLocalhostService, AgentCursorVisibility, AppCore, SidebarActions, AgentUpdates, CrashReporting).",
+  "_waves": "Wave 0 adds Trace, Metrics, Features and WakeupsTestSupport to the section H list: Signposts, Wakeups and the wave 1 targets depend on them and they import only Compat, Atomics and Foundation. It adds InputCore and InputCoreTestSupport (Compat and Atomics only), which HangReports and its tests depend on (p15-oracle-137). Wave 3 holds the UI-free targets whose dependencies are all in the tier today; task p15-oracle-226 adds the others as their blocking edges go (PhoneAccess, Stash, HostedChief, AgentIntegrations, ChiefViews, RemoteLocalhostService, AgentCursorVisibility, AppCore, SidebarActions, AgentUpdates, CrashReporting).",
   "new": [
     "CmuxNextOracle",
     "CmuxNextInputModel",
@@ -90,6 +92,8 @@
       "CmuxNextWakeups",
       "CmuxNextWakeupsTestSupport",
       "CmuxNextProcessEnvironment",
+      "CmuxNextInputCore",
+      "CmuxNextInputCoreTestSupport",
       "CCmuxAppFFILinux",
       "CmuxNextActions",
       "CmuxNextDaemon",
@@ -139,6 +143,7 @@
       "CmuxNextHangReportsTests",
       "CmuxNextHostPressureTests",
       "CmuxNextImportSuggestionsTests",
+      "CmuxNextInputCoreTests",
       "CmuxNextKeepAwakeTests",
       "CmuxNextMetricsTests",
       "CmuxNextMobileTests",
@@ -154,6 +159,7 @@
       "Packages/Shared/CMUXMobileCore",
       "Packages/Shared/CmuxAgentBrands",
       "Packages/Shared/CmuxAuthRuntime",
+      "Packages/Shared/CmuxFuzzSupport",
       "Packages/Shared/CmuxInstallAuthCore",
       "Packages/Shared/CmuxIrxTransport",
       "Packages/Shared/CmuxSafeConcurrency",
@@ -199,6 +205,9 @@
         "Crypto"
       ],
       "CmuxNextDevicesTests": [
+        "Crypto"
+      ],
+      "CmuxNextHangReports": [
         "Crypto"
       ],
       "CmuxNextMobile": [

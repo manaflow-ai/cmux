@@ -1,5 +1,7 @@
 public import Foundation
+#if canImport(MachO)
 import MachO
+#endif
 
 /// Decides what a report may say about the image of a frame (hang-reports-DESIGN.md section 3).
 ///
@@ -164,10 +166,17 @@ public nonisolated struct ImageClassifier: Sendable {
         let manager = FileManager.default
         if ["/System/Library/Frameworks/\(name).framework", "/System/Library/PrivateFrameworks/\(name).framework"]
             .contains(where: { manager.fileExists(atPath: $0) }) { return true }
-        return ["/usr/lib/\(name)", "/usr/lib/system/\(name)"].contains {
-            // SAFETY: the path is passed as a NUL-terminated temporary copy that lives for the call; dyld only reads it.
-            unsafe _dyld_shared_cache_contains_path($0) || manager.fileExists(atPath: $0)
-        }
+        return ["/usr/lib/\(name)", "/usr/lib/system/\(name)"].contains { inSharedCache($0) || manager.fileExists(atPath: $0) }
+    }
+
+    /// Whether dyld's shared cache holds `path` (macOS; Linux has no shared cache).
+    private static func inSharedCache(_ path: String) -> Bool {
+        #if canImport(MachO)
+        // SAFETY: the path is passed as a NUL-terminated temporary copy that lives for the call; dyld only reads it.
+        unsafe _dyld_shared_cache_contains_path(path)
+        #else
+        false
+        #endif
     }
 
     /// The user's short name, the words of their full name and the host name's labels: words a

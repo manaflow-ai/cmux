@@ -34,10 +34,16 @@ public nonisolated struct HardwareClass: Codable, Sendable, Equatable {
         self.memoryGB = Self.memorySizesGB.min { abs(Double($0) - gigabytes) < abs(Double($1) - gigabytes) } ?? 0
     }
 
-    /// This Mac's class (sysctl and `ProcessInfo`).
+    /// This machine's class (sysctl on macOS, `uname` on Linux, and `ProcessInfo`).
     public static func current() -> HardwareClass {
-        HardwareClass(rawArch: sysctlString("hw.machine"), rawChip: sysctlString("machdep.cpu.brand_string"),
-                      cores: ProcessInfo.processInfo.activeProcessorCount, memoryBytes: ProcessInfo.processInfo.physicalMemory)
+        #if canImport(Darwin)
+        let arch = sysctlString("hw.machine"), chip = sysctlString("machdep.cpu.brand_string")
+        #else
+        // Linux names arm64 `aarch64`; the chip stays `other` (no Apple brand string there).
+        let arch = unameMachine().map { $0 == "aarch64" ? "arm64" : $0 }, chip: String? = nil
+        #endif
+        return HardwareClass(rawArch: arch, rawChip: chip,
+                             cores: ProcessInfo.processInfo.activeProcessorCount, memoryBytes: ProcessInfo.processInfo.physicalMemory)
     }
 
     /// `Apple M4 Pro` stays; any other brand string becomes `Intel` or `other`.
@@ -47,6 +53,7 @@ public nonisolated struct HardwareClass: Codable, Sendable, Equatable {
         return raw.localizedCaseInsensitiveContains("intel") ? "Intel" : "other"
     }
 
+    #if canImport(Darwin)
     private static func sysctlString(_ name: String) -> String? {
         var size = 0
         // SAFETY: a nil buffer only asks for the length; sysctlbyname writes it into `size`, a local live for the call.
@@ -57,4 +64,14 @@ public nonisolated struct HardwareClass: Codable, Sendable, Equatable {
         guard unsafe sysctlbyname(name, &bytes, &size, nil, 0) == 0 else { return nil }
         return String(decoding: bytes.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
+    #else
+    /// `uname -m`.
+    private static func unameMachine() -> String? {
+        var names = utsname()
+        // SAFETY: uname fills `names`, a local live for the call.
+        guard unsafe uname(&names) == 0 else { return nil }
+        // SAFETY: reads the bytes of `machine`, a fixed C array in the local copy, only inside the closure.
+        return unsafe withUnsafeBytes(of: &names.machine) { unsafe String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+    }
+    #endif
 }

@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 import AppKit
 public import CmuxNextInputCore
 public import CmuxNextWakeups
@@ -52,3 +53,4 @@ public final class MainThreadActivityFeed {
         ledger.didReceiveUserInput(atNanos: nanos)
     }
 }
+#endif

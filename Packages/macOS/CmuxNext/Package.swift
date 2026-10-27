@@ -164,8 +164,9 @@ import Foundation
 //     scripts/cmux-next/bundle-server-helper.sh, not linked into the App)
 //   CmuxNextDictation -> Wakeups (on-device speech: SpeechAnalyzer, SFSpeechRecognizer fallback,
 //     the session state machine; no UI)
-//   CmuxNextErrorJournal -> system frameworks only (the bounded, deduplicated error journal
-//     `cmux errors` reads: app log, page consoles, acpmux and Chief logs, crash reports)
+//   CmuxNextErrorJournal -> Compat, Wakeups, system frameworks; no WebKit (the bounded, deduplicated
+//     error journal `cmux errors` reads: app log, page consoles, acpmux and Chief logs, crash reports;
+//     Pages installs the page console script in a WebKit view)
 //   CmuxNextFiles -> Compat, Wakeups (Files pane core: listing, FSEvents, file operations,
 //     Undo, the pane model; no AppKit; plans/finder-parity/PARITY.md)
 //   CmuxNextFilesUI -> Files, Design, Compat (the Files pane's AppKit views: list, icons, columns,
@@ -1002,7 +1003,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextVSCodeServerTests",
-            dependencies: ["CmuxNextVSCodeServer"],
+            // Compat: Atomic for the fake process's flag (os has no OSAllocatedUnfairLock on Linux).
+            dependencies: ["CmuxNextCompat", "CmuxNextVSCodeServer"],
             swiftSettings: daemonSwiftSettings
         ),
         // Chromium warm start: maps the framework and runs CefInitialize and the
@@ -1440,7 +1442,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // app's warnings, errors, faults and crashes, written off the main actor.
         .target(
             name: "CmuxNextErrorJournal",
-            dependencies: ["CmuxNextWakeups"],
+            // Compat: the Logger on Linux, which has no os module (p15-oracle-120, p15-oracle-137).
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -2535,6 +2538,8 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
                 "CmuxNextWakeups",
                 "CmuxNextWakeupsTestSupport",
                 "CmuxNextProcessEnvironment",
+                "CmuxNextInputCore",
+                "CmuxNextInputCoreTestSupport",
                 "CCmuxAppFFILinux",
                 "CmuxNextActions",
                 "CmuxNextDaemon",
@@ -2584,6 +2589,7 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
                 "CmuxNextHangReportsTests",
                 "CmuxNextHostPressureTests",
                 "CmuxNextImportSuggestionsTests",
+                "CmuxNextInputCoreTests",
                 "CmuxNextKeepAwakeTests",
                 "CmuxNextMetricsTests",
                 "CmuxNextMobileTests",
@@ -2599,6 +2605,7 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
                 "Packages/Shared/CMUXMobileCore",
                 "Packages/Shared/CmuxAgentBrands",
                 "Packages/Shared/CmuxAuthRuntime",
+                "Packages/Shared/CmuxFuzzSupport",
                 "Packages/Shared/CmuxInstallAuthCore",
                 "Packages/Shared/CmuxIrxTransport",
                 "Packages/Shared/CmuxSafeConcurrency",
@@ -2620,6 +2627,7 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
                 "CmuxNextDesignTokens": ["Crypto"],
                 "CmuxNextDevices": ["Crypto"],
                 "CmuxNextDevicesTests": ["Crypto"],
+                "CmuxNextHangReports": ["Crypto"],
                 "CmuxNextMobile": ["Crypto"],
                 "CmuxNextRemote": ["Crypto"],
                 "CmuxNextRemoteFetch": ["CZlib"],

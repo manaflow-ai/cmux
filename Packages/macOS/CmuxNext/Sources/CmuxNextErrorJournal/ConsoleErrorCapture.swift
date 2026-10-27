@@ -1,13 +1,19 @@
-public import WebKit
+import Foundation
+#if canImport(OSLog)
 import OSLog
+#else
+import CmuxNextCompat
+#endif
 
 /// Catches an app page's `console.error`, `console.warn`, uncaught errors and unhandled promise
 /// rejections and writes them, redacted, to the unified log under ``subsystem`` with the page
 /// name as category, where ``OSLogErrorSource`` harvests them into the journal. Nothing flows
-/// back into the page; the page script drops all but 20 reports a second.
+/// back into the page; the page script drops all but 20 reports a second. A WebKit page installs
+/// it through `install(in:)` (CmuxNextPages); a Chromium page's binding hands each report to
+/// ``record(_:)``.
 ///
 /// ```swift
-/// ConsoleErrorCapture(page: "settings").install(in: configuration.userContentController)
+/// ConsoleErrorCapture(page: "settings").record(["level": "error", "message": "theme missing"])
 /// ```
 @MainActor
 public struct ConsoleErrorCapture {
@@ -73,17 +79,8 @@ public struct ConsoleErrorCapture {
     })();
     """
 
-    /// Adds the script and its message handler to `controller`.
-    public func install(in controller: WKUserContentController) {
-        controller.addUserScript(WKUserScript(source: Self.script, injectionTime: .atDocumentStart,
-                                              forMainFrameOnly: true, in: .page))
-        controller.add(ConsoleErrorReceiver(page: page), contentWorld: .page, name: Self.handlerName)
-    }
-
-    /// The log line for one report: `[warn] ` for warnings, then the message, then the top
-    /// stack frame as an `at …` line.
     /// Logs one message of ``script`` that reached the host another way than WebKit's handler (a
-    /// Chromium page's binding): the same redacted line the WebKit receiver logs.
+    /// Chromium page's binding): the same redacted line the WebKit receiver (`install(in:)`) logs.
     ///
     /// - Parameter body: The posted object (`level`, `message`, `stack`).
     public func record(_ body: Any) {
@@ -94,6 +91,8 @@ public struct ConsoleErrorCapture {
         Logger(subsystem: Self.subsystem, category: page).error("\(text, privacy: .public)")
     }
 
+    /// The log line for one report: `[warn] ` for warnings, then the message, then the top
+    /// stack frame as an `at …` line.
     public nonisolated static func logText(level: String, message: String, stack: String) -> String {
         let redactor = ErrorRedactor()
         let prefix = level == "warn" ? "[warn] " : ""
@@ -111,23 +110,5 @@ public struct ConsoleErrorCapture {
             if line.contains("@"), line.contains(":") { return line }
         }
         return nil
-    }
-}
-
-/// Receives the page's reports and logs them; main-frame reports only.
-private final class ConsoleErrorReceiver: NSObject, WKScriptMessageHandler {
-    let logger: Logger
-
-    init(page: String) {
-        logger = Logger(subsystem: ConsoleErrorCapture.subsystem, category: page)
-    }
-
-    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.frameInfo.isMainFrame, let body = message.body as? [String: Any] else { return }
-        let text = ConsoleErrorCapture.logText(level: body["level"] as? String ?? "error",
-                                               message: body["message"] as? String ?? "",
-                                               stack: body["stack"] as? String ?? "")
-        // Redacted above, so public: the journal must read the text back.
-        logger.error("\(text, privacy: .public)")
     }
 }

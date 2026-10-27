@@ -10,7 +10,7 @@ import Testing
 /// the log store for errors and faults only, so logd filters them (on cmux14, 2002 entries in
 /// 5.2 s became 2 entries in 1.4 s).
 @Suite struct OSLogErrorSourceReadTests {
-    /// A log store that applies the source's predicate as logd does, and counts what it hands back.
+    /// A log store that filters by the source's levels as logd does, and counts what it hands back.
     private final class FakeLog: OSLogReading, @unchecked Sendable {
         // Test fake: written once before the source runs, then read by it on one task.
         var records: [OSLogRecord]
@@ -18,14 +18,22 @@ import Testing
 
         init(records: [OSLogRecord]) { self.records = records }
 
-        func entries(since date: Date, matching predicate: NSPredicate?) throws -> [OSLogRecord] {
-            let found = records.filter { record in
-                record.date >= date && (predicate?.evaluate(with: ["messageType": record.level.messageType]) ?? true)
-            }
+        func entries(since date: Date, levels: Set<OSLogRecord.Level>) throws -> [OSLogRecord] {
+            let found = records.filter { $0.date >= date && levels.contains($0.level) }
             delivered = found.count
             return found
         }
     }
+
+    #if canImport(OSLog)
+    /// The predicate logd gets for the source's levels keeps errors and faults and nothing else.
+    @Test func theStorePredicateMatchesErrorsAndFaultsOnly() {
+        let predicate = OSLogStoreReader.predicate(OSLogErrorSource.harvestedLevels)
+        let kept = [OSLogRecord.Level.debug, .info, .notice, .error, .fault]
+            .filter { predicate.evaluate(with: ["messageType": $0.messageType]) }
+        #expect(kept == [.error, .fault])
+    }
+    #endif
 
     @Test func theSourceAsksTheLogStoreForErrorsAndFaultsOnly() async throws {
         let launch = Date(timeIntervalSince1970: 1_000)

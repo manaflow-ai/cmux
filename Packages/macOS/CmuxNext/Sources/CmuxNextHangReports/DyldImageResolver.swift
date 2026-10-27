@@ -1,3 +1,4 @@
+#if canImport(MachO)
 import Darwin
 import Foundation
 import MachO
@@ -85,3 +86,4 @@ public nonisolated struct DyldImageResolver: ImageResolving {
         return unsafe LoadedImage(path: path, uuid: uuid, base: UInt64(UInt(bitPattern: header)), size: textSize)
     }
 }
+#endif

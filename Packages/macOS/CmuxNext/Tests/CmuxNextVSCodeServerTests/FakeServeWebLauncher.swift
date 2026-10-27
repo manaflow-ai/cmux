@@ -1,6 +1,6 @@
+import CmuxNextCompat
 import CmuxNextVSCodeServer
 import Foundation
-import os
 
 /// A `serve-web` stand-in: each start records its launch and answers on the next port, or fails
 /// with `failure`. With `holdsStart` a start waits until ``releaseStart()``.
@@ -49,9 +49,9 @@ actor FakeServeWebLauncher: VSCodeServeWebLaunching {
 /// A fake server process: running until terminated.
 final class FakeServeWebProcess: VSCodeServeWebProcessHandle {
     // A test-only flag flipped by `terminate()` from any task; read synchronously by the test.
-    private let running = OSAllocatedUnfairLock(initialState: true)
+    private let running = Atomic(true)
 
-    var isRunning: Bool { running.withLock { $0 } }
+    var isRunning: Bool { running.load(ordering: .acquiring) }
 
-    func terminate() { running.withLock { $0 = false } }
+    func terminate() { running.store(false, ordering: .releasing) }
 }

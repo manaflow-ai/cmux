@@ -260,6 +260,7 @@ struct HangReportFieldDataFlowTests {
         #expect(await gone.captureBlackBox().isEmpty, "a dead process's ring is not merged")
     }
 
+    #if canImport(MachO)
     @Test func theAppFactoryReadsTheMetricsFolderAndTheRingsWhereTheyAre() throws {
         let bundleID = Bundle.main.bundleIdentifier
         let service = HangReportService.forThisApp(
@@ -273,4 +274,5 @@ struct HangReportFieldDataFlowTests {
         let flows = URL(filePath: "/tmp/flows", directoryHint: .isDirectory)
         #expect(HangReportFieldSources.RingFolders.app(bundleID: bundleID, flowsDirectory: flows).directories.last == flows)
     }
+    #endif
 }

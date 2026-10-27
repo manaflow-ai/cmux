@@ -122,11 +122,11 @@ public final class MainThreadReportLedger: Sendable {
 
     /// - Parameters:
     ///   - inactivityTimeoutNanos: How long without input ends an active span (Chrome's 5 minutes).
-    ///   - uptimeNanos: The clock of every stamp (`CLOCK_UPTIME_RAW`, the clock of `NSEvent.timestamp`).
+    ///   - uptimeNanos: The clock of every stamp (``systemUptimeNanos()``).
     ///   - histograms: Reads both cumulative histograms (allocates; called off the main thread when a
     ///     report is built, and once at a quit); nil when there are none.
     public init(inactivityTimeoutNanos: UInt64 = ActiveTimeLedger.defaultInactivityTimeoutNanos,
-                uptimeNanos: @escaping @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) },
+                uptimeNanos: @escaping @Sendable () -> UInt64 = MainThreadReportLedger.systemUptimeNanos,
                 histograms: @escaping @Sendable () -> Histograms?) {
         state = Mutex(State(activeTime: ActiveTimeLedger(inactivityTimeoutNanos: inactivityTimeoutNanos)))
         self.uptimeNanos = uptimeNanos

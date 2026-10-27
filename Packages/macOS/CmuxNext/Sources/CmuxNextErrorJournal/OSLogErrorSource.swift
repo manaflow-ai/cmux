@@ -3,7 +3,7 @@ public import Foundation
 /// This process's own unified-log errors and faults (`Logger.error`, `Logger.fault`, and the
 /// page console errors ``ConsoleErrorCapture`` logs). Reads `OSLogStore` scoped to the current
 /// process, after the last harvested entry of this launch; the store returns only errors and
-/// faults (``errorsAndFaults``), so other entries are never decoded in this process.
+/// faults (``harvestedLevels``), so other entries are never decoded in this process.
 ///
 /// Sources: `page:<page>` for the page console subsystem, `app` for `com.cmuxterm` subsystems,
 /// `system:<subsystem>` for frameworks logging in-process (WebKit, AppKit).
@@ -13,7 +13,8 @@ public struct OSLogErrorSource: ErrorHarvestSource {
     private let launchDate: Date
     private let reader: any OSLogReading
 
-    /// Makes the source for this process.
+    #if canImport(OSLog)
+    /// Makes the source for this process (macOS: Linux has no unified log to read).
     /// - Parameters:
     ///   - id: Cursor key.
     ///   - processID: Ties the cursor to this launch.
@@ -22,6 +23,7 @@ public struct OSLogErrorSource: ErrorHarvestSource {
                 launchDate: Date = Date()) {
         self.init(id: id, processID: processID, launchDate: launchDate, reader: OSLogStoreReader())
     }
+    #endif
 
     /// Makes the source on `reader` (tests pass a fake log store).
     init(id: String = "oslog", processID: Int32, launchDate: Date, reader: any OSLogReading) {
@@ -41,7 +43,7 @@ public struct OSLogErrorSource: ErrorHarvestSource {
         }
         // logd filters: entries below error are never decoded here. Reading every level cost the
         // app 2.6 to 4.4 mW in the windows a harvest fell in, with 20 hidden Chromium tabs (msg 2654).
-        let entries = try reader.entries(since: start, matching: Self.errorsAndFaults)
+        let entries = try reader.entries(since: start, levels: Self.harvestedLevels)
         var events: [ErrorEvent] = []
         var newest = start
         for entry in entries where entry.date > start {
@@ -55,8 +57,8 @@ public struct OSLogErrorSource: ErrorHarvestSource {
         return ErrorHarvest(events: events, cursor: "\(processID):\(ms)")
     }
 
-    /// The log store predicate for errors and faults (`messageType`, as `log show --predicate` takes it).
-    static var errorsAndFaults: NSPredicate { NSPredicate(format: "messageType == 'error' OR messageType == 'fault'") }
+    /// The levels the store hands back: errors and faults.
+    static let harvestedLevels: Set<OSLogRecord.Level> = [.error, .fault]
 
     /// Maps one log entry to an event: the first line is the message, a following `at …`
     /// line is the top frame.

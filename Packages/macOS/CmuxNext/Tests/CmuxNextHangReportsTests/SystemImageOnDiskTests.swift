@@ -5,6 +5,7 @@ import Testing
 /// macOS 11 the system dylibs live only in the dyld shared cache, not on disk, so the check must
 /// look there too (macOS 14, 15, 26 and 27 all ship them that way).
 struct SystemImageOnDiskTests {
+    #if os(macOS)
     @Test(arguments: ["libdispatch.dylib", "libsystem_kernel.dylib", "libobjc.A.dylib", "libSystem.B.dylib"])
     func aSharedCacheDylibIsApples(name: String) {
         #expect(ImageClassifier.systemImageOnDisk(name))
@@ -14,6 +15,7 @@ struct SystemImageOnDiskTests {
     func aSystemFrameworkIsApples(name: String) {
         #expect(ImageClassifier.systemImageOnDisk(name))
     }
+    #endif
 
     @Test(arguments: ["libAcmeHook-not-a-system-library.dylib", "", ".hidden", "system/libdispatch.dylib", "../libX.dylib"])
     func anyOtherNameIsNot(name: String) {

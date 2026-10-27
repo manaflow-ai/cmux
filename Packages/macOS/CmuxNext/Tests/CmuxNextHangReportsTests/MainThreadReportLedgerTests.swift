@@ -1,4 +1,6 @@
+#if canImport(AppKit)
 import AppKit
+#endif
 @testable import CmuxNextHangReports
 import CmuxNextCompat
 import CmuxNextInputCore
@@ -149,8 +151,17 @@ struct MainThreadReportLedgerTests {
         #expect(relaunched.take().isEmpty)
     }
 
-    // MARK: The feed
+    /// The default clock is monotonic on both platforms (`CLOCK_UPTIME_RAW` on macOS, `CLOCK_MONOTONIC` on Linux).
+    @Test func theDefaultClockNeverGoesBack() {
+        let first = MainThreadReportLedger.systemUptimeNanos()
+        let second = MainThreadReportLedger.systemUptimeNanos()
+        #expect(first > 0)
+        #expect(second >= first)
+    }
 
+    // MARK: The feed (the macOS app's: NSApplication activation notices)
+
+    #if canImport(AppKit)
     @MainActor @Test func theFeedForwardsActivationAndInputAtMostOnceASecond() {
         let inputs = Inputs()
         let ledger = inputs.ledger()
@@ -171,4 +182,5 @@ struct MainThreadReportLedgerTests {
         #expect(!ledger.isActive)
         withExtendedLifetime(feed) {}
     }
+    #endif
 }

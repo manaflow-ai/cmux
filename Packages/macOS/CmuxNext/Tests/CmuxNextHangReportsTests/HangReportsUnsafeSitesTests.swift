@@ -1,5 +1,4 @@
 import CmuxNextCompat
-import Darwin
 import Foundation
 @testable import CmuxNextHangReports
 import Testing
@@ -8,6 +7,7 @@ import Testing
 /// dyld resolver finds a loaded image by address and by UUID, and the blocking site id is the same FNV-1a hash
 /// of the kind, the context and each frame's UUID bytes and little-endian offset.
 struct HangReportsUnsafeSitesTests {
+    #if canImport(MachO)
     /// The address of `malloc`, in libsystem_malloc (the dyld shared cache on every supported macOS).
     private static func mallocAddress() -> UInt64? {
         // SAFETY: dlsym reads the NUL-terminated copy of the name made for the call; RTLD_DEFAULT (-2) is a handle
@@ -35,6 +35,7 @@ struct HangReportsUnsafeSitesTests {
         #expect(resolver.image(containing: 0) == nil)
         #expect(resolver.image(uuid: "00000000-0000-0000-0000-000000000000") == nil)
     }
+    #endif
 
     @Test func theSiteIdIsTheFNV1aHashOfTheKindContextAndFrameBytes() throws {
         let first = try #require(UUID(uuidString: "00112233-4455-6677-8899-AABBCCDDEEFF"))
@@ -47,8 +48,9 @@ struct HangReportsUnsafeSitesTests {
         #expect(BlockingReportBudget.site(of: violation) == "b2060c4f36c9f201")
     }
 
-    /// sysctlbyname reads `hw.machine`: every supported Mac is arm64 or x86_64, so `other` means the read failed.
-    @Test func theHardwareClassReadsTheArchitectureBySysctl() {
+    /// sysctlbyname reads `hw.machine` (uname on Linux): every supported Mac and Linux host is arm64 or x86_64,
+    /// so `other` means the read failed.
+    @Test func theHardwareClassReadsTheArchitecture() {
         #expect(["arm64", "x86_64"].contains(HardwareClass.current().arch))
     }
 

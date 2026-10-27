@@ -1,3 +1,4 @@
+#if canImport(MetricKit)
 public import Foundation
 public import MetricKit
 
@@ -81,3 +82,4 @@ public final class MetricKitSubscriber: NSObject, MXMetricManagerSubscriber, Sen
         return value.isFinite ? Int(min(max(value, 0), Double(HistogramBucket.maxMs))) : 0
     }
 }
+#endif
