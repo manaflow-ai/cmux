@@ -31,6 +31,8 @@ struct PaneResizeGestureListener {
 /// settled without frames (Reduce Motion, a hidden screen, a teardown).
 extension ScreenContentView {
     func resizeGestureMoved() {
+        // A hidden screen steps no frames, so a drag there could not land; its pages lay out as before.
+        guard !isHiddenOrHasHiddenAncestor else { return }
         if resizeGesture == .idle {
             resizeGestureListeners = displayedHosts.flatMap { $0.content.paneResizeGestureFollowers() }
                 .map { PaneResizeGestureListener(view: $0) }
@@ -59,6 +61,25 @@ extension ScreenContentView {
     func finishResizeGestureIfLanded() {
         guard resizeGesture == .landing, !hasMotion else { return }
         finishResizeGesture()
+    }
+
+    /// A screen going away: its listeners, to hand to the screen their panes moved to
+    /// (`LayoutRootView.sync`), without telling them anything.
+    func takeResizeGestureListeners() -> [PaneResizeGestureListener] {
+        guard resizeGesture != .idle else { return [] }
+        let listeners = resizeGestureListeners
+        resizeGesture = .idle
+        resizeGestureListeners = []
+        return listeners
+    }
+
+    /// Listeners whose panes came here from a screen that went away: they hear the end when this
+    /// screen's layout lands (with its own drag, when one is under way).
+    func adoptResizeGestureListeners(_ listeners: [PaneResizeGestureListener]) {
+        guard !listeners.isEmpty else { return }
+        resizeGestureListeners += listeners
+        if resizeGesture == .idle { resizeGesture = .landing }
+        context.requestFrames()
     }
 
     /// Tells the contents that heard the start that the drag is over, now.

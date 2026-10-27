@@ -42,6 +42,8 @@ extension LayoutRootView {
                 view.isHidden = true
                 // No frame steps a hidden screen: its pane springs land now, not when it shows again.
                 view.settleMotion()
+                // Nor does it land a resize drag: its pages lay out now.
+                view.finishResizeGesture()
             }
             guard shown != (view.frame, view.alphaValue, view.isHidden) else { continue }
             setNeedsOverlaySync()

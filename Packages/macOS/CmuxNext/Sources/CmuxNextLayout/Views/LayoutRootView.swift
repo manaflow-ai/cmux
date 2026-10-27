@@ -400,7 +400,11 @@ public final class LayoutRootView: NSView {
             }
         }
 
+        // A drag's pages whose panes moved to a surviving screen hear its end when that screen lands;
+        // the rest (gone with their screen) hear it now.
+        var carried: [PaneResizeGestureListener] = []
         for (id, view) in leaving {
+            carried += view.takeResizeGestureListeners()
             view.tearDown()
             view.removeFromSuperview()
             screenViews[id] = nil
@@ -414,6 +418,14 @@ public final class LayoutRootView: NSView {
             }
         }
 
+        for listener in carried {
+            guard let page = listener.view else { continue }
+            if let home = screenViews.values.first(where: { page.isDescendant(of: $0) }) {
+                home.adoptResizeGestureListeners([listener])
+            } else {
+                page.paneResizeGestureDidChange(active: false)
+            }
+        }
         // A released resize drag: its layout is in the screens now (`ScreenContentView+ResizeGesture`).
         for view in screenViews.values where view.resizeGesture == .releasing {
             view.resizeGestureModelSynced(gestureActive: snapshot.gestureActive)

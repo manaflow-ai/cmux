@@ -307,6 +307,8 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// The page (the pane's shared `CEFHostView` and the snapshot) takes
     /// the page frame; a docked DevTools and its divider take the rest.
     func layoutContent() {
+        // DevTools docked, a side panel or a device fit came up mid-drag: they lay out as before.
+        if heldPageSize != nil, !pageCanHold { dropHold() }
         let frames = tab?.devToolsController.frames(in: bounds)
             ?? CEFDevToolsLayout.Frames(page: bounds, devTools: .zero, line: .zero, grab: .zero)
         let devToolsHost = tab?.devToolsController.views?.host
@@ -372,9 +374,8 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
             layoutContent()
             return
         }
-        guard BrowserResizeTunables.holdDuringDrag.value, heldPageSize == nil, window != nil, let tab,
-              tab.host.hostView.superview === self, tab.devToolsController.views == nil,
-              tab.sidePanel.state == nil, tab.deviceEmulation == nil else { return }
+        guard BrowserResizeTunables.holdDuringDrag.value, heldPageSize == nil, window != nil, pageCanHold,
+              let tab else { return }
         let size = tab.host.hostView.frame.size
         guard size.width > 0, size.height > 0 else { return }
         heldPageSize = size
@@ -383,6 +384,13 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         layer?.masksToBounds = true
         // A see-through page (a cmux page) shows the pane under it, so its gap does too.
         layer?.backgroundColor = tab.host.hostView.pageSeeThrough ? nil : tab.pageBackdropColor
+    }
+
+    /// A plain page shown here: no docked DevTools, side panel or device fit, which place the page themselves.
+    private var pageCanHold: Bool {
+        guard let tab else { return false }
+        return tab.host.hostView.superview === self && tab.devToolsController.views == nil
+            && tab.sidePanel.state == nil && tab.deviceEmulation == nil
     }
 
     /// Lets go of a held page size; the next layout gives the page its frame.
