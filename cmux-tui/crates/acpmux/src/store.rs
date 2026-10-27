@@ -117,8 +117,7 @@ pub struct SessionMeta {
     /// Model family of the profile at creation (`claude`, `codex`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
-    /// Preset the session was created from (`-p NAME`); its env is
-    /// re-applied on every respawn.
+    /// Preset the session was created from (`-p NAME`); its env is re-applied on every respawn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<String>,
     /// Model requested for a harness whose argv or env carries `${model}`:
@@ -163,6 +162,9 @@ pub struct SessionMeta {
     pub models: Option<Value>,
     #[serde(default)]
     pub permission_policy: Option<String>,
+    /// Who set `permission_policy` (`hub/policy_source.rs`); None from an older daemon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_source: Option<String>,
     #[serde(default)]
     pub title: Option<String>,
     /// Who set `title` (`hub/titles.rs`): `prompt` (its first prompt's line),
@@ -198,9 +200,8 @@ pub struct SessionMeta {
     /// sent after each turn; none from any other harness.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_breakdown: Option<Value>,
-    /// The account's plan usage limits (`claude_stdio::usage_limits`), newest
-    /// per window, from Claude Code's `rate_limit_event`; none from any other
-    /// harness.
+    /// The account's plan usage limits (`claude_stdio::usage_limits`), newest per window, from
+    /// Claude Code's `rate_limit_event`; none from any other harness.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage_limits: Option<Value>,
     /// The agent's newest `available_commands_update` (its slash commands), so
@@ -228,10 +229,9 @@ pub struct SessionMeta {
     /// with "No conversation found with session ID".
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub claude_unstored: bool,
-    /// The profile whose Claude store (its CLAUDE_CONFIG_DIR) holds the
-    /// current Claude conversation: the one that started or forked it. A
-    /// respawn on another profile (a failover) resumes only when that
-    /// profile's store has the conversation, else starts fresh (E1).
+    /// The profile whose Claude store (its CLAUDE_CONFIG_DIR) holds the current Claude
+    /// conversation: the one that started or forked it. A respawn on another profile (a failover)
+    /// resumes only when that profile's store has the conversation, else starts fresh (E1).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claude_profile: Option<String>,
     /// Outcome of the last turn: {turnId, promptId, status, stopReason?,
@@ -242,6 +242,12 @@ pub struct SessionMeta {
     /// its harness never spawns with a preset's args or system prompt.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remote_origin: bool,
+    /// A remote-origin session whose caller asked for the VM boundary
+    /// (`hub/vm_boundary.rs`): its Claude Code runs without the platform
+    /// sandbox while this machine takes the boundary. A fork or sub-session
+    /// keeps it, as it keeps `remote_origin`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub vm_boundary: bool,
     /// Per-session env (`session_env.rs`): allowlisted keys set by the unix
     /// socket on session/new or session/fork, applied over the preset env at
     /// every spawn. Never copied to a fork or a handoff.
