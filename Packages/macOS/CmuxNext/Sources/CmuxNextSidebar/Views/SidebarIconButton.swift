@@ -94,6 +94,7 @@ final class SidebarIconButton: NSButton {
     /// computer-use agent that read the error pressed again and made a second workspace.
     override func accessibilityPerformPress() -> Bool {
         guard let onPress else { return super.accessibilityPerformPress() }
+        // visibility-walk-allow: accessibility press: a hidden button refuses AXPress
         guard isEnabled, !isHiddenOrHasHiddenAncestor else { return false }
         onPress()
         return true
@@ -139,6 +140,7 @@ final class SidebarIconButton: NSButton {
         let clicked = (window as? InputTapHosting)?.inputTap?.lastDispatched?.eventClass == .button
         return fullKeyboardAccess() && isEnabled && !clicked
     }
+    // visibility-walk-allow: AppKit's key-view loop asks the view itself (Full Keyboard Access); a hidden view never takes the focus
     override var canBecomeKeyView: Bool { takesKeyFocus ? acceptsFirstResponder && !isHiddenOrHasHiddenAncestor : super.canBecomeKeyView }
 
     override func becomeFirstResponder() -> Bool {
@@ -185,12 +187,14 @@ final class SidebarIconButton: NSButton {
     /// A button hidden under the pointer (the header + while the sidebar
     /// is not hovered) gets no exit event; the hover owner clears it, and it
     /// reappears with the hover the pointer gives it then.
+    // visibility-walk-allow: input state on hide: the press ends and the hover owner clears it (a hidden button gets no exit event)
     override func viewDidHide() {
         super.viewDidHide()
         changeHover { $0.pressed = false }
         hover.pointer?.refresh()
     }
 
+    // visibility-walk-allow: the hover refresh of an unhide (PointerHover hit test): the button takes the hover the pointer gives it now
     override func viewDidUnhide() {
         super.viewDidUnhide()
         hover.pointer?.refresh()

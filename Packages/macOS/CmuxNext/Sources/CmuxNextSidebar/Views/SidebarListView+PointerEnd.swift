@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextInput
+import CmuxNextWakeups
 
 // Leo 2026-10-20 (nightly): a click during a drag, a click that became a small drag, or a quick double-click left a
 // row in the selection fill that never cleared, beside the focused one. The fills a gesture sets (the hovered row, the
@@ -100,16 +101,17 @@ extension SidebarListViewComponents {
         }
     }
 
-    /// Observes the window losing key (`pointerWindowLostKey`) and the app resigning active (`pointerFocusLost`).
-    func observeFocusLoss(of window: NSWindow?) -> [any NSObjectProtocol] {
-        let center = NotificationCenter.default
-        // queue: .main (inline for AppKit's post on main); a selector into this main-actor view trapped off main.
-        var observers = [center.addObserver(forName: NSApplication.didResignActiveNotification, object: NSApp, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.pointerFocusLost() } // main-proof: observer on queue: .main
+    /// Observes the window losing key (`pointerWindowLostKey`) and the app resigning active (`pointerFocusLost`): one
+    /// observer per window and per app, fanned out (``WindowEvents``, ``AppEvents``). No node: a gesture the list
+    /// holds ends whether or not the list shows, as a Chromium view ends its press when it loses the mouse capture
+    /// (ui/views/view.h, `View::OnMouseCaptureLost`).
+    func observeFocusLoss(of window: NSWindow?) -> [EventSubscription] {
+        var observers = [appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "SidebarListView.pointerEnd") { [weak self] in
+            self?.pointerFocusLost()
         }]
         if let window {
-            observers.append(center.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.pointerWindowLostKey() } // main-proof: observer on queue: .main
+            observers.append(WindowEvents.of(window).subscribe(NSWindow.didResignKeyNotification, owner: "SidebarListView.pointerEnd") { [weak self] in
+                self?.pointerWindowLostKey()
             })
         }
         return observers

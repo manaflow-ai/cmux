@@ -17,6 +17,7 @@ mod dock_columns;
 mod history_agent_fold;
 mod journal_roster;
 mod kitty_budget;
+mod kitty_budget_share;
 mod kitty_reservation;
 mod layout_apply_focus;
 mod layout_undo;

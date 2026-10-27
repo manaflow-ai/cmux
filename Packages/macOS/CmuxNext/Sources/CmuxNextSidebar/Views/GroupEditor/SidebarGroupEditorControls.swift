@@ -51,6 +51,7 @@ final class SidebarGroupSwatchView: NSView {
         updateColors()
     }
 
+    // visibility-walk-allow: sets the swatch's layer colors and its accessibility value only (no layout); the editor is a shown bubble
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateColors()
@@ -130,6 +131,7 @@ final class SidebarGroupEditorRow: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
+    // visibility-walk-allow: sets the row's hover fill and its text and icon colors only (no layout); the editor is a shown bubble
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateColors()

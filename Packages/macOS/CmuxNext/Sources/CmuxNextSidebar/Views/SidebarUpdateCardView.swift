@@ -41,6 +41,7 @@ final class SidebarUpdateCardView: NSView {
             oldValue?.onHeightChange = nil
             oldValue?.view.removeFromSuperview()
             highlights?.onAction = { [weak self] in self?.hideNotes() }
+            highlights?.onHeightChange = { [weak self] in self?.highlightsHeightChanged() }
             parkHighlights()
         }
     }
@@ -67,6 +68,7 @@ final class SidebarUpdateCardView: NSView {
         highlights.view.frame = parking.bounds
         highlights.view.autoresizingMask = [.width, .height]
         parking.addSubview(highlights.view)
+        highlights.didPark()
     }
     /// The highlights page's host in the app's one hover card (menu-wide, page-tall).
     let notesHost = SidebarPopoverIslandHost(width: SidebarUpdateCardView.popoverWidth)
