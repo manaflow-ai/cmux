@@ -269,65 +269,55 @@ final class LinkOpener {
     /// Moves the new tab on `surface` out of `source` to `destination` (a new split, column or dock)
     /// once the store lists it, then focuses it unless not `focus`. Until then `source`'s strip leaves it
     /// out when `outbound` is supplied. A failed move selects it where it is, so it never stays hidden.
+    // SCRATCH TEST ONLY (cp/lag-first-key-revert-test, never lands): v1.1's move (673587c97dc), to test whether
+    // p06-scheduler-320's budgeted move made new terminals from Home's dock lose their first keys.
     private func move(_ surface: SurfaceID, from source: PaneController, to destination: Destination, focus: Bool,
                       target: FocusState.Target = .content, outbound: OutboundTab? = nil) {
         outbound?.made(surface)
         let services = source.services, store = source.daemon.store
         let intent = focus ? source.workspace?.beginFocusIntent() : nil
-        // R-wait: the wait for the store to list the tab is a FirstValueWait and the move is TabMoves' callback, both
-        // on main in the run's class (userBlocking for a person's link, p06 rule 2) and scopes. The tracked task runs
-        // off main and only waits for their last step.
-        let end = services.registry.completion(on: services.mainWork)
-        // One last step is ever yielded.
-        let (steps, step) = AsyncStream.makeStream(of: (@Sendable () async -> ActionWorkFailure?).self, bufferingPolicy: .bufferingNewest(1))
-        let finish: @MainActor (ActionWorkFailure?) -> Void = { failure in
-            step.yield { failure }
-            step.finish()
-        }
-        FirstValueWait.start(end.workClass, owner: "LinkOpener.tabListed", within: listLimit, work: services.mainWork,
-                             deadlines: services.mainDeadlines) {
-            // `tabListRevision`: the tracked read hears the tab appear (AppServices.locateTab).
-            _ = store.tabListRevision
-            return store.tab(surface: surface)
-        } then: { [weak source] found in
-            end.run {
-                guard let tab = found, let source, let anchor = store.pane(holding: tab) else {
-                    outbound?.finish(moved: false)
-                    return finish("link open: the new tab did not open")
+        services.registry.track(Task { @MainActor [weak source] () -> ActionWorkFailure? in
+            let listed = Task { @MainActor () -> TabModel? in
+                if let tab = store.tab(surface: surface) { return tab }
+                // `tabListRevision`: the tracked read hears the tab appear (AppServices.locateTab).
+                for await found in ObservationStream({ _ = store.tabListRevision; return store.tab(surface: surface) != nil }) where found {
+                    return store.tab(surface: surface)
                 }
-                let ended: @MainActor (Bool) -> Void = { moved in
-                    end.run(answering: true) {
-                        outbound?.finish(moved: moved)
-                        guard moved else {
-                            source.select(StripTabID(tab.id))
-                            if focus { source.focusContent() }
-                            return finish("link open: the move to the right failed (see the app log)")
-                        }
-                        if let intent { source.workspace?.expectFocus(on: surface, target: target, awayFrom: source.paneKey, generation: intent) }
-                        guard case .besideColumn = destination else { return finish(nil) }
-                        let id = tab.id
-                        step.yield { await AgentBesidePlacement.revealMoved(id, from: anchor, services: services); return nil }
-                        step.finish()
-                    }
-                }
-                // An open in the background keeps the focus where it is: the daemon's move would focus the tab.
-                let keepFocus = !focus
+                return nil
+            }
+            let bound = DemandTimer(owner: "LinkOpener.tabListed")
+            bound.scheduleOnMain(after: self.listLimit) { listed.cancel() }
+            let found = await listed.value
+            bound.cancel()
+            guard let tab = found, let source, let anchor = store.pane(holding: tab) else {
+                outbound?.finish(moved: false)
+                return "link open: the new tab did not open"
+            }
+            // An open in the background keeps the focus where it is: the daemon's move would focus the tab.
+            let keepFocus = !focus
+            let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                 switch destination {
                 case .besideColumn:
                     let after = AgentBesidePlacement.newColumn(beside: anchor, in: store)
-                    TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services, keepFocus: keepFocus) { ended($0) }
+                    TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services, keepFocus: keepFocus) { done.resume(returning: $0) }
                 case .column(let after):
-                    TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services, keepFocus: keepFocus) { ended($0) }
+                    TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services, keepFocus: keepFocus) { done.resume(returning: $0) }
                 case .split(let edge):
-                    TabMoves.toNewSplit(tab, pane: anchor, edge: edge, services: services, keepFocus: keepFocus) { ended($0) }
+                    TabMoves.toNewSplit(tab, pane: anchor, edge: edge, services: services, keepFocus: keepFocus) { done.resume(returning: $0) }
                 case .dock(let edge):
-                    TabMoves.toNewDockColumn(tab, anchor: anchor, edge: edge, services: services) { ended($0) }
+                    TabMoves.toNewDockColumn(tab, anchor: anchor, edge: edge, services: services) { done.resume(returning: $0) }
                 }
             }
-        }
-        services.registry.track(end.start {
-            for await last in steps { return await last() }
-            return nil
+            let column = if case .besideColumn = destination { true } else { false }
+            outbound?.finish(moved: moved)
+            if moved {
+                if let intent { source.workspace?.expectFocus(on: surface, target: target, awayFrom: source.paneKey, generation: intent) }
+                if column { await AgentBesidePlacement.revealMoved(tab.id, from: anchor, services: services) }
+                return nil
+            }
+            source.select(StripTabID(tab.id))
+            if focus { source.focusContent() }
+            return "link open: the move to the right failed (see the app log)"
         })
     }
 }
