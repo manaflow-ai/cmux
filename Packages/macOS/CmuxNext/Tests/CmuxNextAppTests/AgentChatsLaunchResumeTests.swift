@@ -1,5 +1,5 @@
 import CmuxNextActions
-import CmuxNextAgentPane
+@testable import CmuxNextAgentPane
 import CmuxNextDaemon
 import Foundation
 import Testing
@@ -46,9 +46,9 @@ struct AgentChatsLaunchResumeTests {
 
         await tabs.resumeChatsAtLaunch()
         let warmed = await host.warmed
-        #expect(warmed.allSatisfy { $0.count == 1 })
+        #expect(warmed.count == 1, "one ownership census per recorded host")
         #expect(Set(warmed.flatMap { $0 }) == ["s-shown", "s-hidden", "s-hidden-2"])
-        #expect(warmed.count == 3)
+        #expect(warmed.flatMap { $0 }.count == 3)
         #expect(await chief.warmed == [["s-chief"]])
     }
 
@@ -66,42 +66,69 @@ struct AgentChatsLaunchResumeTests {
         #expect(await host.warmed.isEmpty)
     }
 
-    @Test func launchResumeRetriesWhenTheInstallHostArrivesAfterTheFirstTree() async throws {
+    @Test func launchWaitsForTheInstallHostWithoutAnotherTreeRevision() async throws {
         let host = AgentChatsLaunchResumeRecordingHost()
         let tabs = Self.tabs([(key: "tab-a", record: AgentSessionRef(host: Self.thisMac, session: "s-late"))], host: host)
         tabs.localHost = nil
-        var resolutions = 0
-        let (resolutionEvents, resolutionContinuation): (AsyncStream<Int>, AsyncStream<Int>.Continuation) = AsyncStream.makeStream()
-        tabs.resolveLocalHost = {
-            resolutions += 1
-            resolutionContinuation.yield(resolutions)
-            return resolutions >= 2 ? Self.thisMac : nil
+        tabs.resolveLocalHost = { Issue.record("launch must use the async install-id loader"); return nil }
+        let (loads, loaded) = AsyncStream<Void>.makeStream()
+        let (identities, identity) = AsyncStream<String>.makeStream()
+        tabs.loadLocalHostForLaunch = {
+            loaded.yield(())
+            for await value in identities { return value }
+            throw CancellationError()
         }
         let store = DaemonStore()
         tabs.resumeChatsWhenLoaded(store)
         defer { tabs.launchResumeTask?.cancel() }
-        let tree = DaemonTree(workspaces: [])
-        store.applyProvisional(snapshot: tree)
-        store.apply(.connected(DaemonIdentity(generation: DaemonGeneration(rawValue: "late-host-test")), generationChanged: false))
-        store.apply(snapshot: tree)
-        let firstResolution = try await withAgentPaneDeadline(Duration.seconds(5), label: "first install host resolution") {
-            for await resolution in resolutionEvents where resolution == 1 { return resolution }
-            throw AgentPaneDeadlineExceeded(label: "first install host resolution")
+        store.apply(.connected(DaemonIdentity(generation: DaemonGeneration(rawValue: "late-host")), generationChanged: false))
+        store.apply(snapshot: DaemonTree(workspaces: []))
+        _ = try await withAgentPaneDeadline(.seconds(5), label: "identity read started") {
+            for await _ in loads { return true }
+            return false
         }
-        #expect(firstResolution == 1)
-        // The first live revision sees no install host. A later tree revision is the real readiness
-        // signal for this Mac's daemon and must retry the launch census instead of ending the task.
-        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: nil,
-                                                                          name: "Retry", screens: [])]))
-        let sessions = try await withAgentPaneDeadline(Duration.seconds(5), label: "late install host launch retry") {
-            var sessions: [String] = []
-            for await session in host.resumed {
-                sessions.append(session)
-                if sessions.count == 1 { break }
-            }
-            return sessions
+        #expect(await host.warmed.isEmpty)
+        identity.yield(Self.thisMac)
+        // No store event follows the identity response.
+        let session = try await withAgentPaneDeadline(.seconds(5), label: "late identity resumes chat") {
+            for await value in host.resumed { return value }
+            return ""
         }
-        #expect(sessions == ["s-late"])
+        #expect(session == "s-late")
+        await tabs.launchResumeTask?.value
+    }
+
+    @Test func aTransientWarmFailureRetriesWithoutAnotherTreeEvent() async {
+        let host = AgentChatsLaunchResumeRecordingHost(failures: 1)
+        let tabs = Self.tabs([(key: "tab", record: AgentSessionRef(host: Self.thisMac, session: "retry"))], host: host)
+        #expect(await tabs.resumeChatsAtLaunch(clock: AgentLaunchTestClock()))
+        #expect(await host.warmed == [["retry"], ["retry"]])
+    }
+
+    @Test func persistentWarmFailureHasABoundedNumberOfAttempts() async {
+        let host = AgentChatsLaunchResumeRecordingHost(failures: 10)
+        let tabs = Self.tabs([(key: "tab", record: AgentSessionRef(host: Self.thisMac, session: "retry"))], host: host)
+        #expect(await tabs.resumeChatsAtLaunch(clock: AgentLaunchTestClock()) == false)
+        #expect(await host.warmed.count == 3)
+    }
+
+    @Test func quitCancelsAndDrainsAnInFlightWarm() async throws {
+        let host = AgentChatsLaunchResumeRecordingHost(blocked: true)
+        let tabs = Self.tabs([(key: "tab", record: AgentSessionRef(host: Self.thisMac, session: "stop"))], host: host)
+        let store = DaemonStore()
+        tabs.resumeChatsWhenLoaded(store, clock: AgentLaunchTestClock())
+        store.apply(.connected(DaemonIdentity(generation: DaemonGeneration(rawValue: "quit")), generationChanged: false))
+        store.apply(snapshot: DaemonTree(workspaces: []))
+        let first = try await withAgentPaneDeadline(.seconds(5), label: "warm starts") {
+            for await session in host.resumed { return session }
+            return ""
+        }
+        #expect(first == "stop")
+        try await withAgentPaneDeadline(.seconds(5), label: "quit cancels launch") {
+            await tabs.cancelLaunchResume()
+        }
+        #expect(tabs.launchResumeTask?.isCancelled == true)
+        #expect(await host.warmed.count == 1)
     }
 
     @Test func releasingTabsBeforeConnectCancelsTheLaunchWait() async throws {
@@ -115,6 +142,16 @@ struct AgentChatsLaunchResumeTests {
         #expect(task.isCancelled)
         await task.value
         #expect(await host.warmed.isEmpty)
+    }
+
+    @Test func aLocalWarmFailureStillWarmsTheChiefBatch() async {
+        let local = AgentChatsLaunchResumeRecordingHost(failures: 1)
+        let chief = AgentChatsLaunchResumeRecordingHost()
+        let router = AcpmuxChiefSessionRouter(local: local, chief: chief) { $0 == "chief" }
+        await #expect(throws: AgentPaneHostError.self) {
+            try await router.warm(sessionIds: ["local", "chief"])
+        }
+        #expect(await chief.warmed == [["chief"]])
     }
 
     @Test func theChiefRouterWarmsEachSessionInTheAcpmuxThatOwnsIt() async throws {

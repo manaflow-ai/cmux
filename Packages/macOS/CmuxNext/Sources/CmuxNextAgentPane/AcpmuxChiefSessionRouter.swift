@@ -9,12 +9,20 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
     private let local: any AgentPaneHostProviding
     private let chief: any AgentPaneHostProviding
     private let chiefOwns: @Sendable (String) async -> Bool
+    private let chiefBatchOwns: (@Sendable ([String]) async -> Set<String>)?
 
     public init(local: any AgentPaneHostProviding, chief: any AgentPaneHostProviding,
                 chiefOwns: @escaping @Sendable (String) async -> Bool) {
+        self.init(local: local, chief: chief, chiefOwns: chiefOwns, chiefBatchOwns: nil)
+    }
+
+    private init(local: any AgentPaneHostProviding, chief: any AgentPaneHostProviding,
+                 chiefOwns: @escaping @Sendable (String) async -> Bool,
+                 chiefBatchOwns: (@Sendable ([String]) async -> Set<String>)?) {
         self.local = local
         self.chief = chief
         self.chiefOwns = chiefOwns
+        self.chiefBatchOwns = chiefBatchOwns
     }
 
     /// Asks the Chief home's acpmux (`environment`) whether it runs `session` for `parentTag`.
@@ -28,10 +36,16 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
                 chiefEnvironment environment: AcpmuxEnvironment?, sessionsHome: URL? = nil, parentTag: String) {
         let socket = environment?.socketPath
         let kept = sessionsHome ?? environment?.home
-        let cache = ChiefSessionOwnershipCache(socket: socket, home: kept, parentTag: parentTag)
-        self.init(local: local, chief: chief) { session in
-            await cache.owns(session)
-        }
+        self.init(local: local, chief: chief, chiefOwns: { session in
+            await ChiefSessionOwnershipCache(socket: socket, home: kept, parentTag: parentTag).owns(session)
+        }, chiefBatchOwns: { sessions in
+            let cache = ChiefSessionOwnershipCache(socket: socket, home: kept, parentTag: parentTag)
+            var owned = Set<String>()
+            for session in sessions {
+                if await cache.owns(session) { owned.insert(session) }
+            }
+            return owned
+        })
     }
 
     /// Whether acpmux home `home` keeps session `session` on disk (`sessions/<id>`).
@@ -91,11 +105,28 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
     public func warm(sessionIds: [String]) async throws {
         var localSessions: [String] = []
         var chiefSessions: [String] = []
-        for session in sessionIds {
-            if await chiefOwns(session) { chiefSessions.append(session) } else { localSessions.append(session) }
+        try Task.checkCancellation()
+        let owned: Set<String>
+        if let chiefBatchOwns { owned = await chiefBatchOwns(sessionIds) } else {
+            var result = Set<String>()
+            for session in sessionIds {
+                if await chiefOwns(session) { result.insert(session) }
+            }
+            owned = result
         }
-        if !localSessions.isEmpty { try await local.warm(sessionIds: localSessions) }
-        if !chiefSessions.isEmpty { try await chief.warm(sessionIds: chiefSessions) }
+        for session in sessionIds {
+            if owned.contains(session) { chiefSessions.append(session) } else { localSessions.append(session) }
+        }
+        try Task.checkCancellation()
+        var failure: (any Error)?
+        if !localSessions.isEmpty {
+            do { try await local.warm(sessionIds: localSessions) } catch { failure = error }
+        }
+        try Task.checkCancellation()
+        if !chiefSessions.isEmpty {
+            do { try await chief.warm(sessionIds: chiefSessions) } catch { failure = error }
+        }
+        if let failure { throw failure }
     }
 
     /// The folder of `sessionId` from the host that owns it (the chief's or

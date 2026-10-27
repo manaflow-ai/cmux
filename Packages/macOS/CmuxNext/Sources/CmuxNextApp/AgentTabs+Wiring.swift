@@ -161,6 +161,10 @@ extension AgentTabStore {
             return (page, handler)
         }
         tabs.onFirstPageToken = { [weak services] token in services?.keyRouter.newTabInputCoordinator.attachIncoming(token) }
+        tabs.loadLocalHostForLaunch = { [weak services] in
+            guard let services else { throw CancellationError() }
+            return AgentSessionRef.host(installID: try await services.cloud.installID())
+        }
         tabs.resolveLocalHost = { [weak services] in
             guard let services else { return nil }
             guard let id = try? services.cloud.localDeviceID() else { services.daemon.logger.error("agent tabs: no install id, new agent tabs are refused"); return nil }

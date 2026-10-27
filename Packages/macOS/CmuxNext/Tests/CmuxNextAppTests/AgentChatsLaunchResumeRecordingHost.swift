@@ -7,7 +7,12 @@ actor AgentChatsLaunchResumeRecordingHost: AgentPaneHostProviding {
     private let continuation: AsyncStream<String>.Continuation
     var warmed: [[String]] = []
 
-    init() {
+    private var failures: Int
+    private let blocked: Bool
+
+    init(failures: Int = 0, blocked: Bool = false) {
+        self.failures = failures
+        self.blocked = blocked
         (resumed, continuation) = AsyncStream.makeStream()
     }
 
@@ -15,5 +20,15 @@ actor AgentChatsLaunchResumeRecordingHost: AgentPaneHostProviding {
     func warm(sessionIds: [String]) async throws {
         warmed.append(sessionIds)
         for session in sessionIds { continuation.yield(session) }
+        if failures > 0 {
+            failures -= 1
+            throw AgentPaneHostError.daemonRestarting
+        }
+        if blocked {
+            let (stream, hold) = AsyncStream<Void>.makeStream()
+            defer { hold.finish() }
+            for await _ in stream {}
+            try Task.checkCancellation()
+        }
     }
 }

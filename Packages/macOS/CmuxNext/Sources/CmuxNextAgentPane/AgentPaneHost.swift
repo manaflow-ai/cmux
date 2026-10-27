@@ -202,13 +202,23 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// One `_acpmux/warm` per session: the daemon warms one session per folder in a call, so
     /// two chats in one folder would leave the second stopped.
     public func warm(sessionIds: [String]) async throws {
+        try Task.checkCancellation()
         guard !sessionIds.isEmpty else { return }
         _ = try await endpoint(startsDaemon: true)
+        try Task.checkCancellation()
         guard let socket = environment?.socketPath else { throw AgentPaneHostError.acpmuxNotFound }
+        var failure: (any Error)?
         for session in sessionIds {
+            try Task.checkCancellation()
             let params: [String: any Sendable] = ["sessionIds": [session], "limit": 1]
-            _ = try await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/warm", params: params, deadline: .seconds(60))
+            do {
+                _ = try await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/warm", params: params, deadline: .seconds(60))
+            } catch {
+                try Task.checkCancellation()
+                failure = error
+            }
         }
+        if let failure { throw failure }
     }
 
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? {

@@ -34,6 +34,7 @@ struct AgentChatsStartupTests {
         let tabs = services.agentTabs
         let host = AgentChatsStartupRecordingHost()
         tabs.localHost = Self.thisMac
+        tabs.loadLocalHostForLaunch = { Self.thisMac }
         tabs.localSessionHost = host
         let resumed = host.resumed
 
