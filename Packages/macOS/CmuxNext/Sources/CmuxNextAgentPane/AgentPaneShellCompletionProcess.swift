@@ -74,18 +74,18 @@ nonisolated final class CompletionProcess: Sendable {
         let reader = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         state.withLock { $0.reader = reader }
         reader.readabilityHandler = { [self] handle in
-            // concurrency-allow: the readability handler runs on a background queue once data is ready.
-            let data = handle.availableData
-            if data.isEmpty {
+            // Runs on Foundation's pipe queue, never main, once data is ready: the read does not wait.
+            // A failed read ends the output as EOF does; the exit status still decides.
+            guard case .bytes(let data) = handle.readAvailable() else {
                 handle.readabilityHandler = nil
                 finish { $0.closed = true; $0.reader = nil }
-            } else {
-                let full = state.withLock { state in
-                    state.output.append(data)
-                    return state.output.count > AgentPaneShellCompletion.maximumOutput
-                }
-                if full { give(up: false) }
+                return
             }
+            let full = state.withLock { state in
+                state.output.append(data)
+                return state.output.count > AgentPaneShellCompletion.maximumOutput
+            }
+            if full { give(up: false) }
         }
         // Reaped from an exit source on its own queue, so no thread waits in `waitpid` while it runs; the Tab waits.
         ChildExitWatch(pid: pid, queue: DispatchQueue(label: "cmux.next.agent-pane.shell-complete-reap.\(pid)", qos: .userInitiated))

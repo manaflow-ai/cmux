@@ -5,6 +5,7 @@
 // detailsinfo, detailspress <control>, settext <text>, composertext); replies go to stdout.
 import AppKit
 import CmuxConversationMacUI
+import Darwin
 
 let arguments = CommandLine.arguments
 let endpoint = URL(string: arguments.count > 1 ? arguments[1] : "ws://127.0.0.1:4870/ws?conversation=group")!
@@ -48,10 +49,14 @@ if arguments.count > 3 {
         // reading to EOF and reopening dropped lines from back-to-back writes.
         guard let handle = FileHandle(forUpdatingAtPath: fifo) else { return }
         var pending = Data()
+        var chunk = Data(count: 64 * 1024)
         while true {
-            let chunk = handle.availableData
-            if chunk.isEmpty { continue }
-            pending.append(chunk)
+            // One read(2) per wake, as FileHandle's legacy read did, but a failed read ends the control
+            // thread instead of raising an Objective-C exception.
+            let count = chunk.withUnsafeMutableBytes { Darwin.read(handle.fileDescriptor, $0.baseAddress, $0.count) }
+            if count < 0, errno == EINTR { continue }
+            guard count > 0 else { return }
+            pending.append(chunk.prefix(count))
             guard let lastNewline = pending.lastIndex(of: UInt8(ascii: "\n")) else { continue }
             let complete = pending[pending.startIndex...lastNewline]
             pending = Data(pending[pending.index(after: lastNewline)...])

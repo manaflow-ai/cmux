@@ -55,9 +55,8 @@ package final class ChildProcess: Sendable {
         let splitter = LineSplitter()
         let continuation = continuation
         stdout.fileHandleForReading.readabilityHandler = { handle in
-            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
-            if data.isEmpty {
+            // Runs on Foundation's pipe queue, never main, once data is ready: the read does not wait.
+            guard case .bytes(let data) = handle.readAvailable() else {
                 handle.readabilityHandler = nil
                 continuation.finish()
                 return
@@ -65,9 +64,8 @@ package final class ChildProcess: Sendable {
             for line in splitter.append(data) { continuation.yield(line) }
         }
         stderr.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
-            if data.isEmpty { handle.readabilityHandler = nil; return }
+            // Runs on Foundation's pipe queue, never main, once data is ready: the read does not wait.
+            guard case .bytes(let data) = handle.readAvailable() else { handle.readabilityHandler = nil; return }
             self?.state.withLock { state in
                 state.stderrTail.append(data)
                 if state.stderrTail.count > 4096 { state.stderrTail.removeFirst(state.stderrTail.count - 4096) }

@@ -11,6 +11,8 @@ nonisolated final class AgentPaneLineReader: Sendable {
     nonisolated enum Failure: Error, Equatable {
         /// The writers closed the pipe before a full line.
         case endOfFile
+        /// The pipe could not be read (`read(2)` failed with this errno).
+        case unreadable(errno: Int32)
         case lineTooLong
     }
 
@@ -34,8 +36,8 @@ nonisolated final class AgentPaneLineReader: Sendable {
             try await withOnceThrowingContinuation { (continuation: OnceContinuation<String, any Error>) in
                 // Reading starts before the continuation is stored: a line or a
                 // cancel that lands in between is kept in `outcome` and resumed here.
-                // concurrency-allow: readabilityHandler runs on the handle's own dispatch queue and data is already available
-                handle.readabilityHandler = { [self] handle in receive(handle.availableData) }
+                // Runs on Foundation's pipe queue, never main, once data is ready: the read does not wait.
+                handle.readabilityHandler = { [self] handle in receive(handle.readAvailable()) }
                 let early = state.withLock { state -> Result<String, any Error>? in
                     if state.outcome == nil { state.continuation = continuation }
                     return state.outcome
@@ -50,9 +52,14 @@ nonisolated final class AgentPaneLineReader: Sendable {
         }
     }
 
-    /// Feeds bytes as the dispatch source delivers them; empty data is EOF.
-    func receive(_ chunk: Data) {
-        guard !chunk.isEmpty else { return finish(.failure(Failure.endOfFile)) }
+    /// Feeds what the dispatch source delivers: bytes, or the end of the pipe.
+    func receive(_ read: FileHandle.AvailableRead) {
+        let chunk: Data
+        switch read {
+        case .bytes(let bytes): chunk = bytes
+        case .end(.endOfFile): return finish(.failure(Failure.endOfFile))
+        case .end(.failed(let code)): return finish(.failure(Failure.unreadable(errno: code)))
+        }
         let line = state.withLock { state -> Result<String, any Error>? in
             state.buffer += chunk
             if let newline = state.buffer.firstIndex(of: 0x0A) {

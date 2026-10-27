@@ -29,28 +29,6 @@ extension FileHandle {
         return try blockingCall(.fileIO, fileID: fileID, line: line) { try read(upToCount: count) }
     }
 
-    /// The bytes available now, like `availableData`, as a checked blocking call
-    /// (``blockingCall(_:fileID:line:_:)``): with nothing available it waits for a write.
-    ///
-    /// - Parameters:
-    ///   - fileID: The calling code's `#fileID` (names the call site).
-    ///   - line: The calling code's `#line`.
-    @inlinable
-    public func blockingAvailableData(fileID: StaticString = #fileID, line: UInt = #line) -> Data {
-        return blockingCall(.fileIO, fileID: fileID, line: line) { availableData } // concurrency-allow: the checked seam; blockingCall reports a main-thread call
-    }
-
-    /// Reads to the end, like `readDataToEndOfFile()`, as a checked blocking call
-    /// (``blockingCall(_:fileID:line:_:)``).
-    ///
-    /// - Parameters:
-    ///   - fileID: The calling code's `#fileID` (names the call site).
-    ///   - line: The calling code's `#line`.
-    @inlinable
-    public func blockingReadDataToEndOfFile(fileID: StaticString = #fileID, line: UInt = #line) -> Data {
-        return blockingCall(.fileIO, fileID: fileID, line: line) { readDataToEndOfFile() } // concurrency-allow: the checked seam; blockingCall reports a main-thread call
-    }
-
     /// Writes the bytes, like `write(_:)`, as a checked blocking call
     /// (``blockingCall(_:fileID:line:_:)``).
     ///

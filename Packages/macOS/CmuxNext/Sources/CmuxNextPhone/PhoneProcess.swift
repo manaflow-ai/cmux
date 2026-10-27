@@ -80,9 +80,8 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
         let errPipe = Pipe()
         process.standardError = errPipe
         errPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
-            if data.isEmpty { handle.readabilityHandler = nil; return }
+            // Runs on Foundation's pipe queue, never main, once data is ready: the read does not wait.
+            guard case .bytes(let data) = handle.readAvailable() else { handle.readabilityHandler = nil; return }
             self?.state.withLock { state in
                 state.stderr.append(data)
                 if state.stderr.count > 16_384 { state.stderr.removeFirst(state.stderr.count - 16_384) }
@@ -95,9 +94,8 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
             let outPipe = Pipe()
             process.standardOutput = outPipe
             outPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-                // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-                let data = handle.availableData
-                if data.isEmpty {
+                // Runs on Foundation's pipe queue, never main, once data is ready: the read does not wait.
+                guard case .bytes(let data) = handle.readAvailable() else {
                     handle.readabilityHandler = nil
                     self?.settle { $0.outputClosed = true }
                     return

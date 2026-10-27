@@ -98,8 +98,10 @@ final class ConversationScrollProbe {
             // A conversation shown again keeps appending to the same run.
             if FileManager.default.fileExists(atPath: url.path) {
                 guard let handle = try? FileHandle(forWritingTo: url) else { return }
-                handle.seekToEndOfFile()
-                handle.write(Data(header.split(separator: "\n", maxSplits: 1).first.map { "\($0) (shown again)\n" }?.utf8 ?? "".utf8))
+                // A probe line that cannot be appended is dropped (never written over the run's start).
+                if (try? handle.seekToEnd()) != nil {
+                    try? handle.write(contentsOf: Data(header.split(separator: "\n", maxSplits: 1).first.map { "\($0) (shown again)\n" }?.utf8 ?? "".utf8))
+                }
                 try? handle.close()
             } else {
                 try? header.data(using: .utf8)?.write(to: url)
@@ -348,8 +350,8 @@ final class ConversationScrollProbe {
         writer.async {
             guard let data = chunk.data(using: .utf8) else { return }
             if let handle = try? FileHandle(forWritingTo: url) {
-                handle.seekToEndOfFile()
-                handle.write(data)
+                // A probe chunk that cannot be appended is dropped (never written over the run's start).
+                if (try? handle.seekToEnd()) != nil { try? handle.write(contentsOf: data) }
                 try? handle.close()
             } else {
                 try? data.write(to: url)

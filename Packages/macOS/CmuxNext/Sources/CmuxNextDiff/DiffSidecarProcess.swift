@@ -115,12 +115,12 @@ private nonisolated final class Invocation: Sendable {
         process.standardOutput = output
         process.standardError = errors
         output.fileHandleForReading.readabilityHandler = { [self] handle in
-            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            receiveReply(handle.availableData, handle: handle)
+            // Runs on Foundation's pipe queue, never main, once data is ready: the read does not wait.
+            receiveReply(handle.readAvailable(), handle: handle)
         }
         errors.fileHandleForReading.readabilityHandler = { [self] handle in
-            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            receiveStderr(handle.availableData, handle: handle)
+            // Runs on Foundation's pipe queue, never main, once data is ready: the read does not wait.
+            receiveStderr(handle.readAvailable(), handle: handle)
         }
         process.terminationHandler = { [self] finished in exited(finished.terminationStatus) }
         let cancelled = state.withLock { state -> Bool in
@@ -195,8 +195,8 @@ private nonisolated final class Invocation: Sendable {
         reply.cancel()
     }
 
-    private func receiveStderr(_ data: Data, handle: FileHandle) {
-        if data.isEmpty {
+    private func receiveStderr(_ read: FileHandle.AvailableRead, handle: FileHandle) {
+        guard case .bytes(let data) = read else {
             handle.readabilityHandler = nil
             state.withLock { $0.stderrReader = nil }
             return
@@ -222,8 +222,9 @@ private nonisolated final class Invocation: Sendable {
         }
     }
 
-    private func receiveReply(_ data: Data, handle: FileHandle) {
-        if data.isEmpty {
+    /// A failed read ends the reply as EOF does: the exit status and the reply's parse decide the outcome.
+    private func receiveReply(_ read: FileHandle.AvailableRead, handle: FileHandle) {
+        guard case .bytes(let data) = read else {
             handle.readabilityHandler = nil
             state.withLock { state in
                 state.replyClosed = true

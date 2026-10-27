@@ -167,14 +167,14 @@ public final class AgentPaneShell {
         let (events, continuation) = AsyncStream<Event>.makeStream(bufferingPolicy: .bufferingNewest(Self.maximumEvents))
         let reader = FileHandle(fileDescriptor: pipe[0], closeOnDealloc: true)
         reader.readabilityHandler = { handle in
-            // concurrency-allow: the readability handler runs on a background queue once data is ready.
-            let data = handle.availableData
-            // The stream stays open after EOF: the exit may still be on its way.
-            if data.isEmpty {
+            // Runs on Foundation's pipe queue, never main, once data is ready: the read does not wait.
+            // The stream stays open after EOF (or a failed read): the exit may still be on its way.
+            switch handle.readAvailable() {
+            case .bytes(let data):
+                continuation.yield(.output(data))
+            case .end:
                 handle.readabilityHandler = nil
                 continuation.yield(.closed)
-            } else {
-                continuation.yield(.output(data))
             }
         }
         // Reaped from an exit source on its own queue, so no thread waits in `waitpid` while the command runs.

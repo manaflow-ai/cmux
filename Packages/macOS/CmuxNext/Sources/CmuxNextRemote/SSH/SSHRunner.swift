@@ -64,9 +64,8 @@ public struct SSHProcessRunner {
         let output = Mutex(Output())
         let stdoutEnded = ExitLatch()
         stdout.fileHandleForReading.readabilityHandler = { handle in
-            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
-            if data.isEmpty {
+            // Runs on Foundation's pipe queue, never main, once data is ready: the read does not wait.
+            guard case .bytes(let data) = handle.readAvailable() else {
                 handle.readabilityHandler = nil
                 stdoutEnded.finish(0)
                 return
@@ -74,9 +73,8 @@ public struct SSHProcessRunner {
             output.withLock { if $0.stdout.count < 1 << 20 { $0.stdout.append(data) } }
         }
         stderr.fileHandleForReading.readabilityHandler = { handle in
-            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
-            if data.isEmpty { handle.readabilityHandler = nil; return }
+            // Runs on Foundation's pipe queue, never main, once data is ready: the read does not wait.
+            guard case .bytes(let data) = handle.readAvailable() else { handle.readabilityHandler = nil; return }
             output.withLock { state in
                 state.stderr.append(data)
                 if state.stderr.count > 16 * 1024 { state.stderr.removeFirst(state.stderr.count - 16 * 1024) }

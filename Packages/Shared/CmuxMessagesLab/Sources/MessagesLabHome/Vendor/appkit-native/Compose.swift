@@ -114,8 +114,11 @@ final class FieldTextView: NSTextView {
         // Host time first (CACurrentMediaTime: the clock of the recorder's frame times).
         let line = String(format: "%.6f ", CACurrentMediaTime()) + s + "\n"
         let url = URL(fileURLWithPath: "/tmp/caret.log")
-        if let h = try? FileHandle(forWritingTo: url) { h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close() }
-        else { try? Data(line.utf8).write(to: url) }
+        if let h = try? FileHandle(forWritingTo: url) {
+            // A diagnostics line that cannot be appended is dropped (never written over the log's start).
+            if (try? h.seekToEnd()) != nil { try? h.write(contentsOf: Data(line.utf8)) }
+            try? h.close()
+        } else { try? Data(line.utf8).write(to: url) }
     }
     /// `--caret-log`: the main run loop's waits, to place each key's work between Core Animation's
     /// commits (the implicit transaction commits before the run loop waits).

@@ -49,9 +49,8 @@ public final class MobileHostProcess: Sendable {
         let buffer = LineBuffer()
         let continuation = continuation
         output.fileHandleForReading.readabilityHandler = { handle in
-            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
-            if data.isEmpty {
+            // Runs on Foundation's pipe queue, never main, once data is ready: the read does not wait.
+            guard case .bytes(let data) = handle.readAvailable() else {
                 handle.readabilityHandler = nil
                 continuation.finish()
                 return

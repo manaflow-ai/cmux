@@ -112,9 +112,8 @@ public struct HostCLI: Sendable {
         let lines = LineSink(), errors = LineSink(keep: 16)
         let stdoutEnded = ExitLatch()
         stdout.fileHandleForReading.readabilityHandler = { handle in
-            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
-            if data.isEmpty {
+            // Runs on Foundation's pipe queue, never main, once data is ready: the read does not wait.
+            guard case .bytes(let data) = handle.readAvailable() else {
                 handle.readabilityHandler = nil
                 for line in lines.flush() { continuation.yield(line) }
                 stdoutEnded.finish(0)
@@ -123,9 +122,8 @@ public struct HostCLI: Sendable {
             for line in lines.append(data) { continuation.yield(line) }
         }
         stderr.fileHandleForReading.readabilityHandler = { handle in
-            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
-            if data.isEmpty { handle.readabilityHandler = nil; return }
+            // Runs on Foundation's pipe queue, never main, once data is ready: the read does not wait.
+            guard case .bytes(let data) = handle.readAvailable() else { handle.readabilityHandler = nil; return }
             _ = errors.append(data)
         }
         process.terminationHandler = { finished in

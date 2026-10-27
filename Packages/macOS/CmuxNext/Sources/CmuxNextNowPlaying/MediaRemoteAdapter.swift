@@ -163,9 +163,8 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
         stream.standardOutput = stdout
         let splitter = AdapterLineSplitter()
         stdout.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
-            if data.isEmpty {
+            // Runs on Foundation's pipe queue, never main, once data is ready: the read does not wait.
+            guard case .bytes(let data) = handle.readAvailable() else {
                 handle.readabilityHandler = nil
                 return
             }
