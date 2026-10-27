@@ -1277,6 +1277,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Hibernated tabs woken for no one looking (agent or script calls, neighbor and hover prewakes) restore at most clamp(cores / 2, 1, 4) at once, as Chrome's BackgroundTabLoadingPolicy; under memory pressure or below 150 MB free, none starts and waiting ones are deferred. A person's show always runs.
+    public static let memoryWakeAdmission = Feature(
+        index: 72,
+        name: "memoryWakeAdmission",
+        owner: "PL-memory",
+        description: "Hibernated tabs woken for no one looking (agent or script calls, neighbor and hover prewakes) restore at most clamp(cores / 2, 1, 4) at once, as Chrome's BackgroundTabLoadingPolicy; under memory pressure or below 150 MB free, none starts and waiting ones are deferred. A person's show always runs.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-26",
+        params: [],
+        stories: ["browser-hibernation", "memory-hidden"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// The app serves metrics.snapshot (cmux metrics) and the palette offers View Metrics: every field histogram recorded since launch, as JSON in a file tab.
     public static let metricsView = Feature(
         index: 73,
@@ -2133,6 +2150,7 @@ nonisolated extension Feature {
         .memoryTabCaches,
         .memoryTerminalLastFrames,
         .memoryUrgentDiscardRanking,
+        .memoryWakeAdmission,
         .metricsView,
         .newTabParksHidden,
         .occludedWindowDiscard,
@@ -2255,6 +2273,7 @@ nonisolated extension Feature {
         .memoryTabCaches,
         .memoryTerminalLastFrames,
         .memoryUrgentDiscardRanking,
+        .memoryWakeAdmission,
         .metricsView,
         .newTabParksHidden,
         .occludedWindowDiscard,

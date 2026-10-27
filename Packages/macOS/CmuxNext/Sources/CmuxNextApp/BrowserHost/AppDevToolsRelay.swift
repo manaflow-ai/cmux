@@ -64,7 +64,8 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
                 // rebuilt (it may hold a filled password); wait for the new one.
                 marking?.agentWillDrive(targetID: key)
             case is HibernatedBrowserTab:
-                _ = cache.hibernation?.wake(key)
+                // An agent's wake waits for a slot or is deferred under memory pressure (`WakeAdmission`).
+                if case .deferred(_)? = cache.hibernation?.wake(key, by: .automation) { return nil }
             case is DeferredBrowserTab:
                 cache.startDeferred(key, url: nil)
             case nil:
@@ -76,19 +77,28 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
                 return nil
             }
             if let page = cache.existingBrowser(key)?.tab as? CEFTab, page.isAgentDriven { return page }
-            await Self.nextPageInstall(of: cache.pageInstalls, on: services.mainWork)
+            await Self.nextPageInstall(of: cache.pageInstalls, on: services.mainWork) { cache.hibernation?.deferral(of: key) != nil }
+            // A queued wake dropped under memory pressure installs no page: the attach fails now, with its deferral.
+            if cache.hibernation?.deferral(of: key) != nil { return nil }
             installs += 1
         }
         return nil
     }
 
-    /// Resumes at the next page install anywhere in the app (`installs`),
-    /// or when the waiting task is cancelled (the provider's prepare deadline).
+    /// The deferral of `targetID`'s hibernated page's wake, when that is why its prepare failed.
+    func prepareFailure(targetID: String) -> String? {
+        guard let services, let deferral = services.cache.hibernation?.deferral(of: targetID) else { return nil }
+        return "deferred (\(deferral.rawValue)): \(BrowserPageStrings.wakeDeferred)"
+    }
+
+    /// Resumes at the next page install anywhere in the app (`installs`), once `ended` holds (a queued
+    /// wake dropped), or when the waiting task is cancelled (the provider's prepare deadline).
     /// An agent's wait: its observation flushes as automation work on `mainWork`.
-    static func nextPageInstall(of installs: PageInstallCounter, on mainWork: MainWorkScheduler) async {
+    static func nextPageInstall(of installs: PageInstallCounter, on mainWork: MainWorkScheduler,
+                                orUntil ended: @escaping @MainActor () -> Bool = { false }) async {
         let seen = installs.revision
         _ = await ControlConditionWait(on: mainWork, owner: "AppDevToolsRelay.pageInstall").until {
-            installs.revision != seen
+            ended() || installs.revision != seen
         }
     }
 

@@ -151,6 +151,8 @@ final class BrowserHibernation {
     static let hoverGrace: Double = 30
     /// Pages woken early (neighbors and hovers): `debug.surfaces` and the bench read it.
     var prewarmedCount = 0
+    /// Which wakes nobody asked for start now (`memoryWakeAdmission`; off, all of them).
+    var admission = WakeAdmission(isEnabled: false, freeBytes: { nil })
     /// The intent prewarm with this hibernation as its weak warmer, and its power feed (`intentPrewarmHover`'s
     /// hover dwell, `directionalPrewarm`'s key steps, `intentPrewarmPress`'s presses).
     var intentPrewarm: (service: IntentPrewarmService<String>, power: MainActorHandlerRegistration<EnergyInputs>)?
@@ -329,6 +331,7 @@ final class BrowserHibernation {
         if level == .critical, ranksUrgentDiscards { holdPacedDiscards() } else { urgentHoldEnds = nil }
         pressure = level
         logger.info("memory pressure \(level.rawValue, privacy: .public)")
+        admitted(admission.pressureDidChange(level) { self.cache?.lifecycle.phase($0) == .hibernated })
         updateFollowers()
         refreshNeighbors(replans: false)
         guard replans else { return }
@@ -405,6 +408,7 @@ final class BrowserHibernation {
 
     func forget(_ key: String) {
         forgetPrewarm(key)
+        forgetWake(key)
         agentPages?.forget(key)
         cache?.dormantTabs.set(key, false)
         hiddenAt[key] = nil
@@ -509,6 +513,7 @@ final class BrowserHibernation {
         let (left, joined) = (awakeNeighbors.subtracting(next), next.subtracting(awakeNeighbors))
         awakeNeighbors = next
         let now = self.now()
+        for key in left { admission.cancelPrewarm(key) } // a queued wake of a tab no longer beside a shown one
         for key in left where cache.lifecycle.phase(key) == .mountedHidden {
             hiddenAt[key] = now
             if exemptions[key] == .neighbor { exemptions[key] = nil }
