@@ -28,19 +28,21 @@
     },
     {
       "id": "fill",
-      "op": "key",
-      "target": {"window": "current"},
-      "args": {"keys": ["s", "e", "q", "space", "1", "space", "4", "0", "0", "return"]},
-      "expect": {"outcome": "ok", "noReceiptReason": "plain keys go to the terminal's program; no cmux action runs for them"},
-      "waitFor": {"pointer": "/terminals/list", "predicate": "changed", "maxMs": 10000},
-      "settleMaxMs": 5000,
-      "note": "the script's 400 numbered lines (`seq 1 400`), typed at the prompt; the terminals facet hashes the daemon's screen (read-screen), not the app's mirror"
+      "op": "cli",
+      "target": {"terminal": "current"},
+      "args": {"argv": ["--json", "terminal", "current", "write", "--text", "clear; seq 1 400\r"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "the bundle's cmux writes the text to the focused terminal's daemon PTY and prints no ActionEffect kind"},
+      "checkpoint": ["before"],
+      "note": "the script's fill(): `clear; seq 1 400` written to the focused terminal, as the script writes it. Only the before checkpoint: the output still arrives when the write returns, so a settled one would depend on timing"
     },
     {
       "id": "filled",
-      "op": "snapshot",
-      "args": {"facets": ["focus", "terminals"]},
-      "settleMaxMs": 5000
+      "op": "cli",
+      "target": {"terminal": "current"},
+      "args": {"argv": ["--json", "terminal", "current", "screen", "wait", "--pattern", "(?m)^[ \\t]*400[ \\t]*\\n[^\\n]*\\S", "--timeout-ms", "10000"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "a wait on the daemon's own screen (terminal.wait wakes on the terminal's output): it changes nothing, and it exits 1 when the pattern does not show in time"},
+      "settleMaxMs": 5000,
+      "note": "the script waits until '400' shows; this waits in the daemon until line 400 and the prompt after it are on the screen, the command's end state, so neither this checkpoint nor the Cmd-K baseline after it depends on when the output arrives. The terminals facet hashes this screen (read-screen), not the app's mirror"
     },
     {
       "id": "cmd-k",
@@ -50,13 +52,16 @@
       "expect": {"outcome": "ok", "receipt": "action.done"},
       "waitFor": {"pointer": "/terminals/list", "predicate": "changed", "maxMs": 5000},
       "settleMaxMs": 5000,
-      "note": "script row 'Cmd-K owner: action terminal.clear', then 'daemon screen cleared': terminal.clear sends the daemon's clear-history, so the daemon's own screen changes; on 7519459cdf0 (the parent of 4b5d8e0886f) only the app's Ghostty mirror was cleared and the daemon's screen kept the 400 lines"
+      "note": "script row 'Cmd-K owner: action terminal.clear', then 'daemon screen cleared': terminal.clear sends the daemon's clear-history, so the daemon's own screen changes; on 7519459cdf0 (the parent of 4b5d8e0886f) only the app's Ghostty mirror was cleared and the daemon's screen kept the 400 lines. filled left the screen at its end state, so only the clear can meet this wait"
     },
     {
       "id": "cleared",
-      "op": "snapshot",
-      "args": {"facets": ["focus", "terminals"]},
-      "settleMaxMs": 5000
+      "op": "cli",
+      "target": {"terminal": "current"},
+      "args": {"argv": ["--json", "terminal", "current", "screen", "wait", "--pattern", "\\A\\s*[^\\s\\d][^\\n]*\\s*\\z", "--timeout-ms", "10000"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "a wait on the daemon's own screen (terminal.wait wakes on the terminal's output): it changes nothing, and it exits 1 when the pattern does not show in time"},
+      "settleMaxMs": 5000,
+      "note": "script row 'daemon screen cleared' (no numbered lines): the daemon's screen holds one line, the prompt, which starts with no digit; clear-history erases the rows above the prompt in the emulator"
     },
     {
       "id": "split",
@@ -65,23 +70,35 @@
       "args": {"keys": ["cmd+d"]},
       "expect": {"outcome": "ok", "receipt": "action.done"},
       "waitFor": {"pointer": "/focus/windows/0/model/pane", "predicate": "changed", "maxMs": 10000},
-      "settleMaxMs": 10000,
-      "note": "Split Right from a terminal: a new terminal pane beside it takes the focus (the person's Cmd-D, as the script's Cmd-Option-Right reaches the right pane)"
+      "checkpoint": ["before"],
+      "note": "Split Right from a terminal: a new terminal pane beside it takes the focus (the person's Cmd-D, as the script's Cmd-Option-Right reaches the right pane). Only the before checkpoint: the new shell's first prompt can arrive after the focus moves, and split-prompt waits for it"
+    },
+    {
+      "id": "split-prompt",
+      "op": "cli",
+      "target": {"terminal": "current"},
+      "args": {"argv": ["--json", "terminal", "current", "screen", "wait", "--pattern", "\\S", "--timeout-ms", "10000"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "a wait on the daemon's own screen (terminal.wait wakes on the terminal's output): it changes nothing, and it exits 1 when the pattern does not show in time"},
+      "settleMaxMs": 5000,
+      "note": "the new terminal's shell printed its first prompt: its daemon screen is no longer blank"
     },
     {
       "id": "fill-right",
-      "op": "key",
-      "target": {"window": "current"},
-      "args": {"keys": ["s", "e", "q", "space", "1", "space", "4", "0", "0", "return"]},
-      "expect": {"outcome": "ok", "noReceiptReason": "plain keys go to the terminal's program; no cmux action runs for them"},
-      "waitFor": {"pointer": "/terminals/list", "predicate": "changed", "maxMs": 10000},
-      "settleMaxMs": 5000
+      "op": "cli",
+      "target": {"terminal": "current"},
+      "args": {"argv": ["--json", "terminal", "current", "write", "--text", "clear; seq 1 400\r"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "the bundle's cmux writes the text to the focused terminal's daemon PTY and prints no ActionEffect kind"},
+      "checkpoint": ["before"],
+      "note": "the script's fill() in the right pane of the split, which has the focus"
     },
     {
       "id": "filled-right",
-      "op": "snapshot",
-      "args": {"facets": ["focus", "layout", "terminals"]},
-      "settleMaxMs": 5000
+      "op": "cli",
+      "target": {"terminal": "current"},
+      "args": {"argv": ["--json", "terminal", "current", "screen", "wait", "--pattern", "(?m)^[ \\t]*400[ \\t]*\\n[^\\n]*\\S", "--timeout-ms", "10000"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "a wait on the daemon's own screen (terminal.wait wakes on the terminal's output): it changes nothing, and it exits 1 when the pattern does not show in time"},
+      "settleMaxMs": 5000,
+      "note": "line 400 and the prompt after it on the right pane's daemon screen, as filled"
     },
     {
       "id": "cmd-k-right",
@@ -95,9 +112,12 @@
     },
     {
       "id": "cleared-right",
-      "op": "snapshot",
-      "args": {"facets": ["focus", "layout", "terminals"]},
-      "settleMaxMs": 5000
+      "op": "cli",
+      "target": {"terminal": "current"},
+      "args": {"argv": ["--json", "terminal", "current", "screen", "wait", "--pattern", "\\A\\s*[^\\s\\d][^\\n]*\\s*\\z", "--timeout-ms", "10000"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "a wait on the daemon's own screen (terminal.wait wakes on the terminal's output): it changes nothing, and it exits 1 when the pattern does not show in time"},
+      "settleMaxMs": 5000,
+      "note": "the right pane's daemon screen holds the prompt only, as cleared"
     },
     {
       "id": "history-back",

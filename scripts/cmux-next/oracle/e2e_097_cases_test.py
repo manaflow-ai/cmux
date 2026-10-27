@@ -7,7 +7,8 @@ Stdlib only, Python 3.9+, safe under `python3 -I`.
 - `tests/oracle/corpus/e2e/_scripts-097.json` names exactly the scripts at positions 56..66 of MQ-e2e
   (`ls scripts/cmux-next/*-e2e.py scripts/cmux-next/*-e2e.sh`, sorted), each converted (a case whose first step names
   the script, with the fix commit, its parent and the step `catches` names) or excluded with a reason and a gap. The
-  checks read only this batch's file and cases: the sibling batches (092-096) keep their own manifests.
+  checks read only this batch's file and cases: the sibling batches (092-096) keep their own manifests. An excluded
+  script's gap names its owner task (section 4 rule 6).
 - Each converted case runs through driver_app's real step runner against a fake app that offers only the facets the
   base build has providers for (AppServices+OracleHost.makeOracleFacets, plus the router's topology for a snapshot):
   a wait on a facet with no provider, or on topology (OracleSettleControl gets the list without it), is refused as
@@ -16,6 +17,8 @@ Stdlib only, Python 3.9+, safe under `python3 -I`.
   the `catches` step. That shows the case's assertion tells the two behaviors apart. It is NOT the task's acceptance
   (red on the real parent commit): the parents predate debug.oracle.*, so that run waits for the overlay of
   p15-oracle-202 (the manifest's `red_on_parent`).
+- The fake's terminals print a command's output in parts while the driver works, so a case whose checkpoint depends
+  on when output arrives gives different checkpoints for different splits; terminal-keys must give the same ones.
 
 Chrome reference (chromium/src): third_party/blink/web_tests/TestExpectations keeps a reason on every test that does
 not run; the manifest does the same for scripts that do not convert.
@@ -28,6 +31,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -82,24 +86,50 @@ def digest(text: str) -> str:
     return "sha256:" + hashlib.sha256(text.encode()).hexdigest()
 
 
-class ScriptedApp(driver_app_test.FakeApp):
-    """A small model of the base build's facets, and per-action and per-keystroke answers a behavior sets."""
+# A task id a gap names as its owner (p15-oracle-035, p03-rendering-075, p10-stability-196).
+TASK_ID = re.compile(r"\bp\d{2}-[a-z][a-z-]*-\d{3}[a-z]?\b")
+PROMPT = "$ "
+CLEAR = object()  # the shell's `clear` in a terminal's pending output
+VIEWPORT_ROWS = 40  # the fake's screen height: 400 lines scroll
 
-    def __init__(self, app: str, out: Path, env: Mapping[str, str]):
+
+def screen_hash(viewport: str) -> str:
+    """The terminals facet's last24Sha256: the hash of the screen's last 24 rows (OracleTerminalsFacet.lastRows)."""
+    return digest("\n".join(viewport.split("\n")[-24:]))
+
+
+class ScriptedApp(driver_app_test.FakeApp):
+    """A small model of the base build's facets, and per-action and per-keystroke answers a behavior sets.
+
+    Terminals model a shell on a PTY: a typed key echoes at once, and a command's output reaches the daemon screen
+    in `parts` chunks, one per control request the driver makes, the prompt last. So a wait that the first change
+    meets (`changed` after the echo) snapshots a screen that is still filling, as on a real Mac. The bundle's CLI
+    (`terminal current write`, `terminal current screen wait`) is answered from the same screens."""
+
+    def __init__(self, app: str, out: Path, env: Mapping[str, str], parts: int = 4):
         super().__init__(app, out, env)
         self.model: Dict[str, Any] = {
             "topology": {"topology": {"workspaces": [{"id": "ws_1"}], "workspace_groups": []}},
             "focus": {"windows": [{"model": {"pane": "pane_1"}}]},
             "layout": {"screens": [{"workspace": "ws_1", "root": {"kind": "leaf", "pane": "pane_1"}}]},
             "windows": {"count": 1, "order": ["win_1"], "key": None, "main": None, "list": [{"id": "win_1"}]},
-            "terminals": {"list": [{"terminal": "term_1", "tab": "tab_1", "last24Sha256": digest("$ ")}]},
+            "terminals": {"list": []},
             "intents": {"pending": []},
         }
         self.actions: Dict[str, Callable[["ScriptedApp", Dict[str, Any]], Dict[str, Any]]] = {}
         self.keys: Dict[str, Callable[["ScriptedApp"], Dict[str, Any]]] = {}
-        # Per terminal: what its daemon screen shows (the terminals facet hashes it).
-        self.screens: Dict[str, str] = {"term_1": "$ "}
+        self.parts = parts
+        # Per terminal: its daemon screen's text (the terminals facet hashes its last rows), the output its shell
+        # wrote that has not reached the screen yet, and the line typed at its prompt.
+        self.screens: Dict[str, str] = {"term_1": PROMPT}
+        self.output: Dict[str, List[Any]] = {"term_1": []}
+        self.typed: Dict[str, str] = {}
         self.pane_terminal: Dict[str, str] = {"pane_1": "term_1"}
+        self.publish_terminals()
+
+    def request(self, method: str, params: Mapping[str, Any], timeout: float) -> Dict[str, Any]:
+        self.deliver_output()
+        return super().request(method, params, timeout)
 
     def m_debug_oracle_snapshot(self, params):
         if params.get("list"):
@@ -141,6 +171,36 @@ class ScriptedApp(driver_app_test.FakeApp):
             self.type_key(params["key"])
         return {"ok": True, "result": {"handled_by": "responder", "action": None, "window_kind": "shell"}}
 
+    def cli(self, argv: List[str], **kwargs: Any) -> subprocess.CompletedProcess:
+        """The bundle's cmux on the app's socket, for the two terminal verbs the cases use. `write --text` types
+        into the focused terminal's PTY and returns at once. `screen wait --pattern` returns when the daemon's
+        screen matches (Rust regex syntax; its `\\z` is Python's `\\Z`), and exits 1 when the output ends first."""
+        self.deliver_output()
+        words = list(argv[3:])  # cmux --app-socket SOCKET
+        if words[:1] == ["--json"]:
+            words = words[1:]
+        terminal = self.pane_terminal[self.focused_pane()]
+
+        def answer(code: int, value: Dict[str, Any]) -> subprocess.CompletedProcess:
+            return subprocess.CompletedProcess(argv, code, json.dumps(value), "")
+
+        if words[:4] == ["terminal", "current", "write", "--text"] and len(words) == 5:
+            text = words[4]
+            self.show(terminal, text.rstrip("\r"))
+            if text.endswith("\r"):
+                self.run_line(terminal, text[:-1])
+            self.publish_terminals()
+            return answer(0, {"ok": True})
+        if words[:5] == ["terminal", "current", "screen", "wait", "--pattern"] and len(words) == 8:
+            pattern = re.compile(words[5].replace(r"\z", r"\Z"))
+            while not pattern.search(self.viewport(terminal)):
+                if not self.output[terminal]:
+                    return answer(1, {"error": {"code": "timeout", "message": "timeout waiting for pattern"}})
+                self.show(terminal, self.output[terminal].pop(0))
+            self.publish_terminals()
+            return answer(0, {"matched": True, "text": self.viewport(terminal)})
+        return answer(2, {"error": {"code": "usage.invalid", "message": " ".join(words)}})
+
     # -- model edits a behavior composes
 
     def ran(self, action: str, created=()) -> Dict[str, Any]:
@@ -154,32 +214,69 @@ class ScriptedApp(driver_app_test.FakeApp):
     def focused_pane(self) -> str:
         return self.model["focus"]["windows"][0]["model"]["pane"]
 
+    def open_terminal(self, pane: str, terminal: str) -> None:
+        """A new terminal: a blank screen, its shell's first prompt still on the way."""
+        self.pane_terminal[pane], self.screens[terminal], self.output[terminal] = terminal, "", [PROMPT]
+        self.publish_terminals()
+
+    def viewport(self, terminal: str) -> str:
+        return "\n".join(self.screens[terminal].split("\n")[-VIEWPORT_ROWS:])
+
     def publish_terminals(self) -> None:
-        self.model["terminals"]["list"] = [{"terminal": t, "tab": f"tab_{t[5:]}", "last24Sha256": digest(screen)}
-                                           for t, screen in self.screens.items()]
+        self.model["terminals"]["list"] = [{"terminal": t, "tab": f"tab_{t[5:]}",
+                                            "last24Sha256": screen_hash(self.viewport(t))} for t in self.screens]
+
+    def show(self, terminal: str, chunk: Any) -> None:
+        self.screens[terminal] = "" if chunk is CLEAR else self.screens[terminal] + chunk
+
+    def deliver_output(self) -> None:
+        """Output keeps arriving while the driver works: one chunk per terminal per request."""
+        for terminal, chunks in self.output.items():
+            if chunks:
+                self.show(terminal, chunks.pop(0))
+        self.publish_terminals()
+
+    def run_line(self, terminal: str, line: str) -> None:
+        """The shell runs `clear` and `seq A B`; their output reaches the screen in `parts` chunks, then the prompt."""
+        chunks: List[Any] = ["\n"]
+        for command in line.split(";"):
+            words = command.split()
+            if words == ["clear"]:
+                chunks.append(CLEAR)
+            elif words[:1] == ["seq"]:
+                lines = [f"{n}\n" for n in range(int(words[1]), int(words[2]) + 1)]
+                size = -(-len(lines) // self.parts)
+                chunks.extend("".join(lines[i:i + size]) for i in range(0, len(lines), size))
+        self.output[terminal].extend([*chunks, PROMPT])
 
     def type_key(self, key: str) -> None:
-        """A plain key reaches the focused terminal's shell; Return runs `seq 1 400`."""
+        """A plain key reaches the focused terminal's shell, which echoes it; Return runs the typed line."""
         terminal = self.pane_terminal[self.focused_pane()]
         if key == "return":
-            self.screens[terminal] = "\n".join(str(n) for n in range(1, 401)) + "\n$ "
-            self.publish_terminals()
+            self.run_line(terminal, self.typed.pop(terminal, ""))
+        else:
+            character = " " if key == "space" else key
+            self.typed[terminal] = self.typed.get(terminal, "") + character
+            self.show(terminal, character)
+        self.publish_terminals()
 
 
 def terminal_keys(app: ScriptedApp, parent: bool) -> None:
     history: List[str] = []
 
     def clear(a: ScriptedApp) -> Dict[str, Any]:
-        # 4b5d8e0886f: terminal.clear sends the daemon's clear-history; its parent cleared the app's mirror only.
+        # 4b5d8e0886f: terminal.clear sends the daemon's clear-history, which erases the rows above the prompt
+        # (the cursor's row) in the emulator at once; its parent cleared the app's mirror only.
         if not parent:
-            a.screens[a.pane_terminal[a.focused_pane()]] = "$ "
+            terminal = a.pane_terminal[a.focused_pane()]
+            a.screens[terminal] = a.screens[terminal].split("\n")[-1]
             a.publish_terminals()
         return {"action": "terminal.clear"}
 
     def split(a: ScriptedApp) -> Dict[str, Any]:
         new, terminal = f"pane_{a.sequence}", f"term_{a.sequence}"
         history.append(a.focused_pane())
-        a.pane_terminal[new], a.screens[terminal] = terminal, "$ "
+        a.open_terminal(new, terminal)
         a.model["focus"]["windows"][0]["model"]["pane"] = new
         screen = a.model["layout"]["screens"][0]
         screen["root"] = {"kind": "split", "children": [screen["root"], {"kind": "leaf", "pane": new}]}
@@ -298,6 +395,8 @@ class ManifestTest(unittest.TestCase):
                 if "excluded" in entry:
                     self.assertNotIn("case", entry)
                     self.assertGreaterEqual(len(entry["excluded"]), 80, "say why it does not convert")
+                    # p15-oracle.md section 4 rule 6: every excluded script has a written reason and a task id.
+                    self.assertRegex(entry.get("gap", ""), TASK_ID, "an excluded script's gap names its owner task")
                     continue
                 for key in ("case", "fix", "parent", "cited", "catches"):
                     self.assertIn(key, entry)
@@ -336,16 +435,24 @@ class ConvertedCaseTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
 
-    def run_as(self, case_id: str, parent: bool, case: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def run_as(self, case_id: str, parent: bool, case: Optional[Dict[str, Any]] = None,
+               parts: int = 4) -> Dict[str, Any]:
+        apps: List[ScriptedApp] = []
+
         def make(app, out, env):
-            fake = ScriptedApp(app, out, env)
+            fake = ScriptedApp(app, out, env, parts=parts)
             BEHAVIOR[case_id](fake, parent)
+            apps.append(fake)
             return fake
+
+        def run(argv, **kwargs):
+            """A cli step's bundle CLI, answered by the app that session launched."""
+            return apps[-1].cli(list(argv), **kwargs)
 
         ctx = {"run_id": "r", "product": "app", "build": "bench", "binary": driver_app_test.APP,
                "out_dir": self.tmp.name}
         session = driver_app.AppSession(ctx, make_app=make, identity=driver_app_test.identity,
-                                        canonicalizer=driver_app_test.identity_canonicalizer(),
+                                        canonicalizer=driver_app_test.identity_canonicalizer(), run=run,
                                         host=lambda: {"os": "macOS 26.1", "arch": "arm64", "model": "Mac16,10"},
                                         root_base=Path(self.tmp.name) / "o")
         try:
@@ -367,6 +474,46 @@ class ConvertedCaseTest(unittest.TestCase):
                 parent = self.run_as(case_id, parent=True)
                 self.assertIn(parent["status"], ("Failure", "Timeout"), parent.get("message"))
                 self.assertEqual(parent.get("step"), catches_step(entries[case_id]), parent.get("message"))
+
+    @staticmethod
+    def states(result: Dict[str, Any]) -> List[Any]:
+        """Each checkpoint's step, kind and facets: what two runs must agree on (meta holds the capture time)."""
+        return [(c["step"], c["checkpoint"], c["snapshot"]["facets"]) for c in result["checkpoints"]]
+
+    def test_terminal_keys_checkpoints_do_not_depend_on_when_output_arrives(self) -> None:
+        """The fill waits are on the command's end state, so the checkpoints are the same however the shell's
+        output is split, and filled holds line 400 and the prompt after it."""
+        runs = {parts: self.run_as("e2e/terminal-keys", parent=False, parts=parts) for parts in (1, 4, 10)}
+        for parts, result in runs.items():
+            self.assertEqual(result["status"], "Pass", f"{parts} parts: {result.get('message')}")
+        self.assertEqual(self.states(runs[1]), self.states(runs[4]))
+        self.assertEqual(self.states(runs[1]), self.states(runs[10]))
+        filled = next(c for c in runs[4]["checkpoints"] if c["step"] == "filled")
+        end = "\n".join([*(str(n) for n in range(378, 401)), PROMPT])
+        self.assertEqual(filled["snapshot"]["facets"]["terminals"]["list"][0]["last24Sha256"], digest(end))
+
+    def test_typed_fill_with_a_changed_wait_is_timing_dependent(self) -> None:
+        """The fake exercises the race the fill steps avoid: typed keys with a `changed` wait (the case before
+        this fix) snapshot a screen that is still filling, the snapshot differs with the output's split, and on
+        the parent the late output meets cmd-k's `changed` wait, so cmd-k (the `catches` step) passes there."""
+        case = load("e2e/terminal-keys")
+        typed = {"id": "fill", "op": "key", "target": {"window": "current"},
+                 "args": {"keys": ["s", "e", "q", "space", "1", "space", "4", "0", "0", "return"]},
+                 "expect": {"outcome": "ok", "noReceiptReason": "plain keys go to the terminal's program"},
+                 "waitFor": {"pointer": "/terminals/list", "predicate": "changed", "maxMs": 10000}}
+        snapshot = {"id": "filled", "op": "snapshot", "args": {"facets": ["focus", "terminals"]}}
+        steps = case["steps"]
+        at = next(i for i, s in enumerate(steps) if s["id"] == "fill")
+        steps[at:at + 2] = [typed, snapshot]
+        early = self.run_as("e2e/terminal-keys", parent=False, case=json.loads(json.dumps(case)), parts=4)
+        late = self.run_as("e2e/terminal-keys", parent=False, case=json.loads(json.dumps(case)), parts=10)
+
+        def filled(result: Dict[str, Any]) -> Any:
+            return next(c for c in result["checkpoints"] if c["step"] == "filled")["snapshot"]["facets"]["terminals"]
+
+        self.assertNotEqual(filled(early), filled(late))
+        parent = self.run_as("e2e/terminal-keys", parent=True, case=json.loads(json.dumps(case)), parts=10)
+        self.assertNotEqual(parent.get("step"), "cmd-k", parent.get("message"))
 
     def test_a_wait_on_topology_is_refused(self) -> None:
         """OracleSettleControl's facet list has no topology, so a case that waited on it would crash on head."""
