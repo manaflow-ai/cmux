@@ -67,7 +67,8 @@ import Foundation
 //   CmuxNextWireDigest -> nothing (FNV-1a 64, the schema digest CmuxNextIPC and CmuxNextWireGen share)
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
-//   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
+//   CmuxNextSettings -> DesignTokens, Design, Actions (cmux.json load/watch/apply, SettingsSchema; Design only for
+//     DesignSettings, toasts and backdrops until they move, MQ-settings-design)
 //   CmuxNextSettingsWindow -> Settings, Design, Icons, Actions, Wakeups (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
 //   CmuxNextControl -> Actions, Settings, Daemon, InputCore, Oracle (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui;
 //     InputBudget/ folds input latency batches off main)
@@ -484,7 +485,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The App only answers `StashHost`.
         .target(
             name: "CmuxNextStash",
-            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextHistory"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextHistory", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Agent pane (plans/cmux-next roadmap Phase 1): hosts the React pane
@@ -818,7 +819,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextPages",
             // Hibernation: PageLifecyclePlanner, the pure plan PageLifecycle performs (p13-webui-022).
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextHibernation", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts",
+            // InputCore: the quiet-input wait of the Settings, History and Cloud preload (PagePreloads, p13-webui-045).
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextHibernation", "CmuxNextInputCore", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts",
                            .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [.copy("Resources/pages"), .process("Localizable.xcstrings")],
             swiftSettings: uiSwiftSettings
@@ -834,7 +836,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextPagesTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextHibernation", "CmuxNextMemory", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextWakeups",
+            dependencies: ["CmuxNextCompat", "CmuxNextHibernation", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextMemory", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextWakeups",
                            "CmuxNextTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
@@ -943,12 +945,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // chose Always. The App pushes the power source in (from CmuxNextEnergy), no polling.
         .target(
             name: "CmuxNextKeepAwake",
-            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextSettings"],
+            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextKeepAwakeTests",
-            dependencies: ["CmuxNextKeepAwake", "CmuxNextSettings"],
+            dependencies: ["CmuxNextKeepAwake", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Energy Saver's power inputs (plans/cmux-next/chrome-parity/p14-energy.md D): Low Power Mode,
@@ -1118,7 +1120,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextScreenshots",
             // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextFileGrid", "CmuxNextFiles", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextFileGrid", "CmuxNextFiles", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
             ],
@@ -1126,7 +1128,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextScreenshotsTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextFileGrid", "CmuxNextFiles", "CmuxNextScreenshots"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextFileGrid", "CmuxNextFiles", "CmuxNextScreenshots", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // The built-in Memory Inspector (plans/cmux-next/memory-inspector-native-DESIGN.md):
@@ -1336,6 +1338,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .executableTarget(
             name: "CmuxNextServerHelperDaemon",
             dependencies: ["CmuxNextServerHelper"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // The oracle's config suite, app side (p15-oracle-212): dumps the effective config of
+        // every tests/oracle/corpus/config file; cmux-config's oracle_effective example dumps the
+        // daemon side. An executable, not a test target; the app does not link it.
+        .executableTarget(
+            name: "OracleConfigDump",
+            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(
@@ -2131,7 +2141,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextSettings",
             // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextActions", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
+            // DesignTokens: the value types Settings parses and writes; Design only for what has not
+            // moved yet (DesignSettings, toasts, backdrops; MQ-settings-design, p15-oracle-231).
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextDesignTokens", "CmuxNextActions", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
                 .process("Localizable.xcstrings"),
             ],
@@ -2140,7 +2152,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextSettingsTests",
             // Compat for the blocking detector (ConfigFileWatcherNoWaitTests).
-            dependencies: ["CmuxNextCompat", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextActions", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport",
+            dependencies: ["CmuxNextCompat", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextDesignTokens", "CmuxNextActions", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport",
                            .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: daemonSwiftSettings
         ),
@@ -2322,8 +2334,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextMobileHostTests",
-            dependencies: ["CmuxNextMobileHost", "CmuxNextMobile", "CmuxNextAgentPane", "CmuxNextPages", "CmuxNextSettings",
-                           "CmuxNextDaemon", .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
+            dependencies: ["CmuxNextMobileHost", "CmuxNextMobile", "CmuxNextAgentPane", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups",
+                           "CmuxNextCompat", "CmuxNextDaemon", .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                            .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: uiSwiftSettings
         ),
@@ -2344,7 +2356,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextActionsTests",
-            dependencies: ["CmuxNextActions", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups", "CmuxNextTestSupport"],
+            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups", "CmuxNextTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
     ] + [appFFI]

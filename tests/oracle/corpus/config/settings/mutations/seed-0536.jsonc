@@ -1,0 +1,14 @@
+{
+  "ui": {
+    "animations": {
+      "enabled": null
+    }
+  },
+  "sidebar": {
+    "workspaceRow": {
+      "mixed": {
+        "branch": true
+      }
+    },
+  }
+}
