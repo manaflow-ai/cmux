@@ -9401,6 +9401,7 @@ function AcpmuxPane() {
               key={newTabGeneration}
               environments={preview}
               onConnect={connectMachine}
+              onRefreshMachines={() => void directClient.current?.refreshPeers()}
               onNewWorktree={(cwd) => {
                 let folder: string | undefined;
                 return newWorktree(callNative, cwd, (used) => {

@@ -1564,6 +1564,7 @@ export function Composer({
       peers={snapshot.peers}
       {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
       {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
+      {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
       {...(onRefreshMachines ? { onRefreshMachines } : {})}
       environments={environments}
       onProject={
