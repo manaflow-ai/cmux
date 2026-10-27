@@ -138,42 +138,81 @@ impl MacApprovers {
         now: u64,
         commit: impl FnOnce() -> bool,
     ) -> bool {
-        let field = |f: &str| decision.get(f).and_then(Value::as_str);
-        let (Some(id), Some(signature)) = (field("approver"), field("signature")) else {
-            return false;
-        };
-        let Some(expires) = decision.get("expiresAt").and_then(Value::as_u64) else { return false };
-        if expires < now || expires > now.saturating_add(MAX_LIFETIME) {
+        let proof = MacProof { permission, request, option, nonce, answers, decision };
+        self.all_verify_then(instance, session, std::slice::from_ref(&proof), now, commit)
+    }
+
+    /// [`Self::verifies_then`] for a group's members together (`permission_groups.rs`): each
+    /// of `proofs` is an enrolled Mac's valid signature over its own answer, and then `commit`
+    /// (all their nonces spent at once), under one hold of the set's lock. A reload that drops
+    /// a Mac lands before the check or after `commit`, never between two members. None counts
+    /// when `proofs` is empty or any one fails.
+    pub fn all_verify_then(
+        &self,
+        instance: &str,
+        session: &str,
+        proofs: &[MacProof<'_>],
+        now: u64,
+        commit: impl FnOnce() -> bool,
+    ) -> bool {
+        if proofs.is_empty() {
             return false;
         }
-        if !may_allow(request, option, answers) {
-            return false;
-        }
-        let Some(signature) = super::approvers::unhex(signature).filter(|s| s.len() == 64) else {
-            return false;
-        };
-        let tool_call = request.pointer("/toolCall/toolCallId").and_then(Value::as_str);
         let mut inner = self.lock();
         refresh(&mut inner);
-        let Some(key) = inner.macs.iter().find(|m| m.id == id).map(|m| &m.public_key) else {
-            return false;
-        };
-        let message = message(&Parts {
-            instance,
-            mac: id,
-            session,
-            permission,
-            tool_call: tool_call.unwrap_or_default(),
-            option,
-            nonce,
-            expires_at: expires,
-            answers: &answers_digest(answers),
-        });
-        ring::signature::UnparsedPublicKey::new(&ring::signature::ECDSA_P256_SHA256_FIXED, key)
-            .verify(&message, &signature)
-            .is_ok()
-            && commit()
+        proofs.iter().all(|p| verify(&inner, instance, session, p, now)) && commit()
     }
+}
+
+/// One answer an enrolled Mac signed: the prompt, its request, the option, the prompt's nonce,
+/// the answers (None for a tool's ask) and `_meta.acpmux.approverDecision`.
+pub struct MacProof<'a> {
+    pub permission: &'a str,
+    pub request: &'a Value,
+    pub option: &'a str,
+    pub nonce: &'a str,
+    pub answers: Option<&'a Value>,
+    pub decision: &'a Value,
+}
+
+/// Whether `p.decision` is a Mac of `inner`'s valid, unexpired signature over `p`, an answer a
+/// Mac may give ([`may_allow`]).
+fn verify(inner: &Inner, instance: &str, session: &str, p: &MacProof<'_>, now: u64) -> bool {
+    let field = |f: &str| p.decision.get(f).and_then(Value::as_str);
+    let (Some(id), Some(signature)) = (field("approver"), field("signature")) else {
+        return false;
+    };
+    let Some(expires) = p.decision.get("expiresAt").and_then(Value::as_u64) else { return false };
+    if expires < now || expires > now.saturating_add(MAX_LIFETIME) {
+        return false;
+    }
+    if !may_allow(p.request, p.option, p.answers) {
+        return false;
+    }
+    let Some(signature) = super::approvers::unhex(signature).filter(|s| s.len() == 64) else {
+        return false;
+    };
+    let Some(key) = inner.macs.iter().find(|m| m.id == id).map(|m| &m.public_key) else {
+        return false;
+    };
+    let message = message(&Parts {
+        instance,
+        mac: id,
+        session,
+        permission: p.permission,
+        tool_call: p
+            .request
+            .pointer("/toolCall/toolCallId")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        option: p.option,
+        nonce: p.nonce,
+        expires_at: expires,
+        answers: &answers_digest(p.answers),
+    });
+    ring::signature::UnparsedPublicKey::new(&ring::signature::ECDSA_P256_SHA256_FIXED, key)
+        .verify(&message, &signature)
+        .is_ok()
 }
 
 /// Reads the file again when it is not what was read last. A file that is

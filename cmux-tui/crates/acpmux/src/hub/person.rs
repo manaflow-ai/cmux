@@ -56,12 +56,16 @@
 //! - A group's one-time allow from a connection that is not the person (peer-route approvals,
 //!   `mac_approvers.rs`) counts only with `_meta.acpmux.approverDecisions`: for EVERY pending
 //!   member of the group at the request's `revision`, by permission id, `{decisionNonce,
-//!   approverDecision}`, the member's own single-prompt signature over its one-time allow option
-//!   (no answers). A missing member, an entry for anything else, a wrong nonce, a stale revision
-//!   or one signature that does not count refuses the whole allow and answers nothing; the
-//!   answer verifies every signature, then spends every nonce, under the prompt state's lock
-//!   (`Hub::respond_permission_group`). `allow_chat` stays the person's own. A non-person read of
-//!   the groups says `macAllowOnce: true` beside `allowRefused`.
+//!   approverDecision}`, an enrolled Mac's own single-prompt signature over the member's one-time
+//!   allow option (no answers). Only a Mac's signature counts there, not a phone's: it binds the
+//!   member's tool call, and `mac_approvers::may_allow` holds it to a plain tool ask. A missing
+//!   member, an entry for anything else, a wrong nonce, a stale revision or one signature that
+//!   does not count refuses the whole allow and answers nothing. The answer verifies every
+//!   signature and spends every nonce together under the prompt state's lock and one hold of
+//!   the Mac set's (`Hub::respond_permission_group`, `PersonGate::macs_spend`), so a revocation
+//!   lands before or after the whole answer, never between two members. `allow_chat` stays the
+//!   person's own. A non-person read of the groups says `macAllowOnce: true` beside
+//!   `allowRefused`.
 //! - Through a peer (slice 2a, 2b): a daemon that only mirrors a peer's session cannot check a
 //!   proof made with the peer's key, so it forwards every answer for that session (allow, deny,
 //!   cancel) and the peer decides; a forwarded answer counts hops (`server/peer_forward.rs`).
@@ -637,19 +641,55 @@ impl PersonGate {
     /// Spends a decision nonce; false when it was spent already. Called
     /// under the prompt's lock by the answer that counts.
     pub fn spend_decision(&self, nonce: &str) -> bool {
+        self.spend_decisions(&[nonce])
+    }
+
+    /// Spends every nonce of `nonces` at once, or none: false when one was spent already or
+    /// one is there twice. Called under the prompts' lock by the answer that counts.
+    pub fn spend_decisions(&self, nonces: &[&str]) -> bool {
         let mut spent = self.spent.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let now = std::time::Instant::now();
         while spent.front().is_some_and(|(_, at)| now.duration_since(*at) > SPENT_TTL) {
             spent.pop_front();
         }
-        if spent.iter().any(|(n, _)| n == nonce) {
+        let fresh = nonces.iter().enumerate().all(|(i, nonce)| {
+            !nonces[..i].contains(nonce) && !spent.iter().any(|(n, _)| n == nonce)
+        });
+        if nonces.is_empty() || !fresh {
             return false;
         }
-        if spent.len() >= SPENT_LIMIT {
-            spent.pop_front();
+        for nonce in nonces {
+            if spent.len() >= SPENT_LIMIT {
+                spent.pop_front();
+            }
+            spent.push_back(((*nonce).to_owned(), now));
         }
-        spent.push_back((nonce.to_owned(), now));
         true
+    }
+
+    /// A group's one-time allow from a connection that is not the person (`permission_groups.rs`):
+    /// whether every one of `proofs` is an enrolled Mac's valid signature over its own member,
+    /// with a nonce that has not counted yet. Only a Mac's proof counts here: it binds the
+    /// member's tool call and passes `mac_approvers::may_allow` (a plain tool ask), which a
+    /// phone's does not. It spends nothing.
+    pub fn macs_prove(&self, session: &str, proofs: &[super::mac_approvers::MacProof<'_>]) -> bool {
+        let now = super::approvers::unix_now();
+        self.macs.all_verify_then(self.instance(), session, proofs, now, || {
+            proofs.iter().all(|p| !self.spent(p.nonce))
+        })
+    }
+
+    /// [`Self::macs_prove`], and the answer counting: every nonce spent together while the
+    /// Macs are still enrolled, under one hold of the Mac set's lock (`all_verify_then`), so a
+    /// revocation lands before (nothing spent, nothing answered) or after the whole answer.
+    /// Lock order as a single answer: the prompts' lock (the caller's), the Mac set's, then the
+    /// spent store.
+    pub fn macs_spend(&self, session: &str, proofs: &[super::mac_approvers::MacProof<'_>]) -> bool {
+        let now = super::approvers::unix_now();
+        let nonces: Vec<&str> = proofs.iter().map(|p| p.nonce).collect();
+        self.macs.all_verify_then(self.instance(), session, proofs, now, || {
+            self.spend_decisions(&nonces)
+        })
     }
 
     /// The key the app passed on `--person-key-fd` (unsigned daemon only).

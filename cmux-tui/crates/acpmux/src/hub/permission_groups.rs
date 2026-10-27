@@ -1,5 +1,6 @@
 //! Session-local permission batches. One lock owns membership, chat grants,
 //! callbacks and receipts, so a decision cannot approve an unseen member.
+use super::mac_approvers::MacProof;
 use super::*;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
@@ -284,34 +285,45 @@ impl Drop for AskInFlight {
     }
 }
 
-/// One member's signed allow: the member, its one-time allow option, the nonce and the signature.
-type MemberProof<'a> = (&'a PendingMember, String, &'a str, &'a Value);
-
-/// The group allow's `approverDecisions` matched to the group's pending `members`. None unless
-/// there is a member, each has an entry whose `decisionNonce` is its prompt's and whose
-/// `approverDecision` is an object, no entry names anything else, and each member offers a
-/// single one-time allow (the option the allow selects).
+/// The group allow's `approverDecisions` matched to the group's pending `members`: one Mac
+/// proof per member, over its one-time allow option (`options`, by member, the option the
+/// allow selects). None unless there is a member, each has an entry whose `decisionNonce` is
+/// its prompt's and whose `approverDecision` is an object, no entry names anything else, and
+/// each member offers a single one-time allow.
 fn approver_proofs<'a>(
     members: &'a [PendingMember],
+    options: &'a [String],
     params: &'a Value,
-) -> Option<Vec<MemberProof<'a>>> {
+) -> Option<Vec<MacProof<'a>>> {
     let decisions =
         params.pointer(&format!("/_meta/acpmux/{APPROVER_DECISIONS_FIELD}"))?.as_object()?;
     // Keys are unique: as many entries as members, each found, is no entry for another.
-    if members.is_empty() || decisions.len() != members.len() {
+    if members.is_empty() || decisions.len() != members.len() || options.len() != members.len() {
         return None;
     }
     members
         .iter()
-        .map(|m| {
+        .zip(options)
+        .map(|(m, option)| {
             let entry = decisions.get(&m.id)?;
             let nonce = entry.get("decisionNonce")?.as_str()?;
-            let signed = entry.get(super::approvers::DECISION_FIELD).filter(|v| v.is_object())?;
-            let option = option(&m.request, "allow_once")?;
-            cmux_local_auth::tokens_match(nonce, &m.decision_nonce)
-                .then_some((m, option, nonce, signed))
+            let decision = entry.get(super::approvers::DECISION_FIELD).filter(|v| v.is_object())?;
+            cmux_local_auth::tokens_match(nonce, &m.decision_nonce).then_some(MacProof {
+                permission: &m.id,
+                request: &m.request,
+                option,
+                nonce,
+                answers: None,
+                decision,
+            })
         })
         .collect()
+}
+
+/// Each member's one-time allow option (the one a group's Allow once selects), or None when
+/// one has none.
+fn allow_options(members: &[PendingMember]) -> Option<Vec<String>> {
+    members.iter().map(|m| option(&m.request, "allow_once")).collect()
 }
 
 fn conflict(reason: &str, group: Value) -> RpcError {
@@ -320,9 +332,9 @@ fn conflict(reason: &str, group: Value) -> RpcError {
 
 impl Hub {
     /// The person gate's check of a group allow from a connection that is not the person
-    /// (`person.rs`): `params` carries an enrolled approver's valid signed one-time allow for
-    /// every pending member of the group at its revision. It spends nothing; the answer checks
-    /// again under the prompt state's lock and spends (`respond_permission_group`).
+    /// (`person.rs`): `params` carries an enrolled Mac's valid signed one-time allow for every
+    /// pending member of the group at its revision. It spends nothing; the answer checks again
+    /// under the prompt state's lock and spends (`respond_permission_group`).
     pub(super) fn approver_allows_group(&self, params: &Value) -> bool {
         let Some(s) = crate::server::session_key(params).ok().and_then(|k| self.resolve(k).ok())
         else {
@@ -337,20 +349,18 @@ impl Hub {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .pending_members(id, revision);
-        members.as_deref().and_then(|m| approver_proofs(m, params)).is_some_and(|proofs| {
-            proofs.iter().all(|(m, option, nonce, signed)| {
-                self.person.approver_proves(&s.id, &m.id, &m.request, option, nonce, None, signed)
-            })
-        })
+        let Some(members) = members else { return false };
+        let Some(options) = allow_options(&members) else { return false };
+        approver_proofs(&members, &options, params)
+            .is_some_and(|proofs| self.person.macs_prove(&s.id, &proofs))
     }
 
     /// The answer's check of a group allow from a connection that is not the person, under the
-    /// prompt state's lock (`state`): every pending member's signature is verified, then every
-    /// nonce spent while its approver is still enrolled (`approver_spends`; lock order: the
-    /// prompt state's, then the approver set's, then the spent store, as a single answer). All
-    /// are verified before any is spent, so a refused proof spends nothing; only a revocation
-    /// (or the spent store) refusing between the two can leave earlier members' nonces spent with
-    /// nothing answered, and those prompts then need the person or a fresh signature each.
+    /// prompt state's lock (`state`): every pending member's Mac signature verified and every
+    /// nonce spent together, under one hold of the Mac set's lock (`PersonGate::macs_spend`;
+    /// lock order: the prompt state's, the Mac set's, then the spent store, as a single
+    /// answer). Either all count or none is spent, so a revocation or a spent nonce refuses
+    /// the whole allow and leaves every member pending and answerable.
     fn approver_spends_group(
         &self,
         session: &Session,
@@ -360,12 +370,9 @@ impl Hub {
         params: &Value,
     ) -> bool {
         let Some(members) = state.pending_members(id, revision) else { return false };
-        let Some(proofs) = approver_proofs(&members, params) else { return false };
-        proofs.iter().all(|(m, option, nonce, signed)| {
-            self.person.approver_proves(&session.id, &m.id, &m.request, option, nonce, None, signed)
-        }) && proofs.iter().all(|(m, option, nonce, signed)| {
-            self.person.approver_spends(&session.id, &m.id, &m.request, option, nonce, None, signed)
-        })
+        let Some(options) = allow_options(&members) else { return false };
+        approver_proofs(&members, &options, params)
+            .is_some_and(|proofs| self.person.macs_spend(&session.id, &proofs))
     }
 
     pub fn permission_groups(&self, session: &Session, params: &Value) -> Result<Value, RpcError> {
@@ -648,7 +655,7 @@ mod plain_tool_ask_tests {
 
 #[cfg(test)]
 mod approver_proofs_tests {
-    use super::{PendingMember, approver_proofs};
+    use super::{PendingMember, allow_options, approver_proofs};
     use serde_json::{Value, json};
 
     fn member(id: &str, nonce: &str, kind: &str) -> PendingMember {
@@ -673,9 +680,12 @@ mod approver_proofs_tests {
     #[test]
     fn every_pending_member_needs_its_own_entry_and_nothing_else() {
         let members = [member("p1", "n1", "allow_once"), member("p2", "n2", "allow_once")];
+        let options = allow_options(&members).expect("each offers a one-time allow");
         let both = body(json!({"p1": entry("n1"), "p2": entry("n2")}));
-        let proofs = approver_proofs(&members, &both).expect("both members");
-        assert_eq!(proofs.iter().map(|p| p.1.as_str()).collect::<Vec<_>>(), ["yes-p1", "yes-p2"]);
+        let proofs = approver_proofs(&members, &options, &both).expect("both members");
+        assert_eq!(proofs.iter().map(|p| p.option).collect::<Vec<_>>(), ["yes-p1", "yes-p2"]);
+        assert_eq!(proofs.iter().map(|p| p.nonce).collect::<Vec<_>>(), ["n1", "n2"]);
+        assert!(proofs.iter().all(|p| p.answers.is_none()));
         for refused in [
             body(json!({"p1": entry("n1")})),
             body(json!({"p1": entry("n1"), "p2": entry("n1")})),
@@ -685,10 +695,10 @@ mod approver_proofs_tests {
             body(json!([])),
             json!({}),
         ] {
-            assert!(approver_proofs(&members, &refused).is_none(), "{refused}");
+            assert!(approver_proofs(&members, &options, &refused).is_none(), "{refused}");
         }
-        assert!(approver_proofs(&[], &body(json!({}))).is_none());
+        assert!(approver_proofs(&[], &[], &body(json!({}))).is_none());
         let lasting = [member("p1", "n1", "allow_always")];
-        assert!(approver_proofs(&lasting, &body(json!({"p1": entry("n1")}))).is_none());
+        assert!(allow_options(&lasting).is_none());
     }
 }

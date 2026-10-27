@@ -5,6 +5,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::collections::BTreeMap;
 
 use super::require_all;
 
@@ -24,6 +25,35 @@ pub struct AnswerMeta {
     pub answered_by: Option<AnsweredBy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub via: Option<String>,
+    /// An enrolled approver's signed answer beside `decisionNonce`: a phone's
+    /// (`hub/approvers.rs`) or a Mac's (`hub/mac_approvers.rs`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approver_decision: Option<ApproverDecision>,
+    /// A group's one-time allow from an enrolled Mac (`_acpmux/permission_group_respond`):
+    /// one signed allow per pending member of the group, by permission id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approver_decisions: Option<BTreeMap<String, MemberApproverDecision>>,
+}
+
+/// `{approver, expiresAt, signature}`: ECDSA P-256 / SHA-256, raw `r || s` as
+/// lowercase hex, over the approver's message for this exact answer.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
+pub struct ApproverDecision {
+    pub approver: String,
+    /// Unix seconds, at most 300 ahead.
+    pub expires_at: u64,
+    pub signature: String,
+}
+
+/// One group member's signed one-time allow: the member prompt's nonce and the signature.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
+pub struct MemberApproverDecision {
+    pub decision_nonce: String,
+    pub approver_decision: ApproverDecision,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
