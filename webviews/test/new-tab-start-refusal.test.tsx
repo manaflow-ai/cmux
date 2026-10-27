@@ -86,8 +86,12 @@ async function until(check: () => boolean, what: string, within = 10_000) {
   expect(check(), what).toBe(true);
 }
 
-for (const remoteStart of [true, false])
-  test(`a refused ${remoteStart ? "SSH" : "local"} session/new keeps the mounted New Tab draft and machine`, async () => {
+for (const [remoteStart, trust] of [
+  [true, false],
+  [false, false],
+  [true, true],
+])
+  test(`a refused ${remoteStart ? "SSH" : "local"} session/new keeps the mounted New Tab draft and machine${trust ? " with Trust" : ""}`, async () => {
     const { MockAcpmuxSocket } = await import("../src/agent-session/acpmux/mock");
     type Answer = (method: string, params: Record<string, any>) => Promise<any>;
     const proto = MockAcpmuxSocket.prototype as unknown as { answer: Answer };
@@ -97,7 +101,14 @@ for (const remoteStart of [true, false])
     proto.answer = async function (method, params) {
       if (method === "session/new") {
         starts.push(params);
-        throw new Error("devbox refused session/new: agent unavailable");
+        throw Object.assign(
+          new Error("devbox refused session/new: agent unavailable"),
+          trust
+            ? {
+                data: { reason: "trust.pending", cwd: "/tmp/start-recovery-trust" },
+              }
+            : {},
+        );
       }
       const result = await answer.call(this, method, params);
       return method === "_acpmux/status"
@@ -110,8 +121,8 @@ for (const remoteStart of [true, false])
       webkit: {
         messageHandlers: {
           agentSession: {
-            postMessage: (message: { method: string }) =>
-              Promise.resolve({
+            postMessage: (message: { method: string; params?: Record<string, unknown> }) => {
+              return Promise.resolve({
                 ok: true,
                 value:
                   message.method === "ready"
@@ -123,7 +134,8 @@ for (const remoteStart of [true, false])
                         newTab: { template: "minimal", layout: "b", lastAgent: "claude", cwd: "/tmp/demo-project" },
                       }
                     : undefined,
-              }),
+              });
+            },
           },
         },
       },
@@ -133,7 +145,7 @@ for (const remoteStart of [true, false])
     await until(() => host.querySelector(".nt-field") !== null, "the New Tab field");
     await until(() => !!(dom.window as any).cmuxAcpmuxActions?.["chat.new"], "mock handshake");
     const machine = () => host.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button');
-    if (remoteStart) {
+    const pickRemote = async () => {
       await act(async () => machine()!.click());
       await until(
         () =>
@@ -144,7 +156,8 @@ for (const remoteStart of [true, false])
         (node) => node.querySelector(".acpmux-menu-label")?.textContent === "devbox",
       )!;
       await act(async () => remote.click());
-    }
+    };
+    if (remoteStart) await pickRemote();
     const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
     await act(async () => {
       Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!.call(
@@ -158,13 +171,23 @@ for (const remoteStart of [true, false])
     );
     await until(() => starts.length === 1, "session/new refused");
     await until(
-      () => !!host.querySelector('[role="alert"]')?.textContent?.includes("agent unavailable"),
+      () =>
+        trust
+          ? !!host.querySelector(".acpmux-trust-ask-primary")
+          : [...host.querySelectorAll('[role="alert"]')].some((node) =>
+              node.textContent?.includes("agent unavailable"),
+            ),
       "inline refusal",
     );
     expect(host.querySelector(".nt-field")).toBe(field);
     expect(field.value).toBe("inspect the failed build");
     if (remoteStart) expect(machine()?.textContent).toContain("devbox");
     expect(starts[0]._meta.acpmux.peer).toBe(remoteStart ? "devbox" : undefined);
+    if (trust) {
+      await until(() => !!host.querySelector(".acpmux-trust-ask-primary"), "Trust control on the retained New Tab");
+      expect(host.querySelector(".nt-field")).toBe(field);
+      return;
+    }
     await act(async () =>
       field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
     );

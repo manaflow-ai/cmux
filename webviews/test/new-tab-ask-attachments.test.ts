@@ -79,3 +79,21 @@ test("keeps the New Tab visible until its folder and chat start are accepted", a
   await starting;
   expect(leaves).toBe(1);
 });
+
+test("a refused folder start settles instead of leaving the submit pending", async () => {
+  const { pickFolder } = await import("../src/agent-session/acpmux/startFolder");
+  const native = async () => {
+    throw Object.assign(new Error("not a folder"), { code: "transport.path_invalid" });
+  };
+  const screen = newTabScreenActions({
+    callNative: native,
+    requestFolder: (cwd, start, cancel) => {
+      void pickFolder(native, cwd, start, cancel);
+    },
+    leave: () => {},
+    selectSession: () => {},
+    showAllChats: () => {},
+    runShell: () => {},
+  });
+  await expect(Promise.resolve(screen.onAsk("claude", "keep me", "/invalid/project"))).rejects.toThrow();
+});

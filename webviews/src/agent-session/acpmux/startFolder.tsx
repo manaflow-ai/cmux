@@ -34,14 +34,21 @@ export async function pickFolder(
   callNative: Native,
   cwd: string,
   use: (cwd: string) => void,
+  refused?: () => void,
 ): Promise<FolderAsk | undefined> {
   let reply: unknown;
   try {
     reply = await callNative("workspace.useFolder", { cwd });
   } catch (error) {
     // The host's own refusal of the path (not a folder) uses nothing.
-    if (typeof error === "object" && error !== null && (error as { code?: unknown }).code === "transport.path_invalid")
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      (error as { code?: unknown }).code === "transport.path_invalid"
+    ) {
+      refused?.();
       return undefined;
+    }
     use(cwd);
     return undefined;
   }

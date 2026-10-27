@@ -5906,6 +5906,7 @@ export class AcpmuxDirectClient {
     noProject = false,
     model?: string,
   ): Promise<string | undefined> {
+    const generation = this.selectionGeneration;
     const started = (async () => {
       const sessionId = await this.startSession(
         harness,
@@ -5915,6 +5916,8 @@ export class AcpmuxDirectClient {
         noProject,
         model,
       );
+      // A user who opened another chat while session/new was out owns that selection.
+      if (this.closed || generation !== this.selectionGeneration) return undefined;
       return sessionId ? this.select(sessionId) : undefined;
     })();
     const tracked = started.finally(() => {
