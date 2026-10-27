@@ -2778,8 +2778,13 @@ async fn a_report_of_an_agent_mdm_ended_leaves_the_next_agent_alone() {
     tokio::time::sleep(Duration::from_millis(400)).await;
     // The next prompt ends the agent that reported full access and starts another.
     let next = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
-    rpc.reply("session/prompt", next).await;
+    let answered = rpc.reply("session/prompt", next.clone()).await;
     assert!(gone_within(first_pid, Duration::from_secs(10)), "the reporting agent ran on");
+    // The next agent runs a prompt (this one, or the one after if this one was refused).
+    if answered["result"]["stopReason"] != "end_turn" {
+        let again = rpc.reply("session/prompt", next).await;
+        assert_eq!(again["result"]["stopReason"], "end_turn", "{answered} {again}");
+    }
     let next_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
     assert_ne!(next_pid, first_pid);
     // Past the held report.
