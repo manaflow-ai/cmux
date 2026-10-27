@@ -73,7 +73,7 @@ export type ModelPickerProps = {
   /// `to` gets the acpmux profile id; `ready` false (a turn running, a queued prompt) disables it.
   fork?: { to(harness: string): void; ready: boolean };
   /// The installed acpmux profiles each catalog entry stands for, by its id (pickerProfiles.ts): the
-  /// launch configurations its Profile row lists. An entry with none listed is its own profile.
+  /// launch configurations shown as named harness entries. An entry with none listed is its own profile.
   profiles?: Readonly<Record<string, readonly PickerProfile[]>>;
   /// A short note per harness in place of "New chat" (a harness that failed to start).
   harnessNotes?: Readonly<Record<string, string>>;

@@ -273,7 +273,7 @@ function railByHarness(
     const folded = profiles[family.id] ?? [];
     const named = folded.map((profile) => ({ ...profile, name: launchName(family.name, profile.name, profile.id) }));
     const names = named.map((profile) => {
-      const suffix = launchSuffix(profile.id);
+      const suffix = launchSuffix(profile.id) ?? readableLaunchId(profile.id);
       return suffix && named.some((other) => other.id !== profile.id && other.name === profile.name)
         ? { ...profile, name: `${profile.name} (${suffix})` }
         : profile;
@@ -315,7 +315,11 @@ function launchSuffix(id: string): string | undefined {
   const base = agentKey(id);
   if (!agentBrand(id) || !base || !id.toLowerCase().startsWith(base)) return undefined;
   const suffix = id.slice(base.length).replace(/^[-_\s]+/, "");
-  return suffix.length <= 32 && /^[a-z][a-z0-9_-]*$/i.test(suffix) ? suffix : undefined;
+  return readableLaunchId(suffix);
+}
+
+function readableLaunchId(id: string): string | undefined {
+  return id.length <= 32 && /^[a-z][a-z0-9_-]*$/i.test(id) ? id : undefined;
 }
 
 /// A folder profile row the user cannot start yet: waiting for the folder's Trust answer, or broken.
