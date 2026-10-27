@@ -40,10 +40,15 @@ import Testing
             controller.thumbnails.insert(picture, for: TabID(tab))
         }
         #expect(controller.memoryUsage == MemoryUsage(footprintBytes: 0, volatileBytes: 2 * Self.bytes, entries: 2))
-        try withExtendedLifetime(try #require(controller.thumbnails.image(for: TabID("a")))) { _ in
-            #expect(controller.memoryUsage == MemoryUsage(footprintBytes: Self.bytes, volatileBytes: Self.bytes, entries: 2),
-                    "a shown thumbnail was not counted as locked")
-            #expect(!fakes.pages[0].purge(), "a shown thumbnail could be purged")
+        do {
+            // image(for:) is mutating (a purged entry leaves the cache), so it runs outside #require's closure; the
+            // do block ends the shown image's life before the last check.
+            let shown = controller.thumbnails.image(for: TabID("a"))
+            try withExtendedLifetime(try #require(shown)) { _ in
+                #expect(controller.memoryUsage == MemoryUsage(footprintBytes: Self.bytes, volatileBytes: Self.bytes, entries: 2),
+                        "a shown thumbnail was not counted as locked")
+                #expect(!fakes.pages[0].purge(), "a shown thumbnail could be purged")
+            }
         }
         #expect(controller.memoryUsage == MemoryUsage(footprintBytes: 0, volatileBytes: 2 * Self.bytes, entries: 2))
     }

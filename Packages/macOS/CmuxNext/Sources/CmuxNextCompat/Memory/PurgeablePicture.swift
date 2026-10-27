@@ -84,6 +84,13 @@ public struct PurgeablePicture: Sendable {
         }
     }
 
+    /// True when it keeps encoded bytes (a JPEG or PNG, ``init(encoded:allocator:)``), false when it keeps
+    /// decoded pixels or the image itself.
+    public var isEncoded: Bool {
+        if case .encoded = storage { return true }
+        return false
+    }
+
     /// The picture, keeping its bytes locked while the image lives; nil when the kernel purged them (a miss),
     /// never a blank image. An encoded picture's image is lazy: its pixels decode where it is drawn. A resident
     /// one is the image it was made from.
