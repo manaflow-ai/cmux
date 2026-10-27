@@ -202,7 +202,6 @@ test("cloud credential transfer retries only the failed prompt after a successfu
           route: { name: "Claude Code", harness: "claude", hostKind: "cloud", host: "private.internal" },
           transferCloudCredentials: async (rowId, prompt) => {
             calls.push(`transfer:${rowId}:${prompt}`);
-            return true;
           },
           retry: (rowId, prompt) => calls.push(`retry:${rowId}:${prompt}`),
         }}
@@ -221,10 +220,7 @@ test("cloud credential transfer retries only the failed prompt after a successfu
   expect(transferButton).toBeDefined();
   await act(async () => transferButton!.click());
   await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(calls).toEqual([
-    "transfer:user-1:Run the sidebar tests and fix what fails",
-    "retry:user-1:Run the sidebar tests and fix what fails",
-  ]);
+  expect(calls).toEqual(["transfer:user-1:Run the sidebar tests and fix what fails"]);
 });
 
 test("capacity puts Switch model first, Retry after it", async () => {
@@ -399,39 +395,53 @@ test("a failed turn with no prompt row to send again offers no Retry", async () 
   expect(button("Retry")).toBeUndefined();
 });
 
-test("native Cloud context offers recovery and only transferred success permits retry", async () => {
-  const calls: unknown[] = [];
-  let response: unknown = { transferred: true };
-  const call = async (method: string, params: Record<string, unknown>) => {
-    calls.push({ method, params });
-    return response;
-  };
-  // A real daemon summary supplies only its harness, not host or hostKind.
-  const summary = { harness: "claude" };
-  let current = true;
-  const isCurrent = () => current;
-  const recover = cloudCredentialRecovery(true, "provider-vm-1", "chat-1", summary.harness, call, isCurrent)!;
-  expect(calls).toEqual([]);
-  expect(await recover()).toBe(true);
-  expect(calls).toEqual([
-    {
-      method: "chat.cloudCredentialTransfer",
-      params: {
-        provider: "claude",
-        machineID: "provider-vm-1",
-        sessionId: "chat-1",
-      },
+test("Cloud recovery reserves its prompt before login and retries once with that ticket", async () => {
+  const calls: Record<string, unknown>[] = [];
+  const sent: unknown[][] = [];
+  let granted = true,
+    current = true,
+    switchDuringRestore = false;
+  const client = {
+    selectedSession: "chat-1",
+    resendPrompt: async (_row: string, input: string) => {
+      if (switchDuringRestore) current = false;
+      return { input, attachments: [] };
     },
-  ]);
-  for (response of [{ transferred: false }, true, undefined]) expect(await recover()).toBe(false);
-  expect(cloudCredentialRecovery(true, undefined, "chat-1", "claude", call, isCurrent)).toBeUndefined();
-  expect(cloudCredentialRecovery(false, "provider-vm-1", "chat-1", "claude", call, isCurrent)).toBeUndefined();
-  expect(cloudCredentialRecovery(true, "provider-vm-1", "chat-1", "opencode", call, isCurrent)).toBeUndefined();
-  response = { transferred: true };
-  const pending = recover();
-  current = false;
-  expect(await pending).toBe(false);
+    send: async (...args: Parameters<import("../src/agent-session/acpmux/direct").AcpmuxDirectClient["send"]>) => {
+      sent.push(args);
+      return undefined;
+    },
+  };
+  const call = async (method: string, params: Record<string, unknown>) => {
+    calls.push({ method, ...params });
+    return { transferred: granted, promptId: params.retryPromptId, ticket: "reserved-ticket" };
+  };
+  const isCurrent = () => current;
+  const getClient = () => client;
+  const recover = cloudCredentialRecovery(true, "provider-vm-1", "chat-1", "claude", call, isCurrent, getClient)!;
+  const pending = recover("row-1", "retry text");
+  // Duplicate clicks while native confirmation is open cannot reserve another prompt.
+  await recover("row-1", "retry text");
+  await pending;
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({
+    method: "chat.cloudCredentialTransfer",
+    provider: "claude",
+    machineID: "provider-vm-1",
+    sessionId: "chat-1",
+  });
+  expect(sent).toEqual([["retry text", [], calls[0]!.retryPromptId, undefined, "reserved-ticket"]]);
+  granted = false;
+  await recover("row-1", "retry text");
+  expect(sent).toHaveLength(1);
+  granted = true;
+  switchDuringRestore = true;
+  await recover("row-1", "retry text");
+  expect(sent).toHaveLength(1);
   const count = calls.length;
-  expect(await recover()).toBe(false);
+  await recover("row-1", "retry text");
   expect(calls).toHaveLength(count);
+  expect(cloudCredentialRecovery(true, undefined, "chat-1", "claude", call, isCurrent, getClient)).toBeUndefined();
+  expect(cloudCredentialRecovery(false, "vm", "chat-1", "claude", call, isCurrent, getClient)).toBeUndefined();
+  expect(cloudCredentialRecovery(true, "vm", "chat-1", "opencode", call, isCurrent, getClient)).toBeUndefined();
 });

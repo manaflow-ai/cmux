@@ -5613,6 +5613,7 @@ function AcpmuxPane() {
         snapshot.summary?.harness,
         callNative,
         (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
+        () => directClient.current ?? undefined,
       ),
       review: hunkReview,
       route: {
