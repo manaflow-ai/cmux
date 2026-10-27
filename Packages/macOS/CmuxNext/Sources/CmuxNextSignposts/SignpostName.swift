@@ -17,7 +17,8 @@
 /// ``launchStartupTask``, ``launchStartupComplete``, ``launchReadDone``, ``stallPaletteOpen``, ``stallIconPickerOpen``,
 /// ``webuiOpen``, ``webuiScheme``, ``stallCreateSurface``, ``daemonStep``, ``webuiAgentPaneStep``, ``createTab``,
 /// ``createWorkspace``, ``stallGhosttyRuntimePhase``, ``switchWorkspace``, ``switchTab``, ``switchPaneFocus``,
-/// ``burstEvent``, ``motionLateCommits``, ``actionPresentedEstimate`` and ``cefMemoryPressureVote`` have an emitter
+/// ``burstEvent``, ``motionLateCommits``, ``actionPresentedEstimate``, ``cefMemoryPressureVote`` and
+/// ``launchActionCatalogFirstMainAccess`` have an emitter
 /// today. The
 /// other cases are **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
@@ -259,7 +260,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// (``FramePresentEstimate/observeCommits()``). Ring: instant; arg0 the first key flow it carries (0: none),
     /// arg1 how many it carries.
     case frameCommit = 46
-    /// Reserved (task 049, PL-ghostty). A Ghostty frame's Metal completion handler. Ring: instant; arg0 surface hash.
+    /// Task 049. A Ghostty frame's Metal completion (`GhosttyTraceHook`). Ring: instant; arg0 surface id, arg1 frame seq.
     case frameGPUDone = 47
     /// Task 037. The first vsync of the flow's display at or after max(``frameCommit``, ``frameGPUDone``)
     /// for a flow-marked commit: an estimate, not a measured present. Ring: instant with the "estimated" flag;
@@ -356,8 +357,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     case controlRequest = 66
 
     // MARK: ghostty (reserved: task 049, PL-ghostty)
-    /// Reserved (task 049, PL-ghostty). One Ghostty frame on its renderer thread (`drawFrame`), through the
-    /// ghostty-next trace hook. Ring: B/E; arg0 the surface hash.
+    /// Task 049. One Ghostty `drawFrame` (`GhosttyTraceHook`). Ring: B/E; arg0 surface id, begin arg1 the echo's flow.
     case ghosttyRender = 67
 
     // MARK: resize (reserved: task 111, PL-motion-core)
@@ -469,6 +469,24 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// the level. Once per change of the coordinator's vote.
     case cefMemoryPressureVote = 86
 
+    // MARK: ghostty lock wait (emitter: CmuxNextTerminal `GhosttyLockWaitSignpost`, task p04-input-078)
+
+    /// One input entry point's wait of 50 us or more for Ghostty's terminal lock (key, modifier change, IME point,
+    /// text, preedit, a manual surface's input write), reported by ghostty-next after the wait
+    /// (`ghostty_surface_set_lock_wait_callback`).
+    /// Debug and bench builds whose GhosttyNextKit has the report (`GHOSTTY_LOCK_WAIT`). Message:
+    /// `wait_us=<wait>`. Ring: instant; arg0 the wait in ns.
+    case ghosttyLockWait = 87
+
+    // MARK: launch catalog read (emitter: CmuxNextActions `ActionCatalogLaunch`, task p08-startup-092)
+
+    /// The registry's first read of the action catalog on the main thread (`ActionCatalogLaunch.descriptors()`),
+    /// from its start to its return: 0 when the launch warm-up thread had built the catalog, the rest of that build
+    /// when it was still running, the whole build when main claimed it. Message: `outcome=<ready|waited|
+    /// built_on_main>`. Ring: B/E; begin arg0 the outcome (`ActionCatalogMainAccess.Outcome`'s raw value). Once
+    /// per launch.
+    case launchActionCatalogFirstMainAccess = 88
+
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
         switch self {
@@ -558,6 +576,9 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .actionPresentedEstimate: "action.presented_estimate"
         case .actionPresented: "action.presented"
         case .cefMemoryPressureVote: "cef.memory_pressure_vote"
+        case .ghosttyLockWait: "ghostty.lock_wait"
+
+        case .launchActionCatalogFirstMainAccess: "launch.action_catalog_first_main_access"
         }
     }
 }

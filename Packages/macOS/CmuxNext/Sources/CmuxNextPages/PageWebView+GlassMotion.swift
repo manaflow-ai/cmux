@@ -17,3 +17,11 @@ extension PageWebView: PaneMotionTargeting, PaneMotionSettling, PanePlacementFol
         glassFeed.placementSettled()
     }
 }
+
+extension PageWebView {
+    /// Runs one glass feed push (MQ12 held latest): a frozen page holds the newest for its thaw, and
+    /// the feed then sends the whole state, so the held push never misses an earlier change.
+    func pushGlass(_ script: String) {
+        if !pushes.run(script, whileFrozen: .latest(.glass)) { glassFeed.pushWasHeld() }
+    }
+}

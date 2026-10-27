@@ -16,7 +16,7 @@ import Testing
     }
 
     private func png() -> Data {
-        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2, bitsPerSample: 8,
+        let rep = NSBitmapImageRep.owned(pixelsWide: 2, pixelsHigh: 2, bitsPerSample: 8,
                                    samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
                                    colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
         return rep.representation(using: .png, properties: [:])!
@@ -112,7 +112,7 @@ import Testing
         tv.onPasteImage = { _ in images += 1 }
         tv.pasteAsPlainText(nil)
         let text = tv.string, caret = tv.selectedRange()
-        let attributes = tv.textStorage?.attributes(at: 1, effectiveRange: nil) ?? [:]
+        let attributes = tv.textStorage?.attributes(at: 1) ?? [:]
         let size = (attributes[.font] as? NSFont)?.pointSize
         let asked = boards.count == 1 && boards.first === pb
         #expect(text == "abold linkb")

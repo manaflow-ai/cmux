@@ -9,7 +9,9 @@ public import CmuxNextSettings
 /// - `sentry_should_start`: the crash reporting policy starts Sentry in this launch.
 /// - `hang_reports`: `available` (this build can send at all: NIGHTLY, or DEV with
 ///   `CMUX_NEXT_DEV_HANG_REPORTS=1`), `setting` (`diagnostics.hangReports`), `decision` (the ask
-///   policy's: `send`, `confirm`, `invite`, `off`) and `enabled` (the service records and sends).
+///   policy's: `send`, `confirm`, `invite`, `off`), `enabled` (the service records and sends) and
+///   `daemon_metrics_fold` (how often each outcome of folding the daemon's metrics file into a report happened
+///   this launch: `folded`, `samples`, `missing`, `no_daemon`, ...; null where nothing is folded).
 ///
 /// The App registers ``method`` next to `debug.energy` with a ``State`` reader over its services.
 public struct ShippingModeReport: Sendable {
@@ -57,12 +59,16 @@ public struct ShippingModeReport: Sendable {
         /// The ask policy's decision (`send`, `confirm`, `invite`, `off`); nil where nothing can send.
         public var decision: String?
         public var enabled: Bool
+        /// Each outcome of the daemon metrics fold (task 062) by name, with its count this launch; nil where nothing
+        /// is folded.
+        public var daemonMetricsFold: [String: UInt64]?
 
-        public init(available: Bool, setting: Bool?, decision: String?, enabled: Bool) {
+        public init(available: Bool, setting: Bool?, decision: String?, enabled: Bool, daemonMetricsFold: [String: UInt64]? = nil) {
             self.available = available
             self.setting = setting
             self.decision = decision
             self.enabled = enabled
+            self.daemonMetricsFold = daemonMetricsFold
         }
 
         var json: JSONValue {
@@ -71,6 +77,9 @@ public struct ShippingModeReport: Sendable {
                 "setting": setting.map(JSONValue.bool) ?? .null,
                 "decision": decision.map(JSONValue.string) ?? .null,
                 "enabled": .bool(enabled),
+                "daemon_metrics_fold": daemonMetricsFold.map { counts in
+                    JSONValue.object(counts.mapValues { JSONValue.number(Double($0)) })
+                } ?? .null,
             ]
         }
     }

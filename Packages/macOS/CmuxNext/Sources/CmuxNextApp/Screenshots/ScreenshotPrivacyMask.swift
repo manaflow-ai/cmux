@@ -30,13 +30,15 @@ enum ScreenshotPrivacyMask {
         if let controller = services.windows.controllers.first(where: { $0.window === window }) {
             for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
                 guard case .browser(let entry)? = pane.currentContent, entry.chrome.window === window,
+                      // visibility-walk-allow: a privacy mask covers exactly the pixels the window server draws, which the view tree decides, as a hit test reads it
                       !entry.chrome.isHiddenOrHasHiddenAncestor else { continue }
                 rects.append(entry.chrome.convert(entry.chrome.bounds, to: nil))
             }
         }
         if let root = window.contentView { rects += foreignWebContentRects(in: root) }
-        // Chromium draws its pages in child windows, at any depth, which the window server's image includes.
-        for child in window.visibleChildWindows where WindowOverlayHost.isPageWindow(child) {
+        // In process Chromium draws its pages in child windows, at any depth, which the window server's image
+        // includes (``NSWindow/isPageChild(_:)``); a Chromium Host page view lies inside its pane's rect above.
+        for child in window.visibleChildWindows where window.isPageChild(child) {
             rects.append(window.convertFromScreen(child.frame))
         }
         return rects.filter { $0.width > 0 && $0.height > 0 }

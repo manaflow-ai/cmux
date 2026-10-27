@@ -32,13 +32,17 @@ import CmuxNextSettings
 /// gesture measures the scroll, not a hover recompute per event (set the
 /// pointer once with the gesture's first event). `target: "page"`
 /// clicks Chromium's page view instead, or scrolls or moves the pointer over
-/// it (`DebugMouse+Page`).
+/// it, and in host mode clicks it with the `middle`, `back` or `forward`
+/// button, pinches it (`pinch`, `scale`) or smart-magnifies it
+/// (`smart_magnify`) (`DebugMouse+Page`).
 enum DebugMouse {
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         if params["target"]?.stringValue == "page" {
             switch params["action"]?.stringValue ?? "click" {
             case "scroll": return scrollPage(params, services: services)
             case "move": return movePage(params, services: services)
+            case "pinch", "smart_magnify": return gesturePage(params, services: services)
+            case "click" where pageButtons[params["button"]?.stringValue ?? ""] != nil: return buttonPage(params, services: services)
             default: return clickPage(params, services: services)
             }
         }
@@ -96,19 +100,28 @@ enum DebugMouse {
                   let target = frameView.hitTest(frameView.convert(baseLocation(point, in: window), from: nil)) else {
                 return .object(["error": .string("no view under the point")])
             }
-            // A real scroll first meets the layout's event monitor (strip and
-            // row scrolls); a windowless synthesized one skips monitors, so
-            // the layout under the point gets it first, then the view. Both run
-            // inside the app's input dispatch context with a latency slot, as
-            // sendEvent's do, so the scroll is timed to its frame the same way
-            // (`key.scroll_frame`, `input.latency` as automation).
+            // A real scroll first meets the input tap's observers and
+            // intercepts (a hover card's scroll, the layout's routing, the
+            // sidebar's space paging, SidebarSwipeFeed); a windowless
+            // synthesized one skips them, so it goes through the tap's observe
+            // and intercept stages (the layout's intercept passes a windowless
+            // scroll), then the layout under the point, then the view. All run inside the
+            // tap's dispatch scope and the app's input dispatch context with a
+            // latency slot, as sendEvent's do, so the scroll is timed to its
+            // frame the same way (`key.scroll_frame`, `input.latency` as automation).
             let root = sequence(first: target, next: \.superview).lazy.compactMap { $0 as? LayoutRootView }.first
             let movesPointer = params["hover"]?.boolValue != false
             let latencySlot = services.inputLatency.willDeliver(event, in: window, to: target)
-            let layoutTook = services.inputDispatch.dispatching(event) { () -> Bool in
-                if let root, root.handleScroll(event, locationInWindow: baseLocation(point, in: window)) { return true }
-                target.scrollWheel(with: event)
-                return false
+            let tap = services.inputTap
+            var layoutTook = false
+            tap.dispatching {
+                layoutTook = services.inputDispatch.dispatching(event) { () -> Bool in
+                    tap.deliverObserve(event)
+                    if tap.deliverIntercepts(event) == .consume { return false }
+                    if let root, root.handleScroll(event, locationInWindow: baseLocation(point, in: window)) { return true }
+                    target.scrollWheel(with: event)
+                    return false
+                }
             }
             if let latencySlot { services.inputLatency.didDispatch(latencySlot, layoutTookScroll: layoutTook) }
             if layoutTook {

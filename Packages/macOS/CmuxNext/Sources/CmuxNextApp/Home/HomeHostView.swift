@@ -56,7 +56,7 @@ final class HomeHostView: NSView {
         let service = services.home
         let id = ConversationID(conversation)
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id,
-                                              diagrams: service.diagrams, openPanel: services.openPanel, mainWork: services.mainWork)
+                                              diagrams: service.diagrams, openPanel: services.openPanel, deadlines: services.mainDeadlines)
         transcript.composerSpellCheckingEnabled = services.settings?.snapshot.agentPaneComposer.spellChecking ?? false
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         settings = HomeChiefSettingsPopover(content: HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource()))
@@ -67,6 +67,7 @@ final class HomeHostView: NSView {
         mainWork = work
         super.init(frame: .zero)
         let node = visibilityNode
+        service.labCaches?.track(node)  // the caches empty after 60 s with no Home view shown
         hideWatch = node.subscribe(owner: "HomeHost.settings") { [weak self] state in
             if state == .hidden { self?.settings.close() }
         }
@@ -85,7 +86,7 @@ final class HomeHostView: NSView {
             if let self { HomeHeaderPanels.toggle(id, headerPanelContext) }
         }
         petRows.onMascot = { [weak self] in self?.loadAvatar() }  // a new character redraws the header at once
-        petRows.install(in: self, addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) },
+        petRows.install(in: self, node: node, mainWork: work, addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) },
                         open: { [weak self] in self?.toggleChiefSettings(openOnly: true) ?? false })
         settingsView.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
@@ -270,9 +271,11 @@ final class HomeHostView: NSView {
             guard let self else { return }
             transcript.isHidden = !line.available
             message.isHidden = line.available || !line.explained
+            // `layout()` sizes the message to its text (hidden too); a change of anything else moves nothing.
+            let reworded = message.stringValue != line.why
             message.stringValue = line.why
             transcript.showConversationNotice(line.notice)
-            needsLayout = true
+            if reworded { needsLayout = true } // invalidate: the message's text changed.
             // H17: offline the user can type; tapbacks are off and a send waits as "sending".
             transcript.isSendEnabled = line.online
         })
@@ -429,8 +432,11 @@ final class HomeHostView: NSView {
     var focusTarget: NSView { transcript.primaryInput }
 
     /// The person opened this conversation from Home (a click, Return, a switch key): the message
-    /// box takes the keyboard, at once or once its first page installs it.
-    func takeKeyboardOnOpen() { transcript.takeKeyboardOnOpen() }
+    /// box takes the keyboard, at once or once its first page installs it. `allowed`: asked now and at
+    /// the install when nobody opened it (`TopHomePageView.focusPrimaryInputUnasked(in:)`).
+    func takeKeyboardOnOpen(while allowed: @escaping @MainActor () -> Bool = { true }) {
+        transcript.takeKeyboardOnOpen(while: allowed)
+    }
 
     /// Whether the pane getting focus moves the keyboard to `focusTarget`
     /// from `responder`: always when it is outside this view; inside, unless

@@ -340,6 +340,8 @@ async fn run_shell(shell: &str, marker: &str) -> Option<String> {
     // take the terminal a foreground daemon runs in), and its process group
     // id is its pid (killed as a group on timeout).
     #[cfg(unix)]
+    // SAFETY: the hook runs in the forked child before exec and calls only
+    // setsid and reads errno, both async-signal-safe; it allocates nothing.
     unsafe {
         cmd.pre_exec(|| {
             if libc::setsid() == -1 {
@@ -366,6 +368,8 @@ async fn run_shell(shell: &str, marker: &str) -> Option<String> {
             // The future (and the shell) is dropped; its group goes too.
             #[cfg(unix)]
             if let Some(pid) = pid {
+                // SAFETY: killpg takes no pointers; `pid` leads the shell's own session and
+                // group (setsid above).
                 unsafe {
                     libc::killpg(pid as i32, libc::SIGKILL);
                 }
@@ -471,6 +475,21 @@ pub fn imported_keys() -> Vec<String> {
         .as_ref()
         .map(|i| i.vars.iter().map(|(k, _)| k.clone()).collect())
         .unwrap_or_default()
+}
+
+/// What the imported environment keeps (a memory consumer's bytes). Never
+/// released: agent spawns need it, and its secret values are on no disk.
+pub fn imported_bytes() -> u64 {
+    use crate::memory::{inline_bytes, string_bytes};
+    let st = STATE.read().unwrap_or_else(|e| e.into_inner());
+    let Some(imported) = st.imported.as_ref() else { return 0 };
+    let vars: u64 = imported.vars.iter().map(|(k, v)| string_bytes(k) + string_bytes(v)).sum();
+    let names: u64 = st.secret_names.iter().map(|n| string_bytes(n)).sum();
+    inline_bytes::<(String, String)>(imported.vars.len())
+        + vars
+        + imported.path.as_deref().map_or(0, string_bytes)
+        + inline_bytes::<String>(st.secret_names.len())
+        + names
 }
 
 /// Secret variable names the login shell sets whose values this process

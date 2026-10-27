@@ -41,7 +41,7 @@ import Testing
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, prober: UpdateProber(fetcher: EmptyFeed()),
                                      defaults: defaults, enableSparkle: false, recordsUpdates: false,
-                                     work: BackgroundWork(label: "test.updater"))
+                                     work: BackgroundWork(label: "test.updater"), deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
         updater.announcementsFetch = false
         updater.start()
         return updater
@@ -162,7 +162,7 @@ import Testing
         relaunched.debugStage(version: Self.version, notes: nil)
         #expect(relaunched.readyCard == nil)
         let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
-        UpdateHandlers.bind(into: registry, updater: relaunched)
+        UpdateHandlers.bind(into: registry, updater: relaunched, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         #expect(registry.perform("palette.checkForUpdates", invocation: ActionInvocation(origin: .user)))
         #expect(relaunched.readyCard != nil, "Check for Updates did not show the hidden update")
     }

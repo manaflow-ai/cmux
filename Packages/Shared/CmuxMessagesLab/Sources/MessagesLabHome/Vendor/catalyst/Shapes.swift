@@ -10,6 +10,7 @@ enum BubblePath {
     /// UIKit's rounded rect uses its limited (pill) corner when half the height is under this times the radius.
     static let pillLimit: CGFloat = 1.528665
     /// Bubble outlines by size (cells reuse them for the gradient mask). cmux: the lock owns them (any thread may ask).
+    // cmux: memory: fixed at most 2001 outlines (emptied when full)
     private static let cache = OSAllocatedUnfairLock<[Key: CGPath]>(initialState: [:])
     private struct Key: Hashable { var w: CGFloat; var h: CGFloat; var outgoing: Bool; var tail: Bool; var cw: CGFloat = 0; var ch: CGFloat = 0
         var circularEnds = false }
@@ -45,11 +46,11 @@ enum BubblePath {
         let path: UIBezierPath
         if circularEnds, r.width > 0, r.height > 0, r.height / 2 < pillLimit * radius {
             let q = min(r.width, r.height) / 2
-            path = UIBezierPath(cgPath: CGPath(roundedRect: r, cornerWidth: q, cornerHeight: q, transform: nil))
+            path = UIBezierPath(cgPath: CGPath.roundedRect(r, cornerWidth: q, cornerHeight: q))
         } else if let f = frame, f != r.size, f.width > 0, f.height > 0 {
             let full = UIBezierPath(roundedRect: CGRect(origin: .zero, size: f), cornerRadius: min(radius, f.height / 2)).cgPath
-            var xf = CGAffineTransform(translationX: r.minX, y: r.minY).scaledBy(x: r.width / f.width, y: r.height / f.height)
-            path = full.copy(using: &xf).map { UIBezierPath(cgPath: $0) } ?? UIBezierPath(roundedRect: r, cornerRadius: min(radius, r.height / 2))
+            let xf = CGAffineTransform(translationX: r.minX, y: r.minY).scaledBy(x: r.width / f.width, y: r.height / f.height)
+            path = full.copy(applying: xf).map { UIBezierPath(cgPath: $0) } ?? UIBezierPath(roundedRect: r, cornerRadius: min(radius, r.height / 2))
         } else {
             path = UIBezierPath(roundedRect: r, cornerRadius: min(radius, r.height / 2))
         }
@@ -127,6 +128,7 @@ enum SoftBalloon {
     /// `narrow`: a balloon narrower than its caps gets its own unstretched image (its width and left phase in device px).
     private struct Key: Hashable { let kind: Int; let tail: Bool; let scale: CGFloat; var narrow: [Int] = []; var circularEnds = false }
     /// cmux: the lock owns the templates (row drawing asks on the render queues and the main thread).
+    // cmux: memory: fixed at most 201 templates (when full only the stretchable ones stay: 3 kinds x tail x ends x scale)
     private static let cache = OSAllocatedUnfairLock<[Key: Template]>(initialState: [:])
     /// Space around the frame (pt) and below it for the tail (it hangs 5.14 pt below the balloon).
     static let pad: CGFloat = 1, tailDrop: CGFloat = 6
@@ -205,7 +207,7 @@ enum SoftBalloon {
         let cx = CrashGuard.int((m.center.minX * CGFloat(sw)).rounded(), in: 0...max(0, sw - 1))
         let cy = CrashGuard.int((m.center.minY * CGFloat(sh)).rounded(), in: 0...max(0, sh - 1))
         guard W >= sw - 1, H >= sh - 1,
-              let g = CGContext(data: nil, width: W, height: H, bitsPerComponent: 8, bytesPerRow: W,
+              let g = CGContext.ownedBitmap(width: W, height: H, bitsPerComponent: 8, bytesPerRow: W,
                                 space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return nil }
         g.interpolationQuality = .none
         g.setFillColor(gray: 0, alpha: 1)
@@ -236,7 +238,7 @@ enum SoftBalloon {
         let size = CGSize(width: frame.maxX + 2 * pad, height: fh + tailDrop + 2 * pad)
         let w = CrashGuard.int((size.width * s).rounded(), in: 1...16_384), h = CrashGuard.int((size.height * s).rounded(), in: 1...16_384)
         func context(_ width: Int) -> CGContext? {
-            CGContext(data: nil, width: width, height: h, bitsPerComponent: 8, bytesPerRow: width * 4,
+            CGContext.ownedBitmap(width: width, height: h, bitsPerComponent: 8, bytesPerRow: width * 4,
                       space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         }
         guard let ctx = context(w) else { return nil }
@@ -314,7 +316,7 @@ enum TextDraw {
 
     static func width(_ s: String, font: UIFont, kern: CGFloat = 0) -> CGFloat {
         let attr = NSAttributedString(string: s, attributes: [.font: font, .kern: kern])
-        return CGFloat(CTLineGetTypographicBounds(CTLineCreateWithAttributedString(attr), nil, nil, nil))
+        return CGFloat(CTLineCreateWithAttributedString(attr).typographicWidth)
     }
 }
 
@@ -366,8 +368,8 @@ enum Glass {
         for (stops, fromTop) in [(rim.top, true), (rim.bottom, false)] {
             // no force unwraps ; an empty rim or a failed gradient draws nothing.
             guard let span = stops.last?.0 else { continue }
-            let g = CGGradient(colorsSpace: space, colors: stops.map { white.withAlphaComponent($0.1).cgColor } as CFArray,
-                               locations: stops.map { $0.0 / span })
+            let g = CGGradient.checked(colorsSpace: space, colors: stops.map { white.withAlphaComponent($0.1).cgColor },
+                                       locations: stops.map { $0.0 / span })
             let y0 = fromTop ? rect.minY : rect.maxY
             let y1 = fromTop ? rect.minY + span : rect.maxY - span
             ctx.drawLinearGradient(g, start: CGPoint(x: 0, y: y0), end: CGPoint(x: 0, y: y1), options: [])

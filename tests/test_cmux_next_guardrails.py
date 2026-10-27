@@ -107,6 +107,9 @@ CASES = {
                   "    @Environment(SidebarStore.self) private var store\n    var body: some View { Text(title) }\n}\n",
                   "import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n    let onSelect: () -> Void\n"
                   "    var body: some View { Text(title) }\n}\n"),
+    "sync-layout": ("func open() {\n    window.contentView?.layoutSubtreeIfNeeded()\n}\n",
+                    "func open() {\n    // sync-layout: the sheet sizes itself from the laid-out content before it opens\n"
+                    "    window.contentView?.layoutSubtreeIfNeeded()\n}\n"),
 }
 
 
@@ -249,6 +252,9 @@ class RuleTests(Fixture):
         "task-priority": ("func start() {\n    // qos-allow: the work inherits nothing and has no deadline\n"
                           "    Task.detached { await work() }\n}\n",
                           "    // qos-allow: the work inherits nothing and has no deadline\n"),
+        "sync-layout": ("func snapshot() {\n    // sync-layout: the snapshot reads the drawn layer this turn\n"
+                        "    CATransaction.flush()\n}\n",
+                        "    // sync-layout: the snapshot reads the drawn layer this turn\n"),
     }
 
     def test_removing_only_the_escape_comment_is_new_debt(self):
@@ -829,6 +835,88 @@ def host_file(lines, domain="Foo", declare=True):
             f"extension AppServices{': ' + domain + 'Host' if declare else ''} {{"]
     body = [f"    func {domain.lower()}Forward{i}() {{ {domain.lower()}.forward{i}() }}" for i in range(lines - len(head) - 1)]
     return "\n".join(head + body + ["}"]) + "\n"
+
+
+class SyncLayoutRuleTests(Fixture):
+    """sync-layout (p03-rendering-066): a forced layout, display or flush the push adds needs `// sync-layout:` on
+    its line or the line directly above, the window render-done-checks.py's MQ-sync-layout queue and DC11 read."""
+
+    def refused_lines(self):
+        return [(rule, lines) for rule, lines in self.refused() if rule == "sync-layout"]
+
+    def test_every_forced_pass_is_refused_unannotated_and_passes_annotated(self):
+        calls = ("view.layoutSubtreeIfNeeded()", "view.displayIfNeeded()", "view.displayIfNeededIgnoringOpacity()",
+                 "window.display()", "CATransaction.flush()")
+        reason = "// sync-layout: measured before the window opens"
+        start = self.base
+        for call in calls:
+            with self.subTest(call=call, annotated=False):
+                self.git("reset", "--quiet", "--hard", start)
+                self.write(f"{KIT}/Forced.swift", f"func f() {{\n    {call}\n}}\n")
+                self.commit("adds a forced pass")
+                self.assertEqual(self.refused_lines(), [("sync-layout", [f"Forced.swift: {call}"])])
+            for how, text in (("above", f"func f() {{\n    {reason}\n    {call}\n}}\n"),
+                              ("trailing", f"func f() {{\n    {call} {reason}\n}}\n"),
+                              ("trailing above", f"func f() {{\n    let a = 1 {reason}\n    {call}\n}}\n")):
+                with self.subTest(call=call, annotated=how):
+                    self.git("reset", "--quiet", "--hard", start)
+                    self.write(f"{KIT}/Forced.swift", text)
+                    self.commit("adds an annotated forced pass")
+                    self.assertEqual(self.refused_lines(), [])
+
+    def test_the_reason_must_be_on_the_line_or_directly_above(self):
+        call = "    view.layoutSubtreeIfNeeded()\n"
+        for how, above in (("two lines above", "    // sync-layout: measured before the window opens\n    let a = 1\n"),
+                           ("top of a comment block", "    // sync-layout: measured before the window opens\n"
+                                                      "    // and more\n"),
+                           ("no reason", "    // sync-layout:\n"),
+                           ("another tag", "    // invalidate: measured before the window opens\n")):
+            with self.subTest(how=how):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(f"{KIT}/Forced.swift", "func f() {\n" + above + call + "}\n")
+                self.commit(how)
+                self.assertEqual(self.refused_lines(),
+                                 [("sync-layout", ["Forced.swift: view.layoutSubtreeIfNeeded()"])])
+
+    def test_comment_and_string_mentions_need_the_reason_as_dc11_counts_them(self):
+        # DC11's `rg -n` reads the raw line, so a mention in a comment or a string grows MQ-sync-layout too.
+        comment = "// call layoutSubtreeIfNeeded() only in the frame"
+        string = "let note = \"CATransaction.flush() and view.display()\""
+        self.write(f"{KIT}/Mentions.swift", f"{comment}\n{string}\n")
+        self.commit("mentions in a comment and a string")
+        self.assertEqual(self.refused_lines(),
+                         [("sync-layout", [f"Mentions.swift: {comment}", f"Mentions.swift: {string}"])])
+        self.write(f"{KIT}/Mentions.swift", f"{comment} // sync-layout: names the call\n"
+                                             f"// sync-layout: names the calls\n{string}\n")
+        self.commit("annotated mentions")
+        self.assertEqual(self.refused_lines(), [])
+
+    def test_deferred_invalidations_lookalikes_and_tests_are_not_forced_passes(self):
+        self.write(f"{KIT}/Deferred.swift",
+                   "func f() {\n    view.needsLayout = true\n    view.needsDisplay = true\n    model.displayName()\n}\n")
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/ForcedTests.swift",
+                   "func test() {\n    view.layoutSubtreeIfNeeded()\n    CATransaction.flush()\n}\n")
+        self.commit("a deferred invalidation, a lookalike and a test")
+        self.assertEqual(self.refused_lines(), [])
+
+    def test_base_debt_is_not_new_and_an_edit_of_it_adds_none(self):
+        old = "func f() {\n    view.layoutSubtreeIfNeeded()\n}\n"
+        self.rebase_on({f"{KIT}/OldForced.swift": old}, "old unannotated forced layout")
+        edited = old.replace("view.", "self.view.")
+        self.write(f"{KIT}/OldForced.swift", edited + "func g() {}\n")
+        self.commit("edits the old forced layout")
+        self.assertEqual(self.refused_lines(), [])
+        self.write(f"{KIT}/OldForced.swift", edited + "func g() {\n    CATransaction.flush()\n}\n")
+        self.commit("adds a second, unannotated flush")
+        self.assertEqual(self.refused_lines(), [("sync-layout", ["OldForced.swift: CATransaction.flush()"])])
+
+    def test_listed_with_its_escape(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(guardrails.main(["--list"]), 0)
+        listing = "\n" + out.getvalue()
+        self.assertIn("\nsync-layout: ", listing)
+        self.assertIn("escape: // sync-layout: <why this turn needs the layout now>", listing)
 
 
 class AppSizeTests(Fixture):
@@ -2017,6 +2105,25 @@ class WarningTests(Fixture):
         self.commit("a marker on a statement")
         hot = [w for kind, w in self.check()[1] if kind == "perf-hot"]
         self.assertTrue(any("Router.swift:8:" in w and "marks no declaration" in w for w in hot), hot)
+
+    def test_list_perf_hot_prints_each_ids_resolved_markers(self):
+        def listed(*ids):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = guardrails.main(["--repo", str(self.repo), "--list-perf-hot", *ids])
+            return code, out.getvalue()
+
+        code, text = listed("key-dispatch")
+        self.assertEqual(code, 0, text)
+        self.assertIn("key-dispatch: 1 marker\n", text)
+        self.assertIn(f"{KIT}/Router.swift:4: 2ms, marks `func dispatch(_ key: Int) {{`", text)
+        self.assertEqual(listed("no-such-id")[0], 1, "an id not in the benches file fails")
+        self.write(f"{KIT}/Router.swift", HOT.replace(" // perf-hot: 2ms key-dispatch", "").replace(
+            "        count = 0\n", "        count = 0 // perf-hot: 2ms key-dispatch\n"))
+        code, text = listed()
+        self.assertEqual(code, 1, text)
+        self.assertIn("key-dispatch: 0 markers (none)", text)
+        self.assertIn("MARKS NO DECLARATION", text)
 
     def test_codebase_health_counts_the_markers_the_guardrails_resolve(self):
         spec = importlib.util.spec_from_file_location("cmux_next_codebase_health", SOURCE / "scripts/cmux-next/codebase-health.py")

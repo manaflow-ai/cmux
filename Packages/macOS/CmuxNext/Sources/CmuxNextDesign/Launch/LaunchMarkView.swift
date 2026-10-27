@@ -1,9 +1,10 @@
 public import AppKit
 import QuartzCore
+import CmuxNextCompat
 public import CmuxNextDesignTokens
 
 /// The cmux chevron on the window glass while a launch has nothing to show
-/// yet. Drawn with layers from `CGPath.launchMark(in:)`, so it needs no asset,
+/// yet. Drawn with layers from `OutlinePath.launchMark(in:)`, so it needs no asset,
 /// webview or daemon. It stays invisible until `reveal`, so a launch whose
 /// content arrives first never shows it, and fades out on `conceal`.
 public final class LaunchMarkView: NSView {
@@ -43,7 +44,7 @@ public final class LaunchMarkView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     public override var intrinsicContentSize: NSSize {
-        NSSize(width: ceil(Self.height * CGPath.launchMarkAspect), height: Self.height)
+        NSSize(width: ceil(Self.height * OutlinePath.launchMarkAspect), height: Self.height)
     }
 
     nonisolated public override var wantsUpdateLayer: Bool { true }
@@ -54,7 +55,7 @@ public final class LaunchMarkView: NSView {
             mark.frame = bounds
             body.frame = mark.bounds
             outline.frame = mark.bounds
-            let path = CGPath.launchMark(in: bounds.insetBy(dx: Metrics.lineWidth(1.5), dy: Metrics.lineWidth(1.5)))
+            let path = OutlinePath.launchMark(in: bounds.insetBy(dx: Metrics.lineWidth(1.5), dy: Metrics.lineWidth(1.5))).cgPath
             body.path = path
             outline.path = path
             mark.shadowPath = path
@@ -72,13 +73,15 @@ public final class LaunchMarkView: NSView {
         }
     }
 
+    // visibility-walk-allow: it only invalidates; AppKit runs updateLayer only for a view it draws, so a hidden mark costs one flag
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
+        needsDisplay = true // invalidate: the appearance changed; the colors resolve again.
     }
 
     /// Resolves the mark in with `style` (`Motion.revealLaunchMark`).
     public func reveal(_ style: LaunchMarkStyle = LaunchMarkStyle.tunable.value) {
+        // sync-layout: revealLaunchMark animates the mark's layers from the paths layout() sets.
         layoutSubtreeIfNeeded()
         revealedStyle = style
         Motion.panes.revealLaunchMark(style, mark: mark, outline: outline, body: body)

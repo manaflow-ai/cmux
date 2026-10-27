@@ -66,6 +66,8 @@ public final class BrowserHostProvider {
     @ObservationIgnored weak var relay: (any ProviderDevToolsRelay)?
     @ObservationIgnored weak var marking: (any ProviderAgentMarking)?
     @ObservationIgnored weak var opener: (any ProviderTabOpening)?
+    /// The tab nodes an agent's capture votes on (``ProviderCaptureVoting``); nil takes no votes.
+    @ObservationIgnored weak var capture: (any ProviderCaptureVoting)?
     @ObservationIgnored let driver: (any DriverCallHandler)?
     /// The app's main-thread scheduler: frame tasks and the tab observation run in its automation class.
     @ObservationIgnored let mainWork: MainWorkScheduler
@@ -94,6 +96,8 @@ public final class BrowserHostProvider {
     @ObservationIgnored var followingTabs = false
     /// The owner of the tab list's automation tasks, interned once.
     @ObservationIgnored let tabsTaskOwner: MainTaskOwner
+    /// The owner of the automation tasks that end a screenshot's capture vote at its reply, interned once.
+    @ObservationIgnored let captureTaskOwner: MainTaskOwner
     @ObservationIgnored var calledTargets: Set<String> = []
     // CDP relays of the current connection (`+Relay`).
     @ObservationIgnored var relays: [String: RelaySession] = [:]
@@ -114,6 +118,7 @@ public final class BrowserHostProvider {
                 marking: any ProviderAgentMarking,
                 mainWork: MainWorkScheduler,
                 opener: (any ProviderTabOpening)? = nil,
+                capture: (any ProviderCaptureVoting)? = nil,
                 clock: any Clock<Duration> = ContinuousClock(),
                 backoff: Backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30)),
                 prepareDeadline: Duration = .seconds(8),
@@ -126,8 +131,10 @@ public final class BrowserHostProvider {
         self.relay = relay
         self.marking = marking
         self.opener = opener
+        self.capture = capture
         self.mainWork = mainWork
         tabsTaskOwner = mainWork.board.owner("browser-host.tabs")
+        captureTaskOwner = mainWork.board.owner("browser-host.capture")
         self.clock = clock
         self.backoff = backoff
         retryTimer = DemandTimer(owner: "browser-host.provider-retry", clock: clock)

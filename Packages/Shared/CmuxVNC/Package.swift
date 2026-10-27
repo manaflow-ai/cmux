@@ -20,19 +20,25 @@ let package = Package(
         .library(name: "CmuxVNCDemoServer", targets: ["CmuxVNCDemoServer"]),
     ],
     dependencies: [
-        // The Mutex the transport and demo server keep their state in (p02-threads-146).
+        // OnceContinuation, the continuation that resumes exactly once (p10-stability-089), and for the
+        // demo server's start (p10-stability-171).
+        .package(path: "../CmuxSafeConcurrency"),
+        // The Mutex the transport keeps its state in (p02-threads-146).
         .package(path: "../CmuxThreading"),
         // Test-only: the seeded fuzz suites (p10-stability-023).
         .package(path: "../CmuxFuzzSupport"),
     ],
     targets: [
-        .target(name: "CmuxVNC", dependencies: [.product(name: "CmuxThreading", package: "CmuxThreading")],
-                swiftSettings: swiftSettings, linkerSettings: [.linkedLibrary("z")]),
-        .target(name: "CmuxVNCDemoServer", dependencies: ["CmuxVNC", .product(name: "CmuxThreading", package: "CmuxThreading")],
-                swiftSettings: swiftSettings,
-                linkerSettings: [.linkedLibrary("z")]),
+        .target(name: "CmuxVNC", dependencies: [
+            .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
+            .product(name: "CmuxThreading", package: "CmuxThreading"),
+        ], swiftSettings: swiftSettings, linkerSettings: [.linkedLibrary("z")]),
+        .target(name: "CmuxVNCDemoServer", dependencies: [
+            "CmuxVNC", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
+        ], swiftSettings: swiftSettings, linkerSettings: [.linkedLibrary("z")]),
         .testTarget(name: "CmuxVNCTests", dependencies: [
             "CmuxVNC", "CmuxVNCDemoServer", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
+            .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
         ], swiftSettings: swiftSettings),
     ]
 )

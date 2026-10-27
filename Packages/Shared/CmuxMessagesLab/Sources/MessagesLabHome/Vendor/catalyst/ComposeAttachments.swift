@@ -54,6 +54,7 @@ final class ComposeAttachmentStrip {
     private(set) var height: CGFloat = 0
     private var width: CGFloat = 0
     private var scale: CGFloat = 2
+    // cmux: memory: fixed one layer pair per attachment in the field (removed with it) and at most 16 thumbnails
     private var imageLayers: [ID: (image: CALayer, remove: CALayer)] = [:]
     private let pills = CALayer()
     private var thumbs: [String: CGImage] = [:]       // key: asset + pixel size
@@ -278,9 +279,7 @@ final class ComposeAttachmentStrip {
 
     /// The thumbnail shown for an image (tests).
     func shownImage(_ id: ID) -> CGImage? {
-        guard let raw = imageLayers[id]?.image.contents else { return nil }
-        let contents = raw as AnyObject
-        return CFGetTypeID(contents) == CGImage.typeID ? unsafeDowncast(contents, to: CGImage.self) : nil
+        imageLayers[id]?.image.bitmapContents // cmux: the one checked downcast (RowDrawing.swift)
     }
 }
 

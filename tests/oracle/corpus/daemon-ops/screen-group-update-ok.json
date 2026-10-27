@@ -115,6 +115,32 @@
         "maxMs": 5000
       },
       "settleMaxMs": 5000
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "screen_group.update",
+        "params": {
+          "screen_group": "$step:fx-screen-group#/value/id",
+          "name": "renamed",
+          "collapsed": true
+        },
+        "idempotencyKey": "screen-group-update-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

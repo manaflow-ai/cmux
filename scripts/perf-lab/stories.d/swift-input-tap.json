@@ -1,0 +1,18 @@
+{
+  "id": "swift-input-tap",
+  "tier": "builder",
+  "description": "InputEventTapBench: ns per event through InputEventTap's dispatch scope, observers, intercepts and after-dispatch observers with eight subscribers, one sample per batch of 1,000 events.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-input-tap", "--filter", "InputEventTapBench", "--env", "CMUX_INPUT_TAP_BENCH=1"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.input_tap\\.event_ns", "unit": "ns", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 1200,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextInputTests/InputEventTapBench.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "PL-input",
+  "component": "Input>Tap",
+  "hot_paths": ["input-tap"]
+}

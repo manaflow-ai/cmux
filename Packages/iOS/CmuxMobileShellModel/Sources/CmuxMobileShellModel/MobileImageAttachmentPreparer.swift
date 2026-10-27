@@ -1,4 +1,7 @@
 #if canImport(ImageIO)
+internal import class CmuxSafeConcurrency.OnceContinuation
+internal import enum CmuxSafeConcurrency.OnceContinuationError
+internal import func CmuxSafeConcurrency.withOnceContinuation
 internal import CmuxThreading
 internal import CoreGraphics
 public import Foundation
@@ -34,7 +37,9 @@ public struct MobileImageAttachmentPreparer: Sendable {
     ///   cancelled before or while it ran.
     public nonisolated func prepare(url: URL) async -> MobilePreparedImageAttachment? {
         guard !Task.isCancelled else { return nil }
-        let prepared = await withCheckedContinuation { continuation in
+        // A dropped continuation (never expected: the block always resumes it) reads as no attachment.
+        let prepared = try? await withOnceContinuation {
+            (continuation: OnceContinuation<MobilePreparedImageAttachment?, OnceContinuationError>) in
             queue.async {
                 continuation.resume(returning: prepareNow(url: url))
             }

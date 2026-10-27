@@ -53,6 +53,32 @@
         "settled"
       ],
       "note": "a page entry id of the history.entries.list form; no visit has it on a fresh state root, so the removal commits removed 0 and no restore id"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "history.entries.remove",
+        "params": {
+          "ids": [
+            "page:oracle:1"
+          ]
+        },
+        "idempotencyKey": "history-entries-remove-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

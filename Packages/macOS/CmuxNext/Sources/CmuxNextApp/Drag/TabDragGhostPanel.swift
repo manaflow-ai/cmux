@@ -149,6 +149,9 @@ final class TabDragGhostPanel {
         tabLayer.contentsGravity = .resize
         tabLayer.contentsScale = scale
         tabLayer.shadowColor = ThemeScope.app.perform { Palette.shadow.cgColor }
+        // shadow: alpha-derived: the image's alpha is the shape (a tab or chip pill, a sidebar row, a
+        // multi-tab strip; none for a row handed off with no image), and the layer has no sublayers, so
+        // only its own contents are read.
         // The raised elevation step (PopupStyle.elevation2): a tight lift, not a dark halo.
         tabLayer.shadowOpacity = onGlass ? 0 : Float(PopupStyle.elevation2.alpha)
         tabLayer.shadowRadius = PopupStyle.elevation2.layerRadius
@@ -195,7 +198,9 @@ final class TabDragGhostPanel {
     /// A frame client of the ghost's own FrameScheduler (its screen, 120 Hz
     /// on ProMotion).
     func makeFrameClient(owner: String, onFrame: @escaping @MainActor (FrameTick) -> Bool) -> FrameClient {
-        FrameClient(owner: owner, view: root, onFrame: onFrame)
+        // The CPU ghost's spring (render-server ghost off) ticks for the drag; on the render server only these wake it.
+        // input-driven: a tab drag's edge autoscroll and the dwell while the pointer rests (TabDragSession.wake)
+        FrameClient(owner: owner, rate: .motion, view: root, onFrame: onFrame)
     }
 
     /// The ghost's screen geometry for `motion`.
@@ -382,19 +387,19 @@ extension TabDragGhostPanel {
         // AppKit placed the root at rest; both hosts are unflipped, so a screen offset is a position offset.
         let position = rootLayer.position
         var moves = [
-            RenderSpring.Move(rootLayer, "position.x", from: position.x + shift.x, to: position.x, velocity: velocity.dx),
-            RenderSpring.Move(rootLayer, "position.y", from: position.y + shift.y, to: position.y, velocity: velocity.dy),
+            RenderSpring.Move(rootLayer, .positionX, from: position.x + shift.x, to: position.x, velocity: velocity.dx),
+            RenderSpring.Move(rootLayer, .positionY, from: position.y + shift.y, to: position.y, velocity: velocity.dy),
         ]
         moves += Self.frameMoves(clipLayer, from: old.glass, to: new.glass)
-        moves.append(RenderSpring.Move(glassLayer, "position", from: Self.position(of: glassLayer, at: Self.glassOrigin(in: old.glass)),
+        moves.append(RenderSpring.Move(glassLayer, .position, from: Self.position(of: glassLayer, at: Self.glassOrigin(in: old.glass)),
                                        to: Self.position(of: glassLayer, at: Self.glassOrigin(in: new.glass))))
         moves += Self.frameMoves(thumbLayer, from: old.thumb, to: new.thumb)
         moves += Self.frameMoves(tabLayer, from: old.tab, to: new.tab)
         moves += [
-            RenderSpring.Move(clipLayer, "opacity", from: old.glassOpacity, to: new.glassOpacity),
-            RenderSpring.Move(thumbLayer, "opacity", from: old.thumbOpacity, to: new.thumbOpacity),
-            RenderSpring.Move(tabLayer, "opacity", from: old.tabOpacity, to: new.tabOpacity),
-            RenderSpring.Move(tabLayer, "shadowOpacity", from: old.tabShadow, to: new.tabShadow),
+            RenderSpring.Move(clipLayer, .opacity, from: old.glassOpacity, to: new.glassOpacity),
+            RenderSpring.Move(thumbLayer, .opacity, from: old.thumbOpacity, to: new.thumbOpacity),
+            RenderSpring.Move(tabLayer, .opacity, from: old.tabOpacity, to: new.tabOpacity),
+            RenderSpring.Move(tabLayer, .shadowOpacity, from: old.tabShadow, to: new.tabShadow),
         ]
         isAtRest = false
         Motion.tabs.renderSpring(token).animateGroup(moves, in: root) { [weak self] finished in
@@ -418,8 +423,8 @@ extension TabDragGhostPanel {
         let anchor = layer.anchorPoint
         func position(_ rect: CGRect) -> CGPoint { CGPoint(x: rect.minX + anchor.x * rect.width, y: rect.minY + anchor.y * rect.height) }
         return [
-            RenderSpring.Move(layer, "position", from: position(from), to: position(to)),
-            RenderSpring.Move(layer, "bounds.size", from: from.size, to: to.size),
+            RenderSpring.Move(layer, .position, from: position(from), to: position(to)),
+            RenderSpring.Move(layer, .boundsSize, from: from.size, to: to.size),
         ]
     }
 

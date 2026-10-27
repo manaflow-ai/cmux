@@ -95,7 +95,7 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
         if let task = inFlight[key] { return await task.value }
         let fetcher = fetcher
         // Fetch and decode off the main thread (an ICO or SVG decode is not free).
-        let task = Task.detached(priority: .utility) { () -> NSImage? in
+        let task = Task.detached(priority: Task.currentPriority) { () -> NSImage? in
             guard case .success(let response) = await fetcher.fetch(url) else { return nil }
             return Self.decode(response.body)
         }

@@ -1,5 +1,8 @@
 import AVFoundation
 import CmuxHomeCore
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import CmuxThreading
 import CoreGraphics
 import Foundation
@@ -26,8 +29,17 @@ public protocol HomeAttachmentLoader: Sendable {
 /// file, else the loader) and one decode off the main actor; the result
 /// reaches the rows through `onImage`. Nothing here changes layout: the
 /// rows were sized from the pixel size before any request started.
+///
+/// The host sizes the cache (`maxBytes`, its ``HomeMemoryBudget`` share)
+/// and the scene says which pictures rows on screen show (`show`). Those are
+/// never dropped, whatever the budget: their layers hold them anyway, and
+/// dropping one would load it again on the next commit. Other pictures go
+/// least recently used first when an arrival passes the budget or the host
+/// asks (`trim(toBytes:)`); the next ask loads them again (local file
+/// first). A draft's preview is the host's own image, kept until its
+/// picture arrives, and is not counted.
 @MainActor
-final class MediaStore: HomeVideoSource {
+final class MediaStore: HomeVideoSource { // memory: consumer via HomeRenderMemoryConsumer (CmuxNextHome)
     var loader: (any HomeAttachmentLoader)? {
         didSet {
             failed.removeAll()
@@ -40,21 +52,46 @@ final class MediaStore: HomeVideoSource {
     var onReload: () -> Void = {}
 
     private var images: [String: CGImage] = [:]
-    private var order: [String] = []
+    /// When each picture in `images` was last asked for (a counter, not a clock).
+    private var lastUse: [String: Int] = [:]
+    private var useTick = 0
+    /// The pictures rows on screen show: no arrival or trim drops them.
+    private var shown: Set<String> = []
+    /// Pixel bytes of `images`.
+    private(set) var bytes = 0
+    /// The most pixel bytes `images` keeps. Lowering it frees nothing: the
+    /// next arrival drops the oldest pictures down to it.
+    var maxBytes: Int
     private var previews: [String: CGImage] = [:]
     private var locals: [String: (file: URL, poster: URL?)] = [:]
-    private var jobs: [String: Task<Void, Never>] = [:]
+    private var jobs: [String: Job] = [:]
+    private var lastJob = 0
     private var failed: Set<String> = []
     /// Where thumbnails are read and decoded: ImageIO reads the file, which blocks, so it runs on a queue of its
     /// own, never on the main actor or the shared pool. A bubble on screen waits for it.
     private nonisolated let decodeQueue = DispatchQueue(label: "cmux.home.media-decode", qos: .userInitiated)
-    static let capacity = 120
+
+    private struct Job {
+        let id: Int
+        let task: Task<Void, Never>
+    }
+
+    init(maxBytes: Int) {
+        self.maxBytes = max(0, maxBytes)
+    }
+
+    /// Cached pictures.
+    var count: Int { images.count }
 
     /// The image for a media bubble; on a miss its load starts and the
     /// host's preview (if any) shows until the full picture arrives.
     func image(for media: MediaPart, maxPixel: Int) -> CGImage? {
         let hash = media.ref.hash
-        if let hit = images[hash] { return hit }
+        if let hit = images[hash] {
+            useTick += 1
+            lastUse[hash] = useTick
+            return hit
+        }
         let preview = previews[hash]
         guard jobs[hash] == nil, !failed.contains(hash) else { return preview }
         let local = locals[hash]
@@ -63,17 +100,22 @@ final class MediaStore: HomeVideoSource {
         let ref = media.ref
         let isVideo = media.isVideo
         let decodeQueue = self.decodeQueue
-        jobs[hash] = Task { [weak self] in
+        lastJob += 1
+        let id = lastJob
+        // task-owner: kept in `jobs` until it lands; cancelled when the host hides the transcript.
+        let task = Task { [weak self] in
             let image = await Self.load(ref, isVideo: isVideo, local: local, loader: loader, maxPixel: maxPixel,
                                         decodeQueue: decodeQueue)
-            guard let self else { return }
+            // A cancelled load no longer owns its hash; a later load of it may.
+            guard let self, !Task.isCancelled, self.jobs[hash]?.id == id else { return }
             self.jobs[hash] = nil
-            guard !Task.isCancelled else { return }
             guard let image else { self.failed.insert(hash); return }
             self.store(image, for: hash)
             self.previews[hash] = nil
             self.onImage(hash)
+            self.trim(toBytes: self.maxBytes)
         }
+        jobs[hash] = Job(id: id, task: task)
         return preview
     }
 
@@ -102,16 +144,45 @@ final class MediaStore: HomeVideoSource {
     /// Returns when no load is in flight.
     func settled() async {
         while let next = jobs.values.first {
-            await next.value
+            await next.task.value
         }
     }
 
-    private func store(_ image: CGImage, for hash: String) {
-        if images.updateValue(image, forKey: hash) == nil { order.append(hash) }
-        while order.count > Self.capacity {
-            images[order.removeFirst()] = nil
+    /// The pictures rows on screen show now: no arrival or trim drops them
+    /// until they leave the screen.
+    func show(_ hashes: Set<String>) {
+        shown = hashes
+    }
+
+    /// Drops the least recently used pictures no row on screen shows until
+    /// the cache holds at most `target` bytes (or only shown ones are left).
+    func trim(toBytes target: Int) {
+        guard bytes > target else { return }
+        let candidates = images.keys.filter { !shown.contains($0) }.sorted { lastUse[$0, default: 0] < lastUse[$1, default: 0] }
+        for hash in candidates {
+            guard bytes > target else { return }
+            if let old = images.removeValue(forKey: hash) { bytes -= Self.bytes(of: old) }
+            lastUse[hash] = nil
         }
     }
+
+    /// The transcript is hidden and its rows show nothing: drops every
+    /// picture and every load in flight. The rows ask again when it shows.
+    func releaseHidden() {
+        shown.removeAll()
+        for (_, job) in jobs { job.task.cancel() }
+        jobs.removeAll()
+        trim(toBytes: 0)
+    }
+
+    private func store(_ image: CGImage, for hash: String) {
+        if let old = images.updateValue(image, forKey: hash) { bytes -= Self.bytes(of: old) }
+        bytes += Self.bytes(of: image)
+        useTick += 1
+        lastUse[hash] = useTick
+    }
+
+    private static func bytes(of image: CGImage) -> Int { image.bytesPerRow * image.height }
 
     private nonisolated static func load(_ ref: AttachmentRef, isVideo: Bool, local: (file: URL, poster: URL?)?,
                                          loader: (any HomeAttachmentLoader)?, maxPixel: Int,
@@ -137,9 +208,10 @@ final class MediaStore: HomeVideoSource {
     /// An ImageIO thumbnail with its orientation applied, read and decoded on `queue` (the store's
     /// ``decodeQueue``).
     private nonisolated static func decode(_ url: URL, maxPixel: Int, on queue: DispatchQueue) async -> CGImage? {
-        await withCheckedContinuation { continuation in
+        // A dropped continuation (never expected: the block always resumes it) reads as no thumbnail.
+        try? await withOnceContinuation { (once: OnceContinuation<CGImage?, OnceContinuationError>) in
             queue.async {
-                continuation.resume(returning: thumbnail(url, maxPixel: maxPixel))
+                once.resume(returning: thumbnail(url, maxPixel: maxPixel))
             }
         }
     }

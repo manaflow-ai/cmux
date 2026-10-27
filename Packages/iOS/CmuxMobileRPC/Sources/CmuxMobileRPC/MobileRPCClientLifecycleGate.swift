@@ -1,4 +1,7 @@
 internal import CMUXMobileCore
+internal import class CmuxSafeConcurrency.OnceContinuation
+internal import enum CmuxSafeConcurrency.OnceContinuationError
+internal import func CmuxSafeConcurrency.withOnceContinuation
 internal import CmuxThreading
 internal import Foundation
 
@@ -18,13 +21,13 @@ final class MobileRPCClientLifecycleGate: Sendable {
         var inFlightTransportAdmissions = 0
         var nextDisposalID: UInt64 = 0
         var transportDisposals: [UInt64: Task<Void, Never>] = [:]
-        var retirementWaiters: [CheckedContinuation<Void, Never>] = []
+        var retirementWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
     }
 
     // lint:allow lock - `makeTransport` and `retire` are synchronous by contract.
     // Critical regions only mutate counters/task handles; factories and async
     // transport cleanup always run after admission state has been released.
-    private let state = Mutex(State())
+    private let state = CmuxThreading.Mutex(State())
 
     func makeTransport(
         _ make: () throws -> any CmxByteTransport
@@ -126,14 +129,15 @@ final class MobileRPCClientLifecycleGate: Sendable {
     /// Synchronous ownership changes still call ``retire()`` without waiting;
     /// this async boundary exists for deterministic teardown and verification.
     func waitForRetiredTransportDisposals() async {
-        await withCheckedContinuation { continuation in
+        // A dropped waiter returns as a quiescent gate does.
+        _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
             let shouldResume = state.withLock { state in
                 guard !Self.isRetirementQuiescent(state) else { return true }
                 state.retirementWaiters.append(continuation)
                 return false
             }
             if shouldResume {
-                continuation.resume()
+                continuation.resume(returning: ())
             }
         }
     }
@@ -191,16 +195,16 @@ final class MobileRPCClientLifecycleGate: Sendable {
 
     private static func takeRetirementWaitersIfQuiescent(
         state: inout State
-    ) -> [CheckedContinuation<Void, Never>] {
+    ) -> [OnceContinuation<Void, OnceContinuationError>] {
         guard isRetirementQuiescent(state) else { return [] }
         let waiters = state.retirementWaiters
         state.retirementWaiters.removeAll()
         return waiters
     }
 
-    private static func resume(_ waiters: [CheckedContinuation<Void, Never>]) {
+    private static func resume(_ waiters: [OnceContinuation<Void, OnceContinuationError>]) {
         for waiter in waiters {
-            waiter.resume()
+            waiter.resume(returning: ())
         }
     }
 }

@@ -61,6 +61,8 @@ final class HomeService {
         mint: { connection in try await ConversationClient(connection).agentToken(for: HomeService.mux.id) })
     @ObservationIgnored private(set) var sessions: [String: HomeConversationSession] = [:]
     @ObservationIgnored unowned let services: AppServices
+    /// The transcript and list caches' memory consumer (`memoryHomeLabCaches`, p07-memory-081); Home views track it.
+    @ObservationIgnored private(set) lazy var labCaches: MessagesLabMemoryConsumer? = AppMemoryConsumers(services: services).makeHomeLabCaches()
     @ObservationIgnored private var availability: ServiceObservation<DaemonConnection?>?
     @ObservationIgnored private var listing: Task<Void, any Error>?
     /// The latest conversation-list read; only its answer is applied.
@@ -69,11 +71,9 @@ final class HomeService {
     /// posts, after startup unless a Home view needs it right after the first frame. nil (tests, a
     /// service made after launch): nothing waits on the launch order.
     @ObservationIgnored var launchFeeds: LaunchNeedPosts?
-    /// Home opened in a window this launch; the host starts once the Chief
+    /// Home opened in a window this launch (the app links read it); the host starts once the Chief
     /// owner is connected, even when Home opened first.
-    @ObservationIgnored private var homeWasOpened = false
-    /// Whether Home opened this launch (for the app links).
-    var homeOpened: Bool { homeWasOpened }
+    @ObservationIgnored private(set) var homeOpened = false
     /// The tagged daemon socket this app last published (ChiefAppLinks).
     @ObservationIgnored var publishedDaemonSocket: String?
     @ObservationIgnored var activationObserver: EventSubscription?
@@ -109,8 +109,10 @@ final class HomeService {
     /// transcript of every conversation tab reads this one store.
     /// Mermaid fences in Home chat draw as diagrams with the bundled Ondine
     /// (`markdown-viewer/ondine.min.js`); one renderer (one JavaScriptCore context) for every pane.
-    /// nil when the bundle lacks the script: fences stay text.
-    @ObservationIgnored private(set) lazy var diagrams: OndineMermaidRenderer? = OndineMermaidRenderer.bundled()
+    /// nil when the bundle lacks the script: fences stay text. With `memoryFileHomeCaches` it is a memory
+    /// consumer (`home-diagrams`) and its context goes after 10 min with no diagram shown (p07-memory-082).
+    @ObservationIgnored private(set) lazy var diagrams: OndineMermaidRenderer? =
+        OndineMermaidRenderer.bundled(memory: AppMemoryConsumers(services: services).fileCacheRegistry)
     @ObservationIgnored let homeSource: DaemonHomeSource
     /// Cloud conversations through the daemon's proxy (home-cloud-proxy.md),
     /// merged with the local ones into the one store.
@@ -121,10 +123,12 @@ final class HomeService {
     /// The Home list rows (`home-inbox`) the Messages list maps: local from the Chief home, Cloud from the build daemon.
     @ObservationIgnored let homeInbox = HomeInboxSource(owners: ["local"])
     @ObservationIgnored let homeCloudInbox = HomeInboxSource(owners: ["cloud"])
-    /// The Home list's last state beyond the conversations, for the next launch's first frame
-    /// (HomeService+LaunchList), kept beside the conversations' cache of the same Chief owner.
-    @ObservationIgnored private(set) lazy var sidebarLaunch = HomeSidebarLaunchCache.standard(owner: chief.home.session,
-                                                                                               caches: homeCaches)
+    /// The Home list's two caches and their launch read (HomeService+LaunchList, p08-startup-076), of this Chief owner.
+    /// A folder of this service's own (no app caches folder: tests) is new, so there is nothing to read in it.
+    @ObservationIgnored private(set) lazy var listLaunch = HomeListLaunch(
+        read: services.environment.homeCachesDirectory == nil
+            ? .some(HomeListLaunchRead.nothingToRead(owner: chief.home.session, caches: homeCaches)) : services.environment.homeListRead,
+        owner: chief.home.session, caches: homeCaches, work: services.work, mainWork: services.mainWork)
     /// The folder of this service's Home caches: the app's (`AppEnvironment.homeCachesDirectory`), else
     /// a temporary folder of its own, so the drafts of one `AppServices` never reach another's.
     @ObservationIgnored private lazy var homeCaches: URL = services.environment.homeCachesDirectory
@@ -146,7 +150,7 @@ final class HomeService {
     @ObservationIgnored private(set) lazy var homeStore = HomeStore(
         source: homeRouter,
         blobCacheDirectory: homeCaches.appending(path: "cmux-home-blobs", directoryHint: .isDirectory),
-        cache: HomeCache.standard(owner: chief.home.session, caches: homeCaches))
+        cache: listLaunch.read.conversations, waitsForPrime: true)
     @ObservationIgnored var cloudLink: Task<Void, Never>?
     /// Team members and Chiefs for the Home page's New Message and New Chief.
     @ObservationIgnored private(set) lazy var directory = HomeDirectory(
@@ -200,7 +204,7 @@ final class HomeService {
             guard let self, let connection = link.0 else { return }
             ensureHomeWorkspace(connection)
             // The Chief's daemon link names this connection's socket, known only once it is up.
-            if homeWasOpened { publishAppLinks() }
+            if homeOpened { publishAppLinks() }
         }
     }
 
@@ -221,15 +225,14 @@ final class HomeService {
         installChiefMigration()
         primeHomeList()
         pinMigration.attach([homeInbox, homeCloudInbox])
-        settleWatch = ChiefSettleWatch(home: chief.home) { [weak self] text in
+        settleWatch = ChiefSettleWatch(home: chief.home, mainWork: services.mainWork) { [weak self] text in
             if self?.settleNotice != text { self?.settleNotice = text }
         }
         watchReplies()
         chief.start(work: services.work)
         startCloud()
-        // task-owner: lives as long as the service; event-driven (Observation)
-        homeStore.start()
-        keepHomeListForLaunch()
+        // task-owner: lives as long as the service; event-driven (Observation). After the list's seed: its cache is read.
+        listLaunch.whenRead { [weak self] _ in self?.homeStore.start(); self?.keepHomeListForLaunch() }
         watchChiefOwner()
     }
 
@@ -252,7 +255,7 @@ final class HomeService {
         reloadList(connection)
         // Home opened before the owner answered, or the owner came back
         // after a stop: start the host now if it does not run.
-        if homeWasOpened { homeDidOpen(asked: false) }
+        if homeOpened { homeDidOpen(asked: false) }
         // The Chief tab may wait on this owner (a local Chief with history
         // takes it back from a placed chief): check it again now.
         if let local = services.machines.local.connection,
@@ -280,8 +283,8 @@ final class HomeService {
     /// the Chief home's brain host when none runs (ChiefBrainKeeper).
     func homeDidOpen(asked: Bool) {
         launchFeeds?.need()
-        if !homeWasOpened {
-            homeWasOpened = true
+        if !homeOpened {
+            homeOpened = true
             publishAppLinks()
             observeActivation()
         }

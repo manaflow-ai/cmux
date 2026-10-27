@@ -15,11 +15,11 @@ extension RegistryControlBridge {
         /// Everything but the reasons, which stay nil until ``apply(reasons:)``.
         init(registry: ActionRegistry) {
             // Localized once per build, not once per action.
-            let categoryTitles = Dictionary(uniqueKeysWithValues: ActionCategory.allCases.map { ($0, $0.title) })
+            let categoryTitles = Dictionary(ActionCategory.allCases.map { ($0, $0.title) }, uniquingKeysWith: { first, _ in first })
             let entries = registry.entries
             actions = entries.map { RegistryControlBridge.structureInfo(for: $0, in: registry, categoryTitles: categoryTitles) }
             ids = entries.map(\.descriptor.id)
-            aliases = Dictionary(uniqueKeysWithValues: registry.aliases.map { ($0.key.rawValue, $0.value.rawValue) })
+            aliases = Dictionary(registry.aliases.map { ($0.key.rawValue, $0.value.rawValue) }, uniquingKeysWith: { first, _ in first })
             debugActionsAvailable = DevTools.isEnabled
         }
 

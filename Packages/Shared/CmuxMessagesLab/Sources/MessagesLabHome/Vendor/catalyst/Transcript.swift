@@ -660,7 +660,7 @@ final class RowCell: UICollectionViewCell {
         // Circular ends with a flat top and bottom, as Messages' (its stills: the top row fully covered between the
         // ends). UIBezierPath(roundedRect:cornerRadius:) curves continuously at this radius: no flat part at all.
         let r = RowDraw.typingBubble.height / 2
-        typingBody.path = CGPath(roundedRect: typingBody.bounds, cornerWidth: r, cornerHeight: r, transform: nil)
+        typingBody.path = CGPath.roundedRect(typingBody.bounds, cornerWidth: r, cornerHeight: r)
         let typing = Fixture.typingColors(inactive: inactive)
         typingBody.fillColor = typing.fill.cgColor
         connector.fillColor = nil
@@ -1050,8 +1050,15 @@ final class RowCell: UICollectionViewCell {
             DispatchQueue.concurrentPerform(iterations: specs.count) { i in
                 // checked reads and writes (crash ratchet)
                 let r0 = CACurrentMediaTime()
-                if let slot = out.checkedIndex(i), let spec = specs[checked: i], let sc = scales[checked: i] { out[slot] = RowBitmaps.render(spec, scale: sc) }
-                if let slot = ms.checkedIndex(i) { ms[slot] = (CACurrentMediaTime() - r0) * 1000 }
+                if let spec = specs[checked: i], let sc = scales[checked: i] {
+                    let image = RowBitmaps.render(spec, scale: sc)
+                    // SAFETY: out is the images array's storage, lent for this closure, which concurrentPerform does
+                    // not outlive; `checkedWrite` checks i against its bounds and changes only element i (the buffer
+                    // value itself is not written), and iteration i is the only writer of element i.
+                    unsafe out.checkedWrite(image, at: i)
+                }
+                // SAFETY: as above, for rowMs.
+                unsafe ms.checkedWrite((CACurrentMediaTime() - r0) * 1000, at: i)
             }
             }
         }
@@ -1206,7 +1213,9 @@ final class RowCell: UICollectionViewCell {
     private(set) var badgeFill: CAGradientLayer?
     private var badgeGlyph: CALayer?
     private var badgeState = "", badgeTop: CGFloat = 0
+    // cmux: memory: fixed at most badgeGlyphLimit glyphs (40 x 44 pt), emptied when full (a palette or scale change adds keys)
     private static var badgeGlyphs: [String: CGImage] = [:]
+    static let badgeGlyphLimit = 64
     private static let badgeBox = CGSize(width: 40, height: 44)
 
     private func configureBadge(_ spec: RowSpec) {
@@ -1260,6 +1269,7 @@ final class RowCell: UICollectionViewCell {
             img = WideBitmap.make(size: size, scale: renderScale, opaque: false) { ctx in
                 PartRenderer.drawBadgeGlyph(kind, center: CGPoint(x: 20, y: 20), ctx: ctx)
             }
+            if Self.badgeGlyphs.count >= Self.badgeGlyphLimit { Self.badgeGlyphs.removeAll() } // cmux: bounded
             Self.badgeGlyphs[key] = img // an unallocated glyph is not cached (nil)
         }
         glyph.contents = img

@@ -73,6 +73,32 @@
         "settled"
       ],
       "note": "zoom and the unread mark of a terminal tab change in one commit"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "tab": "$step:fx-workspace#/value/tab_id"
+      },
+      "args": {
+        "method": "tab.update",
+        "params": {
+          "zoom": 1.5,
+          "marked_unread": true
+        },
+        "idempotencyKey": "tab-update-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

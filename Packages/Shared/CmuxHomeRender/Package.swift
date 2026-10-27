@@ -28,12 +28,18 @@ let package = Package(
         // blockingCall for the thumbnail reads (p02-threads-130, 146).
         .package(path: "../CmuxThreading"),
         .package(path: "../CmuxFuzzSupport"),
+        // Invariant (p10-stability-099): CrashGuard's faults report through notFatalUntil.
+        // OnceContinuation, the continuation that resumes exactly once (p10-stability-089).
+        .package(path: "../CmuxSafeConcurrency"),
     ],
     targets: [
         .target(
             name: "CmuxHomeRender",
-            dependencies: [.product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
-                           .product(name: "CmuxThreading", package: "CmuxThreading")],
+            dependencies: [
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
+                .product(name: "CmuxThreading", package: "CmuxThreading"),
+            ],
             resources: [.process("Resources/Localizable.xcstrings")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

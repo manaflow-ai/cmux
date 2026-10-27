@@ -291,6 +291,7 @@ impl App {
                 }
             }
             AppMsg::Info(s) => self.status = s,
+            AppMsg::MemoryPressure => self.transcript_cache.release(),
             AppMsg::Error(e) => self.report_error(e),
             AppMsg::Created(id) => {
                 self.refresh_sessions();
