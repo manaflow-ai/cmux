@@ -21,8 +21,8 @@ public struct ActionBudgetLogLine: Sendable, Hashable {
     ///
     /// - Parameters:
     ///   - sample: The over-budget run.
-    ///   - records: The watchdog's over-budget records (``MainThreadWatchdog/overBudget``).
-    ///   - sampling: Whether this build samples over-budget tasks (``MainThreadWatchdog/recordsTaskBudgets(environment:)``).
+    ///   - records: The watchdog's over-budget records (``MainThreadHangReporting/overBudget``).
+    ///   - sampling: Whether this build samples over-budget tasks (`MainThreadWatchdog.recordsTaskBudgets(environment:)`, CmuxNextControlDiagnostics).
     ///   - frames: Symbolicates a record's stack (``HangRecord/frames``; tests pass names).
     ///   - appImage: The app executable's image name, whose frames are the app's own work.
     public init(sample: ActionTimingSample, records: [HangRecord], sampling: Bool,

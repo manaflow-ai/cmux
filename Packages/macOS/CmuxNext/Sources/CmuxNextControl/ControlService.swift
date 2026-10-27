@@ -52,7 +52,7 @@ public final class ControlService {
         bundle: Bundle = .main,
         accessMode explicitMode: ControlAccessMode? = nil,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
-        watchdog: MainThreadWatchdog? = nil,
+        watchdog: (any MainThreadHangReporting)? = nil,
         mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
         hangs: (any HangWatchScoping)? = nil
     ) throws -> ControlService {
@@ -74,7 +74,7 @@ public final class ControlService {
         bundle: Bundle = .main,
         accessMode explicitMode: ControlAccessMode? = nil,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
-        watchdog: MainThreadWatchdog? = nil,
+        watchdog: (any MainThreadHangReporting)? = nil,
         mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
         hangs: (any HangWatchScoping)? = nil
     ) throws -> ControlService {
@@ -114,7 +114,7 @@ public final class ControlService {
         configuration: ControlSocketServer.Configuration,
         identity: ControlIdentity,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
-        watchdog: MainThreadWatchdog? = nil,
+        watchdog: (any MainThreadHangReporting)? = nil,
         mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
         hangs: (any HangWatchScoping)? = nil
     ) throws -> ControlService {
@@ -134,7 +134,7 @@ public final class ControlService {
         configuration: ControlSocketServer.Configuration,
         identity: ControlIdentity,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
-        watchdog: MainThreadWatchdog? = nil,
+        watchdog: (any MainThreadHangReporting)? = nil,
         mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
         hangs: (any HangWatchScoping)? = nil
     ) throws -> ControlService {

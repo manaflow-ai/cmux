@@ -29,9 +29,9 @@ public final class ActionBudgetReporter: Sendable {
     /// - Parameters:
     ///   - monitor: The per-action budget.
     ///   - naming: The report id of each action (no user text in a report).
-    ///   - overBudget: The main-thread watchdog's over-budget records (``MainThreadWatchdog/overBudget``),
+    ///   - overBudget: The main-thread watchdog's over-budget records (``MainThreadHangReporting/overBudget``),
     ///     for the Debug line's stack; nil without a watchdog.
-    ///   - sampling: Whether the watchdog samples over-budget tasks (``MainThreadWatchdog/recordsTaskBudgets(environment:)``).
+    ///   - sampling: Whether the watchdog samples over-budget tasks (`MainThreadWatchdog.recordsTaskBudgets(environment:)`, CmuxNextControlDiagnostics).
     ///   - logsRuns: Write the Debug log line per over-budget run (Debug builds). It keeps the
     ///     real action id: the log stays on this Mac.
     ///   - work: The app's blocking-work lanes: the Debug line's symbol map is read on its files lane at the

@@ -100,7 +100,7 @@ public final class ControlRouter: Sendable {
         var order: [String] = []
         var socketPath: String?
         var accessMode: String?
-        var watchdog: MainThreadWatchdog?
+        var watchdog: (any MainThreadHangReporting)?
         /// Answers v1 plain-text lines other than `ping` (the cmux CLI compat layer).
         var v1Handler: (@Sendable (String) async -> String?)?
         /// Typed error for a method nobody registered (compat: `unsupported in cmux-next: …`).
@@ -216,11 +216,11 @@ public final class ControlRouter: Sendable {
     var transportInfo: (socketPath: String?, accessMode: String?) { state.withLock { ($0.socketPath, $0.accessMode) } }
 
     /// The watchdog `debug.hangs` reports. The App installs it at launch.
-    public func attach(watchdog: MainThreadWatchdog?) {
+    public func attach(watchdog: (any MainThreadHangReporting)?) {
         state.withLock { $0.watchdog = watchdog }
     }
 
-    var watchdog: MainThreadWatchdog? { state.withLock { $0.watchdog } }
+    var watchdog: (any MainThreadHangReporting)? { state.withLock { $0.watchdog } }
 
     // MARK: - Lines
 

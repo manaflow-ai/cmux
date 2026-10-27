@@ -66,7 +66,7 @@ extension QuitDeadline {
     /// that a quit still ends. Armed only by
     /// `debug.quit {wedge_engine_stop: true}`; debug builds only.
     @MainActor
-    public func wedgeMainThread(_ watchdog: MainThreadWatchdog?) {
+    public func wedgeMainThread(_ watchdog: (any MainThreadHangReporting)?) {
         // As in a release build: the hang is reported, never asserted.
         watchdog?.endHangAssertions()
         // concurrency-allow: debug seam that blocks the main thread on purpose, as the wedged CefShutdown did: the

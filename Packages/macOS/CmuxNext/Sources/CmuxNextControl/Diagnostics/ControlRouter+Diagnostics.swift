@@ -38,7 +38,7 @@ extension ControlRouter {
                 }
                 return [
                     "installed": .bool(watchdog.isRunning),
-                    "threshold_ms": .number(watchdog.configuration.threshold.fractionalMilliseconds),
+                    "threshold_ms": .number(watchdog.stallThreshold.fractionalMilliseconds),
                     "count": JSONValue(summary.count),
                     "busy_count": JSONValue(summary.busyCount),
                     "max_ms": .number(summary.maxDuration.fractionalMilliseconds),
