@@ -227,8 +227,8 @@
       },
       "Q8": {
         "title": "threads without QoS",
-        "count": 1,
-        "found": 2,
+        "count": 2,
+        "found": 3,
         "raw": "git grep -n -E '\\.name\\((format!\\()?\"(mux-|surface-|terminal-host-(client|client-input|parser)\"|cmux-link-(in|out)\")|spawn_journal_writer\\(\"' -- 'cmux-tui/crates/*.rs' ':!*tests*' ':!*_tests.rs' | wc -l",
         "raw_count": 3,
         "breakdown": {
@@ -236,7 +236,7 @@
             "test": 2
           },
           "added": {
-            "a name the census cannot follow": 1
+            "a name the census cannot follow": 2
           },
           "same_line": 0
         }
