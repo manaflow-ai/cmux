@@ -161,9 +161,10 @@ final class SettingsPageProvider: PageProvider {
             guard let id = params["id"]?.stringValue, let on = params["on"]?.boolValue else {
                 throw PageError.invalidParams("id and on are required")
             }
-            // Turning it on lets that machine's agents run without the sandbox and its chats start
-            // without asking, so, like Full access, only the person's own click or key in this
-            // page turns it on (spent once); off only narrows, so it needs no gesture.
+            // Turning it on lets that machine take the VM boundary again when this app's own link
+            // asks for it (its remote chains then run without the sandbox), so, like Full access,
+            // only the person's own click or key in this page turns it on (spent once); off makes
+            // the machine keep the sandbox always, which only narrows, so it needs no gesture.
             if on {
                 guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
                       event != spentFullAccessGesture else {

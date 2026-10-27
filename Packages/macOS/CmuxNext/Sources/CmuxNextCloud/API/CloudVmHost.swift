@@ -1,8 +1,14 @@
 public import Foundation
 
-/// A Cloud machine's acpmux `vmHost` (acpmux `hub/vm_host.rs`): whether it is a dedicated agent
-/// VM, where agents run without the sandbox and the owner's chats start without asking. On by
-/// default on a machine cmux created for its owner; Settings > Machines turns it off and on.
+/// A Cloud machine's acpmux `vmHost` (acpmux `hub/vm_host.rs`): whether it takes its owner's VM
+/// boundary when the owner's own app link asks for it, nothing more. The machine never decides
+/// that: a remote chain from this app's link runs without the sandbox (and, for a peer session
+/// that asked no policy, on Linux, while MDM allows, approves all) only when the Cloud API told
+/// this app it owns the machine (`vmKind: "owner"`, acpmux `hub/vm_boundary.rs`). Team VMs and
+/// every other caller keep the sandbox, and chats this app starts there (`agent-session-start`)
+/// start with policy `ask`. On by default on any Linux machine; off makes the machine refuse the
+/// boundary (the sandbox always), on returns to the default. Settings > Machines shows the switch
+/// only while the link says the caller owns the machine.
 ///
 /// Read and set over the Cloud API's exec, one short command each: the machine's own
 /// `cmux-tui acp --json host vm-host [on|off]`, run as the machine's work user (or root on an
