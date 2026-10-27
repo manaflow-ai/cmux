@@ -271,7 +271,8 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in queue.async { done.resume() } }
     }
 
-    /// Applies `body` (true when the entries changed) and writes the result when they did.
+    /// `body` reports mutation; the return value reports persistence success. No mutation is a
+    /// successful no-op, so opening an empty journal never fails its trust barrier.
     @discardableResult
     private func change(_ body: (inout State) -> Bool) -> Bool {
         let snapshot = state.withLock { state -> (Int, [Entry], [PendingTrust])? in

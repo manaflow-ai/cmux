@@ -247,13 +247,13 @@ import CmuxNextCompat
         // cx-fcaq: the local WebSocket goes only to a port the acpmux this app runs listens on.
         if connection.remote == nil, let executable = connection.executable, let port = connection.url.port,
            !(await AcpmuxServerPeer.verifyListener(port: port, executable: executable)) {
-            if self.socket === socket { self.socket = nil; localAppToken = nil }
+            if self.socket === socket { self.socket = nil; localAppToken = nil; trustDaemon = nil }
             throw .connectFailed
         }
         do {
             try await socket.start(timeout: limits.connectTimeout)
         } catch {
-            if self.socket === socket { self.socket = nil; localAppToken = nil }
+            if self.socket === socket { self.socket = nil; localAppToken = nil; trustDaemon = nil }
             Self.logger.error("agent pane transport connect failed connection=\(id, privacy: .public)")
             throw .connectFailed
         }
@@ -348,6 +348,7 @@ import CmuxNextCompat
     public func close(connection id: Int) {
         guard id == current else { return }
         failHostRequests(connection: id)
+        trustDaemon = nil // A new native pick after close belongs to the next local connection.
         guard let socket else { return }
         socket.close(code: 1000, reason: "", error: nil)
         gestures.clearTickets(connection: id)
@@ -371,6 +372,7 @@ import CmuxNextCompat
         if batch.closed != nil {
             failHostRequests(connection: current)
             self.socket = nil
+            trustDaemon = nil
             gestures.clearTickets(connection: current)
             localAppToken = nil
             // A connection the daemon closed: the page was told, so its prompts are the page's again

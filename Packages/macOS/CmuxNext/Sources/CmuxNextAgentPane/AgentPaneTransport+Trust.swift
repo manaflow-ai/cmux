@@ -8,7 +8,7 @@ extension AgentPaneTransport {
     /// this helper.
     func trustPicked(_ folder: String) async {
         guard !remoteWire else { return }
-        let journal = promptJournal, daemon = trustDaemon, connection = current
+        let journal = promptJournal, daemon = socket?.isClosed == true ? nil : trustDaemon, connection = current
         // Persist at the pick, before joining a possibly busy drain. A queued request must
         // survive app exit even when sendHost has not started yet.
         let persisted = if let journal {

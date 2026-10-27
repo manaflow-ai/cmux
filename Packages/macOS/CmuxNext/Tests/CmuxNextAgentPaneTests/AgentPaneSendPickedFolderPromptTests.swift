@@ -241,6 +241,47 @@ struct AgentPaneSendPickedFolderPromptTests {
         #expect(result.2 == [folder])
     }
 
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func aLocalConnectionOpensWithAnEmptyTrustJournal(existing: Bool) async throws {
+        let pane = try await pane(connected: false)
+        defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
+        let url = pane.base.appendingPathComponent("empty-trust.json")
+        if existing { try Data(#"{"version":1,"entries":[]}"#.utf8).write(to: url) }
+        let transport = pane.model.transport
+        transport.promptJournal = AgentPanePromptJournal(url: url)
+        transport.webModes = { _, _, _ in nil }
+        let id = try await transport.open(AcpmuxConnection(url: pane.server.url, dashboardToken: "t", localAppToken: nil, socketPath: "daemon-a"))
+        defer { transport.close(connection: id) }
+        #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
+        #expect(await pane.server.wait { $0.last?.frames.contains { $0.contains("initialize") } == true })
+        #expect(pane.server.peers.last?.frames.contains { $0.contains("acp.trust.set") } == false)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func aFolderPickedBetweenConnectionsBelongsToTheNextDaemon(explicitClose: Bool) async throws {
+        let pane = try await pane(connected: false)
+        defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
+        let transport = pane.model.transport
+        let url = pane.base.appendingPathComponent("between-connections.json")
+        transport.promptJournal = AgentPanePromptJournal(url: url)
+        transport.webModes = { _, _, _ in nil }
+        let first = try await transport.open(AcpmuxConnection(url: pane.server.url, dashboardToken: "t", localAppToken: nil, socketPath: "daemon-a"))
+        if explicitClose { transport.close(connection: first) }
+        else { transport.socket?.close(code: 1000, reason: "", error: nil) }
+        #expect(await transport.pick(pane.folder) == pane.folder)
+        pane.server.hold("acp.trust.set")
+        let second = try await transport.open(AcpmuxConnection(url: pane.server.url, dashboardToken: "t", localAppToken: nil, socketPath: "daemon-b"))
+        defer { pane.server.releaseHeld(); transport.close(connection: second) }
+        #expect(await transport.send(connection: second, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
+        #expect(await pane.server.wait { $0.last?.frames.contains { $0.contains("acp.trust.set") } == true })
+        let saved = await Task.detached {
+            let journal = AgentPanePromptJournal(url: url)
+            return (journal.pendingTrustFolders(daemon: "daemon-a"), journal.pendingTrustFolders(daemon: "daemon-b"))
+        }.value
+        #expect(saved.0.isEmpty)
+        #expect(saved.1 == [pane.folder])
+    }
+
     @Test(.timeLimit(.minutes(1))) func aQueuedTrustPickSurvivesRestartBeforeTheDrainReachesIt() async throws {
         let pane = try await pane()
         defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
