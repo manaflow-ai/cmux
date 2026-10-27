@@ -7,13 +7,19 @@
 A perf script is a runnable file (a `.py` needs a `__main__` guard or a shebang; a module without either is a
 library a bench imports) that is one of:
 
-  - an entry of scripts/measure/ (a fleet measure step) or scripts/perf-lab/stories/ (a story implementation);
-  - a script in PERF_DIRS (top level only) whose name has a bench word (queues.py BENCH_NAME, MQ2's words, at a
-    word start so `feature-flags` is not `lag`) or whose code writes result-v1 (bench_launch, BenchApp, perf_result).
+  - an entry of scripts/measure/ (a fleet measure step) or scripts/perf-lab/stories/ (a story implementation),
+    top level only (a subdirectory holds a step's own helpers, scripts/measure/blocking-probe/);
+  - a script anywhere under PERF_DIRS (queues.py PERF_DIRS, recursive, queues.SKIP_DIRS such as tests/ and
+    node_modules/ pruned) whose name has a bench word (queues.py BENCH_NAME, MQ2's words: `bench` anywhere, as in
+    xbench, the others at a word start so `feature-flags` is not `lag`) or whose code writes result-v1 (bench_launch,
+    BenchApp, perf_result). The lab's own code (scripts/perf-lab/ outside stories/) runs stories and is not one;
+    a unit test (test_*.py, *_test.py, *.test.ts) is not one.
 
-A perf script is covered when a story runs it: a stories.d/<id>.json command names it, or a covered script names
-it in its code (Python string literals other than docstrings, shell lines other than comments), transitively.
-Otherwise retired.json must hold it with a kind and a reason:
+A perf script is covered when a story runs it: a stories.d/<id>.json `command` names it, or the story's `runs` list
+does (the scripts the command runs on every run: the bench a session script starts, a fleet step's story module).
+Nothing is inferred from a script's text: a suite branch that the story's arguments do not select, a module it
+imports, a help text or an error message that names a file is not a run. Otherwise retired.json must hold it with a
+kind and a reason:
 
   duplicate    "of" names the story that already measures it (a fleet wrapper of a story's script)
   one-off      a finished experiment or a single diagnostic, kept as a record
@@ -40,7 +46,6 @@ import json
 import os
 import re
 import sys
-from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -67,14 +72,15 @@ RETIRED_PATH = "scripts/perf-lab/retired.json"
 RETIRED_SCHEMA = "cmux-perf-retired/v1"
 TASK_SIZE = 4  # p12-perf-process.md section 7, MQ12: each group of up to 4 scripts is one task
 
-# Every runnable file in these directories is a perf script.
+# Every runnable file at the top of these directories is a perf script.
 ENTRY_DIRS = ("scripts/measure", "scripts/perf-lab/stories")
-# Here a script is a perf script by its name or by writing result-v1. Top level only: subdirectories hold a
-# script's own helpers (scripts/measure/blocking-probe/) or other programs (scripts/ci/).
-PERF_DIRS = ("scripts", "scripts/cmux-next", "scripts/perf", "cmux-tui/scripts", "webviews/scripts",
-             "tests/automation-bench/perf")
+# Under these, recursively, a script is a perf script by its name or by writing result-v1.
+PERF_DIRS = queues.PERF_DIRS
+LAB_DIR = "scripts/perf-lab"  # the lab itself: only its stories/ entries are perf scripts
 SUFFIXES = (".py", ".sh", ".ts", ".mjs", ".js")
-PERF_NAME = re.compile(r"(?<![a-z])(?:%s)" % queues.BENCH_NAME.pattern)
+PERF_NAME = re.compile(r"bench|(?<![a-z])(?:%s)" % queues.BENCH_NAME.pattern)
+# A unit test is not a bench, in a tests/ directory (queues.SKIP_DIRS) or next to the code it tests.
+TEST_NAME = re.compile(r"^test_.*\.py$|_test\.py$|\.(?:test|spec)\.[a-z]+$")
 RESULT_WRITER = re.compile(r"\bbench_launch\b|\bBenchApp\b|\bperf_result\b")
 
 KINDS = ("duplicate", "one-off", "not-a-bench", "outside-lab")
@@ -100,7 +106,7 @@ class Retired:
 @dataclass(frozen=True)
 class Report:
     scripts: tuple[Script, ...]
-    covered: dict[str, str]  # path -> the story (or covered script) that runs it
+    covered: dict[str, str]  # path -> the stories that run it
     retired: dict[str, Retired]
     orphans: tuple[Script, ...]
     problems: tuple[str, ...]
@@ -128,62 +134,37 @@ def _runnable(name: str, text: str) -> bool:
                (isinstance(node, ast.Expr) and not isinstance(node.value, ast.Constant)) for node in body)
 
 
+def _candidates(root: Path) -> Iterable[tuple[str, bool]]:
+    """(repository path, whether it is an entry) for every file with a script suffix that may be a perf script."""
+    for top in ENTRY_DIRS:
+        directory = root / top
+        for path in sorted(directory.iterdir()) if directory.is_dir() else []:
+            if path.is_file() and path.name.endswith(SUFFIXES):
+                yield f"{top}/{path.name}", True
+    for top in PERF_DIRS:
+        for rel in queues._walk(str(root), top, SUFFIXES):
+            if not rel.startswith(LAB_DIR + "/") and not TEST_NAME.search(os.path.basename(rel)):
+                yield rel, False
+
+
 def perf_scripts(root: Path) -> list[Script]:
     """Every perf script of the tree, sorted by path."""
     found: dict[str, Script] = {}
-    for top, entry in [(d, True) for d in ENTRY_DIRS] + [(d, False) for d in PERF_DIRS]:
-        directory = root / top
-        if not directory.is_dir():
+    for rel, entry in _candidates(root):
+        name = os.path.basename(rel)
+        if rel in found or not _runnable(name, text := _read(root / rel)):
             continue
-        for path in sorted(directory.iterdir()):
-            if not path.is_file() or not path.name.endswith(SUFFIXES):
-                continue
-            rel = f"{top}/{path.name}"
-            text = _read(path)
-            if rel in found or not _runnable(path.name, text):
-                continue
-            if entry:
-                found[rel] = Script(rel, f"entry of {top}/")
-            elif match := PERF_NAME.search(path.name.lower()):
-                found[rel] = Script(rel, f"name: {match.group(0)}")
-            elif match := RESULT_WRITER.search(text):
-                found[rel] = Script(rel, f"writes result-v1: {match.group(0)}")
+        if entry:
+            found[rel] = Script(rel, f"entry of {os.path.dirname(rel)}/")
+        elif match := PERF_NAME.search(name.lower()):
+            found[rel] = Script(rel, f"name: {match.group(0)}")
+        elif match := RESULT_WRITER.search(text):
+            found[rel] = Script(rel, f"writes result-v1: {match.group(0)}")
     return [found[rel] for rel in sorted(found)]
 
 
-def _docstrings(tree: ast.AST) -> set[int]:
-    ids = set()
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and node.body:
-            first = node.body[0]
-            if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
-                ids.add(id(first.value))
-    return ids
-
-
-def code_text(path: Path) -> str:
-    """The part of a file that can run another script: Python string literals other than docstrings, or the lines
-    of any other file that are not comments. A Python file that does not parse counts by its non-comment lines."""
-    text = _read(path)
-    if path.name.endswith(".py"):
-        try:
-            tree = ast.parse(text, filename=str(path))
-        except SyntaxError:
-            pass
-        else:
-            skip = _docstrings(tree)
-            return "\n".join(node.value for node in ast.walk(tree)
-                             if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in skip)
-    comment = "//" if path.name.endswith((".ts", ".mjs", ".js")) else "#"
-    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith(comment))
-
-
-def _names(text: str, basename: str) -> bool:
-    return re.search(r"(?<![\w.-])%s(?![\w.-])" % re.escape(basename), text) is not None
-
-
-def story_commands(root: Path) -> dict[str, list[str]]:
-    """Repository path -> the ids of the stories whose command names it."""
+def story_runs(root: Path, problems: list[str]) -> dict[str, list[str]]:
+    """Repository path -> the ids of the stories that run it: the paths in a story's `command` and its `runs`."""
     runs: dict[str, list[str]] = {}
     directory = root / STORIES_DIR
     for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
@@ -191,28 +172,25 @@ def story_commands(root: Path) -> dict[str, list[str]]:
             story = json.loads(_read(path))
         except json.JSONDecodeError as error:
             raise OrphansError(f"{STORIES_DIR}/{path.name}: {error}") from None
-        command = story.get("command") if isinstance(story, dict) else None
-        for arg in command if isinstance(command, list) else []:
+        if not isinstance(story, dict):
+            continue
+        story_id = str(story.get("id", path.stem))
+        command = story.get("command") if isinstance(story.get("command"), list) else []
+        for arg in command:
             if isinstance(arg, str) and not arg.startswith("-") and (root / arg).is_file():
-                runs.setdefault(os.path.normpath(arg), []).append(str(story.get("id", path.stem)))
+                runs.setdefault(os.path.normpath(arg), []).append(story_id)
+        declared = story.get("runs", [])
+        for rel in declared if isinstance(declared, list) else [declared]:
+            if isinstance(rel, str) and (root / rel).is_file():
+                runs.setdefault(os.path.normpath(rel), []).append(story_id)
+            else:
+                problems.append(f"{STORIES_DIR}/{path.name}: runs path {rel!r} does not exist in the repository")
     return runs
 
 
-def coverage(root: Path, scripts: Iterable[Script]) -> dict[str, str]:
-    """Perf script path -> what runs it: `story <id>` for a story's command, `via <path>` for a script a covered
-    file names in its code."""
-    runs = story_commands(root)
-    covered = {path: "story " + ", ".join(ids) for path, ids in runs.items()}
-    pending = [s.path for s in scripts if s.path not in covered]
-    frontier = deque(covered)
-    while frontier and pending:
-        runner = frontier.popleft()
-        text = code_text(root / runner)
-        for path in [p for p in pending if _names(text, os.path.basename(p))]:
-            pending.remove(path)
-            covered[path] = f"via {runner}"
-            frontier.append(path)
-    return covered
+def coverage(root: Path, problems: list[str]) -> dict[str, str]:
+    """Path -> `story <ids>` for every path that a story's command or `runs` names; nothing else is a run."""
+    return {path: "story " + ", ".join(dict.fromkeys(ids)) for path, ids in story_runs(root, problems).items()}
 
 
 # ---------- the ledger ----------
@@ -256,7 +234,7 @@ def _story_ids(root: Path) -> set[str]:
 def find(root: Path = REPO_ROOT) -> Report:
     problems: list[str] = []
     scripts = perf_scripts(root)
-    covered = coverage(root, scripts)
+    covered = coverage(root, problems)
     retired = load_retired(root, problems)
     known = {s.path for s in scripts}
     stories = _story_ids(root)

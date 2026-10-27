@@ -92,7 +92,7 @@ NUMBER_TEXT = re.compile(r"^-?[0-9]+(\.[0-9]+)?$")
 
 STORY_REQUIRED = ("id", "tier", "description", "command", "session", "engine", "config", "metrics", "repeats",
                   "seconds", "needs", "owner", "component")
-STORY_OPTIONAL = ("hot_paths", "perf_cron_part", "not_measurable")
+STORY_OPTIONAL = ("hot_paths", "perf_cron_part", "not_measurable", "runs")
 STORY_NUMBERS = ("repeats", "seconds")
 METRIC_REQUIRED = ("name", "unit", "better")
 METRIC_OPTIONAL = ("target_ref", "floor_ref")
@@ -151,6 +151,9 @@ class Story:
     # Why the lab cannot run the story yet (the missing runner or build support), or None. Such a story is defined
     # (its series, owner and metrics are linted) but no shard, round or build is planned for it (measurable()).
     not_measurable: str | None = None
+    # The scripts the command runs on every run besides command[0] (a session script's bench, a fleet step's story
+    # module). orphans.py counts only these and the command's own paths as run by a story (MQ12).
+    runs: tuple[str, ...] = ()
 
     def measurable(self) -> bool:
         return self.not_measurable is None
@@ -538,6 +541,15 @@ def _load_story(root: Path, path: Path, problems: list[str], targets: tuple[Targ
     if blocked is not None and not _is_text(blocked):
         problems.append(f"{where}: not_measurable is the reason the lab cannot run the story yet")
         blocked = repr(blocked)  # still not measurable: a malformed reason never puts a story into a round
+    runs = doc.get("runs", [])
+    if not (isinstance(runs, list) and all(isinstance(r, str) for r in runs)):
+        problems.append(f"{where}: runs is a list of repository paths")
+        runs = []
+    for rel in runs:
+        if not re.match(perf_result.TARGET_PATH_PATTERN, rel) or not (root / rel).is_file():
+            problems.append(f"{where}: runs path {rel} does not exist in the repository")
+        elif rel in command:
+            problems.append(f"{where}: runs path {rel} is in the command already")
     return Story(
         id=str(doc["id"]), path=where, tier=doc["tier"], description=str(doc["description"]),
         command=tuple(command), session=str(doc["session"]), engine=str(doc["engine"]), config=str(doc["config"]),
@@ -545,7 +557,7 @@ def _load_story(root: Path, path: Path, problems: list[str], targets: tuple[Targ
         seconds=doc["seconds"] if isinstance(doc["seconds"], int) else 0,
         needs=tuple(n for n in needs if isinstance(n, str)), owner=str(doc["owner"]),
         component=str(doc["component"]), hot_paths=tuple(hot) if isinstance(hot, list) else (),
-        perf_cron_part=part, not_measurable=blocked)
+        perf_cron_part=part, not_measurable=blocked, runs=tuple(runs))
 
 
 def _flag_values(command: list[str]) -> Iterable[tuple[str, str]]:

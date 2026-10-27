@@ -36,6 +36,7 @@ python3 -m unittest scripts/perf-lab/tests/test_catalog.py
 | `component` | `Area>Sub`, in the form of a Chrome bug component. |
 | `perf_cron_part` | The `perf-cron.py` part that this story replaces. Each part must have one story. |
 | `not_measurable` | Optional. The reason the lab cannot run the story yet, for example a build or a runner argument that does not exist. The lint checks the story as usual, and `lab.py stories` lists the reason. The shard map, the scheduler and the runner skip the story. Remove the field in the change that adds the missing support. |
+| `runs` | Optional. The repository paths of the scripts that `command` runs on every run, besides its own paths: the bench that a session script starts, or the story module of a fleet step. `lab.py stories --orphans` (MQ12) counts a script as run by a story only when the command or `runs` names it. A suite branch that the command does not select, an imported module or a name in a help text is not a run. |
 
 ## Thresholds are references, never copies (R4)
 

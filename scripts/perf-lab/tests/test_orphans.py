@@ -38,8 +38,11 @@ class Tree:
         path.write_text(text, encoding="utf-8")
         return rel
 
-    def story(self, story_id: str, *command: str) -> None:
-        self.file(f"{orphans.STORIES_DIR}/{story_id}.json", json.dumps({"id": story_id, "command": list(command)}))
+    def story(self, story_id: str, *command: str, runs: list | None = None) -> None:
+        doc = {"id": story_id, "command": list(command)}
+        if runs is not None:
+            doc["runs"] = runs
+        self.file(f"{orphans.STORIES_DIR}/{story_id}.json", json.dumps(doc))
 
     def retire(self, scripts: dict) -> None:
         self.file(orphans.RETIRED_PATH, json.dumps({"schema": orphans.RETIRED_SCHEMA, "scripts": scripts}))
@@ -72,8 +75,35 @@ class OrphansTest(unittest.TestCase):
         t.file("scripts/cmux-next/tab-switch-matrix.py")
         t.file("scripts/cmux-next/bench_idle.py")
         t.file("scripts/lint-feature-flags.py")  # `lag` inside `flags` is not a bench word
-        t.file("scripts/cmux-next/sub/deep-bench.py")  # subdirectories are not scanned
         self.assertEqual(self.orphan_paths(), ["scripts/cmux-next/bench_idle.py", "scripts/cmux-next/tab-switch-matrix.py"])
+
+    def test_bench_inside_a_word_is_a_bench_name(self) -> None:
+        self.tree.file("scripts/perf-bench/xbench.py")
+        self.assertEqual([(s.path, s.why) for s in self.tree.report().orphans],
+                         [("scripts/perf-bench/xbench.py", "name: bench")])
+
+    def test_benches_in_subdirectories_are_perf_scripts(self) -> None:
+        t = self.tree
+        t.file("scripts/cmux-next/sub/deep-bench.py")
+        t.file("scripts/perf-bench/power_attribution.py")
+        t.file("webviews/scripts/agent-pane/chat-load/browser_bench.mjs", "console.log(1)\n")
+        t.file("cmux-tui/scripts/a/b/bench-x.sh", "#!/usr/bin/env bash\n")
+        t.file("tests/automation-bench/perf/sub/soak.py")
+        self.assertEqual(self.orphan_paths(), [
+            "cmux-tui/scripts/a/b/bench-x.sh", "scripts/cmux-next/sub/deep-bench.py",
+            "scripts/perf-bench/power_attribution.py", "tests/automation-bench/perf/sub/soak.py",
+            "webviews/scripts/agent-pane/chat-load/browser_bench.mjs"])
+
+    def test_tests_dependencies_and_the_lab_itself_are_not_perf_scripts(self) -> None:
+        t = self.tree
+        t.file("scripts/cmux-next/tests/test_bench_idle.py")
+        t.file("webviews/scripts/node_modules/x/bench.mjs", "x()\n")
+        t.file("scripts/lib/iroh-soak.test.mjs", "x()\n")
+        t.file("scripts/cmux-next/oracle/driver_app_test.py", BENCH_PY + "import bench_launch\n")
+        t.file("scripts/perf-lab/perf_import.py")  # the lab's own code
+        t.file("scripts/perf-lab/stories/qos_static.py")  # a story implementation: an entry
+        t.file("scripts/measure/blocking-probe/run.sh", "#!/usr/bin/env bash\n")  # a step's own helper
+        self.assertEqual(self.orphan_paths(), ["scripts/perf-lab/stories/qos_static.py"])
 
     def test_writing_result_v1_makes_a_perf_script_whatever_its_name(self) -> None:
         self.tree.file("scripts/cmux-next/glass.py", BENCH_PY + "import bench_launch\n")
@@ -98,28 +128,63 @@ class OrphansTest(unittest.TestCase):
         self.assertEqual(report.orphans, ())
         self.assertEqual(report.covered["scripts/cmux-next/bench_idle.py"], "story idle")
 
-    def test_a_script_that_a_covered_script_runs_is_covered_transitively(self) -> None:
+    def test_a_story_runs_list_covers_the_scripts_its_command_starts(self) -> None:
+        t = self.tree
+        t.file("scripts/cmux-next/cli-storm-session.py",
+               BENCH_PY + 'subprocess.run([sys.executable, os.path.join(HERE, "bench_cli_storm.py")])\n')
+        t.file("scripts/cmux-next/bench_cli_storm.py")
+        t.story("cli-storm", "scripts/cmux-next/cli-storm-session.py", "--session", "light",
+                runs=["scripts/cmux-next/bench_cli_storm.py"])
+        report = t.report()
+        self.assertEqual((report.orphans, report.problems), ((), ()))
+        self.assertEqual(report.covered["scripts/cmux-next/bench_cli_storm.py"], "story cli-storm")
+
+    def test_a_script_the_command_starts_but_the_story_does_not_declare_stays_an_orphan(self) -> None:
+        t = self.tree
+        t.file("scripts/cmux-next/cli-storm-session.py",
+               BENCH_PY + 'subprocess.run([sys.executable, os.path.join(HERE, "bench_cli_storm.py")])\n')
+        t.file("scripts/cmux-next/bench_cli_storm.py")
+        t.story("cli-storm", "scripts/cmux-next/cli-storm-session.py")
+        self.assertEqual(self.orphan_paths(), ["scripts/cmux-next/bench_cli_storm.py"])
+
+    def test_a_dispatcher_branch_the_story_does_not_select_stays_an_orphan(self) -> None:
         t = self.tree
         t.file("scripts/measure/split-spring.sh",
-               "#!/usr/bin/env bash\npython3 scripts/cmux-next/split-spring-frames.py \"$@\"\n")
-        t.file("scripts/cmux-next/split-spring-frames.py",
-               BENCH_PY + 'SUITE = os.path.join(HERE, "cef-idle-probe.py")\n')
-        t.file("scripts/cmux-next/cef-idle-probe.py")
-        t.story("split-spring", "scripts/measure/split-spring.sh")
-        report = t.report()
-        self.assertEqual(report.orphans, ())
-        self.assertEqual(report.covered["scripts/cmux-next/cef-idle-probe.py"],
-                         "via scripts/cmux-next/split-spring-frames.py")
+               "#!/usr/bin/env bash\nbench=scripts/cmux-next/split-spring-terminal.py\nfor arg; do case $arg in\n"
+               "  --suite=input-latency) bench=scripts/cmux-next/input-latency-bench.py ;;\n"
+               "  --suite=scroll-jank) bench=scripts/cmux-next/scroll-jank-bench.py ;;\nesac; done\n"
+               'python3 "$bench"\n')
+        for name in ("split-spring-terminal", "input-latency-bench", "scroll-jank-bench"):
+            t.file(f"scripts/cmux-next/{name}.py")
+        t.story("split-spring", "scripts/measure/split-spring.sh",
+                runs=["scripts/cmux-next/split-spring-terminal.py"])
+        t.story("input-latency", "scripts/measure/split-spring.sh", "--suite=input-latency",
+                runs=["scripts/cmux-next/input-latency-bench.py"])
+        self.assertEqual(self.orphan_paths(), ["scripts/cmux-next/scroll-jank-bench.py"])
 
-    def test_a_mention_in_a_comment_or_docstring_does_not_cover(self) -> None:
+    def test_an_import_a_help_text_or_an_error_message_does_not_cover(self) -> None:
         t = self.tree
-        t.file("scripts/cmux-next/tab-switch-stages.py",
-               '#!/usr/bin/env python3\n"""Run by scripts/measure/tab-switch.sh."""\n'
-               '# scripts/measure/tab-switch.sh passes its arguments here\nif __name__ == "__main__":\n    pass\n')
-        t.file("scripts/measure/tab-switch.sh", "#!/usr/bin/env bash\n# runs tab-switch-stages.py\n")
-        t.file("scripts/measure/other.sh", "#!/usr/bin/env bash\n# tab-switch-stages.py\ntrue\n")
-        t.story("tab-switch-stages", "scripts/cmux-next/tab-switch-stages.py")
-        self.assertEqual(self.orphan_paths(), ["scripts/measure/other.sh", "scripts/measure/tab-switch.sh"])
+        t.file("scripts/cmux-next/every-action-sweep.py", BENCH_PY +
+               'import action_signposts_bench\n'
+               'parser.add_argument("--probe", help="DYLD_INSERT_LIBRARIES (scripts/measure/blocking-probe.sh)")\n'
+               'raise SystemExit("needs a `reload.sh --config bench-checks` build")\n'
+               'print("see trace.py")\n')
+        t.file("scripts/cmux-next/action_signposts_bench.py")
+        t.file("scripts/measure/blocking-probe.sh", "#!/usr/bin/env bash\n")
+        t.file("scripts/reload.sh", "#!/usr/bin/env bash\nbench_launch=1\n")
+        t.file("scripts/cmux-next/trace.py", BENCH_PY + "import bench_launch\n")
+        t.story("sweep", "scripts/cmux-next/every-action-sweep.py")
+        self.assertEqual(self.orphan_paths(), [
+            "scripts/cmux-next/action_signposts_bench.py",
+            "scripts/cmux-next/trace.py", "scripts/measure/blocking-probe.sh", "scripts/reload.sh"])
+
+    def test_a_runs_path_that_does_not_exist_is_a_problem(self) -> None:
+        t = self.tree
+        t.file("scripts/cmux-next/bench_idle.py")
+        t.story("idle", "scripts/cmux-next/bench_idle.py", runs=["scripts/cmux-next/gone.py", 3])
+        problems = "\n".join(t.report().problems)
+        self.assertIn("idle.json: runs path 'scripts/cmux-next/gone.py' does not exist", problems)
+        self.assertIn("idle.json: runs path 3 does not exist", problems)
 
     def test_a_basename_inside_a_longer_name_does_not_cover(self) -> None:
         t = self.tree
@@ -237,6 +302,16 @@ class CheckoutTest(unittest.TestCase):
     def test_the_cron_parts_stories_cover_their_scripts(self) -> None:
         covered = self.report.covered
         self.assertTrue(covered["scripts/cmux-next/every-action-sweep.py"].startswith("story "))
+
+    def test_only_the_commands_and_runs_lists_cover(self) -> None:
+        covered = self.report.covered
+        self.assertEqual(covered["scripts/cmux-next/bench_cli_storm.py"], "story cli-storm-stress, cli-storm")
+        # The build story runs split-spring.sh --build-only: its --suite= branches are not runs.
+        for path in ("scripts/cmux-next/input-latency-bench.py", "scripts/cmux-next/scroll-jank-bench.py"):
+            self.assertNotIn(path, covered)
+
+    def test_the_scan_reaches_perf_bench(self) -> None:
+        self.assertIn("scripts/perf-bench/xbench.py", {s.path for s in self.report.scripts})
 
 
 if __name__ == "__main__":
