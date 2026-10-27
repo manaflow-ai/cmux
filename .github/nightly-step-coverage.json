@@ -95,6 +95,8 @@
         "Bundle the OptChat Chief and the iPhone host": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly helper builds beside the Release build", "note": "joins the background Chief and iPhone host builds and runs bundle-optchat-chief.sh and bundle-mobile-host.sh on the Release app; tests/test_nightly_helpers_beside_release_build.py runs the join on fixtures"},
         "Stop the helper builds still running": {"plumbing": true}},
       "build-nightly-linux-inputs": {
+        "Source key of the web bundles": {"plumbing": true},
+        "Restore the published web bundles": {"plumbing": true, "note": "Restores the same keyed bundle as cmux-next.yml; the installer verifies its source manifest before use"},
         "Drop stale submodule checkouts (self-hosted reused workspace)": {"plumbing": true},
         "Give this job its own bun": {"plumbing": true},
         "Build the web bundles": {"pr": "cmux-next.yml:web-bundles:Build the web bundles for this source key"},
