@@ -7,9 +7,12 @@ public import AppKit
 /// (ui/base/cocoa/command_dispatcher.mm, `-performKeyEquivalent:`). The key goes on to the focused view, as
 /// a chord with no menu item does. A chord that a responder item (Copy, Undo, Hide), a system item (Quit) or
 /// an item the bar does not make shares keeps AppKit's search, and so does every undecided key and a click.
-public final class ActionMenuBar: NSMenu {
+///
+/// `NSMenu` is nonisolated in the macOS 26 SDK, so the bar is too (its overrides must match); the registry
+/// work runs on the main actor only, from AppKit's key dispatch on the main thread.
+public nonisolated final class ActionMenuBar: NSMenu {
     /// A key equivalent as AppKit matches it: the lowercased key and the modifiers.
-    struct Chord: Equatable {
+    nonisolated struct Chord: Equatable {
         let key: String
         let modifiers: UInt
 
@@ -34,11 +37,11 @@ public final class ActionMenuBar: NSMenu {
 
     private weak var registry: ActionRegistry?
     /// Whether the key router decided a key-down (the App's `KeyRouter.decided`).
-    private let decidedKey: (NSEvent) -> Bool
+    private let decidedKey: @MainActor (NSEvent) -> Bool
     /// The key-down the bar last refused: the same event's second pass asks nothing again.
     private weak var refusedEvent: NSEvent?
 
-    public init(registry: ActionRegistry, decidedKey: @escaping (NSEvent) -> Bool) {
+    public init(registry: ActionRegistry, decidedKey: @escaping @MainActor (NSEvent) -> Bool) {
         self.registry = registry
         self.decidedKey = decidedKey
         super.init(title: "")
@@ -51,15 +54,24 @@ public final class ActionMenuBar: NSMenu {
 
     // perf-hot: 0.5ms key-dispatch (every chord no view took)
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard let registry, event.type == .keyDown else { return super.performKeyEquivalent(with: event) }
+        guard event.type == .keyDown, Thread.isMainThread else { return super.performKeyEquivalent(with: event) }
         if event === refusedEvent { return false }
+        // main-proof: the guard above returned unless this runs on the main thread.
+        if MainActor.assumeIsolated({ refusesSearch(for: event) }) { return false }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    /// Whether the bar refuses to search for the key-down `event` (it records the refusal), and counts the
+    /// search AppKit runs otherwise. False without a registry.
+    @MainActor private func refusesSearch(for event: NSEvent) -> Bool {
+        guard let registry else { return false }
         if decidedKey(event), let chord = Chord(event), registry.refusesEveryKeyEquivalent(of: Self.items(matching: chord, in: self)) {
             refusedEvent = event
             registry.menuTarget.counters.skipped += 1
-            return false
+            return true
         }
         if registry.isDispatchingKeyDown() { registry.menuTarget.counters.searches += 1 }
-        return super.performKeyEquivalent(with: event)
+        return false
     }
 
     /// The items of `menu` and its submenus with `chord` as their key equivalent, read now: a menu built
