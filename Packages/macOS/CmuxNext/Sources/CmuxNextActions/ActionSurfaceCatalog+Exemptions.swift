@@ -92,6 +92,8 @@ nonisolated extension ActionSurfaceCatalog {
         "browserProfile.duplicateTab", "palette.toggleMatchTerminalBackground", "palette.enableMinimalMode",
         "palette.disableMinimalMode", "palette.enableBrowser", "palette.disableBrowser", "markAllNotificationsRead", "clearAllNotifications",
         "notifications.toggleWorkspaceMute", "notifications.toggleBanners", "notifications.dismissal.keystroke",
+        "notifications.setWorkspaceSound", "notifications.setGroupSound", "notifications.setAgentSound", "notifications.setEventSound",
+        "notifications.previewSound", "notifications.importSound",
         "notifications.dismissal.focus", "notifications.dismissal.click", "notifications.dismissal.explicit",
         "notifications.dismissal.timeout", "notifications.dismissal.never", "palette.newAgentChat", "palette.quickAgentChat",
         "palette.launchClaudeTeams", "palette.launchCodexTeams", "palette.forkAgentConversationRight",
