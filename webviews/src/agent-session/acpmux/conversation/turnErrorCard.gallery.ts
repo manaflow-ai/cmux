@@ -38,17 +38,17 @@ export default agentPaneEntry({
   variants: {
     "cloud-missing": {
       note: "Owner VM without a Claude login: explains the missing credential and offers confirmed setup. Compare the three existing surfaces; keep the glass card.",
-      ready: { cloudMachineID: "gallery-vm" },
+      ready: { cloudMachineID: "gallery-vm", cloudCredentialRecoveryAvailable: true },
       snapshot: cloudFailed("Claude failed to authenticate: credential is missing"),
     },
     "cloud-expired": {
       note: "Expired login: the cause and the same setup action, with no provider output in the sentence.",
-      ready: { cloudMachineID: "gallery-vm" },
+      ready: { cloudMachineID: "gallery-vm", cloudCredentialRecoveryAvailable: true },
       snapshot: cloudFailed("OAuth token expired (HTTP 401)"),
     },
     "cloud-rejected": {
       note: "Rejected login: preserves the HTTP status and offers setup on this Cloud machine.",
-      ready: { cloudMachineID: "gallery-vm" },
+      ready: { cloudMachineID: "gallery-vm", cloudCredentialRecoveryAvailable: true },
       snapshot: cloudFailed("HTTP 403 Forbidden"),
     },
     "agent-closed": {
