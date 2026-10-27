@@ -246,6 +246,9 @@ max_refused="${CMUX_NIGHTLY_NEXT_MAX_REFUSED:-5}"
 [[ "$max_refused" =~ ^[1-9][0-9]?$ ]] || { echo "error: CMUX_NIGHTLY_NEXT_MAX_REFUSED must be 1 to 99" >&2; exit 2; }
 while read -r run_sha; do
   [[ "$run_sha" =~ ^[0-9a-f]{40}$ ]] || continue
+  # <sha> without its ancestry proof (above) is never requested, even when the
+  # history lists it (a merge can bring nightly-next in beside it).
+  [[ "$run_sha" != "$sha" || -n "$fallback" ]] || continue
   if [[ "$run_sha" != "$sha" ]]; then
     git merge-base --is-ancestor "$lower" "$run_sha" 2>/dev/null || continue
     if run_key="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$run_sha" 2>/dev/null)"; then

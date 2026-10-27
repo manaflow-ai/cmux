@@ -336,6 +336,25 @@ git_q -C "$src" update-ref refs/heads/nightly-next "$head^"
 request --sha "$greenx" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$publisher" && ! dispatched "$greenx" \
   || fail "a late compile must request the newest commit with its tree, not its own (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+# A merge brings nightly-next in beside the compiled commit: the history lists
+# the compiled commit (first parent), but nightly-next is not its ancestor, so
+# it is not requested (main's promote job would refuse it as diverged). The
+# merge changes the tree, so no other candidate has the published one.
+git_q -C "$src" checkout -q -b side-next "$head^"
+echo side > "$src/SideNext.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "nightly-next on a side line"
+side_next=$(git -C "$src" rev-parse HEAD)
+git_q -C "$src" checkout -q -b merged "$greenx"
+git_q -C "$src" merge --no-ff -m "merge the side line" "$side_next"
+echo four > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit --amend -m "merge the side line, with a tui change"
+merged=$(git -C "$src" rev-parse HEAD)
+git -C "$src" merge-base --is-ancestor "$side_next" "$greenx" && fail "fixture: the side line must not be under the compiled commit"
+git_q -C "$src" update-ref refs/heads/nightly-next "$side_next"
+branch "$merged"
+git_q -C "$src" checkout -q --detach "$greenx"
+request --sha "$greenx" --release-compile-green
+[[ "$status" == 0 ]] && [[ ! -s "$TMP/gh.log" ]] \
+  || fail "a compiled commit nightly-next is not an ancestor of must not be requested (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+branch "$publisher"
 git_q -C "$src" update-ref -d refs/heads/nightly-next
 git_q -C "$src" checkout -q --detach "$head"
 
