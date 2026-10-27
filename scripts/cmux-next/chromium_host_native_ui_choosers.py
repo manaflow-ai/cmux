@@ -14,8 +14,9 @@ never the frontmost app and owns no visible window (chromium_host_native_ui_dial
   external_protocol  a link to ssh:// (an app handles it, and it is not a well-known scheme): cmux's prompt asks in the
                    tab (`debug.browser.prompts`, Debug builds); Open once opens it (recorded:
                    CMUX_NEXT_TEST_RECORD_EXTERNAL_OPENS=1) and Chromium's own dialog never shows in the host.
-  web_share        navigator.share(): not run. Fork API 31 has no share handler (p01-process-227 added none), so the
-                   host has no data to send cmux's NSSharingServicePicker; the row says so until a fork call does.
+  web_share        navigator.share(): skipped, out of p01-process-228's acceptance. Fork API 31 has no share handler
+                   (p01-process-227 added none), so the host has no data to send cmux's NSSharingServicePicker: the
+                   fork's handler is p01-process-228b and cmux's side p01-process-228c (WEB_SHARE_TASK), which runs it.
   video_pip        video.requestPictureInPicture(): a `video_pip` hosted widget in cmux's floating panel (`debug.cef`
                    `host_widgets`, feature chromiumHostWidgets); exitPictureInPicture takes it down.
   document_pip     documentPictureInPicture.requestWindow(): a `document_pip` hosted widget in cmux's panel.
@@ -35,6 +36,8 @@ SHOW_DEADLINE_S = 10.0
 DEVICE_DIALOG = "browser.chromiumHost.deviceChooser"
 SHARE_DIALOG = "browser.chromiumHost.screenShare"
 EXTERNAL_URL = "ssh://native-ui.invalid"
+# The task that builds the web_share row; until it lands, the row is skipped.
+WEB_SHARE_TASK = "p01-process-228c"
 
 PAGE = """<!doctype html><meta charset=utf-8><title>chooser probe</title>
 <style>body{margin:0;font:16px system-ui} input,button,a,video{position:fixed;left:40px;width:240px;height:32px}</style>
@@ -110,6 +113,11 @@ def not_drawn(reason):
     return {"ok": False, "not_run": reason}
 
 
+def skipped(reason, task):
+    """A row another task builds: reported with that task, and neither passed nor failed."""
+    return {"skipped": reason, "task": task}
+
+
 def color_row(page, clear):
     if choosers(page.rpc) is None:
         return not_drawn("no cmux choosers: host mode is not live in this build, chromiumHostChoosers is off, or the "
@@ -158,8 +166,9 @@ def external_protocol_row(page, clear):
 
 
 def web_share_row(page, clear):
-    return not_drawn("fork API 31 has no Web Share handler (p01-process-227 added none): the host cannot hand "
-                     "navigator.share's data to cmux's NSSharingServicePicker, so Chromium's own picker would open in it")
+    return skipped("fork API 31 has no Web Share handler (p01-process-227 added none): the host cannot hand "
+                   "navigator.share's data to cmux's NSSharingServicePicker, so Chromium's own picker would open in it",
+                   WEB_SHARE_TASK)
 
 
 def pip_row(page, clear, button, kind, exit_script):
@@ -189,7 +198,8 @@ RUNNERS = {
 
 def run(rpc, wait, page_eval, url, host_pid, front, windows, rows_to_run=ROWS):
     """The rows of `rows_to_run`, in ROWS order, on the probe page at `url` (PAGE). `host_pid`, `front` and `windows`
-    are chromium-host-bench.py's (chromium_host_native_ui_dialogs.run). Returns (rows, ok); a not_run row is not ok."""
+    are chromium-host-bench.py's (chromium_host_native_ui_dialogs.run). Returns (rows, ok); a not_run row is not ok,
+    a skipped row (another task's) counts neither way."""
     rows = {}
     wanted = [name for name in ROWS if name in rows_to_run]
     if not wanted:
@@ -203,7 +213,7 @@ def run(rpc, wait, page_eval, url, host_pid, front, windows, rows_to_run=ROWS):
             rows[name] = RUNNERS[name](page, clear)
         except Exception as error:  # noqa: BLE001 - a row's failure is that row's result
             rows[name] = {"ok": False, "error": f"{type(error).__name__}: {error}"[:300]}
-    return rows, all(row.get("ok") for row in rows.values())
+    return rows, all(row.get("ok") for row in rows.values() if "skipped" not in row)
 
 
 if __name__ == "__main__":

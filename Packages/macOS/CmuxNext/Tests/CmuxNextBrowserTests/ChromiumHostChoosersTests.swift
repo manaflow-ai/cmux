@@ -137,8 +137,8 @@ import Testing
 
     // MARK: Devices
 
-    /// A chooser searches, then lists its rows in the same token: the dialog follows each state, the
-    /// replaced one answers nothing, and Connect selects the chosen row.
+    /// A chooser searches, then lists its rows in the same token: the dialog shows each state in place,
+    /// answers nothing on the way, and Connect selects the chosen row.
     @Test func aDeviceChooserFollowsItsStateAndSelects() throws {
         let rig = Rig()
         defer { rig.window.close() }
@@ -150,8 +150,8 @@ import Testing
 
         rig.choosers.deviceEvent(ChromiumHostChoosers.deviceUpdate, browser: 3, token: 51, state: deviceState(options: ["Key", "Pad"]))
         let listed = try #require(rig.dialog(ChromiumHostChooserDialogs.deviceIdentifier))
-        #expect(listed.id != searching.id && rig.dialogs.record(searching.id) == nil)
-        #expect(rig.wire.devices.isEmpty, "the replaced dialog answered nothing")
+        #expect(listed.id == searching.id && rig.dialogs.records.count == 1, "the open dialog shows the rows")
+        #expect(rig.wire.devices.isEmpty, "the update answered nothing")
         #expect(listed.spec.buttons.map(\.id) == ["cancel", "connect"])
         // The same state again keeps the dialog.
         rig.choosers.deviceEvent(ChromiumHostChoosers.deviceUpdate, browser: 3, token: 51, state: deviceState(options: ["Key", "Pad"]))
@@ -162,6 +162,83 @@ import Testing
         #expect(rig.wire.devices.count == 1 && rig.wire.devices[0].0 == 51)
         #expect(rig.wire.devices[0].1 == ChromiumHostDeviceAnswer(action: .select, rows: [1]))
         #expect(rig.choosers.report.deviceChoosers == 0)
+    }
+
+    /// No row is chosen until the person chooses one, as Chrome's chooser opens with no table selection:
+    /// Connect or Return with no choice sends no SELECT.
+    @Test func noDeviceIsChosenForThePerson() throws {
+        let rig = Rig()
+        defer { rig.window.close() }
+        rig.choosers.deviceEvent(ChromiumHostChoosers.deviceUpdate, browser: 3, token: 52, state: deviceState(token: 52, options: ["Key", "Pad"]))
+        let dialog = try #require(rig.dialog(ChromiumHostChooserDialogs.deviceIdentifier))
+        guard case .choice(_, _, let options, let selected)? = dialog.spec.fields.first else {
+            Issue.record("no device choice")
+            return
+        }
+        #expect(options.map(\.value) == ["", "0", "1"] && selected == "")
+        #expect(dialog.values[ChromiumHostChooserDialogs.deviceField] == .text(""))
+        #expect(rig.dialogs.key(.return, in: dialog.id))
+        #expect(rig.wire.devices.map(\.1) == [ChromiumHostDeviceAnswer(action: .cancel)])
+
+        rig.choosers.deviceEvent(ChromiumHostChoosers.deviceUpdate, browser: 3, token: 53, state: deviceState(token: 53, options: ["Key"]))
+        let second = try #require(rig.dialog(ChromiumHostChooserDialogs.deviceIdentifier))
+        #expect(rig.dialogs.press(second.id, button: "connect"))
+        #expect(rig.wire.devices.last?.1 == ChromiumHostDeviceAnswer(action: .cancel))
+        #expect(!rig.wire.devices.contains { $0.1.action == .select })
+    }
+
+    /// The chosen row follows its device when a row above it goes (Chromium's OnOptionRemoved), and a
+    /// device that goes leaves nothing chosen: Connect never answers a device the person did not choose.
+    @Test func theChosenRowFollowsItsDevice() throws {
+        let rig = Rig()
+        defer { rig.window.close() }
+        let field = ChromiumHostChooserDialogs.deviceField
+        rig.choosers.deviceEvent(ChromiumHostChoosers.deviceUpdate, browser: 3, token: 54,
+                                 state: deviceState(token: 54, options: ["A", "B", "C", "D"]))
+        let dialog = try #require(rig.dialog(ChromiumHostChooserDialogs.deviceIdentifier))
+        #expect(rig.dialogs.setValue(.text("2"), for: field, in: dialog.id), "the person chooses C")
+        rig.choosers.deviceEvent(ChromiumHostChoosers.deviceUpdate, browser: 3, token: 54,
+                                 state: deviceState(token: 54, options: ["B", "C", "D"]))
+        #expect(rig.dialogs.record(dialog.id)?.values[field] == .text("1"), "C moved up one row")
+        rig.choosers.deviceEvent(ChromiumHostChoosers.deviceUpdate, browser: 3, token: 54,
+                                 state: deviceState(token: 54, options: ["B", "D"]))
+        #expect(rig.dialogs.record(dialog.id)?.values[field] == .text(""), "C went: nothing is chosen")
+        #expect(rig.dialogs.press(dialog.id, button: "connect"))
+        #expect(rig.wire.devices.map(\.1) == [ChromiumHostDeviceAnswer(action: .cancel)])
+
+        rig.choosers.deviceEvent(ChromiumHostChoosers.deviceUpdate, browser: 3, token: 55,
+                                 state: deviceState(token: 55, options: ["A", "B", "C"], multiple: true))
+        let multiple = try #require(rig.dialog(ChromiumHostChooserDialogs.deviceIdentifier))
+        rig.dialogs.setValue(.bool(true), for: "device.2", in: multiple.id)
+        rig.choosers.deviceEvent(ChromiumHostChoosers.deviceUpdate, browser: 3, token: 55,
+                                 state: deviceState(token: 55, options: ["B", "C"], multiple: true))
+        let values = try #require(rig.dialogs.record(multiple.id)?.values)
+        #expect(values["device.0"] == .bool(false) && values["device.1"] == .bool(true))
+        rig.dialogs.press(multiple.id, button: "connect")
+        #expect(rig.wire.devices.last?.1 == ChromiumHostDeviceAnswer(action: .select, rows: [1]))
+
+        // A name on two rows says nothing of which device the person chose.
+        let shown = deviceState(options: ["Pad", "Pad", "Key"])
+        #expect(ChromiumHostChooserDialogs.keptRows([field: .text("1")], shown: shown, in: deviceState(options: ["Pad", "Key"])).isEmpty)
+        #expect(ChromiumHostChooserDialogs.keptRows([field: .text("2")], shown: shown, in: deviceState(options: ["Key"])) == [0])
+    }
+
+    /// Another dialog waiting in the same tab (a JS alert) stays behind the chooser while its rows change.
+    @Test func anUpdateKeepsTheChooserInFrontOfTheTabsQueue() throws {
+        let rig = Rig()
+        defer { rig.window.close() }
+        rig.choosers.deviceEvent(ChromiumHostChoosers.deviceUpdate, browser: 3, token: 56, state: deviceState(token: 56, initialized: false))
+        let chooser = try #require(rig.dialog(ChromiumHostChooserDialogs.deviceIdentifier))
+        var alerted = false
+        let alert = rig.dialogs.present(CmuxDialogSpec(title: "Alert", buttons: [.ok()], identifier: "alert"), in: .tab(rig.page)) { _ in
+            alerted = true
+        }
+        rig.choosers.deviceEvent(ChromiumHostChoosers.deviceUpdate, browser: 3, token: 56, state: deviceState(token: 56, options: ["A"]))
+        rig.choosers.deviceEvent(ChromiumHostChoosers.deviceUpdate, browser: 3, token: 56, state: deviceState(token: 56, options: ["A", "B"]))
+        #expect(rig.dialog(ChromiumHostChooserDialogs.deviceIdentifier)?.id == chooser.id)
+        #expect(rig.dialogs.record(alert)?.visible == false && !alerted)
+        #expect(rig.dialogs.records.map(\.id) == [chooser.id, alert])
+        #expect(rig.wire.devices.isEmpty)
     }
 
     /// Chromium's close takes the dialog down unanswered; a tab that goes closes the chooser; Scan Again

@@ -20,7 +20,7 @@ protocol ChromiumHostChooserWire: AnyObject {
 ///   (chrome/browser/ui/cocoa/color_chooser_mac.mm) drives it: alpha hidden, every change sent, the
 ///   panel's close ends the chooser.
 /// - Web Bluetooth, WebUSB, WebHID and Web Serial: a cmux dialog over the tab with the chooser's rows,
-///   rebuilt at each state Chromium sends, as Chrome's DeviceChooserContentView follows its
+///   updated in place at each state Chromium sends, as Chrome's DeviceChooserContentView follows its
 ///   ChooserController (chrome/browser/ui/views/device_chooser_content_view.cc).
 /// - getDisplayMedia() and chrome.desktopCapture: a cmux dialog with the screens and windows
 ///   ScreenCaptureKit lists and cmux's Chromium tabs, as Chrome's DesktopMediaPickerViews lists its
@@ -47,10 +47,11 @@ final class ChromiumHostChoosers {
         var browser: Int32
         var state: ChromiumHostDeviceChooserState
         var view: NSView
-        /// The dialog that shows it and what it shows.
+        /// The dialog that shows it, what it shows, and the state it was built from.
         var dialog: Int?
         var spec: CmuxDialogSpec?
-        /// Dialogs shown so far: only the newest one's answer counts.
+        var shownState: ChromiumHostDeviceChooserState?
+        /// Dialogs presented so far: only the newest one's answer counts.
         var shown = 0
     }
 
@@ -168,21 +169,26 @@ final class ChromiumHostChoosers {
         showDevice(token)
     }
 
-    /// Shows the request's state; an unchanged dialog stays, a changed one is replaced in place (the
-    /// tab's dialog queue shows the new one where the old one was).
+    /// Shows the request's state: the open dialog shows it in place, keeping its place in the tab's
+    /// dialog queue, the keyboard and the person's chosen devices; the first state presents one.
     private func showDevice(_ token: Int64) {
         guard var request = devices[token] else { return }
         let selected = request.dialog.flatMap { seams.dialogs.record($0)?.values } ?? [:]
-        let spec = ChromiumHostChooserDialogs.deviceSpec(request.state, selected: selected)
-        guard spec != request.spec else { return }
+        let spec = ChromiumHostChooserDialogs.deviceSpec(request.state, selected: selected, shown: request.shownState)
+        request.shownState = request.state
+        if spec == request.spec {
+            devices[token] = request
+            return
+        }
+        request.spec = spec
+        if let dialog = request.dialog, seams.dialogs.update(dialog, spec: spec) {
+            devices[token] = request
+            return
+        }
         request.shown += 1
         let shown = request.shown
-        let old = request.dialog
-        request.spec = spec
         request.dialog = nil
         devices[token] = request
-        // Its answer finds a newer dialog shown and changes nothing.
-        if let old { seams.dialogs.dismiss(old) }
         let dialog = seams.dialogs.present(spec, in: .tab(request.view)) { [weak self] answer in
             self?.deviceAnswered(token, shown: shown, answer)
         }
@@ -197,6 +203,7 @@ final class ChromiumHostChoosers {
             // The chooser stays open and scans again; its next state follows.
             devices[token]?.dialog = nil
             devices[token]?.spec = nil
+            devices[token]?.shownState = nil
             devices[token]?.state.refreshing = true
             wire.answerDevice(token: token, reply)
             return showDevice(token)

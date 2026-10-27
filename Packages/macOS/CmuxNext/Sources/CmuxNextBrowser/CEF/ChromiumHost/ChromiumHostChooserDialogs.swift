@@ -44,8 +44,11 @@ enum ChromiumHostChooserDialogs {
     /// The chooser's dialog: Chromium's title and labels where it sent them (localized in its locale,
     /// which is cmux's), its rows as one choice (a check per row when several may be chosen), and
     /// Cancel, Scan Again (Bluetooth) and Connect. Connect is there only when it can answer: with a
-    /// row, or for the Bluetooth scanning prompt. `selected` keeps the person's choice across states.
-    static func deviceSpec(_ state: ChromiumHostDeviceChooserState, selected: [String: CmuxDialogValue]) -> CmuxDialogSpec {
+    /// row, or for the Bluetooth scanning prompt. No row is chosen until the person chooses one, as
+    /// Chrome's DeviceChooserContentView opens with no table selection; `selected` (the values of the
+    /// dialog that showed `shown`) keeps each chosen device chosen at its new row.
+    static func deviceSpec(_ state: ChromiumHostDeviceChooserState, selected: [String: CmuxDialogValue],
+                           shown: ChromiumHostDeviceChooserState?) -> CmuxDialogSpec {
         let origin = state.origin
         let title = state.title.isEmpty ? String(format: Strings.deviceTitle, origin) : state.title
         var lines: [String] = []
@@ -58,17 +61,17 @@ enum ChromiumHostChooserDialogs {
         } else if state.options.isEmpty {
             lines.append(state.noOptionsText.isEmpty ? Strings.noDevices : state.noOptionsText)
         }
+        let chosen = Set(keptRows(selected, shown: shown, in: state))
         var fields: [CmuxDialogField] = []
         if state.allowsMultiple {
             fields = state.options.indices.map { index in
-                let id = "\(deviceField).\(index)"
-                return .check(id: id, title: state.options[index].name, on: selected[id]?.bool ?? false)
+                CmuxDialogField.check(id: "\(deviceField).\(index)", title: state.options[index].name, on: chosen.contains(index))
             }
         } else if !state.options.isEmpty {
-            let options = state.options.indices.map { CmuxDialogOption(label: state.options[$0].name, value: String($0)) }
-            // The person's row while it is still there, else the first (the dialog's own default).
-            let kept = selected[deviceField]?.text.flatMap { value in options.contains { $0.value == value } ? value : nil }
-            fields = [.choice(id: deviceField, label: nil, options: options, selected: kept ?? options.first?.value)]
+            // The first entry stands for no choice: a Connect on it answers no row.
+            let options = [CmuxDialogOption(label: Strings.chooseDevice, value: "")]
+                + state.options.indices.map { CmuxDialogOption(label: state.options[$0].name, value: String($0)) }
+            fields = [.choice(id: deviceField, label: nil, options: options, selected: chosen.min().map { String($0) } ?? "")]
         }
         var buttons = [CmuxDialogButton.cancel()]
         if state.offersRescan { buttons.append(CmuxDialogButton(id: "rescan", title: Strings.rescan)) }
@@ -77,6 +80,30 @@ enum ChromiumHostChooserDialogs {
         }
         return CmuxDialogSpec(title: title, lines: lines, origin: origin.isEmpty ? nil : origin, fields: fields,
                               buttons: buttons, identifier: deviceIdentifier)
+    }
+
+    /// The rows of `state` that hold the devices chosen in the dialog that showed `shown`. A row follows
+    /// its device when rows above it go, as Chrome's chooser table moves its selection on
+    /// `OnOptionRemoved` (chrome/browser/ui/views/device_chooser_content_view.cc). Chromium sends whole
+    /// states, so a device is known by its name, which Chromium's chooser controllers keep unique (a
+    /// repeated name gets the device's id added); a device that went, or a name on more than one row,
+    /// is chosen nowhere.
+    static func keptRows(_ selected: [String: CmuxDialogValue], shown: ChromiumHostDeviceChooserState?,
+                         in state: ChromiumHostDeviceChooserState) -> [Int] {
+        guard let shown else { return [] }
+        let prefix = "\(deviceField)."
+        var rows = selected.compactMap { key, value in
+            key.hasPrefix(prefix) && value.bool == true ? Int(key.dropFirst(prefix.count)) : nil
+        }
+        if let row = selected[deviceField]?.text.flatMap(Int.init) { rows.append(row) }
+        func unique(_ name: String, in options: [ChromiumHostDeviceChooserState.Option]) -> Int? {
+            let matches = options.indices.filter { options[$0].name == name }
+            return matches.count == 1 ? matches[0] : nil
+        }
+        return rows.filter { shown.options.indices.contains($0) }.compactMap { row in
+            let name = shown.options[row].name
+            return unique(name, in: shown.options) == nil ? nil : unique(name, in: state.options)
+        }.sorted()
     }
 
     /// The person's answer: Connect selects the chosen rows; a dismissal (its tab or window went) closes
@@ -159,6 +186,7 @@ enum ChromiumHostChooserDialogs {
 
     enum Strings {
         static let deviceTitle = String(localized: "browser.chromiumHost.device.title", defaultValue: "%@ wants to connect to a device", bundle: .module)
+        static let chooseDevice = String(localized: "browser.chromiumHost.device.choose", defaultValue: "Choose a device", bundle: .module)
         static let connect = String(localized: "browser.chromiumHost.device.connect", defaultValue: "Connect", bundle: .module)
         static let rescan = String(localized: "browser.chromiumHost.device.rescan", defaultValue: "Scan Again", bundle: .module)
         static let searching = String(localized: "browser.chromiumHost.device.searching", defaultValue: "Searching for devices…", bundle: .module)

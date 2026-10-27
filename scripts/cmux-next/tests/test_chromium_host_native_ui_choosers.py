@@ -128,10 +128,22 @@ class ChooserRowsTests(unittest.TestCase):
         self.assertTrue(rows["external_protocol"]["opened"])
         self.assertEqual(rows["video_pip"]["widget"]["kind"], "video_pip")
 
-    def test_web_share_is_not_run(self):
+    def test_web_share_is_skipped_with_its_task(self):
         rows, ok = run(FakeApp(), rows=("web_share",))
+        self.assertTrue(ok, "a skipped row does not fail the run")
+        self.assertIn("skipped", rows["web_share"])
+        self.assertEqual(rows["web_share"]["task"], choosers.WEB_SHARE_TASK)
+        self.assertNotIn("ok", rows["web_share"])
+
+    def test_the_full_run_passes_with_web_share_skipped(self):
+        rows, ok = run(FakeApp(), rows=choosers.ROWS)
+        self.assertTrue(ok, rows)
+        self.assertEqual(set(rows), set(choosers.ROWS))
+
+    def test_a_failed_row_still_fails_the_run_beside_a_skipped_one(self):
+        rows, ok = run(FakeApp(drops_pick=True), rows=("color", "web_share"))
         self.assertFalse(ok)
-        self.assertIn("not_run", rows["web_share"])
+        self.assertFalse(rows["color"]["ok"])
 
     def test_no_cmux_choosers_fails_their_rows_as_not_run(self):
         rows, ok = run(FakeApp(drawn=False), rows=("color", "device_chooser", "screen_share"))

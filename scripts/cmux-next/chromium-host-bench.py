@@ -135,7 +135,7 @@ p01-process-061): the field's suggestions in cmux's list (`debug.cef` `host_sugg
 chromiumHostSuggestions on, then the page dialog rows (chromium_host_native_ui_dialogs.py, p01-process-064): file
 picker, certificate error, beforeunload and renderer hang, each answered by cmux while the host is never frontmost
 and shows no window, with feature chromiumHostFileDialogs on, then the chooser rows (chromium_host_native_ui_choosers.py,
-p01-process-228): color, device chooser, screen share, external protocol, Web Share (not run: no fork handler), video
+p01-process-228): color, device chooser, screen share, external protocol, Web Share (skipped until p01-process-228c), video
 and document picture-in-picture, with feature chromiumHostChoosers on.
 
 --find runs instead the find rows (chromium_host_find.py, p01-process-048): Cmd-F, a typed query, Cmd-G, Cmd-Shift-G
