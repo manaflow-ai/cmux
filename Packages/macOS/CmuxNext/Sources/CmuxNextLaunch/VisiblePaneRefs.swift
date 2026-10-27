@@ -158,6 +158,7 @@ public final class VisiblePaneRefs {
     ///   - quiet: The timer of the shown panes' quiet reads; tests inject a manual clock.
     public init(hold: @escaping @MainActor (StaticString) -> Release, phase: StartupPhase? = nil,
                 bound: DemandTimer = DemandTimer(owner: "VisiblePaneRefs.bound"),
+                // timer-class-allow: launch only, beside the bound: one 100 ms read while a shown pane holds startup, none after the last pane ref (5 s at most)
                 quiet: DemandTimer = DemandTimer(owner: "VisiblePaneRefs.quiet")) {
         self.hold = hold
         self.phase = phase
@@ -169,6 +170,7 @@ public final class VisiblePaneRefs {
     /// Takes the restore ref of `startup`, and marks `phase`'s restore and visible-page references.
     public convenience init(startup: StartupScheduler, phase: StartupPhase?,
                             bound: DemandTimer = DemandTimer(owner: "VisiblePaneRefs.bound"),
+                            // timer-class-allow: launch only, beside the bound: one 100 ms read while a shown pane holds startup, none after the last pane ref (5 s at most)
                             quiet: DemandTimer = DemandTimer(owner: "VisiblePaneRefs.quiet")) {
         self.init(hold: { [startup] name in
             let ref = startup.hold(name)
