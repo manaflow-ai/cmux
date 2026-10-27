@@ -206,6 +206,8 @@ public final class AgentPaneModel {
     /// The App's upload for this chat (a chat moved to a Cloud machine), nil when it takes none (``AgentPaneUpload``).
     @ObservationIgnored public var onUpload: (@MainActor () -> AgentPaneUploader?)?
     @ObservationIgnored public var onUploadStage: (@MainActor () -> AgentPaneUploadStager?)?
+    /// App-owned, explicitly confirmed provider credential setup for this pane's Cloud chat.
+    @ObservationIgnored public var onCloudCredentialTransfer: (@MainActor (AgentPaneCloudCredentialTransferRequest) async -> Bool)?
 
     @ObservationIgnored let host: any AgentPaneHostProviding
     /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
@@ -417,6 +419,13 @@ public final class AgentPaneModel {
         case .sandboxState(let wait):
             return await sandboxRuns.state(wait: wait)
         case .cloudMachine(let request): return await request.reply(.shared, gestures: transport.gestures)
+        case .cloudCredentialTransfer(let request):
+            guard remoteChat, newTab == nil, sessionId == request.sessionID else {
+                return AgentPaneReply.failure(code: "unavailable", message: "Credential setup is unavailable for this chat.")
+            }
+            guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            guard let onCloudCredentialTransfer else { return Self.unsupported(AgentPaneCloudCredentialTransferRequest.method) }
+            return AgentPaneReply.success(["transferred": await onCloudCredentialTransfer(request)])
         case .paneAction, .diffTurn, .preview, .setQuickActions, .tabState, .tabRowTools, .sideChat, .subagentPane, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
