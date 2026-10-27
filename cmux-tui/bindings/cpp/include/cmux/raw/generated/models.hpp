@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "0e0edec9dae5dfc09da116204375224a26855a675407686c54b5509c7f4508e4";
+inline constexpr std::string_view kProtocolIrSha256 = "846f2c9de4f30a3b157a28b0e5e6b217e5761dd9680bd53bca98c27abac8e33b";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -4582,6 +4582,7 @@ enum class InputFailedEventReason {
     not_a_terminal,
     write_failed,
     stream_full,
+    daemon_handoff,
 };
 
 struct InputFailedEvent {

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0e0edec9dae5dfc09da116204375224a26855a675407686c54b5509c7f4508e4. */
+/* cmux-tui mux protocol 12, IR 846f2c9de4f30a3b157a28b0e5e6b217e5761dd9680bd53bca98c27abac8e33b. */
 
 
 import type * as T from "./types.js";
@@ -389,7 +389,7 @@ export type HistoryChangedEvent = { event: "history-changed" } & {
 /** Protocol v12; emission: emitted; streams: attach-byte. */
 export type InputFailedEvent = { event: "input-failed" } & {
   "bytes": bigint;
-  "reason": "terminal_ended" | "not_a_terminal" | "write_failed" | "stream_full";
+  "reason": "terminal_ended" | "not_a_terminal" | "write_failed" | "stream_full" | "daemon_handoff";
   /** The attach stream the INPUT frame named; the stream's tag, as on every item of an attach stream. */
   "stream": number;
 };

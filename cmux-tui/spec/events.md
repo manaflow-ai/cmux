@@ -1362,17 +1362,20 @@ Example:
 Payload:
 
 ```text
-object{event:"input-failed",stream:uint16,reason:"terminal_ended"|"not_a_terminal"|"write_failed"|"stream_full",bytes:uint64}
+object{event:"input-failed",stream:uint16,reason:"terminal_ended"|"not_a_terminal"|"write_failed"|"stream_full"|"daemon_handoff",bytes:uint64}
 ```
 
 Meaning: The bytes of an INPUT frame (p05-ipc-078, [transports.md](transports.md)) did not reach the
 terminal of the attach stream the frame named. INPUT frames have no reply; this event is how a client
-learns its input was lost. `bytes` is the length of that frame's payload. `terminal_ended`: the surface
-closed or its terminal ended; later INPUT on the stream is dropped with no second event. `not_a_terminal`:
-the stream views a browser surface; later INPUT is dropped the same way. `write_failed`: the terminal
-refused the write (its host did not come back, or the write timed out); a later frame is tried again.
-`stream_full`: the stream's sequence held its cap of queued items, so the frame was not queued. It is sent
-as the next item of that stream, with its `stream` tag.
+learns its input was lost. `stream` is the stream the frame named and `bytes` the length of its payload.
+`terminal_ended`: the surface closed or its terminal ended (also while a lost host respawns under the same
+surface id). `not_a_terminal`: the stream views a browser surface. After either, later INPUT that fails
+the same way sends no second event, until a write reaches a terminal again (the respawned one) or the
+stream id is opened again; every later frame is still tried. `write_failed`: the terminal refused the
+write (its host did not come back, or the write timed out); a later frame is tried again. `stream_full`:
+the stream's sequence held its cap of queued items, so the frame was not queued. `daemon_handoff`: a
+daemon handoff is pending, so the daemon refused the bytes without writing them, as it refuses a line
+meanwhile; a later frame is tried again. It is sent as the next item of that stream.
 
 Example:
 

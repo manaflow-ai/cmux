@@ -26,9 +26,15 @@
 //! its header names the stream and the key press's flow id, its payload is
 //! the bytes. It is never parsed and never answered. It runs on the stream's
 //! sequence, after the stream's earlier items, and writes its surface's
-//! terminal the way `send` does. A failure is the stream's event
-//! `input-failed{reason, bytes}`; once the terminal ended, later INPUT on
-//! the stream is dropped with no second event. This is Chrome's
+//! terminal the way `send` does, under the connection's cause. A failure is
+//! the stream's event `input-failed{stream, reason, bytes}`; while the
+//! terminal stays ended, later INPUT on the same open of the stream fails
+//! with no second event, and a write that reaches a terminal again (a
+//! respawned one) or a new open of the stream reports the next end again.
+//! INPUT obeys a line's gates: after a shutdown or a committed handoff it
+//! closes the connection, during a pending handoff it is refused with
+//! `daemon_handoff`, and from a remote-relay client it is a bad message
+//! (the relay denies by default). This is Chrome's
 //! `WidgetInputHandler`: input is a one-way message on the widget's own
 //! associated pipe, ordered with the widget's other messages, with no reply
 //! (chromium third_party/blink/public/mojom/input/input_handler.mojom,
@@ -61,7 +67,10 @@ use super::cmd_terminal_io::{self, InputFailure};
 use super::line_connection::{
     ConnectionBadMessage, FrameConnection, FrameLane, IPC_FRAMES_CAPABILITY,
 };
-use super::{Command, ConnectionCancellation, MessageWriter, Mux, handle_connection_frame_at};
+use super::{
+    ClientTransport, Command, ConnectionCancellation, MessageWriter, Mux,
+    handle_connection_frame_at,
+};
 
 /// The `error_code` of the ERROR reply to a method that answers only lines.
 pub(super) const METHOD_NOT_FRAMED: &str = "method_not_framed";
@@ -135,6 +144,8 @@ pub(super) enum CallRefusal {
     CancelMismatch { request_id: u32, method_id: u16 },
     /// A CANCEL with a payload.
     CancelPayload { request_id: u32 },
+    /// An INPUT frame from a remote-relay client, which writes no terminal.
+    RemoteInput { stream: u16 },
 }
 
 impl CallRefusal {
@@ -150,6 +161,7 @@ impl CallRefusal {
             CallRefusal::DuplicateRequest { .. } => "duplicate_request",
             CallRefusal::CancelMismatch { .. } => "cancel_mismatch",
             CallRefusal::CancelPayload { .. } => "cancel_payload",
+            CallRefusal::RemoteInput { .. } => "remote_input",
         }
     }
 }
@@ -186,6 +198,9 @@ impl fmt::Display for CallRefusal {
             CallRefusal::CancelPayload { request_id } => {
                 write!(f, "cancel of request {request_id} has a payload")
             }
+            CallRefusal::RemoteInput { stream } => {
+                write!(f, "INPUT on stream {stream} from a remote-relay client")
+            }
         }
     }
 }
@@ -206,19 +221,31 @@ pub(super) enum StreamPostRefusal {
     Closed,
 }
 
+/// What an open stream views: its surface, and which open of the stream id
+/// it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct StreamView {
+    pub(super) surface: SurfaceId,
+    /// A new value each time `attach-surface {stream}` opens the id, so a
+    /// stream reopened after its stream-end, on the same surface too, is a
+    /// new view.
+    pub(super) open: u64,
+}
+
 /// A connection's open streams, as its INPUT frames reach them. A stream is
 /// the view `attach-surface {stream}` opens (attach-streams-v1,
 /// p05-ipc-074), whose items run in order on a sequence of their own
 /// (p05-ipc-073).
 pub(super) trait InputStreams: Send + Sync {
-    /// The surface stream `stream` views; `None` when no open stream of
-    /// this connection has the id.
-    fn surface(&self, stream: u16) -> Option<SurfaceId>;
+    /// What stream `stream` views; `None` when no open stream of this
+    /// connection has the id.
+    fn view(&self, stream: u16) -> Option<StreamView>;
 
     /// Queues `item` on stream `stream`, after the items queued before it.
     fn post(&self, stream: u16, item: StreamItem) -> Result<(), StreamPostRefusal>;
 
-    /// Sends `event` as stream `stream`'s next item.
+    /// Sends `event` as stream `stream`'s next item, unchanged: the event
+    /// carries its own `stream` tag.
     fn send_event(&self, stream: u16, event: &Value);
 }
 
@@ -228,7 +255,7 @@ pub(super) trait InputStreams: Send + Sync {
 struct NoOpenStreams;
 
 impl InputStreams for NoOpenStreams {
-    fn surface(&self, _stream: u16) -> Option<SurfaceId> {
+    fn view(&self, _stream: u16) -> Option<StreamView> {
         None
     }
 
@@ -239,11 +266,11 @@ impl InputStreams for NoOpenStreams {
     fn send_event(&self, _stream: u16, _event: &Value) {}
 }
 
-/// The surface a stream's INPUT writes, and whether its terminal ended:
-/// shared by the stream's queued INPUT items, so an ended terminal gives one
-/// `input-failed`, not one per frame.
+/// The open stream a stream id's INPUT writes, and whether its terminal
+/// ended since a write last reached it: shared by the view's queued INPUT
+/// items, so an ended terminal gives one `input-failed`, not one per frame.
 struct InputTarget {
-    surface: SurfaceId,
+    view: StreamView,
     ended: Arc<AtomicBool>,
 }
 
@@ -305,7 +332,6 @@ impl FrameLane for RequestFrames {
                     Aux::Offset(_) | Aux::SharedBufferSize(_) | Aux::Call(_) => 0,
                 };
                 self.input(header.stream(), flow, frame, connection)
-                    .map(|()| true)
                     .map_err(ConnectionBadMessage::Call)
             }
             (kind, _) => Err(ConnectionBadMessage::UnroutedKind { kind }),
@@ -388,64 +414,83 @@ impl RequestFrames {
 
     /// Queues an INPUT frame's bytes on its stream. Nothing parses them and
     /// nothing answers them; a failure is the stream's `input-failed`.
+    /// `Ok(false)` closes the connection, as a line's handler does after a
+    /// shutdown or a committed handoff.
     fn input(
         &mut self,
         stream: u16,
         flow: u64,
         frame: Frame,
         connection: &FrameConnection<'_>,
-    ) -> Result<(), CallRefusal> {
-        let Some(surface) = self.streams.surface(stream) else {
+    ) -> Result<bool, CallRefusal> {
+        let mux = connection.mux;
+        // The gates of `handle_connection_frame_at`, in its order: no input
+        // runs after the shutdown acknowledgement.
+        if mux.daemon_shutdown_requested() || mux.daemon_handoff_committed() {
+            return Ok(false);
+        }
+        let (remote, cause) = mux.frame_client(connection.client);
+        if matches!(connection.transport, ClientTransport::Remote) || remote {
+            return Err(CallRefusal::RemoteInput { stream });
+        }
+        let Some(view) = self.streams.view(stream) else {
             self.inputs.remove(&stream);
             return Err(CallRefusal::UnknownStream { stream });
         };
         if frame.payload().is_empty() {
-            return Ok(());
-        }
-        let ended = self.input_target(stream, surface);
-        if ended.load(Ordering::Acquire) {
-            return Ok(());
+            return Ok(true);
         }
         let len = frame.payload().len();
-        let mux = connection.mux.clone();
+        // Refused without being written, as a line is while the handoff
+        // can still fail; the connection stays open.
+        if mux.daemon_handoff_in_progress() {
+            self.streams.send_event(stream, &InputFailure::DaemonHandoff.event(stream, len));
+            return Ok(true);
+        }
+        let ended = self.input_target(stream, view);
+        let mux = mux.clone();
         let client = connection.client;
+        let surface = view.surface;
         let streams = self.streams.clone();
         // Its lock acquisitions count under the connection's caller class
-        // (`debug-daemon-locks`), as a request's do.
+        // (`debug-daemon-locks`) and the events it sets off carry the
+        // connection's cause at its class, as a request's do.
         let lock_caller = connection.writer.lock_caller.clone();
+        let request_qos = mux.request_qos();
         let item: StreamItem = Box::new(move || {
-            if ended.load(Ordering::Acquire) {
-                return;
-            }
             let _request_path =
                 crate::request_path::RequestPathScope::enter(mux.request_path_stats());
             let _lock_caller = LockCallerScope::enter(lock_caller.get());
-            let Err(failure) =
-                cmd_terminal_io::write_input(&mux, client, surface, frame.payload(), flow)
-            else {
-                return;
-            };
+            let _cause = request_qos.enter(cause);
+            let failure =
+                match cmd_terminal_io::write_input(&mux, client, surface, frame.payload(), flow) {
+                    Ok(()) => {
+                        ended.store(false, Ordering::Release);
+                        return;
+                    }
+                    Err(failure) => failure,
+                };
             if failure.is_final() && ended.swap(true, Ordering::AcqRel) {
                 return;
             }
-            streams.send_event(stream, &failure.event(len));
+            streams.send_event(stream, &failure.event(stream, len));
         });
         match self.streams.post(stream, item) {
             Ok(()) | Err(StreamPostRefusal::Closed) => {}
             Err(StreamPostRefusal::Full) => {
-                self.streams.send_event(stream, &InputFailure::StreamFull.event(len));
+                self.streams.send_event(stream, &InputFailure::StreamFull.event(stream, len));
             }
         }
-        Ok(())
+        Ok(true)
     }
 
-    /// The ended flag INPUT on `stream` for `surface` shares; a stream id
-    /// that now views another surface starts a new one.
-    fn input_target(&mut self, stream: u16, surface: SurfaceId) -> Arc<AtomicBool> {
-        let fresh = || InputTarget { surface, ended: Arc::new(AtomicBool::new(false)) };
+    /// The ended flag INPUT on `stream` for `view` shares; a stream id that
+    /// now names another open of the stream starts a new one.
+    fn input_target(&mut self, stream: u16, view: StreamView) -> Arc<AtomicBool> {
+        let fresh = || InputTarget { view, ended: Arc::new(AtomicBool::new(false)) };
         let target = match self.inputs.entry(stream) {
             Entry::Occupied(mut entry) => {
-                if entry.get().surface != surface {
+                if entry.get().view != view {
                     entry.insert(fresh());
                 }
                 entry.into_mut()

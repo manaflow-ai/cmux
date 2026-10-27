@@ -7001,7 +7001,7 @@ class InputFailedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/input-failed/payload'
     bytes_data: int = field(metadata={'wire_name': 'bytes'})
     event: Literal['input-failed']
-    reason: Literal['terminal_ended', 'not_a_terminal', 'write_failed', 'stream_full']
+    reason: Literal['terminal_ended', 'not_a_terminal', 'write_failed', 'stream_full', 'daemon_handoff']
     stream: int
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 

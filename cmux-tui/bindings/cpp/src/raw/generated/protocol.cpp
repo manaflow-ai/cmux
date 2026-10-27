@@ -51751,6 +51751,7 @@ Result<Json> Codec<InputFailedEventReason>::encode(const InputFailedEventReason&
         case InputFailedEventReason::not_a_terminal: return Json(std::string("not_a_terminal"));
         case InputFailedEventReason::write_failed: return Json(std::string("write_failed"));
         case InputFailedEventReason::stream_full: return Json(std::string("stream_full"));
+        case InputFailedEventReason::daemon_handoff: return Json(std::string("daemon_handoff"));
     }
     return make_error(ErrorCode::invalid_argument, "invalid enum value");
 }
@@ -51760,6 +51761,7 @@ Result<InputFailedEventReason> Codec<InputFailedEventReason>::decode(const Json&
     if (value == Json(std::string("not_a_terminal"))) return InputFailedEventReason::not_a_terminal;
     if (value == Json(std::string("write_failed"))) return InputFailedEventReason::write_failed;
     if (value == Json(std::string("stream_full"))) return InputFailedEventReason::stream_full;
+    if (value == Json(std::string("daemon_handoff"))) return InputFailedEventReason::daemon_handoff;
     return make_error(ErrorCode::decode, "unknown InputFailedEventReason value");
 }
 

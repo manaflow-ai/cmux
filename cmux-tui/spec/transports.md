@@ -215,10 +215,14 @@ the attach stream it names, with no JSON and no base64. Its aux is the key
 press's flow id (0: none), which joins the daemon's flow hops to the echo, as
 `send`'s `flow` does. It runs on its stream's sequence after that stream's
 earlier items, is never parsed and is never answered. When its bytes do not
-reach the terminal, the stream gets the event `input-failed{reason, bytes}`
-([events.md](events.md#input-failed)); once the terminal ended, later INPUT on
-the stream is dropped with no second event. An INPUT frame on a stream the
-connection has not opened is a bad message (`unknown_stream`).
+reach the terminal, the stream gets the event `input-failed{stream, reason,
+bytes}` ([events.md](events.md#input-failed)); while the terminal stays ended,
+later INPUT on the same open of the stream sends no second event. INPUT obeys
+a line's gates: after a shutdown acknowledgement or a committed handoff it
+closes the connection, and during a pending handoff it is refused with
+`daemon_handoff`. An INPUT frame on a stream the connection has not opened is
+a bad message (`unknown_stream`), and so is one from a remote-relay client
+(`remote_input`).
 
 Golden vectors for every kind, one mixed stream and each bad-message case are
 in `spec/fixtures/ipc-frames` with a `manifest.json` that describes them in

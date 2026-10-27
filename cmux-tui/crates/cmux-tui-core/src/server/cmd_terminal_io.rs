@@ -210,6 +210,9 @@ pub(super) enum InputFailure {
     /// The stream's sequence held its cap of queued items; known not
     /// delivered.
     StreamFull,
+    /// A daemon handoff is pending, so the daemon refused the bytes without
+    /// writing them, as it refuses a line meanwhile.
+    DaemonHandoff,
 }
 
 impl InputFailure {
@@ -219,17 +222,25 @@ impl InputFailure {
             Self::NotATerminal => "not_a_terminal",
             Self::WriteFailed => "write_failed",
             Self::StreamFull => "stream_full",
+            Self::DaemonHandoff => "daemon_handoff",
         }
     }
 
-    /// Whether every later INPUT for the same surface fails the same way.
+    /// Whether later INPUT fails the same way until a write reaches a
+    /// terminal again (a respawned one) or the stream is opened again.
     pub(super) fn is_final(self) -> bool {
         matches!(self, Self::TerminalEnded | Self::NotATerminal)
     }
 
-    /// `input-failed{reason, bytes}` for `bytes` bytes not delivered.
-    pub(super) fn event(self, bytes: usize) -> Value {
-        json!({"event": INPUT_FAILED_EVENT, "reason": self.reason(), "bytes": bytes})
+    /// `input-failed{stream, reason, bytes}` for `bytes` bytes of an INPUT
+    /// frame on `stream` not delivered.
+    pub(super) fn event(self, stream: u16, bytes: usize) -> Value {
+        json!({
+            "event": INPUT_FAILED_EVENT,
+            "stream": stream,
+            "reason": self.reason(),
+            "bytes": bytes,
+        })
     }
 }
 

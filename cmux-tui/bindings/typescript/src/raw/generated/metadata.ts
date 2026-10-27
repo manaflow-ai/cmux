@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0e0edec9dae5dfc09da116204375224a26855a675407686c54b5509c7f4508e4. */
+/* cmux-tui mux protocol 12, IR 846f2c9de4f30a3b157a28b0e5e6b217e5761dd9680bd53bca98c27abac8e33b. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "0e0edec9dae5dfc09da116204375224a26855a675407686c54b5509c7f4508e4" as const;
+export const SDK_IR_SHA256 = "846f2c9de4f30a3b157a28b0e5e6b217e5761dd9680bd53bca98c27abac8e33b" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -37704,7 +37704,7 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "input-failed": {
     "additional_properties": false,
     "constraints": [
-      "Sent on the attach stream an INPUT frame named, when its bytes did not reach the terminal; INPUT frames have no reply. After terminal_ended or not_a_terminal, later INPUT on the stream is dropped with no second event."
+      "Sent on the attach stream an INPUT frame named, when its bytes did not reach the terminal; INPUT frames have no reply. After terminal_ended or not_a_terminal, later INPUT that fails the same way sends no second event until a write reaches a terminal again or the stream id is opened again."
     ],
     "fields": {
       "bytes": {
@@ -37732,7 +37732,8 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "terminal_ended",
             "not_a_terminal",
             "write_failed",
-            "stream_full"
+            "stream_full",
+            "daemon_handoff"
           ]
         }
       },

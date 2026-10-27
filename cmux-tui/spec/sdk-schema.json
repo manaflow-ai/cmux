@@ -37012,7 +37012,8 @@
         "terminal_ended",
         "not_a_terminal",
         "write_failed",
-        "stream_full"
+        "stream_full",
+        "daemon_handoff"
        ]
       },
       "presence": "required",
@@ -37029,7 +37030,7 @@
     },
     "additional_properties": false,
     "constraints": [
-     "Sent on the attach stream an INPUT frame named, when its bytes did not reach the terminal; INPUT frames have no reply. After terminal_ended or not_a_terminal, later INPUT on the stream is dropped with no second event."
+     "Sent on the attach stream an INPUT frame named, when its bytes did not reach the terminal; INPUT frames have no reply. After terminal_ended or not_a_terminal, later INPUT that fails the same way sends no second event until a write reaches a terminal again or the stream id is opened again."
     ]
    },
    "event_id": 49164,

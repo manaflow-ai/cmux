@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "0e0edec9dae5dfc09da116204375224a26855a675407686c54b5509c7f4508e4";
+pub const ir_sha256 = "846f2c9de4f30a3b157a28b0e5e6b217e5761dd9680bd53bca98c27abac8e33b";
 
 pub const AccessRequestKind = enum {
     file,
@@ -13483,12 +13483,14 @@ pub const InputFailedEventReason = enum {
     not_a_terminal,
     write_failed,
     stream_full,
+    daemon_handoff,
 
     pub fn fromWire(value: []const u8) !@This() {
         if (std.mem.eql(u8, value, "terminal_ended")) return .terminal_ended;
         if (std.mem.eql(u8, value, "not_a_terminal")) return .not_a_terminal;
         if (std.mem.eql(u8, value, "write_failed")) return .write_failed;
         if (std.mem.eql(u8, value, "stream_full")) return .stream_full;
+        if (std.mem.eql(u8, value, "daemon_handoff")) return .daemon_handoff;
         return error.UnknownEnumValue;
     }
 
@@ -13498,6 +13500,7 @@ pub const InputFailedEventReason = enum {
             .not_a_terminal => "not_a_terminal",
             .write_failed => "write_failed",
             .stream_full => "stream_full",
+            .daemon_handoff => "daemon_handoff",
         };
     }
 };

@@ -7,7 +7,8 @@ public enum InputFailedEventReason implements WireEnum {
     TERMINAL_ENDED("terminal_ended"),
     NOT_A_TERMINAL("not_a_terminal"),
     WRITE_FAILED("write_failed"),
-    STREAM_FULL("stream_full");
+    STREAM_FULL("stream_full"),
+    DAEMON_HANDOFF("daemon_handoff");
 
     private final Object wireValue;
 
