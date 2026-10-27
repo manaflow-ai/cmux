@@ -53,8 +53,8 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(target_os = "linux")]
-/// Enables the Linux sandbox for tests only; write-open persistence is enforced,
-/// while rename and creator enforcement waits for F.
+/// Enables the Linux sandbox for tests only; persistence write-opens, renames
+/// and creators are enforced. Production stays refused until G2.
 static LINUX_REMOTE_SANDBOX: AtomicBool = AtomicBool::new(false);
 
 /// The checked-in Seatbelt profile.
@@ -83,15 +83,16 @@ fn platform_profile_id(linux: bool) -> String {
 }
 
 #[cfg(target_os = "linux")]
-#[allow(dead_code)]
 fn linux_identity_sources() -> Vec<(&'static str, &'static str)> {
     vec![
         ("bwrap.rs", include_str!("../linux_sandbox/bwrap.rs")),
+        ("bwrap/home.rs", include_str!("../linux_sandbox/bwrap/home.rs")),
         ("keeper.rs", include_str!("../linux_sandbox/keeper.rs")),
         ("init.rs", include_str!("../linux_sandbox/init.rs")),
         ("seccomp.rs", include_str!("../linux_sandbox/seccomp.rs")),
         ("proxy.rs", include_str!("../linux_sandbox/proxy.rs")),
         ("supervisor.rs", include_str!("../linux_sandbox/supervisor.rs")),
+        ("supervisor/mutations.rs", include_str!("../linux_sandbox/supervisor/mutations.rs")),
         ("supervisor/locking.rs", include_str!("../linux_sandbox/supervisor/locking.rs")),
         ("lookup.rs", include_str!("../linux_sandbox/lookup.rs")),
         ("rules.rs", include_str!("../linux_sandbox/rules.rs")),
@@ -874,8 +875,7 @@ fn canary_verdict(
 
 /// Run the canary under `exec` with the profile and `bound`; Ok only when
 /// the sandbox held: outside and persistence write-opens failed, loopback
-/// connections never arrived, and the temporary write worked. Rename and
-/// creator checks are enforced after F lands.
+/// connections never arrived, and the temporary write worked.
 pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<(), String> {
     let listener =
         std::net::TcpListener::bind("127.0.0.1:0").map_err(|e| format!("listen: {e}"))?;
@@ -1051,8 +1051,7 @@ impl Hub {
     }
 
     /// Enables the Linux sandbox for tests only; production remains refused
-    /// until G2. Write-open persistence is enforced here; rename and creator
-    /// checks are enforced after F lands.
+    /// until G2. Persistence write-opens, renames and creators are enforced.
     #[doc(hidden)]
     pub fn set_linux_remote_sandbox_for_tests(&self, enabled: bool) {
         #[cfg(target_os = "linux")]

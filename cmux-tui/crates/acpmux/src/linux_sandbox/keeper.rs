@@ -9,8 +9,8 @@
 //! therefore need no additional descriptor plumbing.
 //!
 //! Linux remote chains remain refused in Bound::for_session until G2. The
-//! supervisor enforces write-open persistence names here; rename and creator
-//! enforcement waits for F. Collection loops stop at finite input exhaustion.
+//! supervisor enforces persistence write-opens, renames and creators.
+//! Collection loops stop at finite input exhaustion.
 //! Service loops stop on child exit, cancellation, or runtime teardown; the
 //! supervisor thread stops on its eventfd or listener hangup.
 pub(crate) use crate::hub::remote_sandbox::loader_env_key;
@@ -435,21 +435,39 @@ fn executable(denies: &[PathBuf], writable: &[PathBuf]) -> Result<(OwnedFd, Path
     }
     Ok((fd, exe))
 }
-// Red-stage pidfd seams; the fix wires these into the relay after spawn.
-#[allow(dead_code)]
-fn open_pidfd(_pid: u32) -> io::Result<OwnedFd> {
-    Err(io::Error::new(io::ErrorKind::Unsupported, "pidfd signaling not wired"))
+// Pin before any wait/reap; the descriptor cannot target a recycled PID.
+fn open_pidfd(pid: u32) -> io::Result<OwnedFd> {
+    let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0 as libc::c_uint) };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: a successful pidfd_open returns a new owned descriptor.
+    Ok(unsafe { OwnedFd::from_raw_fd(fd as _) })
 }
-#[allow(dead_code)]
-fn signal_pidfd(_fd: RawFd, _number: libc::c_int) -> io::Result<()> {
-    Err(io::Error::new(io::ErrorKind::Unsupported, "pidfd signaling not wired"))
+fn signal_pidfd(fd: RawFd, number: libc::c_int) -> io::Result<()> {
+    // SAFETY: null siginfo requests the kernel-generated signal information.
+    let result = unsafe {
+        libc::syscall(
+            libc::SYS_pidfd_send_signal,
+            fd,
+            number,
+            std::ptr::null::<libc::siginfo_t>(),
+            0 as libc::c_uint,
+        )
+    };
+    if result < 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
 }
 /// Stops on the child-exit cancellation token, closed signal stream, or
-/// forwarding error. Only the unreaped direct child's PID is signalled.
-async fn forward_signals(pid: u32, signals: [Signal; 3], stop: CancellationToken) -> Result<i32> {
+/// forwarding error. The owned pidfd only ever addresses the original child.
+async fn forward_signals(
+    pidfd: OwnedFd,
+    signals: [Signal; 3],
+    stop: CancellationToken,
+) -> Result<i32> {
     let [mut term, mut int, mut hup] = signals;
     loop {
         let (received, number) = tokio::select! {
+            biased;
             _ = stop.cancelled() => return Ok(0),
             v = term.recv() => (v, libc::SIGTERM),
             v = int.recv() => (v, libc::SIGINT),
@@ -458,9 +476,7 @@ async fn forward_signals(pid: u32, signals: [Signal; 3], stop: CancellationToken
         if received.is_none() {
             return Err("signal stream closed".into());
         }
-        // SAFETY: pid belongs to the live, unreaped child of this keeper.
-        if unsafe { libc::kill(pid as libc::pid_t, number) } != 0 {
-            let error = io::Error::last_os_error();
+        if let Err(error) = signal_pidfd(pidfd.as_raw_fd(), number) {
             if error.raw_os_error() != Some(libc::ESRCH) {
                 return Err(error.to_string());
             }
@@ -690,13 +706,14 @@ async fn run(options: Options) -> Result<i32> {
         });
     }
     let mut child = command.spawn().map_err(|e| format!("start bwrap: {e}"))?;
+    let pidfd =
+        open_pidfd(child.id().ok_or("bwrap has no PID")?).map_err(|e| format!("pin bwrap: {e}"))?;
     drop(child_end);
     drop(bind_fds);
     drop(exe_fd);
     drop(bwrap_fd);
-    let pid = child.id().ok_or("bwrap has no PID")?;
     let relay_stop = CancellationToken::new();
-    let relay = tokio::spawn(forward_signals(pid, [term, int, hup], relay_stop.clone()));
+    let relay = tokio::spawn(forward_signals(pidfd, [term, int, hup], relay_stop.clone()));
     let result = session(&mut child, parent, &options, policy, relay_stop.clone()).await;
     relay_stop.cancel();
     let relay_result = relay.await.map_err(|e| format!("signal relay: {e}"))?;
@@ -1010,7 +1027,7 @@ mod tests {
         stop.cancel();
         let result = tokio::time::timeout(
             Duration::from_millis(100),
-            forward_signals(std::process::id(), signals, stop),
+            forward_signals(open_pidfd(std::process::id()).unwrap(), signals, stop),
         )
         .await;
         assert!(result.is_ok(), "signal relay remained alive after child exit");
