@@ -146,6 +146,18 @@ pub(super) struct Pooled {
     /// The question preview format its command was pinned to at prewarm
     /// (`agent::pinned_preview_format`), which the taking session records.
     preview: crate::hub::questions::PreviewFormat,
+    /// Its harness reported full access while MDM forced it off (`pool_reported`). Kept with
+    /// the entry, so a report no ready or claimed entry held (one a chat was claiming) still keeps
+    /// it from a chat, though the off is unset by then (review 76 of #23322).
+    reported_off: Arc<AtomicBool>,
+}
+
+impl Pooled {
+    /// Whether its harness reported full access while MDM forced it off (`reported_off`), kept
+    /// for the handoff after the entry is given up (review 77 of #23322).
+    pub(super) fn reported_off(&self) -> Arc<AtomicBool> {
+        self.reported_off.clone()
+    }
 }
 
 /// What a pooled session is started from, and the key it is served under.
@@ -449,7 +461,20 @@ impl Hub {
                         Some(p)
                     } else {
                         let now = lock(&hub.clock).now();
-                        lock(&hub.pool.pool).complete(&spec.key, generation, p, now)
+                        // MDM forces full access off (#23322): an agent that came up in it is
+                        // not kept, where nothing caps it until a chat takes it. The off is read
+                        // before the pool lock and judged under it: an off pushed meanwhile has
+                        // changed the count, and the push's drain takes the pool lock after it, so
+                        // no entry slips between. The start-mode state's lock is never taken
+                        // under the pool lock (review 76).
+                        let latch = hub.off_latch();
+                        let mut pool = lock(&hub.pool.pool);
+                        if latch.off() && p.runs_full_access(&spec.spawn.argv) {
+                            pool.failed(&spec.key, generation);
+                            Some(p)
+                        } else {
+                            pool.complete(&spec.key, generation, p, now)
+                        }
                     };
                     // In the pool now (or ended below): `stop_pool` finds it there.
                     lock(&hub.pool.starting).remove(&id);
@@ -525,7 +550,19 @@ impl Hub {
         }
         let now = lock(&self.clock).now();
         let key = p.key.clone();
-        match lock(&self.pool.pool).restore(&key, p, now) {
+        let restored = {
+            // MDM forces full access off (#23322, review 27): a claimed entry never goes back,
+            // since the push's drain may have passed it while it was claimed. Judged under the
+            // pool lock, as at completion (`pool_want`), so a drain after this one finds it.
+            let latch = self.off_latch();
+            let mut pool = lock(&self.pool.pool);
+            if latch.off() || p.reported_off.load(Ordering::SeqCst) {
+                Some(p)
+            } else {
+                pool.restore(&key, p, now)
+            }
+        };
+        match restored {
             Some(p) => self.pool_discard(vec![p]),
             None => {
                 tracing::info!(harness = %key.harness, "an unused claimed session went back to the pool");
@@ -536,6 +573,37 @@ impl Hub {
                 }
             }
         }
+    }
+
+    /// A pooled agent no chat took yet reported full access (`holding_tap`): under MDM's off its
+    /// entry keeps that (`reported_off`), and it ends (`pool_end_reported`).
+    pub(super) fn pool_reported(&self, id: &str, reported_off: &AtomicBool) {
+        if self.full_access_managed_off() {
+            reported_off.store(true, Ordering::SeqCst);
+        }
+        self.pool_end_reported(id);
+    }
+
+    /// A pooled agent no chat took yet reported full access (`holding_tap`). Under MDM's off it
+    /// ends now, ready or claimed, where nothing caps it until a chat takes it (review 46 of
+    /// #23322); one still starting is judged when it completes (`pool_want`). Its argv was
+    /// judged before it started (`spawn_pooled`).
+    fn pool_end_reported(&self, id: &str) {
+        if !self.full_access_managed_off() {
+            return;
+        }
+        let ready =
+            lock(&self.pool.pool).remove_ready(|p| p.session_id == id && p.runs_full_access(&[]));
+        let claimed = {
+            let mut claimed = lock(&self.pool.claimed);
+            let reported = claimed.get(id).is_some_and(|p| p.runs_full_access(&[]));
+            if reported { claimed.remove(id) } else { None }
+        };
+        let ended: Vec<Pooled> = ready.into_iter().chain(claimed).collect();
+        if !ended.is_empty() {
+            tracing::info!(session = %id, "a pooled session reported full access, which MDM forces off: it ends");
+        }
+        self.pool_discard(ended);
     }
 
     /// `session/new` for `meta`: claim the pooled session of exactly this
@@ -567,6 +635,8 @@ impl Hub {
             let took = lock(&self.pool.pool).take(&spec.key);
             match took {
                 Take::Ready(mut p) => {
+                    #[cfg(debug_assertions)]
+                    self.claim_gap_report(&p);
                     // A dead or wedged host is ended; the session starts on
                     // a fresh host (`spawn_hosted_child`).
                     let asked = std::time::Instant::now();
@@ -627,6 +697,18 @@ impl Hub {
     /// session starts cold.
     pub(super) fn pool_take_claimed_for(&self, id: &str, spawn: &HarnessProfile) -> Option<Pooled> {
         let p = self.pool_take_claimed(id)?;
+        // MDM forces full access off (#23322, review 32): an entry in full access by what it
+        // reported while held (a mode its harness declares none for, an option) is not taken,
+        // since `cap_full_access` may read the session before those reports reach it. Nor is one
+        // that reported it while the off held, though it is unset now (review 76). The chat
+        // starts cold under the bound.
+        if p.reported_off.load(Ordering::SeqCst)
+            || (self.full_access_managed_off() && p.runs_full_access(&spawn.argv))
+        {
+            tracing::info!(session = %id, "pooled session not taken: it runs in full access, which MDM forces off");
+            self.pool_discard(vec![p]);
+            return None;
+        }
         if p.opencode_asks == spawn.env.contains_key(crate::opencode_ask::MARKER) {
             return Some(p);
         }
@@ -638,12 +720,13 @@ impl Hub {
     /// `ensure_child` takes a claimed pooled session for `session`: move its
     /// record into the hosts directory, log its host start and held lines,
     /// switch it live, and record what its harness answered. An entry that
-    /// cannot be promoted is ended and the caller starts cold.
+    /// cannot be promoted is ended and the caller starts cold. Also whether its
+    /// held lines report full access (review 71 of #23322), read as they go live.
     pub(super) async fn adopt_pooled(
         self: &Arc<Self>,
         session: &Arc<Session>,
         mut p: Pooled,
-    ) -> anyhow::Result<Arc<ChildAgent>> {
+    ) -> anyhow::Result<(Arc<ChildAgent>, bool)> {
         if let Err(e) = agent_host::promote(&pool_dir(), &agent_host::hosts_dir(), &p.record) {
             tokio::spawn(end_pooled(p));
             return Err(e);
@@ -660,15 +743,20 @@ impl Hub {
             started["remoteEnvPolicy"] = crate::agent::REMOTE_ENV_POLICY_ID.into();
         }
         self.append(session, "mux", "host_started", started);
-        {
+        #[cfg(debug_assertions)]
+        self.adopt_report(&p);
+        let reported = {
             let mut slot = p.tap.lock().unwrap_or_else(|e| e.into_inner());
+            let mut reported = false;
             if let TapSlot::Held(held) = &mut *slot {
+                reported = start::held_reports_full_access(held, p.new_result.as_ref());
                 for (dir, msg, host_seq) in held.drain(..) {
                     tap(dir, &msg, host_seq);
                 }
             }
             *slot = TapSlot::Live(tap);
-        }
+            reported
+        };
         if let Some(target) = p.target.take() {
             let _ = target.send(session.inbound_tx.clone());
         }
@@ -713,7 +801,7 @@ impl Hub {
         self.save_meta(session);
         let meta_now = session.meta();
         self.remember_models(&meta_now.harness, &meta_now);
-        Ok(child)
+        Ok((child, reported))
     }
 
     /// A local session was created: the harness used before it in that cwd
@@ -887,6 +975,51 @@ pub(super) async fn end_pooled(p: Pooled) {
     }
     let _ = tokio::time::timeout(END_GRACE, p.child.terminate(END_GRACE)).await;
     end_pooled_host(&p.record).await;
+}
+
+/// Debug builds only: the mode in the file `ACPMUX_TEST_POOL_ADOPT_REPORT_FILE` names is held as a
+/// report of `p`'s harness that came after the take's check and before its lines go to the chat
+/// (review 71 of #23322); the chat's own reading of it never comes. Release builds have no seam.
+/// "<mode> unset": then the report is noted as the tap notes one and MDM's off is unset before
+/// the chat takes it (review 77).
+#[cfg(debug_assertions)]
+impl Hub {
+    fn adopt_report(&self, p: &Pooled) {
+        let Some(file) = std::env::var_os("ACPMUX_TEST_POOL_ADOPT_REPORT_FILE") else { return };
+        let Ok(text) = std::fs::read_to_string(file) else { return };
+        let mut words = text.split_whitespace();
+        hold_mode_report(p, words.next().unwrap_or_default());
+        if words.next() == Some("unset") {
+            self.pool_reported(&p.session_id, &p.reported_off);
+            self.update_start_mode_state(None, |s| s.full_access_managed = None);
+        }
+    }
+
+    /// Debug builds only: the mode in the file `ACPMUX_TEST_POOL_CLAIM_REPORT_FILE` names is held as
+    /// a report of `p`'s harness that came while a chat claimed it, out of both the ready and the
+    /// claimed entries, as the tap reports one; then MDM's off is unset (review 76 of #23322).
+    fn claim_gap_report(&self, p: &Pooled) {
+        let Some(file) = std::env::var_os("ACPMUX_TEST_POOL_CLAIM_REPORT_FILE") else { return };
+        let Ok(mode) = std::fs::read_to_string(file) else { return };
+        hold_mode_report(p, mode.trim());
+        self.pool_reported(&p.session_id, &p.reported_off);
+        self.update_start_mode_state(None, |s| s.full_access_managed = None);
+    }
+}
+
+/// Holds `mode` as a `current_mode_update` of `p`'s harness session (the seams above).
+#[cfg(debug_assertions)]
+fn hold_mode_report(p: &Pooled, mode: &str) {
+    let sid = p.new_result.as_ref().and_then(|r| r["sessionId"].as_str()).unwrap_or_default();
+    let update = json!({"sessionId": sid, "update": {"sessionUpdate": "current_mode_update",
+                                                     "currentModeId": mode}});
+    let msg = Message::Notification {
+        method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+        params: Some(update),
+    };
+    if let TapSlot::Held(held) = &mut *p.tap.lock().unwrap_or_else(|e| e.into_inner()) {
+        held.push((Direction::In, msg, None));
+    }
 }
 
 /// End a pooled host by nonce proof (when it still runs) and remove its

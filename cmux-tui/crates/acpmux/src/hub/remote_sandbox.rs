@@ -1065,7 +1065,7 @@ impl Hub {
         // A dedicated agent VM (`vmHost`, off macOS): the VM is the sandbox.
         // Bypass mode stays off (above); the session's permission policy
         // answers Claude's prompts.
-        let vm_host = self.config.read().await.vm_host;
+        let vm_host = self.vm_host().await;
         if vm_host_unsandboxed(vm_host, cfg!(target_os = "macos")) {
             self.append(session, "mux", "remote_sandbox", json!({"vmHost": true}));
             return Ok((plan, std::borrow::Cow::Owned(profile)));
