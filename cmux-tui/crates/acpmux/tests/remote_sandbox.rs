@@ -2,19 +2,21 @@
 //! the macOS Seatbelt sandbox (`sandbox/remote-chain.sb`), after a canary
 //! proved the sandbox at spawn; its settings ask before every acting tool.
 //! Its Bash (any child) cannot write outside the allowed folders or reach a
-//! loopback port. Off macOS a remote chain does not run Claude Code at all.
+//! loopback port. Linux enforces the same parsed policy with bwrap, seccomp,
+//! the notify supervisor and the proxy. Other platforms refuse remote Claude.
 //! A local session's Claude spawns as before.
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().with_env(&[
-    ("ANTHROPIC_AUTH_TOKEN", "synthetic-daemon-token"),
-    ("CMUX_REMOTE_TEST_SECRET", "synthetic-cmux-secret"),
-    ("LC_API_TOKEN", "synthetic-locale-shaped-secret"),
-    ("SSH_AUTH_SOCK", "/synthetic/ssh-agent.sock"),
-    ("UNRELATED_TOKEN", "synthetic-unrelated-token"),
-]);
+const HERMETIC: daemon_env::Process =
+    daemon_env::Process::stand_in().keep(&["ACPMUX_REQUIRE_BWRAP"]).with_env(&[
+        ("ANTHROPIC_AUTH_TOKEN", "synthetic-daemon-token"),
+        ("CMUX_REMOTE_TEST_SECRET", "synthetic-cmux-secret"),
+        ("LC_API_TOKEN", "synthetic-locale-shaped-secret"),
+        ("SSH_AUTH_SOCK", "/synthetic/ssh-agent.sock"),
+        ("UNRELATED_TOKEN", "synthetic-unrelated-token"),
+    ]);
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -264,8 +266,10 @@ async fn on_a_vm_cmux_created_remote_claude_runs_until_the_toggle_turns_it_off()
     let mut local = Client::new(&hub, Origin::Local);
     let off = local.call("_acpmux/vm_host", json!({"on": false})).await;
     assert_eq!(off["result"]["vmHost"], false, "{off}");
+    #[cfg(target_os = "linux")]
+    hub.set_linux_bwrap_probe_for_tests(d.join("missing-bwrap"));
     let e = web.run(&d, "argv").await.expect_err("off: a remote chain needs the sandbox again");
-    assert!(e.to_string().contains("Seatbelt"), "{e}");
+    assert!(e.to_string().contains("remote.sandbox_refused"), "{e}");
 
     let on = local.call("_acpmux/vm_host", json!({"on": true})).await;
     assert_eq!(on["result"]["vmHost"], true, "{on}");
@@ -273,9 +277,9 @@ async fn on_a_vm_cmux_created_remote_claude_runs_until_the_toggle_turns_it_off()
     let _ = std::fs::remove_dir_all(&d);
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 #[tokio::test]
-async fn off_macos_a_remote_chain_never_runs_claude_code() {
+async fn unsupported_platform_never_runs_remote_claude_code() {
     let d = dir("nomac");
     let hub = hub(&d);
     let mut web = Client::new(&hub, Origin::Web);
@@ -437,3 +441,21 @@ async fn a_remote_chain_reaches_its_own_loopback_model_proxy_and_nothing_else() 
     assert_eq!(argv[sources + 1], "project,local");
     let _ = std::fs::remove_dir_all(&d);
 }
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn linux_unavailable_bwrap_refuses_the_spawn_with_its_reason() {
+    let d = dir("missing-bwrap");
+    let hub = hub_with(&d, Some(false));
+    hub.set_linux_bwrap_probe_for_tests(d.join("missing-bwrap"));
+    let mut web = Client::new(&hub, Origin::Web);
+    let error = web.run(&d, "argv").await.expect_err("unavailable bwrap must refuse");
+    let _ = std::fs::remove_dir_all(d);
+    assert!(error.to_string().contains("remote.sandbox_refused"), "{error}");
+    assert!(error.to_string().contains("bwrap unavailable"), "{error}");
+    assert!(error.to_string().contains("bwrap not installed"), "{error}");
+}
+
+#[cfg(target_os = "linux")]
+#[path = "support/remote_sandbox_linux_stack.rs"]
+mod linux_stack;
