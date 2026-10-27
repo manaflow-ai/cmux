@@ -41,7 +41,7 @@ import Testing
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, prober: UpdateProber(fetcher: EmptyFeed()),
                                      defaults: defaults, enableSparkle: false, recordsUpdates: false,
-                                     work: BackgroundWork(label: "test.updater"))
+                                     work: BackgroundWork(label: "test.updater"), deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
         updater.announcementsFetch = false
         updater.start()
         return updater

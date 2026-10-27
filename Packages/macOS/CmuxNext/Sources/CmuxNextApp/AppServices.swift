@@ -56,7 +56,7 @@ final class AppServices {
     /// The app's theme store (the one ``ThemeScope/app`` roots on), handed to the App's theme owners.
     let themeStore = ThemeScope.app.store
     /// The recovery-draft backstop of unsaved documents (R96).
-    let recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory)
+    private(set) lazy var recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory, deadlines: mainDeadlines)
     /// The quit hook's unsaved-document participants; drafts go to ``recoveryDrafts``.
     private(set) lazy var quitUnsaved = QuitUnsavedRegistry(drafts: recoveryDrafts)
     /// The open files' quit documents, shared by the markdown and editor pages.
@@ -78,7 +78,7 @@ final class AppServices {
     /// The app's one main-thread scheduler (from the composition root), passed by init to the
     /// local daemon and to the Cloud, SSH and server services for their machines.
     let mainWork: MainWorkScheduler
-    private(set) lazy var mainDeadlines = MainDeadlineScheduler(work: mainWork)  // the app's one `MainDeadline` placer
+    let mainDeadlines: MainDeadlineScheduler  // the app's one `MainDeadline` placer, made in init on `mainWork`
     /// The app's one Launch Services and icon answer cache: questions run on `work`'s system lane, never on main.
     private(set) lazy var workspaceQueries = WorkspaceQueries(work: work, mainWork: mainWork)
     /// The local and peer chat upload stagers' expiry deadlines.
@@ -135,11 +135,9 @@ final class AppServices {
     // raw-observer-allow: the AppEvents fan-out itself, one observer per workspace notice for the whole app
     let workspaceEvents = AppEvents(center: NSWorkspace.shared.notificationCenter)
     /// The app's node in the visibility tree (hidden app, sleeping displays), every window's
-    /// node's parent (`WindowVisibilitySource`, p06-scheduler-022).
-    private(set) lazy var appVisibility = AppVisibilitySource(
-        appEvents: appEvents, workspaceEvents: workspaceEvents,
-        isAppHidden: NSApp.isHidden
-    )
+    /// node's parent (`WindowVisibilitySource`, p06-scheduler-022). Made in init, before the
+    /// updater, whose feed checks align to its hidden wakes.
+    let appVisibility: AppVisibilitySource
     /// Reduce Motion, the motion switches, hover cards, the inactive dim and the system's display
     /// options (``AppearanceSignals``, p06-scheduler-043), handed to the readers this root builds:
     /// the glass watch, every window and the content its panes show. The design settings own it,
@@ -186,7 +184,7 @@ final class AppServices {
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
     private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard, mainWork: mainWork, work: work,
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
-    private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
+    private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }), mainWork: mainWork)  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
     var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); madeRemoteLocalhost?.follow(settings); terminalDelegate.followPredictiveEcho(settings, on: mainWork); if cloudContext != nil { followHostReplica(settings) } } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
@@ -545,7 +543,7 @@ final class AppServices {
     private(set) lazy var quit = QuitCoordinator(services: self)
     /// Background mode (cx-ghagp): no window open means no Dock icon or Cmd-Tab entry, and a menu bar item instead.
     /// Only the process's own services drive it, and not while quitting (window teardown runs inside a quit).
-    private(set) lazy var background = BackgroundActivation(registry: registry, icon: .icon(.appCmux, size: 16)) { [weak self] in
+    private(set) lazy var background = BackgroundActivation(registry: registry, icon: .icon(.appCmux, size: 16), mainWork: mainWork) { [weak self] in
         guard let self else { return false }
         return AppProcessRoot.shared.services === self && self.windows.controllers.isEmpty && !self.quit.isQuitting
             && self.settings?.snapshot.hideDockIconWithoutWindows ?? CmuxConfigSnapshot.hideDockIconWithoutWindowsFallback }
@@ -723,7 +721,8 @@ final class AppServices {
         (self.launchStartup, self.crashKeys) = (launchStartup, crashKeys)
         // Estimated presents read the key display's last tick; no link starts for them.
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board, displays: FrameScheduler.appDisplays)
-        updater = UpdaterService(work: work)
+        (mainDeadlines, appVisibility) = (MainDeadlineScheduler(work: mainWork), AppVisibilitySource(appEvents: appEvents, workspaceEvents: workspaceEvents, isAppHidden: NSApp?.isHidden ?? false))
+        updater = UpdaterService(work: work, deadlines: mainDeadlines, checkNode: appVisibility.node)
         chromiumRuntime = ChromiumRuntimeService.make(work: work)
         mobile = MobileHostService(displayName: { await MacName().displayName() }, work: work)
         #if DEBUG || CMUX_BENCH_HOOKS

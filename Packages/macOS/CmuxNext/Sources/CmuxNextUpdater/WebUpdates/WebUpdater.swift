@@ -108,8 +108,13 @@ public final class WebUpdater {
     let backgroundInterval: Duration
     /// The app's Energy Saver policy: each wait is stretched by its `pollStretch`.
     let energy: EnergyPolicySource
-    /// The next scheduled check.
-    @ObservationIgnored private let nextCheck: DemandTimer
+    /// The next scheduled check: a `background` deadline (nobody waits on it) aligned to the app's
+    /// hidden wakes (Blink's hidden-page wake-up throttling, page_scheduler_impl.h).
+    @ObservationIgnored let nextCheck: MainDeadline
+    /// Where a check runs: its network and disk parts off main, its state on main.
+    @ObservationIgnored private let work: BackgroundWork
+    /// The app's main-thread scheduler, where the launch check lands.
+    @ObservationIgnored private let mainWork: MainWorkScheduler
     @ObservationIgnored private var etag: String?
     /// The launch check of the kept update; every check and channel change waits for it, so none
     /// sees the empty state before `state.json` is read.
@@ -125,9 +130,11 @@ public final class WebUpdater {
 
     public static let defaultBase = URL(string: "https://files.cmux.com/cmux-next-web/") ?? URL(fileURLWithPath: "/dev/null") // a test parses it
 
+    /// `deadlines` is the app's deadline scheduler (the next check; the launch check lands on its `work`),
+    /// `checkNode` the app's visibility node (nil: flexible wakes only), `work` the lanes a check starts on.
     public init(store: WebUpdateStore, app: App, keys: KeySource, base: URL = WebUpdater.defaultBase,
                 interval: Duration = .seconds(60), backgroundInterval: Duration = .seconds(600),
-                energy: EnergyPolicySource, clock: any Clock<Duration> = ContinuousClock(),
+                energy: EnergyPolicySource, deadlines: MainDeadlineScheduler, checkNode: VisibilityNode? = nil, work: BackgroundWork,
                 fetch: @escaping Fetch = { try await URLSession.shared.data(for: $0) },
                 download: @escaping Download = WebUpdater.downloadToFile) {
         self.store = store
@@ -139,7 +146,21 @@ public final class WebUpdater {
         self.energy = energy
         self.fetch = fetch
         self.download = download
-        nextCheck = DemandTimer(owner: "web-updates.check", clock: clock)
+        self.work = work
+        mainWork = deadlines.work
+        nextCheck = MainDeadline(owner: "web-updates.check", workClass: .background,
+                                 alignment: checkNode.map(TimerAlignment.whenHidden) ?? .flexible, scheduler: deadlines)
+    }
+
+    /// Starts one ``check()`` on the app's lanes at `priority`: `bestEffort` for a scheduled one (its `background`
+    /// deadline already waited for the launch), `userVisible` for one a person or a request asked for. Its state
+    /// changes run on main.
+    @discardableResult
+    public func startCheck(_ priority: WorkPriority = .bestEffort) -> Task<Void, any Error> {
+        work.task(priority) { [weak self] in
+            guard let self else { return }
+            await check()
+        }
     }
 
     /// The launch check of the kept update, for ``WebBundleOverlay/load(_:)``: its folder when it
@@ -147,12 +168,16 @@ public final class WebUpdater {
     /// (and the state forgets it). It runs once; later calls get its result.
     public func launchTree() async -> URL? {
         if let launch { return await launch.value }
-        let store = store, app = app, channel: Channel? = followed ? channel : nil
-        // task-owner: the one launch check, kept so later callers await the same result
-        let task = Task { @MainActor [weak self] () -> URL? in
-            let (tree, state) = await Self.launchCheck(store: store, app: app, channel: channel)
+        let store = store, app = app, channel: Channel? = followed ? channel : nil, mainWork = mainWork
+        let land: @MainActor @Sendable (URL?, WebUpdateState) -> Void = { [weak self] tree, state in
             self?.state = state
             self?.launchVersion = tree == nil ? nil : state.active
+        }
+        // task-owner: the one launch check, off main, kept so later callers await the same result; the pages wait
+        // for it, so its state lands as one visible task
+        let task = Task { @concurrent () -> URL? in
+            let (tree, state) = await Self.launchCheck(store: store, app: app, channel: channel)
+            await mainWork.apply(.visible, owner: "WebUpdater.launch") { land(tree, state) }
             return tree
         }
         launch = task
@@ -193,7 +218,7 @@ public final class WebUpdater {
             try await serve(nil, refusingActive: false)
         }
         guard channel != .off else { return }
-        nextCheck.schedule(after: .zero) { @MainActor [weak self] in await self?.check() }
+        nextCheck.schedule(after: .zero) { [weak self] in _ = self?.startCheck() }
     }
 
     /// The app came to the front: checks again when the last check is older than `stale`, else
@@ -205,11 +230,10 @@ public final class WebUpdater {
         // wall-clock: the wait since the shown lastCheck counts time asleep; the trace clock stops then.
         let since = Date().timeIntervalSince(lastCheck ?? .distantPast)
         guard since > stale else {
-            nextCheck.schedule(after: Self.delay(after: since, interval: nextInterval)) { @MainActor [weak self] in await self?.check() }
+            nextCheck.schedule(after: Self.delay(after: since, interval: nextInterval)) { [weak self] in _ = self?.startCheck() }
             return
         }
-        // task-owner: one check; it ends by itself
-        Task { await check() }
+        startCheck()
     }
 
     /// cmux went behind other apps: the check booked a minute out moves to ``backgroundInterval``
@@ -219,7 +243,7 @@ public final class WebUpdater {
         guard channel != .off, phase != .checking, phase != .downloading, nextCheck.isScheduled else { return }
         // wall-clock: the wait since the shown lastCheck counts time asleep; the trace clock stops then.
         let since = Date().timeIntervalSince(lastCheck ?? .distantPast)
-        nextCheck.schedule(after: Self.delay(after: since, interval: nextInterval)) { @MainActor [weak self] in await self?.check() }
+        nextCheck.schedule(after: Self.delay(after: since, interval: nextInterval)) { [weak self] in _ = self?.startCheck() }
     }
 
     /// The last cmux window went away: the booked check goes (a running one books none). A window
@@ -232,7 +256,7 @@ public final class WebUpdater {
         guard channel != .off, phase != .checking, phase != .downloading, !nextCheck.isScheduled else { return }
         // wall-clock: the wait since the shown lastCheck counts time asleep; the trace clock stops then.
         let since = Date().timeIntervalSince(lastCheck ?? .distantPast)
-        nextCheck.schedule(after: Self.delay(after: since, interval: nextInterval)) { @MainActor [weak self] in await self?.check() }
+        nextCheck.schedule(after: Self.delay(after: since, interval: nextInterval)) { [weak self] in _ = self?.startCheck() }
     }
 
     /// The wait between two booked checks now: ``interval`` in the front, ``backgroundInterval``
@@ -257,7 +281,7 @@ public final class WebUpdater {
         // While no window shows, only a channel change books one.
         defer {
             if self.channel != .off, shown || self.follows != follows {
-                nextCheck.schedule(after: self.follows == follows ? nextInterval : .zero) { @MainActor [weak self] in await self?.check() }
+                nextCheck.schedule(after: self.follows == follows ? nextInterval : .zero) { [weak self] in _ = self?.startCheck() }
             }
         }
         do {
@@ -377,12 +401,14 @@ public final class WebUpdater {
     private func enqueue(_ body: @escaping @MainActor () async throws -> Void) -> Task<Void, any Error> {
         let before = writing
         // task-owner: one state write; it ends by itself
+        // main-hop-allow: the state writes' serial queue: each body is main-actor async (its file write @concurrent,
+        // its state change on main) and starts only after the write before it; a channel change or a kept update
         let task = Task { @MainActor in
             await before?.value
             try await body()
         }
-        // task-owner: the queue's handle on that write; it ends with it
-        writing = Task { _ = try? await task.value }
+        // task-owner: the queue's handle on that write, off main (it only waits); it ends with it
+        writing = Task { @concurrent in _ = try? await task.value }
         return task
     }
 

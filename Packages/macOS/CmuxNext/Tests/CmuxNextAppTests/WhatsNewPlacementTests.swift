@@ -3,6 +3,7 @@ import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextSidebar
 import CmuxNextUpdater
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -25,7 +26,8 @@ struct WhatsNewPlacementTests {
         let defaults = try #require(UserDefaults(suiteName: "cnc-whatsnew-\(UUID().uuidString)"))
         let source = BundledWhatsNewSource(directory: directory)
 
-        let center = WhatsNewCenter(currentVersion: "1.0.0", defaults: defaults, sources: [source])
+        let center = WhatsNewCenter(currentVersion: "1.0.0", defaults: defaults, sources: [source],
+                                    mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         await center.load().value
         #expect(center.debugPretendUpdated(from: "0.9.0"))
         #expect(!center.unseen.isEmpty, "the update has notes the user has not seen")
@@ -36,7 +38,8 @@ struct WhatsNewPlacementTests {
 
         center.dismissUpdated()
         #expect(!center.showsUpdatedCard)
-        let relaunch = WhatsNewCenter(currentVersion: "1.0.0", defaults: defaults, sources: [source])
+        let relaunch = WhatsNewCenter(currentVersion: "1.0.0", defaults: defaults, sources: [source],
+                                      mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         await relaunch.load().value
         #expect(!relaunch.showsUpdatedCard, "once per version: a relaunch after the x shows no card")
     }

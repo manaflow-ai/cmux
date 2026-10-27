@@ -1,6 +1,7 @@
 public import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
+public import CmuxNextWakeups
 
 /// `home.channelsEnabled` in cmux.json (hq-6d cx-frn2y; Lawrence 2026-10-15: "u have to cmd shift p to
 /// enable channels in the first place"): the sidebar shows the Channels entry (hq-ec's Channels page of
@@ -18,8 +19,11 @@ extension HomeChannelsSetting {
     /// selects Home (`HomeDock.followChannelsSetting`). A run that changes nothing (enable while on,
     /// disable while off) succeeds and writes nothing (hq-6d 2026-10-15). `unavailable` is the refusal
     /// while settings are not loaded. Also keeps the registry's `homeChannelsEnabled` fact current, so
-    /// actions that need Channels (Open Channels) show only while it is on.
-    @MainActor public func bind(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?, unavailable: String) {
+    /// actions that need Channels (Open Channels) show only while it is on: a `visible`
+    /// ``ServiceObservation`` on `mainWork` (the registry is a model, not a view), held by the caller for the
+    /// registry's life.
+    @MainActor public func bind(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?, unavailable: String,
+                                mainWork: MainWorkScheduler) -> ServiceObservation<Bool> {
         for (id, on) in [("home.enableChannels", true), ("home.disableChannels", false)] as [(ActionID, Bool)] {
             registry.bind(id, invoke: { invocation in
                 guard DesignSettings.shared.homeChannelsEnabled != on else { return } // already so
@@ -33,14 +37,13 @@ extension HomeChannelsSetting {
                 })
             })
         }
-        // task-owner: the registry's life (one per app); event-driven (Observation)
-        Task { [weak registry] in
-            for await on in ObservationStream({ DesignSettings.shared.homeChannelsEnabled }) {
-                guard let registry else { return }
-                var context = registry.context
-                if on { context.insert(.homeChannelsEnabled) } else { context.remove(.homeChannelsEnabled) }
-                if context != registry.context { registry.context = context }
-            }
+        return ServiceObservation(.visible, owner: "HomeChannels.context", on: mainWork) {
+            DesignSettings.shared.homeChannelsEnabled
+        } apply: { [weak registry] on in
+            guard let registry else { return }
+            var context = registry.context
+            if on { context.insert(.homeChannelsEnabled) } else { context.remove(.homeChannelsEnabled) }
+            if context != registry.context { registry.context = context }
         }
     }
 }

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Tells the person when cmux-next.json holds a value this build refuses
 /// (`SettingsDiagnosticNotices`): a toast on the key window names the key,
@@ -12,8 +13,12 @@ import CmuxNextDesign
 /// window waits for the next window that becomes key. Fixing the refusal the
 /// toast names closes it. An agent or a hand edit that writes the file past
 /// `cmux settings set` no longer fails silently. The app turns it on with
-/// `SettingsController.start(announcingDiagnostics: true)`; Debug Settings
+/// `SettingsController.start(announcingDiagnosticsOn:)`; Debug Settings
 /// `settings.diagnosticToast` keeps it up until closed or turns it off.
+///
+/// It follows the loads through a `visible` ``ServiceObservation`` (it also remembers what it
+/// announced, so it runs whether or not a window shows) and a window taking the keys through the
+/// app's ``AppEvents``, one observer per notice for the whole app.
 @MainActor
 final class SettingsDiagnosticToasts {
     static let toastID = "settings-diagnostics"
@@ -22,32 +27,38 @@ final class SettingsDiagnosticToasts {
     /// The longest value the toast quotes; Settings and the file hold the rest.
     static let valueLimit = 80
 
+    /// One load's refusals, the user's file and the managed keys.
+    private typealias Loaded = (diagnostics: [SettingsDiagnostic], file: JSONValue, managed: Set<String>)
+
     private let registry: ActionRegistry
+    private let events: AppEvents
     private let defaults = UserDefaults.standard
     private var notices: SettingsDiagnosticNotices
     /// Refusals the last load found that no toast has shown yet.
     private var pending: [SettingsDiagnosticNotices.Notice] = []
     private var shown: CmuxToastHandle?
+    private var loads: ServiceObservation<Loaded?>?
+    private var keyWatch: EventSubscription?
 
-    init(registry: ActionRegistry) {
+    /// `events` is the app's notices: a refusal that found no window shows when a window takes the keys.
+    init(registry: ActionRegistry, events: AppEvents) {
         self.registry = registry
+        self.events = events
         notices = SettingsDiagnosticNotices(remembered: Set(UserDefaults.standard.stringArray(forKey: Self.rememberedKey) ?? []))
     }
 
-    /// Follows `settings`' loads; the controller holds this object for the app's life.
+    /// Follows `settings`' loads, from its first one (call it after that load); the controller holds this
+    /// object for the app's life.
     func follow(_ settings: SettingsController) {
-        Task { [weak self] in // task-owner: lives with the settings controller
-            await settings.waitForLoad(atLeast: 1)
-            for await (diagnostics, file, managed) in ObservationStream({
-                (settings.diagnostics, settings.fileRoot, Set(settings.managedKeys.keys).union(settings.managedPolicy.keys))
-            }) {
-                self?.load(diagnostics, file: file, managed: managed)
-            }
+        loads = ServiceObservation(.visible, owner: "SettingsDiagnosticToasts.load", on: settings.mainWork) { [weak settings] () -> Loaded? in
+            guard let settings else { return nil }
+            return (settings.diagnostics, settings.fileRoot, Set(settings.managedKeys.keys).union(settings.managedPolicy.keys))
+        } apply: { [weak self] loaded in
+            guard let loaded else { return }
+            self?.load(loaded.diagnostics, file: loaded.file, managed: loaded.managed)
         }
-        Task { [weak self] in // task-owner: lives with the app; retries a refusal that found no window
-            for await _ in NotificationCenter.default.notifications(named: NSWindow.didBecomeKeyNotification) {
-                self?.showPending()
-            }
+        keyWatch = events.subscribe(NSWindow.didBecomeKeyNotification, owner: "SettingsDiagnosticToasts.key") { [weak self] in
+            self?.showPending()
         }
     }
 

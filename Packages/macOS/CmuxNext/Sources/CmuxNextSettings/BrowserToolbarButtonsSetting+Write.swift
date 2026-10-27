@@ -9,6 +9,8 @@ extension BrowserToolbarButtonsSetting {
         let next = (pending ?? current(settings)).toggling(id)
         pending = next
         // task-owner: one write; the menu item's gesture is the user's (SettingWriter.currentRun)
+        // main-hop-allow: an inherited Task keeps the menu run's task locals, which `.currentRun()` reads to name the
+        // writer (a detached one would write as nobody); setSetting is the controller's main-actor async write
         Task {
             defer { if pending == next { pending = nil } }
             do {

@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+public import CmuxNextWakeups
 import Observation
 import SwiftUI
 
@@ -8,15 +9,21 @@ import SwiftUI
 /// window sheet (or a standalone floating panel with no window). It resizes
 /// to its content and closes itself when the source's content becomes nil
 /// after having shown something (Sparkle returned to idle).
+///
+/// While shown it follows the source through a `visible` ``ServiceObservation`` on the app's
+/// scheduler: the close must happen even while the panel is covered, so it is not gated on a node.
 @MainActor
 public final class UpdateSheetController {
     private let source: any UpdateSheetSource
+    private let mainWork: MainWorkScheduler
     private var panel: UpdateSheetPanel?
     private var hosting: NSHostingView<UpdateSheetView>?
-    private var watch: Task<Void, Never>?
+    private var watch: ServiceObservation<UpdateSheetContent?>?
 
-    public init(source: any UpdateSheetSource) {
+    /// `mainWork` is the app's main-thread scheduler, where the sheet's content changes land.
+    public init(source: any UpdateSheetSource, mainWork: MainWorkScheduler) {
         self.source = source
+        self.mainWork = mainWork
     }
 
     public var isPresented: Bool { panel != nil }
@@ -96,17 +103,17 @@ public final class UpdateSheetController {
     /// Follows the source: resize on change, close on nil after content.
     private func observe() {
         let source = source
-        watch = Task { [weak self] in
-            var shown = false
-            for await content in ObservationStream({ source.content }) {
-                guard let self, !Task.isCancelled else { return }
-                if content == nil {
-                    if shown { self.dismiss() }
-                    continue
-                }
-                shown = true
-                self.fit()
+        var shown = false
+        watch = ServiceObservation(.visible, owner: "UpdateSheet.content", on: mainWork) {
+            source.content
+        } apply: { [weak self] content in
+            guard let self else { return }
+            if content == nil {
+                if shown { dismiss() }
+                return
             }
+            shown = true
+            fit()
         }
     }
 }

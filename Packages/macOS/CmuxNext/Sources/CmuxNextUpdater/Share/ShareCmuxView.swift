@@ -199,6 +199,8 @@ public final class ShareCmuxView: NSView {
         }
     }
 
+    // visibility-walk-allow: R-appear's kept form: the body only sets text, tint and layer colors (applyColors) and the
+    // surface's theme colors; no layout or reload to defer
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

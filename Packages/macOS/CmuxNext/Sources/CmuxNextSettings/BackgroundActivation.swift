@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextActions
 import CmuxNextDesign
+public import CmuxNextWakeups
 
 /// Background mode (Leo 2026-10-13, cx-ghagp): with no cmux window open the
 /// app keeps running, since terminals and agents live in their daemons, as a
@@ -18,19 +19,26 @@ import CmuxNextDesign
 /// the test process alone; no window is open; cmux is not quitting; and
 /// `app.hideDockIconWithoutWindows` is on (false keeps the old behavior:
 /// regular with no window).
+///
+/// Both later steps (the settle after a window change, the activation after a reopen) are the rest of
+/// the person's own window action, so each is one `userBlocking` task on the app's scheduler, on the
+/// next turn (Chrome's kUserBlocking, content/browser/scheduler/browser_task_queues.h).
 @MainActor
 public final class BackgroundActivation {
     private let registry: ActionRegistry
     private let icon: NSImage
+    private let mainWork: MainWorkScheduler
     private let mayEnter: @MainActor () -> Bool
     /// The menu bar item while in background mode.
     private var item: NSStatusItem?
     private var settlePending = false
 
-    /// `icon` is the menu bar item's image; its accessibility label is the app's name.
-    public init(registry: ActionRegistry, icon: NSImage, mayEnter: @escaping @MainActor () -> Bool) {
+    /// `icon` is the menu bar item's image; its accessibility label is the app's name. `mainWork` is
+    /// the app's main-thread scheduler, where the settle and the activation after a reopen run.
+    public init(registry: ActionRegistry, icon: NSImage, mainWork: MainWorkScheduler, mayEnter: @escaping @MainActor () -> Bool) {
         self.registry = registry
         self.icon = icon
+        self.mainWork = mainWork
         self.mayEnter = mayEnter
         icon.accessibilityDescription = NSRunningApplication.current.localizedName
     }
@@ -43,7 +51,7 @@ public final class BackgroundActivation {
     public func windowsDidChange() {
         guard !settlePending else { return }
         settlePending = true
-        Task { @MainActor [weak self] in self?.settle() }
+        mainWork.post(.userBlocking, owner: "BackgroundActivation.settle") { [weak self] in self?.settle() }
     }
 
     /// A shell window is about to be ordered in: leave background mode first,
@@ -61,7 +69,7 @@ public final class BackgroundActivation {
         // app first): AppKit keeps showing no menu bar for an app made regular
         // while active, until it is activated again.
         NSApp.deactivate()
-        Task { @MainActor in WindowActivation.activateApp() }
+        mainWork.post(.userBlocking, owner: "BackgroundActivation.reactivate") { WindowActivation.activateApp() }
     }
 
     private func settle() {

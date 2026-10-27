@@ -25,8 +25,12 @@ import Foundation
 /// the one-shot ``timer`` is armed only in Update Ready with
 /// `updates.checkAutomatically` on, and is cancelled when the phase leaves it (install, relaunch,
 /// swap, cancel) or the schedule changes; one probe runs at a time, and the next waits a whole
-/// interval. The timer cancels its sleep when this object goes; a probe in flight ends with its
-/// 15-second fetch deadline.
+/// interval. A released timer never fires; a probe in flight ends with its 15-second fetch deadline.
+///
+/// The scheduled probe is a `background` ``MainDeadline`` aligned to the app's hidden wakes (Blink's
+/// hidden-page wake-up throttling, page_scheduler_impl.h); the install click's deadline is
+/// `userBlocking` and never aligned: the person waits on it. Each probe's answer comes back with its
+/// landing (``UpdaterService/probe(then:)``), not through a main-actor task that waits for it.
 @MainActor
 final class StagedUpdateRefresh {
     /// Whether this app's driver holds the staged installer and found updates download by
@@ -40,24 +44,26 @@ final class StagedUpdateRefresh {
     /// `updates.checkAutomatically` and `updates.checkIntervalSeconds` (``reschedule(automatic:interval:updater:)``).
     private(set) var schedule: (automatic: Bool, interval: TimeInterval) = (true, 3600)
     /// The probe in flight, if any, the ring pick it reads (``ringMoved()``) and whether the person asked for it.
-    private(set) var task: Task<Void, Never>?
+    private(set) var task: Task<String?, Never>?
     private var probing: (pick: Int, asked: Bool)?
     /// Counts the person's ring picks, so a probe that began before one (even away and back) is read again.
     private var ringPicks = 0
     /// A click on Install took the staged update: nothing probes or cancels until Update Ready ends.
     private var installing = false
-    let timer: DemandTimer
+    let timer: MainDeadline
     /// The install click waiting for the feed (``beforeInstall(updater:install:)``): the staged
     /// build it read against and the install to run if that build stays.
     private var pendingClick: (staged: String, install: @MainActor () -> Void)?
     /// The install click's deadline: the feed has ``clickProbeDeadline`` to answer.
-    let clickTimer: DemandTimer
+    let clickTimer: MainDeadline
     /// How long the install click waits for the feed before it installs the staged build.
     static let clickProbeDeadline: Duration = .seconds(3)
 
-    init(clock: any Clock<Duration>) {
-        timer = DemandTimer(owner: "UpdaterService.stagedRefresh", clock: clock)
-        clickTimer = DemandTimer(owner: "UpdaterService.installClick", clock: clock)
+    /// `checkNode` is the app's visibility node (nil: the scheduled probes are only flexible).
+    init(deadlines: MainDeadlineScheduler, checkNode: VisibilityNode?) {
+        timer = MainDeadline(owner: "UpdaterService.stagedRefresh", workClass: .background,
+                             alignment: checkNode.map(TimerAlignment.whenHidden) ?? .flexible, scheduler: deadlines)
+        clickTimer = MainDeadline(owner: "UpdaterService.installClick", workClass: .userBlocking, scheduler: deadlines)
     }
 
     /// Whether an install click waits for the feed.
@@ -77,13 +83,11 @@ final class StagedUpdateRefresh {
         }
         updater.log.append("install click: looking for a build newer than staged build \(staged)")
         pendingClick = (staged, install)
-        let probe = updater.probe()
-        clickTimer.scheduleOnMain(after: Self.clickProbeDeadline) { [weak self, weak updater] in
+        clickTimer.schedule(after: Self.clickProbeDeadline) { [weak self, weak updater] in
             guard let self, let updater else { return }
             self.settleClick(answered: false, updater: updater)
         }
-        Task { @MainActor [weak self, weak updater] in
-            let failure = await probe.value
+        updater.probe { [weak self, weak updater] failure in
             guard let self, let updater else { return }
             self.settleClick(answered: failure == nil, updater: updater)
         }
@@ -162,7 +166,7 @@ final class StagedUpdateRefresh {
         guard schedule.automatic, schedule.interval > 0, task == nil, !timer.isScheduled, !installing,
               case .ready = updater.flow.phase else { return }
         armedFast = probesFast(updater)
-        timer.scheduleOnMain(after: .seconds(armedFast ? TipUpdateCheck.interval : schedule.interval)) { [weak self, weak updater] in
+        timer.schedule(after: .seconds(armedFast ? TipUpdateCheck.interval : schedule.interval)) { [weak self, weak updater] in
             guard let self, let updater, self.run(reason: "scheduled check", updater: updater) == nil else { return }
             self.arm(updater)
         }
@@ -172,7 +176,7 @@ final class StagedUpdateRefresh {
     /// flight (one of another ring is read again when it ends); nil when nothing waits that this
     /// app can replace (then nothing is read).
     @discardableResult
-    func run(reason: String, updater: UpdaterService) -> Task<Void, Never>? {
+    func run(reason: String, updater: UpdaterService) -> Task<String?, Never>? {
         let asked = reason != "scheduled check"
         if let task {
             if asked { probing?.asked = true }
@@ -183,9 +187,7 @@ final class StagedUpdateRefresh {
         timer.cancel()
         updater.log.append("\(reason) while build \(staged) waits: looking for a newer \(updater.ring.rawValue) build")
         probing = (ringPicks, asked)
-        let probe = updater.probe()
-        let task = Task { [weak self, weak updater] in
-            let failure = await probe.value
+        let task = updater.probe { [weak self, weak updater] failure in
             guard let self, let updater else { return }
             self.finish(staged: staged, failure: failure, updater: updater)
         }

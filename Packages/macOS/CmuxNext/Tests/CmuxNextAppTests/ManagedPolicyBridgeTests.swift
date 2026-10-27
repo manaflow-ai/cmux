@@ -50,7 +50,7 @@ import Testing
                                                infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
             let defaults = try #require(UserDefaults(suiteName: id))
             updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
-                                     enableSparkle: false, recordsUpdates: false, work: BackgroundWork(label: "test.managed-bridge"))
+                                     enableSparkle: false, recordsUpdates: false, work: BackgroundWork(label: "test.managed-bridge"), deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
             updater.announcementsFetch = false
             let configuration = CloudConfiguration.resolve(bundleID: id, bundled: [:], process: [:], isDebugBuild: false)
             auth = CloudAuth(configuration: configuration, environment: [:], defaults: defaults)

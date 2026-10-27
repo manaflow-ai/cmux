@@ -87,7 +87,7 @@ final class DebugSettingsService: InternalPageProvider {
         let store = TunableStore.shared
         store.register(TunableCatalog.all)
         fileURL = url
-        store.activate(file: url)
+        store.activate(file: TunableStore.FileSource(url: url, landingOn: services.mainWork))
         // The Sentry scope names the arm features.list reports, the file's toggles and later changes included.
         let features = FeatureFlagsPage.report(services.features, tunables: store)
         services.lifetimeFollowers.append(services.crashReporting.reporter.followFeatures(on: services.mainWork) { CrashFeatureScope(features.fieldState) })

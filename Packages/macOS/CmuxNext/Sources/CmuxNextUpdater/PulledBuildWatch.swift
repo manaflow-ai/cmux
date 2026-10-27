@@ -124,6 +124,8 @@ public final class PulledBuildWatch {
     public func refresh() -> Task<Void, Never> {
         if let refreshTask { return refreshTask }
         let urls = PulledBuild.listURLs(feedURL: feedURL()), fetch = fetch, build = build
+        // main-hop-allow: between the list's read (URLSession, off main) and the banner runs the rollback check, the
+        // main-actor async UpdateDropBack read; once at launch and per Sparkle cycle, never per frame
         let task = Task { [weak self] in
             var entry: PulledBuild?
             for url in urls {
@@ -181,6 +183,8 @@ public final class PulledBuildWatch {
         rollbackFailure = nil
         rollingBack = true
         let directories = stateDirectories(), rollBack = rollBack
+        // main-hop-allow: a confirmed Roll Back starts UpdateDropBack's main-actor async swap (success relaunches);
+        // once per confirmation, and only a failure's message comes back
         Task { [weak self] in
             // Success relaunches into the kept build; only a failure comes back.
             let failure = await rollBack(target.build, directories)

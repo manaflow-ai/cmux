@@ -322,11 +322,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Start the web OTA launch check before any restored or prewarmed page can
         // request its entry document. Otherwise the entry can come from the app
         // bundle while later chunks come from the kept update tree.
-        WebUpdates.shared.prepare(
-            launch.snapshot.updates, bundle: .main, files: services.work, energy: services.mainWork.energy,
-            shown: services.features.isEnabled(.hiddenPollPause) ? services.appVisibility.shownWindows : nil)
+        WebUpdates.shared.prepare(launch.snapshot.updates, bundle: .main, inputs: WebUpdates.Inputs(
+            files: services.work, energy: services.mainWork.energy, shown: services.features.isEnabled(.hiddenPollPause) ? services.appVisibility.shownWindows : nil,
+            deadlines: services.mainDeadlines, appEvents: services.appEvents, checkNode: services.appVisibility.node))
         let registry = services.registry
-        let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
+        let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch, mainWork: services.mainWork)
         settings.applyManagedFeaturesNow()
         services.lifetimeFollowers += ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloudAuth, mainWork: services.mainWork, appEvents: services.appEvents).start()
         self.settings = settings
@@ -357,7 +357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                     context: ManagedStatusReport.Context(appVersion: version, bundleID: bundleID)) { [startup = order.startup] write in
             startup.post(.afterStartup, "Settings.writeManagedStatus", on: .sequence(statusWrites, .bestEffort), write)
         }
-        settings.start(announcingDiagnostics: true)
+        settings.start(announcingDiagnosticsOn: services.appEvents)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [startup = order.startup] in await startup.afterFirstFrame() })
         // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
         let acpmux = QuitAgents.environment(services)

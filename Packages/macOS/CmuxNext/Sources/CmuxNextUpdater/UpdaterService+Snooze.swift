@@ -68,7 +68,7 @@ extension UpdaterService {
         }
         guard let end = snooze.remindAfter else { return snoozeTimer.cancel() }
         let seconds = max(0, end.timeIntervalSince(now()))
-        snoozeTimer.scheduleOnMain(after: .milliseconds(Int64((seconds * 1000).rounded(.up)))) { [weak self] in
+        snoozeTimer.schedule(after: .milliseconds(Int64((seconds * 1000).rounded(.up)))) { [weak self] in
             self?.refreshUpdateSnooze()
         }
     }

@@ -9,16 +9,19 @@ import CoreGraphics
 import WebKit
 
 // The safe point (plans/cmux-next/web-ota.md, ``WebSwapGate``). While an update is pending, one
-// DemandTimer (`web-updates.safe-point`) books the next look; a look either swaps or books the
-// next one. It stops when nothing is pending: a swap (here or `updates.web.apply`) cancels it, and
-// a look that finds nothing pending books none. Each look asks every served page (twice), in the
-// page's own world, through `window.cmuxWebSwap.hold()` (webviews/src/pages/shared/webSwap.ts),
-// and never waits on a page past ``WebSwapGate/answerWithin``.
+// `background` MainDeadline (`web-updates.safe-point`) books the next look; a look either swaps or
+// books the next one. It stops when nothing is pending: a swap (here or `updates.web.apply`) cancels
+// it, and a look that finds nothing pending books none. Each look asks every served page (twice), in
+// the page's own world, through `window.cmuxWebSwap.hold()` (webviews/src/pages/shared/webSwap.ts),
+// and never waits on a page past ``WebSwapGate/answerWithin`` (a `background` deadline too).
 extension WebUpdates {
     /// Books the next look: at once while no page shows, after ``WebSwapGate/grace`` behind other
     /// apps, else when the input quiet period could end. Replaces a booked look.
     func scheduleSafePoint() {
-        guard pending != nil else { return safePoint.cancel() }
+        guard pending != nil else {
+            safePoint?.cancel()
+            return
+        }
         let wait: Duration = if WebBundleServedViews.shared.shown.isEmpty {
             .zero
         } else if NSApp.isActive {
@@ -26,14 +29,14 @@ extension WebUpdates {
         } else {
             WebSwapGate.grace
         }
-        safePoint.schedule(after: wait) { @MainActor [weak self] in await self?.look() }
+        safePoint?.schedule(after: wait) { [weak self] in self?.startLook() }
     }
 
     /// Swaps when the app and every page allow it, else books the next look. The pages are asked
     /// twice, all at once each time; the second pass and the checks after it run right before the
     /// swap, so a page that got busy (or started loading) after its first answer holds it.
     func look() async {
-        guard pending != nil, !looking else { return }
+        guard pending != nil, !looking, let deadlines = inputs?.deadlines else { return }
         looking = true
         defer { looking = false }
         let generation = pendingGeneration
@@ -41,8 +44,8 @@ extension WebUpdates {
         if decision == .askPages {
             let views = WebBundleServedViews.shared.shown
             let documents = views.map(\.url)
-            decision = WebSwapGate.pages(await Self.askAll(views))
-            if decision == .swap { decision = WebSwapGate.pages(await Self.askAll(views)) }
+            decision = WebSwapGate.pages(await Self.askAll(views, deadlines: deadlines))
+            if decision == .swap { decision = WebSwapGate.pages(await Self.askAll(views, deadlines: deadlines)) }
             // A page that came up, navigated or started loading while the pages answered was not
             // asked about what it shows now: it is asked next time.
             if decision == .swap,
@@ -64,7 +67,7 @@ extension WebUpdates {
             applyPending()
         case .later(let after, let reason):
             heldBy = reason
-            safePoint.schedule(after: after) { @MainActor [weak self] in await self?.look() }
+            safePoint?.schedule(after: after) { [weak self] in self?.startLook() }
         }
     }
 
@@ -91,8 +94,8 @@ extension WebUpdates {
 
     /// Each page's answer, in order: nil when a reload keeps all it holds, else why not. All pages
     /// are asked at once; a page still loading, without the hook, failing or silent past
-    /// ``WebSwapGate/answerWithin`` (one deadline for all) is busy.
-    static func askAll(_ views: [WKWebView]) async -> [String?] {
+    /// ``WebSwapGate/answerWithin`` (one `background` deadline for all, on `deadlines`) is busy.
+    static func askAll(_ views: [WKWebView], deadlines: MainDeadlineScheduler) async -> [String?] {
         guard !views.isEmpty else { return [] }
         let script = """
         const swap = window.cmuxWebSwap;
@@ -104,9 +107,9 @@ extension WebUpdates {
         let unanswered = [String?](repeating: "page.no-answer", count: views.count)
         return (try? await withOnceContinuation { (done: OnceContinuation<[String?], OnceContinuationError>) in
             let answers = Answers(count: views.count, done)
-            let deadline = DemandTimer(owner: "web-updates.page-answer")
+            let deadline = MainDeadline(owner: "web-updates.page-answer", workClass: .background, scheduler: deadlines)
             answers.deadline = deadline
-            deadline.scheduleOnMain(after: WebSwapGate.answerWithin) { answers.finish() }
+            deadline.schedule(after: WebSwapGate.answerWithin) { answers.finish() }
             for (index, view) in views.enumerated() {
                 if view.isLoading {
                     answers.set(index, "page.loading")
@@ -128,7 +131,7 @@ extension WebUpdates {
         private var values: [String??]
         private var left: Int
         private var done: OnceContinuation<[String?], OnceContinuationError>?
-        var deadline: DemandTimer?
+        var deadline: MainDeadline?
 
         init(count: Int, _ done: OnceContinuation<[String?], OnceContinuationError>) {
             values = Array(repeating: nil, count: count)

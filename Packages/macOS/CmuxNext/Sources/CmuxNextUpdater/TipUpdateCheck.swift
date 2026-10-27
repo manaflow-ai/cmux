@@ -28,8 +28,13 @@ import Foundation
 /// installing), when automatic checks go off, when downloads stop being automatic, and at a
 /// deadline that finds the updater disabled or the sheet open (``UpdaterService/applyDownloadPolicy()``,
 /// run on every download and managed policy change, and ``UpdaterService/updateSheetClosed()`` arm
-/// it again). One probe runs at a time and the next waits a whole interval. The timer cancels its
-/// sleep when this object goes; a probe in flight ends with its 15-second fetch deadline.
+/// it again). One probe runs at a time and the next waits a whole interval. A released timer never
+/// fires; a probe in flight ends with its 15-second fetch deadline.
+///
+/// Nobody waits on the read: the ``timer`` is a `background` ``MainDeadline`` on the app's deadline
+/// scheduler, aligned to the app's hidden wakes (whole seconds, then one a minute after 5 hidden
+/// minutes: Blink's hidden-page wake-up throttling, page_scheduler_impl.h), and the probe's answer
+/// comes back with its landing (``UpdaterService/probe(then:)``).
 @MainActor
 final class TipUpdateCheck {
     /// How often the tip app reads its feed while nothing waits (an internal constant, not a setting).
@@ -41,13 +46,15 @@ final class TipUpdateCheck {
     /// `updates.checkAutomatically` (``reschedule(automatic:updater:)``).
     private(set) var automatic = true
     /// The probe in flight, if any.
-    private(set) var task: Task<Void, Never>?
+    private(set) var task: Task<String?, Never>?
     /// The newest build this check asked the driver for.
     private(set) var asked: String?
-    let timer: DemandTimer
+    let timer: MainDeadline
 
-    init(clock: any Clock<Duration>) {
-        timer = DemandTimer(owner: "UpdaterService.tipCheck", clock: clock)
+    /// `checkNode` is the app's visibility node (nil: the reads are only flexible).
+    init(deadlines: MainDeadlineScheduler, checkNode: VisibilityNode?) {
+        timer = MainDeadline(owner: "UpdaterService.tipCheck", workClass: .background,
+                             alignment: checkNode.map(TimerAlignment.whenHidden) ?? .flexible, scheduler: deadlines)
     }
 
     /// A changed `updates.checkAutomatically`: off ends the pending deadline, on arms one an interval from now.
@@ -64,7 +71,7 @@ final class TipUpdateCheck {
     func refresh(_ updater: UpdaterService) {
         guard mayCheck(updater) else { return timer.cancel() }
         guard task == nil, !timer.isScheduled else { return }
-        timer.scheduleOnMain(after: .seconds(Self.interval)) { [weak self, weak updater] in
+        timer.schedule(after: .seconds(Self.interval)) { [weak self, weak updater] in
             guard let self, let updater else { return }
             self.run(updater)
         }
@@ -86,9 +93,7 @@ final class TipUpdateCheck {
 
     private func run(_ updater: UpdaterService) {
         guard task == nil, mayCheck(updater) else { return }
-        let probe = updater.probe()
-        task = Task { [weak self, weak updater] in
-            let failure = await probe.value
+        task = updater.probe { [weak self, weak updater] failure in
             guard let self, let updater else { return }
             self.task = nil
             self.finish(failure: failure, updater: updater)

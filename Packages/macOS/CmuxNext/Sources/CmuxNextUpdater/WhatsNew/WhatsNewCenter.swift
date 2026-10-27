@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 public import Foundation
 import Observation
 
@@ -48,18 +49,22 @@ public final class WhatsNewCenter {
     @ObservationIgnored private var known: [WhatsNewDocument] = []
     @ObservationIgnored private var tracker: WhatsNewTracker?
     @ObservationIgnored private var loadTask: Task<Void, Never>?
+    @ObservationIgnored private let mainWork: MainWorkScheduler
 
     /// - Parameter currentVersion: this build's `CFBundleShortVersionString`.
     ///   A version the tracker cannot order (a DEV build's "0") shows nothing.
     /// - Parameter lastUpdates: the update record the previous build wrote
     ///   (nil: none is read).
+    /// - Parameter mainWork: the app's main-thread scheduler: the sources are read off main and
+    ///   their documents land as one `visible` task on it.
     public init(currentVersion: String, currentBuild: String = "", defaults: UserDefaults, sources: [any WhatsNewSource],
-                lastUpdates: WhatsNewLastUpdateStore? = nil) {
+                lastUpdates: WhatsNewLastUpdateStore? = nil, mainWork: MainWorkScheduler) {
         current = WhatsNewVersion(currentVersion)
         self.currentBuild = currentBuild
         seen = WhatsNewSeenStore(defaults: defaults)
         self.sources = sources
         self.lastUpdates = lastUpdates
+        self.mainWork = mainWork
     }
 
     /// Reads the record and every source once per launch. Idempotent.
@@ -81,23 +86,30 @@ public final class WhatsNewCenter {
         let tracker = seen.tracker(current: current)
         self.tracker = tracker
         isUpdated = lastUpdate != nil || (tracker.lastSeen.map { $0 < current } ?? false)
-        let sources = sources
-        let task = Task { [weak self] in
+        let sources = sources, mainWork = mainWork
+        // Network sources read only the unseen range; nothing unseen
+        // reads their newest few (the page opened from the palette).
+        let unseenFloor = tracker.lastSeen.flatMap { $0 < current ? $0 : nil }
+        let land: @MainActor @Sendable ([WhatsNewDocument]) -> Void = { [weak self] documents in self?.land(documents) }
+        // task-owner: one read of every source per launch, off main; it ends once the documents landed
+        let task = Task { @concurrent in
             var documents: [WhatsNewDocument] = []
-            // Network sources read only the unseen range; nothing unseen
-            // reads their newest few (the page opened from the palette).
-            let unseenFloor = tracker.lastSeen.flatMap { $0 < current ? $0 : nil }
             for source in sources {
                 documents += await source.documents(after: source.readsNetwork ? unseenFloor : nil, through: current)
             }
-            guard let self else { return }
-            self.known = WhatsNewTracker.newestFirst(documents)
-            self.unseen = tracker.unseen(self.known)
-            self.isLoaded = true
-            self.markLoadedForHarness()
+            let read = documents
+            await mainWork.apply(.visible, owner: "WhatsNew.load") { land(read) }
         }
         loadTask = task
         return task
+    }
+
+    /// The sources' documents reached main.
+    private func land(_ documents: [WhatsNewDocument]) {
+        known = WhatsNewTracker.newestFirst(documents)
+        unseen = tracker?.unseen(known) ?? []
+        isLoaded = true
+        markLoadedForHarness()
     }
 
     /// The newest version seen before this launch (read at `load`), the start of the update's

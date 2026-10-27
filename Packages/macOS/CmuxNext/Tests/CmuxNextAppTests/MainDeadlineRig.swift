@@ -17,7 +17,9 @@ final class MainDeadlineRig {
     private var frames: Double = 0
 
     /// - Parameter startup: The scheduler's launch phases; a test of work the launch holds passes a launching one.
-    init(startup: StartupPhase = .settled()) {
+    /// - Parameter framed: Whether frames run (a kept frame client): posted work then runs at ``frame()``. False runs
+    ///   it on the next main run loop turn, as an idle app does, for a test whose replies come back off main.
+    init(startup: StartupPhase = .settled(), framed: Bool = true) {
         let timer = HandFiredWakeUpTimer(), uptime = RigUptime(0), budgetClock = RigUptime(1_000_000_000)
         self.timer = timer
         self.uptime = uptime
@@ -30,7 +32,7 @@ final class MainDeadlineRig {
         deadlines = MainDeadlineScheduler(work: work, queue: queue)
         let keeper = FrameClient(owner: "test.keeper", isAnimation: false, on: work.frames) { _ in true }
         self.keeper = keeper
-        keeper.activate()
+        if framed { keeper.activate() }
     }
 
     /// Seconds of uptime since the rig began.
