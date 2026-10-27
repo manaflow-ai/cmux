@@ -114,7 +114,8 @@ import Testing
         defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
         let location = LaunchSnapshotLocation(defaults: { UserDefaults(suiteName: suite) ?? .standard })
         guard case .missing = LaunchSnapshot.find(session: Self.session, stateDirectory: state, location: location) else {
-            return Issue.record("a state directory without a snapshot found one")
+            Issue.record("a state directory without a snapshot found one")
+            return
         }
         let file = registry.appending(path: "launch-snapshot.json")
         try Data(#"{"schema_version":1,"session":"\#(Self.session)","tree":{}}"#.utf8).write(to: file)
@@ -123,7 +124,8 @@ import Testing
         try Data(#"{"schema_version":2,"session":"\#(Self.session)","tree":{}}"#.utf8).write(to: remembered)
         location.record(remembered.path, session: Self.session)
         guard case .skipped(.otherSchema(2)) = LaunchSnapshot.find(session: Self.session, stateDirectory: state, location: location) else {
-            return Issue.record("the remembered path did not go first")
+            Issue.record("the remembered path did not go first")
+            return
         }
     }
 }

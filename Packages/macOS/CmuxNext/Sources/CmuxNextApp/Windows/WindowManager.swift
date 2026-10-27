@@ -76,6 +76,8 @@ final class WindowManager {
     /// outside the registry, then becomes the frontmost restored window (or the window of the
     /// first workspaces). Nil once it is registered.
     var launchWindowID: String?
+    /// The launch window waits for the launch snapshot's read (`restoreWhenLoaded`): a reopen meanwhile is answered by it.
+    private(set) var launchWindowWaiting = false
     /// Windows placed by `TestWindowPlacement` so far (cascade ordinal).
     private var placedWindows = 0
     private(set) var isTerminating = false
@@ -209,10 +211,12 @@ final class WindowManager {
     func restoreWhenLoaded(paneRefs: VisiblePaneRefs? = nil) {
         if let paneRefs { launchPaneRefs = paneRefs }
         registry.isLaunching = !restored
+        launchWindowWaiting = true
         services.daemon.launchSnapshot.whenSettled { [weak self] in self?.openThenRestore() }
     }
 
     private func openThenRestore() {
+        launchWindowWaiting = false
         LaunchSnapshotWindow(manager: self).openLaunchWindow()
         let store = services.daemon.store
         // The restore awaits the saved window state off main; `restore` runs once (`restored`).

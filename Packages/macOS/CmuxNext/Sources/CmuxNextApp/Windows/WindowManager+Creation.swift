@@ -57,10 +57,23 @@ extension WindowManager {
         return windowID
     }
 
+    /// What ``reopenOrCreateWindow()`` did.
+    enum ReopenOutcome: Equatable {
+        /// The launch window opens once the launch snapshot's read ends; it is the reopened window.
+        case launchWindow
+        case reopened
+        /// A new window (this id) with a new workspace.
+        case created(String)
+    }
+
     /// Dock click, Show cmux: the last closed window comes back with its
     /// workspaces; with none registered, a new window with a new workspace.
-    func reopenOrCreateWindow() {
-        if !reopenClosedWindow() { newWindow() }
+    /// Before the launch window opened (`restoreWhenLoaded`), nothing: the registry is not restored yet, so a new
+    /// window would be a second one beside it.
+    @discardableResult
+    func reopenOrCreateWindow() -> ReopenOutcome {
+        if launchWindowWaiting { return .launchWindow }
+        return reopenClosedWindow() ? .reopened : .created(newWindow())
     }
 
     /// `preferred` when that window is open, else a new window id.
