@@ -89,9 +89,13 @@ the hosted image meets: they pin no Xcode path (select-ci-xcode.sh takes
 xcode-pins.txt's 26.6, the image default, build 17F113 as on Blacksmith),
 their R2 cache keys carry the workspace path (a hosted /Users/runner/work
 build never restores a Blacksmith one), and they use no Blacksmith-only
-action. The scheme compile stays off hosted: a cold app compile, web bundles
+action. A PR's scheme compile stays off hosted: a cold app compile, web bundles
 and launch-time budget on about 3 vCPU are unmeasured against its 60 min
-budget. Without the snapshot's waits nothing is stalled and nothing goes to
+budget. A DEV daily's (HOSTED_FRESH_JOBS, when it is in FRESH_JOBS) takes
+hosted the same way, with a 90 min timeout: a feed's freshness outranks a
+cold build (2026-10-26: the DEV feed unpublished from 21:01Z, its compile
+queued 70 min on blacksmith-6vcpu-macos-26 behind about 75 jobs while hosted
+macos-26 was free). Without the snapshot's waits nothing is stalled and nothing goes to
 hosted, which is the previous route.
 
 `retry_runner` is the Blacksmith label the bot's overflow attempt (2 or
@@ -129,6 +133,8 @@ POOL_VCPU = 60
 HOSTED = "macos-26"
 HOSTED_CAPACITY = 5
 HOSTED_JOBS = ("fast-tier", "swift-canary")
+# A feed's compile whose runs-on also reads hosted_jobs: it takes hosted only as one of FRESH_JOBS.
+HOSTED_FRESH_JOBS = ("cmux-scheme-compile",)
 STALL_MINUTES = 25
 IDLE_STALL_MINUTES = 5
 # simple_pool_picker.CAPACITY's figures for these labels. 12 vCPU: at most six
@@ -139,6 +145,11 @@ CASCADE_JOBS = ("fast-tier", "swift-canary", "cmux-scheme-compile", "release-com
 # The jobs a feat-cmux-next push runs on the promotion mini (PROMOTE_LABEL) instead of the side label.
 PROMOTE_JOBS = ("release-compile",)
 MAX_PER_RUN = 2
+# Jobs a feed's freshness waits on (FRESH_JOBS: a feat-cmux-next push's Release compile, a DEV daily's
+# Release compile). When the counts cannot be read they take SMALL, the last resort, instead of the owned
+# label: on 2026-10-26 the route token read 403 and the queue snapshot was stale, so every DEV compile from
+# 20:15Z on queued behind ~260 jobs on glaeda-side/std and the DEV feed fell 100 minutes behind (Leo,
+# 2026-10-24: a feed is never more than 30 minutes behind its branch).
 # The step has two minutes, and the placement's own reads come first.
 READ_BUDGET_SECONDS = 45
 QUEUE_SNAPSHOT_MINUTES = 15
@@ -283,7 +294,8 @@ def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[
 
 
 def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, int], *,
-            stall: Sequence[str] = (), hosted_free: int = 0) -> dict[str, tuple[str, ...]]:
+            stall: Sequence[str] = (), hosted_free: int = 0,
+            fresh: Sequence[str] = ()) -> dict[str, tuple[str, ...]]:
     """Give `jobs`, in order, the free slots of LARGE, then SMALL (unless stalled), then HOSTED for HOSTED_JOBS.
 
     A Blacksmith slot is free while its label is under CAPACITY and the shared pool fits the job (fits()).
@@ -294,7 +306,7 @@ def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, 
     room, queue = pool_room(live, waiting), pool_queued(waiting)
     placed: dict[str, list[str]] = {label: [] for label in (*LABELS, HOSTED)}
     for job in jobs:
-        targets = (*LABELS, HOSTED) if job in HOSTED_JOBS else LABELS
+        targets = (*LABELS, HOSTED) if job in HOSTED_JOBS or job in fresh and job in HOSTED_FRESH_JOBS else LABELS
         label = next((label for label in targets
                       if free[label] > 0 and (label == HOSTED or fits(label, room, queue))), None)
         if label is None:
@@ -351,13 +363,24 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     empty = {label: () for label in (*LABELS, HOSTED)}
     if skipped(env):
         return Placement(empty, "", skipped(env))
-    if live is None:
-        return Placement(empty, "", "Blacksmith's runner groups could not be read; no job leaves the minis' queue")
-    stall = stalled(live, waiting or {}, seen.waits, seen.age) if seen is not None else ()
-    if waiting is None:
-        # Without the queue count no slot is known free, so the overflow keeps the owned label too.
-        return Placement(empty, "", f"no pool snapshot under {QUEUE_SNAPSHOT_MINUTES} min old to count "
-                                    "Blacksmith's queue; no job leaves the minis' queue")
+    if live is None or waiting is None:
+        why = ("Blacksmith's runner groups could not be read" if live is None else
+               f"no pool snapshot under {QUEUE_SNAPSHOT_MINUTES} min old to count Blacksmith's queue")
+        # Without the counts no slot is known free, so the overflow keeps the owned label, and so does
+        # every job but a feed's: those take the last resort rather than an owned queue nobody measured.
+        fresh = unread_fresh_jobs(env, owned)
+        if fresh:
+            # A feed's compile that can run on hosted takes it: its queue is the organization's concurrency,
+            # never the Blacksmith backlog nobody counted. The others take the last resort.
+            hosted = tuple(job for job in fresh if job in HOSTED_FRESH_JOBS)
+            small = tuple(job for job in fresh if job not in hosted)
+            moved = "; ".join(f"{', '.join(jobs)} take `{label}`" for label, jobs in ((HOSTED, hosted), (SMALL, small))
+                              if jobs)
+            return Placement({**empty, HOSTED: hosted, SMALL: small}, "",
+                             f"{why}; a feed's freshness waits on them, so {moved}; the rest stay on the minis' "
+                             "queue")
+        return Placement(empty, "", f"{why}; no job leaves the minis' queue")
+    stall = stalled(live, waiting, seen.waits, seen.age) if seen is not None else ()
     runs = set((env.get("CASCADE_RUNS") or "").split())
     # idle_placement() hands the idle minis to the first JOBS, running or not, and
     # every side job takes the side label whatever owned_jobs says: so the idle
@@ -376,7 +399,8 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     candidates = ((promoted if promote_busy else []) + leading[max(0, len(owned) - len(rest)):]
                   + rest[len(owned):])
     hosted_free = HOSTED_CAPACITY - seen.hosted if seen is not None else 0
-    placed = cascade(candidates, live, waiting, stall=stall, hosted_free=hosted_free)
+    placed = cascade(candidates, live, waiting, stall=stall, hosted_free=hosted_free,
+                     fresh=tuple((env.get("FRESH_JOBS") or "").split()))
     # The overflow label counts the slots this run's own jobs just took: they fit, so they start, and hold
     # the pool's vCPUs as jobs in flight do.
     retry = retry_label({**live, **{label: live.get(label, 0) + len(placed.get(label, ())) for label in LABELS}},
@@ -399,6 +423,16 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
         why += f"; {', '.join(left)} stay queued on the owned label"
     return Placement(placed, retry, why + (f"; overflow goes to `{retry}`" if retry
                                            else "; no free Blacksmith slot, so overflow stays on the owned label"))
+
+
+def unread_fresh_jobs(env: Mapping[str, str], owned: Sequence[str]) -> tuple[str, ...]:
+    """The FRESH_JOBS that run here and that no idle mini took (`owned` counts against the run's other jobs
+    first, as in place()), at most MAX_PER_RUN."""
+    runs = set((env.get("CASCADE_RUNS") or "").split())
+    running = [job for job in (env.get("JOBS") or "").split() if job in CASCADE_JOBS and job in runs]
+    fresh = [job for job in running if job in set((env.get("FRESH_JOBS") or "").split())]
+    others = len(running) - len(fresh)
+    return tuple(fresh[max(0, len(owned) - others):][:MAX_PER_RUN])
 
 
 class Api:
@@ -432,18 +466,25 @@ def read(env: Mapping[str, str], pool: Any, *, now: dt.datetime, log: Callable[[
     found: Seen | None = None
     if skipped(env):
         return live, waiting, found
-    route, repository = env.get("ROUTE_TOKEN", ""), env.get("GITHUB_REPOSITORY", "")
-    if route and repository:
+    repository = env.get("GITHUB_REPOSITORY", "")
+    # The routing App first, then cmux-bot (ROUTE_TOKEN_FALLBACK) when the first read is refused.
+    for name in ("ROUTE_TOKEN", "ROUTE_TOKEN_FALLBACK"):
+        route = env.get(name, "")
+        if not (route and repository):
+            continue
         try:
             live = Api(route, repository).in_flight()
             if live is None:
                 log("::warning title=macOS cascade::no `Blacksmith scale sets - <label>` runner group is visible")
+            break
         except Exception as error:  # noqa: BLE001 - fail closed: nothing leaves the minis' queue
-            log(f"::warning title=macOS cascade::could not list Blacksmith's runner groups ({error})")
+            log(f"::warning title=macOS cascade::could not list Blacksmith's runner groups with {name} ({error})")
     snapshot_token = env.get("SNAPSHOT_TOKEN", "")
     if clock() - started > READ_BUDGET_SECONDS:
         log("::warning title=macOS cascade::the runner groups took too long; the pool snapshot is not read")
         return live, None, None
+    # The snapshot never stands in for the runner groups: it counts this repository's jobs, while the pool is
+    # the organization's, so a refused runner read leaves `live` None and only FRESH_JOBS move (place()).
     if live is not None and snapshot_token and repository:
         try:
             snapshot = pool.GitHub(snapshot_token, repository).snapshot(now=now)
