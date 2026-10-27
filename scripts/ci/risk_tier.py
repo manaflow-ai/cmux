@@ -299,13 +299,17 @@ SIGN_OFF_HOW = (f"a line `Review (<reviewer>): SHIP at <full head sha>` from an 
 
 
 def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
-                     taken_back: list[int] | None = None, blocked: bool = False) -> list[str]:
+                     taken_back: list[int] | None = None, blocked: bool = False,
+                     unread: bool = False) -> list[str]:
     """What still holds the merge. Empty means nothing does. A high pull request is held only by a
     BLOCK (or FIX, or a change request) that is the newest verdict on its head; with no verdict yet
     it gets a warning (pending_review), not a hold. A takeback holds any tier until the description
     owns it."""
     missing = []
-    if tier == "high" and blocked and not human_ok:
+    if tier == "high" and unread and not human_ok:
+        missing.append("the review verdicts on the head commit could not be read (a GitHub API error), so a "
+                       "BLOCK may be hidden. Re-run this check")
+    elif tier == "high" and blocked and not human_ok:
         missing.append(f"the newest review verdict on the head commit is a BLOCK, FIX or change request. "
                        f"Address it and push; a review of the new head clears it: {SIGN_OFF_HOW}")
     acknowledged = {int(n) for n in TAKES_BACK.findall(strip_comments(body or ""))}
@@ -508,14 +512,16 @@ def pr_mode(args: argparse.Namespace) -> int:
             grade.reasons.setdefault("note: the takeback check couldn't read these in time, so check them by hand",
                                      []).extend(sorted(set(unread)))
     # Only looked up for high, so low and normal cost no extra API calls.
-    signed, blocked = None, False
+    signed, blocked, unread = None, False, False
     if grade.tier == "high":
         try:
             signed, blocked = human_ok_by(args.repo, args.number, pr)
         except (subprocess.CalledProcessError, json.JSONDecodeError):
-            signed, blocked = None, False
-    missing = missing_evidence(grade.tier, signed is not None, pr.get("body") or "", list(undone), blocked)
-    pending = pending_review(grade.tier, signed is not None, blocked)
+            # An unreadable comment, review or label read could hide a BLOCK: hold, never warn.
+            signed, blocked, unread = None, False, True
+    missing = missing_evidence(grade.tier, signed is not None, pr.get("body") or "", list(undone), blocked,
+                               unread)
+    pending = pending_review(grade.tier, signed is not None, blocked or unread)
     report = render(grade, missing, signed, pending)
     print(report)
     if pending:

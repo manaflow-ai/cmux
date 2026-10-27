@@ -583,12 +583,17 @@ class DescriptionVerdictTests(unittest.TestCase):
             pull = dict(self.pr(body), base={"sha": "b" * 40})
             answers = {
                 "repos/o/r/pulls/7/files?per_page=100": [{"filename": "scripts/ci/risk_tier.py", "patch": ""}],
-                "repos/o/r/issues/7/comments?per_page=100": list(comments),
+                "repos/o/r/issues/7/comments?per_page=100": None if comments is None else list(comments),
                 "repos/o/r/pulls/7/reviews?per_page=100": [],
                 "repos/o/r/issues/7/events?per_page=100": [],
             }
             saved = risk.gh_items, risk.gh_json
-            risk.gh_items = lambda endpoint: answers[endpoint]
+
+            def items(endpoint):
+                if answers[endpoint] is None:
+                    raise subprocess.CalledProcessError(1, ["gh", "api", endpoint])
+                return answers[endpoint]
+            risk.gh_items = items
             risk.gh_json = lambda *args: pull
             try:
                 with tempfile.TemporaryDirectory() as tmp:
@@ -610,6 +615,11 @@ class DescriptionVerdictTests(unittest.TestCase):
         self.assertIn("ready=false", out)
         out, _ = grade("no verdict", [self.comment(f"Review (subagent): SHIP at {HEAD}")])
         self.assertIn("ready=true", out)
+        # An unreadable comment read could hide a BLOCK: it holds, and never only warns.
+        out, summary = grade("no verdict", None)
+        self.assertIn("ready=false", out)
+        self.assertIn("could not be read", summary)
+        self.assertNotIn("Warning:", summary)
 
 
 if __name__ == "__main__":
