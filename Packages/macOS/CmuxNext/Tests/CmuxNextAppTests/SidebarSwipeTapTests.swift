@@ -101,7 +101,12 @@ import Testing
         var outside: CGPoint { CGPoint(x: 600, y: 300) }
     }
 
-    static var hasDisplay: Bool { !NSScreen.screens.isEmpty }
+    /// Read off the main actor: Swift Testing evaluates `.enabled(if:)` in a Sendable closure, and
+    /// `NSScreen.screens` is main-actor isolated, so this asks CoreGraphics for the active displays.
+    nonisolated static var hasDisplay: Bool {
+        var count: UInt32 = 0
+        return CGGetActiveDisplayList(0, nil, &count) == .success && count > 0
+    }
 
     // MARK: Subscriptions
 
