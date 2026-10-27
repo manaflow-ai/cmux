@@ -324,7 +324,8 @@ impl Hub {
         }
         // A family prompt that waited is checked again: the receiver may ask
         // less than its sender now (`subsession_guard.rs`).
-        if let Err(e) = self.family_dispatch_check(session, run.provenance.as_ref()).await {
+        let bound = self.mdm_snapshot();
+        if let Err(e) = self.family_dispatch_check(session, run.provenance.as_ref(), bound).await {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
@@ -441,7 +442,7 @@ impl Hub {
             return Err(e);
         }
         // Held until the prompt is written: an MDM off push waits for it (`family_gate`).
-        let family_gate = match self.family_gate(session, run.provenance.as_ref()).await {
+        let mut family_gate = match self.family_gate(session, run.provenance.as_ref()).await {
             Ok(gate) => gate,
             Err(e) => {
                 self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
@@ -502,16 +503,21 @@ impl Hub {
         // Tests only: a pause right before the write (`full_access_bound::WriteSeam`).
         #[cfg(test)]
         self.pause_at_family_write().await;
+        let prompt = acp_prompt_blocks(session, &blocks)?;
+        let fence = family_gate.take().map(|hold| self.hold_until_written(session, hold));
+        // A fence no writer took (an error before it was handed on) is cut: nothing waits on it
+        // (review 86 of #23322); a written one stays written.
+        let _unsent = crate::agent::CutOnDrop(fence.as_ref());
         // Start title generation after the first prompt is written to the harness, while its
         // session-info title can still win before the cheap completion is spent.
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
-            json!({"sessionId": agent_sid, "prompt": acp_prompt_blocks(session, &blocks)?}),
+            json!({"sessionId": agent_sid, "prompt": prompt}),
             &turn_id,
             false,
+            fence.as_ref(),
             || {
-                drop(family_gate);
                 self.watch_stalled_turn(session, None);
                 self.title_after_prompt(session)
             },
@@ -558,7 +564,6 @@ impl Hub {
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
                 let fallback = self.child_for_since(session, stops).await;
-                let mut family_gate = None;
                 let refusal = match &fallback {
                     Ok(_) => match self
                         .check_dispatch(
@@ -575,8 +580,8 @@ impl Hub {
                         // A family message is checked again, and held until it is resent: an
                         // off push may have come since its first write (`family_gate`).
                         Ok(()) => match self.family_gate(session, run.provenance.as_ref()).await {
-                            Ok(gate) => {
-                                family_gate = gate;
+                            Ok(hold) => {
+                                family_gate = hold;
                                 None
                             }
                             Err(e) => Some(e),
@@ -608,18 +613,21 @@ impl Hub {
                         // Its start read the chat ready: the turn runs on.
                         self.set_status(session, SessionStatus::Running);
                         if let Some(sid2) = session.meta().agent_session_id {
+                            let prompt = acp_prompt_blocks(session, &blocks)?;
+                            let fence = family_gate
+                                .take()
+                                .map(|hold| self.hold_until_written(session, hold));
+                            let _unsent = crate::agent::CutOnDrop(fence.as_ref());
                             // Like the first prompt: Stop's and a stalled turn's forced end
                             // (`cancel.rs`, `stalled_turn.rs`) end it too.
                             result = super::steer_end::agent_prompt_hook(
                                 session,
                                 &child2,
-                                json!({"sessionId": sid2, "prompt": acp_prompt_blocks(session, &blocks)?}),
+                                json!({"sessionId": sid2, "prompt": prompt}),
                                 &turn_id,
                                 false,
-                                || {
-                                    drop(family_gate);
-                                    self.watch_stalled_turn(session, None)
-                                },
+                                fence.as_ref(),
+                                || self.watch_stalled_turn(session, None),
                             )
                             .await;
                         }

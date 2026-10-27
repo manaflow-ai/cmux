@@ -405,8 +405,9 @@ impl Drop for WriterQueue {
     }
 }
 
-/// Cuts its fence when dropped (`ChildAgent::request_with_hook`), unless it was let go.
-struct CutOnDrop<'a>(Option<&'a Fence>);
+/// Cuts its fence when dropped (`ChildAgent::request_with_hook`, `hub/subsession_answer.rs`),
+/// unless it was let go.
+pub(crate) struct CutOnDrop<'a>(pub(crate) Option<&'a Fence>);
 
 impl Drop for CutOnDrop<'_> {
     fn drop(&mut self) {
@@ -1338,6 +1339,12 @@ impl ChildAgent {
     }
 
     /// The hosted harness exited (its host is finishing).
+    /// Tests only: its child's slot, which its reaper locks (`Fence::cut_or_end`).
+    #[cfg(test)]
+    pub(crate) fn child_slot(&self) -> Arc<Mutex<Option<Child>>> {
+        self.child.clone()
+    }
+
     pub fn has_exited(&self) -> bool {
         self.hosted.as_ref().is_some_and(|h| h.exited.load(Ordering::SeqCst))
     }
