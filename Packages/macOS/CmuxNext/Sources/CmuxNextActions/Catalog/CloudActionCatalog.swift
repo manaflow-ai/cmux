@@ -7,15 +7,13 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 id: "cloudCredentialPlan",
                 title: String(localized: "action.cloudCredentialPlan", defaultValue: "Cloud Credential Setup Plan", table: "CredentialPlan", bundle: .module),
                 description: """
-                    Returns a nonsecret credential setup plan for --target machine:<id> after --confirm. \
-                    Run claude setup-token in your current machine's terminal, then manually supply only \
-                    that new token as CLAUDE_CODE_OAUTH_TOKEN on the target; it grants Claude Code access \
-                    under your Claude account. Automatic delivery awaits the Cloud secret store. \
-                    Or run claude auth login on the target. For Codex, run codex login --device-auth on \
-                    the target and approve in your browser (device login must be enabled in your account \
-                    or workspace). No current login, API key, refresh token, SSH key or GitHub credential \
-                    is read or copied. The result is plan_only, never a transfer or completed sign-in. \
-                    Keep token values out of action arguments, chat, logs and shell history.
+                    With --target machine:<id> --confirm, returns plan_only; copies nothing. Run claude \
+                    setup-token locally, then manually supply the new Claude account token as \
+                    CLAUDE_CODE_OAUTH_TOKEN on the target, or run claude auth login there. Automatic \
+                    delivery awaits the Cloud secret store. Codex uses codex login --device-auth on the \
+                    target with browser approval; enable device login in your account or workspace. \
+                    Existing logins and keys stay local. Keep tokens out of action arguments, chat, logs \
+                    and shell history. Confirmation only displays steps.
                     """,
                 category: .cloud, symbol: "key", surfaces: [], arguments: [CatalogArgument.confirmBool],
                 targets: [.machine], cliName: "cloud credential-plan",
