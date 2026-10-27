@@ -45666,7 +45666,7 @@ export default {
                 throw CLIError(message: String.localizedStringWithFormat(
                     String(
                         localized: "cli.hooks.error.vaultAgentNothingToInstall",
-                        defaultValue: "Unknown hooks target: %@. Agents declared in cmux.json have nothing to install."
+                        defaultValue: "%@ is declared in cmux.json and has no cmux-managed hooks to install or uninstall."
                     ),
                     first
                 ))

@@ -64,10 +64,10 @@ struct VaultAgentHookTests {
 
         let result = runAgentHook(context: context, agent: "myagent", subcommand: "install", standardInput: "")
         #expect(result.status != 0)
-        #expect(result.stderr.contains("nothing to install"), Comment(rawValue: result.stderr))
+        #expect(result.stderr.contains("no cmux-managed hooks"), Comment(rawValue: result.stderr))
     }
 
-    @Test(arguments: ["my/agent", "manual"])
+    @Test(arguments: ["my/agent", "manual", "-x"])
     func idsThatCannotBeAgentsAreUnknownTargets(id: String) throws {
         let context = try makeHookContext(name: "vault-agent-bad-id")
         defer { context.cleanup() }

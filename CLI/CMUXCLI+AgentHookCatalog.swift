@@ -322,7 +322,7 @@ extension CMUXCLI {
     /// uppercase letters cannot report through hooks. Hook verbs and the
     /// `manual` lifecycle namespace are never agent ids.
     static func isJournalSafeAgentID(_ id: String) -> Bool {
-        guard !id.isEmpty, id.count <= 64, id != ".", id != ".." else { return false }
+        guard !id.isEmpty, id.count <= 64, id != ".", id != "..", !id.hasPrefix("-") else { return false }
         guard !reservedHookTargetNames.contains(id) else { return false }
         return id.allSatisfy { character in
             character.isASCII
