@@ -101,7 +101,7 @@ class SchemaTests(unittest.TestCase):
                 for index, item in enumerate(node):
                     yield from sources(item, f"{at}/{index}")
 
-        allowed = set(v0.METHODS) | {"oracle.runner"}
+        allowed = set(v0.METHODS) | {"oracle.runner"} | v0.STEP_RECEIPTS
         for name, facet in doc["properties"]["facets"]["properties"].items():
             for at, source in sources(facet, name):
                 methods = {m.strip() for m in source["method"].split("+")}
