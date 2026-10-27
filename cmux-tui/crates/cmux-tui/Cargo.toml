@@ -25,6 +25,12 @@ windows-thin-exe = []
 # cfg(any(debug_assertions, feature = "oracle")). Off by default; release
 # builds never have it. The oracle builds `--profile oracle --features oracle`.
 oracle = ["cmux-tui-core/oracle"]
+# Crash injectors for the fleet's crash matrix, here and in cmux-tui-core and
+# acpmux (the daemon's `debug-panic`, acpmux's `_acpmux/debug_panic` in the
+# `cmux acp` multicall): code behind cfg(any(debug_assertions, feature = "bench")).
+# Off by default; release builds never have it. A release-codegen bench daemon
+# builds `--release --features bench`.
+bench = ["cmux-tui-core/bench", "acpmux/bench"]
 # Fuzz entry points (`cmux_tui::fuzzing`) for the cmux-tui/fuzz workspace, which
 # drives the input schedulers and key decoding without a terminal or session.
 # Off by default; only that workspace turns it on.
