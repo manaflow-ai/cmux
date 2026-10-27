@@ -11,6 +11,8 @@ nonisolated struct ChromiumHostLaunchPlan: Sendable, Equatable {
     var configuration: ChromiumHostConfiguration
     var remoteShim: URL
     var frameworkLocales: [String]
+    /// The version the framework's Info.plist names, for the host's crash records; nil when unread.
+    var cefVersion: String?
 
     /// The host this app bundles (`Contents/MacOS/<App> Chromium Host`, embed-cef.sh) with the remote shim beside
     /// the framework, or nil when the build has neither. Reads the disk: on a lane.
@@ -26,7 +28,16 @@ nonisolated struct ChromiumHostLaunchPlan: Sendable, Equatable {
         guard FileManager.checked.fileExists(atPath: remoteShim.path) else { return nil }
         let resources = layout.frameworkDirectory.appending(path: "Resources")
         let locales = (try? FileManager.checked.contentsOfDirectory(atPath: resources.path)) ?? []
-        return ChromiumHostLaunchPlan(configuration: configuration, remoteShim: remoteShim, frameworkLocales: locales)
+        return ChromiumHostLaunchPlan(configuration: configuration, remoteShim: remoteShim, frameworkLocales: locales,
+                                      cefVersion: frameworkVersion(info: resources.appending(path: "Info.plist")))
+    }
+
+    /// The version a framework's `Info.plist` names (`CFBundleShortVersionString`, else `CFBundleVersion`), nil when it
+    /// names none or cannot be read. Reads the disk: on a lane.
+    static func frameworkVersion(info: URL) -> String? {
+        guard let data = FileManager.checked.contents(atPath: info.path),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { return nil }
+        return (plist["CFBundleShortVersionString"] as? String) ?? (plist["CFBundleVersion"] as? String)
     }
 }
 
@@ -73,19 +84,28 @@ nonisolated struct ChromiumHostLaneSpawner: ChromiumHostSpawning {
                 priority: ChromiumHostLauncher.priority)
             let attachment = ChromiumHostAttachment(controlFD: controlFD, remoteShim: plan.remoteShim,
                                                     frameworkLocales: plan.frameworkLocales, resizeFence: fence?.name)
-            return .success(ChromiumHostSpawn(pid: pid, attachment: attachment))
+            return .success(ChromiumHostSpawn(pid: pid, attachment: attachment,
+                                              logFile: plan.configuration.logFile.map { URL(filePath: $0) },
+                                              cefVersion: plan.cefVersion))
         } catch {
             return .failure(.cannotStart("spawn failed: \(error)"))
         }
     }
 
-    func watchExit(of pid: pid_t, _ ended: @escaping @MainActor @Sendable (ChromiumHostExit) -> Void) {
-        let (processes, mainWork) = (processes, mainWork)
+    func watchExit(of pid: pid_t, log: URL?, _ ended: @escaping @MainActor @Sendable (ChromiumHostExit, [String]) -> Void) {
+        let (processes, mainWork, work) = (processes, mainWork, work)
         // One per host, it ends with the host: its exit source fires once.
         work.task(.userVisible) {
             let exit = await processes.exit(of: pid)
-            mainWork.postFromAnyThread(.visible, owner: "ChromiumHostSupervisor.hostEnded") { ended(exit) }
+            let tail = await Self.logTail(log, after: exit, work: work)
+            mainWork.postFromAnyThread(.visible, owner: "ChromiumHostSupervisor.hostEnded") { ended(exit, tail) }
         }
+    }
+
+    /// The last lines of an ended host's `log` on `work`'s files lane; none for a clean exit or a host with no log.
+    private static func logTail(_ log: URL?, after exit: ChromiumHostExit, work: BackgroundWork) async -> [String] {
+        guard let log, exit.pageExit != nil else { return [] }
+        return (try? await work.run(.userVisible, mayBlock: .files) { ChromiumHostCrashRecord.logTail(of: log) }) ?? []
     }
 
     func reap(_ pid: pid_t) {

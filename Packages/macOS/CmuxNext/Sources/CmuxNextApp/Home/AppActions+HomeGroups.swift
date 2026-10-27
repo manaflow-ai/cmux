@@ -133,9 +133,10 @@ extension AppActions {
     }
 
     /// The conversation Home shows, without showing it: classic Home's discarded page still names
-    /// the one it showed (`TopPageHost.homeSelection`).
+    /// the one it showed (`TopPageHost.homeSelection`), and so does the docked Home's discarded tab
+    /// (``HomeDockTab/shownConversation(_:)``).
     static func shownConversation(_ services: AppServices) -> ConversationID? {
-        guard services.home.dock.isClassic else { return HomeDockTab.view(services)?.messages?.shown }
+        guard services.home.dock.isClassic else { return HomeDockTab.shownConversation(services) }
         return services.windows.active?.topPages.homeSelection
     }
 

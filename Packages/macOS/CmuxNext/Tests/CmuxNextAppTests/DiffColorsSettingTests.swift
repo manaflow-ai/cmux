@@ -39,16 +39,24 @@ struct DiffColorsSettingTests {
         await settings.reload()
 
         let pages = AgentPanePageSettings()
-        pages.follow(settings, on: MainWorkScheduler(budget: MainFrameBudget())) {}
-        let prefs = SettingsDiffPrefs { settings }
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget())
+        pages.follow(settings, on: mainWork) {}
+        let prefs = SettingsDiffPrefs(mainWork: mainWork) { settings }
         var streamed: [JSONValue] = []
         let stop = prefs.listen { streamed.append($0["colors"] ?? .null) }
         defer { stop() }
         for _ in 0..<200 where pages.diffColors != "muted" { await Task.yield() }
         #expect(pages.diffColors == "muted")
 
+        // The subscription's start pushes the prefs once: a change between the page's config read and its subscribe
+        // is not lost.
+        #expect(streamed == [.string("muted")], "the stream did not push the prefs once at its start")
+
         try await settings.set(.string("standard"), at: ["diff", "colors"])
-        for _ in 0..<200 where pages.diffColors != "standard" || streamed.last != .string("standard") { await Task.yield() }
+        // The stream's push is one task on the scheduler: give the main run loop turns, not only yields.
+        for _ in 0..<200 where pages.diffColors != "standard" || streamed.last != .string("standard") {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         #expect(pages.diffColors == "standard")
         #expect(streamed.last == .string("standard"))
     }
