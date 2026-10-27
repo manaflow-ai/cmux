@@ -1,5 +1,8 @@
 public import Foundation
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Bounded, demand-driven buffer between an attachment pump and the terminal
 /// view that renders its steps (plans/cmux-next/state-audit.md T1).
@@ -19,8 +22,8 @@ public nonisolated final class TerminalStepQueue: Sendable {
         var head = 0
         var outputBytes = 0
         var finished = false
-        var consumer: CheckedContinuation<TerminalStreamPlan.Step?, Never>?
-        var producers: [CheckedContinuation<Void, Never>] = []
+        var consumer: OnceContinuation<TerminalStreamPlan.Step?, OnceContinuationError>?
+        var producers: [OnceContinuation<Void, OnceContinuationError>] = []
     }
 
     private let state = Mutex(State())
@@ -40,13 +43,14 @@ public nonisolated final class TerminalStepQueue: Sendable {
             return
         }
         while state.withLock({ $0.outputBytes > highWater && !$0.finished }) {
-            await withCheckedContinuation { (producer: CheckedContinuation<Void, Never>) in
+            // A dropped producer goes on as a released one does: the loop checks the backlog again.
+            _ = try? await withOnceContinuation { (producer: OnceContinuation<Void, OnceContinuationError>) in
                 let parked = state.withLock { state -> Bool in
                     guard state.outputBytes > highWater, !state.finished else { return false }
                     state.producers.append(producer)
                     return true
                 }
-                if !parked { producer.resume() }
+                if !parked { producer.resume(returning: ()) }
             }
         }
         enqueue(step, supersede: false)
@@ -60,7 +64,7 @@ public nonisolated final class TerminalStepQueue: Sendable {
 
     /// Ends the stream after what is queued. Releases waiting producers.
     public func finish() {
-        let (consumer, producers) = state.withLock { state -> (CheckedContinuation<TerminalStreamPlan.Step?, Never>?, [CheckedContinuation<Void, Never>]) in
+        let (consumer, producers) = state.withLock { state -> (OnceContinuation<TerminalStreamPlan.Step?, OnceContinuationError>?, [OnceContinuation<Void, OnceContinuationError>]) in
             state.finished = true
             let producers = state.producers
             state.producers = []
@@ -70,12 +74,12 @@ public nonisolated final class TerminalStepQueue: Sendable {
             return (consumer, producers)
         }
         consumer?.resume(returning: nil)
-        producers.forEach { $0.resume() }
+        producers.forEach { $0.resume(returning: ()) }
     }
 
     /// The consumer went away: drop everything.
     public func cancel() {
-        let (consumer, producers) = state.withLock { state -> (CheckedContinuation<TerminalStreamPlan.Step?, Never>?, [CheckedContinuation<Void, Never>]) in
+        let (consumer, producers) = state.withLock { state -> (OnceContinuation<TerminalStreamPlan.Step?, OnceContinuationError>?, [OnceContinuation<Void, OnceContinuationError>]) in
             state.finished = true
             state.items = []
             state.head = 0
@@ -86,13 +90,13 @@ public nonisolated final class TerminalStepQueue: Sendable {
             return result
         }
         consumer?.resume(returning: nil)
-        producers.forEach { $0.resume() }
+        producers.forEach { $0.resume(returning: ()) }
     }
 
-    /// Next step, or nil once finished and drained. One consumer at a time.
+    /// Next step, or nil once finished and drained (or its wait was dropped). One consumer at a time.
     public func next() async -> TerminalStreamPlan.Step? {
-        await withCheckedContinuation { (consumer: CheckedContinuation<TerminalStreamPlan.Step?, Never>) in
-            let (ready, producers) = state.withLock { state -> (TerminalStreamPlan.Step??, [CheckedContinuation<Void, Never>]) in
+        try? await withOnceContinuation { (consumer: OnceContinuation<TerminalStreamPlan.Step?, OnceContinuationError>) in
+            let (ready, producers) = state.withLock { state -> (TerminalStreamPlan.Step??, [OnceContinuation<Void, OnceContinuationError>]) in
                 if state.head < state.items.count {
                     let step = state.items[state.head]
                     state.head += 1
@@ -110,13 +114,13 @@ public nonisolated final class TerminalStepQueue: Sendable {
                 state.consumer = consumer
                 return (nil, [])
             }
-            producers.forEach { $0.resume() }
+            producers.forEach { $0.resume(returning: ()) }
             if let ready { consumer.resume(returning: ready) }
         }
     }
 
     private func enqueue(_ step: TerminalStreamPlan.Step, supersede: Bool) {
-        let consumer = state.withLock { state -> CheckedContinuation<TerminalStreamPlan.Step?, Never>? in
+        let consumer = state.withLock { state -> OnceContinuation<TerminalStreamPlan.Step?, OnceContinuationError>? in
             guard !state.finished else { return nil }
             if supersede {
                 // Grids and link status stay: ordered with the replay and

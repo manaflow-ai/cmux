@@ -19,6 +19,7 @@ use crate::holder_runtime::holder_local_launch;
 use crate::holder_runtime::test_support::{
     next_frame, nonblocking_pty, stand_in_service, stand_in_terminal, welcome_granting,
 };
+use bytes::Bytes;
 
 const WAIT: Duration = Duration::from_secs(10);
 
@@ -95,9 +96,12 @@ fn check_holder_echo_flow(granted: Option<u32>) {
     assert_eq!(&typed, b"a", "the key reached the shell");
     // The holder streams the shell's echo: it carries the key press, once.
     terminal.sink.data(0, b"a");
-    assert_eq!(next_output(&attach), AttachFrame::FlowOutput { output: b"a".to_vec(), flow: 42 });
+    assert_eq!(
+        next_output(&attach),
+        AttachFrame::FlowOutput { output: Bytes::from_static(b"a"), flow: 42 }
+    );
     terminal.sink.data(1, b"b");
-    assert_eq!(next_output(&attach), AttachFrame::Output(b"b".to_vec()), "only once");
+    assert_eq!(next_output(&attach), AttachFrame::Output(Bytes::from_static(b"b")), "only once");
 
     link.signal(999, 0).unwrap();
     let (frames, stream) = stand_in.join().expect("the stand-in saw the test's SIGNAL");
@@ -171,7 +175,7 @@ fn echo_flow_a_failed_write_arms_nothing() {
 
     assert!(surface.write_bytes_flow(b"a", 42).is_err());
     child.write_all(b"unrelated").unwrap();
-    assert_eq!(next_output(&attach), AttachFrame::Output(b"unrelated".to_vec()));
+    assert_eq!(next_output(&attach), AttachFrame::Output(Bytes::from_static(b"unrelated")));
 
     drop(child);
     end_tx.send(()).unwrap();

@@ -123,41 +123,33 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
         self.clock = clock
     }
 
-    private final class Once: Sendable {
-        let done = Mutex(false)
-        /// The wait's bounded deadline (rare: one per handoff); cancelled at the exit event.
-        let deadline: DemandTimer
-        init(clock: any Clock<Duration>) { deadline = DemandTimer(owner: "agent-pane.process-exit", clock: clock) }
-        func first() -> Bool {
-            done.withLock { flag in
-                defer { flag = true }
-                return !flag
-            }
-        }
-    }
-
     /// True at the exit; false when `timeout` passes first. A nil `timeout` waits for the exit only.
     public func event(within timeout: Duration?) async -> Bool {
         let pid = self.pid
         let clock = clock
         // Abandoned (the source and the deadline dropped without an answer) is not an exit.
         return (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
-            let once = Once(clock: clock)
+            // The wait's bounded deadline (rare: one per handoff); cancelled at the exit event.
+            let deadline = DemandTimer(owner: "agent-pane.process-exit", clock: clock)
             let queue = DispatchQueue(label: "cmux.next.agent-pane.acpmux-exit.\(pid)", qos: .userInitiated)
             // crash-allow: an immutable let; a dispatch source is a thread-safe libdispatch object (handlers, resume, cancel from any thread).
             nonisolated(unsafe) let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
+            // Every answer runs on `queue`, the source's own: the first cancels the source, and a later one
+            // (a deadline or the gone-check queued before that) finds it cancelled.
             let finish: @Sendable (Bool) -> Void = { exited in
-                guard once.first() else { return }
+                guard !source.isCancelled else { return }
                 source.cancel()
-                once.deadline.cancel()
+                deadline.cancel()
                 continuation.resume(returning: exited)
             }
             if let timeout {
-                once.deadline.schedule(after: timeout) { finish(false) }
+                deadline.schedule(after: timeout) { queue.async { finish(false) } }
             }
             source.setEventHandler { finish(true) }
             source.resume()
-            if kill(pid, 0) != 0 && errno == ESRCH { finish(true) }
+            // After the source is armed, so an exit between the two is still seen; a process that is already
+            // gone gives no event.
+            queue.async { if kill(pid, 0) != 0 && errno == ESRCH { finish(true) } }
         }) ?? false
     }
 }

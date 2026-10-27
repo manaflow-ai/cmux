@@ -20,7 +20,7 @@ final class UpdateSurfaceIslands: SidebarUpdateSurfaces {
     }
 
     func island(_ kind: SidebarUpdateSurfaceKind) -> any SidebarSurfaceIsland {
-        UpdateSurfaceIsland(kind: kind, services: services)
+        UpdateSurfaceIsland(kind: kind, services: services, release: kind == .ready ? services?.overlayPageRelease : nil)
     }
 }
 
@@ -31,51 +31,112 @@ final class UpdateSurfaceIslands: SidebarUpdateSurfaces {
 /// keeps its own key in the page lifecycle (p13-webui.md 3.B, pages without a pane), shown for as
 /// long as it lives: the card is on screen, and the parked highlights page runs to load and measure
 /// before the first hover.
+///
+/// With feature `memoryOverlayPagesOnFirstUse` the highlights page is an overlay page
+/// (``OverlayPageRelease``): no page is made before the first hover, which makes it in the view the
+/// card holds and opens the popup once the page measured itself. A measured page waiting unused goes
+/// on the App's overlay page planner (its release time, or at memory pressure), and the next hover
+/// makes it again the same way.
 @MainActor
 final class UpdateSurfaceIsland: SidebarSurfaceIsland {
     let view: NSView
-    /// The surface's page; nil without app services or when the bundle has no changelog page.
-    let page: PageWebView?
+    /// The surface's page; nil without app services, when the bundle has no changelog page, once
+    /// closed, and under a release before the first hover or while released highlights wait for the next.
+    private(set) var page: PageWebView?
     /// The page's key in the page lifecycle; nil without a page.
-    let lifecycleKey: String?
+    private(set) var lifecycleKey: String?
+    /// The page's height; 0 until the page measured itself (and again once its page ended).
     private(set) var contentHeight: CGFloat = 0
     var onHeightChange: (() -> Void)?
     var onAction: (() -> Void)?
     var onDismiss: (() -> Void)?
     let provider: UpdateSurfaceProvider
+    let kind: SidebarUpdateSurfaceKind
+    private weak var services: AppServices?
     /// The host that opened ``page``, which ends it.
     private weak var webUI: WebUIHost?
+    /// When the parked highlights page goes; nil keeps the page while the card shows.
+    private(set) var release: OverlayPageRelease?
+    /// Whether ``page`` measured itself: only a measured page is held for the release, so pressure never ends
+    /// a page before it could show.
+    private var pageMeasured = false
 
-    init(kind: SidebarUpdateSurfaceKind, services: AppServices?) {
+    /// - Parameter terms: The app's overlay page terms for the highlights (`.ready`) page; nil makes the page
+    ///   now and keeps it while the card shows.
+    init(kind: SidebarUpdateSurfaceKind, services: AppServices?, release terms: OverlayPageReleaseTerms? = nil) {
         let provider = UpdateSurfaceProvider(kind: kind, services: services)
         self.provider = provider
-        let page = services.flatMap { PageFactory(services: $0).updateSurfacePage(kind: kind, provider: provider) }
-        self.page = page
-        view = page ?? NSView()
+        self.kind = kind
+        self.services = services
         webUI = services?.webUI
-        lifecycleKey = page.map { "update-surface.\(kind.rawValue).\(ObjectIdentifier($0).hashValue)" }
+        let page = terms == nil ? services.flatMap { PageFactory(services: $0).updateSurfacePage(kind: kind, provider: provider) } : nil
+        // Under a release the page fills a view of its own, made on the hover inside the view the card holds.
+        view = page ?? NSView()
         provider.onHeight = { [weak self] height in self?.setHeight(height) }
         provider.onAction = { [weak self] in self?.onAction?() }
         provider.onDismiss = { [weak self] in self?.onDismiss?() }
+        release = terms?.release(owner: "updateHighlights") { [weak self] in self?.endPage() }
+        if let page { adopt(page) }
+    }
+
+    /// Makes `page` the surface's page, in the page lifecycle under its own key.
+    private func adopt(_ page: PageWebView) {
+        self.page = page
+        pageMeasured = false
+        let key = "update-surface.\(kind.rawValue).\(ObjectIdentifier(page).hashValue)"
+        lifecycleKey = key
+        if page !== view {
+            page.frame = view.bounds
+            page.autoresizingMask = [.width, .height]
+            view.addSubview(page)
+        }
         // The host has a lifecycle only with `pageLifecycle` on (AppMemoryConsumers.installPageLifecycle).
-        if let page, let services, let lifecycleKey, let lifecycle = services.webUI.lifecycle {
+        if let services, let lifecycle = services.webUI.lifecycle {
             let encoder = PageSnapshotEncoder(work: services.work, mainWork: services.mainWork)
-            lifecycle.show(lifecycleKey, page: PageWebViewLifecycle(page, encoder: encoder))
+            lifecycle.show(key, page: PageWebViewLifecycle(page, encoder: encoder))
         }
     }
+
+    /// A hover asks for the highlights: under a release, a page not made yet or released is made now; its height
+    /// opens the popup.
+    func willShow() {
+        guard release != nil, page == nil, let services,
+              let made = PageFactory(services: services).updateSurfacePage(kind: kind, provider: provider) else { return }
+        adopt(made)
+    }
+
+    func didShow() { release?.didShow() }
+
+    func didPark() { release?.didHide() }
 
     /// Ends the page through the host that opened it: its routes, bridge and engine page, and its
     /// place in the host's lists and the page lifecycle. Safe to call twice.
     func close() {
+        release?.cancel()
+        endPage()
+    }
+
+    /// Ends the page (the release's call, or the close); the next hover makes one that measures itself again.
+    private func endPage() {
         guard let page else { return }
+        self.page = nil
+        lifecycleKey = nil
+        pageMeasured = false
+        contentHeight = 0
+        if page !== view { page.removeFromSuperview() }
         if let webUI { webUI.close(page) } else { page.close() }
     }
 
     /// `height` is in CSS px; the page is zoomed (the interface scale), so
-    /// one CSS px is ``PageWebView/pageZoom`` points, in either engine.
+    /// one CSS px is ``PageWebView/pageZoom`` points, in either engine. A page's first height above 0 makes it
+    /// the release's to hold.
     private func setHeight(_ height: CGFloat) {
         let zoom = CGFloat(page?.pageZoom ?? 1)
         let height = max(0, ceil(height * zoom))
+        if height > 0, page != nil, !pageMeasured {
+            pageMeasured = true
+            release?.didMake()
+        }
         guard height != contentHeight else { return }
         contentHeight = height
         onHeightChange?()
