@@ -35,7 +35,7 @@ import { carryInline, inlinePrompt, recordedPromptParts, restoreInline } from ".
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
-import { peerConnectedFromStatus, peerKindsFromStatus } from "./environments";
+import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } from "./environments";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
@@ -127,6 +127,7 @@ export function newSessionParams(
   host: Pick<AcpmuxHostConfig, "cwd" | "adopt"> & { peer?: string },
   harness?: string,
   noProject = false,
+  model?: string,
 ): Record<string, unknown> {
   if (host.adopt)
     return {
@@ -140,6 +141,8 @@ export function newSessionParams(
       acpmux: {
         harness,
         ...(host.peer ? { peer: host.peer } : {}),
+        // The model the page showed, for a chat on another machine (acpmux `model_request`).
+        ...(model ? { model } : {}),
         // Do not work in a project: the host starts the chat in its agent-home folder, not the
         // workspace's (AcpmuxPathPolicy), and strips this before acpmux sees it.
         ...(noProject ? { noProject: true } : {}),
@@ -1321,6 +1324,7 @@ export class AcpmuxDirectClient {
   /// Each peer's transport, for the environment picker's SSH and Cloud sections (environments.ts).
   private peerKinds: Record<string, "ssh" | "cloud"> = {};
   private peerConnected: Record<string, boolean> = {};
+  private peerStates: Record<string, string> = {};
   /// Each peer's link state, last-seen time and failed attempts, for why a chat is not listed.
   private peerStatus: Record<string, PeerStatus> = {};
   private reconnectTimer?: number;
@@ -3952,6 +3956,7 @@ export class AcpmuxDirectClient {
       peers: this.peers,
       peerKinds: this.peerKinds,
       peerConnected: this.peerConnected,
+      peerStates: this.peerStates,
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
       summary: summary
         ? {
@@ -5224,14 +5229,22 @@ export class AcpmuxDirectClient {
   }
   /// A new session, in `cwd` when given; otherwise in the inherited cwd, then where acpmux defaults.
   /// `noProject` starts it in no project: the host's agent-home folder, never the inherited cwd.
-  create(harness?: string, cwd?: string, peer?: string, noProject = false): Promise<string | undefined> {
+  /// `model`: the model to start on (a chat on another machine starts on the one the page showed).
+  create(
+    harness?: string,
+    cwd?: string,
+    peer?: string,
+    noProject = false,
+    model?: string,
+  ): Promise<string | undefined> {
     const started = (async () => {
       const sessionId = await this.startSession(
         harness,
         cwd,
         peer,
-        () => void this.create(harness, cwd, peer, noProject).catch(() => undefined),
+        () => void this.create(harness, cwd, peer, noProject, model).catch(() => undefined),
         noProject,
+        model,
       );
       return sessionId ? this.select(sessionId) : undefined;
     })();
@@ -5252,9 +5265,10 @@ export class AcpmuxDirectClient {
     peer?: string,
     again?: () => void,
     noProject = false,
+    model?: string,
   ): Promise<string | undefined> {
     const result = await this.newSession(
-      newSessionParams(cwd ? { cwd, peer } : noProject ? { peer } : { ...this.host, peer }, harness, noProject),
+      newSessionParams(cwd ? { cwd, peer } : noProject ? { peer } : { ...this.host, peer }, harness, noProject, model),
       again,
     );
     // The inherited cwd is the first default chat's; later ones start where acpmux defaults.
@@ -5761,6 +5775,7 @@ export class AcpmuxDirectClient {
       : [];
     this.peerKinds = peerKindsFromStatus(status);
     this.peerConnected = peerConnectedFromStatus(status);
+    this.peerStates = peerStatesFromStatus(status);
     this.peerStatus = peerStatusFromStatus(status);
   }
   /// Probes every agent's live model list again (`_acpmux/models {refresh: true}`): acpmux forgets

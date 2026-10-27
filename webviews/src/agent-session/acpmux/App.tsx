@@ -7292,6 +7292,7 @@ function AcpmuxPane() {
               folder,
               peer ? String(peer) : undefined,
               noProject === true,
+              peer && model ? String(model) : undefined,
             );
             await persistSession(started);
             return started;
@@ -9154,6 +9155,10 @@ function AcpmuxPane() {
             }
             queueImage={readQueuedImage}
             onProject={chooseProject}
+            // A machine with no folder known here: the new chat starts there, in its default folder.
+            onComputer={(computer) =>
+              void callNative("chat.new", computer === "local" ? {} : { peer: computer }).catch(() => undefined)
+            }
             onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
             onConnect={connectMachine}
             // The floating chat has no tab to move.
@@ -9478,6 +9483,7 @@ function AcpmuxPane() {
               key={newTabGeneration}
               environments={preview}
               onConnect={connectMachine}
+              onRefreshMachines={() => void directClient.current?.refreshPeers()}
               onNewWorktree={(cwd) => {
                 let folder: string | undefined;
                 return newWorktree(callNative, cwd, (used) => {
