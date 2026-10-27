@@ -6107,6 +6107,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          RELEASE_POKE_URL: https://presence.cmux.dev/releases/v1/poke?feed=nightly-next
         run: |
           set -euo pipefail
           # Compare-and-swap: written only while the live feed's newest build is below this
@@ -6116,6 +6117,17 @@ jobs:
             python3 "$PUBLISH_TOOLING/ci/publish-nightly-next-r2.py" write-feed --feed "nightly-out/$appcast" \
               --github-output "$GITHUB_OUTPUT"
           done
+          # Release push, only when a feed was actually written (write-feed
+          # records feed_written=true): the presence worker re-reads the public
+          # nightly-next feed and tells connected NEXT apps at once. No secret
+          # (it only reads an allowlisted public appcast, and a build only ever
+          # moves up); a failure never fails the step, and the worker's minute
+          # cron catches up. RELEASE_POKE_URL comes from the step env, so a test
+          # running this body without it never calls production.
+          if [[ -n "${RELEASE_POKE_URL:-}" ]] && grep -qx 'feed_written=true' "$GITHUB_OUTPUT"; then
+            curl -fsS -X POST --max-time 10 --retry 3 "$RELEASE_POKE_URL" \
+              || echo "::warning::release poke failed; the minute cron will catch up"
+          fi
 
       # The marker is written only after immutable assets, aliases, release
       # metadata, and every appcast have succeeded. A rerun can therefore use
