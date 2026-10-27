@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "build": "4051466928001",
+  "notes": "notes/4051466928001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 26166,
+      "title": "runs: the sandbox launcher, which always destroys its VM",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26134,
+      "title": "Agent chat: wrap minimap prompts without growing the card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26080,
+      "title": "test(cmux-next control): run the control target one test at a time; mirror tests use the load-tolerant router (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26181,
+      "title": "SplitFocusRingTests: opt into the focus ring, which #23745 made opt-in",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26196,
+      "title": "nightly: move 17 run blocks into scripts/ci/nightly-steps (22 KB size-guard headroom)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26186,
+      "title": "cmux NEXT Chromium: three drag-resize modes behind browserResize.dragResize; live (measured best) is the default",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/26186/cap-dd5eb2fa-steps-f24c1e9494.mp4",
+      "source": "manual",
+      "note": "3 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 24809,
+      "title": "acpmux: withdraw Claude permission cards safely",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26188,
+      "title": "Sandboxed send: a Run API with no sandboxed Runs says \"not enabled yet\" and frees the tab",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26133,
+      "title": "acpmux: host approvals, and host enroll enrolls this Mac's app key on the machine (peer-route approvals 2/4)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
