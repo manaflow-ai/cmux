@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextRemote
@@ -88,6 +89,8 @@ import Testing
         let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, tabResourceID: "tab_forked", title: "GitHub")])
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: WorkspaceKey(rawValue: name), name: name, screens: [screen])]))
+        let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"attention-test","generation":"g1","capabilities":["state-resources-v1","tab-mark-unread-v1","tab-attention-v1"]}"#.utf8))
+        store.noteHandshake(identity)
         let workspace = try #require(store.workspaces.first)
         let tab = try #require(workspace.screens.first?.panes.first?.tabs.first)
         tab.applyState(SessionStateMirror.TabRecord(markedUnread: markedUnread, attention: Self.attention(reason, at: 1_000)), progress: nil)
@@ -144,5 +147,32 @@ import Testing
         notifications.noteMouseUp(in: nil, at: window.convertPoint(toScreen: point))
         #expect(notifications.attentionMarks(for: remoteWorkspace).isEmpty, "the remote strip click left its ring")
         #expect(localTab.markedUnread, "the remote strip click read this Mac's tab with the same id")
+
+        // Resolve the delayed click against the model pressed, even if a shortcut changes the
+        // window's workspace while the button stays down.
+        remoteTab.applyState(SessionStateMirror.TabRecord(attention: Self.attention("Confirm remote access", at: 3_000)), progress: nil)
+        localTab.applyState(SessionStateMirror.TabRecord(markedUnread: true, attention: Self.attention("Confirm local access", at: 4_000)), progress: nil)
+        notifications.noteMouseDown(in: window, at: point, synthetic: true)
+        services.windows.moveWorkspaces([localWorkspace.id], toWindow: controller.state.id, select: true)
+        controller.showWorkspace(requested: localWorkspace.id)
+        try #require(controller.content?.workspace === localWorkspace)
+        notifications.noteMouseUp(in: nil, at: window.convertPoint(toScreen: point))
+        #expect(notifications.attentionMarks(for: remoteWorkspace).isEmpty, "workspace replacement lost the pressed remote tab")
+        #expect(localTab.attentionRingHiddenThrough != 4_000, "workspace replacement redirected the press into the local tab")
+        #expect(localTab.markedUnread)
+
+        // Run the real remote strip menu item, including its native target payload. Both stores
+        // advertise the capabilities, so clearing the wrong tab is observable.
+        controller.showWorkspace(requested: remoteWorkspace.id)
+        remoteTab.applyState(SessionStateMirror.TabRecord(attention: Self.attention("Approve remote demo", at: 5_000)), progress: nil)
+        let remotePane = try #require(controller.content?.panes.values.first)
+        let tabID = StripTabID(remoteTab.id)
+        let menu = try #require(remotePane.contextMenu(for: .tab(tabID, selection: [tabID])))
+        func items(_ menu: NSMenu) -> [NSMenuItem] { menu.items + menu.items.compactMap(\.submenu).flatMap(items) }
+        let read = try #require(items(menu).first { ActionRegistry.menuRun(of: $0)?.id == "palette.toggleTabUnread" })
+        let action = try #require(read.action)
+        #expect(NSApp.sendAction(action, to: read.target, from: read))
+        #expect(remoteTab.attention == nil, "remote Mark Read did not clear its visible attention immediately")
+        #expect(localTab.attention?.atMs == 4_000 && localTab.markedUnread, "remote Mark Read changed the local tab")
     }
 }
