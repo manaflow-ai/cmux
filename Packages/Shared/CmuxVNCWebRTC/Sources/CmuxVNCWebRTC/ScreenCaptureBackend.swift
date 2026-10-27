@@ -22,6 +22,9 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     private var stream: SCStream?
     /// The display `stream` captures (a frame rate change reconfigures it for that display).
     private var streamDisplay: SCDisplay?
+    /// Goes up each time `stream` is set or cleared: a reconfiguration task
+    /// holds the one it was started for, never the (non-Sendable) stream.
+    private var streamGeneration = 0
     /// Each display's most frames per second (`NSScreen.maximumFramesPerSecond`), by display ID.
     private var frameRates: [CGDirectDisplayID: Int] = [:]
     /// The capture rate (``setFrameRate(_:)``).
@@ -143,36 +146,35 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
 
     public func setFrameRate(_ fps: Int) {
         let rate = Self.captureFrameRate(for: fps)
-        let running = lock.withLock { () -> (SCStream, SCDisplay)? in
+        let generation = lock.withLock { () -> Int? in
             guard rate != frameRate else { return nil }
             frameRate = rate
-            guard let stream, let streamDisplay else { return nil }
-            return (stream, streamDisplay)
+            return stream == nil || streamDisplay == nil ? nil : streamGeneration
         }
-        guard let running else { return }
-        reconfigure(running.0, display: running.1, frameRate: rate)
-    }
-
-    /// A running capture and the display it captures, handed to the task that reconfigures it.
-    // crash-allow: two immutable lets of ScreenCaptureKit objects, which are thread-safe; the task only reads the display and calls updateConfiguration.
-    private struct RunningCapture: @unchecked Sendable {
-        // @unchecked: SCStream and SCDisplay are not marked Sendable; both are immutable here.
-        let stream: SCStream
-        let display: SCDisplay
+        guard let generation else { return }
+        reconfigure(generation: generation)
     }
 
     /// Brings a running capture to the current ``setFrameRate(_:)`` rate
     /// without restarting it. Changes in quick succession each start one of
     /// these; each reads the rate again after applying, so the capture
     /// always ends at the latest one whatever order they finish in.
-    private func reconfigure(_ stream: SCStream, display: SCDisplay, frameRate: Int) {
+    ///
+    /// The task carries only `generation` (ScreenCaptureKit's objects are
+    /// not Sendable): each pass takes the stream and its display from the
+    /// backend under `lock`, and ends once `stream` was replaced or cleared.
+    private func reconfigure(generation: Int) {
         let log = self.log
-        let running = RunningCapture(stream: stream, display: display)
         Task {
             var applied: Int?
             while true {
-                let rate = lock.withLock { self.stream === running.stream && !stopped ? self.frameRate : nil }
-                guard let rate, rate != applied else { return }
+                let running = lock.withLock { () -> (stream: SCStream, display: SCDisplay, rate: Int)? in
+                    guard !stopped, streamGeneration == generation, let stream = self.stream,
+                          let streamDisplay else { return nil }
+                    return (stream, streamDisplay, self.frameRate)
+                }
+                guard let running, running.rate != applied else { return }
+                let rate = running.rate
                 do {
                     try await running.stream.updateConfiguration(configuration(for: running.display, frameRate: rate))
                     log("capturing display \(running.display.displayID) at \(rate) fps")
@@ -209,13 +211,14 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await stream.startCapture()
         // stop() may have run while this capture started: it then ends here, never stored.
-        let (previous, late, latest) = lock.withLock { () -> (SCStream?, Bool, Int) in
-            if stopped { return (nil, true, rate) }
+        let (previous, late, latest, generation) = lock.withLock { () -> (SCStream?, Bool, Int, Int) in
+            if stopped { return (nil, true, rate, streamGeneration) }
             defer {
                 self.stream = stream
                 streamDisplay = display
+                streamGeneration += 1
             }
-            return (self.stream, false, frameRate)
+            return (self.stream, false, frameRate, streamGeneration + 1)
         }
         if late {
             try? await stream.stopCapture()
@@ -225,7 +228,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         input.display = display.frame
         log("capturing display \(display.displayID) at \(Int(size.width))x\(Int(size.height)), \(rate) fps")
         // The rate changed while this capture started (setFrameRate found no stream to update).
-        if latest != rate { reconfigure(stream, display: display, frameRate: latest) }
+        if latest != rate { reconfigure(generation: generation) }
     }
 
     public func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
@@ -257,6 +260,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
             defer {
                 self.stream = nil
                 streamDisplay = nil
+                streamGeneration += 1
                 stopped = true
                 self.reconfiguration = nil
             }
