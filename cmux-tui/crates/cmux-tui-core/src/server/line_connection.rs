@@ -453,3 +453,7 @@ mod tests;
 #[cfg(all(test, unix))]
 #[path = "echo_thread_rows_tests.rs"]
 mod echo_thread_rows_tests;
+
+#[cfg(all(test, unix))]
+#[path = "line_connection_panic_mode_tests.rs"]
+mod panic_mode_tests;

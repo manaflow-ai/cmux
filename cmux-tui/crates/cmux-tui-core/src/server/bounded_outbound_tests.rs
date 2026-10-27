@@ -57,6 +57,38 @@ fn pop(outbound: &BoundedOutbound) -> Option<OutboundItem> {
 
 const SNAPSHOT_BYTES: usize = MAX_FRAME_PAYLOAD as usize;
 
+/// p02-threads 308: a connection's writer (`mux-line-out`, an echo thread
+/// with blocking disallowed) waits for its next item at the top of its loop.
+/// That wait is the thread being idle, not a blocking call (Chromium's
+/// `WaitableEvent::declare_only_used_while_idle`): in the detector's panic
+/// mode the writer takes an item queued after it began to wait, then sees
+/// the close, and nothing panics.
+#[test]
+fn the_writer_waits_for_its_next_item_on_an_echo_thread_without_a_violation() {
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = {
+        let outbound = outbound.clone();
+        crate::echo_thread::spawn("outbound-idle-test", move || {
+            cmux_threads::blocking::with_mode(cmux_threads::BlockingMode::Panic, || {
+                let first = outbound.recv().map(written);
+                (first, outbound.recv().is_none())
+            })
+        })
+        .unwrap()
+    };
+    // The queue is empty: the writer reaches its wait before the push.
+    std::thread::sleep(Duration::from_millis(100));
+    let service = RenderService::new();
+    let text = reply(&service, 1);
+    let len = text.len();
+    outbound.push_control(text).unwrap();
+    std::thread::sleep(Duration::from_millis(50));
+    outbound.close();
+    let (first, closed) = writer.join().expect("the writer's idle wait is not a violation");
+    assert_eq!(first, Some(Written { stream: 0, kind: None, len, aux: None }));
+    assert!(closed, "the writer sees the close after the last item");
+}
+
 #[test]
 fn bounded_outbound_ping_reply_waits_at_most_one_chunk_of_a_32_mib_snapshot() {
     let service = RenderService::new();
