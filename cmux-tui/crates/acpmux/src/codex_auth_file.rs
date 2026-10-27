@@ -40,8 +40,12 @@ pub fn read() -> Result<Option<AccessFile>> {
 /// Read a broker file with an explicit owner marker. Tests use a temporary
 /// marker rather than mutating the process environment or relying on /etc.
 pub fn read_at(path: &Path, owner_marker: &Path) -> Result<Option<AccessFile>> {
-    if !path.exists() {
-        return Ok(None);
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            ensure!(!metadata.file_type().is_symlink(), "Codex broker path is a symlink")
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
     }
     validate_owner_marker(owner_marker)?;
     let file = OpenOptions::new()

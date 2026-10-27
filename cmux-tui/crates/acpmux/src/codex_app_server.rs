@@ -39,6 +39,7 @@ struct AuthGate {
     initialize_id: Option<Value>,
     login_id: Option<Value>,
     held: Vec<Out>,
+    held_client: Vec<Value>,
     failed: Option<String>,
 }
 
@@ -59,6 +60,7 @@ impl AuthGate {
                     initialize_id: None,
                     login_id: None,
                     held: Vec::new(),
+                    held_client: Vec::new(),
                     failed: Some(error.to_string()),
                 };
             }
@@ -71,6 +73,7 @@ impl AuthGate {
             initialize_id: None,
             login_id: None,
             held: Vec::new(),
+            held_client: Vec::new(),
             failed: None,
         }
     }
@@ -115,6 +118,7 @@ impl AuthGate {
         self.failed = Some("Codex broker unavailable".into());
         self.login_id = None;
         self.held.clear();
+        self.held_client.clear();
     }
 
     fn refresh_response(id: &Value, file: &AccessFile) -> Out {
@@ -195,7 +199,7 @@ impl Translator {
         #[cfg(unix)]
         {
             let mut auth = self.auth.lock().unwrap_or_else(|e| e.into_inner());
-            if auth.enabled() && (auth.pending() || auth.failed.is_some()) {
+            if auth.enabled() && auth.failed.is_some() {
                 let id = msg.get("id").cloned();
                 if let Some(id) = id {
                     return vec![Out::Client(serde_json::json!({
@@ -205,21 +209,34 @@ impl Translator {
                 }
                 return Vec::new();
             }
-            if auth.enabled() && auth.should_refresh() {
+            if auth.enabled() && auth.pending() {
+                auth.held_client.push(msg.clone());
+                return Vec::new();
+            }
+            if auth.enabled() {
                 match codex_auth_file::read() {
                     Ok(Some(file)) if auth.account_allowed(&file, None) => {
-                        auth.held.extend(self.inner.from_client(msg));
-                        return vec![auth.login_request(file)];
+                        let changed = auth.file.as_ref().is_none_or(|old| {
+                            old.access_token != file.access_token
+                                || old.expires_at != file.expires_at
+                        });
+                        if changed {
+                            auth.held.extend(self.inner.from_client(msg));
+                            return vec![auth.login_request(file)];
+                        }
                     }
                     _ => auth.fail(),
                 }
-                if let Some(id) = msg.get("id").cloned() {
-                    return vec![Out::Client(serde_json::json!({
-                        "jsonrpc":"2.0", "id": id,
-                        "error": {"code": -32001, "message": "Codex broker unavailable"}
-                    }))];
+                if auth.failed.is_some() {
+                    let mut out = self.inner.server_closed("Codex broker unavailable");
+                    if let Some(id) = msg.get("id").cloned() {
+                        out.push(Out::Client(serde_json::json!({
+                            "jsonrpc":"2.0", "id": id,
+                            "error": {"code": -32001, "message": "Codex broker unavailable"}
+                        })));
+                    }
+                    return out;
                 }
-                return Vec::new();
             }
         }
         if let Some(out) = self.background().request(msg) {
@@ -241,6 +258,11 @@ impl Translator {
             // translator or hold unrelated output while answering it.
             if auth.enabled() {
                 if let Some(out) = auth.handle_refresh(raw, codex_auth_file::read) {
+                    if auth.failed.is_some() {
+                        let mut out = out;
+                        out.extend(self.inner.server_closed("Codex broker unavailable"));
+                        return out;
+                    }
                     return out;
                 }
             }
@@ -248,15 +270,17 @@ impl Translator {
             if let Some(login_id) = auth.login_id.clone() {
                 if raw.get("id") == Some(&login_id) {
                     if raw.get("error").is_some() {
-                        auth.failed = Some("Codex broker login failed".into());
-                        auth.login_id = None;
-                        auth.held.clear();
+                        auth.fail();
                         return self.inner.server_closed("Codex broker login failed");
                     }
                     auth.previous_account_id =
                         auth.file.as_ref().map(|file| file.account_id.clone());
                     auth.login_id = None;
-                    return std::mem::take(&mut auth.held);
+                    let mut released = std::mem::take(&mut auth.held);
+                    for msg in std::mem::take(&mut auth.held_client) {
+                        released.extend(self.inner.from_client(&msg));
+                    }
+                    return released;
                 }
                 let out = self.inner.from_server(raw);
                 auth.held.extend(out);
