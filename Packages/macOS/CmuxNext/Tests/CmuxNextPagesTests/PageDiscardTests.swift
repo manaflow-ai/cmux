@@ -108,7 +108,7 @@ struct PageDiscardTests {
     private func chromiumView(root: URL) async throws -> (PageWebView, FakeChromiumPage) {
         let hosting = FakeChromiumHosting()
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting))
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         view.frame = NSRect(x: 0, y: 0, width: 100, height: 80)
         view.loaded = true // its document finished: no loading keep reason
@@ -437,7 +437,7 @@ struct PageDiscardRestoreTests {
         let view = try #require(PageWebView(descriptor: descriptor, root: root,
                                             routes: [PageRoute(prefix: "test.discard.", provider: provider)],
                                             route: "#/a", chromium: hosting))
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         view.frame = NSRect(x: 0, y: 0, width: 200, height: 100)
         return view
     }

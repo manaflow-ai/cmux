@@ -118,6 +118,7 @@ extension PageWebView {
         #if DEBUG || CMUX_BENCH_HOOKS
         let traced = ChatOpenTrace.shared.isTraced(page: self)
         #endif
+        // main-hop-allow: makePage and attachChromium are the Chromium host's main-actor async calls (the page is made over IPC) with cancel checks between; the task only runs them
         chromiumStart = Task { [weak self] in
             let page: any PageChromiumPage
             // Read in the task's turn, after the opening turn set it (``PageOpenRequest/chromiumWindow``).
@@ -148,7 +149,7 @@ extension PageWebView {
         let hang = PageHangNotice(center: dialogs, anchor: self, visible: false) { [weak page] terminate in
             page?.answerUnresponsive(terminate: terminate)
         }
-        let session = PageChromiumSession(page: page, bridge: bridge, work: work, clock: chromiumClock, hang: hang)
+        let session = PageChromiumSession(page: page, bridge: bridge, work: work, deadlines: chromiumDeadlines, hang: hang)
         page.onEvent = { [weak self] event in self?.chromiumEvent(event) }
         page.resources = { [weak self] url in await self?.chromiumResource(url) ?? .notFound }
         do {
@@ -181,6 +182,7 @@ extension PageWebView {
         page.contentView.autoresizingMask = [.width, .height]
         addSubview(page.contentView)
         applyNativeRects()
+        // visibility-walk-allow: the engine's visibility is the AppKit state its view shows in, as setEngineVisible reads it; one walk per attach
         let shown = window != nil && !isHiddenOrHasHiddenAncestor
         page.setVisible(shown)
         session.hang.visibilityChanged(shown)
@@ -188,7 +190,7 @@ extension PageWebView {
         page.load(descriptor.url(route: route))
         let wait = chromiumDeadline
         // The page's first message cancels the deadline (onFirstMessage); ending the session too.
-        session.deadline.scheduleOnMain(after: wait) { [weak self, weak session] in
+        session.deadline.schedule(after: wait) { [weak self, weak session] in
             guard let self, let session, self.chromiumSession === session else { return }
             self.fallBackToWebKit(.chromiumFailed, detail: "no message from the page within \(wait)")
         }
