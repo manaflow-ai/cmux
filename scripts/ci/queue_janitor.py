@@ -2608,6 +2608,19 @@ class RateLimited(RuntimeError):
     """The token is out of budget: the sweep stops (GitHub.request())."""
 
 
+def request_kind(method: str, path: str, repo: str) -> str:
+    """`GET /actions/runs/{id}/jobs`: a request with its ids and query dropped (the summary's REST line)."""
+    bare = path.split("?", 1)[0].replace(f"/repos/{repo}", "", 1)
+    return f"{method} {re.sub(r'/[0-9]+(?=/|$)', '/{id}', bare)}"
+
+
+def rest_line(kinds: Mapping[str, int]) -> str:
+    """`REST by kind: GET /actions/runs/{id}/jobs 285, ...`, most first: what a sweep spent on the
+    cmux-bot installation's 5000 an hour (it ran out five hours in a row on 2026-10-27), by endpoint."""
+    return "REST by kind: " + (", ".join(f"{kind} {count}" for kind, count in
+                                         sorted(kinds.items(), key=lambda item: (-item[1], item[0]))) or "none")
+
+
 class GitHub:
     """The Actions and GraphQL APIs. `token` is an App's when one was minted (its own budget, not
     the GITHUB_TOKEN budget every workflow shares); `fallback_token` is the workflow's, which takes
@@ -2620,6 +2633,7 @@ class GitHub:
         self.repo = repo
         self._token = token
         self.calls = 0
+        self.kinds: dict[str, int] = {}  # requests by request_kind(), for the summary's REST line
         self.fallback_token = fallback_token if fallback_token != token else ""
         # An App's token is in use: one was minted beside the workflow's, and it was not refused yet.
         self.app_token = bool(self.fallback_token)
@@ -2649,6 +2663,8 @@ class GitHub:
 
     def _request(self, method: str, path: str, body: Any | None = None, *, app_only: bool = False) -> Any:
         self.calls += 1
+        kind = request_kind(method, path, self.repo)
+        self.kinds[kind] = self.kinds.get(kind, 0) + 1
         data = json.dumps(body).encode() if body is not None else None
         headers = dict(self.headers)
         if data is not None:
@@ -2811,6 +2827,7 @@ class GitHub:
     def download(self, artifact: Mapping[str, Any]) -> bytes:
         """One artifact's zip archive, through pr_runner_pool.py's redirect-safe download."""
         self.calls += 1
+        self.kinds["GET /actions/artifacts/{id}/zip"] = self.kinds.get("GET /actions/artifacts/{id}/zip", 0) + 1
         try:
             return PoolClient(self._token, self.repo).download(artifact)
         except OSError as error:  # urllib's HTTPError and URLError
@@ -3165,6 +3182,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                f"{head_reads} branch head reads, {len(evidence_jobs)} evidence job listings, " \
                f"{github.calls} API calls._\n"
     summary += f"\n_{render_rate_limits(github.rate_limits)}_\n"
+    summary += f"\n_{rest_line(getattr(github, 'kinds', {}))}_\n"
     print(summary)
     if args.summary:
         with args.summary.open("a", encoding="utf-8") as handle:

@@ -1201,6 +1201,26 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
     return {"pr": pr, "rerun": rerun, "line": line}
 
 
+def moved_past(run: Mapping, pulled: tuple[int | None, dict]) -> bool:
+    """Whether act() could only skip this run or mark the comment pending: no open (or merged) pull
+    request, or one whose head moved past the run. main() then reads no jobs, logs or annotations
+    for it: a red run on an older head cost 5 to 7 calls on 2026-10-27, on the cmux-bot
+    installation's 5000 an hour, which ran out five hours in a row that night. act() still reads
+    the pull request again after classifying a run that was current: it may move or close while
+    the logs are read, and the re-run is decided on that later read."""
+    pr, pull = pulled
+    if not pr or (pull.get("state") != "open" and not pull.get("merged_at")):
+        return True
+    return str((pull.get("head") or {}).get("sha") or "") != str(run.get("head_sha") or "")
+
+
+def bare_report(run: Mapping) -> dict:
+    """The report of a run whose jobs were not read (moved_past()): act() only skips or marks pending."""
+    return {"run_id": int(run["id"]), "attempt": int(run.get("run_attempt") or 1),
+            "run_url": run.get("html_url"), "head_sha": run.get("head_sha"),
+            "conclusion": run.get("conclusion"), "jobs": [], "macos_ran": False, "macos_blocked": ""}
+
+
 def act_requested(gh: GitHub, writer: Writer, run: Mapping) -> dict:
     """A CI run started for a new head: an existing comment about an older head says pending.
     Metadata only: the PR, its head and the bot's comments; no log, nothing of the PR runs."""
@@ -1272,7 +1292,13 @@ def main(argv: list[str]) -> int:
         return 0
     # A green run's jobs are read too (no logs): its macOS jobs may never have run. Into
     # feat-cmux-next they never do, by design, so there the comments are read first instead.
-    report = (green_next_report(gh, run) if args.command == "act" else None) or classify_run(gh, run)
+    # A red or cancelled run whose pull request has moved on or closed: its jobs and logs change
+    # nothing (moved_past()). Green runs read only the comments already (act()).
+    if (args.command == "act" and run.get("conclusion") != "success"
+            and moved_past(run, run_pull(gh, run))):
+        report = bare_report(run)
+    else:
+        report = (green_next_report(gh, run) if args.command == "act" else None) or classify_run(gh, run)
     if args.command == "classify":
         print(json.dumps(report, indent=2))
         return 0
