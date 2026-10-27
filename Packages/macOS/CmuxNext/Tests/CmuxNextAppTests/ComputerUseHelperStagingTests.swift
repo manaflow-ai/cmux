@@ -296,7 +296,7 @@ struct ComputerUseHelperStagingTestsLaunch {
         let fixture = try StagingFixture()
         defer { fixture.remove() }
         let capabilities = listed ? #"["serve.owner-pid","serve.motion"]"# : #"["serve.owner-pid"]"#
-        try fixture.writeManifest(#"{"capabilities":\#(capabilities)}"#)
+        try fixture.writeManifest(#"{"binary_version":"0.8.11","capabilities":\#(capabilities)}"#)
         let launcher = RecordingHelperLauncher()
         let helper = fixture.daemon(launcher, manifestReader: CuaHelperManifestReader())
         await helper.apply(enabled: true)

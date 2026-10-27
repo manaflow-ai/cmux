@@ -47,11 +47,14 @@ protocol ComputerUseHelperLaunching: AnyObject {
 public final class ComputerUseHelperDaemon {
     public enum State: Equatable {
         case off
-        /// On, but no Developer ID signed helper is installed (or it did not start).
+        /// On, but no Developer ID signed helper is installed. The agent is
+        /// told this build has none, so only that case is `.unavailable`.
         case unavailable
         case running(pid_t)
-        /// On, but the helper kept exiting by itself (`helperExited(_:)`).
-        /// Restart Helper, or Computer Use off and on, starts it again.
+        /// On, but the helper could not start (its copy, the scope lock, the
+        /// launch or its running check failed) or kept exiting by itself
+        /// (`helperExited(_:)`). Restart Helper, or Computer Use off and on,
+        /// starts it again.
         case failed
     }
 
@@ -68,7 +71,11 @@ public final class ComputerUseHelperDaemon {
     @ObservationIgnored private let staging: ComputerUseHelperStaging
     @ObservationIgnored private let ownerPID: pid_t
     @ObservationIgnored private let published = Mutex<[String: String]>([:])
-    /// Gets the published endpoint each time it changes (the App pushes it to its acpmux).
+    /// Gets the published endpoint each time it changes after launch (a
+    /// replaced agent token, the endpoint published or withdrawn), except
+    /// while the app quits. The App gives it to its running acpmux at once:
+    /// acpmux reads it only when a pane looks up its daemon, and connected
+    /// panes do not look again.
     @ObservationIgnored public var onEndpointChange: (@MainActor ([String: String]) -> Void)?
     /// The agent token of this app launch: every helper start serves it.
     /// Replaced only when a launched helper fails its running check.
@@ -211,7 +218,7 @@ public final class ComputerUseHelperDaemon {
         guard requestedEnabled else { return }
         guard let runningCheck else {
             helperLogger.error("cmux Computer Use helper: cannot read the code requirement")
-            state = .unavailable
+            state = .failed
             return
         }
         // Launch a verified copy outside this app: nested in it, macOS checks
@@ -220,26 +227,28 @@ public final class ComputerUseHelperDaemon {
         guard requestedEnabled else { return }
         guard let staged else {
             helperLogger.error("Computer Use is on, but the cmux Computer Use helper copy could not be made or verified")
-            state = .unavailable
+            state = .failed
             return
         }
         // The helper's parent is launchd (LaunchServices), so it outlives a
-        // crash of this app unless it watches this pid. Older helpers may
-        // reject an unknown flag: pass it only when the manifest lists it.
+        // crash of this app unless it watches this pid. Older helpers exit on
+        // an unknown flag: each optional flag goes only when the manifest lists it.
         let capabilities = await manifestReader.capabilities(of: staged)
         guard requestedEnabled else { return }
         let owner = capabilities.contains(CuaHelperManifestReader.ownerPIDCapability) ? ownerPID : nil
+        let motion = capabilities.contains(CuaHelperManifestReader.motionCapability)
         // The launcher holds the scope lock and prepares its directories (ComputerUseHelperScope).
         let agent = launchAgentToken
         let host = Self.makeToken()
-        let pid = await launcher.launch(staged, arguments: Self.arguments(socketPath: socketPath, ownerPID: owner),
+        let pid = await launcher.launch(staged, arguments: Self.arguments(socketPath: socketPath, ownerPID: owner, motion: motion),
                                         environment: Self.environment(stateDirectory: stateDirectory, agentToken: agent, hostToken: host))
         guard requestedEnabled else {
             if let pid { launcher.terminate(pid) }
             return
         }
         guard let pid else {
-            state = .unavailable
+            helperLogger.error("cmux Computer Use helper did not launch (scope lock held, or LaunchServices failed)")
+            state = .failed
             return
         }
         let trusted = await staging.acceptsRunningProcess(pid, check: runningCheck)
@@ -250,7 +259,7 @@ public final class ComputerUseHelperDaemon {
         }
         guard trusted else {
             launcher.terminate(pid)
-            state = .unavailable
+            state = .failed
             helperLogger.error("cmux Computer Use helper pid \(pid, privacy: .public) failed its signature check")
             return
         }
@@ -304,7 +313,8 @@ public final class ComputerUseHelperDaemon {
 
     /// A process that failed its running check got the agent token in its
     /// environment at launch. A new token replaces it, so the next helper
-    /// does not serve it; a published endpoint moves to the new token.
+    /// does not serve it; a published endpoint moves to the new token, and
+    /// `onEndpointChange` gives it to the running acpmux.
     private func replaceAgentToken() {
         launchAgentToken = Self.makeToken()
         let isPublished = published.withLock { !$0.isEmpty }
@@ -314,7 +324,12 @@ public final class ComputerUseHelperDaemon {
     /// Publishes this launch's endpoint to the children this app spawns, or withdraws it.
     private func publish(_ endpoint: Bool) {
         let exported = endpoint ? Self.childEnvironment(socketPath: socketPath, agentToken: launchAgentToken) : [:]
-        published.withLock { $0 = exported }
+        let changed = published.withLock { current -> Bool in
+            guard current != exported else { return false }
+            current = exported
+            return true
+        }
+        if changed, !quitting { onEndpointChange?(exported) }
     }
 
     /// App quit: no further starts, and the helper stops.
@@ -336,10 +351,11 @@ public final class ComputerUseHelperDaemon {
     /// The helper's default is speed-based: a run's first click took 3.3 to
     /// 3.6 s as the cursor crossed to the app's display, later clicks 0.2 to
     /// 0.9 s each. `--glide-ms` and `--dwell-ms` set the motion every new
-    /// session cursor starts with.
+    /// session cursor starts with; `motion` is false for a helper whose
+    /// manifest does not list them (`serve.motion`), which keeps its own.
     public nonisolated static func arguments(socketPath: String, ownerPID: pid_t? = nil, motion: Bool = false) -> [String] {
-        ["serve", "--socket", socketPath, "--no-permissions-gate", "--cursor-shape", "cmux", "--idle-hide-ms", "10000",
-         "--glide-ms", "150", "--dwell-ms", "30"]
+        ["serve", "--socket", socketPath, "--no-permissions-gate", "--cursor-shape", "cmux", "--idle-hide-ms", "10000"]
+            + (motion ? ["--glide-ms", "150", "--dwell-ms", "30"] : [])
             + (ownerPID.map { ["--owner-pid", String($0)] } ?? [])
     }
 

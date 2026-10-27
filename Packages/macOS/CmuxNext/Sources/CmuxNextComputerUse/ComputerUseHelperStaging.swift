@@ -147,7 +147,7 @@ nonisolated struct ComputerUseHelperStaging: Sendable {
     /// a fresh verified copy. Nil when the copy cannot be made or verified.
     @concurrent func stage(_ source: URL) async -> URL? {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
-        guard trustedFolder(create: true) else {
+        guard trustedFolder(create: true, logger: logger) else {
             logger.error("cmux Computer Use helper copy: \(folder.path, privacy: .public) is not a private directory of this user")
             return nil
         }
@@ -210,8 +210,11 @@ nonisolated struct ComputerUseHelperStaging: Sendable {
         check(pid)
     }
 
-    /// Checks each parent before creating a child. Existing modes are never repaired.
-    private func trustedFolder(create: Bool) -> Bool {
+    /// Checks each parent before creating a child. Existing modes are never
+    /// repaired: a folder with group write (umask 002 makes 0775) is refused
+    /// too, since the group is `staff`, which holds every local user, so
+    /// another user could swap the copy. `logger` names the folder that failed.
+    private func trustedFolder(create: Bool, logger: Logger? = nil) -> Bool {
         let expected = folder.absoluteURL
         let home = home.absoluteURL
         guard !expected.pathComponents.contains("."), !expected.pathComponents.contains(".."),
@@ -222,7 +225,11 @@ nonisolated struct ComputerUseHelperStaging: Sendable {
             directory.append(path: component, directoryHint: .isDirectory)
             if create, mkdir(directory.path, 0o700) != 0, errno != EEXIST { return false }
             guard let info = fileSystem.inspect(directory), info.mode & S_IFMT == S_IFDIR,
-                  info.owner == geteuid(), info.mode & 0o022 == 0 else { return false }
+                  info.owner == geteuid(), info.mode & 0o022 == 0 else {
+                let found = fileSystem.inspect(directory).map { "owner \($0.owner), mode \(String($0.mode, radix: 8))" } ?? "missing"
+                logger?.error("cmux Computer Use helper copy: \(directory.path, privacy: .public) must be a real directory of this user without group or world write (\(found, privacy: .public))")
+                return false
+            }
         }
         return fileSystem.resolve(expected) == expected.path
     }

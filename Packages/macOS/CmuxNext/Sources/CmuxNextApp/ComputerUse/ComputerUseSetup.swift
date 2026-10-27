@@ -33,11 +33,12 @@ final class ComputerUseSetup {
         case disabledByPolicy = "disabled_by_policy"
         /// `computerUse.enabled` is off: no helper runs, the grants are unknown.
         case off
-        /// On, but this build has no Developer ID signed helper (or it did not start).
+        /// On, but this build has no Developer ID signed helper.
         case unavailable
         /// On, and the helper is starting (or has not answered yet).
         case starting
-        /// The helper did not answer within the read budget, or kept exiting.
+        /// The helper could not start (copy, lock, launch or check), did not
+        /// answer within the read budget, or kept exiting: Restart Helper.
         case failed
         /// The helper answered: `permissions` are its grants.
         case ready
