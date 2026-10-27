@@ -125,6 +125,14 @@ pub(super) fn is_family_retry(provenance: Option<&Value>) -> bool {
     provenance.is_some_and(|p| p.get("manual").is_some() && p.get("from").is_some())
 }
 
+/// A family prompt, a sub-session's retry, or the automatic continuation of either's cut turn,
+/// which speaks for the same sender (`from`, `auto_resume.rs`): checked as a family message.
+pub(super) fn is_family(provenance: Option<&Value>) -> bool {
+    let continuation =
+        provenance.is_some_and(|p| p["kind"] == "auto_resume" && p.get("from").is_some());
+    is_family_prompt(provenance) || is_family_retry(provenance) || continuation
+}
+
 /// The refusal of a child that would ask less than its caller.
 pub(super) fn asks_less(why: &str) -> RpcError {
     refusal(
@@ -468,9 +476,19 @@ impl Hub {
         caller: &Session,
         target: &Session,
     ) -> Result<(), RpcError> {
+        self.receiver_check_under(caller, target, self.mdm_snapshot()).await
+    }
+
+    /// [`Self::receiver_check`] under MDM's bound as its operation read it (`MdmSnapshot`).
+    pub(super) async fn receiver_check_under(
+        &self,
+        caller: &Session,
+        target: &Session,
+        bound: super::full_access_bound::MdmSnapshot,
+    ) -> Result<(), RpcError> {
         let (cm, tm) = (caller.meta(), target.meta());
         if self.receiver_access(&tm, &cm).await > self.caller_access(&cm)
-            || self.policy_laxer(&tm, &cm).await
+            || self.policy_laxer_under(&tm, &cm, bound).await
         {
             return Err(refusal(
                 "subsessions.receiver_asks_less",
@@ -485,17 +503,46 @@ impl Hub {
     }
 
     /// The policy session `m` runs: its own, else the daemon default; one
-    /// acpmux cannot parse counts as `ask`.
+    /// acpmux cannot parse counts as `ask`, and so does approve-all while MDM
+    /// forces full access off (`policy_for`), so comparisons and inheritance
+    /// rank it as it answers.
     pub(super) async fn effective_policy(&self, m: &SessionMeta) -> PermissionPolicy {
-        match m.permission_policy.as_deref() {
+        self.effective_policy_under(m, self.mdm_snapshot()).await
+    }
+
+    /// [`Self::effective_policy`] under MDM's bound as its operation read it (`MdmSnapshot`).
+    async fn effective_policy_under(
+        &self,
+        m: &SessionMeta,
+        bound: super::full_access_bound::MdmSnapshot,
+    ) -> PermissionPolicy {
+        let policy = match m.permission_policy.as_deref() {
             Some(p) => p.parse().unwrap_or(PermissionPolicy::Ask),
             None => self.config.read().await.permission_policy,
+        };
+        if super::full_access_bound::policy_is_full_access(policy) && bound.off {
+            return PermissionPolicy::Ask;
         }
+        policy
     }
 
     /// Whether session `m` runs a laxer policy than `than`.
     pub(super) async fn policy_laxer(&self, m: &SessionMeta, than: &SessionMeta) -> bool {
-        policy_rank(self.effective_policy(m).await) > policy_rank(self.effective_policy(than).await)
+        self.policy_laxer_under(m, than, self.mdm_snapshot()).await
+    }
+
+    /// [`Self::policy_laxer`], both ranked under one read of MDM's bound (review 86 of #23322).
+    async fn policy_laxer_under(
+        &self,
+        m: &SessionMeta,
+        than: &SessionMeta,
+        bound: super::full_access_bound::MdmSnapshot,
+    ) -> bool {
+        let (m, than) = (
+            self.effective_policy_under(m, bound).await,
+            self.effective_policy_under(than, bound).await,
+        );
+        policy_rank(m) > policy_rank(than)
     }
 
     /// [`Access`] of session `m` as the reviewed lists name it; None when
@@ -568,8 +615,8 @@ impl Hub {
         })
     }
 
-    /// A family prompt (`provenance` of kind `subsession_message`, or a retry
-    /// a sub-session asked for, `from` it) about to run in `session`: refused
+    /// A family prompt (`provenance` of kind `subsession_message`, a retry
+    /// a sub-session asked for, `from` it, or a continuation of either) about to run in `session`: refused
     /// when its sender is gone or the receiver now asks less than the sender,
     /// by mode or policy (either changed while it waited in the queue, or the
     /// agent's start changed the mode).
@@ -577,9 +624,9 @@ impl Hub {
         &self,
         session: &Session,
         provenance: Option<&Value>,
+        bound: super::full_access_bound::MdmSnapshot,
     ) -> Result<(), RpcError> {
-        let family = |p: &&Value| is_family_prompt(Some(p)) || is_family_retry(Some(p));
-        let Some(p) = provenance.filter(family) else {
+        let Some(p) = provenance.filter(|p| is_family(Some(p))) else {
             return Ok(());
         };
         let from = p.get("from").and_then(Value::as_str).unwrap_or_default();
@@ -592,7 +639,7 @@ impl Hub {
         })?;
         let (sm, tm) = (sender.meta(), session.meta());
         if self.receiver_access(&tm, &sm).await > self.caller_access(&sm)
-            || self.policy_laxer(&tm, &sm).await
+            || self.policy_laxer_under(&tm, &sm, bound).await
         {
             return Err(refusal(
                 "subsessions.receiver_asks_less",

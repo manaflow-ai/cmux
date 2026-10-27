@@ -120,6 +120,7 @@ impl Hub {
                     starter: None,
                     route: None,
                     subsession: None,
+                    lineage: None,
                     disallowed_tools: Vec::new(),
                     checked_cwd: None,
                 };

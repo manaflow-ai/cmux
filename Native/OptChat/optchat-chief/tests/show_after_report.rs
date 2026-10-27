@@ -28,13 +28,16 @@ fn a_landed_range_becomes_a_compare_page_in_the_right_column() {
         "{block}"
     );
     assert!(
-        block.contains("cmux browser right navigate --url https://github.com/manaflow-ai/cmux/compare/1a2b3c4d5e6...9f8e7d6c5b4"),
+        block.contains("cmux browser right navigate https://github.com/manaflow-ai/cmux/compare/1a2b3c4d5e6...9f8e7d6c5b4"),
         "{block}"
     );
     assert!(
-        block.contains("cmux browser right navigate --url http://127.0.0.1:55999/"),
+        block.contains("cmux browser right navigate http://127.0.0.1:55999/"),
         "{block}"
     );
+    // `right navigate` takes the URL as a word: `--url` is a usage error there (the
+    // default Chief copied this hint 18 times from Oct 20 to 26; 17 got "cmux: usage").
+    assert!(!block.contains("navigate --url"), "{block}");
     assert!(
         block.contains("--path '/Users/me/fun/My Gallery/index.html' --where tab"),
         "{block}"

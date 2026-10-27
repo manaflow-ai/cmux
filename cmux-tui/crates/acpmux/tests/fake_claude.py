@@ -608,6 +608,9 @@ while True:
             send(init())
         content = (msg.get("message") or {}).get("content") or []
         said = "".join(b.get("text", "") for b in content if isinstance(b, dict))
+        # FAKE_CLAUDE_ECHO=1: each prompt line echoed back first, as `--replay-user-messages` does.
+        if os.environ.get("FAKE_CLAUDE_ECHO") == "1":
+            send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message")})
         if STORE and LAYOUT:
             # Claude Code stamps each line with its UTC time to the millisecond.
             import datetime
@@ -767,6 +770,32 @@ while True:
                 result["cwd"] = "allowed"
             except OSError:
                 result["cwd"] = "denied"
+            text = json.dumps(result)
+        # G2: exercise the actual child boundary, including its HTTP proxy.
+        if said.startswith("linux-sandbox-probe "):
+            import socket
+            import urllib.parse
+            outside, port = said[len("linux-sandbox-probe "):].rstrip().rsplit(" ", 1)
+            result = {}
+            for key, path in [("outside", outside), ("git", ".git/hooks/x"),
+                              ("claude", "CLAUDE.md"), ("cwd", "ok")]:
+                try:
+                    with open(path, "w") as f:
+                        f.write("x")
+                    result[key] = "allowed"
+                except OSError:
+                    result[key] = "denied"
+            try:
+                socket.create_connection(("127.0.0.1", int(port)), timeout=2).close()
+                result["loopback"] = "allowed"
+            except OSError:
+                result["loopback"] = "denied"
+            proxy = urllib.parse.urlsplit(os.environ.get("HTTPS_PROXY", ""))
+            result["proxy"] = "missing"
+            if proxy.hostname and proxy.port:
+                with socket.create_connection((proxy.hostname, proxy.port), timeout=3) as conn:
+                    conn.sendall(b"CONNECT 127.0.0.1:22 HTTP/1.1\r\nHost: 127.0.0.1:22\r\n\r\n")
+                    result["proxy"] = conn.recv(1024).split(b"\r\n")[0].decode()
             text = json.dumps(result)
         # "usage-probe": the token usage Claude Code streams and the context window its result
         # reports for each model the turn used (the chat's own and a smaller subagent model).

@@ -506,10 +506,11 @@ export class CloudVmRunAdapter {
     return outputPage(unwrap(commandResult(result, "terminal output read")), attempt.terminalId, after);
   }
 
-  async *events(attempt: CloudVmAttemptRef, after = 0): AsyncGenerator<CloudVmRunEvent> {
+  /** `signal`: once aborted, the stream ends before its next provider call. */
+  async *events(attempt: CloudVmAttemptRef, after = 0, signal?: AbortSignal): AsyncGenerator<CloudVmRunEvent> {
     let offset = after;
     let state: CloudVmTerminalStatus | undefined;
-    while (true) {
+    while (!signal?.aborted) {
       const page = await this.readOutput(attempt, offset);
       if (page.text) {
         yield {
@@ -518,6 +519,7 @@ export class CloudVmRunAdapter {
         };
       }
       offset = page.nextOffset;
+      if (signal?.aborted) return;
       const receipt = await this.readReceipt(attempt);
       if (receipt.status !== state) {
         state = receipt.status;
