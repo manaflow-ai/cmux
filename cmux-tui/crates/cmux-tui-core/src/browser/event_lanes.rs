@@ -176,7 +176,7 @@ impl SurfaceRoute {
                         if state.closed {
                             self.end_locked(&mut state);
                             drop(state);
-                            drop(handler);
+                            drop_handler(handler);
                         } else {
                             // Back before the state unlocks: the next
                             // delivery schedules a lane that has its handler.
@@ -194,7 +194,7 @@ impl SurfaceRoute {
                 state.scheduled = false;
                 self.end_locked(&mut state);
                 drop(state);
-                drop(handler);
+                drop_handler(handler);
                 return false;
             }
         }
@@ -236,6 +236,12 @@ impl SurfaceRoute {
             self.ended.wait_timeout_while(state, timeout, |state| !state.ended).unwrap();
         state.ended
     }
+}
+
+/// Drops an ended lane's handler (often the last owner of its surface) so a
+/// panicking drop ends only that lane, never a pool thread.
+fn drop_handler(handler: LaneHandler) {
+    let _ = catch_unwind(AssertUnwindSafe(move || drop(handler)));
 }
 
 fn fail_surface_route(state: &mut SurfaceRouteState, reason: &str) {
