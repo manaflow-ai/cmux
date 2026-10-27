@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
@@ -120,6 +121,9 @@ struct AppEnvironment: Sendable {
     /// hermetic home the `terminals` facet rewrites to `$ROOT` and `$HOME` before hashing (schemas/oracle/README.md).
     var oracleRoot: String?
     var launchHome: String?
+    /// The action catalog's launch build, which the registry takes: the real app process passes the one
+    /// its launch warm-up thread builds (`LaunchWarmup`); tests that build `AppServices` build it on main.
+    var actionCatalog = ActionCatalogLaunch()
 
     var tag: String? { launch.tag }
     /// The build whose state roots this app uses (per-build isolation, cx-is1kf).

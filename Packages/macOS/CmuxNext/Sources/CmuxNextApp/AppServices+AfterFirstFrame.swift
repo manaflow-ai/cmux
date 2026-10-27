@@ -66,7 +66,7 @@ extension AppServices {
         if hotKeys { hotKeyStart = { [weak self] in self?.globalHotKeys.start() } }
         let bordersStart: Start = { [weak self] in self?.observeBorders() }
         let glassStart: Start = { [weak self] in self?.observeGlass() }
-        let keepAwakeStart = with { services, settings in KeepAwakeService.shared.start(settings: settings, store: services.daemon.store) }
+        let keepAwakeStart = with { services, settings in KeepAwakeService.shared.start(settings: settings, store: services.daemon.store, on: services.mainWork) }
         let mobileStart = with { services, settings in services.mobile.follow(settings, launch: services.environment.launch) }
         let notificationsStart = with { services, settings in services.notifications.follow(settings) }
         let macScreenSettingsStart = with { services, settings in services.followMacScreenSettings(settings) }
