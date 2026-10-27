@@ -123,11 +123,11 @@ extension CEFTab {
     }
 
     private func restoreNavigation(_ state: String, browser: Int32) {
-        // 1 = restored; fork API 10 reports why not (-1 committed entries,
-        // -2 navigation not dropped, -3 state does not decode).
-        let code = runtime.shim?.tabRestoreNavigation(browser, state) ?? 0
-        host.lifecycleTrace.record(id, "restore-navigation \(code == 1 ? "ok" : "failed(\(code))")")
-        if code != 1, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
+        // A pending restore is set only on a fork that restores (`CEFEngine` reads the mirrored
+        // navigation_restore_supported). One-way, as Chrome's NavigationController::Restore
+        // (content/public/browser/navigation_controller.h): in host mode the answer is a stand-in.
+        _ = runtime.shim?.tabRestoreNavigation(browser, state)
+        host.lifecycleTrace.record(id, "restore-navigation sent")
     }
 
     /// The Chromium Host ended with this tab's browser (``hostEnded(_:)``): its entries and their page
