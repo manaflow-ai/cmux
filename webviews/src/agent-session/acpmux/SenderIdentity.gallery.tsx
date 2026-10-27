@@ -56,7 +56,6 @@ export default componentEntry<{ treatment: Treatment }>({
             .sender-identity-fixture > p { margin: 0 0 12px; }
             .sender-identity-fixture .acpmux-minimap__card { left: 0; top: 0; }
             .sender-identity-fixture[data-treatment=separate-line] .acpmux-minimap__prompt .acpmux-sender { display: flex; }
-            .sender-identity-fixture[data-treatment=plain-preview] .acpmux-minimap__prompt .acpmux-sender { display: none; }
           `,
           ),
           createElement(
@@ -87,7 +86,7 @@ export default componentEntry<{ treatment: Treatment }>({
             railLeft: 0,
             prompt: "Ready for review.\n- Markdown and long paths remain readable.",
             reply: [{ kind: "paragraph", spans: [{ text: "Thanks. I will land the reviewed change.", bold: false }] }],
-            metadata: { at: 1793116800000, links: [], sender },
+            metadata: { at: 1793116800000, links: [], ...(treatment !== "plain-preview" && { sender }) },
             onPointerLeave: () => {},
           }),
         ),
@@ -96,7 +95,7 @@ export default componentEntry<{ treatment: Treatment }>({
   },
   variants: {
     inline: {
-      note: "Chosen: sender identity stays inline in the existing title budget; no extra card height or rail ticks.",
+      note: "Chosen: sender identity stays within the existing capped title budget; no extra rail ticks.",
       props: { treatment: "inline" },
     },
     "separate-line": {
