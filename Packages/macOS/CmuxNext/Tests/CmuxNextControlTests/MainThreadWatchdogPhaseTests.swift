@@ -18,28 +18,58 @@ import Testing
     /// the hang reached the sink: host load can neither add a stall nor make the hang report miss this one.
     @MainActor
     @Test func aStallInsideTheCEFPumpIsTaggedCEFInTheStallRecordAndTheHang() throws {
-        let clock = ManualUptime()
         let keys = CrashKeySlots()
-        let seen = PhaseSeen()
-        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false,
-                                                               hangThreshold: .milliseconds(100), hangAssertThreshold: nil),
-                                          uptime: clock.read)
-        watchdog.attach(hangWatch: HangWatch(), crashKeys: keys, trace: TraceRuntime(role: .app))
-        watchdog.onHang = { hang in seen.hang(hang.phase, cef: hang.cef) }
-        watchdog.onStall = { record in seen.stall(record.details["phase"]?.stringValue, cef: record.details["cef"]?.boolValue == true) }
-        watchdog.start()
-        defer { watchdog.stop() }
-        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {
-            stallInsideTheCEFPump(keys: keys, clock: clock, seen: seen)
-            CFRunLoopStop(CFRunLoopGetMain())
+        let seen = watchStall(crashKeys: keys, trace: TraceRuntime(role: .app)) { inPump in
+            keys.set(.cefState, inPump ? CrashKeySlots.CEFState.inPump.rawValue : 0)
         }
-        CFRunLoopWakeUp(CFRunLoopGetMain())
-        CFRunLoopRunInMode(.defaultMode, 30, false)
         #expect(seen.hangPhases == ["cef_pump"], "the hang the sink got")
         #expect(seen.hangCEF == [true], "the hang is tagged cef")
         #expect(seen.stallPhases.contains("cef_pump"), "the stall record: \(seen.stallPhases)")
         #expect(seen.stallCEF.contains(true), "the stall record carries cef=true: \(seen.stallCEF)")
         #expect(keys.value(.cefState) == 0, "the pass put the state back")
+    }
+
+    /// The Chromium host runs the pump with no app crash keys: `in_cef_pump` alone tags the stall and the hang.
+    @MainActor
+    @Test func aStallWithOnlyThePumpKeyIsTaggedCEF() throws {
+        let trace = TraceRuntime(role: .app) // 078 attaches its `CrashKeyPage` here once it is on the base
+        withKnownIssue("078 crash-key page: a runtime with no page keeps no key") {
+            let seen = watchStall(crashKeys: nil, trace: trace) { inPump in trace.setCrashKey(.inCEFPump, inPump ? 1 : 0) }
+            #expect(seen.hangPhases == ["cef_pump"], "the hang the sink got")
+            #expect(seen.hangCEF == [true], "the hang is tagged cef")
+            #expect(seen.stallPhases.contains("cef_pump"), "the stall record: \(seen.stallPhases)")
+            #expect(seen.stallCEF.contains(true), "the stall record carries cef=true: \(seen.stallCEF)")
+        } when: {
+            trace.setCrashKey(.inCEFPump, 1)
+            defer { trace.setCrashKey(.inCEFPump, 0) }
+            return trace.crashKey(.inCEFPump) != 1
+        }
+    }
+
+    /// Runs one stall on the main thread inside the CEF pump (`enterPump(true)`, then `enterPump(false)` once
+    /// the hang reached the sink) under a watchdog attached to `crashKeys` and `trace`, and returns what its
+    /// hang and stall sinks got. The watchdog reads an injected clock that moves only inside the stall, and
+    /// the stall ends only once the hang reached the sink: host load can neither add a stall nor make the hang
+    /// report miss this one.
+    @MainActor
+    private func watchStall(crashKeys: CrashKeySlots?, trace: TraceRuntime, enterPump: @escaping (Bool) -> Void) -> PhaseSeen {
+        let clock = ManualUptime()
+        let seen = PhaseSeen()
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false,
+                                                               hangThreshold: .milliseconds(100), hangAssertThreshold: nil),
+                                          uptime: clock.read)
+        watchdog.attach(hangWatch: HangWatch(), crashKeys: crashKeys, trace: trace)
+        watchdog.onHang = { hang in seen.hang(hang.phase, cef: hang.cef) }
+        watchdog.onStall = { record in seen.stall(record.details["phase"]?.stringValue, cef: record.details["cef"]?.boolValue == true) }
+        watchdog.start()
+        defer { watchdog.stop() }
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {
+            stallInsideTheCEFPump(enterPump: enterPump, clock: clock, seen: seen)
+            CFRunLoopStop(CFRunLoopGetMain())
+        }
+        CFRunLoopWakeUp(CFRunLoopGetMain())
+        CFRunLoopRunInMode(.defaultMode, 30, false)
+        return seen
     }
     #endif
 
@@ -58,16 +88,16 @@ import Testing
     }
 }
 
-/// A CEF pump pass that stalls: the CEF state at `inPump`, the clock past the hang threshold, and the main
-/// thread held until the hang reached the sink (a 20 s wall-clock bound turns a missing report into a test
-/// failure, not a hang).
+/// A CEF pump pass that stalls: the pump's key set (`enterPump(true)`), the clock past the hang threshold, and
+/// the main thread held until the hang reached the sink (a 20 s wall-clock bound turns a missing report into a
+/// test failure, not a hang).
 @inline(never)
-private func stallInsideTheCEFPump(keys: CrashKeySlots, clock: ManualUptime, seen: PhaseSeen) {
-    keys.set(.cefState, CrashKeySlots.CEFState.inPump.rawValue)
+private func stallInsideTheCEFPump(enterPump: (Bool) -> Void, clock: ManualUptime, seen: PhaseSeen) {
+    enterPump(true)
     clock.advance(by: .seconds(3))
     let deadline = ContinuousClock.now + .seconds(20)
     while seen.hangPhases.isEmpty, ContinuousClock.now < deadline {}
-    keys.set(.cefState, 0)
+    enterPump(false)
 }
 
 /// The phases (nil: no phase) and `cef` flags the watchdog's hang and stall sinks received.
