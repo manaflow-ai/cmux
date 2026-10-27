@@ -334,7 +334,13 @@ export function useFolderTrustAsk(
         await source.set(recorded, level);
         refusedTrust.current.delete(asked.sessionId);
         askFromRefusal.current = undefined;
-        for (const key of new Set([asked.cwd, recorded])) answers.current.set(key, (answers.current.get(key) ?? 0) + 1);
+        // In an alternate-cwd refusal, `asked.cwd` is the folder acpmux named while `chatCwd`
+        // is the folder whose read is still in flight. Invalidate both generations so that a
+        // late answer from the chat's spelling cannot put the question back after Trust.
+        const answerFolders = [asked.cwd, recorded, chatCwd].filter((value): value is string => Boolean(value));
+        for (const key of new Set(answerFolders)) {
+          answers.current.set(key, (answers.current.get(key) ?? 0) + 1);
+        }
         // Undo leaves each agent's own level to answer: the next read says which.
         const where = { ...(repo ? { repo } : {}), ...(recorded !== asked.cwd ? { via: recorded } : {}) };
         const answer: FolderTrust | undefined =

@@ -90,7 +90,7 @@ const pending = (cwd: string) =>
 
 function trustButton() {
   const buttons = [...host.querySelectorAll("button")];
-  return buttons.find((button) => button.textContent === "Trust folder");
+  return buttons.find((button) => button.classList.contains("acpmux-trust-ask-primary"));
 }
 
 /// `named`: the folder acpmux's refusal names, which can be another spelling of the chat's `cwd`.
@@ -159,4 +159,42 @@ test("a chat keeps its trust.pending question and its own prompt across a chat s
     button!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
   });
   expect(sent).toEqual(["a"]);
+});
+
+test("Trust invalidates a pending read for the chat cwd when refusal names another cwd", async () => {
+  const chatCwd = "/Users/you/src/link-pending";
+  let reads = 0;
+  let resolveStale: ((value: unknown) => void) | undefined;
+  const trust = source(() => {
+    reads += 1;
+    if (reads === 1) return Promise.resolve({ cwd: chatCwd, level: "trusted", decided: false, auto: "root" });
+    if (reads === 2)
+      return new Promise((resolve) => {
+        resolveStale = resolve;
+      });
+    return Promise.resolve({ cwd: chatCwd, level: "trusted", decided: false, auto: "root" });
+  });
+  const show = (sessionId: string) =>
+    act(async () => root.render(<Pane trust={trust.source} sessionId={sessionId} cwd={chatCwd} />));
+
+  await show("chat-pending-a");
+  await act(async () => {
+    shown!.refused(pending("/Users/you/src/real-pending"), () => undefined);
+  });
+  // Switching away and back leaves the alternate-cwd refresh in flight for this chat.
+  await show("chat-pending-b");
+  await show("chat-pending-a");
+  const button = trustButton();
+  expect(button).toBeDefined();
+  await act(async () => {
+    button!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  });
+
+  // The stale refresh reports the old untrusted state after Trust. It must be ignored.
+  await act(async () => {
+    resolveStale!({ cwd: chatCwd, level: "unknown" });
+    await Promise.resolve();
+  });
+  expect(trustButton()).toBeUndefined();
+  expect(shown!.blocked).toBeUndefined();
 });
