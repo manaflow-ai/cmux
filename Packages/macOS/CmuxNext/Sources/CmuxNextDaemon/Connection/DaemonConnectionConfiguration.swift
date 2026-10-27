@@ -65,6 +65,8 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// `daemon.line` scope, never its `read(2)` wait). The App's composition root sets it to its
     /// ``HangWatch``; nil (the default) watches nothing.
     public var hangWatch: (any HangWatchScoping)?
+    /// Told each time the connection's quiet-handoff gate parks a wait (a test seam; the default ignores it).
+    var handoffWaits: @Sendable (QuietHandoffGate.Wait) -> Void = { _ in }
 
     public init(
         clientName: String = "cmux-next",

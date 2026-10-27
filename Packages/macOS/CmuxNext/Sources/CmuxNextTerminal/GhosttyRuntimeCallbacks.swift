@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCompat
+import CmuxNextWakeups
 import GhosttyNextKit
 
 /// Carries a Ghostty C handle across threads: the module's one reviewed
@@ -14,7 +15,8 @@ import GhosttyNextKit
 
 // MARK: - C callbacks
 //
-// libghostty calls wakeup_cb from any thread. Action and clipboard callbacks
+// libghostty calls wakeup_cb from any thread; the tick it queues (one however many wakeups came)
+// runs as the board task `ghostty.tick` (GhosttyTickClass). Action and clipboard callbacks
 // arrive on the main thread during ghostty_app_tick or a surface call; the
 // handlers still check, and an off-main caller reaches the main run loop's next
 // pass (MainRunLoopBlock: one FIFO, so such calls keep their order) instead of
@@ -33,7 +35,9 @@ nonisolated func ghosttyWakeup(_ userdata: UnsafeMutableRawPointer?) {
     guard context.pending.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else {
         return
     }
-    MainRunLoopBlock.perform { context.runtime?.tick() }
+    // The wait starts here, on the waking thread: the board's ledger counts the run loop's queue too.
+    let post = MainTaskPost(enqueueNanos: MainTaskPost.uptimeNanos())
+    MainRunLoopBlock.perform { context.runtime?.tick(posted: post) }
 }
 
 nonisolated func ghosttyAction(_ app: ghostty_app_t?, _ target: ghostty_target_s, _ action: ghostty_action_s) -> Bool {

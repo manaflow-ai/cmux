@@ -19,7 +19,11 @@ portable-pty.workspace = true
 cmux-process.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_JobObjects"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_Console", "Win32_System_JobObjects"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+# The Ctrl+C test starts its probe as the terminal owner is started.
+cmux-process.workspace = true
 
 [target.'cfg(unix)'.dev-dependencies]
 # The child-QoS test reads a PTY child's priority with its probe.
