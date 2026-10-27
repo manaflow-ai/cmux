@@ -19,7 +19,7 @@ use std::ffi::{CString, OsStr};
 use std::io;
 use std::os::fd::RawFd;
 use std::os::unix::ffi::OsStrExt;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use cmux_mux2::{self as proto, Reader};
 use ghostty_vt::{Callbacks, Terminal};
@@ -36,7 +36,7 @@ mod state;
 use os::*;
 use parse::*;
 use scan::{incomplete_tail_start, needs_immediate_parse};
-use state::{STATE_MAGIC, parse_state};
+use state::{parse_state, state_listener};
 
 const READ_CHUNK: usize = 64 << 10;
 /// Most PTY bytes read for one terminal per event, so one busy terminal
@@ -55,6 +55,11 @@ const READ_SPINS: u32 = 32;
 
 fn tunable(name: &str, default: usize) -> usize {
     std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+/// The first `n` bytes of `buf`, where `n` is what `read(2)` returned for it.
+fn filled(buf: &[u8], n: isize) -> &[u8] {
+    usize::try_from(n).ok().and_then(|n| buf.get(..n)).unwrap_or_default()
 }
 /// An attached client further behind than this is resynced with a snapshot.
 const CLIENT_BACKLOG_MAX: usize = 16 << 20;
@@ -125,7 +130,8 @@ impl Conn {
         let started = usize::from(self.front_sent > 0);
         let mut index = 0;
         self.out.retain(|frame| {
-            let keep = index < started || !matches!(frame[4], proto::OUTPUT | proto::SNAPSHOT);
+            let keep = index < started
+                || !matches!(frame.get(4), Some(&(proto::OUTPUT | proto::SNAPSHOT)));
             index += 1;
             keep
         });
@@ -195,7 +201,7 @@ impl Server {
                 }
                 return Err(err);
             }
-            for ev in &events[..n as usize] {
+            for ev in events.iter().take(n as usize) {
                 let token = ev.udata as usize as u64;
                 let index = (token & INDEX_MASK) as u32;
                 let writable = ev.filter == libc::EVFILT_WRITE;
@@ -275,7 +281,7 @@ impl Server {
             // SAFETY: buf is valid for its length.
             let n = unsafe { libc::read(conn.fd, self.buf.as_mut_ptr().cast(), self.buf.len()) };
             if n > 0 {
-                conn.inbuf.extend_from_slice(&self.buf[..n as usize]);
+                conn.inbuf.extend_from_slice(filled(&self.buf, n));
                 continue;
             }
             if n == 0 || io::Error::last_os_error().kind() != io::ErrorKind::WouldBlock {
@@ -286,7 +292,7 @@ impl Server {
         let mut offset = 0;
         loop {
             let Some(conn) = self.conns.get_mut(&id) else { return };
-            let frame = match proto::take_frame(&conn.inbuf[offset..]) {
+            let frame = match proto::take_frame(conn.inbuf.get(offset..).unwrap_or_default()) {
                 Ok(Some((kind, payload, used))) => Some((kind, payload.to_vec(), used)),
                 Ok(None) => None,
                 Err(_) => {
@@ -332,7 +338,8 @@ impl Server {
         let Some(conn) = self.conns.get_mut(&id) else { return };
         let mut failed = false;
         while let Some(front) = conn.out.front() {
-            let rest = &front[conn.front_sent..];
+            // An empty rest (never: a sent frame is popped) writes 0 and fails the link.
+            let rest = front.get(conn.front_sent..).unwrap_or_default();
             // SAFETY: rest is a valid slice.
             let n = unsafe { libc::write(conn.fd, rest.as_ptr().cast(), rest.len()) };
             if n > 0 {
@@ -470,11 +477,10 @@ impl Server {
                 }
             }
             proto::LIST => {
-                let mut ids: Vec<_> = self.terms.keys().copied().collect();
-                ids.sort_unstable();
+                let mut terms: Vec<_> = self.terms.iter().collect();
+                terms.sort_unstable_by_key(|(t, _)| **t);
                 let mut text = String::new();
-                for t in ids {
-                    let term = &self.terms[&t];
+                for (t, term) in terms {
                     let state =
                         term.exit.map_or_else(|| "running".to_string(), |s| format!("exited {s}"));
                     text.push_str(&format!(
@@ -569,8 +575,11 @@ impl Server {
             proto::STATS => {
                 let pending: usize =
                     self.terms.values().map(|t| t.pending.len() + t.carry.len()).sum();
-                let inflight: usize =
-                    self.terms.values().map(|t| *t.inflight.count.lock().expect("inflight")).sum();
+                let inflight: usize = self
+                    .terms
+                    .values()
+                    .map(|t| *t.inflight.count.lock().unwrap_or_else(PoisonError::into_inner))
+                    .sum();
                 let bytes: u64 = self.terms.values().map(|t| t.bytes_in).sum();
                 let text = format!(
                     "pid\t{}\nterminals\t{}\nclients\t{}\npending_bytes\t{pending}\ninflight_batches\t{inflight}\nbytes_in\t{bytes}\n",
@@ -608,7 +617,7 @@ impl Server {
         if argv.is_empty() {
             let shell = std::env::var_os("SHELL").unwrap_or_else(|| "/bin/zsh".into());
             argv.push(CString::new(shell.as_bytes()).map_err(|_| bad())?);
-            argv.push(CString::new("-l").expect("static"));
+            argv.push(c"-l".to_owned());
         }
         let cwd = if cwd.is_empty() { None } else { Some(CString::new(cwd).map_err(|_| bad())?) };
 
@@ -616,7 +625,7 @@ impl Server {
         let sink = replies.clone();
         let callbacks = Callbacks {
             on_pty_write: Some(Box::new(move |bytes: &[u8]| {
-                sink.lock().expect("reply sink").extend_from_slice(bytes);
+                sink.lock().unwrap_or_else(PoisonError::into_inner).extend_from_slice(bytes);
             })),
             ..Callbacks::default()
         };
@@ -677,7 +686,8 @@ impl Server {
     /// Moves parser replies to the program's input queue and writes it.
     fn flush_replies(&mut self, t: u32) {
         let Some(term) = self.terms.get_mut(&t) else { return };
-        let replies = std::mem::take(&mut *term.replies.lock().expect("reply sink"));
+        let replies =
+            std::mem::take(&mut *term.replies.lock().unwrap_or_else(PoisonError::into_inner));
         if !replies.is_empty() && term.pty_open {
             term.input.extend(replies);
         }
@@ -732,7 +742,7 @@ impl Server {
             let n =
                 unsafe { libc::read(term.master, self.buf.as_mut_ptr().cast(), self.buf.len()) };
             if n > 0 {
-                let read = &self.buf[..n as usize];
+                let read = filled(&self.buf, n);
                 total += read.len();
                 term.bytes_in += read.len() as u64;
                 let joined;
@@ -763,7 +773,9 @@ impl Server {
                     }
                     // A program that asked something waits for the answer:
                     // write it now, and stop spinning for more output.
-                    let replies = std::mem::take(&mut *term.replies.lock().expect("reply sink"));
+                    let replies = std::mem::take(
+                        &mut *term.replies.lock().unwrap_or_else(PoisonError::into_inner),
+                    );
                     if !replies.is_empty() {
                         term.input.extend(replies);
                         write_input_now(term);
@@ -772,11 +784,13 @@ impl Server {
                 } else {
                     term.pending.extend_from_slice(chunk);
                     if term.pending.len() >= parse_batch {
-                        let worker = (!self.workers.is_empty())
-                            .then(|| &self.workers[t as usize % self.workers.len()]);
+                        let worker = (t as usize)
+                            .checked_rem(self.workers.len())
+                            .and_then(|i| self.workers.get(i));
                         offload_parse(term, worker, self.kq, t);
                         if may_pause
-                            && *term.inflight.count.lock().expect("inflight") >= inflight_max
+                            && *term.inflight.count.lock().unwrap_or_else(PoisonError::into_inner)
+                                >= inflight_max
                         {
                             term.read_paused = true;
                             pause = true;
@@ -829,7 +843,8 @@ impl Server {
     fn batch_done(&mut self, t: u32) {
         self.flush_replies(t);
         let Some(term) = self.terms.get_mut(&t) else { return };
-        let below = *term.inflight.count.lock().expect("inflight") < self.inflight_max;
+        let below =
+            *term.inflight.count.lock().unwrap_or_else(PoisonError::into_inner) < self.inflight_max;
         if term.read_paused && below && term.pty_open {
             term.read_paused = false;
             let master = term.master;
@@ -922,17 +937,16 @@ pub fn main() {
     });
     let listen = match &resume_state {
         // The listening socket survived the exec; its number is in the state.
-        Some(state) if state.len() >= 14 && state.starts_with(STATE_MAGIC) => {
-            let fd = RawFd::from_le_bytes(state[10..14].try_into().expect("4 bytes"));
+        Some(state) => {
+            let Some(fd) = state_listener(state) else {
+                eprintln!("mux2d: bad upgrade state");
+                std::process::exit(1);
+            };
             set_nonblock_cloexec(fd).unwrap_or_else(|e| {
                 eprintln!("mux2d: inherited listener: {e}");
                 std::process::exit(1);
             });
             fd
-        }
-        Some(_) => {
-            eprintln!("mux2d: bad upgrade state");
-            std::process::exit(1);
         }
         None => match listen_socket(&path) {
             Ok(fd) => fd,
@@ -961,9 +975,10 @@ pub fn main() {
         workers: spawn_parse_workers(),
         inflight_max: tunable("MUX2_INFLIGHT_MAX", INFLIGHT_MAX).max(1),
     };
-    server
-        .kev(listen as usize, libc::EVFILT_READ, libc::EV_ADD, 0, TOKEN_LISTEN)
-        .expect("register listener");
+    if let Err(e) = server.kev(listen as usize, libc::EVFILT_READ, libc::EV_ADD, 0, TOKEN_LISTEN) {
+        eprintln!("mux2d: cannot register the listener: {e}");
+        std::process::exit(1);
+    }
     if let Some(state) = &resume_state
         && let Err(e) = server.resume(state)
     {

@@ -11,9 +11,9 @@ pub(super) struct Inflight {
 
 impl Inflight {
     pub(super) fn wait_idle(&self) {
-        let mut count = self.count.lock().expect("inflight");
+        let mut count = self.count.lock().unwrap_or_else(PoisonError::into_inner);
         while *count > 0 {
-            count = self.done.wait(count).expect("inflight");
+            count = self.done.wait(count).unwrap_or_else(PoisonError::into_inner);
         }
     }
 }
@@ -33,7 +33,7 @@ impl Term {
     /// The parser, after every batch handed to a worker is parsed.
     pub(super) fn vt(&self) -> std::sync::MutexGuard<'_, Terminal> {
         self.inflight.wait_idle();
-        self.parser.lock().expect("parser")
+        self.parser.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -55,8 +55,10 @@ pub(super) fn post_wake(kq: RawFd, t: u32) {
 pub(super) fn spawn_parse_workers() -> Vec<std::sync::mpsc::Sender<ParseJob>> {
     let cores = std::thread::available_parallelism().map_or(1, usize::from);
     let n = tunable("MUX2_PARSE_WORKERS", cores.saturating_sub(1).min(8));
+    // A worker that cannot start is left out: its terminals' batches go to
+    // the others, or parse inline when none started.
     (0..n)
-        .map(|i| {
+        .filter_map(|i| {
             let (tx, rx) = std::sync::mpsc::channel::<ParseJob>();
             // Output parsing the person waits for: UserInitiated, not the
             // closed user-interactive list (threading-model.md).
@@ -68,14 +70,18 @@ pub(super) fn spawn_parse_workers() -> Vec<std::sync::mpsc::Sender<ParseJob>> {
                         // A parse that panics must not leave the loop
                         // waiting forever for this batch: stop the server.
                         let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            job.parser.lock().expect("parser").vt_write(&job.bytes);
+                            job.parser
+                                .lock()
+                                .unwrap_or_else(PoisonError::into_inner)
+                                .vt_write(&job.bytes);
                         }));
                         if parsed.is_err() {
                             eprintln!("mux2d: parse worker panicked; aborting");
                             std::process::abort();
                         }
                         {
-                            let mut count = job.inflight.count.lock().expect("inflight");
+                            let mut count =
+                                job.inflight.count.lock().unwrap_or_else(PoisonError::into_inner);
                             *count -= 1;
                             job.inflight.done.notify_all();
                         }
@@ -83,8 +89,9 @@ pub(super) fn spawn_parse_workers() -> Vec<std::sync::mpsc::Sender<ParseJob>> {
                     }
                 },
             )
-            .expect("parse worker");
-            tx
+            .map_err(|e| eprintln!("mux2d: parse worker {i} did not start: {e}"))
+            .ok()?;
+            Some(tx)
         })
         .collect()
 }
@@ -136,7 +143,7 @@ pub(super) fn offload_parse(
     };
     let capacity = term.pending.capacity();
     let bytes = std::mem::replace(&mut term.pending, Vec::with_capacity(capacity));
-    *term.inflight.count.lock().expect("inflight") += 1;
+    *term.inflight.count.lock().unwrap_or_else(PoisonError::into_inner) += 1;
     let job = ParseJob {
         parser: term.parser.clone(),
         inflight: term.inflight.clone(),
@@ -146,7 +153,7 @@ pub(super) fn offload_parse(
     };
     if let Err(std::sync::mpsc::SendError(job)) = worker.send(job) {
         // The worker is gone: parse here, keeping the order.
-        *term.inflight.count.lock().expect("inflight") -= 1;
+        *term.inflight.count.lock().unwrap_or_else(PoisonError::into_inner) -= 1;
         term.vt().vt_write(&job.bytes);
     }
 }

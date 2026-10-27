@@ -4,6 +4,14 @@ use super::*;
 
 pub(super) const STATE_MAGIC: &[u8] = b"MUX2S2";
 
+/// The listening socket an upgrade state file hands over (it survived the
+/// exec); `None` when `state` is not an upgrade state file.
+pub(super) fn state_listener(state: &[u8]) -> Option<RawFd> {
+    let mut r = Reader(state.strip_prefix(STATE_MAGIC)?);
+    let _next_term = r.u32()?;
+    r.u32().map(|fd| fd as RawFd)
+}
+
 pub(super) struct RestoredTerm {
     pub(super) id: u32,
     pub(super) pid: libc::pid_t,
@@ -54,7 +62,7 @@ pub(super) fn parse_state(state: &[u8]) -> io::Result<ParsedState> {
         let sink = replies.clone();
         let callbacks = Callbacks {
             on_pty_write: Some(Box::new(move |bytes: &[u8]| {
-                sink.lock().expect("reply sink").extend_from_slice(bytes);
+                sink.lock().unwrap_or_else(PoisonError::into_inner).extend_from_slice(bytes);
             })),
             ..Callbacks::default()
         };
@@ -62,7 +70,7 @@ pub(super) fn parse_state(state: &[u8]) -> io::Result<ParsedState> {
             .map_err(|e| io::Error::other(format!("terminal: {e}")))?;
         vt.vt_write(replay);
         // Restoring state is not program output: drop any reply it made.
-        replies.lock().expect("reply sink").clear();
+        replies.lock().unwrap_or_else(PoisonError::into_inner).clear();
         terms.push(RestoredTerm {
             id,
             pid,
@@ -99,13 +107,18 @@ impl Server {
         } else {
             std::path::PathBuf::from(OsStr::from_bytes(payload))
         };
+        let count = |n: usize, what: &str| {
+            u32::try_from(n)
+                .map_err(|_| io::Error::other(format!("{n} {what} do not fit the state")))
+        };
+        let gone = |t: u32| io::Error::other(format!("terminal {t} went away during the upgrade"));
         let mut state = STATE_MAGIC.to_vec();
         state.extend_from_slice(&self.next_term.to_le_bytes());
         state.extend_from_slice(&self.listen.to_le_bytes());
-        state.extend_from_slice(&u32::try_from(self.terms.len()).expect("fits").to_le_bytes());
+        state.extend_from_slice(&count(self.terms.len(), "terminals")?.to_le_bytes());
         let ids: Vec<u32> = self.terms.keys().copied().collect();
         for &t in &ids {
-            let term = self.terms.get_mut(&t).expect("listed");
+            let term = self.terms.get_mut(&t).ok_or_else(|| gone(t))?;
             flush_parse(term);
             // A replay cut inside a long control string would not resume the
             // stream exactly; refuse rather than lose state.
@@ -119,7 +132,7 @@ impl Server {
                 .vt_replay_bytes()
                 .map_err(|e| io::Error::other(format!("terminal {t}: {e}")))?;
             self.flush_replies(t);
-            let term = &self.terms[&t];
+            let term = self.terms.get(&t).ok_or_else(|| gone(t))?;
             state.extend_from_slice(&t.to_le_bytes());
             state.extend_from_slice(&term.pid.to_le_bytes());
             state.extend_from_slice(&term.master.to_le_bytes());
@@ -133,7 +146,7 @@ impl Server {
             proto::put_bytes(&mut state, &input)?;
             proto::put_bytes(&mut state, &replay)?;
         }
-        state.extend_from_slice(&u32::try_from(self.orphans.len()).expect("fits").to_le_bytes());
+        state.extend_from_slice(&count(self.orphans.len(), "orphans")?.to_le_bytes());
         for pid in &self.orphans {
             state.extend_from_slice(&pid.to_le_bytes());
         }
@@ -170,7 +183,7 @@ impl Server {
                 return Err(e);
             }
         };
-        let cflag = CString::new("--resume").expect("static");
+        let cflag = c"--resume";
         let argv = [cexe.as_ptr(), cflag.as_ptr(), cpath.as_ptr(), std::ptr::null()];
         let keep: Vec<RawFd> =
             std::iter::once(self.listen).chain(self.terms.values().map(|t| t.master)).collect();
@@ -185,7 +198,7 @@ impl Server {
         if let Some(conn) = self.conns.get_mut(&requester) {
             for (index, frame) in conn.out.iter().enumerate() {
                 let start = if index == 0 { conn.front_sent.min(frame.len()) } else { 0 };
-                write_all_blocking(conn.fd, &frame[start..], deadline);
+                write_all_blocking(conn.fd, frame.get(start..).unwrap_or_default(), deadline);
             }
             // Written (or abandoned): never send these frames a second time.
             conn.out.clear();

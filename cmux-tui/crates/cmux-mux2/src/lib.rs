@@ -123,6 +123,16 @@ impl Reader<'_> {
     }
 }
 
+/// The status an EXIT frame carries; `None` for a body shorter than 4 bytes.
+pub fn exit_status(body: &[u8]) -> Option<i32> {
+    body.first_chunk::<4>().map(|status| i32::from_le_bytes(*status))
+}
+
+/// The terminal id of an OK reply to CREATE; `None` for a body shorter than 4 bytes.
+pub fn created_id(body: &[u8]) -> Option<u32> {
+    Reader(body).u32()
+}
+
 /// Appends `bytes` with its `u32` length; more than `u32::MAX` bytes is an
 /// `InvalidInput` error and appends nothing.
 pub fn put_bytes(out: &mut Vec<u8>, bytes: &[u8]) -> io::Result<()> {

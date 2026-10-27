@@ -9,9 +9,10 @@ use std::time::Instant;
 
 const POSIX_SPAWN_SETSID: libc::c_short = 0x0400;
 
+/// The median of `v`; NaN when `v` is empty.
 fn p50(mut v: Vec<f64>) -> f64 {
     v.sort_by(f64::total_cmp);
-    v[v.len() / 2]
+    v.get(v.len() / 2).copied().unwrap_or(f64::NAN)
 }
 
 fn open_pt() -> (libc::c_int, CString) {
@@ -58,12 +59,10 @@ pub fn main() {
     }
 
     let (master, slave_path) = open_pt();
-    let script = CString::new(
-        "printf 'tty=%s ' \"$(tty)\"; ps -o sess=,tpgid=,pgid=,tty= -p $$ | tr -s ' ' | sed 's/^/sess,tpgid,pgid,tty=/'; \
-         sleep 0.1 & wait; echo job-control-ok",
-    )
-    .expect("c");
-    let argv = [c"/bin/sh".as_ptr(), c"-c".as_ptr(), script.as_ptr(), std::ptr::null()];
+    let script = c"printf 'tty=%s ' \"$(tty)\"; ps -o sess=,tpgid=,pgid=,tty= -p $$ | tr -s ' ' | sed 's/^/sess,tpgid,pgid,tty=/'; \
+         sleep 0.1 & wait; echo job-control-ok";
+    let file = c"/bin/sh".as_ptr();
+    let argv = [file, c"-c".as_ptr(), script.as_ptr(), std::ptr::null()];
     let mut pid = 0;
     // SAFETY: posix_spawn attribute and file-action setup with valid pointers.
     let rc = unsafe {
@@ -78,7 +77,7 @@ pub fn main() {
         libc::posix_spawn_file_actions_addclose(&mut fa, master);
         let t = Instant::now();
         let rc =
-            libc::posix_spawn(&mut pid, argv[0], &fa, &attr, argv.as_ptr() as _, std::ptr::null());
+            libc::posix_spawn(&mut pid, file, &fa, &attr, argv.as_ptr() as _, std::ptr::null());
         eprintln!("posix_spawn with setsid + addopen: {:.1} us", t.elapsed().as_secs_f64() * 1e6);
         rc
     };
@@ -91,7 +90,7 @@ pub fn main() {
         if k <= 0 {
             break;
         }
-        out.extend_from_slice(&buf[..k as usize]);
+        out.extend_from_slice(buf.get(..k as usize).unwrap_or_default());
         if out.windows(14).any(|w| w == b"job-control-ok") {
             break;
         }

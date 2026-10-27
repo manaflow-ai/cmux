@@ -4,14 +4,14 @@
 /// Conservative: a false positive only costs an early parse.
 pub(super) fn needs_immediate_parse(data: &[u8]) -> bool {
     let mut i = 0;
-    while i < data.len() {
-        match data[i] {
+    while let Some(&b) = data.get(i) {
+        match b {
             0x05 => return true, // ENQ answerback
             0x1b => {
                 // The parser executes C0 controls (other than CAN, SUB and
                 // ESC) and ignores DEL in the escape state: look past them.
                 let mut k = i + 1;
-                while k < data.len() && executes_inside(data[k]) {
+                while data.get(k).is_some_and(|&b| executes_inside(b)) {
                     k += 1;
                 }
                 let Some(&next) = data.get(k) else { return true };
@@ -24,8 +24,9 @@ pub(super) fn needs_immediate_parse(data: &[u8]) -> bool {
                         // Parameters and intermediates; C0 controls other
                         // than ESC, CAN and SUB execute inside a CSI and DEL
                         // is ignored there, without ending it.
-                        while j < data.len()
-                            && ((0x20..0x40).contains(&data[j]) || executes_inside(data[j]))
+                        while data
+                            .get(j)
+                            .is_some_and(|&b| (0x20..0x40).contains(&b) || executes_inside(b))
                         {
                             j += 1;
                         }
@@ -60,14 +61,17 @@ pub(super) fn needs_immediate_parse(data: &[u8]) -> bool {
 /// starts, or `data.len()`. Only the last 64 bytes are looked at; a longer
 /// unfinished CSI is left in place and parsed at once instead.
 pub(super) fn incomplete_tail_start(data: &[u8]) -> usize {
-    let from = data.len().saturating_sub(64);
-    let Some(esc) = data[from..].iter().rposition(|&b| b == 0x1b).map(|i| from + i) else {
+    let Some((head, tail)) = data.split_at_checked(data.len().saturating_sub(64)) else {
         return data.len();
     };
-    let rest = &data[esc + 1..];
-    match rest.first() {
-        None => esc,
-        Some(b'[') if rest[1..].iter().all(|b| (0x20..0x40).contains(b)) => esc,
+    let Some(at) = tail.iter().rposition(|&b| b == 0x1b) else {
+        return data.len();
+    };
+    match tail.get(at + 1..) {
+        Some([]) => head.len() + at,
+        Some([b'[', params @ ..]) if params.iter().all(|b| (0x20..0x40).contains(b)) => {
+            head.len() + at
+        }
         _ => data.len(),
     }
 }

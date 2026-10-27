@@ -69,3 +69,14 @@ fn queries_are_stripped_and_other_sequences_pass() {
     assert_eq!(strip(b"\x1b]\x07"), b"\x1b]\x07");
     assert_eq!(strip(b"\x1b]\x1b\\"), b"\x1b]\x1b\\");
 }
+
+#[test]
+fn short_reply_and_exit_bodies_are_none_not_panics() {
+    for short in [&b""[..], b"\x01", b"\x01\x02\x03"] {
+        assert_eq!(proto::exit_status(short), None, "{short:?}");
+        assert_eq!(proto::created_id(short), None, "{short:?}");
+    }
+    assert_eq!(proto::exit_status(&(-1i32).to_le_bytes()), Some(-1));
+    assert_eq!(proto::exit_status(&[7, 0, 0, 0, 9]), Some(7));
+    assert_eq!(proto::created_id(&42u32.to_le_bytes()), Some(42));
+}

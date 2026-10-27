@@ -2,27 +2,32 @@
 //! Times `Terminal::new`, `openpty`, and starting `/bin/sleep` with fork +
 //! exec and with posix_spawn, N times each. One JSON line, microseconds p50.
 
-use std::ffi::CString;
 use std::time::Instant;
 
 use ghostty_vt::{Callbacks, Terminal};
 
+/// The median of `v`; NaN when `v` is empty.
 fn p50(mut v: Vec<f64>) -> f64 {
     v.sort_by(f64::total_cmp);
-    v[v.len() / 2]
+    v.get(v.len() / 2).copied().unwrap_or(f64::NAN)
 }
 
 pub fn main() {
     let n: usize = std::env::args().nth(1).and_then(|a| a.parse().ok()).unwrap_or(200);
-    let argv = [CString::new("/bin/sleep").expect("c"), CString::new("1000").expect("c")];
-    let ptrs: Vec<*const libc::c_char> =
-        argv.iter().map(|a| a.as_ptr()).chain([std::ptr::null()]).collect();
+    let file = c"/bin/sleep".as_ptr();
+    let ptrs: [*const libc::c_char; 3] = [file, c"1000".as_ptr(), std::ptr::null()];
     let (mut t_new, mut t_pty, mut t_fork, mut t_spawn) = (vec![], vec![], vec![], vec![]);
     let mut keep = Vec::new();
     let mut pids = Vec::new();
     for _ in 0..n {
         let t = Instant::now();
-        keep.push(Terminal::new(80, 24, 10_000_000, Callbacks::default()).expect("terminal"));
+        match Terminal::new(80, 24, 10_000_000, Callbacks::default()) {
+            Ok(terminal) => keep.push(terminal),
+            Err(e) => {
+                eprintln!("mux2-spawnbench: terminal: {e}");
+                std::process::exit(1);
+            }
+        }
         t_new.push(t.elapsed().as_secs_f64() * 1e6);
 
         let (mut m, mut s) = (-1, -1);
@@ -45,7 +50,7 @@ pub fn main() {
         if pid == 0 {
             // SAFETY: child: async-signal-safe exec or exit.
             unsafe {
-                libc::execv(ptrs[0], ptrs.as_ptr());
+                libc::execv(file, ptrs.as_ptr());
                 libc::_exit(127);
             }
         }
@@ -58,7 +63,7 @@ pub fn main() {
         unsafe {
             libc::posix_spawn(
                 &mut pid2,
-                ptrs[0],
+                file,
                 std::ptr::null(),
                 std::ptr::null(),
                 ptrs.as_ptr() as _,

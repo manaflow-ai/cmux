@@ -15,6 +15,7 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
+use std::sync::PoisonError;
 use std::time::Instant;
 
 use cmux_mux2::{self as proto};
@@ -92,7 +93,7 @@ fn wait_exit(t: u32) -> i32 {
         loop {
             match proto::read_frame(&mut s) {
                 Ok((proto::EXIT, body)) => {
-                    return i32::from_le_bytes(body[..4].try_into().unwrap_or([0; 4]));
+                    return proto::exit_status(&body).unwrap_or_else(|| die("bad exit frame"));
                 }
                 Ok((proto::ERR, body)) => die(String::from_utf8_lossy(&body)),
                 Ok(_) => {}
@@ -127,8 +128,8 @@ fn create_from_args(s: &mut UnixStream, args: &[String]) -> u32 {
     let mut cwd =
         std::env::current_dir().map(|p| p.as_os_str().as_bytes().to_vec()).unwrap_or_default();
     let mut i = 0;
-    while i < args.len() {
-        match args[i].as_str() {
+    while let Some(arg) = args.get(i) {
+        match arg.as_str() {
             "--cwd" => {
                 cwd = args
                     .get(i + 1)
@@ -149,25 +150,27 @@ fn create_from_args(s: &mut UnixStream, args: &[String]) -> u32 {
             _ => break,
         }
     }
-    let argv: Vec<&[u8]> = args[i..].iter().map(|a| a.as_bytes()).collect();
+    let argv: Vec<&[u8]> = args.iter().skip(i).map(|a| a.as_bytes()).collect();
     let create = proto::create_payload(cols, rows, &cwd, &argv).unwrap_or_else(|e| die(e));
-    let reply = call(s, proto::CREATE, &create);
-    u32::from_le_bytes(reply[..4].try_into().unwrap_or_else(|_| die("bad reply")))
+    proto::created_id(&call(s, proto::CREATE, &create)).unwrap_or_else(|| die("bad reply"))
 }
 
 fn idp(t: u32) -> Vec<u8> {
     t.to_le_bytes().to_vec()
 }
 
+/// The `f` quantile of `xs`; NaN when `xs` is empty.
 fn pct(xs: &mut [f64], f: f64) -> f64 {
     xs.sort_by(f64::total_cmp);
-    xs[((xs.len() - 1) as f64 * f) as usize]
+    let at = (xs.len().saturating_sub(1) as f64 * f) as usize;
+    xs.get(at).copied().unwrap_or(f64::NAN)
 }
 
 fn bench(s: &mut UnixStream, args: &[String]) {
     let n: usize = args.get(1).and_then(|a| a.parse().ok()).unwrap_or(100);
     let mut lat = Vec::with_capacity(n);
-    match args.first().map(String::as_str) {
+    let kind = args.first().map(String::as_str);
+    match kind {
         Some("create") => {
             let argv: [&[u8]; 2] = [b"/bin/sleep", b"1000000"];
             let payload = proto::create_payload(80, 24, b"", &argv).unwrap_or_else(|e| die(e));
@@ -180,8 +183,8 @@ fn bench(s: &mut UnixStream, args: &[String]) {
         Some("rtt") => {
             let argv: [&[u8]; 1] = [b"/bin/cat"];
             let create = proto::create_payload(80, 24, b"", &argv).unwrap_or_else(|e| die(e));
-            let reply = call(s, proto::CREATE, &create);
-            let t_id = u32::from_le_bytes(reply[..4].try_into().expect("id"));
+            let t_id = proto::created_id(&call(s, proto::CREATE, &create))
+                .unwrap_or_else(|| die("bad reply"));
             for i in 0..n {
                 let mark = format!("M{i:06}X");
                 let mut w = idp(t_id);
@@ -198,7 +201,7 @@ fn bench(s: &mut UnixStream, args: &[String]) {
     }
     println!(
         "{{\"bench\":\"{}\",\"n\":{n},\"p50_us\":{:.1},\"p95_us\":{:.1},\"p99_us\":{:.1}}}",
-        args[0],
+        kind.unwrap_or_default(),
         pct(&mut lat, 0.5),
         pct(&mut lat, 0.95),
         pct(&mut lat, 0.99)
@@ -251,7 +254,8 @@ fn attach(s: UnixStream, t: u32) -> i32 {
     let writer =
         std::sync::Arc::new(std::sync::Mutex::new(s.try_clone().unwrap_or_else(|e| die(e))));
     let send = |w: &std::sync::Mutex<UnixStream>, kind: u8, payload: &[u8]| {
-        proto::write_frame(&mut *w.lock().expect("writer"), kind, payload).is_ok()
+        proto::write_frame(&mut *w.lock().unwrap_or_else(PoisonError::into_inner), kind, payload)
+            .is_ok()
     };
     send(&writer, proto::RESIZE, &resize_payload(t));
     send(&writer, proto::ATTACH, &idp(t));
@@ -266,7 +270,7 @@ fn attach(s: UnixStream, t: u32) -> i32 {
                 return;
             }
             if proto::write_frame(
-                &mut *winch_writer.lock().expect("writer"),
+                &mut *winch_writer.lock().unwrap_or_else(PoisonError::into_inner),
                 proto::RESIZE,
                 &resize_payload(t),
             )
@@ -289,17 +293,22 @@ fn attach(s: UnixStream, t: u32) -> i32 {
                 let Ok((k, body)) = proto::read_frame(&mut reader) else { return 0 };
                 clean.clear();
                 match k {
-                    proto::SNAPSHOT if body.len() >= 4 => {
+                    proto::SNAPSHOT => {
                         // A snapshot replaces whatever the screen showed. Its
                         // first four bytes are the server's size.
-                        strip = proto::QueryStripper::default();
-                        clean.extend_from_slice(b"\x1bc");
-                        strip.push(&body[4..], &mut clean);
+                        if let Some((_size, replay)) = body.split_first_chunk::<4>() {
+                            strip = proto::QueryStripper::default();
+                            clean.extend_from_slice(b"\x1bc");
+                            strip.push(replay, &mut clean);
+                        }
                     }
                     proto::OUTPUT => strip.push(&body, &mut clean),
                     proto::EXIT => {
                         let _ = stdout.flush();
-                        return i32::from_le_bytes(body[..4].try_into().unwrap_or([0; 4]));
+                        return proto::exit_status(&body).unwrap_or_else(|| {
+                            eprintln!("mux2: bad exit frame");
+                            2
+                        });
                     }
                     proto::ERR => {
                         let _ = stdout.flush();
@@ -320,34 +329,37 @@ fn attach(s: UnixStream, t: u32) -> i32 {
             break;
         }
         let Ok(n) = stdin.read(&mut buf) else { break };
-        if n == 0 || buf[..n].contains(&0x1c) {
+        let Some(input) = buf.get(..n).filter(|input| !input.is_empty()) else { break };
+        if input.contains(&0x1c) {
             break;
         }
         let mut w = idp(t);
-        w.extend_from_slice(&buf[..n]);
+        w.extend_from_slice(input);
         if !send(&writer, proto::WRITE, &w) {
             break;
         }
     }
     drop(raw);
-    let _ = writer.lock().expect("writer").shutdown(std::net::Shutdown::Both);
+    let _ =
+        writer.lock().unwrap_or_else(PoisonError::into_inner).shutdown(std::net::Shutdown::Both);
     out.join().unwrap_or(0)
 }
 
 pub fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let Some(cmd) = args.first().map(String::as_str) else {
+    let Some((cmd, rest)) = args.split_first() else {
         die("usage: mux2 new|run|ls|screen|replay|write|resize|wait|kill|attach|bench|stats|stop")
     };
+    let cmd = cmd.as_str();
     let mut s = connect();
     let mut stdout = io::stdout().lock();
     match cmd {
         "new" => {
-            let t = create_from_args(&mut s, &args[1..]);
+            let t = create_from_args(&mut s, rest);
             let _ = writeln!(stdout, "{t}");
         }
         "run" => {
-            let t = create_from_args(&mut s, &args[1..]);
+            let t = create_from_args(&mut s, rest);
             std::process::exit(wait_exit(t));
         }
         "ls" => {
@@ -396,7 +408,7 @@ pub fn main() {
             drop(stdout);
             std::process::exit(attach(s, id_arg(args.get(1))));
         }
-        "bench" => bench(&mut s, &args[1..]),
+        "bench" => bench(&mut s, rest),
         _ => die(format!("unknown command {cmd}")),
     }
 }

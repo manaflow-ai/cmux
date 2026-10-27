@@ -23,7 +23,7 @@ pub(super) fn write_all_blocking(fd: RawFd, mut data: &[u8], deadline: std::time
         // SAFETY: data is a valid slice.
         let n = unsafe { libc::write(fd, data.as_ptr().cast(), data.len()) };
         if n > 0 {
-            data = &data[n as usize..];
+            data = data.get(n as usize..).unwrap_or_default();
         } else if n < 0 && io::Error::last_os_error().kind() == io::ErrorKind::WouldBlock {
             let mut pfd = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
             // SAFETY: one valid pollfd.
@@ -65,6 +65,9 @@ pub(super) fn spawn_pty(
     cols: u16,
     rows: u16,
 ) -> io::Result<(RawFd, libc::pid_t)> {
+    let Some(file) = argv.first() else {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "empty argv"));
+    };
     // SAFETY: standard PTY allocation on a fresh master descriptor.
     let master = cvt(unsafe { libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY) })?;
     let close_master = |e: io::Error| {
@@ -122,7 +125,14 @@ pub(super) fn spawn_pty(
             }
         }
         if rc == 0 {
-            rc = libc::posix_spawnp(&mut pid, ptrs[0], &fa, &attr, ptrs.as_ptr(), environ_ptr());
+            rc = libc::posix_spawnp(
+                &mut pid,
+                file.as_ptr(),
+                &fa,
+                &attr,
+                ptrs.as_ptr(),
+                environ_ptr(),
+            );
         }
         libc::posix_spawn_file_actions_destroy(&mut fa);
         libc::posix_spawnattr_destroy(&mut attr);
