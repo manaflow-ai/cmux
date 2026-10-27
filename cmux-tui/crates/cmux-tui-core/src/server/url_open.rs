@@ -1,13 +1,19 @@
 //! Transient guest OS-opener requests. URLs never enter the session journal or
 //! notification ledger. A live frontend explicitly subscribes to its terminal
 //! projections, claims each request, then acknowledges actual browser delivery.
+//!
+//! No thread waits for the frontend: the request's answer is sent by the
+//! frontend's acknowledgement, its disconnect, or a work item posted to run
+//! at the deadline (p02-threads 230), as Chrome answers a Mojo call from its
+//! reply callback with a `PostDelayedTask` timeout.
 
+use crate::event_cause::EventCause;
+use crate::mux::mux_work::Answer;
 use crate::panic_free::RecoverPoison;
-use cmux_threads::checked::ipc_reply;
-use cmux_threads::checked::sync as waits;
 use cmux_threads::sync::Mutex;
+use cmux_threads::work::{Lane, Shutdown};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::{Arc, mpsc};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -28,7 +34,8 @@ struct Pending {
     client: u64,
     deadline: Instant,
     claimed: bool,
-    reply: mpsc::SyncSender<bool>,
+    /// Whether it opened; dropped unsent, it answers `false`.
+    reply: Answer<bool>,
 }
 
 #[derive(Default)]
@@ -62,8 +69,11 @@ impl URLRequests {
         Ok(())
     }
 
-    fn prepare(&self, terminal: &str, url: &str) -> Option<(String, mpsc::Receiver<bool>)> {
-        let (id, writer, receiver) = {
+    /// Sends `url` to the one frontend subscribed to `terminal`; `reply` gets
+    /// whether it opened. `None` (and `reply` answered `false`) when no single
+    /// live frontend can take it.
+    fn prepare(&self, terminal: &str, url: &str, reply: Answer<bool>) -> Option<String> {
+        let (id, writer) = {
             let mut state = self.0.lock().recover_poison();
             if state.pending.len() >= CAPACITY {
                 return None;
@@ -81,23 +91,17 @@ impl URLRequests {
             // An unguessable capability lets a frontend acknowledge on another
             // connection through the same authenticated mux tunnel.
             let id = crate::workspace_registry::new_uuid_v4();
-            let (sender, receiver) = mpsc::sync_channel(1);
             state.pending.insert(
                 id.clone(),
-                Pending {
-                    client,
-                    deadline: Instant::now() + DEADLINE,
-                    claimed: false,
-                    reply: sender,
-                },
+                Pending { client, deadline: Instant::now() + DEADLINE, claimed: false, reply },
             );
-            (id, writer, receiver)
+            (id, writer)
         };
         if writer.send_url_open(&id, terminal, url).is_err() {
             self.cancel(&id);
             return None;
         }
-        Some((id, receiver))
+        Some(id)
     }
 
     /// A buffered event cannot open a stale auth URL after its caller timed out.
@@ -121,17 +125,33 @@ impl URLRequests {
         if !pending.claimed || Instant::now() >= pending.deadline {
             return false;
         }
-        state.pending.remove(id).is_some_and(|pending| pending.reply.try_send(opened).is_ok())
+        let Some(pending) = state.pending.remove(id) else { return false };
+        drop(state);
+        pending.reply.send(opened);
+        true
     }
 
+    /// Ends request `id` unopened: its deadline passed, or it could not be
+    /// sent. Its answer is sent outside the lock.
     fn cancel(&self, id: &str) {
-        self.0.lock().recover_poison().pending.remove(id);
+        let pending = self.0.lock().recover_poison().pending.remove(id);
+        drop(pending);
     }
 
     pub(super) fn disconnect(&self, client: u64) {
-        let mut state = self.0.lock().recover_poison();
-        state.subscribers.remove(&client);
-        state.pending.retain(|_, pending| pending.client != client);
+        let ended: Vec<Pending> = {
+            let mut state = self.0.lock().recover_poison();
+            state.subscribers.remove(&client);
+            let ids: Vec<String> = state
+                .pending
+                .iter()
+                .filter(|(_, pending)| pending.client == client)
+                .map(|(id, _)| id.clone())
+                .collect();
+            ids.iter().filter_map(|id| state.pending.remove(id)).collect()
+        };
+        // Each answers `false` as it drops, outside the lock.
+        drop(ended);
     }
 }
 
@@ -189,27 +209,37 @@ pub(super) fn start(
     let valid = mux.control_clients.is_unix(client)
         && validate_url(&url)
         && terminal_id.as_ref().and_then(|id| mux.resource_surface_for_terminal(id)).is_some();
-    let pending = valid.then(|| mux.control_clients.url_opens.prepare(&terminal, &url)).flatten();
-    let Some((request_id, receiver)) = pending else {
+    if !valid {
         return reply.reply(|| respond(writer, id, false));
-    };
-    let worker_mux = mux.clone();
-    let worker_writer = writer.clone();
-    let worker_id = id.clone();
-    let cleanup_id = request_id.clone();
-    let reply = reply.hand_to_worker();
-    let spawned = mux.request_qos().spawn_helper("mux-url-open", None, move || {
-        let reply = reply.start();
-        let _lock_scope = reply.enter_lock_scope();
-        // Waits on the app, another process.
-        let opened = ipc_reply(|| waits::recv_timeout(&receiver, DEADLINE)).unwrap_or(false);
-        worker_mux.control_clients.url_opens.cancel(&request_id);
-        reply.reply(|| respond(&worker_writer, worker_id, opened));
-    });
-    if spawned.is_err() {
-        mux.control_clients.url_opens.cancel(&cleanup_id);
-        return respond(writer, id, false);
     }
+    let answer_writer = writer.clone();
+    let reply = reply.hand_to_worker();
+    // Sent once: by the acknowledgement, the disconnect or the deadline item,
+    // whichever ends the request first.
+    let answer = Answer::new(
+        move |opened| {
+            let reply = reply.start();
+            let _lock_scope = reply.enter_lock_scope();
+            reply.reply(|| respond(&answer_writer, id, opened));
+        },
+        || false,
+    );
+    let Some(request_id) = mux.control_clients.url_opens.prepare(&terminal, &url, answer) else {
+        return true;
+    };
+    let expiring = Arc::downgrade(mux);
+    // Refused: shutdown began; the request ends with its connection.
+    let _ = mux.work.post_delayed(
+        DEADLINE,
+        EventCause::current().work_priority(),
+        Lane::Cpu,
+        Shutdown::ContinueOnShutdown,
+        move || {
+            if let Some(mux) = expiring.upgrade() {
+                mux.control_clients.url_opens.cancel(&request_id);
+            }
+        },
+    );
     true
 }
 

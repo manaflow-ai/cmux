@@ -19,7 +19,6 @@ pub(super) struct DeadlineFanoutState {
     jobs: VecDeque<DeadlineFanoutJob>,
     worker_count: usize,
     pub(super) admitted_jobs: usize,
-    next_worker: u64,
     shutdown: bool,
 }
 
@@ -60,17 +59,14 @@ impl DeadlineFanoutPool {
         if state.jobs.len() + 1 > available_workers
             && state.worker_count < CELL_PIXEL_FANOUT_MAX_WORKERS
         {
-            let worker_index = state.next_worker;
-            state.next_worker = state.next_worker.wrapping_add(1);
             state.worker_count += 1;
             let inner = self.inner.clone();
+            // The pool's workers share one name; server.threads counts them.
             // A request waits on the batch's deadline: the dispatcher's class.
             if cmux_threads::spawn(
-                format!("mux-deadline-{worker_index}"),
+                "mux-deadline",
                 crate::thread_qos::ThreadType::Interactive.qos(),
-                move || {
-                    deadline_fanout_worker(inner);
-                },
+                move || deadline_fanout_worker(inner),
             )
             .is_err()
             {

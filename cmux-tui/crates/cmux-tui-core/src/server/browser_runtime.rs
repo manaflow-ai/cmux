@@ -34,8 +34,8 @@ use std::net::SocketAddr;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::ChildStdin;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock, Weak};
 use std::time::Duration;
 
 use cmux_process::{Child, Command, Stdio};
@@ -114,6 +114,9 @@ pub(crate) struct BrowserRuntimes {
     root: Mutex<Option<PathBuf>>,
     next_id: AtomicU64,
     state: Mutex<State>,
+    /// The mux whose work stops a host ([`Self::stop`]); bound once it is
+    /// built.
+    owner: OnceLock<Weak<Mux>>,
 }
 
 impl BrowserRuntimes {
@@ -163,8 +166,47 @@ impl BrowserRuntimes {
             ids.into_iter().filter_map(|id| state.runtimes.remove(&id)).collect()
         };
         for runtime in stopped {
-            stop(runtime);
+            self.stop(runtime);
         }
+    }
+
+    /// Closes the lifeline; a host that is still running after the grace
+    /// time ends with its process group. The child is reaped only after any
+    /// kill, so the kill never reaches a reused pid. The grace wait is a
+    /// `will_block` work item, not a thread per stop.
+    fn stop(&self, runtime: Runtime) {
+        let Runtime { mut child, lifeline, log, .. } = runtime;
+        drop(lifeline);
+        let finish = move || {
+            cmux_threads::work::will_block(|| {
+                if !matches!(child.wait_timeout(STOP_GRACE), Ok(Some(_))) {
+                    if let Ok(group) = libc::pid_t::try_from(child.id()) {
+                        // SAFETY: plain syscall; the group's leader is unreaped.
+                        unsafe { libc::killpg(group, libc::SIGKILL) };
+                    }
+                    let _ = child.wait();
+                }
+            });
+            let _ = files::remove_file(&log);
+        };
+        // With no work (shutdown began, or the mux is gone) the host is left
+        // to its closed lifeline: it exits by itself, unreaped until the
+        // daemon ends.
+        if let Some(mux) = self.owner.get().and_then(Weak::upgrade) {
+            let _ = mux.work.post(
+                Priority::BestEffort,
+                Lane::System,
+                Shutdown::ContinueOnShutdown,
+                finish,
+            );
+        }
+    }
+}
+
+impl super::ClientRegistry {
+    /// Binds the mux whose work stops browser hosts.
+    pub(crate) fn bind_browser_runtime_owner(&self, mux: Weak<Mux>) {
+        let _ = self.browser_runtimes.owner.set(mux);
     }
 }
 
@@ -258,7 +300,7 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
             };
             match removed {
                 Some(runtime) => {
-                    stop(runtime);
+                    runtimes.stop(runtime);
                     Some(ok(writer, id, json!({"stopped": true})))
                 }
                 None => Some(fail(
@@ -372,48 +414,46 @@ fn start(
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned = mux.request_qos().spawn_helper(
-        "mux-browser-runtime-start",
-        Some(THREAD_STACK_BYTES),
-        move || {
-            let runtimes = &worker_mux.control_clients.browser_runtimes;
-            // The install is on disk: read here, not on the reader thread.
-            let Some((version, executable)) = runtimes.installed() else {
-                runtimes.lock().release(client);
-                fail(
-                    &worker_writer,
-                    worker_id,
-                    "browser-runtime.not-installed",
-                    "the browser is not installed on this machine",
-                );
-                return;
-            };
-            let launched = launch(runtimes, client, &executable, url.as_deref());
+    // The start waits up to START_TIMEOUT for the host's first line
+    // (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        let runtimes = &worker_mux.control_clients.browser_runtimes;
+        // The install is on disk: read here, not on the reader thread.
+        let Some((version, executable)) = runtimes.installed() else {
             runtimes.lock().release(client);
-            match launched {
-                Ok((runtime_id, port, secret)) => {
-                    // The connection may have ended during the start.
-                    if !worker_mux.control_clients.is_unix(client) {
-                        runtimes.disconnect(client);
-                        return;
-                    }
-                    let reply = json!({
-                        "runtime": runtime_id,
-                        "port": port,
-                        "secret": secret,
-                        "installed": version,
-                    });
-                    ok(&worker_writer, worker_id, reply);
-                }
-                Err(message) => {
-                    fail(&worker_writer, worker_id, "browser-runtime.start-failed", &message);
-                }
-            }
-        },
-    );
-    if spawned.is_err() {
+            fail(
+                &worker_writer,
+                worker_id,
+                "browser-runtime.not-installed",
+                "the browser is not installed on this machine",
+            );
+            return;
+        };
+        let launched = launch(runtimes, client, &executable, url.as_deref());
         runtimes.lock().release(client);
-        return fail(writer, id, "browser-runtime.start-failed", "cannot start a thread");
+        match launched {
+            Ok((runtime_id, port, secret)) => {
+                // The connection may have ended during the start.
+                if !worker_mux.control_clients.is_unix(client) {
+                    runtimes.disconnect(client);
+                    return;
+                }
+                let reply = json!({
+                    "runtime": runtime_id,
+                    "port": port,
+                    "secret": secret,
+                    "installed": version,
+                });
+                ok(&worker_writer, worker_id, reply);
+            }
+            Err(message) => {
+                fail(&worker_writer, worker_id, "browser-runtime.start-failed", &message);
+            }
+        }
+    });
+    if posted.is_err() {
+        runtimes.lock().release(client);
+        return fail(writer, id, "browser-runtime.start-failed", "the daemon is shutting down");
     }
     true
 }
@@ -487,7 +527,7 @@ fn launch(
     let runtime = Runtime { owner: client, child, lifeline, port: port.unwrap_or(0), log };
     let Some(port) = port else {
         let tail = log_tail(&runtime.log);
-        stop(runtime);
+        runtimes.stop(runtime);
         return Err(if tail.is_empty() {
             "the browser did not start".into()
         } else {
@@ -520,32 +560,6 @@ fn log_tail(log: &Path) -> String {
     let mut bytes = Vec::new();
     let _ = file.read_to_end(&mut bytes);
     String::from_utf8_lossy(&bytes).split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// Closes the lifeline; a host that is still running after the grace time
-/// ends with its process group. The child is reaped only after any kill, so
-/// the kill never reaches a reused pid.
-fn stop(runtime: Runtime) {
-    let Runtime { mut child, lifeline, log, .. } = runtime;
-    drop(lifeline);
-    let finish = move || {
-        if !matches!(child.wait_timeout(STOP_GRACE), Ok(Some(_))) {
-            if let Ok(group) = libc::pid_t::try_from(child.id()) {
-                // SAFETY: plain syscall; the group's leader is unreaped.
-                unsafe { libc::killpg(group, libc::SIGKILL) };
-            }
-            let _ = child.wait();
-        }
-        let _ = files::remove_file(&log);
-    };
-    // A stop thread that cannot start leaves the host to its closed
-    // lifeline: it exits by itself, unreaped until the daemon ends.
-    let _ = crate::thread_qos::spawn_raisable(
-        "mux-browser-runtime-stop",
-        crate::thread_qos::ThreadType::Utility.qos(),
-        Some(THREAD_STACK_BYTES),
-        finish,
-    );
 }
 
 fn ok(writer: &MessageWriter, id: Option<Value>, data: Value) -> bool {

@@ -89,7 +89,7 @@ final class SidebarResizeHandle: NSView {
         CATransaction.commit()
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: sets the hairline's layer color and invalidates its layout; nothing measures
         super.viewDidChangeEffectiveAppearance()
         applyLineTheme()
     }
@@ -119,12 +119,12 @@ final class SidebarResizeHandle: NSView {
     func refreshHover() { pointerHover?.refresh() }
 
     /// Hidden with the sidebar under a still pointer: no exit comes.
-    override func viewDidHide() {
+    override func viewDidHide() { // visibility-walk-allow: the hover owner's hit test (PointerHover.refresh): a hidden handle gets no exit
         super.viewDidHide()
         pointerHover?.refresh()
     }
 
-    override func viewDidUnhide() {
+    override func viewDidUnhide() { // visibility-walk-allow: the hover owner's hit test (PointerHover.refresh) under a still pointer
         super.viewDidUnhide()
         pointerHover?.refresh()
     }
@@ -153,6 +153,7 @@ final class SidebarResizeHandle: NSView {
         onDrag?(.began)
     }
 
+    // local-monitor-allow: with pointerFrameDrags the drag is the window's FrameInputCoalescer consumer (frameDrag); off, each event resizes
     override func mouseDragged(with event: NSEvent) { // perf-hot: 2ms resize-drag (every drag event)
         guard isDragging else { return }
         if let frameDrag {

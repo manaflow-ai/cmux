@@ -63,7 +63,6 @@ const MAX_EARLY: usize = 256;
 pub(crate) const MAX_PAGE_BYTES: usize = 8 << 20;
 /// Bytes of notifications held while the attach call waits.
 const MAX_EARLY_BYTES: usize = 16 << 20;
-const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 // MARK: State
 
@@ -642,21 +641,21 @@ fn attach(
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let surface = params.surface;
-    let spawned =
-        mux.request_qos().spawn_helper("mux-agent-attach", Some(THREAD_STACK_BYTES), move || {
-            connect_and_attach(
-                worker_mux,
-                client,
-                worker_id,
-                socket,
-                surface,
-                record_session,
-                acpmux_params,
-                read_only,
-                worker_writer,
-            );
-        });
-    if spawned.is_err() {
+    // The attach waits on acpmux (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        connect_and_attach(
+            worker_mux,
+            client,
+            worker_id,
+            socket,
+            surface,
+            record_session,
+            acpmux_params,
+            read_only,
+            worker_writer,
+        );
+    });
+    if posted.is_err() {
         sessions.lock().reserved.remove(&(client, surface));
         return refuse(writer, id, Refusal::Limit);
     }
@@ -755,16 +754,16 @@ fn run_on_worker(
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let worker = attachment.clone();
-    let spawned =
-        mux.request_qos().spawn_helper("mux-agent-call", Some(THREAD_STACK_BYTES), move || {
-            let result = call(&worker, command);
-            worker.calls.fetch_sub(1, Ordering::AcqRel);
-            match result {
-                Ok(data) => ok(&worker_writer, worker_id, data),
-                Err(refusal) => refuse(&worker_writer, worker_id, refusal),
-            };
-        });
-    if spawned.is_err() {
+    // The call waits on acpmux (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        let result = call(&worker, command);
+        worker.calls.fetch_sub(1, Ordering::AcqRel);
+        match result {
+            Ok(data) => ok(&worker_writer, worker_id, data),
+            Err(refusal) => refuse(&worker_writer, worker_id, refusal),
+        };
+    });
+    if posted.is_err() {
         attachment.calls.fetch_sub(1, Ordering::AcqRel);
         return refuse(writer, id, Refusal::Limit);
     }

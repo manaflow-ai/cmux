@@ -152,7 +152,8 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
     let socket = mux.control_clients.agent_sessions.socket();
     let output = writer.clone();
     let request_id = id.clone();
-    let spawned = mux.request_qos().spawn_helper("mux-agent-cli-job", None, move || {
+    // The job's preparation waits on acpmux (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
         let cli = params.cli;
         let result = owner.create_agent_cli_update_job(&cli, &mutation, || {
             prepare(socket.as_deref().ok_or(Failure::Unavailable)?, &cli)
@@ -160,7 +161,7 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
         drop(slot);
         reply(&output, request_id, result);
     });
-    if spawned.is_err() {
+    if posted.is_err() {
         return Some(reply(writer, id, Err(Failure::Busy.into())));
     }
     Some(true)
