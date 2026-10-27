@@ -260,7 +260,11 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           submodules: recursive
-          fetch-depth: 0
+          # Not 0: fetch-depth 0 fetches every branch's whole history into this
+          # runner's reused checkout, 22k remote branches and 7.8 GiB of packs
+          # on every mini (2026-10-27), against 0.6 GiB for its siblings. The
+          # merge-base step below deepens only BASE_SHA and HEAD_SHA instead.
+          fetch-depth: 2
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -275,7 +279,20 @@ jobs:
       - name: Find the merge base
         run: |
           set -euo pipefail
-          merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+          git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null \
+            || git fetch --no-tags --quiet --depth=2 origin "$BASE_SHA"
+          merge_base=""
+          for deepen in 100 400 1600; do
+            merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null)" && break
+            merge_base=""
+            git fetch --no-tags --quiet --deepen="$deepen" origin "$BASE_SHA" "$HEAD_SHA"
+          done
+          if [ -z "$merge_base" ]; then
+            merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null)" || {
+              git fetch --no-tags --quiet --unshallow origin "$BASE_SHA" "$HEAD_SHA"
+              merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+            }
+          fi
           echo "MERGE_BASE=$merge_base" >> "$GITHUB_ENV"
           echo "merge base of $BASE_SHA and $HEAD_SHA: $merge_base"
 
