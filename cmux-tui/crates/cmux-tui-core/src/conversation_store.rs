@@ -137,26 +137,37 @@ impl ConversationStore {
     /// Open `conversations.sqlite3` in `directory`, or an in-memory store
     /// when there is no directory (an in-memory session, tests).
     pub(crate) fn open(directory: Option<&Path>) -> anyhow::Result<Self> {
-        let connection = match directory {
-            Some(directory) => {
-                let path = directory.join(CONVERSATIONS_FILE);
-                let connection = crate::workspace_registry::open_registry_database(&path)
-                    .with_context(|| format!("open conversation store {}", path.display()))?;
-                crate::platform::restrict_file(&path)
-                    .with_context(|| format!("restrict conversation store {}", path.display()))?;
-                crate::workspace_registry::wal_durability::attach_store(&connection, &path);
-                connection
-            }
-            None => Connection::open_in_memory()?,
+        Self::open_with_faults(directory, &crate::sqlite_policy::LoggedFaults)
+    }
+
+    /// `open`, reporting an unreadable file set aside to `faults`
+    /// (`sqlite_policy`).
+    pub(crate) fn open_with_faults(
+        directory: Option<&Path>,
+        faults: &dyn crate::sqlite_policy::SqliteFaults,
+    ) -> anyhow::Result<Self> {
+        let Some(directory) = directory else {
+            return Self::initialize(
+                Connection::open_in_memory()?,
+                attachments::Attachments::open(None)?,
+            );
         };
-        Self::initialize(connection, attachments::Attachments::open(directory)?)
+        let path = directory.join(CONVERSATIONS_FILE);
+        crate::sqlite_policy::open_own_store("conversation_store", &path, faults, |path| {
+            let connection = crate::workspace_registry::open_registry_database(path)
+                .with_context(|| format!("open conversation store {}", path.display()))?;
+            crate::platform::restrict_file(path)
+                .with_context(|| format!("restrict conversation store {}", path.display()))?;
+            crate::workspace_registry::wal_durability::attach_store(&connection, path);
+            Self::initialize(connection, attachments::Attachments::open(Some(directory))?)
+        })
     }
 
     fn initialize(
         mut connection: Connection,
         attachments: attachments::Attachments,
     ) -> anyhow::Result<Self> {
-        connection.busy_timeout(std::time::Duration::from_secs(5))?;
+        connection.busy_timeout(crate::sqlite_policy::BUSY_TIMEOUT)?;
         connection.execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA fullfsync=ON;
              CREATE TABLE IF NOT EXISTS meta (

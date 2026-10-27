@@ -40,10 +40,24 @@ nonisolated extension ChiefAdoption {
         }
     }
 
-    /// Why a database copy failed; `busy`: another connection held it too long (retried next launch).
+    /// Why a database copy failed; `busy`: another connection held it too long (retried next launch);
+    /// `unreadable`: SQLite reported the source corrupt or not a database.
     struct BackupError: Error, CustomStringConvertible {
         var description: String
         var busy: Bool
+        var unreadable = false
+    }
+
+    /// How long either side of the backup waits for another connection's lock.
+    static let backupBusyTimeoutMilliseconds: Int32 = 10_000
+
+    private static let sqliteLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
+
+    /// The SQLite error policy for a database the adoption only reads: a corrupt source is never
+    /// moved or repaired here (its owner, the conversation daemon, sets its own aside); the backup
+    /// keeps a raw clone and this reports one fault for it.
+    static func reportUnreadable(_ error: BackupError) {
+        sqliteLogger.fault("chief adoption kept a raw copy of an unreadable database: \(error.description, privacy: .public)")
     }
 
     /// Copies the database at `source` to the new file `target` with the online backup API.
@@ -58,14 +72,17 @@ nonisolated extension ChiefAdoption {
         guard sqlite3_open_v2(source.path, &from, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK,
               sqlite3_open_v2(target.path, &to, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil) == SQLITE_OK,
               let from, let to else { throw failure("open", from ?? to, source) }
-        sqlite3_busy_timeout(from, 10_000)
+        sqlite3_busy_timeout(from, backupBusyTimeoutMilliseconds)
+        sqlite3_busy_timeout(to, backupBusyTimeoutMilliseconds)
         // When this is the last connection, its close checkpoints: as durably as the owner does.
         sqlite3_exec(from, "PRAGMA fullfsync=ON; PRAGMA checkpoint_fullfsync=ON", nil, nil, nil)
         guard let backup = sqlite3_backup_init(to, "main", from, "main") else { throw failure("backup_init", to, source) }
         let step = sqlite3_backup_step(backup, -1)
         let finish = sqlite3_backup_finish(backup)
         guard step == SQLITE_DONE, finish == SQLITE_OK else {
-            throw failure("backup_step \(step)", to, source, busy: step == SQLITE_BUSY || step == SQLITE_LOCKED)
+            var error = failure("backup_step \(step)", to, source, busy: step == SQLITE_BUSY || step == SQLITE_LOCKED)
+            error.unreadable = [SQLITE_CORRUPT, SQLITE_NOTADB].contains(step & 0xff)
+            throw error
         }
         // One file: the copy keeps no WAL of its own (the pragma answers the mode it set).
         var statement: OpaquePointer?

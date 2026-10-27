@@ -1,11 +1,15 @@
+import CmuxNextCompat
 import Foundation
 import SQLite3
+import os
 
 /// A small read-write SQLite handle for history stores. Not thread safe:
 /// one actor owns each instance.
 nonisolated final class HistorySQLite {
     enum Failure: Error, Equatable {
         case open(String)
+        /// SQLite reported the file corrupt or not a database.
+        case unreadable(String)
         case statement(String)
     }
 
@@ -15,25 +19,92 @@ nonisolated final class HistorySQLite {
         case null
     }
 
+    /// A file SQLite could not read (`SQLITE_CORRUPT`, `SQLITE_NOTADB`), moved aside before a new
+    /// database was created at its path.
+    struct SetAside: Equatable, Sendable {
+        let database: URL
+        /// `<name>.corrupt`, or `<name>.corrupt-<uuid>` when that exists.
+        let aside: URL
+        let reason: String
+    }
+
+    /// How long a statement waits for another connection's lock.
+    static let busyTimeoutMilliseconds: Int32 = 250
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "history")
+
+    /// The default fault report: one `.fault` in the unified log, which the error journal harvests.
+    static func logFault(_ event: SetAside) {
+        let name = event.database.lastPathComponent, aside = event.aside.lastPathComponent
+        logger.fault("history database \(name, privacy: .public) was unreadable (\(event.reason, privacy: .public)); moved it to \(aside, privacy: .public) and started a new one")
+    }
+
     private var handle: OpaquePointer?
 
     /// Opens (creating) the database at `url`; nil opens an in-memory one.
-    init(url: URL?) throws {
-        let path: String
-        if let url {
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            path = url.path
-        } else {
-            path = ":memory:"
+    ///
+    /// The SQLite error policy, after Chromium's `sql::Database` error callback and `sql::Recovery`
+    /// (sql/database.cc, sql/recovery.cc): a busy timeout on the handle; a file SQLite reports
+    /// corrupt or not a database is moved aside with its sidecars, a new database is created in its
+    /// place and `onSetAside` hears it once. The open runs at most twice, so a start never loops.
+    init(url: URL?, onSetAside: (SetAside) -> Void = HistorySQLite.logFault) throws {
+        guard let url else {
+            handle = try Self.openHandle(path: ":memory:").get()
+            return
         }
+        try FileManager.checked.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        switch Self.openHandle(path: url.path) {
+        case .success(let opened):
+            handle = opened
+        case .failure(.unreadable(let reason)):
+            let aside = try Self.moveAside(url)
+            handle = try Self.openHandle(path: url.path).get()
+            onSetAside(SetAside(database: url, aside: aside, reason: reason))
+        case .failure(let failure):
+            throw failure
+        }
+    }
+
+    /// Opens `path` and reads its schema once (an open reads no page; the first statement would
+    /// meet a damaged file instead).
+    private static func openHandle(path: String) -> Result<OpaquePointer, Failure> {
+        var opened: OpaquePointer?
         let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX
-        guard sqlite3_open_v2(path, &handle, flags, nil) == SQLITE_OK else {
-            let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "open failed"
-            sqlite3_close(handle)
-            handle = nil
-            throw Failure.open(message)
+        let code = blockingSQLiteOpen(path, &opened, flags)
+        guard code == SQLITE_OK, let opened else {
+            let message = opened.map { String(cString: sqlite3_errmsg($0)) } ?? "open failed"
+            blockingSQLiteClose(opened)
+            return .failure(.open(message))
         }
-        sqlite3_busy_timeout(handle, 250)
+        sqlite3_busy_timeout(opened, busyTimeoutMilliseconds)
+        let probe = blockingSQLiteExec(opened, "SELECT count(*) FROM sqlite_master")
+        guard probe == SQLITE_OK else {
+            let message = String(cString: sqlite3_errmsg(opened))
+            blockingSQLiteClose(opened)
+            let primary = probe & 0xff
+            return .failure(primary == SQLITE_CORRUPT || primary == SQLITE_NOTADB ? .unreadable(message) : .open(message))
+        }
+        return .success(opened)
+    }
+
+    /// Moves the database to `<name>.corrupt` (never over an earlier one) and its `-wal`,
+    /// `-journal` and `-shm` beside it; a sidecar that cannot move is removed, since SQLite would
+    /// replay it into the new database.
+    private static func moveAside(_ url: URL) throws -> URL {
+        let manager = FileManager.checked
+        let first = url.appendingPathExtension("corrupt")
+        let aside = manager.fileExists(atPath: first.path) ? url.appendingPathExtension("corrupt-\(UUID().uuidString)") : first
+        try manager.moveItem(at: url, to: aside)
+        for suffix in ["-wal", "-journal", "-shm"] {
+            let sidecar = URL(fileURLWithPath: url.path + suffix)
+            guard manager.fileExists(atPath: sidecar.path) else { continue }
+            do {
+                try manager.moveItem(at: sidecar, to: URL(fileURLWithPath: aside.path + suffix))
+            } catch {
+                try manager.removeItem(at: sidecar)
+            }
+        }
+        return aside
     }
 
     deinit {

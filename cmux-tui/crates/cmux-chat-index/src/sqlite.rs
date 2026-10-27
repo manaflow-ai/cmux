@@ -11,6 +11,11 @@
 //!
 //! Every handle is `query_only`, runs fixed queries (no ATTACH), and stops
 //! any query after a deadline.
+//!
+//! The SQLite error policy for a store another program owns: wait out a
+//! lock for the deadline (busy timeout); a corrupt file (`SQLITE_CORRUPT`,
+//! `SQLITE_NOTADB`) is never moved or repaired, it fails that one scan with
+//! the error and the index keeps its last result until the file changes.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -69,4 +74,29 @@ pub(crate) fn columns(conn: &Connection, table: &str) -> rusqlite::Result<HashSe
     let mut stmt = conn.prepare("SELECT name FROM pragma_table_info(?1)")?;
     let names = stmt.query_map([table], |row| row.get::<_, String>(0))?;
     names.collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A garbage harness store fails its read with SQLite's error, and the
+    /// file stays byte for byte as the harness left it, with no sidecar.
+    #[test]
+    fn a_garbage_store_fails_the_read_and_is_left_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.sqlite");
+        let garbage = vec![0x5a_u8; 8192];
+        std::fs::write(&path, &garbage).unwrap();
+
+        let error = open_read_only(&path).and_then(|conn| columns(&conn, "threads")).unwrap_err();
+
+        assert_eq!(error.sqlite_error_code(), Some(rusqlite::ErrorCode::NotADatabase), "{error}");
+        assert_eq!(std::fs::read(&path).unwrap(), garbage);
+        let names: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert_eq!(names, ["state.sqlite"]);
+    }
 }

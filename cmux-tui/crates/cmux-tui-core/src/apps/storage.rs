@@ -46,17 +46,40 @@ fn table(app: &str) -> String {
 }
 
 impl Storage {
-    /// Opens (or creates) the database; `None` opens an in-memory one.
+    /// Opens (or creates) the database; `None` opens an in-memory one. An
+    /// unreadable file is set aside and the storage starts empty
+    /// (`sqlite_policy`).
     #[track_caller]
     pub fn open(path: Option<&Path>) -> Result<Self, StorageError> {
+        Self::open_with_faults(path, &crate::sqlite_policy::LoggedFaults)
+    }
+
+    /// `open`, reporting an unreadable file set aside to `faults`.
+    #[track_caller]
+    pub(crate) fn open_with_faults(
+        path: Option<&Path>,
+        faults: &dyn crate::sqlite_policy::SqliteFaults,
+    ) -> Result<Self, StorageError> {
         note(BlockingKind::Sqlite);
         let db = match path {
-            Some(path) => Connection::open(path),
-            None => Connection::open_in_memory(),
+            Some(path) => {
+                crate::sqlite_policy::open_own_store("apps_storage", path, faults, |path| {
+                    Ok(Self::prepare(Connection::open(path)?)?)
+                })
+            }
+            None => {
+                Connection::open_in_memory().and_then(Self::prepare).map_err(anyhow::Error::from)
+            }
         }
-        .map_err(failed)?;
-        db.pragma_update(None, "journal_mode", "WAL").ok();
+        .map_err(|error| failed(format!("{error:#}")))?;
         Ok(Self { db })
+    }
+
+    fn prepare(db: Connection) -> rusqlite::Result<Connection> {
+        db.busy_timeout(crate::sqlite_policy::BUSY_TIMEOUT)?;
+        crate::sqlite_policy::probe(&db)?;
+        db.pragma_update(None, "journal_mode", "WAL").ok();
+        Ok(db)
     }
 
     fn ensure(&self, app: &str) -> Result<String, StorageError> {
@@ -201,6 +224,27 @@ mod tests {
         assert_eq!(site.count, 1);
         assert!(site.kinds.contains(ThreadsKind::Sqlite));
         assert_eq!(snapshot.site(file!(), allowed), None);
+    }
+
+    #[test]
+    fn a_garbage_file_opens_as_empty_storage_with_one_fault() {
+        let dir = crate::sqlite_policy::TestDir::new();
+        let path = dir.path().join("apps-storage.sqlite");
+        std::fs::write(&path, vec![0xa5_u8; 8192]).unwrap();
+        let faults = crate::sqlite_policy::RecordedFaults::default();
+
+        let s = Storage::open_with_faults(Some(&path), &faults).unwrap();
+
+        s.call("cmux/a", "app.storage.set", &json!({ "key": "k", "value": 1 })).unwrap();
+        assert_eq!(s.call("cmux/a", "app.storage.get", &json!({ "key": "k" })).unwrap(), json!(1));
+        let events = faults.taken();
+        assert_eq!(events.len(), 1, "{events:?}");
+        assert_eq!(events[0].store, "apps_storage");
+        assert_eq!(std::fs::read(&events[0].aside).unwrap(), vec![0xa5_u8; 8192]);
+        drop(s);
+        // The new file is a good store: the next open reports nothing.
+        drop(Storage::open_with_faults(Some(&path), &faults).unwrap());
+        assert!(faults.taken().is_empty());
     }
 
     #[test]

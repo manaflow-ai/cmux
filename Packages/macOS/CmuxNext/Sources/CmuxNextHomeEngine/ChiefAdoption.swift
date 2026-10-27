@@ -105,6 +105,7 @@ public nonisolated struct ChiefAdoption: Sendable {
                 } catch let error as BackupError where error.busy {
                     throw error
                 } catch {
+                    if let error = error as? BackupError, error.unreadable { Self.reportUnreadable(error) }
                     try? FileManager.default.removeItem(at: to)
                     for file in [name] + ["-wal", "-shm", "-journal"].map({ name + $0 }) where names.contains(file) {
                         try Self.cloneFile(from: source.appendingPathComponent(file), to: target.appendingPathComponent(file))
