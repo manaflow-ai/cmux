@@ -163,6 +163,7 @@ import { measureVmEffect, type VmTimingSink } from "./timings";
 import { guestPromptInstallCommand, vmPromptIdentity } from "./guestPrompt";
 import { vmAgentUpdatesFromRow, type VmAgentUpdatesSetting } from "./agentUpdates";
 import { guestAgentUpdatesCommand } from "./guestAgentUpdates";
+import { vmKindForCaller } from "./vmKind";
 import type { VmIdlePauseMinutes } from "./idlePause";
 
 export {
@@ -5493,7 +5494,8 @@ export function openVmCmuxRemote(input: {
     if (vmAgentUpdatesFromRow(vm) === "latest") {
       yield* scheduleGuestAgentUpdates(providers, vm, "latest", input.deferAfterResponse);
     }
-    return endpoint;
+    // The caller's own sandbox opt-out reads this; see vmKindForCaller.
+    return { ...endpoint, vmKind: vmKindForCaller(vm, input.userId) };
   });
 }
 
@@ -5592,7 +5594,7 @@ type OpenAttachEndpointInput = {
 export function openAttachEndpoint(input: OpenAttachEndpointInput) {
   return Effect.gen(function* () {
     const result = yield* openAttachEndpointResult(input);
-    return result.endpoint;
+    return { ...result.endpoint, vmKind: result.vmKind };
   });
 }
 
@@ -5822,7 +5824,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
         },
       })
       : undefined;
-    return { endpoint, session };
+    return { endpoint, session, vmKind: vmKindForCaller(vm, input.userId) };
   });
 }
 
