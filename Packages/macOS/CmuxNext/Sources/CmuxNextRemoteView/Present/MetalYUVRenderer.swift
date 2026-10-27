@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CoreVideo
 import Foundation
 import Metal
@@ -18,8 +19,13 @@ nonisolated struct SharedMetalLayer: @unchecked Sendable { // crash-allow: main 
 /// queue, off the main thread and off the cooperative pool: `nextDrawable`
 /// may wait there for one of the two drawables. Its texture cache and the
 /// layer's drawable size are touched only there.
+///
+/// The render queue is on threading-model.md's closed user-interactive list: the remote desktop's frames are a
+/// compositor-class motion path, which Chrome runs at `ThreadType::kDisplayCritical`
+/// (base/threading/platform_thread.h; user-interactive in base/threading/platform_thread_apple.mm).
 actor MetalYUVRenderer {
-    private nonisolated let queue = DispatchSerialQueue(label: "cmux.remote-view.render", qos: .userInteractive)
+    // qos-allow: closed list (threading-model.md): the remote view's frames wait on this queue, Chrome's kDisplayCritical
+    private nonisolated let queue = DispatchQueue.checkedSerial(label: "cmux.remote-view.render", qos: .userInteractive)
     nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
     private let shared: SharedMetalLayer
     private let commandQueue: any MTLCommandQueue

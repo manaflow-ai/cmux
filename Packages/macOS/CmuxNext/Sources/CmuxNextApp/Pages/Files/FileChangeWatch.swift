@@ -96,7 +96,9 @@ final class FileChangeWatch {
     /// The file's stamp, and its content when the stamp differs from `previous` (nil: gone).
     @concurrent private static func read(_ url: URL, inWorkspace: Bool, unless previous: Stamp?) async -> (Stamp?, FileSnapshot?) {
         var info = stat()
-        guard stat(url.path, &info) == 0 else { return (nil, nil) }
+        // SAFETY: stat reads the NUL-terminated copy of the path made for the call and writes one struct stat
+        // into `info`, a local live for the call.
+        guard unsafe stat(url.path, &info) == 0 else { return (nil, nil) }
         let stamp = Stamp(device: Int64(info.st_dev), inode: UInt64(info.st_ino), size: Int64(info.st_size),
                           modified: Int64(info.st_mtimespec.tv_sec) * 1_000_000_000 + Int64(info.st_mtimespec.tv_nsec))
         guard stamp != previous else { return (stamp, nil) }

@@ -144,7 +144,7 @@ public final class WebPopupHost {
         popup.onDismiss = { [weak self] in
             guard let self, model != nil else { return }
             model = nil
-            panel?.isClosing = true
+            self.panel?.isClosing = true
             noteShown()
             send(["type": "dismiss"])
         }
@@ -242,6 +242,9 @@ final class WebPopupRows: NSView {
         self.onPick = onPick
         self.onHover = onHover
         super.init(frame: .zero)
+        // The whole menu's edge: leaving it is discrete, so the pending move lands now (`ShouldFlushQueue`).
+        // The rows' own edges are not; they post like moves (PopupRowView).
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -249,18 +252,6 @@ final class WebPopupRows: NSView {
 
     nonisolated override var isFlipped: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    // The whole menu's edge: leaving it is discrete, so the pending move lands now (`ShouldFlushQueue`).
-    // The rows' own edges are not; they post like moves (PopupRowView).
-    private var tracking: NSTrackingArea?
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
 
     override func mouseEntered(with event: NSEvent) {}
     override func mouseExited(with event: NSEvent) { hoverMoves.flush() }
@@ -270,12 +261,17 @@ final class WebPopupRows: NSView {
     }
 
     func update(_ items: [WebPopupHost.Item], highlighted: String?) {
-        if items != self.items || plain != builtPlain || rows.isEmpty != items.isEmpty { rebuild(items) }
+        let rebuilt = items != self.items || plain != builtPlain || rows.isEmpty != items.isEmpty
+        if rebuilt { rebuild(items) }
         self.highlighted = highlighted
+        // A highlight move only repaints the two rows (`isHighlighted` redraws on a change).
         for (item, view) in rows { (view as? PopupRowView)?.isHighlighted = item.id == highlighted }
-        setFrameSize(NSSize(width: superview?.bounds.width ?? frame.width, height: contentHeight))
-        needsLayout = true
-        layoutSubtreeIfNeeded()
+        let size = NSSize(width: superview?.bounds.width ?? frame.width, height: contentHeight)
+        if rebuilt || size != frame.size {
+            setFrameSize(size)
+            needsLayout = true // invalidate: new rows or a new size (the check above) to place.
+            layoutSubtreeIfNeeded() // sync-layout: scrollToHighlight below reads the highlighted row's frame.
+        }
         scrollToHighlight()
     }
 

@@ -30,6 +30,7 @@ final class HostPressurePopover {
             return anchor.bounds.contains(anchor.convert(event.locationInWindow, from: nil))
         }
         let rect = window.convertToScreen(anchor.convert(CmuxPopoverAnchor.rect(in: anchor), to: nil))
+        // sync-layout: the rebuilt rows' fitting height sizes the popup before it orders in.
         content.layoutSubtreeIfNeeded()
         let size = CGSize(width: HostPressurePopoverView.width, height: ceil(content.fittingSize.height))
         guard popup.show(size: size, anchor: rect, in: window, preferred: .below, centered: true, makeKey: true) != nil else { return }

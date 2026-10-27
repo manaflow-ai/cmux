@@ -8,7 +8,8 @@
   "expires": "2026-12-20",
   "process": "app",
   "params": [],
-  "stories": ["cef-resize-sync", "cef-resize-sync-stress"],
+  "stories": ["cef-resize-sync", "cef-resize-sync-stress", "pane-chromium"],
   "sticky": false,
-  "runtimeMutable": false
+  "runtimeMutable": false,
+  "replaces": ["browserResize.layerHosting"]
 }

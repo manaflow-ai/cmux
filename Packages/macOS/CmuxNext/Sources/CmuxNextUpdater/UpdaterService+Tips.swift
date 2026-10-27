@@ -1,4 +1,5 @@
 import AppKit
+public import CmuxNextWakeups
 public import Foundation
 
 /// The "Did you know" card (BOTTOM-LEFT-CARDS K1): one tip a day for a
@@ -23,14 +24,13 @@ extension UpdaterService {
 
     /// A return to cmux re-picks the tip (a new day's tip, or the end of a
     /// timed mute) and re-reads the update card's reminder (a Mac that slept
-    /// past it); the App calls this once at launch.
-    public func refreshTipOnActivation() {
+    /// past it); the App calls this once at launch with its notices (`events`:
+    /// one observer per notice for the whole app), in the notice's own turn.
+    public func refreshTipOnActivation(on events: AppEvents) {
         activationObservation?.cancel()
-        activationObservation = Task { [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
-                self?.refreshTip()
-                self?.refreshUpdateSnooze()
-            }
+        activationObservation = events.subscribe(NSApplication.didBecomeActiveNotification, owner: "UpdaterService.tipActivation") { [weak self] in
+            self?.refreshTip()
+            self?.refreshUpdateSnooze()
         }
     }
 

@@ -78,12 +78,15 @@ enum WorkspaceChecklistHandlers {
     /// Attach Images without a `path`: the cmux picker (R96, no NSOpenPanel) chooses the images,
     /// then they join the item's current attachments.
     private static func pickImages(for item: String, target: Target, registry: ActionRegistry, services: AppServices) {
-        registry.track(Task { @MainActor in
-            let options = CmuxPicker.OpenOptions(choose: .files, allowsMultiple: true, types: [.image])
-            guard let urls = await services.viewers.picker.open(options), !urls.isEmpty,
+        let picker = services.viewers.picker, options = CmuxPicker.OpenOptions(choose: .files, allowsMultiple: true, types: [.image])
+        // The person's pick is awaited off main; the item takes the images in the run's completion.
+        registry.trackWork(owner: "WorkspaceChecklistHandlers.pickImages", on: services.mainWork) {
+            await picker.open(options)
+        } then: { result in
+            guard case .success(let urls?) = result, !urls.isEmpty,
                   let current = target.workspace.checklist.first(where: { $0.id == item }) else { return nil }
             apply(WorkspaceChecklistEdit.attaching(urls.map(\.path), to: current), to: target)
             return nil
-        })
+        }
     }
 }

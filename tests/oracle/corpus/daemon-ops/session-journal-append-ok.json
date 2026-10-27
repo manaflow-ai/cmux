@@ -377,6 +377,36 @@
       "expect": {
         "outcome": "ok"
       }
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "session.journal.append",
+        "params": {
+          "event": {
+            "producer_id": "oracle",
+            "manifest_version": 1,
+            "kind": "plugin.oracle.note",
+            "schema_version": 1,
+            "payload": {}
+          }
+        },
+        "idempotencyKey": "session-journal-append-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

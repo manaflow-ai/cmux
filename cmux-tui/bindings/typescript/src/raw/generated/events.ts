@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6f30c3bf72c6bbdc5d0b28f9221b6a582f1cc82ede99888633ff61589fdadc36. */
+/* cmux-tui mux protocol 12, IR 5739101a2a1f12a08327e6d4e67314a7c13e6f450f88de4362e39eec5338716c. */
 
 
 import type * as T from "./types.js";
@@ -615,6 +615,26 @@ export type ScrollChangedEvent = { event: "scroll-changed" } & {
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
+export type ServerDiagnosticSiteEvent = { event: "server-diagnostic-site" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
+  /** Blocking and inversion: the crate of the call site without its version, or other. Never a path. */
+  "crate"?: string;
+  /** blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold, or a holder-link frame or a journal commit past its hang tier. */
+  "family": "blocking" | "inversion" | "hang";
+  /** Blocking and inversion: 16 hex digits, FNV-1a of the file's path from the crate folder on. Never a path. */
+  "file_hash"?: string;
+  /** The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or for a hang its scope: request, holder-link or journal-writer. */
+  "kind": string;
+  /** Blocking: a work item's wait for other work. */
+  "lane_sync"?: boolean;
+  /** Blocking and inversion: the call site's line. */
+  "line"?: number;
+  /** Hang: what ran: the request's command or v2 operation name (a colon written as a dot), the holder frame kind (data, exit, ...) or commit-batch. */
+  "method"?: string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
 export type SettingsChangedEvent = { event: "settings-changed" } & {
   /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
   "cause"?: T.EventCause;
@@ -637,6 +657,12 @@ export type StatusEvent = { event: "status" } & {
   /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
   "cause"?: T.EventCause;
   "message": string;
+};
+
+/** Protocol v12; emission: emitted; streams: attach-byte, attach-render, attach-browser. */
+export type StreamEndEvent = { event: "stream-end" } & {
+  "reason": "canceled" | "detached" | "overflow" | "attach_failed";
+  "stream": number;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
@@ -925,9 +951,11 @@ export type KnownCmuxEvent =
   | ScreenRenamedEvent
   | ScriptLogEvent
   | ScrollChangedEvent
+  | ServerDiagnosticSiteEvent
   | SettingsChangedEvent
   | SizeStateEvent
   | StatusEvent
+  | StreamEndEvent
   | SurfaceExitedEvent
   | SurfaceOutputEvent
   | SurfaceResizeFailedEvent
@@ -1006,6 +1034,7 @@ export type KnownSubscribeEvent =
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | ServerDiagnosticSiteEvent
   | SettingsChangedEvent
   | SizeStateEvent
   | StatusEvent
@@ -1060,6 +1089,7 @@ export type KnownAttachEvent =
   | ResizedEvent
   | ScrollChangedEvent
   | SizeStateEvent
+  | StreamEndEvent
   | VtStateEvent;
 
 /** Known byte attach events. */
@@ -1072,6 +1102,7 @@ export type KnownByteAttachEvent =
   | ResizedEvent
   | ScrollChangedEvent
   | SizeStateEvent
+  | StreamEndEvent
   | VtStateEvent;
 
 /** Known render attach events. */
@@ -1081,7 +1112,8 @@ export type KnownRenderAttachEvent =
   | RenderDeltaEvent
   | RenderStateEvent
   | ScrollChangedEvent
-  | SizeStateEvent;
+  | SizeStateEvent
+  | StreamEndEvent;
 
 /** Known browser attach events. */
 export type KnownBrowserAttachEvent =
@@ -1090,7 +1122,8 @@ export type KnownBrowserAttachEvent =
   | FrameEvent
   | NotificationEvent
   | OverflowEvent
-  | ScrollChangedEvent;
+  | ScrollChangedEvent
+  | StreamEndEvent;
 
 export type CmuxEvent = KnownCmuxEvent | UnknownEvent;
 export type SubscribeEvent = KnownSubscribeEvent | UnknownEvent;

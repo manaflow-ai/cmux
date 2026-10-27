@@ -44,7 +44,7 @@ struct WorkspaceAutoNameWiring {
             },
             selection: { [weak services] workspace, pane in
                 guard let services, let window = services.windows.registry.value.owner(of: workspace.id) else { return nil }
-                return services.windows.controller(for: window)?.state.selection.selection(in: pane.id)
+                return services.windows.states[window]?.selection.selection(in: pane.id) // never builds the window
             },
             rename: { [weak services] target, name in
                 guard let services, target.supportsNameSource, let key = target.workspace.key,
@@ -57,7 +57,7 @@ struct WorkspaceAutoNameWiring {
             })
         Task { [weak settings] in
             await settings?.waitForLoad(atLeast: 1)
-            await namer.run()
+            services.lifetimeFollowers.append(namer.follow(on: services.mainWork))
         }
     }
 }

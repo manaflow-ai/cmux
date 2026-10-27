@@ -1,0 +1,10 @@
+{
+  /* // inside */ "browser": {
+    "passwords": {
+      "generate": 1
+    }
+  },
+  "diff": {
+    /* * */ "wordWrap": true
+  }
+}

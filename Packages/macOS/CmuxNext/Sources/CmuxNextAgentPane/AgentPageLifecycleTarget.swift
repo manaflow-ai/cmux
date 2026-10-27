@@ -67,17 +67,26 @@ package struct AgentPageLifecycleTarget: PageLifecycleTarget {
         owner?.pageDidShow(key)
     }
 
-    package func freeze() {
-        page.freeze()
+    package func freeze() -> Bool {
+        guard page.freeze() else { return false }
+        pane?.pageDidFreeze()
         owner?.pageDidFreeze(key)
+        return true
     }
 
+    /// The page runs again first, then its transport sends what it kept (into the router's hold while
+    /// the page is still hidden), then the owner hears it.
     package func thaw() {
         page.thaw()
+        pane?.pageDidThaw()
         owner?.pageDidThaw(key)
     }
 
-    package func discard() {
-        if let pane { owner?.discard(key, pane: pane) }
+    package func discard() -> Bool {
+        guard let pane, let owner else { return false }
+        owner.discard(key, pane: pane)
+        return true
     }
+
+    package var holdsEnginePage: Bool { page.holdsEnginePage }
 }

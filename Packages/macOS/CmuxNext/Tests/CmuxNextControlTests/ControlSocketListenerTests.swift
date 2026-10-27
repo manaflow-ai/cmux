@@ -93,7 +93,7 @@ import Testing
         let first = try ControlSocketServer.bindListener(path: path, protectStateDirectory: false)
         // Something deleted the file and another process (one that takes no owner lock) bound the path since.
         unlink(path)
-        let other = try ControlSocketServer.makeBoundDescriptor(path: path, mode: 0o600, bind: { Darwin.bind($0, $1, $2) })
+        let other = try ControlSocketServer.makeBoundDescriptor(path: path, mode: 0o600, bind: { $1.bind($0) })
         defer { close(other.descriptor); unlink(path) }
         let inode = try #require(socketInode(path))
         first.discard()
@@ -106,7 +106,7 @@ import Testing
     @Test func aFullListenQueueNeverLetsASecondLaunchTakeThePath() throws {
         let path = temporarySocketPath()
         let live = try ControlSocketServer.bindListener(path: path, protectStateDirectory: false, compatibilityLink: nil,
-                                                        mode: 0o600, backlog: 1, bind: { Darwin.bind($0, $1, $2) })
+                                                        mode: 0o600, backlog: 1, bind: { $1.bind($0) })
         defer { live.discard() }
         let inode = try #require(socketInode(path))
         // Each probe's connection stays queued after it closes: the queue fills.
@@ -155,7 +155,7 @@ import Testing
     @Test func aListenerOfAnotherFileModeIsNotAdopted() throws {
         let path = temporarySocketPath()
         let listener = try ControlSocketServer.bindListener(path: path, protectStateDirectory: false, compatibilityLink: nil,
-                                                            mode: 0o644, backlog: SOMAXCONN, bind: { Darwin.bind($0, $1, $2) })
+                                                            mode: 0o644, backlog: SOMAXCONN, bind: { $1.bind($0) })
         let server = makeServer(path: path)
         try server.start(adopting: listener)
         defer { server.stop() }

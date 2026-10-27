@@ -112,7 +112,7 @@ enum AgentHandlers {
                 if AgentPaneView.stopDictation() { return }
                 return context.refuse(MiscHandlerStrings.noAgentChat)
             }
-            view.toggleDictation()
+            view.toggleDictation(from: context.services.inputTap.actionEvent)
         })
         // Search Agent Chats (decision K1): the command palette's chats page, from anywhere.
         context.services.palettes.sources.actionPages["agentPane.searchChats"] = { [weak services = context.services] in

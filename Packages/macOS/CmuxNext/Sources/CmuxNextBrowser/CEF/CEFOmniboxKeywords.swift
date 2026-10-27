@@ -60,7 +60,7 @@ import Foundation
     /// next omnibar step reads it again.
     func keywords(profile: BrowserProfileID, browser: Int32, shim: CEFShimLibrary) -> [OmnibarKeyword] {
         if let cached = cache[profile] { return cached }
-        guard let json = shim.takeString(shim.omniboxKeywords(browser)) else { return [] }
+        guard let json = shim.omniboxKeywords(browser) else { return [] }
         let keywords = Self.keywords(json: json)
         cache[profile] = keywords
         return keywords
@@ -118,6 +118,11 @@ import Foundation
     /// OMNIBOX_SUGGESTIONS: resumes the request's waiter (late ones drop).
     func suggestionsArrived(requestID: Int32, extensionID: String, json: String) {
         replies.resolve(requestID, with: .success(json))
+    }
+
+    /// The Chromium Host ended (`CEFRuntime.hostGone`): its extensions answer no request now.
+    func hostEnded() {
+        replies.failAll(where: { _ in true }, with: BrowserTabError.closed)
     }
 
     /// `cmux_shim_omnibox_input`'s session events, in the fork's order.

@@ -37,6 +37,13 @@ A mutant changes product sources only. App mutants change `Packages/macOS/CmuxNe
 mutants change `cmux-tui/crates/*/src/**.rs`, and never a test file. The change has at most 12 lines, and the
 lines it adds do not name the oracle.
 
+## Task mutants
+
+`tests/oracle/task-mutants/<product>/<name>.patch` has the same format and checks, but is not part of the smoke
+set of 10 per product. Each one is the fault that one task's test phase must catch. For example,
+`daemon/tab-create-terminal-runs-again-on-replay` is p15-oracle-206's double create, caught by invariant I10. Apply
+one with the same `--mutant PATCH` flag, and check them with `patch_mutants.py check --task`.
+
 ## Check
 
 ```
@@ -80,7 +87,7 @@ change to the mutant: task 115 files each miss as a corpus gap.
 | daemon/focus-direction-left-right-swapped | none: `pane-focus-direction-ok` has one pane | no: needs two panes side by side |
 | daemon/zoom-ignores-enabled | none: `pane-zoom-ok` omits `enabled`, and a toggle of an unzoomed pane zooms it | no: needs `enabled: true` on a zoomed pane or `enabled: false` on an unzoomed one |
 
-App mutants: no case exercises `closePane`, `equalizeSplits`, `focusPaneLeft`/`Right`, `resizePane*`,
+App mutants: no case exercises `closePane`, `equalizeSplits`, `focusLeft`/`Right`, `resizePane*`,
 `selectSurfaceByNumber`, `splitLeft`/`Up`/`Right`/`Down` or `swapPaneLeft`/`Right` yet. They are the actions
 cases of tasks 077 (layout, split, resize, swap) and 080 (focus, pane).
 

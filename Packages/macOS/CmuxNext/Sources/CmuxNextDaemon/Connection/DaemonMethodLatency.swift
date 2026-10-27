@@ -44,13 +44,16 @@ final class DaemonMethodLatency: Sendable {
         for (slot, method) in table.enumerated() where slots[method.name] == nil { slots[method.name] = slot }
         self.slots = slots
         let count = methods.count * Self.methodWords
-        words = UnsafeMutablePointer<UInt64>.allocate(capacity: count)
-        words.initialize(repeating: 0, count: count)
+        // SAFETY: a fresh allocation of `count` words, every one initialized to zero here; it is freed once, in
+        // deinit, and never resized.
+        words = unsafe UnsafeMutablePointer<UInt64>.allocate(capacity: count)
+        unsafe words.initialize(repeating: 0, count: count)
     }
 
     deinit {
-        words.deinitialize(count: wordCount)
-        words.deallocate()
+        // SAFETY: the allocation of init, `wordCount` initialized words; nothing else holds `self` any more.
+        unsafe words.deinitialize(count: wordCount)
+        unsafe words.deallocate()
     }
 
     /// The slot that counts requests named `cmd`.
@@ -77,7 +80,17 @@ final class DaemonMethodLatency: Sendable {
 
     @inline(__always)
     private func word(_ slot: Int, _ index: Int) -> AtomicPointerSlot {
-        AtomicPointerSlot(words + (slot * Self.methodWords + index))
+        word(at: slot * Self.methodWords + index)
+    }
+
+    /// The word at `offset`; every caller passes an offset under ``wordCount``.
+    @inline(__always)
+    private func word(at offset: Int) -> AtomicPointerSlot {
+        assert(offset >= 0 && offset < wordCount)
+        // SAFETY: offset is under wordCount (callers: a slot under methods.count, checked by record and read
+        // by snapshot's own loop, times methodWords plus a word index under methodWords; reset's range), so the
+        // word is inside the allocation, which lives as long as `self`; allocate aligns it for UInt64.
+        return unsafe AtomicPointerSlot(words + offset)
     }
 
     /// Counts one reply that came `micros` after its request was sent.
@@ -137,6 +150,6 @@ final class DaemonMethodLatency: Sendable {
 
     /// Zeroes every histogram. A sample recorded during the reset may be lost.
     func reset() {
-        for index in 0..<wordCount { AtomicPointerSlot(words + index).store(0, ordering: .relaxed) }
+        for index in 0..<wordCount { word(at: index).store(0, ordering: .relaxed) }
     }
 }

@@ -44,7 +44,7 @@ import Testing
     @Test func theLaunchFailuresCopyDetailsDrawsTheTheme() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         _ = NSApplication.shared
-        let view = DaemonConnectingView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        let view = DaemonConnectingView(frame: NSRect(x: 0, y: 0, width: 600, height: 400), deadlines: MainDeadlineRig().deadlines)
         view.apply(.unavailable(.connectFailed(path: "/tmp/cmux-501/tui.sock", errno: ECONNREFUSED)))
         scope.root(view)
         let copy = try #require(Self.buttons(in: view).first { !$0.isHidden }, "Copy Details shows")

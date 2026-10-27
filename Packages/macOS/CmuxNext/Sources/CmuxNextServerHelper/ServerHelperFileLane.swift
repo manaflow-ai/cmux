@@ -1,4 +1,6 @@
 import Dispatch
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// Runs the prior-value store's blocking file reads and writes: off the caller's thread, off
 /// Swift's cooperative pool, never under a lock. The store needs files work only, so this
@@ -20,7 +22,7 @@ public final nonisolated class ServerHelperFileLane: ServerFixPriorFiles {
 
     public func run<T: Sendable>(_ body: @escaping @Sendable () throws -> T) async throws -> T {
         try Task.checkCancellation()
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withOnceThrowingContinuation { (continuation: OnceContinuation<T, any Error>) in
             queue.async { continuation.resume(with: Result { try body() }) }
         }
     }

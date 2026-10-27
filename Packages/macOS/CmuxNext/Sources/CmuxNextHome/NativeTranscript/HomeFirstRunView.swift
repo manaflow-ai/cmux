@@ -93,6 +93,7 @@ final class HomeFirstRunView: NSView {
     func setAgents(_ list: [HomeAgentGlance]) {
         let shown = HomeAgentGlance.shortlist(list)
         guard shown != agents else { return }
+        needsLayout = true
         // A rebuild drops the old rows; keep keyboard focus on the same agent, or the column.
         let focused = zip(agents, agentRows).first { window?.firstResponder === $0.1 }?.0.id
         agents = shown
@@ -111,7 +112,6 @@ final class HomeFirstRunView: NSView {
         }
         arrange()
         applyStoredColors()
-        needsLayout = true
         if let focused {
             window?.makeFirstResponder(zip(shown, agentRows).first { $0.0.id == focused }?.1 ?? agent)
         }
@@ -175,14 +175,15 @@ final class HomeFirstRunView: NSView {
     func setPetShown(_ shown: Bool) {
         let title = shown ? HomeStrings.firstRunHidePet : HomeStrings.firstRunShowPet
         guard pet.title != title else { return }
+        pet.needsLayout = true
         pet.label.stringValue = title
         pet.setAccessibilityLabel(title)
-        pet.needsLayout = true
     }
 
     /// Applies the live interface scale to this native empty state.
     func applyScale(_ scale: CGFloat) {
         guard self.scale != scale else { return }
+        needsLayout = true
         self.scale = scale
         switchCard.applyScale(scale)
         hero.applyScale(scale)
@@ -190,17 +191,25 @@ final class HomeFirstRunView: NSView {
         applySpacing()
         for row in rows { row.applyScale(scale) }
         invalidateIntrinsicContentSize()
-        needsLayout = true
     }
 
     /// The rows' shortcuts and the Switching card's keys, as the live
     /// binding table has them (cmux.json and keybindings.json included); nil
-    /// hides a row's shortcut, nil `switching` hides the card.
+    /// hides a row's shortcut, nil `switching` hides the card. A row lays
+    /// itself out for a new shortcut; the panel only for a new card.
     func setShortcuts(terminal: String?, agent: String?, switching: HomeSwitchKeys?) {
         self.terminal.shortcut = terminal
         self.agent.shortcut = agent
-        switchCard.apply(switching)
+        setSwitchKeys(switching)
+    }
+
+    /// Hide on the Switching card: the card goes, the rows keep their shortcuts.
+    func hideSwitchCard() { setSwitchKeys(nil) }
+
+    private func setSwitchKeys(_ keys: HomeSwitchKeys?) {
+        guard switchCard.keys != keys else { return }
         needsLayout = true
+        switchCard.apply(keys)
     }
 
     /// Colours from the theme (caller runs inside `performWithTheme`): text
@@ -272,10 +281,11 @@ final class HomeFirstRunRow: NSView {
     /// The action's shortcut, drawn at the trailing edge; nil draws none.
     var shortcut: String? {
         didSet {
+            guard shortcut != oldValue else { return }
+            needsLayout = true
             shortcutLabel.stringValue = shortcut ?? ""
             shortcutLabel.isHidden = shortcut == nil
             setAccessibilityHelp(shortcut)
-            needsLayout = true
         }
     }
 
@@ -303,6 +313,7 @@ final class HomeFirstRunRow: NSView {
         shortcutLabel.alignment = .right
         shortcutLabel.isHidden = true
         for view in [glyph, label, activity, shortcutLabel] { addSubview(view) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self))
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(title)
@@ -316,13 +327,14 @@ final class HomeFirstRunRow: NSView {
 
     /// Applies the live interface scale to the row's type, icon and geometry.
     func applyScale(_ scale: CGFloat) {
+        guard self.scale != scale else { return }
+        needsLayout = true
         self.scale = scale
         surface.layer?.cornerRadius = Self.cornerRadius * scale
         glyph.image = NSImage.icon(icon, size: .iconRowSize(forLabelPointSize: 13 * scale))
         label.font = .systemFont(ofSize: 13 * scale)
         shortcutLabel.font = .systemFont(ofSize: 12 * scale)
         invalidateIntrinsicContentSize()
-        needsLayout = true
     }
 
     /// Colours from the theme (caller runs inside `performWithTheme`).
@@ -361,12 +373,6 @@ final class HomeFirstRunRow: NSView {
                              width: max(0, trailing - 8 * scale - textX), height: textHeight)
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-
     override func mouseEntered(with event: NSEvent) { isHovered = true }
     override func mouseExited(with event: NSEvent) { isHovered = false }
 
@@ -386,6 +392,7 @@ final class HomeFirstRunRow: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        // visibility-walk-allow: the key's own input check: a hidden row can still be first responder (AppKit does not resign it on hide), once per key
         guard !isHiddenOrHasHiddenAncestor else { return super.keyDown(with: event) }
         // Return only: Home sends printable keys, Space included, to the message box first.
         switch event.keyCode {
@@ -398,6 +405,7 @@ final class HomeFirstRunRow: NSView {
 
     /// Moves keyboard focus to the previous or next first-run row in the same column.
     private func focusSibling(by step: Int) {
+        // visibility-walk-allow: keyboard focus moves only to the rows AppKit draws (its key-view rule), once per arrow key
         let rows = superview?.subviews.compactMap { $0 as? HomeFirstRunRow }.filter { !$0.isHiddenOrHasHiddenAncestor } ?? []
         guard let index = rows.firstIndex(where: { $0 === self }), rows.indices.contains(index + step) else { return }
         window?.makeFirstResponder(rows[index + step])

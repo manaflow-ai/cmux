@@ -92,9 +92,7 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
     static func thumbnail(_ image: NSImage) -> Data? {
         let width: CGFloat = 240
         let size = image.size.width > 0 ? NSSize(width: width, height: (width * image.size.height / image.size.width).rounded()) : NSSize(width: width, height: 135)
-        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height), bitsPerSample: 8,
-                                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
-        else { return nil }
+        guard let rep = NSBitmapImageRep.ownedRGBA(width: Int(size.width), height: Int(size.height)) else { return nil }
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
         image.draw(in: NSRect(origin: .zero, size: size))

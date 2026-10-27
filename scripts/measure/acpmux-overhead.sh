@@ -37,9 +37,17 @@
 #   cmux-ci run --class exclusive --script scripts/measure/acpmux-overhead.sh --ref SHA \
 #     --arg=bench=agents [--arg=n=100] [--arg=chunks=1000] [--arg=bytes=2048] [--arg=rounds=2] \
 #     [--arg=before=SHA] --timeout 5400
+#
+# bench=hidden: hidden idle chats and the page lifecycle's freeze (p13-webui-080): the
+# AgentPaneFrozenChatsBench Swift Testing suite. n= chats (default 10 here), each with its own
+# transport, frame pacer and acpmux connection to a stand-in acpmux that sends every open connection an
+# idle watch frame 2.5 times a second. ACPMUX-HIDDEN lines give the frames per second the host receives,
+# the open connections and the page calls while the chats are hidden, then frozen, and the reconnects per
+# thaw. Exit 1 when frozen chats keep a connection, receive 1 frame/s or more, or a thaw takes other than
+# one reconnect. No harness CLI, no npm.
+#   cmux-ci run --class isolated --script scripts/measure/acpmux-overhead.sh --ref SHA --arg=bench=hidden [--arg=n=10]
 set -euo pipefail
 n=20
-n_set=""
 chunks=1000
 bytes=2048
 rounds=2
@@ -50,6 +58,7 @@ codex_version="0.163.0"
 opencode_version="1.19.3"
 guard_ms=5
 bench=harness
+n_set=0
 for arg in "$@"; do
   case "$arg" in
     bench=*) bench="${arg#bench=}" ;;
@@ -73,15 +82,21 @@ for v in "$claude_version" "$codex_version" "$opencode_version"; do
   [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "acpmux-overhead.sh: versions are X.Y.Z" >&2; exit 2; }
 done
 [[ "$guard_ms" =~ ^[0-9]{1,4}$ ]] || { echo "acpmux-overhead.sh: guard_ms is a number" >&2; exit 2; }
-[[ "$bench" =~ ^(harness|daemon|agents)$ ]] || { echo "acpmux-overhead.sh: bench=harness, daemon or agents" >&2; exit 2; }
+[[ "$bench" =~ ^(harness|daemon|agents|hidden)$ ]] || { echo "acpmux-overhead.sh: bench=harness, daemon, agents or hidden" >&2; exit 2; }
 for v in "$chunks" "$bytes" "$rounds"; do
   [[ "$v" =~ ^[1-9][0-9]{0,6}$ ]] || { echo "acpmux-overhead.sh: chunks, bytes and rounds are 1-9999999" >&2; exit 2; }
 done
-if [[ "$bench" == agents && -z "$n_set" ]]; then
-  n=100
+if [[ "$bench" == agents ]]; then
+  (( n_set )) || n=100
 fi
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
+if [[ "$bench" == hidden ]]; then
+  (( n_set )) || n=10
+  echo "ACPMUX-HIDDEN-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) cores=$(sysctl -n hw.ncpu) macos=$(sw_vers -productVersion) rev=$(git rev-parse HEAD) chats=$n"
+  CMUX_ACPMUX_HIDDEN_BENCH=1 CMUX_ACPMUX_HIDDEN_CHATS="$n" \
+    exec ./scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext AgentPaneFrozenChatsBench
+fi
 work="$root/.build/acpmux-overhead"
 rm -rf "$work"
 mkdir -p "$work/bin" "$work/tools"

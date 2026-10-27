@@ -1,6 +1,9 @@
 import CmuxNextCompat
 public import CmuxNextWakeups
 import Darwin
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import Foundation
 
 /// The startup trace (`CMUX_TRACE_STARTUP`): launch marks, startup tasks, main-thread turns over 1 ms,
@@ -92,7 +95,9 @@ public final class StartupTrace: Sendable {
         self.configuration = configuration
         self.processStartNanos = processStartNanos
         self.now = now ?? { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
+        // timer-class-allow: off-main: the deadline only posts the close on the files lane's sequence; it runs no main-thread job
         deadline = DemandTimer(owner: "StartupTrace.deadline", clock: clock)
+        // timer-class-allow: off-main: the periodic drain only posts a drain on the files lane's sequence; it runs no main-thread job
         flushTimer = DemandTimer(owner: "StartupTrace.flush", clock: clock)
         let capacity = configuration.capacity
         ringBytes = 2 * capacity * MemoryLayout<StartupTraceRecord>.stride
@@ -217,10 +222,11 @@ public final class StartupTrace: Sendable {
     /// Posted to the drains' sequence, so it runs after every drain posted before it.
     public func flush() async -> Status {
         if let drains = state.withLock({ $0.drains }) {
-            await withCheckedContinuation { (written: CheckedContinuation<Void, Never>) in
+            // A drain dropped unrun returns the status as it is.
+            _ = try? await withOnceContinuation { (written: OnceContinuation<Void, OnceContinuationError>) in
                 drains.post(.userVisible, shutdown: .blockShutdown) { [self] in
                     drain()
-                    written.resume()
+                    written.resume(returning: ())
                 }
             }
         }

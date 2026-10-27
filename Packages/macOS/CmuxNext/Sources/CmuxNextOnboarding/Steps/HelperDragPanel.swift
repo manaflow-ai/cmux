@@ -34,6 +34,7 @@ final class HelperDragPanel: NSPanel {
         // A window's content view sizes by its frame, not constraints.
         surface.translatesAutoresizingMaskIntoConstraints = true
         surface.frame = NSRect(origin: .zero, size: size)
+        // sync-layout: the glass content view takes its size before the stack's frame is set (autoresizing would grow it).
         surface.layoutSubtreeIfNeeded()
         stack.frame = NSRect(origin: .zero, size: size)
         contentView = surface

@@ -168,7 +168,7 @@ mod tests {
                     "messageId": format!("m{message}"),
                     "content": {"type": "text", "text": chunk},
                 }));
-                assert!(tap(Direction::In, &msg, None));
+                assert!(tap(Direction::In, &msg, None).is_some());
                 if let Message::Notification { params, .. } = &msg {
                     hub.on_update(&session, params.as_ref());
                 }
@@ -177,7 +177,7 @@ mod tests {
                 "sessionUpdate": "tool_call", "toolCallId": format!("t{message}"),
                 "kind": "execute", "status": "completed", "title": "echo",
             }));
-            assert!(tap(Direction::In, &call, None));
+            assert!(tap(Direction::In, &call, None).is_some());
         }
         let held = session.retained_bytes();
         assert!(held <= SESSION_BUDGET, "the session holds {held} bytes (budget {SESSION_BUDGET})");
@@ -204,7 +204,7 @@ mod tests {
                 "sessionUpdate": "agent_message_chunk", "messageId": "m1",
                 "content": {"type": "text", "text": text},
             }));
-            assert!(tap(Direction::In, &msg, None));
+            assert!(tap(Direction::In, &msg, None).is_some());
         }
         {
             let mut tail = session.stderr_tail.lock_or_recover();

@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextFocus
 import CmuxNextFocusUI
 @testable import CmuxNextTerminal
+import CmuxNextTestSupport
 import Darwin
 import Foundation
 import Testing
@@ -20,7 +21,8 @@ import Testing
 /// So this file asserts no time: the timing loop runs only with `CMUX_BENCH=1` (in Release:
 /// `CMUX_BENCH=1 swift test -c release --filter KeyRouterBench`), and the agent reads the numbers. The allocation count on the calling thread (libmalloc's `malloc_logger` hook, as
 /// KeyFrameSignpostAllocationTests) is the only check a plain unit run makes. It counts the router alone: the dispatch
-/// context around it (`InputDispatchContext`) is `CmuxApplication.sendEvent`'s and opens outside the count.
+/// context around it (`InputDispatchContext`) is `CmuxApplication.sendEvent`'s and opens outside the count. With
+/// CMUX_PERF_RESULT_DIR each key kind's timed samples and counts are result-v1 (lab story swift-key-router).
 @MainActor @Suite(.serialized)
 struct KeyRouterBench {
     /// A key-down the bench sends, before its event is made (each press needs a fresh event: the router
@@ -190,6 +192,18 @@ struct KeyRouterBench {
         report["keys"] = keys
         let json = String(decoding: try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]), as: UTF8.self)
         print("KEY-ROUTER-BENCH \(json)")
+        if let results = try PerfResultWriter() {
+            for (key, row) in [(Self.plain, plainRow)] + chordRows {
+                if !row.nanos.isEmpty {
+                    try results.record("swift.key_router.\(key.name).dispatch", unit: .us, samples: row.nanos.map { Double($0) / 1_000 })
+                }
+                try results.record("swift.key_router.\(key.name).allocs", unit: .count,
+                                   samples: [Double(row.allocations) / Double(Self.allocationKeys)])
+            }
+            try results.record("swift.key_router.tis_calls", unit: .count, samples: [Double(tisCalls) / Double(Self.allocationKeys)])
+            try results.record("swift.key_router.key_equiv_views", unit: .count,
+                               samples: [Double(keyEquivalentViews) / Double(Self.allocationKeys)])
+        }
 
         let fields = ["plain_p99_us", "chord_p99_us", "plain_allocs", "chord_allocs", "tis_calls", "key_equiv_views"]
         let decoded = try #require(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
@@ -198,6 +212,40 @@ struct KeyRouterBench {
         // p04-input-055 makes the chord path allocation-free and turns this into a plain expectation.
         withKnownIssue("the chord path still allocates before p04-input-055", isIntermittent: true) {
             #expect(chordAllocations == 0, "the chords made \(chordAllocations) allocations in \(Self.allocationKeys * chordRows.count) keys")
+        }
+    }
+
+    /// The chord step every Cmd or Ctrl key-down takes before the router resolves it
+    /// (`ChordTracker.step`, then `KeyBindingTable.step`) allocates nothing: a first key that runs,
+    /// one that arms a chord, the Cmd-J leader, an armed chord's next key and an unbound key (p04-input-055).
+    @Test func chordStepAllocatesNothing() throws {
+        let control = MallocProbe.allocations { _ = ContiguousArray(repeating: 1, count: 64).count }
+        try #require((control ?? 0) > 0, "malloc_logger saw no allocation on this thread: the probe cannot measure here")
+        let cmdK = Shortcut("k", modifiers: [.command]), x = Shortcut("x", modifiers: [])
+        let table = KeyBindingTable([
+            KeyBinding(keys: [Shortcut("t", modifiers: [.command])], command: "new-tab"),
+            KeyBinding(keys: [cmdK, x], command: "chord"),
+            KeyBinding(keys: [LeaderLayer.prefix, x], command: "leader", when: .has("browserFocused")),
+            KeyBinding(keys: [Shortcut("b", modifiers: [.command, .control])], command: "scoped", when: Self.whenClause),
+        ])
+        let context = KeyContext(["terminalFocused": .bool(true)])
+        let cases: [(String, [Shortcut], ShortcutReadings)] = [
+            ("cmd_t", [], ShortcutReadings(Shortcut("t", modifiers: [.command]))),
+            ("cmd_k", [], ShortcutReadings(cmdK)),
+            ("leader", [], ShortcutReadings(LeaderLayer.prefix)),
+            ("cmd_k x", [cmdK], ShortcutReadings(x)),
+            ("when_clause", [], ShortcutReadings(Shortcut("b", modifiers: [.command, .control]))),
+            ("unbound", [], ShortcutReadings(Shortcut("}", modifiers: [.shift, .command]), Shortcut("]", modifiers: [.shift, .command]))),
+        ]
+        let isRunnable: (ActionID) -> Bool = { _ in true }
+        for (name, keys, readings) in cases {
+            let warm = table.step(after: keys, readings: readings, in: context, isRunnable: isRunnable)
+            var step = warm
+            let allocations = MallocProbe.allocations {
+                for _ in 0..<Self.allocationKeys { step = table.step(after: keys, readings: readings, in: context, isRunnable: isRunnable) }
+            }
+            #expect(step == warm)
+            #expect(allocations == 0, "\(name): the chord step made \(allocations ?? -1) allocations in \(Self.allocationKeys) keys")
         }
     }
 

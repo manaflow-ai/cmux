@@ -12,7 +12,7 @@ import Testing
 
     func repair(create: @escaping @MainActor (WorkspaceKey) async throws -> SurfaceID? = { _ in nil }) -> EmptyWorkspaceRepair {
         EmptyWorkspaceRepair(store: DaemonStore(), create: create, close: { _ in }, cause: { _ in .tabClosed },
-                             canCreate: { true }, epoch: { 1 }, isLive: { true })
+                             canCreate: { true }, epoch: { 1 }, isLive: { true }, on: RepairTurns().work)
     }
 
     @Test func aRepeatedNewSendsOneCreate() async {
@@ -21,7 +21,8 @@ import Testing
         repair.createFirstTab(key)
         repair.createFirstTab(key)
         #expect(repair.isSettling(key))
-        for _ in 0..<20 where creates.value == 0 { await Task.yield() }
+        // The create runs from a task off main (recipe R-hop): a bounded number of turns, no wait for time.
+        for _ in 0..<2_000 where creates.value == 0 { await Task.yield() }
         #expect(creates.value == 1)
     }
 

@@ -33,10 +33,10 @@ final class CEFExtensionBackend: BrowserExtensionBackend {
     func snapshot() -> (extensions: [BrowserExtensionInfo], commands: [BrowserExtensionCommand])? {
         guard let shim = runtime.shim, let browser = anchor else { return nil }
         guard supportsManagement else {
-            guard let actions = shim.takeString(shim.extActions(browser, CEFExtensionAction.iconPixels)) else { return nil }
+            guard let actions = shim.extActions(browser, CEFExtensionAction.iconPixels) else { return nil }
             return (BrowserExtensionInfo.fromActions(CEFExtensionAction.decodeList(actions)), [])
         }
-        guard let list = shim.takeString(shim.extList(browser)), let keys = shim.takeString(shim.extCommands(browser)) else { return nil }
+        guard let list = shim.extList(browser), let keys = shim.extCommands(browser) else { return nil }
         return (BrowserExtensionInfo.decodeList(list), BrowserExtensionCommand.decodeList(keys))
     }
 

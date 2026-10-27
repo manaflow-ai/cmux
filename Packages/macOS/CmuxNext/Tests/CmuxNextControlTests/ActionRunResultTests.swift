@@ -74,4 +74,16 @@ final class ResultExecutor: ControlActionExecutor {
         #expect(error.message == "The window is minimized")
         #expect(error.data?["reason"] == "The window is minimized")
     }
+
+    @Test func aCodedFailuresDetailsAnswerInItsData() async {
+        let failure = ActionWorkFailure(code: "screenshot.deferred", reason: "Memory is low", details: ["deferral": "memoryPressure"])
+        let reply = await run(ResultExecutor(.failure(failure)))
+        guard case .failure(let error) = reply else {
+            Issue.record("expected a failure, got \(reply)")
+            return
+        }
+        #expect(error.code == "screenshot.deferred")
+        #expect(error.data?["deferral"] == "memoryPressure")
+        #expect(error.data?["reason"] == "Memory is low")
+    }
 }

@@ -18,7 +18,7 @@ import CmuxNextWakeups
 /// person looks at another conversation: the page keeps its state.
 @MainActor
 final class HomeNewMessageView: NSView {
-    let field = HomeRecipientField()
+    let field: HomeRecipientField
     /// Clips the conversation below the field (its header slides under the field).
     let content = HomeNewMessageClip()
     let notice = ThemedLabel(wrappingLabelWithString: "")
@@ -43,6 +43,7 @@ final class HomeNewMessageView: NSView {
     init(services: AppServices) {
         self.services = services
         mainWork = services.mainWork
+        field = HomeRecipientField(pictures: HomeRecipientPictures(work: services.work, mainWork: services.mainWork))
         super.init(frame: .zero)
         setAccessibilityIdentifier("cmux.home.newMessage")
         content.wantsLayer = true
@@ -61,6 +62,8 @@ final class HomeNewMessageView: NSView {
         field.idleSuggestions = { [weak home, weak field] in field.flatMap { home?.newMessageChiefs($0.draft) } ?? [] }
         field.suggestions.look = { [weak home] in home?.recipientLook($0) ?? HomeRecipientLook() }
         field.onChange = { [weak self] _ in self?.recipientsChanged() }
+        // The page places the field and its suggestions: it lays out when their sizes change, not per keystroke.
+        field.onGeometryChange = { [weak self] in self?.needsLayout = true } // invalidate: told only on a size change
         field.onDone = { [weak self] in self?.focusMessageBox() }
         field.onEscape = { [weak self] in
             guard let self, isEmpty else { return }
@@ -118,6 +121,22 @@ final class HomeNewMessageView: NSView {
     /// leaving drops the draft (and its row in the list).
     var isEmpty: Bool { field.draft.isEmpty && messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
+    /// What the person put on the page: the To: field and the blank page's text. The text of a
+    /// conversation the people already have is that conversation's draft in Home's store, which
+    /// every Home view reads live; it is never copied here, so a message sent meanwhile from
+    /// another view does not come back.
+    typealias Saved = HomePageViewState.NewMessage
+
+    var saved: Saved { Saved(recipients: field.draft, text: existing == nil ? messageText : "") }
+
+    /// Puts `saved` back on a new page (its Home view was discarded): the box takes the blank
+    /// page's text, then the To: field's people show their conversation, as when the person chose them.
+    func restore(_ saved: Saved) {
+        showComposer(carrying: saved.text)
+        field.setDraft(saved.recipients)
+        recipientsChanged()
+    }
+
     /// The message box's text (the blank page's, or the shown conversation's draft).
     var messageText: String {
         if let existing { return services?.home.homeStore.draft(for: existing) ?? "" }
@@ -166,7 +185,7 @@ final class HomeNewMessageView: NSView {
         guard let services else { return }
         let home = services.home
         let match = field.draft.existingConversation(in: home.homeStore.rows, me: home.homeStore.me?.id)
-        guard match != existing else { needsLayout = true; return }
+        guard match != existing else { return }
         let text = messageText
         if let existing { home.homeStore.setDraft("", for: existing) }
         if let match {
@@ -174,7 +193,7 @@ final class HomeNewMessageView: NSView {
         } else {
             showComposer(carrying: text)
         }
-        needsLayout = true
+        needsLayout = true // invalidate: the page shows another conversation or the blank composer
     }
 
     private func showConversation(_ id: ConversationID, carrying text: String) {
@@ -208,7 +227,7 @@ final class HomeNewMessageView: NSView {
         store.start()
         if !text.isEmpty { store.setDraft(text, for: HomeNewMessageComposerSource.conversation) }
         let view = HomeNativeTranscriptView(store: store, conversation: HomeNewMessageComposerSource.conversation, me: me.id,
-                                            openPanel: services.openPanel, mainWork: services.mainWork)
+                                            openPanel: services.openPanel, deadlines: services.mainDeadlines)
         view.composerSpellCheckingEnabled = services.settings?.snapshot.agentPaneComposer.spellChecking ?? false
         // The first message is text: attachments go once the conversation exists (they upload to it).
         view.attachmentPreparer = nil
@@ -256,9 +275,10 @@ final class HomeNewMessageView: NSView {
 
     /// The line under the field (a refusal), or nil to hide it.
     func say(_ text: String?) {
+        guard notice.isHidden != (text == nil) || notice.stringValue != (text ?? "") else { return }
+        needsLayout = true
         notice.stringValue = text ?? ""
         notice.isHidden = text == nil
-        needsLayout = true
     }
 
     // MARK: Layout

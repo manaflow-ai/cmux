@@ -7,6 +7,14 @@ p02-threads machine queues (plans/cmux-next/chrome-parity/p02-threads.md section
 the hook refuses. The rules model Chromium's blocking discipline: base/threading/scoped_blocking_call.h (a blocking
 call is marked and may not run on the UI thread) and base/threading/thread_restrictions.h (the reviewed allow list).
 
+The linked section (p02-threads-130): CmuxNext's Package.swift links Shared, macOS and iOS packages by path, and
+the library targets its `.target`s reach through `.product` dependencies (guardrails' linked_closure, transitively;
+not test-only products, executables or macros) run in the app. Those targets' sources are judged by the same
+rules, by their own targets' isolation (none is main actor by default), with CmuxThreading's `blockingCall` closure as
+their seam, and `--count` reports them apart: `linked:<rule> N` lines after the CmuxNext ones (`"linked"` in
+`--count --jsonl`), so the CmuxNext counts stay comparable across revisions. `--paths` and `--group` take them as any
+other file (a linked hit's module is the folder after its package's `Sources/`).
+
 Rules: main-blocking, raw-blocking, pool-blocking, raw-blocking-ext, maybe-main-blocking, task-priority, thread-doc,
 once-blocking (p02-threads-122: a blocking call in a static, lazy or global initializer, MQ-22),
 awaited-low-priority (p02-threads-113: a low-priority task whose value main-actor code awaits; MQ-19), and the
@@ -45,6 +53,7 @@ Each hit carries its call-graph context, read lexically from the source:
   threading-inventory.py --rule cpu-intensive --group module --max-hits 25   # MQ-18
   threading-inventory.py --rule raw-blocking --paths Packages/macOS/CmuxNext/Sources/CmuxNextFiles/
   threading-inventory.py --rule raw-blocking-ext --group module --max-hits 25   # MQ-16
+  threading-inventory.py --rule raw-blocking --rule raw-blocking-ext --rule pool-blocking --rule task-priority --paths Packages/Shared Packages/iOS Packages/macOS/CmuxUpdater --group module   # MQ-17
   threading-inventory.py --rule sync-inversion --jsonl                          # MQ-8
   threading-inventory.py --rule once-blocking --jsonl                           # MQ-22
   threading-inventory.py --rule awaited-low-priority                            # MQ-19
@@ -94,12 +103,30 @@ g = load_guardrails()
 RULE_BY_ID = {rule.id: rule for rule in g.RULES}
 
 
+def module_of(path: str) -> str:
+    """The Swift module of PATH: guardrails' for CmuxNext's Sources, else the folder after a linked package's
+    `Sources/` (`Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/X.swift` -> `CmuxHomeCore`)."""
+    if path.startswith(g.SOURCES):
+        return g.module_of(path)
+    parts = path.split("/Sources/", 1)
+    return parts[1].split("/", 1)[0] if len(parts) == 2 else ""
+
+
+def main_default(path: str, targets: set[str]) -> bool:
+    """Whether PATH's target is main actor by default: one of CmuxNext's TARGETS (`uiSwiftSettings`), or a linked
+    package's target that says so."""
+    return g.linked_main_default(path) if g.linked_package(path) else module_of(path) in targets
+
+
 def raw_blocking(changes: list, moved: collections.Counter) -> list:
-    """guardrails' raw-blocking hits plus the raw primitives its main-blocking rule took (they still need a seam)."""
+    """guardrails' raw-blocking hits plus the raw primitives its main-blocking rule took (they still need a seam;
+    in a linked package, CmuxThreading's `blockingCall` closure around one is its seam)."""
     hits = g.raw_blocking(changes, moved)
+    by_path = {change.path: change for change in changes}
     for hit in g.blocking_on_main(changes, moved):
         code = g.code_of(hit.text)
-        if g.blocking_match(g.RAW_SCAN, code) and not g.ALWAYS_SCAN.search(code):
+        if (g.blocking_match(g.RAW_SCAN, code) and not g.ALWAYS_SCAN.search(code)
+                and not g.linked_seam_marked(by_path[hit.path].head, hit.number - 1, code)):
             hits.append(hit)
     return hits
 
@@ -145,7 +172,7 @@ def cpu_intensive(changes: list, moved: collections.Counter) -> list:
     the main thread (or not known to be on it), so it is not a hit: the pool and the `.cpu` lane are where this work
     belongs. `// blocking-allow:` escapes a line, as for the other blocking rules."""
     targets = g.ui_targets()
-    in_main_actor = [c for c in g.outside_seams(changes) if g.module_of(c.path) in targets]
+    in_main_actor = [c for c in g.outside_seams(changes) if main_default(c.path, targets)]
 
     def judge(version, index: int, code: str) -> bool:
         match = CPU_INTENSIVE_SCAN.search(code)
@@ -197,7 +224,7 @@ class QueueTable:
                     if types is None:
                         types = type_by_line(lines)
                     arguments = self.arguments(lines, index, code, match.end() - 1)
-                    self.ranks[(g.module_of(path), types[index], match.group(1))] = self.rank(arguments)
+                    self.ranks[(module_of(path), types[index], match.group(1))] = self.rank(arguments)
 
     @staticmethod
     def arguments(lines: list[str], index: int, code: str, start: int) -> str | None:
@@ -219,7 +246,7 @@ class QueueTable:
         return QOS_RANK.get(found.group(1)) if found else None
 
     def of(self, path: str, owner: str | None, name: str) -> int | None:
-        return self.ranks.get((g.module_of(path), owner, name))
+        return self.ranks.get((module_of(path), owner, name))
 
 
 def waiter_rank(lines: list[str], index: int, prefix: str, path: str, queues: QueueTable, types: list) -> int | str | None:
@@ -241,7 +268,7 @@ def waiter_rank(lines: list[str], index: int, prefix: str, path: str, queues: Qu
             return MAIN_RANK
         if isolation is not None:
             return None
-    ctx = context_of(lines, index, prefix, g.module_of(path) in g.ui_targets())
+    ctx = context_of(lines, index, prefix, main_default(path, g.ui_targets()))
     if ctx.isolation == "main":
         return MAIN_RANK
     if ctx.isolation in ("nonisolated", "unknown") and ctx.func_name and ctx.is_async is False:
@@ -263,7 +290,7 @@ def sync_inversion(changes: list, moved: collections.Counter, tree: "Tree") -> l
         return site_files[path]
 
     def highest_caller(lines: list[str], index: int, prefix: str, path: str) -> int | None:
-        ctx = context_of(lines, index, prefix, g.module_of(path) in targets)
+        ctx = context_of(lines, index, prefix, main_default(path, targets))
         callee = callee_of(ctx, path)
         if callee is None:
             return None
@@ -681,18 +708,41 @@ def context_of(lines: list[str], index: int, prefix: str, default_main: bool) ->
 
 @dataclass
 class Tree:
-    """The Swift sources of one revision ({path: text}) and the files the rules read beside them."""
+    """The Swift sources of one revision ({path: text}) and the files the rules read beside them: PACKAGES are the
+    linked packages ({folder: guardrails.LinkedPackage}, guardrails' linked_closure of MANIFEST), whose reached
+    targets' sources are in SOURCES too and form the report's linked section."""
     sources: dict[str, str]
     threading_doc: str | None = None
     manifest: str | None = None
+    packages: dict = field(default_factory=dict)
+
+    def read_package(self, paths: list[str]) -> dict[str, str]:
+        """linked_closure's reader over PACKAGES."""
+        return {p: self.packages[p.removesuffix("/Package.swift")].text for p in paths
+                if p.removesuffix("/Package.swift") in self.packages}
 
 
 def read_tree(repo: Path, rev: str) -> Tree:
-    listing = g.git(repo, "ls-tree", "-r", "--name-only", rev, "--", g.SOURCES)
+    texts = g.blobs(repo, [(rev, g.THREADING_DOC), (rev, g.PACKAGE_MANIFEST)])
+    manifest = texts.get((rev, g.PACKAGE_MANIFEST))
+
+    def read(paths: list[str]) -> dict[str, str]:
+        found = g.blobs(repo, [(rev, p) for p in paths])
+        return {p: found[(rev, p)] for p in paths if (rev, p) in found}
+
+    packages = g.linked_closure(manifest or "", read)
+    roots = [g.SOURCES] + sorted(f"{folder}/{target.path}/" for folder, targets in g.linked_targets(packages).items()
+                                 for target in targets)
+    listing = g.git(repo, "ls-tree", "-r", "--name-only", rev, "--", *roots)
     paths = [p for p in listing.split("\n") if p.endswith(".swift")]
-    texts = g.blobs(repo, [(rev, p) for p in paths] + [(rev, g.THREADING_DOC), (rev, g.PACKAGE_MANIFEST)])
+    texts.update(g.blobs(repo, [(rev, p) for p in paths]))
     return Tree({p: texts[(rev, p)] for p in paths if (rev, p) in texts},
-                texts.get((rev, g.THREADING_DOC)), texts.get((rev, g.PACKAGE_MANIFEST)))
+                texts.get((rev, g.THREADING_DOC)), manifest, packages)
+
+
+def section_of(path: str) -> str:
+    """`linked` for a linked package's file (the report's own section), `sources` for CmuxNext's."""
+    return "linked" if g.linked_package(path) else "sources"
 
 
 def path_matcher(patterns: list[str] | None) -> Callable[[str], bool]:
@@ -720,7 +770,7 @@ def file_change(path: str, text: str):
 
 
 def load_context(tree: Tree) -> None:
-    """Point guardrails' blocking context (threading doc, manifest, UI targets) at TREE."""
+    """Point guardrails' blocking context (threading doc, manifest, UI targets, linked packages) at TREE."""
     texts: dict[tuple[str, str], str] = {}
     rev = "inventory"
     if tree.threading_doc is not None:
@@ -728,6 +778,7 @@ def load_context(tree: Tree) -> None:
     if tree.manifest is not None:
         texts[(rev, g.PACKAGE_MANIFEST)] = tree.manifest
     g.load_blocking_context(texts, rev)
+    g.load_linked_packages(tree.manifest, tree.read_package)
 
 
 def judge(tree: Tree, rules: Iterable[str], paths: Callable[[str], bool]) -> list[tuple[str, object]]:
@@ -739,20 +790,21 @@ def judge(tree: Tree, rules: Iterable[str], paths: Callable[[str], bool]) -> lis
         if not paths(path):
             continue
         change = file_change(path, tree.sources[path])
-        change.head_main = change.base_main = g.main_by_default(path, targets)
+        main = g.linked_main_default(path) if g.linked_package(path) else g.main_by_default(path, targets)
+        change.head_main = change.base_main = main
         changes.append(change)
     found = []
     for rule_id in rules:
         rule = RULE_BY_ID.get(rule_id)
-        scope = rule.scope if rule is not None else (g.SOURCES,)
-        scoped = [c for c in changes if c.path.startswith(scope)]
+        scope = rule.scope if rule is not None else g.LINKED_RULE_SCOPE
+        scoped = [c for c in changes if g.in_rule_scope(c.path, scope)]
         extra = (tree,) if rule_id in TREE_RULES else ()
         found += [(rule_id, hit) for hit in RULES[rule_id](scoped, collections.Counter(), *extra)]
     return found
 
 
 def scope_key(scope: str, path: str) -> Scope:
-    return (scope, path if scope == "file" else g.module_of(path) if scope == "module" else "")
+    return (scope, path if scope == "file" else module_of(path) if scope == "module" else "")
 
 
 OPEN, CLOSE = "([{", ")]}"
@@ -943,7 +995,7 @@ def call_sites(tree: Tree, callees: Iterable[Callee]) -> dict[Callee, list[tuple
     if not by_name:
         return sites
     for path, text in tree.sources.items():
-        here = {("file", path), ("module", g.module_of(path)), ("tree", "")}
+        here = {("file", path), ("module", module_of(path)), ("tree", "")}
         lines = text.split("\n")
         types: list | None = None
         for index, line in enumerate(lines):
@@ -1004,11 +1056,12 @@ def inventory(tree: Tree, rules: Iterable[str] = tuple(RULES), paths: Callable[[
         locator = LOCATORS.get(rule_id, DEFAULT_LOCATOR)
         match = locator.search(code) or ALWAYS.search(code)
         prefix = code[:match.start()] if match else code
-        module = g.module_of(hit.path)
-        ctx = context_of(lines, index, prefix, module in targets)
+        module = module_of(hit.path)
+        main = main_default(hit.path, targets)
+        ctx = context_of(lines, index, prefix, main)
         owner = ctx.types[0] if ctx.types else None
         callee = callee_of(ctx, hit.path)
-        hits.append(Hit(rule_id, hit.path, hit.number, module, module in targets, lines[index].strip(),
+        hits.append(Hit(rule_id, hit.path, hit.number, module, main, lines[index].strip(),
                         ctx.enclosing_func, ctx.is_async, ctx.isolation, None, owner,
                         func_name=ctx.func_name, func_line=ctx.func_line, callee=callee))
     counts = caller_counts(tree, (hit.callee for hit in hits if hit.callee))
@@ -1570,7 +1623,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--rule", action="append", default=None,
                         help=f"a rule to report (repeat or comma-separate; default all): {', '.join(RULES)}")
     parser.add_argument("--paths", nargs="+", action="extend", default=None,
-                        help="repo-relative files, folders or globs to judge (default: all of Sources)")
+                        help="repo-relative files, folders or globs to judge (default: all of Sources and the linked packages' Sources)")
     parser.add_argument("--count", action="store_true", help="print the hits per rule (and per group with --group)")
     parser.add_argument("--group", choices=("module", "root"), help="chunk the hits by module or call-graph root")
     parser.add_argument("--max-hits", type=int, default=None, help="hits per chunk with --group (default 25)")
@@ -1635,13 +1688,17 @@ def main(argv: list[str] | None = None) -> int:
         for hit in chunk:
             hit.group = label
     if args.count:
-        totals = collections.Counter(h.rule for h in hits)
-        counts = {rule: totals[rule] for rule in args.rules}
+        totals = collections.Counter((section_of(h.path), h.rule) for h in hits)
+        counts = {rule: totals[("sources", rule)] for rule in args.rules}
+        linked = {rule: totals[("linked", rule)] for rule in args.rules} if tree.packages else {}
         if args.jsonl:
-            print(json.dumps({"rules": counts, **({"groups": {label: len(c) for label, c in groups}} if groups else {})}))
+            print(json.dumps({"rules": counts, **({"linked": linked} if linked else {}),
+                              **({"groups": {label: len(c) for label, c in groups}} if groups else {})}))
         else:
             for rule, n in counts.items():
                 print(f"{rule} {n}")
+            for rule, n in linked.items():
+                print(f"linked:{rule} {n}")
             for label, chunk in groups:
                 print(f"{label} {len(chunk)}")
         return 0
