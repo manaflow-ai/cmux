@@ -23,7 +23,7 @@ nonisolated enum PageArtifactFrame {
     /// The exact endpoint request. Queries and fragments are refused rather than served.
     static func isFrame(_ url: URL?) -> Bool {
         guard isArtifactURL(url), let url else { return false }
-        return url.query == nil && url.fragment == nil
+        return url.absoluteString == endpoint
     }
 
     static func isAgentPageURL(_ url: URL?) -> Bool {
