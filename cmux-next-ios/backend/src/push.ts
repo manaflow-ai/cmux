@@ -298,7 +298,8 @@ const alert = (e: NotifyEvent, previews: boolean) => {
       case "question":
         return [`${agent} asks`, e.questions?.[0]?.question || e.title || ""]
       case "permission":
-        return [`${agent} needs permission`, e.title || e.body || ""]
+        // As the Mac's approval prompt for a streaming device (the phone's ApprovalBanner): the Mac in the title.
+        return [`${agent} wants to act on ${e.macName}`, e.title || e.body || ""]
       case "completed":
         return [`${agent} finished`, last || e.body || ""]
       case "failed":
@@ -310,6 +311,7 @@ const alert = (e: NotifyEvent, previews: boolean) => {
         return [where ? `Terminal · ${where}` : "Terminal", [e.title, e.body].filter(Boolean).join(": ")]
     }
   })()
+  if (e.kind === "permission") return where ? { title, subtitle: where, body } : { title, body }
   return { title, subtitle: where ? `${where} · ${e.macName}` : e.macName, body }
 }
 
