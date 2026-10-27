@@ -24,7 +24,8 @@ For each it records two numbers, in ms:
 and, per live terminal, the processes and footprint it costs (terminal
 processes the daemon started and their RSS, and the daemon's own RSS).
 --host-model holder runs every terminal on the install's one holder
-(CMUX_TUI_TERMINAL_HOST_MODEL=holder) instead of a host process each; its
+(CMUX_TUI_TERMINAL_HOST_MODEL=holder, the daemon's default) and hosts a host
+process each (=hosts, the opt-out); its
 first-text comes from the same mark. Prints one CREATE line per op and
 metric (p50/p95/p99, scripts/perf-lab/perf_stats.py), and writes JSON with every sample to
 --out FILE.json. --max-p50-ms makes it a gate: exit 1 when any
@@ -324,8 +325,8 @@ def main():
         CMUX_TUI_CONFIG=os.path.join(root, "config.json"),
         SHELL=shell,
     )
-    if args.host_model == "holder":
-        env["CMUX_TUI_TERMINAL_HOST_MODEL"] = "holder"
+    # Named both ways: the holder is the daemon's default since holder item 5.
+    env["CMUX_TUI_TERMINAL_HOST_MODEL"] = args.host_model
     spans_path = os.path.join(root, "spans.ndjson")
     if args.spans:
         env["CMUX_TUI_DEBUG_SPANS"] = spans_path
