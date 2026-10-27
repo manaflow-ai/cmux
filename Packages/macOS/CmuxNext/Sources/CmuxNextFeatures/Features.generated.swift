@@ -2047,6 +2047,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A WebKit browser tab that the content lifecycle hides is hidden to WebKit through its web view, so the page reports hidden and WebKit throttles it; tabs that play audible or Picture in Picture media or capture the camera or microphone stay visible.
+    public static let webkitHiddenTabs = Feature(
+        index: 114,
+        name: "webkitHiddenTabs",
+        owner: "Performance Lead",
+        description: "A WebKit browser tab that the content lifecycle hides is hidden to WebKit through its web view, so the page reports hidden and WebKit throttles it; tabs that play audible or Picture in Picture media or capture the camera or microphone stay visible.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["idle-tabs-webkit", "tab-switch-repeat"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// A window fully covered by an opaque cmux window counts as occluded like a minimized or other-Space one: its animations stop ticking, its terminals stop drawing and its hosted pages are told they are occluded.
     public static let windowOcclusionFamily = Feature(
         index: 115,
@@ -2298,6 +2315,7 @@ nonisolated extension Feature {
         .vsyncHub,
         .webKitPageProcessGroups,
         .webKitSameSiteProcesses,
+        .webkitHiddenTabs,
         .windowOcclusionFamily,
         .cefHelperHost,
         .cefLayerHostingEveryPage,
@@ -2427,6 +2445,7 @@ nonisolated extension Feature {
         .vsyncHub,
         .webKitPageProcessGroups,
         .webKitSameSiteProcesses,
+        .webkitHiddenTabs,
         .windowOcclusionFamily,
     ]
     #endif
