@@ -1317,7 +1317,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&directory);
         let config_path = directory.join("config.json");
         let config = Config { device_id: "device-1".to_owned(), ..Config::default() };
-        let runtime = cmux_blocking::runtime::current_thread().build().expect("runtime");
+        let runtime = cmux_blocking::runtime::current_thread(
+            "chatmux-relay-test",
+            cmux_threads::ThreadQos::Utility,
+        )
+        .build()
+        .expect("runtime");
         let stalled = cmux_blocking::counts().stalled;
         cmux_blocking::runtime::block_on(&runtime, save(&config, &config_path));
         assert_eq!(cmux_blocking::counts().stalled, stalled);

@@ -3015,7 +3015,12 @@ mod tests {
     #[test]
     fn workspace_ops_never_block_the_thread_driving_the_runtime() {
         let (root, _scope) = seeded_repo("off-driver");
-        let runtime = cmux_blocking::runtime::current_thread().build().expect("runtime");
+        let runtime = cmux_blocking::runtime::current_thread(
+            "chatmux-relay-test",
+            cmux_threads::ThreadQos::Utility,
+        )
+        .build()
+        .expect("runtime");
         let stalled = cmux_blocking::counts().stalled;
         let ops = [
             serde_json::json!({"op": "fs_tree", "maxEntries": 100}),
@@ -3038,7 +3043,12 @@ mod tests {
     #[test]
     fn a_watch_classifies_its_events_off_the_runtime_driver() {
         let root = scratch("watch-off-driver");
-        let runtime = cmux_blocking::runtime::current_thread().build().expect("runtime");
+        let runtime = cmux_blocking::runtime::current_thread(
+            "chatmux-relay-test",
+            cmux_threads::ThreadQos::Utility,
+        )
+        .build()
+        .expect("runtime");
         let stalled = cmux_blocking::counts().stalled;
         let event = cmux_blocking::runtime::block_on(&runtime, async {
             let roots = vec![root.to_string_lossy().into_owned()];
