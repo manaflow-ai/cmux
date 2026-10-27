@@ -110,6 +110,10 @@ extension AppServices {
         chromiumRuntime.source.drawsHostSuggestions = features.isEnabled(.chromiumHostSuggestions) // p01-process-061
         // Host mode only: page file choosers in cmux's picker, the files sent as paths (p01-process-064).
         chromiumRuntime.source.hostFileDialogs = features.isEnabled(.chromiumHostFileDialogs) ? ChromiumFileDialogPanels(openPanel: openPanel) : nil
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // Host mode only: each host end counted, a crash reported with the host's black box (p09-observability-104).
+        chromiumRuntime.source.hostEndReports = Self.chromiumHostEndReports(work: work, reporter: crashReporting.reporter)
+        #endif
         // Restored pages start Chromium by their origin, the visible one after the first frame (p08-startup-040).
         let launchOrder = features.isEnabled(.cefLaunchOrigin) ? launchStartup : nil
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source, launch: launchOrder,
@@ -142,6 +146,24 @@ extension AppServices {
         false
         #endif
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// What cmux does when a Chromium Host ends (p09-observability-104), in host mode and in the `debug.chromium_host`
+    /// prototype: each crash past the hourly limit is a non-fatal Sentry event with the host's crash keys and, with
+    /// the hang-reports opt-in, its black-box tail, read and sent on `.files`; each end's live-only files go there too.
+    static func chromiumHostEndReports(work: BackgroundWork, reporter: CrashReporter) -> ChromiumHostEndReports {
+        ChromiumHostEndReports(traceFiles: .app(bundleID: Bundle.main.bundleIdentifier),
+                               postFiles: { work.postFiles(.bestEffort, shutdown: .skipOnShutdown, $0) },
+                               send: { report in
+                                   let optIn = AppProcessRoot.shared.hangReports?.collector?.isEnabled == true
+                                   work.postFiles(.bestEffort, shutdown: .skipOnShutdown) {
+                                       let event = report.details(hangReportsOptIn: optIn)
+                                       reporter.captureNonFatal(event.message, type: event.type, fingerprint: event.fingerprint,
+                                                                tags: event.tags, extra: event.extra)
+                                   }
+                               })
+    }
+    #endif
 
     /// The slot's `engineDidCreate`. It holds the crash services themselves, not the `AppServices`, so on every engine
     /// built, before CefInitialize can run: the crash log's writer, the run marker's and Sentry's signal handlers (Chromium

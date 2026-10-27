@@ -28,14 +28,9 @@ nonisolated protocol ChromiumHostLaunching: Sendable {
     /// SIGKILL to `pid`, a host this launcher started and nobody reaped yet
     /// (so the pid is still that host's, never a reused one).
     func kill(_ pid: pid_t)
-    /// Where the hosts this launcher starts write their black box, crash keys and metrics file (task
-    /// p09-observability-104); nil: they keep their black box in memory and write nothing.
-    var traceFiles: ChromiumHostTraceFiles? { get }
 }
 
 extension ChromiumHostLaunching {
-    nonisolated var traceFiles: ChromiumHostTraceFiles? { nil }
-
     /// Ends a started host nobody will connect (its session went away during the launch), and frees its
     /// pid and both wire ends.
     func discard(_ handle: ChromiumHostProcessHandle) async {
@@ -77,16 +72,11 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
     /// Spawns hosts off the main thread, on the user-blocking launcher (Chrome's process launcher,
     /// content/browser/child_process_launcher_helper.cc): the host draws the page a person is looking at.
     private let launcher = ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.chromium-host", priority: .userBlocking)
-    let traceFiles: ChromiumHostTraceFiles?
 
-    /// - Parameter traceFiles: The folders each host gets for its trace files (`--trace-dir`, `--metrics-dir`).
-    init(traceFiles: ChromiumHostTraceFiles? = nil) {
-        self.traceFiles = traceFiles
-    }
+    init() {}
 
     func launch(executable: URL, arguments: [String]) async throws -> ChromiumHostProcessHandle {
         let priority = launcher.priority
-        let arguments = arguments + (traceFiles?.arguments ?? [])
         return try await launcher.run { () throws(LaunchError) -> ChromiumHostProcessHandle in
             try Self.spawn(executable: executable, arguments: arguments, priority: priority)
         }

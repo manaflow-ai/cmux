@@ -55,6 +55,14 @@ final class CEFHostStart {
     /// Which host is attached: one more after each ``hostEnded()``. Work begun for one host compares it
     /// to know that host is still the one attached, as a mojo reply callback dies with its pipe.
     private(set) var generation = 0
+    /// The pid of the host attached last (``ChromiumHostAttachment/hostPID``), 0 when its supervisor did not say.
+    /// It stays after that host ended: the runtime reads it in the end's turn.
+    private(set) var hostPID: Int32 = 0
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Counts and reports each host end (`CEFRuntime.hostEnded`), and forgets every ended host's files
+    /// (``ChromiumHostEndReports``; the engine's source sets it, task p09-observability-104).
+    var endReports: ChromiumHostEndReports?
+    #endif
 
     /// `helloDeadline`: how long, on `clock`, the host may take from the attach to its hello
     /// before the start fails (a host that hangs while it starts Chromium). Reply deadlines run on
@@ -77,6 +85,10 @@ final class CEFHostStart {
         supervisor.observeHostEnds { [weak self] in
             self?.widgetHost?.hostEnded()
             self?.popupMenus?.hostEnded()
+            #if DEBUG || CMUX_BENCH_HOOKS
+            // Every end (a crash, a kill, a quit): the ended host's recording ring and metrics file go.
+            if let self { self.endReports?.forget(pid: self.hostPID) }
+            #endif
         }
     }
 
@@ -90,7 +102,7 @@ final class CEFHostStart {
         self.task = task
         let outcome = await task.value
         guard case .success(let host) = outcome else { return outcome }
-        (remote, mapsClientIDs, acksWheels, hostGone) = (host.remote, host.mapsClientIDs, host.acksWheels, false)
+        (remote, mapsClientIDs, acksWheels, hostGone, hostPID) = (host.remote, host.mapsClientIDs, host.acksWheels, false, host.hostPID)
         // Once per attach, before initialize: a preinit op, which the remote shim replays to every later host.
         if startsAttach, drawsSuggestions { host.shim.suggestions.setEvents(1) }
         return outcome
@@ -150,7 +162,8 @@ final class CEFHostStart {
             return .success(CEFAttachedHost(shim: shim, remote: remote, shimABI: CEFShimABI.bundledIdentity() ?? "",
                                             locale: locale, loadDuration: elapsed.now - started,
                                             mapsClientIDs: hostExports.contains(CEFAttachedHost.clientIDsHelloName),
-                                            acksWheels: hostExports.contains(CEFAttachedHost.wheelAcksHelloName)))
+                                            acksWheels: hostExports.contains(CEFAttachedHost.wheelAcksHelloName),
+                                            hostPID: attachment.hostPID))
         } catch {
             // The shim holds the host's wire from the attach on.
             remote.detach()
@@ -176,6 +189,8 @@ nonisolated struct CEFAttachedHost: Sendable {
     /// The host sends WHEEL_ACK for each trackpad wheel of a gesture (its HELLO lists
     /// ``wheelAcksHelloName``: its fork reports Chromium's gesture acks; HOST/src/host_wheel_ack.h).
     var acksWheels = false
+    /// The host's pid (``ChromiumHostAttachment/hostPID``), 0 when unknown.
+    var hostPID: Int32 = 0
 
     /// `cmux_host::mint::kClientIdsHelloName` (HOST/src/chromium_host_mint.h).
     static let clientIDsHelloName = "cmux_host_client_ids"

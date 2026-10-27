@@ -56,20 +56,17 @@ public final class ChromiumHostPrototype {
     ///     task p04-input-066).
     ///   - reportsInputPresented: Takes whether the current host sends those reports (the tracker's
     ///     `pagesReportPresentation`).
-    ///   - traceFiles: Where each host writes its black box, crash keys and metrics file (task p09-observability-104).
-    ///   - hostEndReported: Takes the crash report of a host that ended by itself (the App sends it).
+    ///   - endReports: Counts and reports each host's end, and forgets its files (task p09-observability-104).
     public convenience init(makeConfiguration: @escaping () -> ChromiumHostConfiguration?, isOn: @escaping @MainActor () -> Bool,
                             mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler, idleExitAfter: Duration? = nil,
                             inputPresented: @escaping ChromiumHostSession.InputPresented = { _, _ in },
                             reportsInputPresented: @escaping ChromiumHostSession.ReportsInputPresented = { _ in },
-                            traceFiles: ChromiumHostTraceFiles? = nil,
-                            hostEndReported: @escaping ChromiumHostSession.HostEndReported = { _ in }) {
+                            endReports: ChromiumHostEndReports? = nil) {
         // No picture source: the stand-in is the page background (see the type's comment).
         self.init(makeConfiguration: makeConfiguration, isOn: isOn, mainWork: mainWork, deadlines: deadlines,
                   idleExitAfter: idleExitAfter) {
             ChromiumHostSession(configuration: $0, idleExit: $1, inputPresented: inputPresented,
-                                reportsInputPresented: reportsInputPresented, traceFiles: traceFiles,
-                                hostEndReported: hostEndReported)
+                                reportsInputPresented: reportsInputPresented, endReports: endReports)
         }
     }
 

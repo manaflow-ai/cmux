@@ -140,7 +140,8 @@ inline std::optional<TraceStopAnswer> DecodeTraceStopAnswer(const std::vector<co
   return answer;
 }
 
-// The host's recording ring (host_black_box.h); a test passes its own.
+// The host's recording ring (host_black_box.h); a test passes its own. Both
+// calls run on the host's files thread: the first start maps the ring.
 class TraceRecorder {
  public:
   virtual ~TraceRecorder() = default;
@@ -151,11 +152,14 @@ class TraceRecorder {
   virtual bool StopRecording() = 0;
 };
 
-// TRACE_START and TRACE_STOP on the host's main thread (Chromium's UI
-// thread). Chromium answers a begin or an end once, on the UI thread or,
-// while CEF shuts down, on another one (cmux_cef_shim.h): each answer goes to
-// `answer` through `post_main`, so it always runs on the main thread, after
-// the op's own turn.
+// TRACE_START and TRACE_STOP, which arrive on the host's main thread
+// (Chromium's UI thread). The ring's part of each op runs on the files thread
+// (`post_files`, a serial queue, so a stop's ring part runs after its start's),
+// then Chromium's part on the main thread (`post_main`, in post order, so a
+// begin goes before the end of the stop after it). Chromium answers a begin or
+// an end once, on the UI thread or, while CEF shuts down, on another one
+// (cmux_cef_shim.h): each answer goes to `answer` through `post_main`, so it
+// always runs on the main thread, after the op's own turn.
 class HostTracing {
  public:
   // cmux_cef_shim.h's cmux_cef_trace_started_fn, cmux_cef_trace_written_fn and
@@ -168,9 +172,17 @@ class HostTracing {
   using Answer = std::function<void(uint32_t token, const control::TlvWriter& reply)>;
   // Runs a task on the main thread, in post order (browser_host_main.mm's PostToMain).
   using PostMain = void (*)(std::function<void()> task);
+  // Runs a task on the files thread, in post order (browser_host_main.mm's PostToFiles).
+  using PostFiles = void (*)(std::function<void()> task);
 
-  HostTracing(BeginFn begin, EndFn end, TraceRecorder* recorder, Answer answer, PostMain post_main)
-      : begin_(begin), end_(end), recorder_(recorder), answer_(std::move(answer)), post_main_(post_main) {}
+  HostTracing(BeginFn begin, EndFn end, TraceRecorder* recorder, Answer answer, PostMain post_main,
+              PostFiles post_files)
+      : begin_(begin),
+        end_(end),
+        recorder_(recorder),
+        answer_(std::move(answer)),
+        post_main_(post_main),
+        post_files_(post_files) {}
   HostTracing(const HostTracing&) = delete;
   HostTracing& operator=(const HostTracing&) = delete;
 
@@ -189,39 +201,48 @@ class HostTracing {
 
   // TRACE_START; false for a malformed op.
   bool Start(uint32_t token, const std::vector<control::Field>& fields) {
-    const std::optional<TraceStart> start = DecodeTraceStart(fields);
+    std::optional<TraceStart> start = DecodeTraceStart(fields);
     if (!start) return false;
-    const bool ring = start->ring_categories != 0 && recorder_ && recorder_->StartRecording(start->ring_categories);
-    if (!start->chromium_categories || !begin_) {
-      AnswerStart(token, ring, false);
-      return true;
-    }
-    auto* pending = new Pending{this, token, ring};
-    if (begin_(start->chromium_categories->c_str(), &HostTracing::Started, pending) != 1) {
-      delete pending;  // nothing was posted: the callback never runs
-      AnswerStart(token, ring, false);
-    }
+    post_files_([this, token, request = std::move(*start)] {
+      const bool ring =
+          request.ring_categories != 0 && recorder_ && recorder_->StartRecording(request.ring_categories);
+      post_main_([this, token, ring, chromium = request.chromium_categories] { BeginChromium(token, ring, chromium); });
+    });
     return true;
   }
 
   // TRACE_STOP; false for a malformed op.
   bool Stop(uint32_t token, const std::vector<control::Field>& fields) {
-    const std::optional<TraceStop> stop = DecodeTraceStop(fields);
+    std::optional<TraceStop> stop = DecodeTraceStop(fields);
     if (!stop) return false;
-    const bool ring = stop->ring && recorder_ && recorder_->StopRecording();
-    if (!stop->chromium_path || !end_) {
-      AnswerStop(token, ring, std::nullopt);
-      return true;
-    }
-    auto* pending = new Pending{this, token, ring};
-    if (end_(stop->chromium_path->c_str(), &HostTracing::Written, pending) != 1) {
-      delete pending;
-      AnswerStop(token, ring, std::nullopt);
-    }
+    post_files_([this, token, request = std::move(*stop)] {
+      const bool ring = request.ring && recorder_ && recorder_->StopRecording();
+      post_main_([this, token, ring, path = request.chromium_path] { EndChromium(token, ring, path); });
+    });
     return true;
   }
 
  private:
+  // A start's Chromium part, on the main thread once its ring part ran.
+  void BeginChromium(uint32_t token, bool ring, const std::optional<std::string>& categories) {
+    if (!categories || !begin_) return AnswerStart(token, ring, false);
+    auto* pending = new Pending{this, token, ring};
+    if (begin_(categories->c_str(), &HostTracing::Started, pending) != 1) {
+      delete pending;  // nothing was posted: the callback never runs
+      AnswerStart(token, ring, false);
+    }
+  }
+
+  // A stop's Chromium part, on the main thread once its ring part ran.
+  void EndChromium(uint32_t token, bool ring, const std::optional<std::string>& path) {
+    if (!path || !end_) return AnswerStop(token, ring, std::nullopt);
+    auto* pending = new Pending{this, token, ring};
+    if (end_(path->c_str(), &HostTracing::Written, pending) != 1) {
+      delete pending;
+      AnswerStop(token, ring, std::nullopt);
+    }
+  }
+
   struct Pending {
     HostTracing* owner;
     uint32_t token;
@@ -263,6 +284,7 @@ class HostTracing {
   TraceRecorder* const recorder_;
   const Answer answer_;
   const PostMain post_main_;
+  const PostFiles post_files_;
 };
 
 }  // namespace cmux_host

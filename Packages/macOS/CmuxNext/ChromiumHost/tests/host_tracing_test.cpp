@@ -1,11 +1,13 @@
 // Checks the Chromium Host's TRACE_START and TRACE_STOP (src/host_tracing.h,
 // task p09-observability-104) alone and through the dispatcher
 // (src/host_dispatch.mm) with a fake shim: the ops round-trip and refuse a bad
-// version or extra fields; a start begins the ring's recording and Chromium's
-// tracing, a stop ends both and answers with the path Chromium reported; each
-// Chromium answer goes back once, through the main-thread post, also when
-// Chromium answers on another thread; a refused begin or end is answered at
-// once; the HELLO lists kTracingHelloName only with tracing; a host without
+// version or extra fields; a start begins the ring's recording on the files
+// thread and then Chromium's tracing on the main thread, a stop ends both and
+// answers with the path Chromium reported, and a stop sent right after a start
+// reaches the ring and Chromium after it; each Chromium answer goes back once,
+// through the main-thread post, also when Chromium answers on another thread;
+// a refused begin or end is answered in its main-thread turn; the HELLO lists
+// kTracingHelloName only with tracing; a host without
 // it answers both ops as refused; cef.create_browser and the browser count
 // reach the trace marks (HostTraceMarks).
 // Run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
@@ -52,6 +54,25 @@ void RunMain() {
   }
 }
 
+// The host's files queue: the test runs it, and checks the ring is called from it only.
+std::deque<std::function<void()>> files_tasks;
+bool on_files = false;
+void PostFiles(std::function<void()> task) { files_tasks.push_back(std::move(task)); }
+void RunFiles() {
+  while (!files_tasks.empty()) {
+    auto task = std::move(files_tasks.front());
+    files_tasks.pop_front();
+    on_files = true;
+    task();
+    on_files = false;
+  }
+}
+// The files queue, then the main thread's: one op's two turns.
+void RunBoth() {
+  RunFiles();
+  RunMain();
+}
+
 // The fake shim's tracing calls.
 struct Chromium {
   int begins = 0, ends = 0;
@@ -59,7 +80,8 @@ struct Chromium {
   HostTracing::StartedFn started = nullptr;
   HostTracing::WrittenFn written = nullptr;
   void* ctx = nullptr;
-  int refuse = 0;  // the calls' return when not 1
+  void* begin_ctx = nullptr;  // the last begin's, which a later end does not replace
+  int refuse = 0;             // the calls' return when not 1
 } chromium;
 
 int Begin(const char* categories, HostTracing::StartedFn started, void* ctx) {
@@ -68,6 +90,7 @@ int Begin(const char* categories, HostTracing::StartedFn started, void* ctx) {
   if (chromium.refuse) return 0;
   chromium.started = started;
   chromium.ctx = ctx;
+  chromium.begin_ctx = ctx;
   return 1;
 }
 
@@ -83,13 +106,16 @@ int End(const char* path, HostTracing::WrittenFn written, void* ctx) {
 struct Recorder : TraceRecorder {
   bool recording = false;
   uint64_t categories = 0;
+  int off_files = 0;  // calls that did not come from the files queue
   bool StartRecording(uint64_t c) override {
+    off_files += on_files ? 0 : 1;
     if (recording) return false;
     recording = true;
     categories = c;
     return true;
   }
   bool StopRecording() override {
+    off_files += on_files ? 0 : 1;
     if (!recording) return false;
     recording = false;
     return true;
@@ -156,7 +182,7 @@ void StartsAndStopsBoth() {
   std::vector<Answer> answers;
   HostTracing tracing(&Begin, &End, &recorder,
                       [&answers](uint32_t token, const Writer& reply) { answers.push_back({token, reply.fields()}); },
-                      &PostMain);
+                      &PostMain, &PostFiles);
   Check(tracing.available(), "a shim with both calls traces");
 
   TraceStart start;
@@ -165,7 +191,11 @@ void StartsAndStopsBoth() {
   Writer w;
   WriteTraceStart(start, &w);
   Check(tracing.Start(7, w.fields()), "a start is well formed");
+  Check(!recorder.recording && chromium.begins == 0, "nothing runs in the op's turn on main");
+  RunFiles();
   Check(recorder.recording && recorder.categories == kTraceRecordingCategories, "the ring records the categories");
+  Check(chromium.begins == 0, "Chromium waits for the main thread");
+  RunMain();
   Check(chromium.begins == 1 && chromium.categories == "toplevel", "Chromium begins with the categories");
   Check(answers.empty(), "no answer before Chromium's");
   // Chromium answers on another thread (a failure while CEF shuts down): the answer still goes out on main.
@@ -184,6 +214,7 @@ void StartsAndStopsBoth() {
   Writer s;
   WriteTraceStop(stop, &s);
   Check(tracing.Stop(8, s.fields()), "a stop is well formed");
+  RunBoth();
   Check(!recorder.recording, "the ring stops");
   Check(chromium.ends == 1 && chromium.path == "/tmp/c.trace.json", "Chromium ends into the path");
   chromium.written(chromium.ctx, "/tmp/c.trace.json");
@@ -194,6 +225,43 @@ void StartsAndStopsBoth() {
     Check(answer && answer->ring && answer->path == std::optional<std::string>("/tmp/c.trace.json"),
           "the stop answers the ring and the path Chromium wrote");
   }
+  Check(recorder.off_files == 0, "the ring is started and stopped on the files queue only");
+}
+
+// A stop that comes before its start's ring part ran still reaches the ring
+// and Chromium after the start: the files queue and the main queue are FIFOs.
+void AStopRightAfterItsStartGoesSecond() {
+  chromium = Chromium();
+  Recorder recorder;
+  std::vector<Answer> answers;
+  HostTracing tracing(&Begin, &End, &recorder,
+                      [&answers](uint32_t token, const Writer& reply) { answers.push_back({token, reply.fields()}); },
+                      &PostMain, &PostFiles);
+  TraceStart start;
+  start.ring_categories = kTraceRecordingCategories;
+  start.chromium_categories = "toplevel";
+  Writer w;
+  WriteTraceStart(start, &w);
+  TraceStop stop;
+  stop.ring = true;
+  stop.chromium_path = "/tmp/d.trace.json";
+  Writer s;
+  WriteTraceStop(stop, &s);
+  tracing.Start(9, w.fields());
+  tracing.Stop(10, s.fields());
+  RunFiles();
+  Check(!recorder.recording && recorder.categories == kTraceRecordingCategories, "the ring started, then stopped");
+  RunMain();
+  Check(chromium.begins == 1 && chromium.ends == 1, "Chromium began, then ended");
+  chromium.started(chromium.begin_ctx, 1);
+  chromium.written(chromium.ctx, "/tmp/d.trace.json");
+  RunMain();
+  Check(answers.size() == 2 && answers[0].token == 9 && answers[1].token == 10, "the start, then the stop, answered");
+  if (answers.size() == 2) {
+    const auto started = DecodeTraceStartAnswer(answers[0].fields);
+    const auto stopped = DecodeTraceStopAnswer(answers[1].fields);
+    Check(started && started->ring && stopped && stopped->ring, "the ring recorded, then stopped");
+  }
 }
 
 void RefusalsAnswerAtOnce() {
@@ -203,13 +271,16 @@ void RefusalsAnswerAtOnce() {
   std::vector<Answer> answers;
   HostTracing tracing(&Begin, &End, &recorder,
                       [&answers](uint32_t token, const Writer& reply) { answers.push_back({token, reply.fields()}); },
-                      &PostMain);
+                      &PostMain, &PostFiles);
   TraceStart start;
   start.chromium_categories = "";
   Writer w;
   WriteTraceStart(start, &w);
   tracing.Start(3, w.fields());
-  Check(answers.size() == 1 && main_tasks.empty(), "a begin Chromium refused is answered in the op's turn");
+  RunFiles();
+  Check(answers.empty() && main_tasks.size() == 1, "the begin waits for its main-thread turn");
+  RunMain();
+  Check(answers.size() == 1 && main_tasks.empty(), "a begin Chromium refused is answered in that turn");
   if (!answers.empty()) {
     const auto answer = DecodeTraceStartAnswer(answers[0].fields);
     Check(answer && !answer->ring && !answer->chromium, "no categories: the ring does not record; Chromium refused");
@@ -221,8 +292,9 @@ void RefusalsAnswerAtOnce() {
   Writer s;
   WriteTraceStop(stop, &s);
   tracing.Stop(4, s.fields());
+  RunBoth();
   Check(chromium.ends == 0, "no path: Chromium is not asked");
-  Check(answers.size() == 2, "the stop is answered at once");
+  Check(answers.size() == 2, "the stop is answered in its main-thread turn");
   if (answers.size() == 2) {
     const auto answer = DecodeTraceStopAnswer(answers[1].fields);
     Check(answer && !answer->ring && !answer->path, "nothing recorded, nothing written");
@@ -296,7 +368,7 @@ struct Fixture {
                    },
                    delegate, views, nullptr};
   HostTracing tracing{&Begin, &End, &recorder, [this](uint32_t token, const Writer& reply) { host.Reply(token, reply); },
-                      &PostMain};
+                      &PostMain, &PostFiles};
   std::vector<std::string> hello_exports;
 
   explicit Fixture(bool traces) {
@@ -356,6 +428,7 @@ void DispatchesTheOps() {
   fixture.host.OnMessages({Op(kOpTraceStart, 11, w)});
   Check(chromium.begins == 0, "a start before initialize waits");
   fixture.host.Resume();
+  RunBoth();
   Check(chromium.begins == 1 && fixture.recorder.recording, "the waiting start runs once initialize returned");
   chromium.started(chromium.ctx, 1);
   RunMain();
@@ -368,6 +441,7 @@ void DispatchesTheOps() {
   Writer s;
   WriteTraceStop(stop, &s);
   fixture.host.OnMessages({Op(kOpTraceStop, 12, s)});
+  RunBoth();
   chromium.written(chromium.ctx, nullptr);
   RunMain();
   replies = fixture.Replies();
@@ -426,6 +500,7 @@ int main() {
   InputFlowsAreGolden();
   RoundTrips();
   StartsAndStopsBoth();
+  AStopRightAfterItsStartGoesSecond();
   RefusalsAnswerAtOnce();
   DispatchesTheOps();
   AnswersRefusedWithoutTracing();

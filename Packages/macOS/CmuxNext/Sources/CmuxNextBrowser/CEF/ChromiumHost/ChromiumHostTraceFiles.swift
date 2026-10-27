@@ -1,6 +1,9 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug and bench builds only (embed-cef.sh), and so does its Swift side.
+import CmuxNextMetrics
 import CmuxNextTrace
+import CmuxNextWakeups
+import Foundation
 
 /// Where a Chromium host writes its black box, crash keys, recording ring and metrics file
 /// (plans/cmux-next/chrome-parity/p09-observability.md, task 104), and the host arguments that say so
@@ -18,9 +21,26 @@ public nonisolated struct ChromiumHostTraceFiles: Sendable, Equatable {
         self.metricsDirectory = metricsDirectory
     }
 
+    /// The folders of the app with bundle id `bundleID`, beside its own black box and metrics files:
+    /// `~/Library/Logs/<bundle id>/trace` and `.../metrics` (`HangReportFieldSources.appMetricsDirectory`).
+    public static func app(bundleID: String?, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> ChromiumHostTraceFiles {
+        let trace = TraceBlackBoxFileSteps.appDirectory(bundleID: bundleID, home: home)
+        return ChromiumHostTraceFiles(traceDirectory: trace.path,
+                                      metricsDirectory: trace.deletingLastPathComponent().appending(path: "metrics").path)
+    }
+
     /// The host arguments: `--trace-dir=<folder>`, and `--metrics-dir=<folder>` with a metrics folder.
     var arguments: [String] {
         ["--trace-dir=\(traceDirectory)"] + (metricsDirectory.map { ["--metrics-dir=\($0)"] } ?? [])
+    }
+
+    /// The folders `arguments` (a host's launch arguments) name; nil without `--trace-dir`.
+    init?(arguments: [String]) {
+        func value(_ name: String) -> String? {
+            arguments.last { $0.hasPrefix("--\(name)=") }.map { String($0.dropFirst(name.count + 3)) }
+        }
+        guard let trace = value("trace-dir") else { return nil }
+        self.init(traceDirectory: trace, metricsDirectory: value("metrics-dir"))
     }
 
     /// The black box of the host with `pid`.
@@ -31,6 +51,21 @@ public nonisolated struct ChromiumHostTraceFiles: Sendable, Equatable {
     /// The crash-key page of the host with `pid`.
     func crashKeysPath(pid: Int32) -> String {
         traceDirectory + "/" + CrashKeyPage.fileName(role: .chromiumHost, pid: UInt32(bitPattern: pid))
+    }
+
+    /// The files of the host with `pid` that only it writes and nothing reads once it ended: its recording ring
+    /// (`chromium-host-<pid>.recording.cmxtrace`) and its metrics file (``MetricsStore/fileName(role:pid:)``).
+    func liveOnlyPaths(pid: Int32) -> [String] {
+        let process = UInt32(bitPattern: pid)
+        let recording = traceDirectory + "/\(TraceRing.Role.chromiumHost.fileStem)-\(process).recording.cmxtrace"
+        return [recording] + (metricsDirectory.map { [$0 + "/" + MetricsStore.fileName(role: .chromiumHost, pid: process)] } ?? [])
+    }
+}
+
+nonisolated extension ChromiumHostConfiguration {
+    /// The trace folders this configuration's host writes to (its `--trace-dir` and `--metrics-dir`), or nil.
+    public var traceFiles: ChromiumHostTraceFiles? {
+        ChromiumHostTraceFiles(arguments: arguments)
     }
 }
 

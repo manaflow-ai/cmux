@@ -35,7 +35,7 @@ nonisolated struct ChromiumHostRestartPolicy: Sendable {
         /// The host died before it said hello: no host starts until the person reloads.
         case cannotStart(ChromiumHostCannotStart)
 
-        /// The decision as a crash report names it (``ChromiumHostEndReport/decision``, task p09-observability-104).
+        /// The decision as a crash report names it (``ChromiumHostEndReport/Budget/decision``, task p09-observability-104).
         var reportName: String {
             switch self {
             case .restart: "restart"

@@ -20,6 +20,10 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
     /// its sandboxed helpers read access to the browser process's main bundle
     /// only, and the app is the bundle that holds the framework and the helpers.
     ///
+    /// The host writes its black box, crash keys and metrics file into the app's
+    /// own folders (``ChromiumHostTraceFiles/app(bundleID:home:)``, task
+    /// p09-observability-104), where ``ChromiumHostEndReports`` finds them by pid.
+    ///
     /// - Parameters:
     ///   - layout: The app's CEF runtime.
     ///   - rootCache: The host's own Chromium data folder: never the in-process
@@ -36,7 +40,8 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
         guard fileManager.isExecutableFile(atPath: executable.path) else { return nil }
         return ChromiumHostConfiguration(
             executable: executable,
-            arguments: arguments(layout: layout, rootCache: rootCache, bundleIdentifier: bundleIdentifier, environment: environment))
+            arguments: arguments(layout: layout, rootCache: rootCache, bundleIdentifier: bundleIdentifier, environment: environment)
+                + ChromiumHostTraceFiles.app(bundleID: bundleIdentifier).arguments)
     }
 
     static func arguments(layout: CEFRuntimeLayout, rootCache: URL, bundleIdentifier: String?,

@@ -14,10 +14,16 @@ extension CEFRuntime {
     /// after the GPU process died. Restoring each tab's history on the new host is task 083 of
     /// plans/cmux-next/chrome-parity/p01-process.md. No effect in process, before Chromium runs, or
     /// while quitting (quit ends the host).
+    ///
+    /// The end is also one rate-limited crash report with the host's black box and crash keys
+    /// (`CEFHostStart.endReports`, task p09-observability-104).
     func hostEnded(_ exit: BrowserProcessExit) {
         guard let hostStart, state == .ready, shutdownSequence == nil else { return }
         logger.error("chromium host ended reason=\(exit.reason.rawValue, privacy: .public) code=\(exit.code ?? 0) tabs=\(self.tabsByBrowser.count)")
         crashLog.append(BrowserCrashRecord(processType: "chromium-host", reason: exit.reason, code: exit.code, source: .process))
+        #if DEBUG || CMUX_BENCH_HOOKS
+        hostStart.endReports?.hostEnded(pid: hostStart.hostPID, exit: exit, byItself: true)
+        #endif
         // Every awaited reply fails with hostGone; each proxied profile's proxy goes to the next host again.
         hostGone()
         hostStart.hostEnded()

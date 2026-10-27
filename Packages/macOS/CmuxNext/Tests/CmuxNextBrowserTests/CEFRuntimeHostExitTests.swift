@@ -240,6 +240,45 @@ import Testing
     }
     #endif
 
+    // MARK: Crash reports (p09-observability-104)
+
+    #if DEBUG
+    /// In host mode a host's crash is one report naming the attached host's pid and its black box; a second crash
+    /// the same way within the hour is counted but sends nothing; every end, a clean one too, forgets the ended
+    /// host's live-only files.
+    @Test func aHostCrashIsOneReportAndASecondWithinTheHourIsNone() async throws {
+        let (runtime, supervisor, wire) = try await Self.startedRuntime()
+        defer { wire.close() }
+        let (metrics, store) = hostEndStore()
+        let sent = SentReports()
+        let posted = PostedFiles()
+        let files = ChromiumHostTraceFiles(traceDirectory: "/nonexistent/trace")
+        runtime.hostStart?.endReports = ChromiumHostEndReports(traceFiles: files, limit: ChromiumHostEndReportLimit(),
+                                                               metrics: metrics, postFiles: { posted.add($0) },
+                                                               send: { sent.reports.append($0) })
+        _ = Self.tab(runtime, browser: 1)
+
+        supervisor.end(Self.hostKilled)
+        #expect(sent.reports.count == 1, "a host crash is one report")
+        let report = try #require(sent.reports.first)
+        #expect(report.pid == ReportingHost.hostPID && report.exitDescription == "SIGKILL" && report.budget == nil)
+        #expect(report.blackBoxPath == files.blackBoxPath(pid: ReportingHost.hostPID))
+        #expect(posted.count == 1, "the ended host's files are forgotten")
+
+        try await runtime.start(layout: nil, environment: [:], trigger: "tab")
+        _ = Self.tab(runtime, browser: 2)
+        supervisor.end(Self.hostKilled)
+        #expect(sent.reports.count == 1, "a second crash the same way within the hour sends nothing")
+        #expect(posted.count == 2)
+
+        try await runtime.start(layout: nil, environment: [:], trigger: "tab")
+        supervisor.end(nil)
+        #expect(sent.reports.count == 1 && posted.count == 3, "a clean end reports nothing and forgets its files")
+        let counts = try hostEndCounts(store)
+        #expect(counts.total == 2 && counts.signal == 2, "each crash counts once")
+    }
+    #endif
+
     // MARK: Fixtures
 
     private static func scratch() -> URL {
@@ -316,9 +355,12 @@ import Testing
 /// Hands out the spy's wire on each request and reports host ends through ``onHostEnded``, which the
 /// runtime sets.
 @MainActor private final class ReportingHost: @MainActor ChromiumHostExitReporting {
+    /// The pid each attachment names (``ChromiumHostAttachment/hostPID``).
+    static let hostPID: Int32 = 4242
     var onHostEnded: (@MainActor (BrowserProcessExit) -> Void)?
     private(set) var asked = 0
     private let controlFD: Int32
+    private var endObservers: [@MainActor () -> Void] = []
 
     init(controlFD: Int32) {
         self.controlFD = controlFD
@@ -327,10 +369,18 @@ import Testing
     func attachment() async throws(ChromiumHostAttachError) -> ChromiumHostAttachment {
         asked += 1
         return ChromiumHostAttachment(controlFD: controlFD, remoteShim: URL(filePath: "/nonexistent/libcmux_cef_shim_remote.dylib"),
-                                      frameworkLocales: ["en.lproj"])
+                                      frameworkLocales: ["en.lproj"], hostPID: Self.hostPID)
     }
 
-    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {
+        endObservers.append(ended)
+    }
+
+    /// The host ended as task 080's supervisor reports it: the end observers first, then ``onHostEnded`` for a crash.
+    func end(_ exit: BrowserProcessExit?) {
+        endObservers.forEach { $0() }
+        if let exit { onHostEnded?(exit) }
+    }
 
     #if DEBUG
     /// Launches a stand-in host, SIGKILLs it, waits for its end off main and reports it as the supervisor

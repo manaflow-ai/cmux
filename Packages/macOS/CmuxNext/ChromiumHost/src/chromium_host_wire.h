@@ -49,8 +49,8 @@ inline constexpr int kExitInitialize = 67;      // CefInitialize failed
 // The host's trace folder (p09-observability-104): `--trace-dir=<folder>`, the
 // app's black-box folder. The host writes its black box
 // (chromium-host-<pid>.blackbox.cmxtrace), crash keys
-// (chromium-host-<pid>.crashkeys) and recording ring
-// (chromium-host-<pid>.recording.cmxtrace) there, the names CmuxNextTrace
+// (chromium-host-<pid>.crashkeys) and, from its first TRACE_START, recording
+// ring (chromium-host-<pid>.recording.cmxtrace) there, the names CmuxNextTrace
 // gives a process of role chromium_host. Without it the host keeps its black
 // box on the heap only.
 inline constexpr char kTraceDirSwitch[] = "trace-dir";

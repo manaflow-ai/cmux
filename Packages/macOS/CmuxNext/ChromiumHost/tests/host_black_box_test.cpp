@@ -2,18 +2,20 @@
 // watch (src/host_black_box.h, host_pump_metrics.h, host_pump_watch.h; task
 // p09-observability-104) with no CEF:
 //   - the black box records on the heap from its first line; Adopt moves it
-//     into chromium-host-<pid>.blackbox.cmxtrace with every record before it,
-//     makes the crash-key page and the recording ring, and later records land
-//     in the file; a recording moves the writers to the recording ring and
-//     back; the catalog names its records with SignpostName's ids;
+//     into chromium-host-<pid>.blackbox.cmxtrace with every record before it
+//     and makes the crash-key page, and later records land in the file; the
+//     first recording makes the recording ring (none before it, none without
+//     an adopted folder), moves the writers to it and back; the catalog names
+//     its records with SignpostName's ids;
 //   - the metrics file is metrics-chromium-host-<pid>.bin with MetricsStore's
 //     header, one cef.pump entry and the app's profile; a pass adds to its
 //     log-linear bucket, which matches the golden of the Swift and Rust
 //     writers (argv[1]);
 //   - a pump item open past its deadline is reported once (a
 //     hang.thread_hung record and the hang crash key, cleared when it
-//     closes); a short item reports nothing; with nothing open the watcher
-//     parks and wakes for nothing;
+//     closes, also when it closes while the watcher reports it); a short item
+//     reports nothing; with nothing open the watcher parks and wakes for
+//     nothing;
 //   - in_cef_pump is set only inside an item; each item is one cef.pump
 //     sample, and a B/E pair while the cef and task categories record.
 // Run by scripts/cmux-next/tests/chromium-host-black-box.test.sh.
@@ -158,7 +160,11 @@ void BlackBoxMovesIntoItsFiles() {
     Check(U64(keys.data() + 8 * CMUX_CRASH_KEY_CHROMIUM_BROWSER_COUNT) == 2, "a later key is in the file");
   }
 
-  // A recording: the writers move to the recording ring, with the recording's categories, and back.
+  // A recording: the first one makes the recording ring; the writers move to it, with the recording's
+  // categories, and back.
+  struct stat info;
+  Check(stat((dir + "/chromium-host-4242.recording.cmxtrace").c_str(), &info) != 0,
+        "no recording ring before the first recording");
   Check(box.StartRecording(CMUX_TRACE_CAT_INPUT | CMUX_TRACE_CAT_TASK), "a recording starts");
   Check(!box.StartRecording(CMUX_TRACE_CAT_INPUT), "one at a time");
   box.Point(CMUX_TRACE_CAT_INPUT, kTraceCefHostInput, CMUX_TRACE_PHASE_FLOW_IN, 4, 99);
@@ -178,6 +184,16 @@ void BlackBoxMovesIntoItsFiles() {
   Check(Count(Records(ReadFile(dir + "/chromium-host-4242.blackbox.cmxtrace").data()), kTraceCefHostInput,
               CMUX_TRACE_PHASE_FLOW_IN) == 0,
         "after the stop the black box takes input flows no more");
+  Check(box.StartRecording(CMUX_TRACE_CAT_INPUT) && box.StopRecording(), "a later recording reuses the ring");
+}
+
+// A host with no trace folder keeps its black box on the heap and makes no recording ring.
+void NoFolderNoRecording() {
+  HostBlackBox box(TestIdentity(), cmux_trace_now_ns(), cmux_trace_unix_ns(), cmux_trace_continuous_ns());
+  Check(!box.StartRecording(CMUX_TRACE_CAT_INPUT), "no adopted folder: no recording");
+  box.Point(CMUX_TRACE_CAT_CEF, kTraceCefCreateBrowser, CMUX_TRACE_PHASE_ASYNC_BEGIN, 0, 1, CMUX_TRACE_FLAG_ID);
+  Check(Count(Records(box.active_ring()->base), kTraceCefCreateBrowser, CMUX_TRACE_PHASE_ASYNC_BEGIN) == 1,
+        "and the black box still records");
 }
 
 void MetricsFileIsTheAppsLayout(const char* golden) {
@@ -249,7 +265,7 @@ void HangScopesReportOnce() {
         overrun = over;
         ++reports;
       },
-      &cmux_trace_now_ns);
+      [] {}, &cmux_trace_now_ns);
   watch.Start("test.hang-watch");
   std::this_thread::sleep_for(std::chrono::milliseconds(20));
   Check(watch.parked() && watch.wakes() == 0, "nothing open: the watcher parks and never wakes");
@@ -272,6 +288,43 @@ void HangScopesReportOnce() {
   std::this_thread::sleep_for(std::chrono::milliseconds(60));
   Check(watch.wakes() == wakes && watch.parked(), "closed: the watcher parks again");
   watch.Stop();
+}
+
+// The scope closes while the watcher reports it, before the report sets the
+// key: the item's end comes first and the report's set last. The watcher
+// publishes the hang only after its report, so that Close says "not reported"
+// and the watcher clears the key itself. Before the fix the watcher published
+// first, the end cleared the key, and the report's later set stayed: a crash
+// then read as a hang in progress with no hang.
+void AHangThatEndsWhileReportedLeavesNoKey() {
+  std::atomic<uint64_t> key{0};
+  std::atomic<bool> reporting{false};
+  std::atomic<bool> closed{false};
+  HangScopeWatch watch(
+      30'000'000,
+      [&](uint64_t began, uint64_t) {
+        reporting = true;
+        while (!closed) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        key = began;
+      },
+      [&] { key = 0; }, &cmux_trace_now_ns);
+  watch.Start("test.hang-watch.race");
+  watch.Open(cmux_trace_now_ns());
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (!reporting && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  Check(reporting, "the watcher reports the open scope");
+  // The item ends now, as PumpWatch::End does: it clears only when Close says the hang was reported.
+  if (watch.Close()) key = 0;
+  closed = true;
+  const auto settled = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (watch.hangs() == 0 && std::chrono::steady_clock::now() < settled) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  watch.Stop();  // joins the watcher: its report and any clear are done
+  Check(watch.hangs() == 1, "one hang");
+  Check(key == 0, "a hang that ended while it was reported leaves no hang key");
 }
 
 uint64_t fake_now = 0;
@@ -335,8 +388,10 @@ int main(int argc, char** argv) {
   }
   ParsesUuids();
   BlackBoxMovesIntoItsFiles();
+  NoFolderNoRecording();
   MetricsFileIsTheAppsLayout(argv[1]);
   HangScopesReportOnce();
+  AHangThatEndsWhileReportedLeavesNoKey();
   PumpItemsAreSamplesAndKeys();
   if (failures) {
     std::fprintf(stderr, "chromium-host-black-box: %d failures\n", failures);

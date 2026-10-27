@@ -44,6 +44,7 @@
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
 #include <CoreFoundation/CoreFoundation.h>
+#include <dispatch/dispatch.h>
 #include <objc/runtime.h>
 #include <dlfcn.h>
 #include <fcntl.h>
@@ -172,6 +173,17 @@ void PostToMain(std::function<void()> task) {
     }
   });
   CFRunLoopWakeUp(main);
+}
+
+// Runs `task` on the host's files thread: one serial utility queue for all
+// its blocking file work (the black box's adoption, the recording ring's first
+// map), in post order, never on the main thread. Any thread.
+void PostToFiles(std::function<void()> task) {
+  static const dispatch_queue_t files = dispatch_queue_create(
+      "com.cmuxterm.chromium-host.files", dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0));
+  dispatch_async(files, ^{
+    task();
+  });
 }
 
 // The fork's input calls (host_user_input.h, task p04-input-065), looked up
@@ -494,14 +506,13 @@ class BlackBoxMarks final : public cmux_host::HostTraceMarks {
 };
 
 // Moves the black box, its crash keys and the pump's metrics into their
-// folders on a thread of their own: file work never runs on the main thread,
-// and the host's first frames do not wait for it. Once, at start.
+// folders on the files thread: file work never runs on the main thread, and
+// the host's first frames do not wait for it. Once, at start, before any
+// TRACE_START's ring part (the same queue).
 void AdoptFilesOffMain(cmux_host::HostBlackBox* black_box, cmux_host::PumpMetrics* metrics, std::string trace_dir,
                        std::string metrics_dir, uint32_t app_pid) {
   if (trace_dir.empty() && metrics_dir.empty()) return;
-  std::thread([black_box, metrics, app_pid, trace_dir = std::move(trace_dir), metrics_dir = std::move(metrics_dir)] {
-    pthread_setname_np("com.cmuxterm.chromium-host.files");
-    pthread_set_qos_class_self_np(QOS_CLASS_UTILITY, 0);
+  PostToFiles([black_box, metrics, app_pid, trace_dir = std::move(trace_dir), metrics_dir = std::move(metrics_dir)] {
     if (!trace_dir.empty() && !black_box->Adopt(trace_dir)) {
       fprintf(stderr, "cmux-chromium-host: the black box stays on the heap (%s)\n", trace_dir.c_str());
     }
@@ -511,7 +522,7 @@ void AdoptFilesOffMain(cmux_host::HostBlackBox* black_box, cmux_host::PumpMetric
         fprintf(stderr, "cmux-chromium-host: no metrics file in %s\n", metrics_dir.c_str());
       }
     }
-  }).detach();
+  });
 }
 
 // Cuts the main run loop into the work items PumpWatch watches: one begins
@@ -618,7 +629,8 @@ int main(int argc, char* argv[]) {
   // linked into this host (task 050). Each answer goes back on the main thread.
   cmux_host::HostTracing tracing(
       &cmux_cef_begin_tracing, &cmux_cef_end_tracing, black_box,
-      [&host](uint32_t token, const cmux_host::control::TlvWriter& reply) { host.Reply(token, reply); }, &PostToMain);
+      [&host](uint32_t token, const cmux_host::control::TlvWriter& reply) { host.Reply(token, reply); }, &PostToMain,
+      &PostToFiles);
   host.SetTracing(&tracing);
   BlackBoxMarks marks(*black_box);
   host.SetTraceMarks(&marks);

@@ -826,7 +826,7 @@ void TracesThroughTheHost() {
   cmux_host::HostTracing tracing(
       &HostBegin, &HostEnd, &ring,
       [&world](uint32_t token, const cmux_host::control::TlvWriter& reply) { world->host.Reply(token, reply); },
-      &PostTask);
+      &PostTask, &PostTask);
   {
     World w(&tracing);
     world = &w;

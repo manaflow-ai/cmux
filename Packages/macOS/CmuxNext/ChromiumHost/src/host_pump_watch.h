@@ -45,14 +45,24 @@ inline constexpr uint64_t kHangAfterNs = 2'000'000'000;
 // One watched thread's open scope and the thread that watches it. Open and
 // Close are the watched thread's (two stores, and a lock only to wake a parked
 // watcher); the watcher reports through `report` on its own thread.
+//
+// What a report sets (a crash key) is cleared exactly once the scope is
+// closed: by the watched thread when Close says the scope was reported, or by
+// the watcher through `clear` when the scope closed while it reported. The
+// watcher reports before it publishes the hang and checks the scope after, so
+// whichever side comes last in the seq_cst order of the publish and the close
+// clears, after the report's set.
 class HangScopeWatch {
  public:
   // `report(began_ns, overrun_ns)`: the open scope began at `began_ns` and is
   // `overrun_ns` past its deadline now.
   using Report = std::function<void(uint64_t began_ns, uint64_t overrun_ns)>;
+  // Undoes a report whose scope closed before the watcher published it.
+  using Clear = std::function<void()>;
   using Now = uint64_t (*)();
 
-  HangScopeWatch(uint64_t after_ns, Report report, Now now) : after_ns_(after_ns), report_(std::move(report)), now_(now) {}
+  HangScopeWatch(uint64_t after_ns, Report report, Clear clear, Now now)
+      : after_ns_(after_ns), report_(std::move(report)), clear_(std::move(clear)), now_(now) {}
   HangScopeWatch(const HangScopeWatch&) = delete;
   HangScopeWatch& operator=(const HangScopeWatch&) = delete;
   ~HangScopeWatch() { Stop(); }
@@ -91,10 +101,11 @@ class HangScopeWatch {
     }
   }
 
-  // The watched thread closes its scope. True when the scope was reported as a hang.
+  // The watched thread closes its scope. True when the scope was reported as a
+  // hang: the caller then undoes the report (the watcher does when this is false).
   bool Close() {
     const uint64_t deadline = deadline_.exchange(0, std::memory_order_seq_cst);
-    return deadline != 0 && reported_.load(std::memory_order_acquire) == deadline;
+    return deadline != 0 && reported_.load(std::memory_order_seq_cst) == deadline;
   }
 
   // Hangs reported since start.
@@ -125,12 +136,15 @@ class HangScopeWatch {
         wakes_.fetch_add(1, std::memory_order_relaxed);
         continue;
       }
-      // The same scope, still open past its deadline: report it once.
-      reported_.store(deadline, std::memory_order_release);
-      hangs_.fetch_add(1, std::memory_order_relaxed);
+      // The same scope, still open past its deadline: report it once, then
+      // publish it. A Close before the publish read no report, so the watcher
+      // undoes its own when the scope is gone by then.
       const uint64_t began = began_.load(std::memory_order_relaxed);
       lock.unlock();
       report_(began, now - deadline);
+      reported_.store(deadline, std::memory_order_seq_cst);
+      hangs_.fetch_add(1, std::memory_order_relaxed);
+      if (deadline_.load(std::memory_order_seq_cst) != deadline) clear_();
       lock.lock();
     }
   }
@@ -139,6 +153,7 @@ class HangScopeWatch {
 
   const uint64_t after_ns_;
   const Report report_;
+  const Clear clear_;
   const Now now_;
   std::atomic<uint64_t> deadline_{0};  // the open scope's deadline, 0 with none
   std::atomic<uint64_t> began_{0};
@@ -168,7 +183,7 @@ class PumpWatch {
               fprintf(stderr, "cmux-chromium-host: the main thread is %llu ms past its hang deadline\n",
                       static_cast<unsigned long long>(overrun_ns / 1'000'000));
             },
-            now) {}
+            [&black_box] { black_box.SetKey(CMUX_CRASH_KEY_HANG_IN_PROGRESS_START, 0); }, now) {}
 
   void Start() { hangs_.Start("com.cmuxterm.chromium-host.hang-watch"); }
   void Stop() { hangs_.Stop(); }

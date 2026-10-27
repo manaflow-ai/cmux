@@ -1,7 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 public import AppKit
-import CmuxNextMetrics
 import CmuxNextWakeups
 import Darwin
 import Observation
@@ -41,14 +40,11 @@ import enum CmuxSafeConcurrency.OnceContinuationError
 /// (`NavigationController::LoadIfNecessary` from `Browser::OnActiveTabChanged`,
 /// chrome/browser/ui/browser.cc).
 ///
-/// A host that ends by itself is a rate-limited crash report (ChromiumHostSession+EndReport.swift).
+/// Each host's end goes to ``ChromiumHostEndReports`` (ChromiumHostSession+EndReport.swift).
 ///
 /// Tests pass a ``ChromiumHostLaunching`` stand-in, a clock and a short quit limit.
 @MainActor @Observable
 public final class ChromiumHostSession {
-    /// Takes the crash report of a host that ended by itself (the App sends it).
-    public typealias HostEndReported = @MainActor (ChromiumHostEndReport) -> Void
-
     public enum Phase: Equatable, Sendable {
         case idle
         /// The host is starting: no context yet.
@@ -87,10 +83,8 @@ public final class ChromiumHostSession {
     private let quitLimit: Duration
     /// Told each connection the session opens (tests await its reader's end).
     private let connected: (ChromiumHostConnection) -> Void
-    // The end reports (ChromiumHostSession+EndReport.swift).
-    let hostEndReported: HostEndReported
-    @ObservationIgnored var endReportLimit: ChromiumHostEndReportLimit
-    let metrics: Metrics
+    /// Counts and reports each host's end (ChromiumHostSession+EndReport.swift); nil: nothing.
+    let endReports: ChromiumHostEndReports?
     /// Takes each presentation report of the host (ChromiumHostSession+InputPresented.swift).
     let inputPresented: InputPresented
     let reportsInputPresented: ReportsInputPresented
@@ -133,17 +127,15 @@ public final class ChromiumHostSession {
     ///   - standInPicture: The page's last picture, shown while no host shows the page.
     ///   - inputPresented: Takes the host's presentation report of each input (the input latency tracker).
     ///   - reportsInputPresented: Takes whether the current host sends those reports.
-    ///   - traceFiles: Where each host writes its black box, crash keys and metrics file; nil: nowhere.
-    ///   - hostEndReported: Takes the crash report of a host that ended by itself.
+    ///   - endReports: Counts and reports each host's end, and forgets its files (the App's).
     public convenience init(configuration: ChromiumHostConfiguration, idleExit: ChromiumHostIdleExit? = nil,
                             standInPicture: @escaping @MainActor () -> CGImage? = { nil },
                             inputPresented: @escaping InputPresented = { _, _ in },
                             reportsInputPresented: @escaping ReportsInputPresented = { _ in },
-                            traceFiles: ChromiumHostTraceFiles? = nil,
-                            hostEndReported: @escaping HostEndReported = { _ in }) {
-        self.init(configuration: configuration, launcher: ChromiumHostLauncher(traceFiles: traceFiles),
+                            endReports: ChromiumHostEndReports? = nil) {
+        self.init(configuration: configuration, launcher: ChromiumHostLauncher(),
                   idleExit: idleExit, standInPicture: standInPicture, inputPresented: inputPresented,
-                  reportsInputPresented: reportsInputPresented, hostEndReported: hostEndReported)
+                  reportsInputPresented: reportsInputPresented, endReports: endReports)
     }
 
     init(configuration: ChromiumHostConfiguration, launcher: any ChromiumHostLaunching,
@@ -153,13 +145,9 @@ public final class ChromiumHostSession {
          standInPicture: @escaping @MainActor () -> CGImage? = { nil },
          inputPresented: @escaping InputPresented = { _, _ in },
          reportsInputPresented: @escaping ReportsInputPresented = { _ in },
-         endReportLimit: ChromiumHostEndReportLimit = ChromiumHostEndReportLimit(),
-         metrics: Metrics = Metrics(),
-         hostEndReported: @escaping HostEndReported = { _ in },
+         endReports: ChromiumHostEndReports? = nil,
          connected: @escaping (ChromiumHostConnection) -> Void = { _ in }) {
-        self.endReportLimit = endReportLimit
-        self.metrics = metrics
-        self.hostEndReported = hostEndReported
+        self.endReports = endReports
         self.configuration = configuration
         self.launcher = launcher
         self.policy = policy
@@ -464,7 +452,7 @@ public final class ChromiumHostSession {
             view.removeStandIn()
             phase = .ended(failure.description)
         }
-        reportEnd(exit, pid: ended, cause: cause, decision: decision, saidHello: hadHello)
+        reportEnd(exit, pid: ended, cause: cause, decision: decision)
     }
 }
 #endif

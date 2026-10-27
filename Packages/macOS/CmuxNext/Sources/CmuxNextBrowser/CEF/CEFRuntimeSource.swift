@@ -43,6 +43,12 @@ public final class CEFRuntimeSource {
     /// go to the host as paths (feature `chromiumHostFileDialogs`, set by the App; ``ChromiumHostFiles``).
     /// Nil leaves Chromium's own panel, which in host mode opens in the host. Read when the runtime adopts the source.
     public var hostFileDialogs: (any ChromiumFileDialogAnswering)?
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Host mode: counts and reports each Chromium Host end with its black box and crash keys, and forgets the
+    /// ended host's files (``ChromiumHostEndReports``, set by the App; task p09-observability-104). Read when the
+    /// runtime adopts the source.
+    public var hostEndReports: ChromiumHostEndReports?
+    #endif
 
     /// Creates a source.
     ///

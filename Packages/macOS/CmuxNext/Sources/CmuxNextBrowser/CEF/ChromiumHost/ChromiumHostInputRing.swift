@@ -1,6 +1,8 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 import CmuxNextCompat
+import CmuxNextSignposts
+import CmuxNextTrace
 import Darwin
 
 /// cmux's writer of the input ring to the Chromium Host
@@ -32,6 +34,10 @@ import Darwin
 /// never pass each other (its seqs keep rising). Over ``coalescableLimit``
 /// waiting moves and wheel ticks, one that cannot fold in is dropped and
 /// counted (``Stats/dropped``), as the control channel's quota counts its excess.
+///
+/// While `input` records, a pointer frame entering the ring (after any folding)
+/// is a `cef.host_input` flow-out with ``ChromiumHostFrame/inputFlow(appPID:)``,
+/// the id the host's `DispatchInput` flows in with (p09-observability-104).
 ///
 /// Main actor: the one writer of a single-producer ring is the thread that
 /// receives `NSEvent`s.
@@ -117,11 +123,17 @@ final class ChromiumHostInputRing {
     private var coalescableWaiting = 0
     /// Compact the backlog once this many frames left it from the front.
     private static let compactAfter = 1_024
+    /// Takes each pointer frame's flow-out while `input` records (tests pass their own runtime).
+    private let trace: TraceRuntime
+    /// This process, in the flow ids it shares with the host (the host's `getppid()`).
+    private let appPID = UInt32(bitPattern: getpid())
 
     /// Maps the ring in `fd` (``ChromiumHostInputRingRegion/fd``; the caller
     /// keeps and closes the descriptor). Rings `doorbell` when the reader
     /// parked; nil until ``attach(_:)``.
-    init(region fd: Int32, doorbell: (any ChromiumHostInputDoorbell)?) throws(ChromiumHostInputRingError) {
+    init(region fd: Int32, doorbell: (any ChromiumHostInputDoorbell)?,
+         trace: TraceRuntime = .shared) throws(ChromiumHostInputRingError) {
+        self.trace = trace
         let mapping = try Mapping(fd: fd)
         // SAFETY: the mapping holds `ringBytes` (Mapping checked the region's size), more than the header read.
         guard unsafe Self.isRing(UnsafeRawPointer(mapping.base)) else { throw .notARing }
@@ -213,6 +225,9 @@ final class ChromiumHostInputRing {
         // SAFETY: slot `tail % capacity` of the frames area: framesOffset + capacity * frameSize == ringBytes, the
         // mapping's size, and the reader does not read the slot until the tail store below publishes it.
         unsafe Self.encode(frame, into: mapping.base + Self.framesOffset + Int(tail & (Self.capacity - 1)) * Self.frameSize)
+        if trace.isEnabled(categoryBit: SignpostCategory.input.traceBit), let flow = frame.inputFlow(appPID: appPID) {
+            trace.flowOut(.cefHostInput, flow: flow, arg0: UInt64(frame.rawKind))
+        }
         tail &+= 1
         tailSlot.store(tail, ordering: .sequentiallyConsistent)
         stats.written += 1

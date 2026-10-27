@@ -39,15 +39,20 @@ public nonisolated struct ChromiumHostAttachment: Sendable, Equatable {
     /// The bootstrap name of the host's resize fence inbox (the spawn's `--resize-fence=` argument,
     /// `ChromiumHostResizeFenceChannel`, task 052); nil for a host spawned without one.
     public var resizeFence: String?
+    /// The host process this wire reaches, 0 when the supervisor does not say: the runtime reports that host's
+    /// end with its black box and crash keys, and forgets its files (`ChromiumHostEndReports`, task
+    /// p09-observability-104).
+    public var hostPID: Int32
 
     public init(controlFD: Int32, inputRingFD: Int32 = -1, outputRingFD: Int32 = -1, remoteShim: URL,
-                frameworkLocales: [String], resizeFence: String? = nil) {
+                frameworkLocales: [String], resizeFence: String? = nil, hostPID: Int32 = 0) {
         self.controlFD = controlFD
         self.inputRingFD = inputRingFD
         self.outputRingFD = outputRingFD
         self.remoteShim = remoteShim
         self.frameworkLocales = frameworkLocales
         self.resizeFence = resizeFence
+        self.hostPID = hostPID
     }
 
     /// Closes every descriptor: the remote shim did not take them.

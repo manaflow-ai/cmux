@@ -1,24 +1,18 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug and bench builds only (embed-cef.sh), and so does its Swift side.
 import AppKit
-import CmuxNextMetrics
 
 /// A host's end as cmux reports it (plans/cmux-next/chrome-parity/p09-observability.md, task 104 (d)), and the
 /// session's sends and kills of its host.
 extension ChromiumHostSession {
-    /// Counts the end of the host `ended` in `stability.child_exit.chromium_host`, and when it ended by itself
-    /// (`cause` crash, not a clean exit) and ``ChromiumHostEndReportLimit`` lets it through, hands its crash report
-    /// to ``hostEndReported``: the exit, the restart count and the budget's `decision`, and the host's black box
-    /// and crash keys, which the App reads off the main thread. Called after the decision's restart was counted.
+    /// Hands the end of the host `ended` to ``endReports``: every end is counted and forgets the host's files, and
+    /// an end by itself (`cause` crash) is a report with the budget's `decision`. Called after the decision's
+    /// restart was counted.
     func reportEnd(_ exit: ChromiumHostExit, pid ended: Int32, cause: ChromiumHostEndCause,
-                   decision: ChromiumHostRestartPolicy.Decision, saidHello: Bool) {
-        metrics.record(.stabilityChildExit(.chromiumHost), exit.stabilityExit.rawValue)
-        guard cause == .crash, exit.pageExit != nil, endReportLimit.allows(exit.description) else { return }
-        let files = launcher.traceFiles
-        hostEndReported(ChromiumHostEndReport(pid: ended, signal: exit.signal, status: exit.status, restarts: restarts,
-                                              recentCrashes: policy.recentCrashes, decision: decision.reportName,
-                                              saidHello: saidHello, blackBoxPath: files?.blackBoxPath(pid: ended),
-                                              crashKeysPath: files?.crashKeysPath(pid: ended)))
+                   decision: ChromiumHostRestartPolicy.Decision) {
+        let budget = ChromiumHostEndReport.Budget(recentCrashes: policy.recentCrashes, decision: decision.reportName)
+        endReports?.hostEnded(pid: ended, exit: exit.pageExit, byItself: cause == .crash, budget: budget)
+        endReports?.forget(pid: ended)
     }
 
     /// SIGKILL to the host this session started (the crash check); its pid, or 0 when none runs.

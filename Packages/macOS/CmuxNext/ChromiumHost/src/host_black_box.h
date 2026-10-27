@@ -5,8 +5,9 @@
 // Like the app's TraceBlackBox: the ring and the crash-key page live on the heap
 // from the host's first line, and Adopt, once and off the main thread, moves
 // them into the trace folder's files, where cmux reads them after the host
-// ended (ChromiumHostExitReporter: the black-box tail of its Sentry event) and
-// the trace recording reads them while it runs. Chrome's TraceLog and its
+// ended (ChromiumHostEndReports: the black-box tail of its Sentry event). The
+// first TRACE_START makes the recording ring there (trace.md, "Recording
+// ring"); a host no trace ran in has none. Chrome's TraceLog and its
 // crash keys work the same way: a trace point is a few stores into memory set
 // aside up front, never an allocation or a lock
 // (base/trace_event/trace_log.cc, components/crash/core/common/crash_key.h).
@@ -192,12 +193,12 @@ class HostBlackBox final : public TraceRecorder {
   HostBlackBox(const HostBlackBox&) = delete;
   HostBlackBox& operator=(const HostBlackBox&) = delete;
 
-  // Moves the black box and the crash-key page into `directory`'s files and
-  // makes the recording ring there (sparse: its pages take disk only once a
-  // recording writes them). Once, on the host's files thread. False when a
-  // file could not be made; what was made stays.
+  // Moves the black box and the crash-key page into `directory`'s files; a
+  // later StartRecording makes the recording ring there. Once, on the host's
+  // files thread. False when a file could not be made; what was made stays.
   bool Adopt(const std::string& directory) {
     if (!ready_ || adopted_.exchange(true)) return false;
+    directory_ = directory;
     mkdir(directory.c_str(), 0700);
     const cmux_trace_layout layout = tracer_->rings[CMUX_TRACE_SLOT_HEAP].layout;
     bool ok = true;
@@ -215,22 +216,15 @@ class HostBlackBox final : public TraceRecorder {
     } else {
       ok = false;
     }
-    const cmux_trace_layout recording =
-        cmux_trace_layout_of(cmux_trace_role_sizes(CMUX_TRACE_ROLE_CHROMIUM_HOST, CMUX_TRACE_RING_RECORDING));
-    if (void* file = MapNewFile(HostTracePath(directory, identity_.pid, ".recording.cmxtrace"), recording.total_bytes)) {
-      const cmux_trace_ring ring = cmux_trace_ring_on(file, recording);
-      cmux_trace_header_fields fields = Fields(CMUX_TRACE_RING_RECORDING, start_uptime_ns_, 0, 0);
-      cmux_trace_ring_init(&ring, &fields, kHostTraceCatalog, sizeof kHostTraceCatalog / sizeof kHostTraceCatalog[0]);
-      ok = cmux_trace_tracer_attach_recording(tracer_, &ring) == CMUX_TRACE_OK && ok;
-    } else {
-      ok = false;
-    }
     return ok;
   }
 
-  // TRACE_START's ring (host_tracing.h).
+  // TRACE_START's ring (host_tracing.h). The first one maps the recording
+  // ring in the adopted folder (sparse: its pages take disk only once a
+  // recording writes them); every later one reuses it. False without an
+  // adopted folder. Blocking file work: the host's files thread, after Adopt.
   bool StartRecording(uint64_t categories) override {
-    if (!ready_) return false;
+    if (!ready_ || !AttachRecording()) return false;
     return cmux_trace_tracer_start_recording(tracer_, categories & CMUX_TRACE_CAT_ALL, cmux_trace_now_ns(),
                                              cmux_trace_unix_ns(), cmux_trace_continuous_ns()) == CMUX_TRACE_OK;
   }
@@ -261,6 +255,21 @@ class HostBlackBox final : public TraceRecorder {
   uint32_t pid() const { return identity_.pid; }
 
  private:
+  // Maps and attaches the recording ring once; true when the tracer has one.
+  bool AttachRecording() {
+    if (recording_attached_) return true;
+    if (directory_.empty()) return false;
+    const cmux_trace_layout recording =
+        cmux_trace_layout_of(cmux_trace_role_sizes(CMUX_TRACE_ROLE_CHROMIUM_HOST, CMUX_TRACE_RING_RECORDING));
+    void* file = MapNewFile(HostTracePath(directory_, identity_.pid, ".recording.cmxtrace"), recording.total_bytes);
+    if (!file) return false;
+    const cmux_trace_ring ring = cmux_trace_ring_on(file, recording);
+    cmux_trace_header_fields fields = Fields(CMUX_TRACE_RING_RECORDING, start_uptime_ns_, 0, 0);
+    cmux_trace_ring_init(&ring, &fields, kHostTraceCatalog, sizeof kHostTraceCatalog / sizeof kHostTraceCatalog[0]);
+    recording_attached_ = cmux_trace_tracer_attach_recording(tracer_, &ring) == CMUX_TRACE_OK;
+    return recording_attached_;
+  }
+
   cmux_trace_header_fields Fields(uint8_t kind, uint64_t uptime_ns, uint64_t unix_ns, uint64_t continuous_ns) const {
     cmux_trace_header_fields fields;
     std::memset(&fields, 0, sizeof fields);
@@ -282,6 +291,9 @@ class HostBlackBox final : public TraceRecorder {
   const uint64_t start_uptime_ns_;
   bool ready_ = false;
   std::atomic<bool> adopted_{false};
+  // The files thread's own: the adopted folder, and whether the recording ring is attached.
+  std::string directory_;
+  bool recording_attached_ = false;
   // Never freed, as the rings: a thread's writer (ThreadWriterOf) may name it after this goes.
   cmux_trace_tracer* const tracer_ = new cmux_trace_tracer();
   std::atomic<uint8_t*> keys_{nullptr};
