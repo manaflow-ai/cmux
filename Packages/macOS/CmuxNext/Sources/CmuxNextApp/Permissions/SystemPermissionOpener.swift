@@ -33,8 +33,10 @@ final class SystemPermissionOpener: PermissionSettingsOpening {
             // task-owner: one macOS prompt, off the main actor (the call blocks until the person answers).
             Task { _ = await SystemPermissionProbe.automation(of: target, ask: true) }
         // The window guides both helper grants in order, with the drag panel docked to System Settings.
+        // It reads the legacy helper's grants: under the helper v2 the card asks for its grant directly.
         case .accessibility, .screenRecording, .computerUse:
-            showComputerUse()
+            guard setup.driver == .upstream else { return showComputerUse() }
+            setup.open(kind == .screenRecording ? .screenRecording : .accessibility)
         case .fullDiskAccess:
             guard let url = kind.settingsURL else { return }
             openURL(url)

@@ -26,6 +26,8 @@ final class ComputerUseSetupView: NSView {
                                                        target: self, action: #selector(restartPressed))
     private var panel: HelperDragPanel?
     private var panelPane: ComputerUsePermissionPane?
+    /// The window's close: AppKit does not move the view out of a closing window.
+    private var closing: MainActorObservation?
     private var iconURL: URL??
     private var iconCheck: Task<Void, Never>?
     private var seenComebacks: Int
@@ -177,10 +179,15 @@ final class ComputerUseSetupView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        // Closing the window takes the panel with it.
+        hidePanel()
+        // Closing the window takes the panel with it (a close does not move this view out of it).
+        closing = window.map { MainActorObservation(NSWindow.willCloseNotification, object: $0) { [weak self] in self?.hidePanel() } }
+        if window != nil { render() }
+    }
+
+    private func hidePanel() {
         panel?.orderOut(nil)
         panel = nil
         panelPane = nil
-        if window != nil { render() }
     }
 }

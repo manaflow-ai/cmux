@@ -33,6 +33,29 @@ import Testing
         #expect(opened == [ComputerUseSetup.settingsURL(pane)].compactMap { $0 })
     }
 
+    /// The window reads the legacy helper's grants only: under the helper v2, Continue asks for the
+    /// card's grant directly and opens its list, with no window.
+    @Test(arguments: [PermissionKind.accessibility, .screenRecording, .computerUse])
+    func upstreamContinueRequestsTheGrantWithoutTheWindow(_ kind: PermissionKind) {
+        var requested: [ComputerUsePermissionPane] = []
+        var opened: [URL] = []
+        var shown = 0
+        let setup = ComputerUseSetup(
+            inputs: { .init(disabledByPolicy: false, enabled: true, helper: .off, driver: .upstream) },
+            configuration: { nil },
+            resolveHelper: { _ in nil },
+            openURL: { opened.append($0) },
+            requestPermission: { requested.append($0) }
+        )
+        setup.start()
+        let opener = SystemPermissionOpener(setup: setup, showComputerUse: { shown += 1 }, openURL: { opened.append($0) })
+        opener.open(kind, target: nil)
+        let pane: ComputerUsePermissionPane = kind == .screenRecording ? .screenRecording : .accessibility
+        #expect(shown == 0)
+        #expect(requested == [pane])
+        #expect(opened == [ComputerUseSetup.settingsURL(pane)].compactMap { $0 })
+    }
+
     @Test func launchAndStatusNeverRequestGrantsButSetupRequestsOnlyTheClickedGrant() {
         var requested: [ComputerUsePermissionPane] = []
         var opened: [URL] = []

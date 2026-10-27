@@ -12,7 +12,7 @@ import Testing
 /// shows the Computer Use window. On macOS 26 the Screen Recording toggle
 /// alone leaves the helper's capture check false until the helper asks once,
 /// so Allow in that window sends `request_system_permission`
-/// (`ComputerUseSetup.open`). Before, the card never ended `granted`.
+/// (`AppComputerUsePermissionSource.openSettings`, `ComputerUseSetup.open`). Before, the card never ended `granted`.
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct ComputerUsePermissionCardTests {
@@ -73,7 +73,7 @@ struct ComputerUsePermissionCardTests {
         #expect(card.opened.windows == 1)
         #expect(card.opened.urls.isEmpty)
         // Allow on Screenshots in the window.
-        card.setup.open(.screenRecording)
+        AppComputerUsePermissionSource(setup: card.setup).openSettings(.screenRecording)
         for await count in ObservationStream({ card.grants.count }) where count >= 1 { break }
         #expect(await card.grants.panes == [.screenRecording])
         #expect(card.opened.urls == [ComputerUseSetup.settingsURL(.screenRecording)])
@@ -95,7 +95,7 @@ struct ComputerUsePermissionCardTests {
         for await windows in ObservationStream({ card.opened.windows }) where windows >= 1 { break }
         #expect(card.opened.windows == 1)
         // Allow on Accessibility in the window.
-        card.setup.open(.accessibility)
+        AppComputerUsePermissionSource(setup: card.setup).openSettings(.accessibility)
         for await count in ObservationStream({ card.opened.urls.count }) where count >= 1 { break }
         #expect(card.opened.urls == [ComputerUseSetup.settingsURL(.accessibility)])
         card.requests.denyCurrent()

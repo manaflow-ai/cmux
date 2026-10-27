@@ -35,7 +35,7 @@ final class ComputerUseGrantRow: NSView {
         names.alignment = .leading
         names.spacing = 2
         let check = NSImageView(image: NSImage(systemSymbolName: "checkmark", accessibilityDescription: nil) ?? NSImage())
-        check.symbolConfiguration = .init(pointSize: 12, weight: .semibold)
+        check.symbolConfiguration = .init(pointSize: 12, weight: TypeScale.emphasis)
         check.contentTintColor = Palette.textSecondary
         let doneLabel = OnboardingLabel.make(OnboardingStrings.computerUseDone,
                                              font: Typography.system(size: TypeScale.body, weight: TypeScale.emphasis),
