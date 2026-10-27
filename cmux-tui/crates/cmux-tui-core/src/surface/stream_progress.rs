@@ -67,7 +67,7 @@ impl Default for TerminalStreamProgress {
 
 impl TerminalStreamProgress {
     pub(crate) fn revision(&self) -> u64 {
-        self.state.lock().unwrap().revision
+        self.state.lock().recover_poison().revision
     }
 
     pub(crate) fn notify(&self) {
@@ -75,7 +75,7 @@ impl TerminalStreamProgress {
         if let Some(hook) = self.test_before_notify.lock().unwrap().clone() {
             hook();
         }
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         state.revision = state.revision.wrapping_add(1);
         // An expired budget is retained only while the stream is unchanged.
         // Active waiters keep their original deadline across fragmented output.
@@ -103,7 +103,7 @@ impl TerminalStreamProgress {
     /// notifies and removes every registered wake.
     pub(crate) fn add_resource_waiter(&self, wake: &Arc<ResourceWaitWake>) -> u64 {
         let waiter_id = self.next_resource_waiter_id.fetch_add(1, Ordering::Relaxed);
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         state.resource_waiters.insert(waiter_id, Arc::downgrade(wake));
         #[cfg(test)]
         {
@@ -113,11 +113,11 @@ impl TerminalStreamProgress {
     }
 
     pub(crate) fn remove_resource_waiter(&self, waiter_id: u64) {
-        self.state.lock().unwrap().resource_waiters.remove(&waiter_id);
+        self.state.lock().recover_poison().resource_waiters.remove(&waiter_id);
     }
 
     pub(crate) fn begin_clear_history_wait(&self, timeout: Duration) -> ClearHistoryWaitLease<'_> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let revision = state.revision;
         let wait = state.clear_history_wait.get_or_insert_with(|| ClearHistoryWaitState {
             deadline: Instant::now() + timeout,
@@ -129,7 +129,7 @@ impl TerminalStreamProgress {
     }
 
     fn finish_clear_history_wait(&self, timed_out: bool) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let current_revision = state.revision;
         let clear_wait = {
             let Some(wait) = state.clear_history_wait.as_mut() else {
@@ -153,7 +153,7 @@ impl TerminalStreamProgress {
         observed: u64,
         deadline: Option<Instant>,
     ) -> Option<u64> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.revision != observed {
             return Some(state.revision);
         }
@@ -165,14 +165,15 @@ impl TerminalStreamProgress {
                         state.waiters -= 1;
                         return None;
                     };
-                    let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
+                    let (next, timeout) =
+                        self.changed.wait_timeout(state, remaining).recover_poison();
                     state = next;
                     if timeout.timed_out() && state.revision == observed {
                         state.waiters -= 1;
                         return None;
                     }
                 }
-                None => state = self.changed.wait(state).unwrap(),
+                None => state = self.changed.wait(state).recover_poison(),
             }
         }
         let revision = state.revision;
