@@ -88,10 +88,7 @@ import {
   markPullRequestActivityVersion,
   markPullRequestCommandVersion,
   markTranscriptSummaryVersion,
-  markTranscriptSourceVersion,
   pullRequestRowKey,
-  transcriptSummaryRowIsStreaming,
-  transcriptSourceRowKey,
 } from "./summary/transcriptPullRequests";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
 
@@ -960,7 +957,6 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   private pullRequestActivityVersion = Symbol();
   private pullRequestCommandVersion = Symbol();
   private transcriptSummaryVersion = Symbol();
-  private transcriptSourceVersion = Symbol();
 
   /// Puts back the earlier object of each row a rebuild made again unchanged (same kind, version and
   /// plain fields: a turn's totals change with what was folded before it, not its version), so what
@@ -984,7 +980,8 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     if (changed) this.snapshot = undefined;
   }
 
-  override set(id: string, row: AcpmuxRow): this {
+  // Producers identify stream progress from the event, even when its row retains settled tools.
+  override set(id: string, row: AcpmuxRow, summaryChanged = !row.streaming): this {
     const known = this.order.has(id);
     const previous = this.get(id);
     const unchanged = known && previous === row;
@@ -992,9 +989,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       this.pullRequestActivityVersion = Symbol();
     if (!unchanged && row.kind === "activity" && pullRequestRowKey(previous) !== pullRequestRowKey(row))
       this.pullRequestCommandVersion = Symbol();
-    if (!unchanged && !transcriptSummaryRowIsStreaming(row)) this.transcriptSummaryVersion = Symbol();
-    if (!unchanged && transcriptSourceRowKey(previous) !== transcriptSourceRowKey(row))
-      this.transcriptSourceVersion = Symbol();
+    if (!unchanged && (!known || summaryChanged)) this.transcriptSummaryVersion = Symbol();
     if (!unchanged) this.snapshot = undefined;
     if (!known) {
       if (this.current !== undefined) {
@@ -1030,7 +1025,6 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.pullRequestActivityVersion = Symbol();
     this.pullRequestCommandVersion = Symbol();
     this.transcriptSummaryVersion = Symbol();
-    this.transcriptSourceVersion = Symbol();
   }
 
   /// Whether the row at `index` of the kept order sorts by its event alone, so a change of its
@@ -1059,7 +1053,6 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.pullRequestActivityVersion = Symbol();
     this.pullRequestCommandVersion = Symbol();
     this.transcriptSummaryVersion = Symbol();
-    this.transcriptSourceVersion = Symbol();
     this.ordered = undefined;
     this.snapshot = undefined;
     this.order.delete(id);
@@ -1071,7 +1064,6 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.pullRequestActivityVersion = Symbol();
     this.pullRequestCommandVersion = Symbol();
     this.transcriptSummaryVersion = Symbol();
-    this.transcriptSourceVersion = Symbol();
     this.ordered = undefined;
     this.snapshot = undefined;
     this.order.clear();
@@ -1094,7 +1086,6 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.pullRequestActivityVersion = Symbol();
     this.pullRequestCommandVersion = Symbol();
     this.transcriptSummaryVersion = Symbol();
-    this.transcriptSourceVersion = Symbol();
     this.ordered = undefined;
     this.snapshot = undefined;
     const local = [...this.local].sort((a, b) => (this.order.get(a) ?? 0) - (this.order.get(b) ?? 0));
@@ -1114,7 +1105,6 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       markPullRequestActivityVersion(this.snapshot, this.pullRequestActivityVersion);
       markPullRequestCommandVersion(this.snapshot, this.pullRequestCommandVersion);
       markTranscriptSummaryVersion(this.snapshot, this.transcriptSummaryVersion);
-      markTranscriptSourceVersion(this.snapshot, this.transcriptSourceVersion);
     }
     return this.snapshot;
   }
@@ -3859,7 +3849,11 @@ export class AcpmuxDirectClient {
         this.endAssistantSegment();
         this.streamingActivity = undefined;
       }
-      this.rows.set(row.id, row);
+      const previous = this.rows.get(row.id)?.subagents;
+      const changed = row.subagents?.some(
+        (agent, index) => agent.id !== previous?.[index]?.id || agent.state !== previous[index]?.state,
+      );
+      this.rows.set(row.id, row, changed);
     }
   }
 
@@ -4306,6 +4300,7 @@ export class AcpmuxDirectClient {
         kind: "activity",
         toolCount: existing?.toolCount ?? 0,
         items: appendThought(existing?.items ?? [], text, event.at),
+        streaming: true,
       });
       this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
@@ -4338,6 +4333,7 @@ export class AcpmuxDirectClient {
         kind: "activity",
         toolCount: items.filter((entry) => entry.kind === "tool").length,
         items,
+        streaming: item.tool?.status !== "completed" && item.tool?.status !== "failed",
       });
       this.toolRows.set(callId, id);
       if (!knownRow) this.streamingActivity = id;

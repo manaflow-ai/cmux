@@ -8,8 +8,6 @@
 import { expect, test } from "bun:test";
 import { sessionPullRequests, sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import {
-  markTranscriptSourceVersion,
-  transcriptSourceRowKey,
   transcriptPullRequestKey,
   transcriptPullRequests,
   transcriptSummaryVersion,
@@ -253,58 +251,34 @@ test("producer PR revisions invalidate on activity edits, deletion and transcrip
   expect(transcriptPullRequestKey(rows.sorted(), true)).not.toBe(deleted);
 });
 
-test("brokered PR mutations and git branch updates are Changes", () => {
-  const rows = [
-    activity(
-      [
-        shell(
-          "gh pr view 41 -R acme/uploader --json title,headRefName",
-          '{"title":"Read first","headRefName":"si-sources-parser"}',
-        ),
-        shell("glaeda-gh gh pr edit 41 -R acme/uploader --title 'Changed'"),
-        shell("git push origin si-sources-parser"),
-      ],
-      1,
-    ),
-  ];
+test("brokered PR mutations are Changes", () => {
+  const rows = [activity([shell("glaeda-gh gh pr edit 41 -R acme/uploader --title 'Changed'")], 1)];
   expect(transcriptPullRequests(rows).map((pr) => [pr.number, pr.changed])).toEqual([[41, true]]);
 });
 
-test("git pushes and reverts only change pull requests on the pushed branch", () => {
-  const read = (number: number, head: string) =>
-    activity(
-      [shell(`gh pr view ${number} -R acme/uploader --json headRefName`, JSON.stringify({ headRefName: head }))],
-      number,
-    );
-  const unrelated = [read(41, "feature-41"), read(42, "feature-42"), activity([shell("git push origin unrelated")], 3)];
-  expect(transcriptPullRequests(unrelated, { folder: "acme/uploader" }).map((pr) => [pr.number, pr.changed])).toEqual([
+test("git observations, pushes and reverts do not infer PR mutations", () => {
+  const rows = [activity([shell("gh pr view 41 -R acme/uploader")], 1)];
+  for (const command of [
+    "git branch --show-current",
+    "git push origin unrelated",
+    "git add . && git commit -m fix && git push origin feature-41",
+    'git -C "/project" push origin HEAD:refs/heads/feature-41',
+    "git -c key=value revert deadbeef",
+  ])
+    rows.push(activity([shell(command, "feature-41")], rows.length + 1));
+  expect(transcriptPullRequests(rows, { folder: "acme/uploader" }).map((pr) => [pr.number, pr.changed])).toEqual([
     [41, undefined],
-    [42, undefined],
   ]);
-
-  const optionForms = [
-    read(41, "feature-41"),
-    read(42, "feature-42"),
-    activity([shell("git -C /project push origin feature-41")], 3),
-    activity([shell("git branch --show-current", "feature-42")], 4),
-    activity([shell("git -c key=value revert deadbeef")], 5),
-  ];
-  expect(transcriptPullRequests(optionForms, { folder: "acme/uploader" }).map((pr) => [pr.number, pr.changed])).toEqual(
-    [
-      [41, true],
-      [42, true],
-    ],
-  );
 });
 
-test("brokered comment writes are Changes, not Sources", () => {
-  const rows = [activity([shell("glaeda-gh post pr-comment acme/uploader#41 --body-file -")], 1)];
-  expect(transcriptPullRequests(rows, { folder: "acme/uploader" })[0]).toMatchObject({
-    number: 41,
-    changed: true,
-    kind: "pullRequest",
-  });
-  expect(sessionSummary(rows, "acme/uploader").sources).toEqual([]);
+test("brokered comment writes produce one mutation and no Source", () => {
+  for (const kind of ["pr", "issue"]) {
+    const rows = [activity([shell(`glaeda-gh post ${kind}-comment acme/uploader#41 --body-file -`)], 1)];
+    const findings = transcriptPullRequests(rows, { folder: "acme/uploader" });
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ number: 41, changed: true, kind: kind === "pr" ? "pullRequest" : "issue" });
+    expect(sessionSummary(rows, "acme/uploader").sources).toEqual([]);
+  }
 });
 
 test("mutating issue calls do not become read-only Sources", () => {
@@ -334,45 +308,54 @@ test("fetched pull request URLs become Sources", () => {
   ]);
 });
 
-test("OrderedRows summary revisions stay stable for streaming and invalidate when settled", () => {
+test("OrderedRows summary revisions track row addition, settling and removal", () => {
   const rows = new OrderedRows();
-  const history = activity([shell("gh pr view 41 -R acme/app")], 1);
-  rows.set(history.id, history);
   const initial = transcriptSummaryVersion(rows.sorted());
   const streaming = { ...assistant("working", 2), streaming: true };
   rows.set(streaming.id, streaming);
-  expect(transcriptSummaryVersion(rows.sorted())).toBe(initial);
-  rows.set(streaming.id, { ...streaming, streaming: false });
-  expect(transcriptSummaryVersion(rows.sorted())).not.toBe(initial);
+  const added = transcriptSummaryVersion(rows.sorted());
+  expect(added).not.toBe(initial);
+  rows.set(streaming.id, { ...streaming, text: "still working", version: 2 });
+  expect(transcriptSummaryVersion(rows.sorted())).toBe(added);
+  rows.set(streaming.id, { ...streaming, streaming: false, version: 3 });
+  const settled = transcriptSummaryVersion(rows.sorted());
+  expect(settled).not.toBe(added);
+  rows.delete(streaming.id);
+  expect(transcriptSummaryVersion(rows.sorted())).not.toBe(settled);
 });
 
-test("sessionSummary reuses its producer revision across 50 streamed chunks", () => {
+test("sessionSummary skips history across 50 mixed activity and assistant chunks", () => {
   const rows = new OrderedRows();
   let visits = 0;
   const history = activity([shell("gh pr view 41 -R acme/app")], 1);
   Object.defineProperty(history, "kind", { get: () => (visits++, "activity") });
   rows.set(history.id, history);
+  const completed = activity([shell("gh pr view 42 -R acme/app")], 3);
+  rows.set(completed.id, completed);
+  const reply = { ...assistant("starting", 2), streaming: true };
+  rows.set(reply.id, reply);
   const first = sessionSummary(rows.sorted(), "acme/app");
   visits = 0;
   for (let index = 0; index < 50; index++) {
-    rows.set("reply", { ...assistant(`chunk ${index}`, 2), id: "reply", version: index + 1, streaming: true });
-    rows.set("thought", {
-      id: "thought",
-      version: index + 1,
-      at: 3,
-      kind: "activity",
-      items: [{ kind: "thought", text: `thinking ${index}` }],
-    });
-    rows.set("tool-progress", {
-      id: "tool-progress",
-      version: index + 1,
-      at: 4,
-      kind: "activity",
-      items: [{ kind: "tool", text: "", tool: { id: "t", title: "Work", status: "in_progress" } }],
-    });
+    rows.set(reply.id, { ...reply, text: `chunk ${index}`, version: index + 1 });
+    rows.set(
+      completed.id,
+      {
+        ...completed,
+        version: index + 1,
+        items: [
+          ...completed.items!,
+          { kind: "thought", text: `thinking ${index}` },
+          { kind: "tool", text: "", tool: { id: "t", title: "Work", status: "in_progress" } },
+        ],
+      },
+      false,
+    );
     expect(sessionSummary(rows.sorted(), "acme/app")).toBe(first);
   }
   expect(visits).toBe(0);
+  rows.set(reply.id, { ...reply, streaming: false, version: 51 });
+  expect(sessionSummary(rows.sorted(), "acme/app")).not.toBe(first);
 });
 
 test("sources include fetched URLs, files read and MCP tools", () => {
@@ -440,48 +423,7 @@ test("settled assistant URLs become Sources while streaming prose is ignored", (
   expect(sessionSummary([streaming]).sources).toEqual([]);
 });
 
-test("cached Sources do not reread settled replies for each snapshot", () => {
-  let textReads = 0;
-  const rows = Array.from({ length: 2000 }, (_, index) => {
-    const row = { id: `reply-${index}`, version: 1, at: index, kind: "assistant" } as Record<string, unknown>;
-    Object.defineProperty(row, "text", { get: () => (textReads++, "steady") });
-    return row;
-  });
-  markTranscriptSourceVersion(rows as unknown as Rows, Symbol());
-  sessionSummary(rows as unknown as Rows);
-  textReads = 0;
-  sessionSummary(rows as unknown as Rows);
-  expect(textReads).toBe(0);
-});
-
-test("streaming reply references stay out of Sources without rescanning settled replies", () => {
-  let settledReads = 0;
-  const settled = Array.from({ length: 100 }, (_, index) => {
-    const row = assistant(`settled status ${index}`, index + 1);
-    Object.defineProperty(row, "text", {
-      configurable: true,
-      get: () => {
-        settledReads += 1;
-        return `settled status ${index}`;
-      },
-    });
-    return row;
-  });
-  const streaming = assistant("acme/app#7", 200);
-  streaming.streaming = true;
-  const rows = [...settled, streaming];
-  markTranscriptSourceVersion(rows, Symbol("settled"));
-
-  expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
-  expect(settledReads).toBeGreaterThan(0);
-
-  settledReads = 0;
-  streaming.text = "acme/app#71";
-  expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
-  expect(settledReads).toBe(0);
-});
-
-test("pending and failed tools do not enter Sources or advance the settled source key", () => {
+test("pending and failed tools do not enter Sources", () => {
   const pending = tool("Read pending", "read", "in_progress", {
     output: "https://example.com/pending",
     locations: [{ path: "/tmp/pending.txt" }],
@@ -493,27 +435,6 @@ test("pending and failed tools do not enter Sources or advance the settled sourc
   });
   const row = activity([pending, failed], 1);
   expect(sessionSummary([row], "acme/app").sources).toEqual([]);
-  const before = transcriptSourceRowKey(row);
-  pending.tool!.output = "https://example.com/changed-while-streaming";
-  pending.tool!.status = "in_progress";
-  expect(transcriptSourceRowKey(row)).toBe(before);
-  pending.tool!.status = "completed";
-  pending.tool!.exitCode = 0;
-  expect(transcriptSourceRowKey(row)).not.toBe(before);
-});
-
-test("Outputs fail closed when the session has no project folder", () => {
-  const rows = [
-    activity(
-      [
-        tool("Write scratch", "edit", "completed", {
-          diffs: [{ path: "/tmp/m1076.txt", newText: "scratch" }],
-        }),
-      ],
-      1,
-    ),
-  ];
-  expect(sessionSummary(rows).outputs).toEqual([]);
 });
 
 test("ambiguous shorthand Sources use neutral labels and redirect-safe URLs", () => {
@@ -532,7 +453,7 @@ test("known PR evidence stays a PR when later referenced by shorthand", () => {
   ]);
 });
 
-test("without cwd only project-relative Outputs survive, including canonical-path checks", () => {
+test("Outputs preserve unscoped callers and filter canonical paths when cwd is given", () => {
   const rows = [
     activity(
       [
@@ -548,5 +469,11 @@ test("without cwd only project-relative Outputs survive, including canonical-pat
       1,
     ),
   ];
-  expect(sessionSummary(rows).outputs.map((file) => file.path)).toEqual(["src/main.ts"]);
+  expect(sessionSummary(rows).outputs.map((file) => file.path)).toEqual([
+    "src/main.ts",
+    "scratch.txt",
+    "/tmp/m1076.txt",
+    "../outside.txt",
+  ]);
+  expect(sessionSummary(rows, undefined, "/project").outputs.map((file) => file.path)).toEqual(["src/main.ts"]);
 });

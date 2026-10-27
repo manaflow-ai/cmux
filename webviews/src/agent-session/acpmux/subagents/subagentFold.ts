@@ -3,7 +3,6 @@ import {
   markPullRequestActivityVersion,
   markPullRequestCommandVersion,
   markTranscriptSummaryVersion,
-  markTranscriptSourceVersion,
 } from "../summary/transcriptPullRequests";
 import { childRows, type ChildEntry } from "./childRows";
 import { hiddenCall, isPlumbingName } from "../hiddenTools";
@@ -117,7 +116,7 @@ type Step = { event: Event; update: any };
 /// The most `acpmux run --parent` calls waiting for their sub-session's start at once.
 const PENDING_CHILDREN = 16;
 type Group = { id: string; at: number; version: number; ids: string[] };
-type ViewRevisions = { activity: symbol; command: symbol; summary: symbol; source: symbol };
+type ViewRevisions = { activity: symbol; command: symbol; summary: symbol };
 
 /// Folds a session's subagent records out of its transcript. Subagents the session spawns
 /// between two pieces of its own text draw as one group row where the first one started; their
@@ -136,7 +135,7 @@ export class SubagentFold {
   /// Each subagent's own updates and the points where it spawned subagents, in order: its view.
   private readonly own = new Map<string, ChildEntry[]>();
   private readonly viewRevisions = new Map<string, ViewRevisions>();
-  private readonly settledViews = new Map<string, boolean>();
+  private readonly settledViews = new Map<string, string>();
   /// Each subagent view's rows, while its version holds.
   private readonly drawn = new Map<string, { version: number; rows: AcpmuxRow[] }>();
   private readonly versions = new Map<string, number>();
@@ -555,13 +554,11 @@ export class SubagentFold {
         activity: Symbol(),
         command: Symbol(),
         summary: Symbol(),
-        source: Symbol(),
       };
       this.viewRevisions.set(id, revisions);
       markPullRequestActivityVersion(drawn.rows, revisions.activity);
       markPullRequestCommandVersion(drawn.rows, revisions.command);
       markTranscriptSummaryVersion(drawn.rows, revisions.summary);
-      markTranscriptSourceVersion(drawn.rows, revisions.source);
       views[id] = drawn.rows;
     }
     return views;
@@ -583,21 +580,15 @@ export class SubagentFold {
   }
 
   private bumpViewRevision(id: string): void {
-    this.viewRevisions.set(id, { activity: Symbol(), command: Symbol(), summary: Symbol(), source: Symbol() });
+    this.viewRevisions.set(id, { activity: Symbol(), command: Symbol(), summary: Symbol() });
   }
 
-  private settleView(agent: Subagent): void {
-    const settled = this.settledViews.get(agent.id) ?? false;
-    if (agent.state === "running") {
-      if (settled) this.bump(agent.id);
-      this.settledViews.set(agent.id, false);
-      return;
-    }
-    if (!settled) {
-      this.bumpViewRevision(agent.id);
-      this.settledViews.set(agent.id, true);
-      this.bump(agent.id);
-    }
+  private settleView(agent: Subagent): boolean {
+    if (this.settledViews.get(agent.id) === agent.state) return false;
+    this.settledViews.set(agent.id, agent.state);
+    this.bumpViewRevision(agent.id);
+    this.bump(agent.id);
+    return true;
   }
 
   private bump(id: string): void {
@@ -752,8 +743,11 @@ export class SubagentFold {
   }
 
   private touch(agent: Subagent): void {
-    this.settleView(agent);
-    if (agent.parent !== null) this.bumpParentViews(agent.parent);
+    const stateChanged = this.settleView(agent);
+    if (agent.parent !== null) {
+      if (stateChanged) this.bumpParentViews(agent.parent);
+      else this.bump(agent.parent);
+    }
     const group = this.groupOf.get(agent.id);
     if (!group) return;
     group.version += 1;
