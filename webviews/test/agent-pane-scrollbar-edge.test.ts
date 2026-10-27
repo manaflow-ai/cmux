@@ -68,6 +68,20 @@ await requireBrowserLane("agent-pane-scrollbar-edge.test.ts", async () => {
           expect(geometry.thumbInk).not.toBe("rgba(0, 0, 0, 0)");
           expect(Math.abs(geometry.rightInset)).toBeLessThanOrEqual(1);
           expect(geometry.columnOffset).toBeLessThanOrEqual(1);
+          // Find is sticky chrome inside the scroller: preserve its existing content shift too.
+          await page.evaluate(() => window.cmuxAcpmuxActions?.["chat.find"]({ text: "Answer" }));
+          await page.locator(".acpmux-find .find-pill__field").waitFor();
+          await settled(page);
+          const findOffset = await page.evaluate(() => {
+            const pane = document.querySelector(".acpmux-main")!.getBoundingClientRect();
+            const find = document.querySelector(".acpmux-find__bar")!;
+            const shift = parseFloat(getComputedStyle(find).getPropertyValue("--acpmux-chat-shift")) || 0;
+            const inset = parseFloat(getComputedStyle(find).right);
+            return Math.abs(pane.right - find.getBoundingClientRect().right - inset - shift);
+          });
+          expect(findOffset).toBeLessThanOrEqual(1);
+          await page.keyboard.press("Escape");
+          await page.locator(".acpmux-find").waitFor({ state: "detached" });
           // The toggle remains a real hit target with the panel open at the pane's edge.
           await toggle.click();
           await panel.waitFor({ state: "detached" });
