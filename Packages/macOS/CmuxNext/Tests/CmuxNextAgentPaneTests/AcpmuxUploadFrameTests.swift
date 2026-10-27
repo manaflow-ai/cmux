@@ -84,6 +84,19 @@ struct AcpmuxUploadFrameTests {
         let upload = try #require(((block["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["upload"] as? [String: Any])
         #expect(upload["uploadId"] as? String == "u")
     }
+    @Test func invalidOrNestedUploadMetadataDoesNotSurvive() throws {
+        for block: [String: Any] in [
+            ["type": "image", "data": "AA==", "_meta": ["acpmux": ["upload": ["uploadId": "u", "fileName": "x"]]]],
+            ["type": "resource_link", "uri": "acpmux-upload:other", "_meta": ["acpmux": ["upload": ["uploadId": "u", "fileName": "x"]]]],
+            ["type": "text", "annotations": ["type": "image", "_meta": ["acpmux": ["upload": ["uploadId": "u", "fileName": "x"]]]]],
+        ] {
+            let frame: [String: Any] = ["method": "session/prompt", "params": ["prompt": [block]]]
+            let result = try #require(AcpmuxPaneMethods.strippingPromptMeta(frame))
+            let data = try JSONSerialization.data(withJSONObject: result)
+            #expect(!String(decoding: data, as: UTF8.self).contains("uploadId"))
+        }
+    }
+
     @Test @MainActor func socketCloseAnswersPendingHostUpload() async throws {
         let transport = AgentPaneTransport()
         let socket = AcpmuxPaneSocket(
