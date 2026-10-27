@@ -61,6 +61,8 @@ final class HomeService {
         mint: { connection in try await ConversationClient(connection).agentToken(for: HomeService.mux.id) })
     @ObservationIgnored private(set) var sessions: [String: HomeConversationSession] = [:]
     @ObservationIgnored unowned let services: AppServices
+    /// The transcript and list caches' memory consumer (`memoryHomeLabCaches`, p07-memory-081); Home views track it.
+    @ObservationIgnored private(set) lazy var labCaches: MessagesLabMemoryConsumer? = AppMemoryConsumers(services: services).makeHomeLabCaches()
     @ObservationIgnored private var availability: ServiceObservation<DaemonConnection?>?
     @ObservationIgnored private var listing: Task<Void, any Error>?
     /// The latest conversation-list read; only its answer is applied.
@@ -69,11 +71,9 @@ final class HomeService {
     /// posts, after startup unless a Home view needs it right after the first frame. nil (tests, a
     /// service made after launch): nothing waits on the launch order.
     @ObservationIgnored var launchFeeds: LaunchNeedPosts?
-    /// Home opened in a window this launch; the host starts once the Chief
+    /// Home opened in a window this launch (the app links read it); the host starts once the Chief
     /// owner is connected, even when Home opened first.
-    @ObservationIgnored private var homeWasOpened = false
-    /// Whether Home opened this launch (for the app links).
-    var homeOpened: Bool { homeWasOpened }
+    @ObservationIgnored private(set) var homeOpened = false
     /// The tagged daemon socket this app last published (ChiefAppLinks).
     @ObservationIgnored var publishedDaemonSocket: String?
     @ObservationIgnored var activationObserver: EventSubscription?
@@ -202,7 +202,7 @@ final class HomeService {
             guard let self, let connection = link.0 else { return }
             ensureHomeWorkspace(connection)
             // The Chief's daemon link names this connection's socket, known only once it is up.
-            if homeWasOpened { publishAppLinks() }
+            if homeOpened { publishAppLinks() }
         }
     }
 
@@ -254,7 +254,7 @@ final class HomeService {
         reloadList(connection)
         // Home opened before the owner answered, or the owner came back
         // after a stop: start the host now if it does not run.
-        if homeWasOpened { homeDidOpen(asked: false) }
+        if homeOpened { homeDidOpen(asked: false) }
         // The Chief tab may wait on this owner (a local Chief with history
         // takes it back from a placed chief): check it again now.
         if let local = services.machines.local.connection,
@@ -282,8 +282,8 @@ final class HomeService {
     /// the Chief home's brain host when none runs (ChiefBrainKeeper).
     func homeDidOpen(asked: Bool) {
         launchFeeds?.need()
-        if !homeWasOpened {
-            homeWasOpened = true
+        if !homeOpened {
+            homeOpened = true
             publishAppLinks()
             observeActivation()
         }

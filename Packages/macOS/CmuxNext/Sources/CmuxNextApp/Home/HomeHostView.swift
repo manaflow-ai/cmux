@@ -67,6 +67,7 @@ final class HomeHostView: NSView {
         mainWork = work
         super.init(frame: .zero)
         let node = visibilityNode
+        service.labCaches?.track(node)  // the caches empty after 60 s with no Home view shown
         hideWatch = node.subscribe(owner: "HomeHost.settings") { [weak self] state in
             if state == .hidden { self?.settings.close() }
         }
