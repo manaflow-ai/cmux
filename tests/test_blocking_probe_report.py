@@ -65,6 +65,33 @@ VIA_DUMP = "\n".join([
     "Chromium Embedded Framework|0x7000|cef_run_loop;cmux DEV.debug.dylib|0x500|$s15CmuxNextBrowser5lightyyF;",
 ]) + "\n"
 
+# The cross-process and loader kinds (probe.c, task p08-startup-084) on the app's main thread: a keychain read and
+# add, an XPC reply then a fork from one site, a plugin's dlopen, getpwuid_r and a nested run loop's mach receive.
+CROSS_PROCESS_DUMP = "\n".join([
+    "#final\t1", "#threads\tmain", "#process\tcmux DEV",
+    "system-call:SecItemCopyMatching\tmain\t2\t6000000\t4000000\tSecurity|0x10|SecItemCopyMatching;"
+    "cmux DEV.debug.dylib|0x700|$s13CmuxNextStore7keychainyyF;",
+    "system-call:SecItemAdd\tmain\t1\t3000000\t3000000\tSecurity|0x20|SecItemAdd;"
+    "cmux DEV.debug.dylib|0x700|$s13CmuxNextStore7keychainyyF;",
+    "xpc-reply:xpc_connection_send_message_with_reply_sync\tmain\t1\t25000000\t25000000\tlibxpc.dylib|0x30|"
+    "xpc_connection_send_message_with_reply_sync;cmux DEV.debug.dylib|0x800|$s14CmuxNextLaunch5agentyyF;",
+    "process-spawn:fork\tmain\t1\t2000000\t2000000\tlibsystem_c.dylib|0x40|fork;"
+    "cmux DEV.debug.dylib|0x800|$s14CmuxNextLaunch5agentyyF;",
+    "library-load:dlopen\tmain\t1\t1500000\t1500000\tlibdyld.dylib|0x50|dlopen;"
+    "cmux DEV.debug.dylib|0x900|$s14CmuxNextLaunch6pluginyyF;",
+    "system-query:getpwuid_r\tmain\t1\t800000\t800000\tlibsystem_info.dylib|0x60|getpwuid_r;"
+    "cmux DEV.debug.dylib|0x900|$s14CmuxNextLaunch6pluginyyF;",
+    "mach-receive:mach_msg2\tmain\t1\t1200000\t1200000\tlibsystem_kernel.dylib|0x70|mach_msg2_internal;"
+    "CoreFoundation|0x80|__CFRunLoopServiceMachPort;cmux DEV.debug.dylib|0x900|$s14CmuxNextLaunch6pluginyyF;",
+]) + "\n"
+DAEMON_MACH_DUMP = "\n".join([
+    "#final\t1", "#threads\tmux-conn", "#process\tcmux-tui",
+    "input-wait:mach_msg2\tmux-conn\t4\t40000000000\t20000000000\tlibsystem_kernel.dylib|0x90|mach_msg2_internal;"
+    "cmux-tui|0x5000|_ZN13cmux_tui_core6server6listen5serve17h0123456789abcdefE;",
+    "mach-receive:mach_msg2\tmux-conn\t1\t3000000\t3000000\tlibsystem_kernel.dylib|0x90|mach_msg2_internal;"
+    "cmux-tui|0x6000|_ZN13cmux_tui_core6notify4post17h0123456789abcdefE;",
+]) + "\n"
+
 
 def write_dumps(work, dumps):
     paths = []
@@ -155,6 +182,43 @@ class ReportSections(unittest.TestCase):
         (site,) = report["sections"]["app_chromium"]
         self.assertIn("heavy", site["via"])
         self.assertEqual(site["max_ms"], 3.0)
+
+    def test_cross_process_and_loader_kinds_rank_by_their_cmux_site(self):
+        report, _ = self.run_report([CROSS_PROCESS_DUMP, DAEMON_MACH_DUMP])
+        sections, summary = report["sections"], report["summary"]
+        main = {site["symbol"]: site for site in sections["app_main"]}
+        self.assertEqual(main["$s13CmuxNextStore7keychainyyF"]["kinds"],
+                         {"system-call:SecItemCopyMatching": 2, "system-call:SecItemAdd": 1})
+        self.assertEqual(main["$s13CmuxNextStore7keychainyyF"]["total_ms"], 9.0)
+        self.assertEqual(main["$s14CmuxNextLaunch5agentyyF"]["kinds"],
+                         {"xpc-reply:xpc_connection_send_message_with_reply_sync": 1, "process-spawn:fork": 1})
+        self.assertEqual(main["$s14CmuxNextLaunch6pluginyyF"]["kinds"],
+                         {"library-load:dlopen": 1, "system-query:getpwuid_r": 1, "mach-receive:mach_msg2": 1})
+        self.assertEqual(sections["app_main"][0]["symbol"], "$s14CmuxNextLaunch5agentyyF")  # worst first
+        self.assertEqual(summary["sections"]["app_main"]["by_kind"],
+                         {"system-call": 3, "xpc-reply": 1, "process-spawn": 1, "library-load": 1, "system-query": 1,
+                          "mach-receive": 1})
+        # A daemon thread's receive that waits for its next message is an input wait; a send waiting for its reply
+        # is request work.
+        (wait,) = sections["daemon_input_wait"]
+        self.assertEqual(wait["kinds"], {"input-wait:mach_msg2": 4})
+        (request,) = sections["daemon_request"]
+        self.assertEqual(request["kinds"], {"mach-receive:mach_msg2": 1})
+        self.assertEqual(summary["sections"]["daemon_input_wait"]["by_kind"], {"input-wait": 4})
+
+    def test_old_fields_are_unchanged(self):
+        # by_kind is the only new summary field; every old field keeps its name and value.
+        report, markdown = self.run_report([APP_DUMP, DAEMON_DUMP])
+        self.assertEqual(set(report["summary"]), {"launches", "dumps", "bad_lines", "calls_timed", "dropped",
+                                                  "probe_overhead_ms_estimate", "sections"})
+        main = report["summary"]["sections"]["app_main"]
+        self.assertEqual(set(main), {"sites", "blocked_ms", "by_owner", "by_module", "by_thread", "by_kind"})
+        self.assertEqual((main["sites"], main["blocked_ms"], main["by_thread"]), (1, 5.0, {"main": 2}))
+        self.assertEqual(main["by_kind"], {"file-io": 2})
+        (site,) = report["sections"]["app_main"]
+        self.assertEqual(set(site), {"site", "symbol", "module", "owner", "count", "total_ms", "max_ms", "kinds",
+                                     "threads", "via", "stack"})
+        self.assertIn("| # | total ms | max ms | calls | kinds | threads | site | via | module | owner |", markdown)
 
     def test_empty_sections_still_present_and_legacy_rows_read(self):
         report, markdown = self.run_report([LEGACY_DUMP])
@@ -254,7 +318,16 @@ class LaunchWindow(unittest.TestCase):
 
 
 # blocking-probe.sh's preflight program: the app, an inert hop (one wanted argument), the owner (both).
-PREFLIGHT_APP = "#final\t1\n#threads\tmain\n#process\tpreflight\nselftest\tmain\t3\t300\t100\tlibc|0x1|open;\n"
+# Its cross-process and loader calls (cross_process): one row of each kind, one mach receive.
+PREFLIGHT_CROSS_PROCESS = "".join(f"{kind}\tmain\t1\t{ns}\t{ns}\tlibsystem_kernel.dylib|0x{offset:x}|call;\n"
+                                  for offset, (kind, ns) in enumerate([
+                                      ("mach-receive:mach_msg", 5100000),
+                                      ("xpc-reply:xpc_connection_send_message_with_reply_sync", 900000),
+                                      ("library-load:dlopen", 40000),
+                                      ("system-query:getpwuid_r", 300000),
+                                      ("process-spawn:fork", 700000)], 0x20))
+PREFLIGHT_APP = ("#final\t1\n#threads\tmain\n#process\tpreflight\nselftest\tmain\t3\t300\t100\tlibc|0x1|open;\n"
+                 + PREFLIGHT_CROSS_PROCESS)
 PREFLIGHT_OWNER = ("#final\t1\n#threads\tprobe-test-*-host\n#process\tpreflight\n"
                    "selftest\tprobe\t3\t300\t100\tlibc|0x1|open;\n"
                    "file-io:stat\tprobe-test-*-host\t1\t500\t500\tlibc|0x2|stat;\n"
@@ -284,6 +357,19 @@ class Preflight(unittest.TestCase):
         owner = PREFLIGHT_OWNER + "file-io:access\tprobe-test-*-host\t1\t500\t500\tlibc|0x4|access;\n"
         self.assertIn("probe-test-1-wait", self.check([PREFLIGHT_APP, owner]).stderr)
 
+    def test_each_missing_cross_process_kind_fails(self):
+        for row in PREFLIGHT_CROSS_PROCESS.splitlines():
+            kind = row.split("\t")[0]
+            with self.subTest(kind=kind):
+                app = PREFLIGHT_APP.replace(row + "\n", "")
+                self.assertIn(f"lacks its main-thread {kind}", self.check([app, PREFLIGHT_OWNER]).stderr)
+
+    def test_the_run_loops_idle_wait_recorded_as_a_mach_receive_fails(self):
+        idle = "mach-receive:mach_msg2\tmain\t1\t480000000\t480000000\tlibsystem_kernel.dylib|0x40|mach_msg2;\n"
+        run = self.check([PREFLIGHT_APP + idle, PREFLIGHT_OWNER])
+        self.assertEqual(run.returncode, 1)
+        self.assertIn("2 main-thread mach receives, want 1", run.stderr)
+
     def test_a_pipe_read_counted_as_blocking_fails(self):
         owner = PREFLIGHT_OWNER.replace("input-wait:read", "io:read")
         self.assertIn("input-wait:read", self.check([PREFLIGHT_APP, owner]).stderr)
@@ -306,8 +392,9 @@ class Preflight(unittest.TestCase):
         self.assertIn("did not see the app's preflight_mark mark", self.check_window(None).stderr)
 
     def test_a_launch_window_with_calls_after_the_mark_fails(self):
-        late = PREFLIGHT_WINDOW + "file-io:access\tmain\t1\t500\t500\tlibc|0x5|access;\n"
-        self.assertIn("calls made after the mark", self.check_window(late).stderr)
+        for row in ("file-io:access\tmain\t1\t500\t500\tlibc|0x5|access;", PREFLIGHT_CROSS_PROCESS.splitlines()[1]):
+            with self.subTest(row=row.split("\t")[0]):
+                self.assertIn("calls made after the mark", self.check_window(PREFLIGHT_WINDOW + row + "\n").stderr)
 
     def test_a_launch_window_with_calls_on_the_probes_mark_descriptor_fails(self):
         # The preflight app makes LaunchMarkSink's fcntls and writes an earlier mark before the launch mark: on the
@@ -357,6 +444,12 @@ class ProbeSelection(unittest.TestCase):
                     "    if (argc >= 4 && strcmp(argv[1], \"name\") == 0) return probe_name_matches(argv[2], argv[3]) ? 0 : 1;\n"
                     "    if (argc >= 3 && strcmp(argv[1], \"argv\") == 0)\n"
                     "        return probe_argv_holds_all(argc - 2, (const char *const *)argv + 2, argv[2]) ? 0 : 1;\n"
+                    "    if (argc >= 5 && strcmp(argv[1], \"mach\") == 0) {\n"
+                    "        const char *kind = probe_mach_kind(strtoull(argv[2], NULL, 0), atoi(argv[3]), atoi(argv[4]),\n"
+                    "                                           \"mach-receive\", \"input-wait\");\n"
+                    "        printf(\"%s\", kind != NULL ? kind : \"none\");\n"
+                    "        return 0;\n"
+                    "    }\n"
                     "    return 2;\n}\n")
         cls.binary = os.path.join(cls.work, "driver")
         subprocess.run(["cc", "-Wall", "-Wextra", "-Werror", "-I", os.path.dirname(MATCH_H), "-o", cls.binary,
@@ -396,6 +489,26 @@ class ProbeSelection(unittest.TestCase):
         for pattern in self.patterns:
             self.assertIn(pattern, spawned)
 
+    def mach_kind(self, options, blocking_thread, idle):
+        return subprocess.run([self.binary, "mach", hex(options), str(blocking_thread), str(idle)],
+                              capture_output=True, text=True, check=True).stdout
+
+    def test_mach_calls_count_only_receives_that_block(self):
+        send, receive = 0x1, 0x2  # MACH_SEND_MSG, MACH_RCV_MSG (probe.c asserts they are the SDK's)
+        timeout = 0x100  # MACH_RCV_TIMEOUT: other option bits change nothing
+        # Main thread (or the probe's self-test thread): every receive blocks, but the run loop's idle wait.
+        self.assertEqual(self.mach_kind(receive | timeout, 1, 0), "mach-receive")
+        self.assertEqual(self.mach_kind(send | receive, 1, 0), "mach-receive")
+        self.assertEqual(self.mach_kind(receive, 1, 1), "none")
+        # A send only never waits for a reply.
+        self.assertEqual(self.mach_kind(send, 1, 0), "none")
+        self.assertEqual(self.mach_kind(send, 0, 0), "none")
+        # A watched worker: a receive alone waits for its next message; a send and receive waits for its reply.
+        self.assertEqual(self.mach_kind(receive, 0, 0), "input-wait")
+        self.assertEqual(self.mach_kind(send | receive, 0, 0), "mach-receive")
+        # mach_msg2's 64-bit options keep the same low bits.
+        self.assertEqual(self.mach_kind((1 << 40) | receive, 0, 0), "input-wait")
+
     def test_only_the_app_session_owner_records(self):
         wanted = "--headless,cmux-app-blocking-probe"
         self.assertTrue(self.holds(wanted, ["--headless", "--session", "cmux-app-blocking-probe", "--socket", "s"]))
@@ -406,6 +519,28 @@ class ProbeSelection(unittest.TestCase):
 
 
 class ProbeWiring(unittest.TestCase):
+    def read(self, relative):
+        with open(os.path.join(ROOT, relative)) as f:
+            return f.read()
+
+    def test_probe_interposes_the_cross_process_and_loader_calls(self):
+        probe = self.read("scripts/measure/blocking-probe/probe.c")
+        interposed = set(re.findall(r"^DYLD_INTERPOSE\(\w+, (\w+)\)", probe, re.M))
+        self.assertLessEqual({"xpc_connection_send_message_with_reply_sync", "mach_msg", "probe_mach_msg2_internal",
+                              "posix_spawn", "posix_spawnp", "fork", "dlopen", "getpwuid", "getpwuid_r",
+                              "SecItemCopyMatching", "SecItemAdd"}, interposed)
+        self.assertIn('__asm("_mach_msg2_internal")', probe)
+
+    def test_xpc_reply_is_a_detector_kind_the_server_takes(self):
+        # The probe's xpc-reply is BlockingKind.xpcReply's raw value, and the hang report server's closed set
+        # (wireSchema3.ts BLOCKING_KINDS) holds every app kind, so a report naming it is not dropped.
+        swift = self.read("Packages/macOS/CmuxNext/Sources/CmuxNextCompat/Threading/BlockingKind.swift")
+        kinds = {raw or name for name, raw in re.findall(r'^    case (\w+)(?: = "([^"]+)")?$', swift, re.M)}
+        self.assertIn("xpc-reply", kinds)
+        server = self.read("web/services/hangReports/wireSchema3.ts")
+        block = server.split("export const BLOCKING_KINDS", 1)[1].split("]);", 1)[0]
+        self.assertEqual(set(re.findall(r'"([^"]+)"', block)), kinds)
+
     def test_nothing_in_cmux_links_the_probe(self):
         # Only the probe's own measurement files (and plans) name its source or its dylib: no package, project,
         # build script or app source does.

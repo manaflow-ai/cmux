@@ -59,9 +59,11 @@ extension PageWebView {
     ///   - processGroups: The host's shared WebKit processes, which a page that asks for them
     ///     (``PageEngineOptions/sharesWebKitProcess``) joins when it shows in WebKit.
     ///   - startsAtFirstShow: The document (and its renderer) starts at the view's first show, not now.
+    ///   - deadlines: The app's deadline scheduler (``PageWebView/deadlines``); a test leaves the default, its own.
     convenience init?(request: PageOpenRequest, chromium: (any PageChromiumHosting)?,
                       openPanel: MadeAheadOpenPanel?, registry: PageRegistry, processGroups: WebProcessGroups? = nil,
-                      startsAtFirstShow: Bool = false) {
+                      startsAtFirstShow: Bool = false,
+                      deadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()))) {
         let requested = ProcessInfo.processInfo.systemUptime
         let root: URL
         if let explicit = request.root {
@@ -82,6 +84,7 @@ extension PageWebView {
                   options: request.options, surface: request.surface, dynamicResources: request.dynamicResources,
                   pooled: false, load: true, openRequested: requested, chromium: chromium,
                   openPanel: openPanel, registry: registry, processGroups: groups, startsAtFirstShow: startsAtFirstShow,
+                  deadlines: deadlines,
                   chatOpen: request.chatOpen)
         // Before the page's Chromium start reads it: that start runs in a later turn (``startChromium(hosting:)``).
         chromiumWindow = request.chromiumWindow

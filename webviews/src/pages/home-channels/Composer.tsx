@@ -25,6 +25,7 @@ import { Avatar } from "./Avatar";
 import { EmojiPicker, loadEmoji } from "./EmojiPicker";
 import { HomeIcon, type HomeIconName } from "./icons";
 import { useWebSwapHold } from "../shared/useWebSwapHold";
+import { useComposerDraft } from "./composerDrafts";
 import type { HomeAttachment, HomeParticipant } from "./types";
 
 export interface ComposerProps {
@@ -112,6 +113,8 @@ export function Composer({
   // update's reload waits for them to be sent or removed (pages/shared/webSwap.ts).
   useWebSwapHold(uploading ? "home.uploading" : files.length ? "home.attachments" : null);
   const empty = !value.trim() && ready.length === 0;
+  // Unsent text or files, which nothing stores: the host keeps the page while it is hidden.
+  useComposerDraft(value.trim() !== initialValue.trim() || files.length > 0);
   const patchFile = (id: string, patch: Partial<PendingAttachment>) =>
     setFiles((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   const addFiles = (list: Iterable<File>) => {

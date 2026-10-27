@@ -467,6 +467,13 @@ impl TraceTargets for LiveTargets<'_> {
         Vec::new()
     }
 
+    // acpmux (agent sessions) is unix-only: no acpmux to trace elsewhere.
+    #[cfg(not(unix))]
+    fn connect_acpmux(&self) -> Option<AcpmuxCall<'_>> {
+        None
+    }
+
+    #[cfg(unix)]
     fn connect_acpmux(&self) -> Option<AcpmuxCall<'_>> {
         use super::agent_session_attach::agent_session_link::AcpmuxLink;
         let socket = self.mux.control_clients.agent_sessions.socket()?;
