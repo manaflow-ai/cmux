@@ -57,8 +57,14 @@ It never fails the job and never prints an empty `blacksmith`:
         DEDICATED_LABEL=<vars.CI_NIGHTLY_NEXT_DEDICATED_LABEL> \\
         nightly_build_runner.py   -> dedicated=..., owned=..., blacksmith=..., runner=..., attempt=... in $GITHUB_OUTPUT
 
-`nightly_build_runner.py dedicated` prints only `dedicated`, with no wait: the signed-app
-verify takes the dedicated builder only while it is idle now (pick-nightly-sign-runner).
+`nightly_build_runner.py dedicated` prints only `dedicated`, with no wait.
+
+`nightly_build_runner.py verify` prints only `owned`, never the dedicated builder (it keeps
+that Mac for the next tip's build): pick-nightly-sign-runner's route for the secret-free
+verify jobs (verify-signed-nightly, verify-final-dmg-nightly, signer-dmg-image, signer-verify),
+by the same owned rule as the build. Until 2026-10-27 that step ran the pull request pool picker
+(e2e_runner_pool.py), which named a Blacksmith macOS 15 label in run 40515681971 while owned
+side runners were idle, so verify queued about 1.5 h on Blacksmith.
 """
 
 from __future__ import annotations
@@ -185,6 +191,9 @@ def main(env: Mapping[str, str] = os.environ,
     labels = (env.get("OWNED_LABELS") or "").split()
     dedicated_label = (env.get("DEDICATED_LABEL") or "").strip()
     only_dedicated = list(argv[:1]) == ["dedicated"]
+    only_verify = list(argv[:1]) == ["verify"]
+    if only_verify:
+        dedicated_label = ""  # the verify jobs never take the dedicated builder: it keeps that Mac for the next build
 
     route_token = env.get("ROUTE_TOKEN", "")
 
@@ -223,6 +232,10 @@ def main(env: Mapping[str, str] = os.environ,
             print(f"::warning title=nightly build runner::could not read the pool snapshot ({str(error)[:200]})")
     blacksmith, blacksmith_why = blacksmith_route((env.get("CANDIDATE") or "").strip(), snapshot, now,
                                                   (env.get("EXCLUDE") or "").strip())
+    if only_verify:
+        write_output(env, {"owned": owned}, [f"verify: {owned or 'none'} ({owned_why})",
+                                             f"blacksmith otherwise: {blacksmith} ({blacksmith_why})"])
+        return 0
 
     runner = owned or blacksmith
     write_output(env, {"dedicated": dedicated, "owned": owned, "blacksmith": blacksmith, "runner": runner,
