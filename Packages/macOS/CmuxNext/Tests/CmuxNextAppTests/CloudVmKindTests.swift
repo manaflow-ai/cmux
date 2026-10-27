@@ -62,4 +62,18 @@ struct CloudVmKindTests {
         #expect(AgentTabRemoteStart.mayStart(cloud: true, callerOwnsVM: false, servesVMKind: true))
         #expect(AgentTabRemoteStart.mayStart(cloud: false, callerOwnsVM: false, servesVMKind: false))
     }
+
+    /// Folder trust takes the start's rule: `vm_kind: "owner"` only on the caller's owner answer and
+    /// only to a daemon that takes it; an older Cloud daemon (which would trust its own record) is
+    /// refused here unless the caller owns the machine; a machine that is not a Cloud one gets none.
+    @Test func trustSendsTheOwnerWordOnlyToADaemonThatTakesIt() throws {
+        #expect(try AgentSessionAttachClient.trustVMKind(callerOwnsVM: true, servesVMKind: true) == "owner")
+        #expect(try AgentSessionAttachClient.trustVMKind(callerOwnsVM: true, servesVMKind: false) == nil)
+        #expect(try AgentSessionAttachClient.trustVMKind(callerOwnsVM: false, servesVMKind: true) == nil)
+        #expect(try AgentSessionAttachClient.trustVMKind(callerOwnsVM: nil, servesVMKind: false) == nil)
+        #expect(throws: AgentSessionAttachError.self) {
+            try AgentSessionAttachClient.trustVMKind(callerOwnsVM: false, servesVMKind: false)
+        }
+        #expect(DaemonCapability.agentSessionTrustVMKind.rawValue == "agent-session-trust-vm-kind-v1")
+    }
 }

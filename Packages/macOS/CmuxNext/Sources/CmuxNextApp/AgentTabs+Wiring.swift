@@ -239,6 +239,10 @@ extension AgentTabStore {
             }
             var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
+            if let cloud = services.machines.session(daemon.machineID) {
+                // Read at each trust call, never kept past the link (an app-server link has none).
+                host.callerOwnsVM = { [link = cloud.link] in await link?.callerOwnsVM ?? false }
+            }
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
                 host.existing = { [weak tabs] in

@@ -68,6 +68,8 @@ public actor AgentSessionAttachClient {
     private var servesKeyedReason = false
     /// The connected daemon serves `agent-session-start-vm-kind-v1`.
     private var servesVMKind = false
+    /// The connected daemon serves `agent-session-trust-vm-kind-v1`.
+    private var servesTrustVMKind = false
     /// The connected daemon serves `agent-session-children-v1`.
     private var servesChildren = false
     /// The connected daemon serves `agent-session-presence-v1`.
@@ -149,7 +151,10 @@ public actor AgentSessionAttachClient {
     /// `agent-session-trust` (`agent-session-trust-v1`): the trust of `cwd` on the daemon's machine
     /// (acpmux's `acp.trust.get` reply), or with `level` the person's answer recorded there
     /// (`acp.trust.set`). Only the person's own answer is ever sent (the pane's relay).
-    public func trust(cwd: String, level: String?, homeConfirmed: Bool = false) async throws -> Data {
+    ///
+    /// `callerOwnsVM`: nil for a machine that is not a Cloud machine; for one, whether the Cloud API
+    /// answered `vmKind: "owner"` for this app on the link in use (``trustVMKind(callerOwnsVM:servesVMKind:)``).
+    public func trust(cwd: String, level: String?, homeConfirmed: Bool = false, callerOwnsVM: Bool? = nil) async throws -> Data {
         guard mode == .attach else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot change trust")
         }
@@ -160,7 +165,21 @@ public actor AgentSessionAttachClient {
         var params: [String: any Sendable] = ["cwd": cwd]
         if let level { params["level"] = level }
         if homeConfirmed { params["home_confirmed"] = true }
+        if let kind = try Self.trustVMKind(callerOwnsVM: callerOwnsVM, servesVMKind: servesTrustVMKind) { params["vm_kind"] = kind }
         return try await call("agent-session-trust", params)
+    }
+
+    /// The `vm_kind` of a trust call: `owner` to a Cloud machine's daemon that takes it, only when the
+    /// Cloud API said this app owns the machine. A daemon without `agent-session-trust-vm-kind-v1`
+    /// would trust its own record (its agents can write it), so a Cloud machine's is refused here
+    /// unless the caller owns it; it then gets no param (it would refuse one).
+    static func trustVMKind(callerOwnsVM: Bool?, servesVMKind: Bool) throws -> String? {
+        guard let callerOwnsVM else { return nil }
+        if callerOwnsVM { return servesVMKind ? "owner" : nil }
+        guard servesVMKind else {
+            throw AgentSessionAttachError(code: "agent_session.host_unverified", message: "the Cloud API did not say this machine is yours")
+        }
+        return nil
     }
 
     /// The code ``start(cwd:harness:)`` throws for a daemon without `agent-session-start-v1`.
@@ -310,6 +329,7 @@ public actor AgentSessionAttachClient {
             servesTrust = identity.supports(DaemonCapability.agentSessionTrust.rawValue)
             servesKeyedReason = identity.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue)
             servesVMKind = identity.supports(DaemonCapability.agentSessionStartVMKind.rawValue)
+            servesTrustVMKind = identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue)
             servesChildren = identity.supports(DaemonCapability.agentSessionChildren.rawValue)
             servesPresence = identity.supports(DaemonCapability.agentSessionPresence.rawValue)
             _ = try await DaemonConnection.perform(
