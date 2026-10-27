@@ -890,6 +890,10 @@ path = "tests/test_release_homebrew_gate.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_release_signer_sign_app.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_reload_tag_lock.py"
 lane = "legacy"
 
@@ -1747,6 +1751,22 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_sign_runner.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_signer_jobs.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_signer_scripts.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_signer_nightly.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_dev_app_linux.py"
 lane = "linux-guard"
 
 [[test]]

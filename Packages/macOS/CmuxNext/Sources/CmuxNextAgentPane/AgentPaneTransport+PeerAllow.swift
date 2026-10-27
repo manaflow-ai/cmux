@@ -8,8 +8,8 @@ extension AgentPaneTransport {
     /// One prompt's allow: signed when it is a one-time allow the prompt offers (acpmux
     /// `mac_approvers::may_allow`), for the prompt and option the person picked (`ticketPick`). The
     /// peer counts it once if it enrolled this Mac, and refuses it otherwise, naming itself, and
-    /// the pane says approvals are off there. Anything else (an always-allow, an answer with notes)
-    /// goes unproved, and the pane says the same. The enclave signs off the main actor; a prompt
+    /// the pane offers to enroll this Mac there. Anything else (an always-allow, an answer with
+    /// notes) goes unproved, and the pane says only a one-time Allow works from this Mac. The enclave signs off the main actor; a prompt
     /// that changed meanwhile goes unproved.
     func signPeerAllow(_ box: FrameBox, session: String, permission: String, option: String,
                        context: AcpmuxDecisionContexts.Context, ticketPick: Bool) async {
@@ -18,7 +18,7 @@ extension AgentPaneTransport {
             return
         }
         guard context.allowOnce.contains(option), Self.param("annotations", box) == nil else {
-            onRemoteApprovalsOff?(nil)
+            onPeerApprovalsOff?(.onceOnly)
             return
         }
         var answers = ""
@@ -42,7 +42,7 @@ extension AgentPaneTransport {
     /// option the group's Allow selects for it, in `_meta.acpmux.approverDecisions` (acpmux
     /// `person.rs`). Only a peer's group: each member a prompt of another daemon run than this
     /// Mac's, on this Mac's daemon. Allow for this chat goes unproved (a lasting grant no Mac
-    /// gives), and the pane says so.
+    /// gives), and the pane says only a one-time Allow works from this Mac.
     func signPeerGroupAllow(_ box: FrameBox) async {
         guard remoteApprovals == nil, !remoteWire,
               let session = box.param("sessionId"), let id = box.param("groupId"), let decision = box.param("decision"),
@@ -55,7 +55,7 @@ extension AgentPaneTransport {
         guard members.count == group.pending.count,
               members.allSatisfy({ $0.2.instance != decisions.localInstance }) else { return }
         guard decision == "allow_once", members.allSatisfy({ !$0.1.isEmpty && $0.2.allowOnce.contains($0.1) }) else {
-            onRemoteApprovalsOff?(nil)
+            onPeerApprovalsOff?(.onceOnly)
             return
         }
         var signed: [String: [String: any Sendable]] = [:]

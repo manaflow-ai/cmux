@@ -627,7 +627,7 @@ impl Hub {
                 Ok((_, reported))
                     if reported_off.load(Ordering::SeqCst) || (reported && off.off()) =>
                 {
-                    self.stop_full_access_agent(session).await;
+                    self.stop_full_access_agent(session, true).await;
                     return Err(super::start_mode::full_access_off());
                 }
                 // A harness whose own settings started it in full access: capped like a cold
@@ -1434,12 +1434,19 @@ impl Hub {
         // agent's own requests meanwhile). A live child is ready only while
         // no start holds the spawn lock; otherwise wait for that start below.
         // A closed session, or one stopped since the request, goes through `ensure_child`.
+        // Under MDM's off, a host whose replay is not all in the log is not handed out here either:
+        // `ensure_child` judges it first, as the off's teardown does (review 3 of #26057).
+        let off = self.off_latch();
         if session.status() != SessionStatus::Closed
             && session.stops.load(Ordering::SeqCst) == stops
             && let Ok(_idle) = session.spawn_lock.try_lock()
-            && !self.managed_off_runs_full_access(&self.off_latch(), session)
+            && !self.managed_off_runs_full_access(&off, session)
             && let Some(child) = session.child.lock().await.as_ref()
             && child.is_alive().await
+            && !(off.off() && child.replay_pending())
+            // Under MDM's off an agent whose reader stopped is not heard: `ensure_child` ends it
+            // (`host_unheard`, review 68 of #23322).
+            && !(child.is_stopped() && self.full_access_managed_off())
         {
             return Ok(child.clone());
         }

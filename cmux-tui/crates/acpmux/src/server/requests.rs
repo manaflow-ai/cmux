@@ -831,8 +831,24 @@ async fn dispatch_request(
                     // CLI argv or a second copy of the prompt file to create the session.
                     m.remove("argv");
                     m.remove("promptFileText");
+                    // Only this daemon decides the VM boundary, never its caller.
+                    m.remove(crate::hub::vm_boundary::FIELD);
                 }
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
+                // This caller's own opt-out for its remote chains there (`hub/vm_boundary.rs`),
+                // for the person's own clients here only (`vm_boundary::owner`).
+                if peer.vm_boundary()
+                    && crate::hub::vm_boundary::owner(
+                        conn.auth,
+                        super::remote_guard::control_of(conn.origin, conn.auth, &params),
+                        &params,
+                    )
+                {
+                    crate::hub::merge_mux_meta(
+                        &mut p,
+                        json!({crate::hub::vm_boundary::FIELD: true}),
+                    );
+                }
                 let mut result = super::remote_guard::hint::new_on(&peer, &params, p).await?;
                 if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
                     view::subscribe_remote(hub, conn, id, None);
@@ -1409,9 +1425,12 @@ async fn dispatch_request(
             };
             let (name, url, token) = (required("name")?, required("url")?, required("token")?);
             let wait = params.get("wait").and_then(Value::as_bool).unwrap_or(false);
+            // Only `true` opts this caller's remote chains there out of the sandbox
+            // (`hub/vm_boundary.rs`); anything else leaves them in it.
+            let vm_boundary = params.get("vmBoundary") == Some(&Value::Bool(true));
             let (lease, mut settled) = {
                 let cfg = hub.config.read().await;
-                hub.lease_peer(&name, &url, token, text("peerToken"), &cfg)?
+                hub.lease_peer(&name, &url, token, text("peerToken"), vm_boundary, &cfg)?
             };
             conn.hold_peer_lease(hub, lease);
             if wait {
