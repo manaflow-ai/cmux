@@ -82,11 +82,13 @@ public actor HangReportService {
         let started = generation
         collector.setEnabled(on)
         mainThreadLedger?.restart()
+        blockingSiteLedger?.restart()
         await syncInputLatencyRecording()
         if on {
             if turnedOnNow { fieldSources?.discardCurrent() }
             if let saved = await store.takePending() { collector.merge(saved) }
             if let saved = await store.takePendingMainThread(), generation == started { mainThreadLedger?.merge(saved) }
+            if let saved = await store.takePendingBlockingSites(), generation == started { blockingSiteLedger?.merge(saved) }
             if let saved = await store.takePendingBlackBox(), generation == started { collector.restoreBlackBox(saved.records) }
         } else {
             waiting = []
@@ -111,7 +113,8 @@ public actor HangReportService {
         }
         guard environment.now().timeIntervalSince(last) >= Self.watchdogReportInterval else { return }
         let samples = await fieldSources?.currentDelta() != nil
-        if samples || hasSendable(collector.snapshot()) || mainThreadLedger?.take().isEmpty == false {
+        if samples || hasSendable(collector.snapshot()) || mainThreadLedger?.take().isEmpty == false
+            || blockingSiteLedger?.take().isEmpty == false {
             await sendReport()
         }
     }
@@ -140,6 +143,9 @@ public actor HangReportService {
         if let saved = mainThreadLedger?.saved(), !saved.isEmpty, let data = try? JSONEncoder().encode(saved) {
             write(data, to: store.pendingMainThreadURL)
         }
+        if let saved = blockingSiteLedger?.saved(), !saved.isEmpty, let data = try? JSONEncoder().encode(saved) {
+            write(data, to: store.pendingBlockingSitesURL)
+        }
         let blackBox = HangReportSavedBlackBox(collector.blackBoxSnapshot())
         if !blackBox.events.isEmpty, let data = try? JSONEncoder().encode(blackBox) {
             write(data, to: store.pendingBlackBoxURL)
@@ -166,6 +172,7 @@ public actor HangReportService {
         }
         let report = Self.fitted(await build(watchdog: collector.snapshot(), metricKit: waiting, inputLatency: inputLatency,
                                              mainThread: mainThread, fieldData: fieldData,
+                                             blockingSites: isEnabled ? blockingSiteLedger?.take().sites : nil,
                                              installId: isEnabled ? nil : UUID().uuidString.lowercased()))
         guard let readable = try? HangReport.readableEncoder.encode(report),
               scanner.findings(in: readable).isEmpty else { return nil }
@@ -205,10 +212,12 @@ public actor HangReportService {
         // Read, not taken: the ledger moves on only once the report is queued (commit below), and a
         // report with no hang still carries the active time, so the rate's denominator is complete.
         let mainThread = mainThreadLedger?.take()
+        let blocking = blockingSiteLedger?.take()
         // Read, not taken: the samples and sections are marked sent once the server took the report (flushOnce).
         var field = await fieldDataInput(pruning: true)
         guard generation == started else { return }
-        guard hasSendable(aggregate) || !deliveries.isEmpty || mainThread?.isEmpty == false || field.hasContent else { return }
+        guard hasSendable(aggregate) || !deliveries.isEmpty || mainThread?.isEmpty == false || field.hasContent
+            || blocking?.isEmpty == false else { return }
         // Read, not taken: a report that is not queued below leaves the black box for the next one.
         let blackbox = collector.blackBoxSnapshot()
         field.input?.blackbox = blackbox
@@ -220,7 +229,7 @@ public actor HangReportService {
         // report dropped by a check here gives its input counts to the next one.
         let inputLatency = await inputLatencySource?.take()
         let report = Self.fitted(await build(watchdog: aggregate, metricKit: deliveries, inputLatency: inputLatency,
-                                             mainThread: mainThread?.input, fieldData: field.input))
+                                             mainThread: mainThread?.input, fieldData: field.input, blockingSites: blocking?.sites))
         guard generation == started, !report.hasNoFindings, let body = try? HangReport.encoder.encode(report),
               body.count <= Self.bodyLimit(of: report) else { return }
         let findings = scanner.findings(in: body)
@@ -236,6 +245,7 @@ public actor HangReportService {
         collector.releaseBlackBox(sent: blackbox)
         if inputLatency != nil, generation == started { await inputLatencySource?.commit() }
         if let mainThread, generation == started { mainThreadLedger?.commit(mainThread) }
+        if let blocking, generation == started { blockingSiteLedger?.commit(blocking) }
         // The readable copy (View Hang Report) is the queued body's, written only while reports are on.
         if generation == started, let readable = try? HangReport.readableEncoder.encode(report) { await store.saveLastReport(readable) }
         await flushOutbox()
@@ -327,6 +337,9 @@ public actor HangReportService {
         }
     }
 
+    /// ``Environment/blockingSites`` when the builder's wire schema carries them, else nil.
+    nonisolated var blockingSiteLedger: BlockingSiteLedger? { builder.wireSchema.carriesBlockingSites ? environment.blockingSites : nil }
+
     /// ``Environment/fieldData`` when the builder's wire schema carries field data, else nil: a build whose
     /// reports cannot hold it never reads it.
     nonisolated var fieldSources: HangReportFieldSources? {
@@ -365,14 +378,14 @@ public actor HangReportService {
 
     private func build(watchdog: StallAggregate, metricKit: [MetricKitInput], inputLatency: InputLatencySnapshot? = nil,
                        mainThread: HangReportBuilder.MainThreadInput? = nil, fieldData: HangReportBuilder.FieldDataInput? = nil,
-                       installId: String? = nil) async -> HangReport {
+                       blockingSites: [HangReport.BlockingSiteCount]? = nil, installId: String? = nil) async -> HangReport {
         let now = environment.now()
         let context = HangReportBuilder.Context(
             reportId: environment.makeReportID(), installId: installId ?? identity.current(), day: Self.day(now), app: environment.app,
             os: environment.os, hardware: environment.hardware, counts: await environment.counts(),
             features: environment.features())
         return builder.build(context: context, watchdog: watchdog, metricKit: metricKit, inputLatency: inputLatency,
-                             mainThread: mainThread, fieldData: fieldData)
+                             mainThread: mainThread, fieldData: fieldData, blockingSites: blockingSites)
     }
 
     /// The UTC day of `date` (`yyyy-MM-dd`).

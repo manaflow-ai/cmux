@@ -15,9 +15,10 @@ import Foundation
 /// can only stall its own connection.
 ///
 /// Bounds (architecture.md 5a, "no unbounded buffers"):
-/// - inbound: at most `maxQueuedLines` parsed lines wait for the consumer;
-///   beyond that the read source is suspended and the kernel socket buffer
-///   pushes back on the client.
+/// - inbound: at most `maxQueuedLines` parsed lines, and `maxQueuedBytes` of
+///   them (one line of any size up to `maxLineBytes` always passes), wait for
+///   the consumer; beyond that the read source is suspended and the kernel
+///   socket buffer pushes back on the client.
 /// - outbound: at most `maxOutboxBytes` of unsent responses; a client that
 ///   stops reading past that is disconnected.
 /// - close: queued responses get `drainTimeout` to flush after `close()`.
@@ -29,6 +30,8 @@ final class ControlConnection: Sendable {
     struct Limits: Sendable {
         var maxLineBytes: Int
         var maxQueuedLines = 64
+        /// The line bytes waiting for the consumer past which reading pauses.
+        var maxQueuedBytes = 8 << 20
         var maxOutboxBytes = 8 << 20
         var drainTimeout: Duration = .seconds(5)
     }
@@ -54,6 +57,9 @@ final class ControlConnection: Sendable {
         var liveSources = 0
         var inbound = Data()
         var queuedLines = 0
+        /// The byte size of each queued line, oldest first (at most `maxQueuedLines`), and their sum.
+        var queuedLineSizes: [Int] = []
+        var queuedBytes = 0
         var isReadSuspended = false
         var isInputFinished = false
         var outbox = Data()
@@ -91,9 +97,13 @@ final class ControlConnection: Sendable {
     /// The connection queue's QoS (tests).
     var queueQoS: DispatchQoS.QoSClass { queue.qos.qosClass }
 
+    /// The line bytes handed to the consumer that it has not finished (tests).
+    var queuedLineBytes: Int { state.withLock(\.queuedBytes) }
+
     func start(consume: @escaping @Sendable (AsyncStream<String>) async -> Void) {
-        // The stream never exceeds `maxQueuedLines`: reading pauses first.
+        // The stream never exceeds `maxQueuedLines` or `maxQueuedBytes`: reading pauses first.
         // concurrency-allow: bounded by maxQueuedLines; the read source suspends before the stream exceeds it
+        // memory: bounded-by maxQueuedBytes (8 MiB, or one line up to maxLineBytes): the read source suspends at it
         let (stream, continuation) = AsyncStream<String>.makeStream(bufferingPolicy: .unbounded)
         queue.async { [self] in
             withState { state in
@@ -149,8 +159,9 @@ final class ControlConnection: Sendable {
         queue.async { [self] in
             withState { state in
                 state.queuedLines = max(0, state.queuedLines - 1)
+                if !state.queuedLineSizes.isEmpty { state.queuedBytes -= state.queuedLineSizes.removeFirst() }
                 emitLines(&state)
-                if state.isReadSuspended, !state.isInputFinished, state.queuedLines < limits.maxQueuedLines, !state.isClosed {
+                if state.isReadSuspended, !state.isInputFinished, !isQueueFull(state), !state.isClosed {
                     state.isReadSuspended = false
                     state.readSource?.resume()
                 }
@@ -226,20 +237,27 @@ final class ControlConnection: Sendable {
         }
     }
 
-    /// Hands complete lines to the consumer until `maxQueuedLines` wait,
-    /// then suspends reading.
+    /// True when the consumer holds `maxQueuedLines` lines or, with at least one, `maxQueuedBytes`.
+    private func isQueueFull(_ state: State) -> Bool {
+        state.queuedLines >= limits.maxQueuedLines || (state.queuedLines > 0 && state.queuedBytes >= limits.maxQueuedBytes)
+    }
+
+    /// Hands complete lines to the consumer until `maxQueuedLines` or
+    /// `maxQueuedBytes` wait, then suspends reading.
     private func emitLines(_ state: inout State) {
-        while state.queuedLines < limits.maxQueuedLines, let newline = state.inbound.firstIndex(of: 0x0A) {
+        while !isQueueFull(state), let newline = state.inbound.firstIndex(of: 0x0A) {
             let lineData = state.inbound.prefix(upTo: newline)
             state.inbound.removeSubrange(state.inbound.startIndex...newline)
             state.queuedLines += 1
+            state.queuedLineSizes.append(lineData.count)
+            state.queuedBytes += lineData.count
             state.continuation?.yield(String(decoding: lineData, as: UTF8.self))
         }
         if state.isInputFinished, state.inbound.firstIndex(of: 0x0A) == nil {
             state.continuation?.finish()
             state.continuation = nil
         }
-        if state.queuedLines >= limits.maxQueuedLines, !state.isReadSuspended, !state.isInputFinished, let readSource = state.readSource {
+        if isQueueFull(state), !state.isReadSuspended, !state.isInputFinished, let readSource = state.readSource {
             readSource.suspend()
             state.isReadSuspended = true
         }
