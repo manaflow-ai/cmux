@@ -17,7 +17,13 @@ A candidate is kept when any of these holds:
   - it is younger than --min-age-days (a build publishing now, a feed write in flight).
 It fails closed: a feed that is missing, unreadable or names no item, or an incomplete
 listing, deletes nothing. Without --delete it is a dry run. One run deletes at most
-MAX_DELETES objects.
+MAX_DELETES objects. The prefix is fixed (PREFIX): this never lists or deletes elsewhere.
+
+Why reading the feed before each delete is enough: S3 has no delete-if-unreferenced, but no
+writer adds an old file to the feed. A publication names its own new files (under the
+minimum age) and items the live feed already names (kept); nightly-next-rollback.yml only
+takes items off the feed and serves one already on it. So a file outside the newest builds,
+older than the minimum age and absent from the feed just read cannot become live meanwhile.
 """
 from __future__ import annotations
 
@@ -41,6 +47,8 @@ import r2_cache_prune  # noqa: E402
 ASSET = re.compile(r"^cmux-nightly-next-macos-[a-z0-9_]+-(?P<build>[0-9]{3,})(?:-(?P<base>[0-9]{3,}))?\.(?P<kind>dmg|delta)$")
 SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 MAX_DELETES = 500
+# The only prefix this prunes: cmux NEXT's downloads (NIGHTLY_NEXT_R2_PREFIX in nightly.yml).
+PREFIX = "nightly-next/next/"
 
 
 def list_page(endpoint_url: str, bucket: str, prefix: str, token: str | None, *, timeout: int = 30) -> str:
@@ -167,13 +175,13 @@ def prune(bucket, feeds: list[str], keep_builds: int, min_age_days: float, now: 
     candidates, counts = plan(objects, keep, bucket.prefix, keep_builds, min_age_days, now)
     deleted = []
     if delete and candidates:
-        # A feed can change between the first read and the deletes: read every feed again and
-        # never delete what any of them names now.
-        again: set[str] = set()
-        for key in feeds:
-            again |= referenced(bucket.read(key), key)
+        # A feed can change between the first read and the deletes: read every feed again just
+        # before each delete and never delete what any of them names then (fails closed too).
         for asset in candidates[:MAX_DELETES]:
-            if asset["name"] in again:
+            now_named: set[str] = set()
+            for key in feeds:
+                now_named |= referenced(bucket.read(key), key)
+            if asset["name"] in now_named:
                 continue
             bucket.delete(asset["key"])
             deleted.append(asset["name"])
@@ -207,8 +215,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-age-days", type=float, default=7.0)
     parser.add_argument("--delete", action="store_true", help="send deletes; the default is a dry run")
     args = parser.parse_args(argv)
-    if not args.prefix.endswith("/") or args.keep_builds < 5 or args.min_age_days < 2:
-        parser.error("--prefix must end in /, --keep-builds must be at least 5 and --min-age-days at least 2")
+    if args.prefix != PREFIX or args.keep_builds < 5 or args.min_age_days < 2:
+        parser.error(f"--prefix must be {PREFIX}, --keep-builds at least 5 and --min-age-days at least 2")
+    if any(not feed.startswith(PREFIX) or "/" in feed[len(PREFIX):] for feed in args.feed):
+        parser.error(f"every --feed must be an object directly under {PREFIX}")
     bucket = Bucket(args.endpoint_url, args.bucket, args.prefix)
     try:
         summary = prune(bucket, args.feed, args.keep_builds, args.min_age_days, dt.datetime.now(dt.timezone.utc),

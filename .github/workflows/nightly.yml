@@ -8039,7 +8039,7 @@ jobs:
   # republish, with the track's own scoped token: nothing waits on it and it never fails a run.
   prune-nightly-next-r2:
     needs: [decide, publish-nightly, republish-nightly-deltas]
-    if: "always() && !cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true'"
+    if: "always() && !cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped')"
     environment: ${{ needs.decide.outputs.environment }}
     continue-on-error: true
     permissions:

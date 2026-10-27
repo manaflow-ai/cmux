@@ -113,6 +113,11 @@ class PruneTests(unittest.TestCase):
         self.assertNotIn(PREFIX + dmg(100), bucket.deleted)
         self.assertIn(PREFIX + dmg(102), bucket.deleted)
 
+    def test_the_feed_is_read_before_every_delete(self) -> None:
+        bucket = FakeBucket(objects(range(100, 120)), {FEED: feed(dmg(119))})
+        summary = self.run_prune(bucket)
+        self.assertEqual(bucket.reads, 1 + len(summary["deleted"]))
+
     def test_a_github_enclosure_name_is_kept_too(self) -> None:
         bucket = FakeBucket(objects(range(100, 120)), {FEED: feed(dmg(119)).replace(
             b"</channel>", f'<item><enclosure url="{GH}{dmg(100)}"/></item></channel>'.encode())})
@@ -120,7 +125,8 @@ class PruneTests(unittest.TestCase):
         self.assertNotIn(PREFIX + dmg(100), bucket.deleted)
 
     def test_the_cli_refuses_unsafe_settings(self) -> None:
-        for argv in (["--prefix", "nightly-next/next"], ["--keep-builds", "1"], ["--min-age-days", "0"]):
+        for argv in (["--prefix", "nightly-next/next"], ["--prefix", "other/"], ["--keep-builds", "1"],
+                     ["--min-age-days", "0"], ["--feed", "other/appcast-arm64.xml"]):
             with self.assertRaises(SystemExit):
                 prune.main(["--endpoint-url", "https://x", "--bucket", "b", "--prefix", PREFIX, "--feed", FEED, *argv])
 
