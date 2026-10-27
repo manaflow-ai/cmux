@@ -42,13 +42,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 # The outputs build-web-bundles.sh --from installs (its PANE, PAGES, ACTIVITY,
-# APP and the palette ranker). The inspector page is committed, not handed off.
+# APP and the palette ranker). The installer also checks the committed inspector.
 WEB_OUTPUTS = (
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane",
     "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity",
     "Resources/markdown-viewer/webviews-app",
     "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
+    "Native/OptChat/optchat-chief/inspector/index.html",
 )
 WEB_TAR, WEB_RECORD = "web-bundles.tar", "web-bundles.json"
 NOTICES, NOTICES_RECORD = "THIRD_PARTY_LICENSES.md", "notices.json"

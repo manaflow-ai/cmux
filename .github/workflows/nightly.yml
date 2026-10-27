@@ -1680,14 +1680,36 @@ jobs:
         with:
           node-version: "24.22.1"
 
-      # The same in-tree --force build as build-nightly-app's fallback, keyed by
-      # the source key of the untouched checkout.
+      # Reuse the exact source-key bundles published by feat-cmux-next pushes.
+      # Clear a reused workspace before restoring; an incomplete restore builds.
+      - name: Source key of the web bundles
+        id: web-bundle-key
+        run: |
+          scripts/ci/clear-dirs.sh web-bundles-out
+          echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the published web bundles
+        id: web-bundle-r2
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          CI_CACHE_R2_NAMESPACE: any
+        with:
+          backend: r2
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+
       - name: Build the web bundles
+        env:
+          SOURCE_KEY: ${{ steps.web-bundle-key.outputs.key }}
+          RESTORED: ${{ steps.web-bundle-r2.outputs.cache-hit }}
         run: |
           set -euo pipefail
-          key="$(python3 scripts/cmux-next/web-bundle-key.py . --source)"
-          scripts/cmux-next/build-web-bundles.sh --force
-          python3 scripts/ci/nightly_linux_inputs.py pack-web "$RUNNER_TEMP/nightly-linux-inputs/web" --source-key "$key"
+          if [ "$RESTORED" != true ] || ! scripts/cmux-next/build-web-bundles.sh --from web-bundles-out; then
+            scripts/cmux-next/build-web-bundles.sh --force
+          fi
+          python3 scripts/ci/nightly_linux_inputs.py pack-web "$RUNNER_TEMP/nightly-linux-inputs/web" --source-key "$SOURCE_KEY"
 
       - name: Upload the web bundles
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

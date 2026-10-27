@@ -75,6 +75,12 @@ key="$(python3 "$REPO/scripts/cmux-next/web-bundle-key.py" "$REPO" --source)"
 python3 "$REPO/scripts/ci/nightly_linux_inputs.py" pack-web "$WORK/handoff" --source-key "$key"
 python3 "$REPO/scripts/ci/nightly_linux_inputs.py" install-web "$WORK/handoff"
 "$SCRIPT" --verify
+# A changed source must miss instead of installing yesterday's bundles.
+printf '\n# changed input\n' >> "$REPO/scripts/cmux-next/build-web-bundles.sh"
+status=0
+python3 "$REPO/scripts/ci/nightly_linux_inputs.py" install-web "$WORK/handoff" || status=$?
+[ "$status" = 3 ] || { echo "FAIL: changed inputs must refuse a handoff"; exit 1; }
+git -C "$REPO" checkout -- scripts/cmux-next/build-web-bundles.sh
 
 # A committed inspector page that differs from the one generated for this source key is stale:
 # an in-tree build refuses it (build-optchat-inspector-web.sh --check), and so must --from.
