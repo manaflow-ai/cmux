@@ -1292,7 +1292,7 @@
         Row({
           title: s.scope?.kind === "team" ? s.scope.team_name : t("scope.personal", "Personal"),
           subtitle: `${healthWord(s.health)} · ${usageSummary(s.usage_today)}`,
-          symbol: "account.routed",
+          symbol: "arrow.triangle.branch",
           tint: healthTone(s.health)
         }).onTap(() => openPane("dashboard")).contextMenu([Button(t("action.runTest", "Run Test"), () => runTest()), Button(t("action.setUp", "Set Up CodeRouter"), () => onboard({ type: "restart" }, d.facts()))]),
         Row({

@@ -27,13 +27,13 @@
   },
   "contributes": {
     "sidebarSections": [
-      { "id": "coderouter", "title": { "en": "CodeRouter", "ja": "CodeRouter" }, "symbol": "account.routed", "defaultRegion": "bottom", "render": "renderSection", "maxRows": 12 }
+      { "id": "coderouter", "title": { "en": "CodeRouter", "ja": "CodeRouter" }, "symbol": "arrow.triangle.branch", "defaultRegion": "bottom", "render": "renderSection", "maxRows": 12 }
     ],
     "statusItems": [
-      { "id": "health", "title": { "en": "CodeRouter Health", "ja": "CodeRouter の状態" }, "symbol": "account.routed", "placement": "titlebar", "render": "renderStatus" }
+      { "id": "health", "title": { "en": "CodeRouter Health", "ja": "CodeRouter の状態" }, "symbol": "arrow.triangle.branch", "placement": "titlebar", "render": "renderStatus" }
     ],
     "paneKinds": [
-      { "id": "dashboard", "title": { "en": "CodeRouter", "ja": "CodeRouter" }, "symbol": "account.routed", "render": "renderDashboard" },
+      { "id": "dashboard", "title": { "en": "CodeRouter", "ja": "CodeRouter" }, "symbol": "arrow.triangle.branch", "render": "renderDashboard" },
       { "id": "onboarding", "title": { "en": "Set Up CodeRouter", "ja": "CodeRouter を設定" }, "symbol": "sparkles", "render": "renderOnboarding" }
     ],
     "commands": [

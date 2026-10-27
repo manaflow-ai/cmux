@@ -14,7 +14,7 @@ enum CodeRouterPageTab {
     static let appID = "cmux/coderouter"
 
     static func make(_ services: AppServices) -> WebPageTab {
-        WebPageTab(.coderouter, symbol: "account.routed", icon: .accountRouted, title: CodeRouterPageStrings.title) { [weak services] in
+        WebPageTab(.coderouter, symbol: "arrow.triangle.branch", icon: .accountRouted, title: CodeRouterPageStrings.title) { [weak services] in
             services.flatMap { PageFactory(services: $0).coderouterWebPage() }
         }
     }

@@ -1037,7 +1037,7 @@ select {
   min-width: 0;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 960px) {
   .cloud-body,
   .cloud-body.layout-cards {
     flex-direction: column;
