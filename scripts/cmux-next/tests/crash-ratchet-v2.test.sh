@@ -558,6 +558,133 @@ func next() -> Int? {
 SWIFT
 out="$(report trap_api)" || fail "--report trap_api failed: $out"
 [[ "$(hits trap_api M <<<"$out")" == 9 ]] || fail "an unvalidated count or an unguarded removal was missed (want 9): $out"
+# 21c. (p10-stability-098) a check that does not hold at the call proves nothing: each shape counts once. A
+#      comparison in the false branch of a ternary, in an `if` block that closed before the call or in its `else`,
+#      in a `||`; a `let` or a `guard` in another function; a C constant that is not a size; a clamp the value then
+#      leaves (`max(0, x) - 10`); a clamp of `self.width` for a count of the parameter `width`; a reassignment, an
+#      inout use or a later turn of a loop after the check; a closure parameter of the same name.
+trap_shape() {
+    local shape="$1"
+    cat > "$app/Sources/M/A.swift"
+    out="$(report trap_api)" || fail "--report trap_api failed: $out"
+    [[ "$(hits trap_api M <<<"$out")" == 1 ]] || fail "a negative count passed as validated ($shape): $out"
+}
+trap_shape "the ternary's false branch" <<'SWIFT'
+func f(n: Int) {
+    let a = n > 0 ? [] : Array(repeating: 0, count: n)
+}
+SWIFT
+trap_shape "an if block closed before the call" <<'SWIFT'
+func f(n: Int) {
+    if n > 0 { log() }
+    let a = Array(repeating: 0, count: n)
+}
+SWIFT
+trap_shape "the else of the check's if" <<'SWIFT'
+func f(n: Int) {
+    if n > 0 {
+        log()
+    } else {
+        let a = Array(repeating: 0, count: n)
+    }
+}
+SWIFT
+trap_shape "a disjunction in the guard" <<'SWIFT'
+func f(s: String, n: Int) {
+    guard s.isEmpty || n > 0 else { return }
+    let a = Array(repeating: 0, count: n)
+}
+SWIFT
+trap_shape "a && under a || in the guard" <<'SWIFT'
+func f(s: String, n: Int) {
+    guard n > 0 && s.isEmpty || other else { return }
+    let a = Array(repeating: 0, count: n)
+}
+SWIFT
+trap_shape "a let in another function" <<'SWIFT'
+func g() {
+    let n = 4
+    use(n)
+}
+func f(n: Int) {
+    let a = Array(repeating: 0, count: n)
+}
+SWIFT
+trap_shape "a guard in another function" <<'SWIFT'
+func g(n: Int) {
+    guard n >= 0 else { return }
+    use(n)
+}
+func f(n: Int) {
+    let a = Array(repeating: 0, count: n)
+}
+SWIFT
+trap_shape "a C constant that is not a size" <<'SWIFT'
+func f() {
+    let a = Array(repeating: 0, count: Int(INT_MIN))
+}
+SWIFT
+trap_shape "a clamp the value then leaves" <<'SWIFT'
+func f(x: Int) {
+    var m = max(0, x) - 10
+    let a = Array(repeating: 0, count: m)
+}
+SWIFT
+trap_shape "self.width clamped, the parameter width counted" <<'SWIFT'
+init(width: Int) {
+    self.width = max(0, width)
+    self.cells = Array(repeating: 0, count: width)
+}
+SWIFT
+trap_shape "a reassignment after the guard" <<'SWIFT'
+func f(n: Int) {
+    var n = n
+    guard n >= 0 else { return }
+    n -= 5
+    let a = Array(repeating: 0, count: n)
+}
+SWIFT
+trap_shape "an inout use after the binding" <<'SWIFT'
+func f() {
+    var size = 0
+    query(&size)
+    let a = [UInt8](repeating: 0, count: size)
+}
+SWIFT
+trap_shape "a later turn of a loop" <<'SWIFT'
+func f() {
+    var room = 64
+    for _ in 0 ..< 2 {
+        let a = [Int32](repeating: 0, count: room)
+        room = needed()
+    }
+}
+SWIFT
+trap_shape "a closure parameter of the same name" <<'SWIFT'
+func f(n: Int) {
+    guard n >= 0 else { return }
+    let all = sizes.map { n in Array(repeating: 0, count: n) }
+}
+SWIFT
+# ... and the same checks where they hold do not count.
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+init(width: Int, s: String, n: Int, x: Int) {
+    self.width = max(0, width)
+    self.cells = Array(repeating: 0, count: self.width)
+    guard s.isEmpty && n >= 0 else {
+        return
+    }
+    let a = Array(repeating: 0, count: n)
+    var m = max(0, x)
+    let b = Array(repeating: 0, count: m)
+    let c = [CChar](repeating: 0, count: Int(PATH_MAX))
+    if x > 0, s.isEmpty {
+        let d = Array(repeating: 0, count: x)
+    }
+}
+SWIFT
+out="$(report trap_api)" || fail "--report trap_api failed: $out"
+[[ "$(hits trap_api <<<"$out")" == 0 ]] || fail "a check that holds at the call did not validate its count: $out"
 g reset -q
 reset
 

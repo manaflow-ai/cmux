@@ -1,7 +1,17 @@
+import CmuxSafeConcurrency
 public import Foundation
 
 /// Incremental decoder for arbitrarily chunked Iroh terminal-output bytes.
 public struct CmxIrohTerminalOutputEnvelopeDecoder: Sendable {
+    public enum Failure: Error, Equatable, Sendable {
+        /// A decoded frame is longer than the buffered bytes it was decoded from: the decoder's own state is
+        /// wrong, so the stream ends.
+        case framePastBuffer(frameByteCount: Int, buffered: Int)
+    }
+
+    /// The first build in which a `framePastBuffer` failure traps. Not scheduled: it reports and ends the stream.
+    static let frameWithinBufferFatalFromBuild = UInt64.max
+
     private var buffer = Data()
     private let codec: CmxIrohTerminalOutputEnvelopeCodec
 
@@ -21,8 +31,11 @@ public struct CmxIrohTerminalOutputEnvelopeDecoder: Sendable {
                 let frameByteCount = CmxIrohTerminalOutputEnvelopeCodec.headerByteCount
                     + envelope.payload.count
                 // decodePrefix read the whole frame from `buffer`.
-                guard frameByteCount <= buffer.count else {
-                    throw CmxIrohTerminalOutputEnvelopeCodec.DecodeError.incompleteFrame
+                let withinBuffer = frameByteCount <= buffer.count
+                Invariant.notFatalUntil(withinBuffer, "iroh-output-frame-within-buffer",
+                                        build: Self.frameWithinBufferFatalFromBuild)
+                guard withinBuffer else {
+                    throw Failure.framePastBuffer(frameByteCount: frameByteCount, buffered: buffer.count)
                 }
                 buffer.removeFirst(frameByteCount)
                 envelopes.append(envelope)
