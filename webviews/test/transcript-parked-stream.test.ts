@@ -37,11 +37,14 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
           name: "parked-follow-probes",
           enforce: "pre",
           load(id) {
+            if (id.endsWith("/test/browser/transcript-follow.harness.tsx")) return readFileSync(id, "utf8").replace("<VirtualTranscript", '<VirtualTranscript jumpButton={location.search.includes("painted")}').replace("turnView(shown, expanded)", 'turnView(shown, expanded, location.search.includes("painted") ? {working, liveRuns: true, lineBelow: true} : {})');
             if (!id.endsWith("/src/agent-session/acpmux/App.tsx")) return;
-            let source = readFileSync(id, "utf8");
+            let source = readFileSync(process.env.CMUX_PARKED_SOURCE ?? id, "utf8");
             const inserts = [
+              ["const top = scrollAnchorBase(live, scrolledTo.current.top, readerLeft);", 'globalThis.__geometry?.("anchor-base", {live, stored: scrolledTo.current.top, top, readerLeft});'],
+              ["anchorTop: top,\n        });", 'globalThis.__geometry?.("anchor-correction", {top, nextTop, live: node.scrollTop});'],
               ["followingRef.current = next;", 'globalThis.__probe?.("follow", next);'],
-              ["followingRef.current = atLatest;", 'globalThis.__probe?.("queueScroll", atLatest, atLatest);'],
+              ["followingRef.current = atLatest;", 'globalThis.__probe?.("queueScroll", atLatest, atLatest); globalThis.__geometry?.("queueScroll", {top, atLatest});'],
               [
                 "if (didOpenAtLatest.current && atLatest) {",
                 'globalThis.__probe?.("layout-follow", followingRef.current, atLatest);',
@@ -63,6 +66,7 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
               if (!source.includes(needle)) throw new Error(`Missing probe site: ${needle}`);
               source = source.replaceAll(needle, `${needle}\n${probe}`);
             }
+            source = source.replace("if (acpmuxPerf.enabled && renderStart > 0) {", 'globalThis.__probe?.("commit", followingRef.current, scrolledTo.current.atLatest); if (acpmuxPerf.enabled && renderStart > 0) {');
             return source;
           },
         },
@@ -279,4 +283,127 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
       }
     }
   });
+  test("painted geometry while parked through markdown, tools and above-viewport remeasurement", async () => {
+    const results: { distance: number; falseFadeFrames: number }[] = [];
+    for (const distance of [10, 20, 40, 80, 150]) {
+      const page = await browser.newPage({ viewport: { width: 900, height: 560 } });
+      await installPaintedFrames(page);
+      const { port } = vite.httpServer!.address() as { port: number };
+      await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html?painted`);
+      await page.waitForFunction(() => "__showRowsSync" in window);
+      await page.evaluate(async () => {
+        const w = window as unknown as Probe;
+        const rows = Array.from({ length: 40 }, (_, i) => ({ id: `history-${i}`, kind: i % 2 ? "assistant" : "user",
+          text: `Earlier message ${i}: keep this sentence in the same place.`, version: 1, at: 1 }));
+        w.__showRowsSync([...rows, { id: "stream", kind: "assistant", text: "I will inspect the renderer and explain the result.", streaming: true, version: 1, at: 1 }]);
+        (window as unknown as { __touchDock(queued: boolean): void }).__touchDock(false);
+        for (let n = 0; n < 10; n++) await window.cmuxPaintFrame();
+      });
+      const box = (await page.locator(".acpmux-scroll").boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.wheel(0, -distance);
+      const result = await page.evaluate(async () => {
+        const w = window as unknown as Probe & { __geometry(caller: string, data: unknown): void };
+        const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const until = performance.now() + 1100;
+        do { await window.cmuxPaintFrame(); } while (performance.now() < until);
+        const events: { token: number; time: number; caller: string; data: unknown }[] = [];
+        let token = -1;
+        const log = (caller: string, data: unknown) => events.push({ token, time: performance.now(), caller, data });
+        w.__probe = (caller, following, atLatest) => log(caller, { following, atLatest });
+        w.__geometry = log;
+        const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
+        Object.defineProperty(node, "scrollTop", { get() { return descriptor.get!.call(node); }, set(top: number) {
+          log("write", { before: node.scrollTop, requested: top, stack: new Error().stack?.split("\n")[2] });
+          descriptor.set!.call(node, top);
+        }, configurable: true });
+        const viewport = node.getBoundingClientRect();
+        const articles = () => [...node.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")];
+        const above = articles().filter((r) => r.getBoundingClientRect().bottom <= viewport.top).at(-1)?.dataset.rowId;
+        const initial = new Set(articles().map((r) => r.dataset.rowId!));
+        const identities = new Map(articles().map((r) => [r.dataset.rowId!, r]));
+        const markers = new Map<string, Range>();
+        for (const row of articles()) {
+          const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+          let text: Node | null;
+          while ((text = walker.nextNode())) if (text.textContent?.trim()) {
+            const range = document.createRange(); range.setStart(text, 0); range.setEnd(text, Math.min(8, text.textContent.length));
+            markers.set(row.dataset.rowId!, range); break;
+          }
+        }
+        const mutation = new MutationObserver((records) => {
+          for (const record of records) for (const added of record.addedNodes) if (added instanceof Element) {
+            const addedRows = [...(added.matches("[data-row-id]") ? [added] : []), ...added.querySelectorAll("[data-row-id]")];
+            for (const row of addedRows) {
+              const id = row.getAttribute("data-row-id")!;
+              log(identities.has(id) && identities.get(id) !== row ? "remount" : "mount", { id });
+              identities.set(id, row as HTMLElement);
+            }
+          }
+        });
+        mutation.observe(node, { subtree: true, childList: true });
+        const shifts = new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) log("layout-shift", JSON.parse(JSON.stringify(entry.toJSON())));
+        });
+        shifts.observe({ type: "layout-shift" });
+        type Painted = { token: number; time: number; top: number; height: number; fade: string; mask: string; thread: string;
+          rows: { id: string; top: number; bottom: number; text: number | null; opacity: string; translate: string }[] };
+        const painted: Painted[] = [];
+        const stop = window.cmuxAfterPaint((time) => {
+          const visible = articles().filter((r) => { const b = r.getBoundingClientRect(); return b.bottom > viewport.top && b.top < viewport.bottom; });
+          const tracked = visible.length > 4 ? [visible[0], ...visible.slice(-3)] : visible;
+          const style = getComputedStyle(node);
+          painted.push({ token, time, top: node.scrollTop, height: node.scrollHeight,
+            fade: style.getPropertyValue("--acpmux-fade-bottom"), mask: style.maskImage,
+            thread: node.querySelector<HTMLElement>(".acpmux-thread")?.style.top ?? "",
+            rows: tracked.map((r) => { const b = r.getBoundingClientRect(); const css = getComputedStyle(r); const range = markers.get(r.dataset.rowId!);
+              return { id: r.dataset.rowId!, top: b.top, bottom: b.bottom, text: range?.startContainer.isConnected ? range.getBoundingClientRect().top : null,
+                opacity: css.opacity, translate: css.translate }; }) });
+          return true;
+        });
+        const rows = Array.from({ length: 40 }, (_, i) => ({ id: `history-${i}`, kind: i % 2 ? "assistant" : "user",
+          text: `Earlier message ${i}: keep this sentence in the same place.`, version: 1, at: 1 }));
+        const chunks = [" The layout", " should keep", " the reader still.", "\n\n```ts\n", "const top =", " node.scrollTop;\n", "const delta = 0;\n", "```\n", "\n- inspect rows", "\n- preserve anchors", "\n- verify painted frames", "\n\nThe tool confirmed", " the measurements", " across all frames."];
+        let text = "I will inspect the renderer and explain the result.";
+        await window.cmuxPaintFrame();
+        for (token = 0; token < chunks.length; token++) {
+          text += chunks[token];
+          // A late richer row above the viewport resolves from its old estimate to drawn height.
+          // This is an actual row revision, not a mocked layout or scroll correction.
+          const priorIndex = rows.findIndex((r) => r.id === above);
+          const prior = rows[priorIndex];
+          if (prior && [4, 8, 11].includes(token)) rows[priorIndex] = { ...prior,
+            text: prior.text + (token === 4 ? "\n\n```ts\nconst measured = true;" : token === 8 ? "\n```\n\n- loaded detail" : "\n- another measured line"), version: prior.version + 1 };
+          const tool = token >= 10 ? [{ id: "tool", kind: "activity", version: token, at: 1,
+            items: [{ kind: "tool", text: "", tool: { id: "read", title: "Read renderer.ts", kind: "read", status: token < 12 ? "running" : "completed" } }] }] : [];
+          w.__showRowsSync([...rows, { id: "stream", kind: "assistant", text, streaming: true, version: token + 2, at: 1 }, ...tool]);
+          for (let n = 0; n < 4; n++) await window.cmuxPaintFrame();
+        }
+        for (let n = 0; n < 8; n++) await window.cmuxPaintFrame();
+        stop(); mutation.disconnect(); shifts.disconnect();
+        let jitter = 0, maxJitter = 0, scrollChanges = 0, fadeChanges = 0;
+        const moves: unknown[] = [];
+        for (let i = 1; i < painted.length; i++) {
+          const a = painted[i - 1], b = painted[i];
+          if (Math.abs(b.top - a.top) > 0.5) scrollChanges++;
+          if (a.fade !== b.fade) fadeChanges++;
+          for (const row of b.rows) {
+            const old = a.rows.find((r) => r.id === row.id);
+            if (!old || !initial.has(row.id)) continue;
+            const delta = Math.max(Math.abs(row.top - old.top), row.text !== null && old.text !== null ? Math.abs(row.text - old.text) : 0);
+            if (delta > 0.5) { jitter++; maxJitter = Math.max(maxJitter, delta); moves.push({ token: b.token, id: row.id, delta, scroll: b.top - a.top, top: row.top, before: old.top }); }
+          }
+        }
+        return { above, falseFadeFrames: painted.filter((f) => f.fade === "56px" && f.height - node.clientHeight - f.top < 79).length, startGap: painted[0]?.height - node.clientHeight - painted[0]?.top, frames: painted.length, scrollChanges, writes: events.filter((e) => e.caller === "write").length,
+          jitter, maxJitter, remounts: events.filter((e) => e.caller === "remount").length,
+          commits: events.filter((e) => e.caller === "commit").length, shifts: events.filter((e) => e.caller === "layout-shift").length,
+          fadeChanges, moves, painted, events };
+      });
+      console.log(`PAINTED ${JSON.stringify({ distance, ...result })}`);
+      results.push({ distance, falseFadeFrames: result.falseFadeFrames });
+      await page.close();
+    }
+    for (const result of results) expect(result.falseFadeFrames, `${result.distance}px false jump/fade frame`).toBe(0);
+  });
+
 });

@@ -3189,7 +3189,13 @@ export function VirtualTranscript({
           liveTop: top,
           anchorTop: top,
         });
-        if (nextTop !== undefined && (clamped || Math.abs(nextTop - top) > 0.5)) node.scrollTop = nextTop;
+        if (nextTop !== undefined && (clamped || Math.abs(nextTop - top) > 0.5)) {
+          node.scrollTop = nextTop;
+          // Keep React's rendered offset in the same frame as the anchor correction. Otherwise a
+          // rounded DOM offset arrives through scroll later and can briefly show Jump to latest.
+          scrollPacer.current?.cancel();
+          setScrollAt(node.scrollTop);
+        }
       }
     }
     // Runs on height too: rows that fit and then overflow on a height-only shrink keep the same memoized layout.
