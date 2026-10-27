@@ -223,6 +223,8 @@ impl SignalReceiver {
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                 return Err(RecvTimeoutError::Timeout);
             };
+            // wakeup-allow: deadline what is left of the caller's one bound (only tests call it); a
+            // signal or the sender's end wakes it first
             state = self.state.1.wait_timeout(state, remaining).unwrap().0;
         }
     }

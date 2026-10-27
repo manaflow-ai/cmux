@@ -93,6 +93,7 @@ impl Supervisor {
             return Vec::new();
         }
         let left = deadline.saturating_duration_since(Instant::now()) + KILL_SETTLE * 2;
+        // wakeup-allow: deadline the caller's stop deadline plus the kill settle; the reply ends it first
         wait.recv_timeout(left).unwrap_or_else(|_| vec!["(supervisor did not answer)".to_owned()])
     }
 
@@ -101,6 +102,7 @@ impl Supervisor {
         if self.tx.send(Msg::Health(reply)).is_err() {
             return Vec::new();
         }
+        // wakeup-allow: deadline one health reply within 5 s; the reply ends it first
         wait.recv_timeout(Duration::from_secs(5)).unwrap_or_default()
     }
 }
@@ -147,6 +149,8 @@ impl Loop {
             let deadline = stopping.as_ref().map(Stopping::next_deadline);
             let next = self.entries.values().filter_map(|e| e.wake).chain(deadline).min();
             let msg = match next {
+                // wakeup-allow: deadline the earliest role restart or stop deadline; with none the
+                // receive below has no timeout, and a message ends it first
                 Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
                     Ok(msg) => Some(msg),
                     Err(RecvTimeoutError::Timeout) => None,
@@ -319,6 +323,7 @@ impl Loop {
     fn reap(&mut self, name: &str, pid: u32, tx: &Sender<Msg>) -> Option<Option<i32>> {
         let entry = self.entries.get_mut(name)?;
         let mut child = entry.child.take_if(|c| c.id() == pid)?;
+        // wakeup-allow: bounded one non-blocking reap after the exit watcher's event
         match child.try_wait() {
             Ok(Some(status)) => Some(status.code()),
             Ok(None) => {

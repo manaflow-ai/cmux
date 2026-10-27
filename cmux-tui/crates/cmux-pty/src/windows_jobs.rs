@@ -106,6 +106,7 @@ impl ChildKiller for JobChild {
 
 impl Child for JobChild {
     fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
+        // wakeup-allow: bounded portable-pty's non-blocking status read, passed through
         self.child.try_wait()
     }
 

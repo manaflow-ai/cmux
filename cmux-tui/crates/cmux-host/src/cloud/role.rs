@@ -124,6 +124,7 @@ impl Http for PosterHttp {
 /// One `identify` on the daemon's control socket, bounded by `timeout`.
 pub fn query_identify(socket: &Path, timeout: Duration) -> io::Result<Value> {
     let mut stream = UnixStream::connect(socket)?;
+    // wakeup-allow: deadline the one identify reply within the caller's timeout
     stream.set_read_timeout(Some(timeout))?;
     stream.set_write_timeout(Some(timeout))?;
     stream.write_all(b"{\"id\":1,\"cmd\":\"identify\"}\n")?;
@@ -222,6 +223,7 @@ impl CloudRole {
         // The worker ends after its current request (each is bounded by
         // 20 s); a later deadline is reported, not waited out.
         let wait = deadline.saturating_duration_since(Instant::now());
+        // wakeup-allow: deadline the caller's stop deadline; the worker's end ends it first
         match worker.done.recv_timeout(wait) {
             Err(RecvTimeoutError::Timeout) => {
                 Err(RoleError("cloud worker did not stop by the deadline".to_owned()))
@@ -413,6 +415,8 @@ impl Worker {
                 });
             }
             // SAFETY: `fds` is a valid array of `fds.len()` pollfd entries.
+            // wakeup-allow: deadline the earliest status window, retry or hourly heartbeat (re-armed by
+            // each accepted report); no timeout without one, and any descriptor ends it first
             let n = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout_ms) };
             if n < 0 {
                 let err = io::Error::last_os_error();
@@ -872,6 +876,7 @@ pub fn probe_activity(paths: &Paths, timeout: Duration) -> Result<Value, String>
         return Err(format!("daemon does not advertise {DAEMON_ACTIVITY_CAPABILITY}"));
     }
     let mut stream = UnixStream::connect(&socket).map_err(|e| e.to_string())?;
+    // wakeup-allow: deadline the stream's one first line within the probe's timeout
     stream.set_read_timeout(Some(timeout)).map_err(|e| e.to_string())?;
     stream.write_all(b"{\"id\":1,\"cmd\":\"subscribe-activity\"}\n").map_err(|e| e.to_string())?;
     let mut line = String::new();

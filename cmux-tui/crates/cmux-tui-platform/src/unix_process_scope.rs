@@ -223,6 +223,7 @@ impl UnixChildExitSignal {
         if remaining.is_zero() {
             return Ok(false);
         }
+        // wakeup-allow: deadline the caller's absolute deadline; the exit observer's result ends it first
         match self.result.recv_timeout(remaining) {
             Ok(result) => result.map(|()| true),
             Err(mpsc::RecvTimeoutError::Timeout) => Ok(false),
@@ -646,6 +647,7 @@ impl ProcessScopeTracker {
             if remaining.is_zero() {
                 return;
             }
+            // wakeup-allow: deadline the caller's cleanup budget; the final scan's end notifies first
             let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
             state = next;
             if timeout.timed_out() && state.scopes.contains_key(&registration) {
@@ -675,6 +677,8 @@ impl ProcessScopeTracker {
                 }
                 let remaining = TRACK_INTERVAL.saturating_sub(last_scan.elapsed());
                 if !remaining.is_zero() {
+                    // wakeup-allow: bounded the scan rate cap, only while a helper command's scope is
+                    // registered; with none the wait above has no timeout
                     let (next, _) = self.changed.wait_timeout(state, remaining).unwrap();
                     state = next;
                     if state.scopes.is_empty() {
@@ -771,6 +775,8 @@ impl ProcessScopeTracker {
                 }
             }
             let state = self.state.lock().unwrap();
+            // wakeup-allow: bounded one scan per TRACK_INTERVAL, only while a helper command's scope is
+            // registered (no exit event names an escaped descendant); with none the loop waits untimed
             let _ = self
                 .changed
                 .wait_timeout_while(state, TRACK_INTERVAL, |state| state.revision == revision)

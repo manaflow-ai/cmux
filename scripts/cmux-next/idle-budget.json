@@ -140,6 +140,7 @@
   ],
   "allowed_periodic": [
     {"owner": "ErrorJournalService.harvest", "period_s": 300, "why": "harvests crash and error reports written by other processes; task 064 moves it to NSBackgroundActivityScheduler"},
+    {"owner": "TeamSsh.sync", "period_s": 30, "why": "cmux-host's team VM trust sync (team_vm.ssh_ca and accounts): Cloud has no push for them, a revocation must reach sshd within one period and sshd fails closed after 120 s without a sync. Only on a team-bound Linux Cloud VM; unbound it blocks on inotify"},
     {"owner": "GitHubFeedSource.refresh", "period_s": 120, "why": "GitHub has no push for the feed; task 066 stops it while no feed surface shows"},
     {"owner": "DeviceHubSocket.ping", "period_s": 30, "why": "PROTOCOL.md keepalive of the device hub; task 066 sends it only after silence"},
     {"owner": "ControlEventBus.heartbeat", "period_s": 15, "why": "events.stream include_heartbeats keepalive, only while a client asked for it and stays connected"}

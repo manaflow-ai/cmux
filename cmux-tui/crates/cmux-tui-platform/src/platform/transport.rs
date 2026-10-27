@@ -116,6 +116,7 @@ mod imp {
         }
 
         fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+            // wakeup-allow: deadline the Stream trait's pass-through; each caller's own escape names its bound
             UnixStream::set_read_timeout(self, timeout)
         }
 
@@ -187,6 +188,7 @@ mod imp {
         }
 
         fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+            // wakeup-allow: deadline the Stream trait's pass-through; each caller's own escape names its bound
             UnixStream::set_read_timeout(self, timeout)
         }
 

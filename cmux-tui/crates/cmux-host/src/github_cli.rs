@@ -96,6 +96,8 @@ fn ask_retrying(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
     match ask_agent(socket, ask) {
         Err(e) => match retry_delay(&e) {
             Some(delay) => {
+                // wakeup-allow: backoff the one retry after the agent's retryable refusal (1 s, or its
+                // retry_after up to 10 s)
                 std::thread::sleep(delay);
                 ask_agent(socket, ask)
             }
@@ -114,6 +116,7 @@ pub fn ask_agent(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
         )
     })?;
     let io = |e: std::io::Error| refused("vm.agent_unreachable", e.to_string());
+    // wakeup-allow: deadline the one reply line within ASK_TIMEOUT; the reply ends the read first
     stream.set_read_timeout(Some(ASK_TIMEOUT)).map_err(io)?;
     stream.set_write_timeout(Some(Duration::from_secs(5))).map_err(io)?;
     stream.write_all(format!("{}\n", ask.to_line()).as_bytes()).map_err(io)?;

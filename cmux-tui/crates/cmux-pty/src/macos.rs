@@ -256,6 +256,7 @@ impl NativePtyChild {
 
     /// [`Child::try_wait`] with the full status.
     pub fn try_wait_native(&mut self) -> io::Result<Option<std::process::ExitStatus>> {
+        // wakeup-allow: bounded one non-blocking status read for the caller
         self.0.try_wait()
     }
 }
@@ -266,6 +267,7 @@ const HANGUP_GRACE: std::time::Duration = std::time::Duration::from_millis(250);
 
 impl Child for NativePtyChild {
     fn try_wait(&mut self) -> io::Result<Option<portable_pty::ExitStatus>> {
+        // wakeup-allow: bounded portable-pty's non-blocking status read, passed through
         Ok(self.0.try_wait()?.map(Into::into))
     }
 
@@ -282,6 +284,7 @@ impl ChildKiller for NativePtyChild {
     /// SIGHUP (a terminal's hangup), then SIGKILL if the child has not
     /// ended within [`HANGUP_GRACE`] (an exit event, not a poll).
     fn kill(&mut self) -> io::Result<()> {
+        // wakeup-allow: bounded one non-blocking check that the child still runs before SIGHUP
         if self.0.try_wait()?.is_some() {
             return Ok(());
         }

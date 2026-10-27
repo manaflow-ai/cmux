@@ -41,6 +41,7 @@ mod handshake;
 mod hang;
 mod input_flow;
 mod trace;
+mod wait;
 
 use cold_rings::RingBudget;
 pub use hang::{HOLDER_LOOP, HangWatch};
@@ -483,10 +484,10 @@ impl Holder {
             fds.push(pollfd(terminal.master.as_raw_fd(), events));
             chans.push(*chan);
         }
-        let timeout = self.next_deadline().map_or(-1, |deadline| {
-            deadline.saturating_duration_since(Instant::now()).as_millis().min(60_000) as i32 + 1
-        });
+        let timeout = wait::poll_timeout(self.next_deadline(), Instant::now());
         // SAFETY: fds is a live array of pollfd.
+        // wakeup-allow: deadline the earliest kill, handshake, idle, orphan or cold-ring deadline, with no
+        // timeout when there is none; a descriptor or the signal pipe ends it first
         let ready = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout) };
         if ready < 0 {
             let error = io::Error::last_os_error();

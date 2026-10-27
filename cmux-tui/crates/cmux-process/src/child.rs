@@ -118,6 +118,7 @@ impl Child {
                 Ok(*status)
             }
             #[cfg(not(target_vendor = "apple"))]
+            // wakeup-allow: bounded one non-blocking status read; a wait for the end is wait_timeout's exit event
             Inner::Std(child) => child.try_wait(),
         }
     }
@@ -153,6 +154,9 @@ impl Child {
     /// it.
     pub fn wait_timeout(&mut self, limit: Duration) -> io::Result<Option<ExitStatus>> {
         drop(self.stdin.take());
+        // A reaped child's pid may be reused: its saved status answers
+        // before any pidfd or kqueue names that pid.
+        // wakeup-allow: bounded one non-blocking status read before the exit event
         if let Some(status) = self.try_wait()? {
             return Ok(Some(status));
         }
@@ -182,6 +186,7 @@ impl Child {
             },
             #[cfg(windows)]
             Inner::Std(child) => {
+                // wakeup-allow: deadline the caller's limit; the process handle's exit ends the wait first
                 return wait_timeout::ChildExt::wait_timeout(child, limit);
             }
             #[cfg(all(not(target_vendor = "apple"), not(target_os = "linux"), not(windows)))]
@@ -190,6 +195,7 @@ impl Child {
                 return Err(io::Error::new(io::ErrorKind::Unsupported, "wait_timeout"));
             }
         }
+        // wakeup-allow: bounded the one reap after the exit event or the limit
         self.try_wait()
     }
 }
@@ -251,6 +257,7 @@ pub(crate) fn exit_event_within(pid: libc::pid_t, limit: Duration) -> io::Result
         // SAFETY: zeroed kevent is valid output storage.
         let mut event: libc::kevent = unsafe { std::mem::zeroed() };
         // SAFETY: one change in, at most one event out, a live timeout.
+        // wakeup-allow: deadline the caller's limit; NOTE_EXIT ends the wait first
         let n = unsafe { libc::kevent(queue_fd, &change, 1, &mut event, 1, &timeout) };
         if n >= 0 {
             if n == 1 && event.flags & libc::EV_ERROR != 0 && event.data as i32 != libc::ESRCH {
@@ -324,6 +331,7 @@ fn readable_within(fd: &std::os::fd::OwnedFd, limit: Duration) -> io::Result<()>
         let millis = left.as_millis().min(libc::c_int::MAX as u128) as libc::c_int
             + libc::c_int::from(!left.subsec_nanos().is_multiple_of(1_000_000));
         // SAFETY: one live pollfd.
+        // wakeup-allow: deadline the caller's limit; the pidfd or waiter pipe turning readable ends it first
         let n = unsafe { libc::poll(&mut poll, 1, millis) };
         if n >= 0 {
             return Ok(());

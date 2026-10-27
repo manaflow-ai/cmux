@@ -280,6 +280,7 @@ impl HolderClient {
             if left.is_zero() {
                 return Err(io::Error::new(io::ErrorKind::TimedOut, "holder did not answer"));
             }
+            // wakeup-allow: fixture the frozen wire-v3 holder that compatibility tests start; never edited
             match self.stream.set_read_timeout(Some(left)) {
                 Ok(()) => {}
                 // macOS fails setsockopt with EINVAL once the peer closed

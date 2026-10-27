@@ -124,6 +124,7 @@ impl HolderLink {
             .send(Kind::Spawn, chan, &request.encode(), None)
             .and_then(|()| self.send(Kind::Attach, chan, &Out::default().u64(0).0, None));
         let result = sent.and_then(|()| {
+            // wakeup-allow: fixture the frozen wire-v3 holder that compatibility tests start; never edited
             answered
                 .recv_timeout(SPAWN_TIMEOUT)
                 .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "holder did not spawn"))?

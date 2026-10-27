@@ -39,6 +39,8 @@ pub(crate) fn write(file: &mut File, buffer: &[u8]) -> io::Result<usize> {
             Cut::Write(length) => return file.write(&buffer[..length]),
             Cut::Wait if Instant::now() >= deadline => return file.write(buffer),
             Cut::Wait => {
+                // wakeup-allow: bounded at most ROOM_WAIT of 1 ms checks, only while a sequence waits for
+                // room; the master reports writable at any room, not at room for the whole sequence
                 std::thread::sleep(ROOM_POLL);
                 let Some(pending) = queued(file) else { return file.write(buffer) };
                 room = CAPACITY.saturating_sub(pending);

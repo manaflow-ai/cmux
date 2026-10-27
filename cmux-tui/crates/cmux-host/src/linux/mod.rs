@@ -530,6 +530,7 @@ impl Platform for LinuxPlatform {
         let mut exits = Vec::new();
         let daemon_done = match self.daemon.as_mut() {
             Some(Daemon { child: Some(child), .. }) => {
+                // wakeup-allow: bounded one non-blocking reap on a SIGCHLD or exit wake
                 matches!(child.try_wait(), Ok(Some(_)) | Err(_))
             }
             Some(Daemon { child: None, pidfd, .. }) => pidfd.as_ref().is_none_or(PidFd::exited),
@@ -539,6 +540,7 @@ impl Platform for LinuxPlatform {
             exits.extend(self.daemon_gone());
         }
         let before = self.jobs.iter().filter(|j| j.kind == JobKind::Announce).count();
+        // wakeup-allow: bounded one non-blocking reap per job on a SIGCHLD or exit wake
         self.jobs.retain_mut(|job| !matches!(job.child.try_wait(), Ok(Some(_)) | Err(_)));
         let after = self.jobs.iter().filter(|j| j.kind == JobKind::Announce).count();
         if before > 0 && after == 0 {

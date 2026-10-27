@@ -74,6 +74,8 @@ fn request(addr: SocketAddr, deadline: Instant, head: &str) -> io::Result<String
     stream.write_all(head.as_bytes())?;
     let mut raw = Vec::new();
     loop {
+        // wakeup-allow: deadline what is left of the attempt's one deadline; a read that times out
+        // returns its error, so the loop goes on only with bytes
         stream.set_read_timeout(Some(remaining(deadline)?))?;
         let mut chunk = [0u8; 1024];
         let n = stream.read(&mut chunk)?;

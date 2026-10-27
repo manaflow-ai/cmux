@@ -91,6 +91,7 @@ pub fn first_line_within(stdout: &mut ChildStdout, timeout: Duration) -> io::Res
         let mut poll_fd = libc::pollfd { fd: stdout.as_raw_fd(), events: libc::POLLIN, revents: 0 };
         let millis = i32::try_from(left.as_millis()).unwrap_or(i32::MAX).max(1);
         // SAFETY: polls one live pollfd; the timeout is the deadline left.
+        // wakeup-allow: deadline what is left of READY_TIMEOUT; the holder's first output ends it first
         let ready = unsafe { libc::poll(&mut poll_fd, 1, millis) };
         if ready < 0 {
             let error = io::Error::last_os_error();
@@ -480,6 +481,8 @@ impl HolderClient {
             if left.is_zero() {
                 return Err(io::Error::new(io::ErrorKind::TimedOut, "holder did not answer"));
             }
+            // wakeup-allow: deadline what is left of the request's one deadline; a frame or the link's end
+            // ends the read first, and a timed-out read meets `left.is_zero()` above
             match self.stream.set_read_timeout(Some(left)) {
                 Ok(()) => {}
                 // macOS fails setsockopt with EINVAL once the peer closed

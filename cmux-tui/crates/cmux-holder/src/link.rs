@@ -154,6 +154,8 @@ impl PendingAdopt {
     /// can say which segment the holder writes.
     pub fn wait(self) -> io::Result<Option<OwnedFd>> {
         let Some(answer) = self.0 else { return Ok(None) };
+        // wakeup-allow: deadline the one ADOPT answer within the spawn timeout; the answer or the link's end
+        // ends it first
         answer
             .recv_timeout(SPAWN_TIMEOUT)
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "holder did not answer ADOPT"))?
@@ -342,6 +344,7 @@ impl HolderLink {
             .send(Kind::Spawn, chan, &request.encode(), None)
             .and_then(|()| self.send(Kind::Attach, chan, &Out::default().u64(0).0, None));
         let mut timed_out = false;
+        // wakeup-allow: deadline the one SPAWN answer within the spawn timeout; the answer ends it first
         let result = sent.and_then(|()| match answered.recv_timeout(self.spawn_timeout) {
             Ok(reply) => reply,
             Err(_) => {

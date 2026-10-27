@@ -210,6 +210,8 @@ pub fn run(paths: &Paths, once: bool) -> u8 {
         if once {
             return code;
         }
+        // wakeup-allow: periodic TeamSsh.sync the trust lease: Cloud has no push for team_vm.ssh_ca,
+        // and sshd fails closed after STALE_AFTER_SECS without a sync
         std::thread::sleep(SYNC_INTERVAL);
     }
 }
@@ -237,6 +239,7 @@ fn wait_for_binding(paths: &Paths) {
                 let _ = inotify.read_events();
             }
         }
+        // wakeup-allow: periodic TeamSsh.sync without inotify the binding is checked on the sync's period
         Err(_) => std::thread::sleep(SYNC_INTERVAL),
     }
 }

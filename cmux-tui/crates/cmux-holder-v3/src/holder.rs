@@ -392,6 +392,7 @@ impl Holder {
             deadline.saturating_duration_since(Instant::now()).as_millis().min(60_000) as i32 + 1
         });
         // SAFETY: fds is a live array of pollfd.
+        // wakeup-allow: fixture the frozen wire-v3 holder that compatibility tests start; never edited
         let ready = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout) };
         if ready < 0 {
             let error = io::Error::last_os_error();
