@@ -1112,19 +1112,30 @@ class GitHub:
             print(f"could not read the API budget ({error})", flush=True)
             remaining, reset = None, None
         with self._lock:
-            self._budget = (time.monotonic(), remaining, reset)
-        return remaining, reset
+            self._budget = (time.monotonic(), *self._merged(remaining, reset))
+            return self._budget[1], self._budget[2]
 
-    def _note_budget(self, seen: Mapping[str, str]) -> None:
-        """Every answered request's own rate-limit headers keep budget_left() current between its reads."""
+    def _note_budget(self, seen: Mapping[str, str] | None) -> None:
+        """A read-token answer's own rate-limit headers keep budget_left() current between its reads."""
         try:
-            remaining, reset = int(seen.get("X-RateLimit-Remaining") or ""), float(seen.get("X-RateLimit-Reset") or "")
-        except ValueError:
+            remaining = int((seen or {}).get("X-RateLimit-Remaining") or "")
+            reset = float((seen or {}).get("X-RateLimit-Reset") or "")
+        except (ValueError, TypeError, AttributeError):
             return
-        if (seen.get("X-RateLimit-Resource") or "core") != "core":
+        if ((seen or {}).get("X-RateLimit-Resource") or "core") != "core":
             return
         with self._lock:
-            self._budget = (self._budget[0], remaining, reset)
+            self._budget = (self._budget[0], *self._merged(remaining, reset))
+
+    def _merged(self, remaining: int | None, reset: float | None) -> tuple[int | None, float | None]:
+        """The newer reading, under the lock: a later window replaces an older one, and within one
+        window the lowest balance wins (answers can arrive out of order)."""
+        _, known, known_reset = self._budget
+        if remaining is None or known is None or known_reset is None or reset is None or reset > known_reset:
+            return remaining, reset
+        if reset < known_reset:
+            return known, known_reset
+        return min(known, remaining), reset
 
     def pace(self, interval: float) -> float:
         """How long to wait before the next non-urgent read: `interval`, IDLE_POLL_SECONDS below
@@ -1221,7 +1232,8 @@ class GitHub:
                 self.remaining = seen.get("X-RateLimit-Remaining") or self.remaining
                 self.limit = seen.get("X-RateLimit-Limit") or self.limit
                 etag = seen.get("ETag") if method == "GET" else None
-                self._note_budget(seen)
+                if headers is self.read_headers:
+                    self._note_budget(seen)
             self._limits.tries = 0
             self._count(path, "charged")
             if etag:
@@ -1231,6 +1243,8 @@ class GitHub:
                         self._cache = {k: v for k, v in self._cache.items() if v[2] > old}
                     self._cache[key] = (etag, body, time.monotonic())
         except urllib.error.HTTPError as error:
+            if headers is self.read_headers:
+                self._note_budget(error.headers)
             if error.code == 304 and cached is not None:
                 # Not modified: GitHub does not count it against the budget.
                 self._limits.tries = 0
@@ -1240,6 +1254,8 @@ class GitHub:
                 # The token expired before its refresh (a 401 is not charged): mint one, unless another
                 # thread already replaced the token this request carried, and send it again once.
                 self._fresh_token(stale=sent["Authorization"])
+                if before_retry is not None:
+                    before_retry()  # what a write acts on may have changed while the token was minted
                 return self.request(method, path, own_token=own_token,
                                     body=json.loads(data) if data is not None else None, before_retry=before_retry,
                                     refreshed=True)

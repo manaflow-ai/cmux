@@ -3371,14 +3371,48 @@ class Budget(unittest.TestCase):
             reads.append(request.full_url)
             if request.full_url.endswith("/rate_limit"):
                 return 200, {}, json.dumps({"resources": {"core": {"remaining": 4000, "reset": now + 600}}}).encode()
-            return 200, {"X-RateLimit-Remaining": "50", "X-RateLimit-Reset": str(now + 300)}, b"{}"
+            return 200, {"X-RateLimit-Remaining": "50", "X-RateLimit-Reset": str(now + 600)}, b"{}"
         seen, patch = self.serve(answers)
         with patch, unittest.mock.patch.object(rescue.time, "time", lambda: now):
             api = rescue.GitHub("bot", "o/r")
             self.assertEqual(api.pace(20), 20)
             api.run(1)
-            self.assertEqual(api.pace(20), 305)
+            self.assertEqual(api.pace(20), 605)
         self.assertEqual(sum(url.endswith("/rate_limit") for url in reads), 1)
+
+    def test_the_budget_takes_the_lowest_reading_of_a_window_and_only_the_read_tokens(self):
+        api = rescue.GitHub("repo", "o/r", read_token="bot")
+        api._note_budget({"X-RateLimit-Remaining": "50", "X-RateLimit-Reset": "900"})
+        api._note_budget({"X-RateLimit-Remaining": "70", "X-RateLimit-Reset": "900"})  # older, out of order
+        self.assertEqual(api._budget[1:], (50, 900.0))
+        api._note_budget({"X-RateLimit-Remaining": "4999", "X-RateLimit-Reset": "4500"})  # the next window
+        self.assertEqual(api._budget[1:], (4999, 4500.0))
+        seen, patch = self.serve(lambda request: (200, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "9000"}, b""))
+        with patch:
+            api.cancel(1)  # GITHUB_TOKEN's own pool says nothing about the App's
+        self.assertEqual(api._budget[1:], (4999, 4500.0))
+
+    def test_a_304_keeps_the_budget_current(self):
+        seen, patch = self.serve(lambda request: (304, {"X-RateLimit-Remaining": "40", "X-RateLimit-Reset": "900"}, b"")
+                                 if request.get_header("If-none-match")
+                                 else (200, {"ETag": '"x"', "X-RateLimit-Remaining": "41", "X-RateLimit-Reset": "900"}, b"{}"))
+        with patch:
+            api = rescue.GitHub("bot", "o/r")
+            api.run(1)
+            api.run(1)
+        self.assertEqual(api._budget[1], 40)
+
+    def test_a_write_refused_for_an_expired_token_is_checked_again_before_it_is_resent(self):
+        def answers(request):
+            return (401, {}, b"") if request.get_header("Authorization") == "Bearer old" else (200, {}, b"")
+        seen, patch = self.serve(answers)
+        checks = []
+        with patch, unittest.mock.patch("sys.stdout", io.StringIO()):
+            api = rescue.GitHub("old", "o/r")
+            api.mint = lambda: "new"
+            api.request("POST", "/actions/runs/1/rerun", before_retry=lambda: checks.append(1))
+        self.assertEqual(checks, [1])
+        self.assertEqual(len(seen), 2)
 
     def test_concurrent_401s_mint_one_token(self):
         def answers(request):
