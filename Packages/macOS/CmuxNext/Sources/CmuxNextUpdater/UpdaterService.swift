@@ -77,7 +77,7 @@ public final class UpdaterService {
     /// The pushed build not seen through yet and the reads left for it (``releasePushed(_:)``).
     @ObservationIgnored var releasePushTarget: (build: String, reads: Int)?
     /// The next read for ``releasePushTarget`` (one-shot; cancelled when the push stops).
-    @ObservationIgnored let releasePushRetry: DemandTimer
+    @ObservationIgnored var releasePushRetry: DemandTimer
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
     /// Opens the changelog page for the releases after `from` up to `to`

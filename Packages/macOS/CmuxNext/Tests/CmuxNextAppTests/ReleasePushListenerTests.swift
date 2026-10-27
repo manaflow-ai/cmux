@@ -1,6 +1,7 @@
 @testable import CmuxNextUpdater
 import Foundation
 import Testing
+import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 
 /// The release push (Leo 2026-10-26: "if the nightly is post, I just want it. Just give it to me.
@@ -95,8 +96,9 @@ import CmuxNextWakeupsTestSupport
 
     /// Connects and waits until the listener reads its first frame.
     func connected(_ h: Harness, feed: String = nightlyFeed) async throws -> FakeSocket {
+        let before = h.sockets.count
         h.listener.refresh(feedURL: feed)
-        try #require(await eventually { h.socket != nil }, "the listener never connected")
+        try #require(await eventually { h.sockets.count == before + 1 }, "the listener never connected")
         return try #require(h.socket)
     }
 
@@ -158,6 +160,7 @@ import CmuxNextWakeupsTestSupport
 
     @Test func turningTheOptInOffClosesTheSocketAndStopsReconnecting() async throws {
         let h = Harness()
+        defer { h.listener.stop() }
         let socket = try await connected(h)
         h.listener.refresh(feedURL: nil)
         #expect(socket.closed, "the socket stayed open with the opt-in off")
@@ -287,6 +290,8 @@ import CmuxNextWakeupsTestSupport
     struct Service {
         let updater: UpdaterService
         let clock: ManualClock
+        /// The push's quick-read deadline alone sleeps on this one.
+        let retryClock: ManualClock
         let feed: MovingFeed
         let fake: Fakes
         var sockets: [FakeSocket] { fake.sockets }
@@ -316,6 +321,8 @@ import CmuxNextWakeupsTestSupport
                                      enableSparkle: false, recordsUpdates: false, now: { UpdateStagedYieldsToNewerTests.now }, clock: clock)
         updater.announcementsFetch = false
         updater.notesLoader = { _ in nil }
+        let retryClock = ManualClock()
+        updater.releasePushRetry = DemandTimer(owner: "ReleasePushListenerTests.retry", clock: retryClock)
         let fake = Fakes()
         updater.releasePush.connect = { _ in
             let socket = FakeSocket()
@@ -328,21 +335,17 @@ import CmuxNextWakeupsTestSupport
         updater.cancelStaged = { fake.cancels += 1; return true }
         updater.stagedRefresh.replaceable = { true }
         updater.stagedRefresh.startCheck = { fake.checks += 1 }
-        let s = Service(updater: updater, clock: clock, feed: feed, fake: fake)
+        let s = Service(updater: updater, clock: clock, retryClock: retryClock, feed: feed, fake: fake)
         s.configure(downloads: downloads)
         updater.start()
         return s
     }
 
-    /// Advances to the push's next read once its deadline sleeps on the clock. The timer's task
-    /// registers its sleep off the main actor just after it is scheduled, so a deadline that was not
-    /// asleep yet is reached by a second step.
+    /// Advances to the push's next read once its deadline sleeps (the only sleeper on its clock).
     func nextPushRead(_ s: Service, until reached: () -> Bool) async throws {
         try #require(await eventually { s.updater.releasePushRetry.isScheduled }, "no quick read was armed")
-        try await Task.sleep(for: .milliseconds(50))
-        s.clock.advance(by: UpdaterService.releasePushRetryDelay)
-        if await eventually(reached) { return }
-        s.clock.advance(by: UpdaterService.releasePushRetryDelay)
+        try await s.retryClock.waitForSleeper()
+        s.retryClock.advance(by: UpdaterService.releasePushRetryDelay)
         try #require(await eventually(reached), "the push's next read did not happen")
     }
 

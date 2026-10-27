@@ -19,9 +19,11 @@ extension UpdaterService {
     /// Connects to the feed this app reads while the push may run, else stops it. Run when the
     /// updater starts, when the schedule, download or managed policy moves, and when the test feed changes.
     func refreshReleasePush() {
-        let mayRun = releasePushMayRun
-        releasePush.refresh(feedURL: mayRun ? (testFeedURL ?? identity.feed().url) : nil)
-        if !mayRun { endReleasePushTarget() }
+        let before = releasePush.feed
+        releasePush.refresh(feedURL: releasePushMayRun ? (testFeedURL ?? identity.feed().url) : nil)
+        // Stopped, or another feed (a test feed is never served): a pushed build waiting for its
+        // read belongs to the feed it came from, so it is dropped.
+        if releasePush.feed == nil || releasePush.feed != before { endReleasePushTarget() }
     }
 
     /// The app quits: the socket closes, the pending read is cancelled and nothing reconnects.
