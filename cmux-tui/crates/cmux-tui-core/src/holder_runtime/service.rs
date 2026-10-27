@@ -387,8 +387,10 @@ impl HolderService {
 
     /// Stop tracking `chan` (its terminal ended or its surface left).
     pub(crate) fn untrack(&self, chan: u32) {
-        if self.live.lock().recover_poison().remove(&chan).is_some() {
-            crash_keys::decrement(crash_keys::Key::TerminalCount);
+        {
+            let mut live = self.live.lock().recover_poison();
+            live.remove(&chan);
+            note_terminal_count(&live);
         }
         let link = {
             let mut slot = self.link.lock().recover_poison();
@@ -424,10 +426,27 @@ impl HolderService {
             service: self.clone(),
             replay: Mutex::new(None),
         });
-        if self.live.lock().recover_poison().insert(chan, Arc::downgrade(&terminal)).is_none() {
-            crash_keys::increment(crash_keys::Key::TerminalCount);
+        {
+            let mut live = self.live.lock().recover_poison();
+            live.insert(chan, Arc::downgrade(&terminal));
+            note_terminal_count(&live);
         }
         terminal
+    }
+
+    /// Names a link that went down on the crash-key page ([`CrashKeyLink`]),
+    /// unless a link published meanwhile is open: a link end the reader
+    /// thread reports after another thread reconnected is not the current
+    /// link's. Under the slot lock, as [`Self::publish`] stores `Linked`, so
+    /// the page holds the state of the link the slot holds. Whether it
+    /// named it.
+    fn note_link_down(&self, state: CrashKeyLink) -> bool {
+        let slot = self.link.lock().recover_poison();
+        let down = !slot.link.as_ref().is_some_and(|link| link.is_open());
+        if down {
+            crash_keys::set_holder_link(state);
+        }
+        down
     }
 
     /// End every live terminal as lost: no holder can stream it.
@@ -515,18 +534,18 @@ impl HolderService {
                     // take turns for ever. This daemon is on its way out.
                     eprintln!("cmux-tui: another daemon took the terminal holder");
                     service.superseded.store(true, Ordering::Release);
-                    crash_keys::set_holder_link(CrashKeyLink::Superseded);
+                    service.note_link_down(CrashKeyLink::Superseded);
                     return;
                 }
                 // The holder died: start a new one and hand it every master.
-                crash_keys::set_holder_link(CrashKeyLink::Lost);
+                service.note_link_down(CrashKeyLink::Lost);
                 let _ =
                     std::thread::Builder::new().name("holder-restart".into()).spawn(move || {
                         if let Err(error) = service.link() {
                             // No holder streams their output any more: their
                             // terminals end as lost (the shells may still run).
                             eprintln!("cmux-tui: restart the terminal holder: {error}");
-                            crash_keys::set_holder_link(CrashKeyLink::Failed);
+                            service.note_link_down(CrashKeyLink::Failed);
                             service.lose_all();
                         }
                     });
@@ -636,6 +655,12 @@ impl HolderService {
 /// The grace a CLOSE gives the shell of an abandoned terminal before
 /// SIGKILL: a shell's usual hang-up grace.
 const ABANDONED_CLOSE_GRACE_MS: u32 = 2000;
+
+/// Names the terminals the holder runs for this daemon on the crash-key page:
+/// the size of `live`, stored under its lock so the page holds the last count.
+fn note_terminal_count(live: &HashMap<u32, Weak<HolderTerminal>>) {
+    crash_keys::set(crash_keys::Key::TerminalCount, live.len() as u64);
+}
 
 /// Write `token` to a just-started holder's stdin and read the first line
 /// it prints (`ready` once it listens), waiting at most
@@ -876,6 +901,50 @@ pub(crate) mod tests {
         drop(link);
         drop(service);
         drop(second);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// p09-observability-098 review: the reader thread reports a link's end
+    /// after it marked the link closed, and another thread may reconnect in
+    /// between. That late end must not name the new, open link lost on the
+    /// crash-key page; with no open link it does.
+    #[test]
+    fn a_late_link_end_never_names_an_open_link_down() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.subsec_nanos());
+        let dir = std::env::temp_dir().join(format!("chl-{}-{stamp}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("h.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let stand_in = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+            let mut reader = wire::Reader::default();
+            welcome(&stream, &mut reader, &[]);
+            loop {
+                let frame = next_frame(&stream, &mut reader, "the test's SIGNAL");
+                if Kind::from_u16(frame.kind) == Some(Kind::Signal) && frame.chan == 999 {
+                    return stream;
+                }
+            }
+        });
+
+        let service = stand_in_service(socket);
+        assert!(service.note_link_down(CrashKeyLink::Lost), "no link at all is down");
+        let link = service.link().expect("the stand-in holder");
+        assert!(
+            !service.note_link_down(CrashKeyLink::Lost),
+            "an end reported while the current link is open is an older link's"
+        );
+        link.signal(999, 0).unwrap();
+        let stream = stand_in.join().expect("the stand-in saw the test's SIGNAL");
+
+        // No restart may launch a holder once the stand-in's link ends.
+        service.superseded.store(true, Ordering::Release);
+        drop(link);
+        drop(service);
+        drop(stream);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -1,6 +1,6 @@
 //! The crash-key page of a Rust process (plans/cmux-next/chrome-parity/p09-observability.md, task
 //! 098): one 4 KiB file of 64-bit words beside the black box, `<role>-<pid>.crashkeys`, mapped
-//! `MAP_SHARED` and written with relaxed stores while the process runs, so a crash, an `abort()` or
+//! `MAP_SHARED` and written with atomic stores while the process runs, so a crash, an `abort()` or
 //! a kill leaves the keys of that moment on disk with no handler running.
 //!
 //! Chrome keeps its crash keys in static storage the crash handler reads out of the dead process
@@ -8,9 +8,11 @@
 //! lock. Here the storage is the page: every value is a number (a method's stable key, a count, a
 //! state, the build), never a person's text, so a crash report can carry the page as it is.
 //!
-//! The page starts in process memory. [`crate::init_blackbox`]'s `cmux-trace-open` thread maps the
-//! file, copies what was set so far and swaps the page ([`open_page`]); a store that races the swap
-//! still reaches the file. The file is never unmapped while the process lives.
+//! The keys live in process memory, where every change is one atomic operation. Once
+//! [`crate::init_blackbox`]'s `cmux-trace-open` thread mapped the file ([`open_page`]), each change
+//! also copies its word there, and the opener copies what was set before: a change that races the
+//! open still reaches the file, and a request that starts before it and ends after it frees its
+//! own entry. The file is never unmapped while the process lives.
 //!
 //! Layout (version 1), little-endian words. The header (words 0-7) is the header of every
 //! process's page: the app's (`CrashKeySlot` in CmuxNextTrace, task 078) and the C writer's (094)
@@ -142,51 +144,114 @@ impl Page {
     }
 }
 
-/// The page while no file holds it: the keys set before [`open_page`].
-static HEAP: Page = Page::new();
-/// The file page once [`open_page`] mapped it (never unmapped); null before.
-static ACTIVE: AtomicPtr<Page> = AtomicPtr::new(std::ptr::null_mut());
+/// The keys: `memory` holds every key's value for the life of the process and is the only page a
+/// key changes on; `file`, once [`open_page`] mapped it, gets a copy of each word after its change
+/// ([`Pages::mirror`]). One copy of the truth: an entry or a count changes by one atomic operation
+/// on one word, so a request that starts before the file opens and ends after it frees its own
+/// entry and no other.
+struct Pages {
+    memory: Page,
+    file: AtomicPtr<Page>,
+}
+
+static PAGES: Pages = Pages::new();
 static OPENING: AtomicBool = AtomicBool::new(false);
 static PATH: OnceLock<PathBuf> = OnceLock::new();
 
-/// The page keys go to now: one acquire load.
-#[inline]
-fn page() -> &'static Page {
-    active_in(&ACTIVE, &HEAP)
-}
+impl Pages {
+    const fn new() -> Pages {
+        Pages { memory: Page::new(), file: AtomicPtr::new(std::ptr::null_mut()) }
+    }
 
-fn active_in(active: &AtomicPtr<Page>, heap: &'static Page) -> &'static Page {
-    let file = active.load(Ordering::Acquire);
-    if file.is_null() {
-        heap
-    } else {
-        // SAFETY: only `swap_into` stores a non-null pointer, a page that lives for the process
-        // (a mapping that is never unmapped, or a leaked test page).
-        unsafe { &*file }
+    /// Changes word `index` of the memory page with `change`, then copies it to the file.
+    ///
+    /// Sequentially consistent with [`Pages::publish`] and [`Pages::mirror_keys`]: either the
+    /// change's file load sees the file and the change copies itself, or the opener's word load
+    /// after its publish sees the change (one total order over the four operations).
+    #[inline]
+    fn update<R>(&self, index: usize, change: impl FnOnce(&AtomicU64) -> R) -> R {
+        let result = change(self.memory.at(index));
+        self.mirror(index);
+        result
+    }
+
+    /// Copies word `index` to the file page, if one is open, until the copy holds what the memory
+    /// page held after it was written: a writer that copied an older value over a newer one finds
+    /// the word changed and copies again, so once writers stop the file equals memory.
+    #[inline]
+    fn mirror(&self, index: usize) {
+        let file = self.file.load(Ordering::SeqCst);
+        if file.is_null() {
+            return;
+        }
+        // SAFETY: only `publish` stores a non-null pointer, a page that lives for the process (a
+        // mapping that is never unmapped, or a leaked test page).
+        let file = unsafe { &*file };
+        let mut value = self.memory.at(index).load(Ordering::SeqCst);
+        loop {
+            file.at(index).store(value, Ordering::SeqCst);
+            let now = self.memory.at(index).load(Ordering::SeqCst);
+            if now == value {
+                return;
+            }
+            value = now;
+        }
+    }
+
+    /// Makes `file` the page every later change is copied to.
+    fn publish(&self, file: &'static Page) {
+        self.file.store(std::ptr::from_ref(file).cast_mut(), Ordering::SeqCst);
+    }
+
+    /// Copies every key word to the file: the keys set before [`Pages::publish`].
+    fn mirror_keys(&self) {
+        for index in FIRST_KEY_WORD..WORDS {
+            self.mirror(index);
+        }
+    }
+
+    fn request(&self, method: u64) -> RequestScope {
+        self.update(word::REQUEST_METHOD, |word| word.store(method, Ordering::SeqCst));
+        if method == 0 {
+            return RequestScope { method, entry: Entry::Nothing };
+        }
+        for index in word::IN_FLIGHT..word::IN_FLIGHT + IN_FLIGHT_CAPACITY {
+            let taken = self.update(index, |entry| {
+                entry.compare_exchange(0, method, Ordering::SeqCst, Ordering::SeqCst).is_ok()
+            });
+            if taken {
+                return RequestScope { method, entry: Entry::Table(index) };
+            }
+        }
+        self.update(word::UNTRACKED, |count| count.fetch_add(1, Ordering::SeqCst));
+        RequestScope { method, entry: Entry::Untracked }
     }
 }
 
-/// Stores `value` in `key` (one relaxed store).
+/// Stores `value` in `key`.
 #[inline]
 pub fn set(key: Key, value: u64) {
-    page().at(key.word()).store(value, Ordering::Relaxed);
+    PAGES.update(key.word(), |word| word.store(value, Ordering::SeqCst));
 }
 
 /// The value `key` holds now.
 pub fn get(key: Key) -> u64 {
-    page().at(key.word()).load(Ordering::Relaxed)
+    PAGES.memory.at(key.word()).load(Ordering::SeqCst)
 }
 
 /// Adds one to `key` (a count).
 pub fn increment(key: Key) {
-    page().at(key.word()).fetch_add(1, Ordering::Relaxed);
+    PAGES.update(key.word(), |count| count.fetch_add(1, Ordering::SeqCst));
 }
 
 /// Takes one from `key` (a count), never below 0.
 pub fn decrement(key: Key) {
-    let _ = page()
-        .at(key.word())
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| Some(count.saturating_sub(1)));
+    PAGES.update(key.word(), saturating_decrement);
+}
+
+fn saturating_decrement(count: &AtomicU64) {
+    let _ = count
+        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |count| Some(count.saturating_sub(1)));
 }
 
 /// Stores the PTY holder link's state.
@@ -199,22 +264,7 @@ pub fn set_holder_link(state: HolderLink) {
 /// table is full: it is counted instead). Lock-free and allocation-free; a key of 0 names nothing.
 #[must_use = "the request leaves the page when this guard drops"]
 pub fn request(method: u64) -> RequestScope {
-    request_in(page(), method)
-}
-
-fn request_in(page: &Page, method: u64) -> RequestScope {
-    page.at(word::REQUEST_METHOD).store(method, Ordering::Relaxed);
-    if method == 0 {
-        return RequestScope { entry: Entry::Nothing };
-    }
-    for index in word::IN_FLIGHT..word::IN_FLIGHT + IN_FLIGHT_CAPACITY {
-        if page.at(index).compare_exchange(0, method, Ordering::Relaxed, Ordering::Relaxed).is_ok()
-        {
-            return RequestScope { entry: Entry::Table(index) };
-        }
-    }
-    page.at(word::UNTRACKED).fetch_add(1, Ordering::Relaxed);
-    RequestScope { entry: Entry::Untracked }
+    PAGES.request(method)
 }
 
 #[derive(Debug)]
@@ -227,28 +277,29 @@ enum Entry {
 /// A request [`request`] named; dropping it takes it off the in-flight table.
 #[derive(Debug)]
 pub struct RequestScope {
+    method: u64,
     entry: Entry,
 }
 
 impl RequestScope {
-    fn end_in(&self, page: &Page) {
+    fn end_in(&self, pages: &Pages) {
         match self.entry {
             Entry::Nothing => {}
-            Entry::Table(index) => page.at(index).store(0, Ordering::Relaxed),
-            Entry::Untracked => {
-                let _ = page.at(word::UNTRACKED).fetch_update(
-                    Ordering::Relaxed,
-                    Ordering::Relaxed,
-                    |count| Some(count.saturating_sub(1)),
-                );
+            Entry::Table(index) => {
+                // The entry is this request's own (it took it from 0): only it frees it.
+                let freed = pages.update(index, |entry| {
+                    entry.compare_exchange(self.method, 0, Ordering::SeqCst, Ordering::SeqCst)
+                });
+                debug_assert!(freed.is_ok(), "in-flight entry {index} was not this request's");
             }
+            Entry::Untracked => pages.update(word::UNTRACKED, saturating_decrement),
         }
     }
 }
 
 impl Drop for RequestScope {
     fn drop(&mut self) {
-        self.end_in(page());
+        self.end_in(&PAGES);
     }
 }
 
@@ -262,9 +313,9 @@ pub fn page_path() -> Option<&'static Path> {
     PATH.get().map(PathBuf::as_path)
 }
 
-/// Makes this process's page file in `dir` and moves the keys into it: the header, then every key
-/// set so far, then the swap, then the magic. Once per process (the `cmux-trace-open` thread);
-/// blocking. On an error the keys stay in process memory.
+/// Makes this process's page file in `dir` and copies the keys into it: the header, then the
+/// publish, then every key set so far, then the magic. Once per process (the `cmux-trace-open`
+/// thread); blocking. On an error the keys stay in process memory only.
 pub(crate) fn open_page(
     dir: &Path,
     role: Role,
@@ -281,7 +332,8 @@ pub(crate) fn open_page(
     // Page is PAGE_BYTES of AtomicU64, which has the layout of the u64 words there.
     let file: &'static Page = unsafe { &*mapping.as_ptr().cast::<Page>() };
     write_header(file, role, identity);
-    swap_into(&ACTIVE, &HEAP, file);
+    PAGES.publish(file);
+    PAGES.mirror_keys();
     file.at(word::MAGIC).store(u64::from_le_bytes(MAGIC), Ordering::Release);
     let _ = PATH.set(path.clone());
     Ok(path)
@@ -300,31 +352,8 @@ fn write_header(page: &Page, role: Role, identity: &ProcessIdentity) {
     }
 }
 
-/// The first word [`swap_into`] copies: the header words before it only [`write_header`] writes.
+/// The first word a key change copies: the header words before it only [`write_header`] writes.
 const FIRST_KEY_WORD: usize = word::REQUEST_METHOD;
-
-/// Copies the keys of `heap` into `file` and makes `file` the page, then carries over the keys
-/// stored into `heap` meanwhile ([`carry_late_stores`]).
-fn swap_into(active: &AtomicPtr<Page>, heap: &Page, file: &'static Page) {
-    let mut copied = [0u64; WORDS];
-    for (index, value) in copied.iter_mut().enumerate().skip(FIRST_KEY_WORD) {
-        *value = heap.at(index).load(Ordering::Relaxed);
-        file.at(index).store(*value, Ordering::Relaxed);
-    }
-    active.store(std::ptr::from_ref(file).cast_mut(), Ordering::Release);
-    carry_late_stores(heap, file, &copied);
-}
-
-/// A writer that read the old page a moment before the swap stored into `heap` after the copy:
-/// its key goes into `file` too, unless `file` already holds a newer one than the copy.
-fn carry_late_stores(heap: &Page, file: &Page, copied: &[u64; WORDS]) {
-    for (index, &old) in copied.iter().enumerate().skip(FIRST_KEY_WORD) {
-        let now = heap.at(index).load(Ordering::Relaxed);
-        if now != old {
-            let _ = file.at(index).compare_exchange(old, now, Ordering::Relaxed, Ordering::Relaxed);
-        }
-    }
-}
 
 /// Why bytes are not a crash-key page.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -431,77 +460,181 @@ pub fn decode(bytes: &[u8]) -> Result<PageKeys, PageError> {
 mod tests {
     use super::*;
 
-    fn leaked() -> &'static Page {
+    fn leaked_page() -> &'static Page {
         Box::leak(Box::new(Page::new()))
+    }
+
+    fn leaked_pages() -> &'static Pages {
+        Box::leak(Box::new(Pages::new()))
     }
 
     fn bytes_of(page: &Page) -> Vec<u8> {
         page.0.iter().flat_map(|word| word.load(Ordering::Relaxed).to_le_bytes()).collect()
     }
 
+    fn word_of(page: &Page, index: usize) -> u64 {
+        page.at(index).load(Ordering::Relaxed)
+    }
+
+    fn in_flight(page: &Page) -> Vec<u64> {
+        (word::IN_FLIGHT..word::IN_FLIGHT + IN_FLIGHT_CAPACITY)
+            .map(|index| word_of(page, index))
+            .filter(|&method| method != 0)
+            .collect()
+    }
+
+    fn end(pages: &Pages, scope: RequestScope) {
+        scope.end_in(pages);
+        std::mem::forget(scope);
+    }
+
+    /// Every key word of the file is the memory page's.
+    fn assert_file_is_memory(pages: &Pages, file: &Page) {
+        for index in FIRST_KEY_WORD..WORDS {
+            assert_eq!(word_of(file, index), word_of(&pages.memory, index), "word {index}");
+        }
+    }
+
     #[test]
     fn crash_keys_requests_take_and_free_in_flight_entries() {
-        let page = leaked();
-        let first = request_in(page, 11);
-        let second = request_in(page, 22);
-        assert_eq!(page.at(word::REQUEST_METHOD).load(Ordering::Relaxed), 22);
-        first.end_in(page);
-        std::mem::forget(first);
-        let third = request_in(page, 33);
+        let pages = leaked_pages();
+        let first = pages.request(11);
+        let second = pages.request(22);
+        assert_eq!(word_of(&pages.memory, word::REQUEST_METHOD), 22);
+        end(pages, first);
+        let third = pages.request(33);
         assert!(matches!(third.entry, Entry::Table(index) if index == word::IN_FLIGHT));
-        let mut full: Vec<RequestScope> =
-            (0..IN_FLIGHT_CAPACITY).map(|method| request_in(page, 100 + method as u64)).collect();
-        assert_eq!(page.at(word::UNTRACKED).load(Ordering::Relaxed), 2, "two past the table");
-        for scope in full.drain(..).chain([second, third]) {
-            scope.end_in(page);
-            std::mem::forget(scope);
+        let full: Vec<RequestScope> =
+            (0..IN_FLIGHT_CAPACITY).map(|method| pages.request(100 + method as u64)).collect();
+        assert_eq!(word_of(&pages.memory, word::UNTRACKED), 2, "two past the table");
+        for scope in full.into_iter().chain([second, third]) {
+            end(pages, scope);
         }
-        assert_eq!(page.at(word::UNTRACKED).load(Ordering::Relaxed), 0);
-        let in_flight = word::IN_FLIGHT..word::IN_FLIGHT + IN_FLIGHT_CAPACITY;
-        assert!(in_flight.into_iter().all(|index| page.at(index).load(Ordering::Relaxed) == 0));
-        let none = request_in(page, 0);
+        assert_eq!(word_of(&pages.memory, word::UNTRACKED), 0);
+        assert!(in_flight(&pages.memory).is_empty());
+        let none = pages.request(0);
         assert!(matches!(none.entry, Entry::Nothing));
-        std::mem::forget(none);
+        end(pages, none);
     }
 
     #[test]
-    fn crash_keys_swap_keeps_keys_set_before_it() {
-        let heap = leaked();
-        let file = leaked();
-        let active = AtomicPtr::new(std::ptr::null_mut());
-        heap.at(word::TERMINAL_COUNT).store(5, Ordering::Relaxed);
-        heap.at(word::IN_FLIGHT).store(77, Ordering::Relaxed);
-        heap.at(word::PID).store(9, Ordering::Relaxed);
-        swap_into(&active, heap, file);
-        assert!(std::ptr::eq(active_in(&active, heap), file));
-        assert_eq!(file.at(word::TERMINAL_COUNT).load(Ordering::Relaxed), 5);
-        assert_eq!(file.at(word::IN_FLIGHT).load(Ordering::Relaxed), 77);
-        assert_eq!(file.at(word::PID).load(Ordering::Relaxed), 0, "the header is the opener's");
+    fn crash_keys_open_copies_the_keys_set_before_it() {
+        let pages = leaked_pages();
+        let file = leaked_page();
+        pages.memory.at(word::TERMINAL_COUNT).store(5, Ordering::Relaxed);
+        pages.memory.at(word::PID).store(9, Ordering::Relaxed);
+        let early = pages.request(77);
+        pages.publish(file);
+        pages.mirror_keys();
+        assert_eq!(word_of(file, word::TERMINAL_COUNT), 5);
+        assert_eq!(in_flight(file), [77]);
+        assert_eq!(word_of(file, word::PID), 0, "the header is the opener's");
+        end(pages, early);
+        assert!(in_flight(file).is_empty());
     }
 
-    /// The copy saw (Linked, 4); then a late writer moved the heap page to Lost and a writer of
-    /// the new page set 9: Lost is carried over, 9 is kept.
+    /// A request named before the open that ends after it, whether its end comes before or after
+    /// the opener's copy: neither page keeps it.
     #[test]
-    fn crash_keys_swap_carries_a_late_store_but_never_over_a_newer_one() {
-        let heap = leaked();
-        let file = leaked();
-        let mut copied = [0u64; WORDS];
-        copied[word::HOLDER_LINK] = HolderLink::Linked as u64;
-        copied[word::TERMINAL_COUNT] = 4;
-        for (index, value) in copied.iter().enumerate() {
-            file.at(index).store(*value, Ordering::Relaxed);
+    fn crash_keys_a_request_across_the_open_leaves_no_entry() {
+        for end_before_copy in [true, false] {
+            let pages = leaked_pages();
+            let file = leaked_page();
+            let early = pages.request(0x51);
+            pages.publish(file);
+            if end_before_copy {
+                end(pages, early);
+                pages.mirror_keys();
+            } else {
+                pages.mirror_keys();
+                assert_eq!(in_flight(file), [0x51]);
+                end(pages, early);
+            }
+            assert!(in_flight(&pages.memory).is_empty(), "memory, end first: {end_before_copy}");
+            assert!(in_flight(file).is_empty(), "file, end first: {end_before_copy}");
+            assert_eq!(word_of(file, word::UNTRACKED), 0);
         }
-        heap.at(word::HOLDER_LINK).store(HolderLink::Lost as u64, Ordering::Relaxed);
-        heap.at(word::TERMINAL_COUNT).store(3, Ordering::Relaxed);
-        file.at(word::TERMINAL_COUNT).store(9, Ordering::Relaxed);
-        carry_late_stores(heap, file, &copied);
-        assert_eq!(file.at(word::HOLDER_LINK).load(Ordering::Relaxed), HolderLink::Lost as u64);
-        assert_eq!(file.at(word::TERMINAL_COUNT).load(Ordering::Relaxed), 9);
+    }
+
+    /// A writer whose file load came before the publish changes only memory; the opener's copy
+    /// after the publish carries it, and its end later clears the file.
+    #[test]
+    fn crash_keys_a_change_that_missed_the_publish_reaches_the_file_by_the_copy() {
+        let pages = leaked_pages();
+        let file = leaked_page();
+        pages.publish(file);
+        pages.memory.at(word::IN_FLIGHT).store(0x52, Ordering::SeqCst);
+        pages.memory.at(word::TERMINAL_COUNT).fetch_add(1, Ordering::SeqCst);
+        pages.mirror_keys();
+        assert_eq!(in_flight(file), [0x52]);
+        assert_eq!(word_of(file, word::TERMINAL_COUNT), 1);
+        end(pages, RequestScope { method: 0x52, entry: Entry::Table(word::IN_FLIGHT) });
+        pages.update(word::TERMINAL_COUNT, saturating_decrement);
+        assert!(in_flight(file).is_empty());
+        assert_eq!(word_of(file, word::TERMINAL_COUNT), 0);
+    }
+
+    /// Request M (before the open) and N (after it, the same method) run at once: M's end never
+    /// takes N's entry, on either page.
+    #[test]
+    fn crash_keys_an_early_request_never_frees_a_later_ones_entry() {
+        let pages = leaked_pages();
+        let file = leaked_page();
+        let m = pages.request(0x53);
+        pages.publish(file);
+        let n = pages.request(0x53);
+        pages.mirror_keys();
+        end(pages, m);
+        assert_eq!(in_flight(&pages.memory), [0x53], "N runs");
+        assert_eq!(in_flight(file), [0x53], "N runs");
+        end(pages, n);
+        assert!(in_flight(file).is_empty());
+    }
+
+    /// Requests, counts and states change on many threads while the page opens: when they stop,
+    /// the table is empty, the counts are 0 and the file holds what memory holds.
+    #[test]
+    fn crash_keys_changes_racing_the_open_leave_the_file_equal_to_memory() {
+        const THREADS: u64 = 24;
+        const ROUNDS: u64 = 2_000;
+        for _ in 0..8 {
+            let pages = leaked_pages();
+            let file = leaked_page();
+            let start = std::sync::Barrier::new(THREADS as usize + 1);
+            std::thread::scope(|threads| {
+                for thread in 0..THREADS {
+                    let start = &start;
+                    threads.spawn(move || {
+                        start.wait();
+                        for round in 0..ROUNDS {
+                            let scope = pages.request(1 + (thread + round) % 5);
+                            pages.update(word::TERMINAL_COUNT, |count| {
+                                count.fetch_add(1, Ordering::SeqCst)
+                            });
+                            pages.update(word::HOLDER_LINK, |state| {
+                                state.store(HolderLink::Linked as u64, Ordering::SeqCst);
+                            });
+                            pages.update(word::TERMINAL_COUNT, saturating_decrement);
+                            end(pages, scope);
+                        }
+                    });
+                }
+                start.wait();
+                std::thread::yield_now();
+                pages.publish(file);
+                pages.mirror_keys();
+            });
+            assert!(in_flight(&pages.memory).is_empty());
+            assert_eq!(word_of(&pages.memory, word::UNTRACKED), 0);
+            assert_eq!(word_of(&pages.memory, word::TERMINAL_COUNT), 0);
+            assert_file_is_memory(pages, file);
+        }
     }
 
     #[test]
     fn crash_keys_page_round_trips_through_decode() {
-        let page = leaked();
+        let pages = leaked_pages();
+        let page = &pages.memory;
         let mut identity = ProcessIdentity::current_fast();
         identity.pid = 4242;
         identity.process_start_unix_us = 1_700_000_000_000_000;
@@ -512,7 +645,7 @@ mod tests {
         write_header(page, Role::Daemon, &identity);
         page.at(word::TERMINAL_COUNT).store(12, Ordering::Relaxed);
         page.at(word::HOLDER_LINK).store(HolderLink::Superseded as u64, Ordering::Relaxed);
-        let scope = request_in(page, 0xfeed);
+        let scope = pages.request(0xfeed);
         assert_eq!(decode(&bytes_of(page)), Err(PageError::NotAPage), "no magic yet");
         page.at(word::MAGIC).store(u64::from_le_bytes(MAGIC), Ordering::Release);
         let keys = decode(&bytes_of(page)).expect("decodes");
@@ -525,8 +658,7 @@ mod tests {
         assert_eq!(keys.requests_in_flight().collect::<Vec<_>>(), [0xfeed]);
         assert_eq!(keys.terminal_count, 12);
         assert_eq!(HolderLink::from_raw(keys.holder_link), Some(HolderLink::Superseded));
-        scope.end_in(page);
-        std::mem::forget(scope);
+        end(pages, scope);
 
         let mut bytes = bytes_of(page);
         assert_eq!(decode(&bytes[..100]), Err(PageError::TooShort(100)));
