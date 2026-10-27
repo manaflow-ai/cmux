@@ -24,8 +24,8 @@ final class FeedService {
     private let source: CloudFeedSource
     private let localOwner: LocalFeedSourceAdapter
     private let github: GitHubFeedSource
-    /// Whether a feed surface shows: the nodes of every feed host made (page tabs, the panel, sidebar
-    /// sections; ``track(_:)``). With `pausesHiddenPoll`, the GitHub poll runs only while one is visible.
+    /// Whether a feed surface shows: the nodes of every feed host made with it (page tabs, the panel,
+    /// sidebar sections). With `pausesHiddenPoll`, the GitHub poll runs only while one is visible.
     let surfaces = ShownWindows()
     private let showcase: Bool
     private let auth: CloudAuth
@@ -96,11 +96,6 @@ final class FeedService {
             await auth.awaitRestored()
             mainWork.postFromAnyThread(.background, owner: "FeedService.accountWatch") { [weak self] in self?.followAccount() }
         }
-    }
-
-    /// Counts `host` among the feed surfaces while it lives: the GitHub poll runs while one shows.
-    func track(_ host: FeedHostView) {
-        surfaces.track(host.visibilityNode)
     }
 
     /// Follows the signed-in account (a model change, so a service observation: it must run while no window shows).

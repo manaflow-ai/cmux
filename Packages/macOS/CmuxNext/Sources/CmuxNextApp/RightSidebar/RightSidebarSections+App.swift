@@ -10,11 +10,9 @@ extension RightSidebarSections {
         register(.find) { $0.services.fileExplorers.makeFindSection(for: $0) }
         register(.sessions) { VaultHostView(vault: $0.services.vault, registry: $0.services.registry) }
         register(.feed) { controller in
-            let feed = controller.services.feed
-            feed.startIfSignedIn()
-            let host = FeedHostView(model: feed.model, surface: .sidebar, mainWork: controller.services.mainWork)
-            feed.track(host)
-            return host
+            controller.services.feed.startIfSignedIn()
+            return FeedHostView(model: controller.services.feed.model, surface: .sidebar, mainWork: controller.services.mainWork,
+                                surfaces: controller.services.feed.surfaces)
         }
         register(.dock) { DockSectionHostView(controller: $0) }
         register(.machines) { MachineSectionHostView(services: $0.services) }
