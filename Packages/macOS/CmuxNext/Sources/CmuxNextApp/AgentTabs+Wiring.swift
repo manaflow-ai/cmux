@@ -168,16 +168,10 @@ extension AgentTabStore {
         // App-server `vm_…` IDs use a different backend contract; hide the transfer action
         // until that backend exposes the credential delivery operation. Legacy provider VMs use
         // the pinned `/api/vm/{id}/exec` path below.
-        if services.cloud.configuration.linkSource == .legacy {
-            tabs.cloudCredentialTransfer = { [weak services] chat, request in
-                guard let services, services.cloud.auth.isSignedIn else { return false }
-                return await CloudPresenter.recoverCredentials(chat: chat, request: request, services: services)
-            }
-            // A pane may outlive the Cloud teardown. Clear the action handler as soon as sign-out
-            // begins so an already-open page cannot advertise a transfer that native recovery will
-            // reject; the next handshake also recomputes the availability flag.
-            services.cloud.willSignOut.append { [weak tabs] in tabs?.cloudCredentialTransfer = nil }
-        }
+        tabs.syncCloudCredentialTransferAvailability(services: services)
+        // A pane may outlive the Cloud teardown. Clear the action handler as soon as sign-out
+        // begins so an already-open page cannot call a recovery action that native recovery rejects.
+        services.cloud.willSignOut.append { [weak tabs] in tabs?.cloudCredentialTransfer = nil }
         tabs.lookup = { [weak services] key in
             guard let services, let (tab, _) = services.locateTab(key), let record = tab.agentSession else { return nil }
             return (record: record, store: services.machines.daemon(forTab: tab).store)
@@ -368,5 +362,28 @@ extension AgentTabStore {
     func agentAvatarChanged(_ session: String) {
         for view in views.values { view.agentAvatarChanged(session) }
         for view in standaloneViews.allObjects { view.agentAvatarChanged(session) }
+    }
+}
+
+extension AgentTabStore {
+    /// Keep the native recovery callback aligned with the current Cloud account. This runs at
+    /// construction and on each observed sign-in/account transition, so sign-in restores it.
+    func syncCloudCredentialTransferAvailability(services: AppServices) {
+        guard CloudCredentialTransferAvailability.isAvailable(
+            linkSource: services.cloud.configuration.linkSource,
+            isSignedIn: services.cloud.auth.isSignedIn) else {
+            cloudCredentialTransfer = nil
+            return
+        }
+        cloudCredentialTransfer = { [weak services] chat, request in
+            guard let services, services.cloud.auth.isSignedIn else { return false }
+            return await CloudPresenter.recoverCredentials(chat: chat, request: request, services: services)
+        }
+    }
+}
+
+enum CloudCredentialTransferAvailability {
+    static func isAvailable(linkSource: CloudConfiguration.LinkSource, isSignedIn: Bool) -> Bool {
+        linkSource == .legacy && isSignedIn
     }
 }
