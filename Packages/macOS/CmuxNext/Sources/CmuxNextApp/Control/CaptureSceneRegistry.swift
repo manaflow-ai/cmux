@@ -418,7 +418,9 @@ extension CaptureSceneRegistry {
               let session = tab.agentSession, session.session == Self.autoNameSession,
               AgentTurnStateStore.shared.generatedTitle(for: session) == expectedGeneratedTitle,
               let view = services.agentTabs.existingView(tabID), view.model.hasPainted,
-              view.webView.window != nil, !view.webView.isLoading,
+              Self.agentPageCanSettle(attached: view.webView.window != nil,
+                                      loading: view.webView.isLoading,
+                                      chromium: view.debugShowsChromium),
               let sidebar = services.windows.controller(for: windowID)?.sidebar.model else { return false }
         return sidebar.sections.flatMap(\.workspaces).contains {
             $0.id.rawValue == workspace.id && $0.title == expected && !$0.rowState.isPending
