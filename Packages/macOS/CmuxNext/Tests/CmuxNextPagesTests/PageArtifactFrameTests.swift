@@ -57,4 +57,14 @@ struct PageArtifactFrameTests {
         #expect(PageNavigation.policy(for: otherPage, page: page, userClicked: false, mainFrame: true, hook: nil) == .cancel)
         #expect(PageNavigation.policy(for: external, page: page, userClicked: true, mainFrame: true, hook: nil) == .openExternal)
     }
+
+    @Test func ordinaryPageSrcdocStillReachesNavigationHook() throws {
+        let ordinary = PageDescriptor(id: "cmux.history", resource: "history", namespaces: [])
+        let pageURL = try #require(URL(string: "cmux-page://cmux.history/"))
+        let blank = try #require(URL(string: "about:blank"))
+        let srcdoc = try #require(URL(string: "about:srcdoc"))
+        #expect(PageNavigation.policy(for: srcdoc, page: ordinary, userClicked: false, mainFrame: false,
+                                      targetFrameURL: blank, sourceFrameURL: pageURL,
+                                      hook: { _ in .allow }) == .allow)
+    }
 }
