@@ -40,6 +40,23 @@ struct CloudMachineUpdateButtonTests {
         #expect(fixture.notices.isEmpty)
     }
 
+    /// A machine repaired by hand since it said it cannot update: the click finds nothing to do,
+    /// and its line goes rather than staying with its button.
+    @Test func aClickOnARepairedMachineClearsItsLine() async throws {
+        let machine = FakeCloudMachine(build: CloudMachineUpdateTargetTests.older, level: .limited, answers: [Self.unsupported])
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        let policy = fixture.policy(machine)
+        await policy.offer(fixture.target(machine))
+        await policy.drained()
+        machine.repair(build: CloudMachineUpdateTargetTests.bundled)
+
+        #expect(await fixture.board.update(Self.id) { await policy.retry($0) })
+        await policy.drained()
+        #expect(machine.updates == 1, "a repaired machine updated again")
+        #expect(fixture.board.otherMachines == nil)
+    }
+
     /// No target of that id in this run, or updates of other machines off: the click is refused.
     @Test func aClickOnAMachineThePolicyDoesNotKnowIsRefused() async throws {
         let machine = FakeCloudMachine(build: CloudMachineUpdateTargetTests.older, level: .limited, answers: [Self.unsupported])

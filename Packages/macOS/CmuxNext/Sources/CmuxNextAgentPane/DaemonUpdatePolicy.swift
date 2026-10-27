@@ -270,13 +270,9 @@ public actor DaemonUpdatePolicy {
     private func attempt(_ pending: Pending, local: DaemonBuildCommit, ledger: inout DaemonUpdateLedger) async -> Pending? {
         let deps = dependencies
         let target = pending.target
-        // The person asked for this one: what the ledger and this run remember of it goes.
-        if retried.remove(target.id) != nil {
-            ledger.cannotUpdate?[target.id] = nil
-            ledger.targets[target.id] = nil
-            settled[target.id] = nil
-            write(ledger)
-        }
+        // The person asked for this one (``retry(_:)``): what the ledger and this run remember of it
+        // does not hold it back.
+        let retry = retried.remove(target.id) != nil
         // Before the run's own memory (`settled`): a machine reinstalled since it said it cannot
         // update is asked again at its next offer, in this run too.
         if let known = ledger.cannotUpdate?[target.id] {
@@ -287,7 +283,7 @@ public actor DaemonUpdatePolicy {
                 await deps.report(DaemonUpdateEvent(target, .cleared))
                 return nil
             }
-            guard now != known.build else {
+            guard retry || now != known.build else {
                 // Still the build that could not update in place: its line again, no attempt.
                 settled[target.id] = local.hash
                 await deps.report(DaemonUpdateEvent(target, .cannotUpdate(reason: known.reason), build: local.hash))
@@ -296,6 +292,11 @@ public actor DaemonUpdatePolicy {
             // It runs another build now (reinstalled), or the app refuses its daemon: ask it
             // again, on this build too.
             ledger.cannotUpdate?[target.id] = nil
+            ledger.targets[target.id] = nil
+            settled[target.id] = nil
+            write(ledger)
+        }
+        if retry, ledger.attempted(target.id) || settled[target.id] != nil {
             ledger.targets[target.id] = nil
             settled[target.id] = nil
             write(ledger)
