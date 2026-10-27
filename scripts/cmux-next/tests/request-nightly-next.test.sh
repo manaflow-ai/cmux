@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # request-nightly-next.sh: feat-cmux-next asks main to promote a commit to
-# nightly-next only when that commit's cmux-tui tree is published AND its
-# "cmux-next Release compile (Xcode 26)" passed. Whichever of the two finishes
-# last asks (cmux-next.yml after the Release compile, cmux-tui-artifacts.yml
-# after the publication), so nightly-next always points at a commit the
-# nightly can build with its own workflow and its own daemon.
+# nightly-next only when that commit's cmux-tui tree is published and
+# daemon-tested. Its Release compile is not awaited (2026-10-26): the nightly
+# build compiles the commit itself and publishes nothing when that fails.
+# cmux-next.yml still asks after its Release compile, and cmux-tui-artifacts.yml
+# and nightly-next-tick after the publication, so nightly-next always points at
+# a commit the nightly can build with its own workflow and its own daemon.
 #
 # Regression: nightly-next runs 37767816879 and 37769010617 (2026-10-08) were
 # promoted to 0b7998925b6c and 273cd24a512b, whose tree 4573d47a0116 was still
@@ -119,7 +120,7 @@ other=$(git -C "$src" rev-parse HEAD)
 git_q -C "$src" checkout -q --detach "$head"
 
 # From the artifacts workflow, once the tree of $head is published: it asks for
-# the newest feat-cmux-next push with the same tree and a green Release compile.
+# the newest feat-cmux-next push with the same tree.
 # The app-only commit's own artifacts run was replaced by a newer push, so this
 # is its only request.
 runs() { # <id sha branch>... newest first
@@ -135,7 +136,8 @@ jobs() { # <run id> <status> <conclusion>
 runs 13 "$other" feat-cmux-next 12 "$app" feat-cmux-next 11 "$head" feat-cmux-next
 jobs 13 completed success; jobs 12 completed success; jobs 11 completed success
 request --tree-ready "$head"
-[[ "$status" == 0 ]] && dispatched "$app" || fail "the newest green commit with the published tree must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+[[ "$status" == 0 ]] && dispatched "$app" || fail "the newest commit with the published tree must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+! grep -q 'actions/runs/.*/jobs' "$TMP/gh.log" || fail "--tree-ready must not read the Release compile's jobs:" "$(cat "$TMP/gh.log")"
 ! dispatched "$other" || fail "a commit with another, unpublished tree must not be promoted"
 ! dispatched "$head" || fail "only the newest matching commit is requested"
 
@@ -145,17 +147,16 @@ request --tree-ready "$head"
 grep -q 'key_rc == 127' "$ROOT/scripts/cmux-next/request-nightly-next.sh" \
   || fail "tree-key helper launch failures must fail the promotion job"
 
-# A pending or red Release compile is passed over for an older green one ...
+# A pending or red Release compile does not hold the tip back (2026-10-26):
+# its nightly compiles it, and a failed nightly publishes nothing.
 jobs 12 in_progress null
 request --tree-ready "$head"
-[[ "$status" == 0 ]] && dispatched "$head" && ! dispatched "$app" \
-  || fail "with the newer Release compile pending, the green publishing commit is promoted:" "$out" "$(cat "$TMP/gh.log")"
-# ... and with none green nothing is requested (cmux-next.yml asks once one passes).
-jobs 11 completed failure
+[[ "$status" == 0 ]] && dispatched "$app" && ! dispatched "$head" \
+  || fail "with the newer Release compile pending, the newest commit is still promoted:" "$out" "$(cat "$TMP/gh.log")"
+jobs 12 completed failure; jobs 11 completed failure
 request --tree-ready "$head"
-[[ "$status" == 0 ]] || fail "no green Release compile is not an error (exit $status):" "$out"
-! dispatched "$app" && ! dispatched "$head" || fail "a commit without a green Release compile must not be promoted:" "$(cat "$TMP/gh.log")"
-grep -q "Release compile" <<<"$out" || fail "the skip must name the Release compile:" "$out"
+[[ "$status" == 0 ]] && dispatched "$app" && ! dispatched "$head" \
+  || fail "a red Release compile must not hold the newest commit back:" "$out" "$(cat "$TMP/gh.log")"
 
 # A commit with the same tree that does not descend from the published one
 # (an older line of history) is never requested: only commits from the tree's
@@ -284,10 +285,10 @@ request --sha "$other" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$other" || fail "a tree with its daemon-tests marker must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 git_q -C "$src" checkout -q --detach "$head"
 
-# The tree's publisher can be NEWER than the green commit (2026-10-14: 2e420aa7a9
-# compiled green at 10:21Z, its tree published later from a newer push whose
-# own compile was replaced). Candidates are bounded below by nightly-next, not
-# by the publisher, so the older green commit is still requested.
+# Candidates are bounded below by nightly-next, not by the tree's publisher
+# (2026-10-14: 2e420aa7a9's tree published later from a newer push): every
+# commit from nightly-next on with the tree is a candidate, and the newest one
+# is requested, whatever its Release compile says.
 git -C "$src" remote add origin "$src" 2>/dev/null || git -C "$src" remote set-url origin "$src"
 git_q -C "$src" checkout -q -b lowerbound "$head"
 echo x > "$src/GreenX.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "green, before the publisher"
@@ -300,8 +301,13 @@ git_q -C "$src" checkout -q --detach "$publisher"
 runs 41 "$publisher" feat-cmux-next 40 "$greenx" feat-cmux-next
 jobs 41 completed cancelled; jobs 40 completed success
 request --tree-ready "$publisher"
+[[ "$status" == 0 ]] && dispatched "$publisher" && ! dispatched "$greenx" \
+  || fail "the newest commit ahead of nightly-next with the tree must be requested, compile cancelled or not (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+runs 40 "$greenx" feat-cmux-next
+request --tree-ready "$publisher"
 [[ "$status" == 0 ]] && dispatched "$greenx" \
-  || fail "a green commit older than the tree's publisher but ahead of nightly-next must be requested (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+  || fail "a commit older than the tree's publisher but ahead of nightly-next must be requested (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+runs 41 "$publisher" feat-cmux-next 40 "$greenx" feat-cmux-next
 
 # A commit already on nightly-next is never requested again, from either side:
 # a stale request would evict a newer waiting one in main's promote job group.
@@ -324,4 +330,4 @@ request --sha nothex --release-compile-green
 request --sha "$head"
 [[ "$status" == 2 ]] || fail "--sha without --release-compile-green must exit 2, got $status:" "$out"
 : "$other"
-echo "PASS: nightly-next promotion waits for both the published tree and the green Release compile"
+echo "PASS: nightly-next promotion waits for the published, daemon-tested tree, not the Release compile"
