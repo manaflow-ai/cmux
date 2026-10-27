@@ -48,29 +48,38 @@ await requireBrowserLane("thread-minimap-jump-history.test.ts", async () => {
       await installPaintedFrames(page);
       await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html`);
       await page.waitForFunction(() => "__showRows" in window && "__setOlderPage" in window);
-      await page.evaluate((rows) => (window as any).__showRows(rows), all.slice(loadedStart * 3));
-      await page.waitForSelector(".acpmux-minimap__tick");
-
-      let pageStart = loadedStart;
-      await page.evaluate(() => {
-        (window as any).__setOlderPage(() => {
-          const state = window as any;
-          if (state.__pageStart === 0) return Promise.resolve();
-          state.__pageCount = (state.__pageCount ?? 0) + 1;
-          state.__pageStart = Math.max(0, state.__pageStart - 100);
-          const rows = state.__allRows as AcpmuxRow[];
-          state.__showRows(rows.slice(state.__pageStart * 3));
-          return Promise.resolve();
-        });
-      });
       await page.evaluate(
         ({ rows, start }) => {
-          (window as any).__allRows = rows;
-          (window as any).__pageStart = start;
+          const state = window as any;
+          state.__allRows = rows;
+          state.__pageStart = start;
+          state.__pageCount = 0;
+          state.__olderRequested = 0;
+          state.__releaseOlderPage = undefined;
+          state.__setOlderPage(
+            () =>
+              new Promise<void>((resolve) => {
+                state.__olderRequested++;
+                state.__releaseOlderPage = () => {
+                  state.__pageReleasedAt = ((state.__frames ?? []) as unknown[]).length;
+                  state.__pageCount++;
+                  state.__pageStart = Math.max(0, state.__pageStart - 100);
+                  state.__showRows((state.__allRows as AcpmuxRow[]).slice(state.__pageStart * 3));
+                  resolve();
+                };
+              }),
+          );
           (window as any).__showRows(rows.slice(start * 3));
         },
-        { rows: all, start: pageStart },
+        { rows: all, start: loadedStart },
       );
+      await page.waitForSelector(".acpmux-minimap__tick");
+      await page.evaluate(() => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        scroller.scrollTop = 0;
+        scroller.dispatchEvent(new Event("scroll"));
+      });
+      await page.waitForFunction(() => (window as any).__olderRequested === 1);
       const frames: { target?: number; scrollTop: number }[] = [];
       await page.evaluate(() => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -104,31 +113,20 @@ await requireBrowserLane("thread-minimap-jump-history.test.ts", async () => {
           return probe.__frames.length < 240;
         });
       }, target);
-      await page.evaluate(
-        ({ rows, start }) => {
-          (window as any).__pageStart = start - 100;
-          (window as any).__showRows((rows as AcpmuxRow[]).slice((start - 100) * 3));
-        },
-        { rows: all, start: pageStart },
-      );
       await page.waitForFunction(() => ((window as any).__frames as unknown[]).length >= 30);
-      await page.evaluate(() => {
-        const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
-        list.scrollTop = 1_000;
-        list.dispatchEvent(new Event("scroll"));
-      });
-      await page.waitForSelector('[data-tick="100"]');
       const tick = await page.evaluate(() => {
-        const box = document.querySelector<HTMLElement>('[data-tick="100"]')!.getBoundingClientRect();
+        const box = document.querySelector<HTMLElement>('[data-tick="0"]')!.getBoundingClientRect();
         return { x: box.left + 6, y: box.top + box.height / 2 };
       });
       await page.evaluate(() => {
         (window as any).__clickedAt = ((window as any).__frames as unknown[]).length;
       });
       await page.mouse.click(tick.x, tick.y);
+      await page.evaluate(() => (window as any).__releaseOlderPage?.());
       await page.waitForFunction(() => ((window as any).__frames as unknown[]).length >= 120);
       const captured = await page.evaluate(() => (window as any).__frames as { target?: number; scrollTop: number }[]);
       const pageCount = await page.evaluate(() => (window as any).__pageCount ?? 0);
+      const pageReleasedAt = await page.evaluate(() => (window as any).__pageReleasedAt ?? -1);
       const targetRemounts = await page.evaluate(() => {
         (window as any).__stopTargetObserver?.();
         return (window as any).__targetRemounts ?? 0;
@@ -148,6 +146,7 @@ await requireBrowserLane("thread-minimap-jump-history.test.ts", async () => {
       console.log(
         JSON.stringify({
           historyPages: pageCount,
+          pageReleasedAt,
           paintedFrames: captured.length,
           clickedAt,
           settledAt,
@@ -157,6 +156,8 @@ await requireBrowserLane("thread-minimap-jump-history.test.ts", async () => {
         }),
       );
       expect(Math.max(...targetRange) - Math.min(...targetRange)).toBeLessThanOrEqual(4);
+      expect(pageCount).toBe(1);
+      expect(pageReleasedAt).toBeGreaterThanOrEqual(clickedAt);
       expect(targetRemounts).toBe(0);
     });
   });
