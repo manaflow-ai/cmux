@@ -126,6 +126,38 @@ class WorkflowTests(unittest.TestCase):
         upload = {step.get("name"): step for step in self.jobs["dev-landing-compile"]["steps"]}["Upload the cmux NEXT DEV Release app"]
         self.assertEqual(upload["with"]["name"], "cmux-next-dev-daily-unsigned-${{ github.sha }}")
 
+    def test_the_handoff_script_falls_back_and_picks_its_target(self):
+        # The step's own bash, against a stub gh that records each call and refuses the App token.
+        import os, shutil, subprocess, tempfile
+        if not shutil.which("bash"):
+            self.skipTest("bash is required")
+        step = next(s for s in self.jobs["dev-landing-publish"]["steps"]
+                    if s.get("name") == "Hand the landing's app to the publisher, else ask for a DEV build")
+
+        def run(compiled, app_token, app_ok=True, repo_ok=True):
+            with tempfile.TemporaryDirectory() as tmp:
+                gh = os.path.join(tmp, "gh")
+                with open(gh, "w") as f:
+                    f.write('#!/bin/bash\necho "$GH_TOKEN $*" >> "$STUB_DIR/calls"\n'
+                            '[ "$GH_TOKEN" = app ] && exit "$APP_RC"\n[ "$GH_TOKEN" = repo ] && exit "$REPO_RC"\nexit 9\n')
+                os.chmod(gh, 0o755)
+                env = {"PATH": f"{tmp}:/usr/bin:/bin", "STUB_DIR": tmp, "APP_TOKEN": app_token, "REPO_TOKEN": "repo",
+                       "GH_REPO": "o/r", "COMPILED": compiled, "SOURCE_RUN_ID": "42",
+                       "APP_RC": "0" if app_ok else "1", "REPO_RC": "0" if repo_ok else "1"}
+                result = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True, text=True, timeout=60)
+                calls = open(os.path.join(tmp, "calls")).read().splitlines() if os.path.exists(os.path.join(tmp, "calls")) else []
+                return result.returncode, calls
+
+        publish = "workflow run cmux-next-dev-daily.yml --repo o/r --ref main -f source_run_id=42"
+        dispatcher = "workflow run cmux-next-dev-daily-dispatch.yml --repo o/r --ref main"
+        self.assertEqual(run("true", "app"), (0, [f"app {publish}"]))
+        self.assertEqual(run("true", "app", app_ok=False), (0, [f"app {publish}", f"repo {publish}"]))
+        self.assertEqual(run("true", ""), (0, [f"repo {publish}"]), "no App token: GITHUB_TOKEN alone")
+        self.assertEqual(run("false", "app"), (0, [f"app {dispatcher}"]), "no landing app: ask the dispatcher")
+        rc, calls = run("true", "app", app_ok=False, repo_ok=False)
+        self.assertNotEqual(rc, 0, "a handoff nobody took fails the job")
+        self.assertEqual(len(calls), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
