@@ -20,6 +20,10 @@ oracle = []
 # Decoder entry points for the cmux-tui/fuzz targets (`fuzz_entry`): only the
 # fuzz workspace (cmux-tui/fuzz/Cargo.toml) turns it on.
 fuzz = []
+# Crash injectors for the fleet's crash matrix (`debug-panic`,
+# server/debug_crash_inject.rs): code behind cfg(any(debug_assertions,
+# feature = "bench")), so release builds never have it. Off by default.
+bench = []
 # The lab's tokio slow-poll detector (cmux-blocking; RUSTFLAGS="--cfg tokio_unstable").
 cmux-stability = ["cmux-blocking/cmux-stability"]
 

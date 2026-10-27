@@ -326,7 +326,7 @@ impl Hub {
         let _one = CARE.restoring.lock().await;
         let restored = tokio::task::spawn_blocking(move || {
             // Another session's start may have brought it back meanwhile.
-            if cwd.exists() {
+            if cmux_blocking::fs::metadata(&cwd).is_ok() {
                 return None;
             }
             let store = archive_store().ok()?;

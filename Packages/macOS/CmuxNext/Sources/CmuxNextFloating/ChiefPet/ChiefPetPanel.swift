@@ -37,17 +37,21 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     var visibleFrame: () -> CGRect? = { nil }
     /// The pet was pulled back on its screen after a screen change (the bubble and reply box take their side again).
     var onKeptOnScreen: (() -> Void)?
-    /// The didChangeScreenParameters observer's token, kept for the panel's life.
-    private var screenObserver: MainActorObservation?
+    /// The fan-out the screen subscription is on: a subscription holds its fan-out weakly, so the panel keeps it.
+    private let appEvents: AppEvents
+    /// The didChangeScreenParameters subscription on the app's ``AppEvents``, kept for the panel's life.
+    private var screenObserver: EventSubscription?
 
-    /// `notifications`: where screen-parameter changes are posted (AppKit posts to `.default`); tests give their own.
+    /// `appEvents`: the app's one fan-out of app notices, where AppKit's screen-parameter changes come
+    /// (the App passes its own; tests give one on their own center).
     /// `pointerFrames`: the windows' frame-aligned pointer input (feature `pointerFrameDrags`); nil: a drag
     /// moves the panel on every event.
-    public init(mascot: ChiefPetMascot = .initial, defaults: UserDefaults = .standard, notifications: NotificationCenter = .default,
+    public init(mascot: ChiefPetMascot = .initial, defaults: UserDefaults = .standard, appEvents: AppEvents = AppEvents(center: .default),
                 pointerFrames: FrameInputCoalescers? = nil) {
         placement = ChiefPetPlacement(defaults: defaults)
         pet = ChiefPetView(image: mascot.image)
         pet.pointerFrames = pointerFrames
+        self.appEvents = appEvents
         super.init(
             contentRect: NSRect(origin: .zero, size: Self.petSize),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -83,7 +87,8 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         visibleFrame = { [weak self] in self?.screen?.visibleFrame }
         // A resolution change, or the Dock or menu bar resizing, keeps the screen, so AppKit sends no
         // didChangeScreen; the visible frame still changes under the pet.
-        screenObserver = MainActorObservation(NSApplication.didChangeScreenParametersNotification, center: notifications) { [weak self] in
+        // No node: the pet floats over every app and must stay on its screen whatever cmux shows.
+        screenObserver = appEvents.subscribe(NSApplication.didChangeScreenParametersNotification, owner: "ChiefPet.keepOnScreen") { [weak self] in
             self?.keepOnScreen()
         }
     }
@@ -272,6 +277,7 @@ final class ChiefPetView: NSView {
         }
     }
 
+    // local-monitor-allow: a drag is delivered until its mouse-up (p06-scheduler.md section E); each step goes to the window's frame coalescer (`pointerFrameDrags`), or without one moves the pet's own panel under the pointer
     override func mouseDragged(with event: NSEvent) {
         guard press != nil, window != nil else { return }
         // The event's own screen point: the panel moves under the pointer, so its window point would read

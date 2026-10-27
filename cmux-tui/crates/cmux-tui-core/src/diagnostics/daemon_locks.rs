@@ -248,8 +248,11 @@ impl Default for LockHistogram {
 impl LockHistogram {
     fn record(&self, duration: Duration) {
         let micros = u64::try_from(duration.as_micros()).unwrap_or(u64::MAX);
-        let index = LogLinearHistogram::bucket_index(micros).min(LOCK_BUCKETS - 1);
-        self.buckets[index].fetch_add(1, Ordering::Relaxed);
+        // A wait past the top bucket's bound counts in the top bucket.
+        let bucket = self.buckets.get(LogLinearHistogram::bucket_index(micros));
+        if let Some(bucket) = bucket.or(self.buckets.last()) {
+            bucket.fetch_add(1, Ordering::Relaxed);
+        }
         self.count.fetch_add(1, Ordering::Relaxed);
         // A u64 of microseconds does not wrap within any daemon's lifetime.
         self.sum.fetch_add(micros, Ordering::Relaxed);
@@ -367,15 +370,20 @@ impl DaemonLockTable {
         Self { slots: (0..LockCaller::ALL.len() * LOCK_OPS).map(|_| OnceLock::new()).collect() }
     }
 
-    fn index(caller: LockCaller, op: LockOp) -> usize {
-        caller as usize * LOCK_OPS + usize::from(op.0).min(LOCK_OPS - 1)
+    /// The cell of (caller, op); an op past the table counts in its last op.
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "INVARIANT: slots has ALL.len() * LOCK_OPS cells; the op is clamped below LOCK_OPS"
+    )]
+    fn cell(&self, caller: LockCaller, op: LockOp) -> &OnceLock<Box<LockSlot>> {
+        &self.slots[caller as usize * LOCK_OPS + usize::from(op.0).min(LOCK_OPS - 1)]
     }
 
     /// The slot of this thread's caller class and op. Read it before the
     /// lock is taken: the first use of a slot allocates it.
     pub(crate) fn current(&self) -> &LockSlot {
         let (caller, op) = current_scope();
-        self.slots[Self::index(caller, op)].get_or_init(Box::default)
+        self.cell(caller, op).get_or_init(Box::default)
     }
 
     /// Per caller class (all its ops merged) and per (class, op) pair, the
@@ -391,7 +399,7 @@ impl DaemonLockTable {
             let (mut wait, mut hold) = (MergedHistogram::default(), MergedHistogram::default());
             for op in 0..LOCK_OPS {
                 let op = LockOp(op as u16);
-                let Some(slot) = self.slots[Self::index(caller, op)].get() else { continue };
+                let Some(slot) = self.cell(caller, op).get() else { continue };
                 if slot.wait.count() == 0 && slot.hold.count() == 0 {
                     continue;
                 }
