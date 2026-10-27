@@ -43,14 +43,20 @@ extension ScreenContentView {
             guard let self else { return }
             self.beginUserScroll()
         }
-        bar.onDrag = { [weak self] offset in
+        // Every thumb point counts toward the release velocity at its event's time; only the
+        // delivery's latest shows.
+        bar.onDragSample = { [weak self] offset, time in
             guard let self, let raw = self.scrollState.gesture?.raw else { return }
-            self.userScroll(deltaX: raw - offset, timestamp: ProcessInfo.processInfo.systemUptime)
+            self.userScrollSample(deltaX: raw - offset, timestamp: time)
+        }
+        bar.onDrag = { [weak self] offset, time in
+            guard let self, let raw = self.scrollState.gesture?.raw else { return }
+            self.userScroll(deltaX: raw - offset, timestamp: time)
             self.context.requestFrames()
         }
-        bar.onDragEnded = { [weak self] in
+        bar.onDragEnded = { [weak self] time in
             guard let self else { return }
-            self.endUserScroll(timestamp: ProcessInfo.processInfo.systemUptime)
+            self.endUserScroll(timestamp: time)
             self.context.requestFrames()
         }
         bar.onPage = { [weak self] target in
