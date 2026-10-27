@@ -104,6 +104,31 @@ const cardRows = [
   assistant("A very-long-token-without-spaces-stays-contained while the card keeps its useful context.", 11.8),
   summary(11.6, { durationMs: 12_000, toolCount: 1 }),
 ];
+// Prompt wrapping comparison: the fixed-height variants keep the one-line card's proportions,
+// while a longer prompt spends the saved reply lines instead of pushing the transcript down.
+const promptWrapRows = [
+  user("Short prompt stays one line", 18),
+  assistant("A short reply remains unchanged.", 17.8),
+  summary(17.6, { durationMs: 8_000 }),
+  user("Two line prompt keeps its own break\nand leaves the reply readable.", 16),
+  assistant(
+    "The reply still gets multiple lines when the prompt is two lines.\nThe card keeps the same maximum height.",
+    15.8,
+  ),
+  summary(15.6, { durationMs: 18_000, toolCount: 2 }),
+  user("Three line prompt keeps its own break\nwithout making the card taller\nwhile the reply remains useful.", 14),
+  assistant("The first reply lines remain visible below the prompt.\nLonger detail continues in the transcript.", 13.8),
+  summary(13.6, { durationMs: 26_000, toolCount: 3 }),
+  user(
+    "A very long prompt line that wraps naturally across the card width\nthen keeps another explicit line\nand a final line beyond the cap\nwhich should be clipped.",
+    12,
+  ),
+  assistant(
+    "The fixed card gives this long prompt room while retaining a two-line reply.\nThe rest stays in the transcript.",
+    11.8,
+  ),
+  summary(11.6, { durationMs: 31_000, toolCount: 4 }),
+];
 /// Seventy prompts: past the rail's room (64 rows or 70% of the window), so its rows scroll.
 const long = rowsOf([
   ...all,
@@ -163,6 +188,33 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.hover({ selector: '[data-tick="2"]' });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-minimap__meta-token[data-meta="files"]'));
+      },
+    },
+    "card-prompt-fixed-2": {
+      note: "Fixed-height prompt comparison: a short prompt remains one line, while the two-line prompt keeps its explicit break and the reply stays visible without growing the glass card.",
+      snapshot: chat(promptWrapRows, { title: "Minimap prompt two-line cap" }),
+      play: async (ctx) => {
+        await ctx.hover({ selector: '[data-tick="1"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card .acpmux-minimap__prompt"));
+      },
+    },
+    "card-prompt-fixed-3": {
+      note: "Fixed-height prompt comparison: the three-line prompt preserves its line breaks, takes space from the reply preview and keeps the bookmark aligned to the first line.",
+      snapshot: chat(promptWrapRows, { title: "Minimap prompt three-line cap" }),
+      play: async (ctx) => {
+        await ctx.hover({ selector: '[data-tick="2"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card .acpmux-minimap__prompt"));
+      },
+    },
+    "card-prompt-growing": {
+      note: "Comparison arm: the same short, two-line, three-line and long prompts with an unconstrained card show why the fixed maximum reads better in a busy transcript.",
+      snapshot: chat(promptWrapRows, { title: "Minimap prompt growing comparison" }),
+      play: async (ctx) => {
+        await ctx.hover({ selector: '[data-tick="3"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card .acpmux-minimap__prompt"));
+        const style = ctx.document.createElement("style");
+        style.textContent = ".acpmux-minimap__card[data-prompt] { max-height: none; }";
+        ctx.document.head.append(style);
       },
     },
     rest: {
