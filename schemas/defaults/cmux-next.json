@@ -797,7 +797,7 @@
     "setting.updates.downloadAutomatically": false,
     "setting.updates.idleInstallMaxWaitSeconds": 600,
     "setting.updates.idleInstallQuietSeconds": 60,
-    "setting.updates.installOnQuit": true,
+    "setting.updates.installOnQuit": false,
     "setting.updates.keepPreviousVersions": 1,
     "setting.updates.meteredNetwork": "defer-low-data",
     "setting.updates.notify": "badge",
