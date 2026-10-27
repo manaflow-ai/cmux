@@ -5,12 +5,18 @@ client is the cmux app's native upload worker.
 
 Leo, 2026-10-26: "I ALREADY SAID WE NEED ARBITARRILY LARGE FILES OF ANY TYPE".
 
-- No size or count cap: no limit per file, per prompt, or on the number of files.
+- No size or count cap on files: no limit per file, on the files of one prompt together, or on
+  how many a chat holds.
+- One prompt is still one JSON-RPC message (`rpc::MAX_MESSAGE_BYTES`, 15 MiB) on every hop. That
+  bounds the prompt's own text and references, never the files' bytes. A reference with its
+  path note is a few hundred bytes, so one prompt names tens of thousands of files. A prompt
+  whose references alone would not fit is refused with `upload.tooMany`; send the files in more
+  than one prompt.
 - No base64 in the page binding: file bytes go from the app's native side to the daemon, never
   through the page.
 - The prompt names the uploads and stays a few hundred bytes.
-- The only failure about size is a full disk on the receiving host, and that error names the host
-  and path.
+- The only failure about a file's size is a full disk on the receiving host, and that error names
+  the host and path.
 
 Who owns what: the daemon owns this API (upload calls, the reference resolver, peer forwarding,
 feature flags). The native app owns its own host-authenticated endpoint, origin and gesture
