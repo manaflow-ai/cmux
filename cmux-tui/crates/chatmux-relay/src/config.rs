@@ -144,6 +144,7 @@ fn read_config(path: &Path) -> std::io::Result<Vec<u8>> {
     }
     #[cfg(unix)]
     {
+        // SAFETY: geteuid takes no arguments, cannot fail, and touches no memory.
         if metadata.uid() != unsafe { libc::geteuid() } {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
@@ -263,6 +264,8 @@ pub fn save_config(path: &Path, config: &Config) -> std::io::Result<()> {
             let source: Vec<u16> = temp.as_os_str().encode_wide().chain(Some(0)).collect();
             let destination: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
             // MoveFileExW replaces the destination without a remove-then-rename gap.
+            // SAFETY: `source` and `destination` are NUL-terminated UTF-16 buffers that live across
+            // the call; MoveFileExW only reads them.
             if unsafe {
                 MoveFileExW(
                     source.as_ptr(),

@@ -210,8 +210,8 @@ fn containing_app_identifier(team: &str) -> Result<String, String> {
     let code =
         static_code_signed_by(&bundle, team, BASIC_VALIDATE_ONLY, "containing app signature")?;
     let mut information: CFTypeRef = ptr::null();
-    // SAFETY: `code.0` is live; the out-pointer is valid.
     status(
+        // SAFETY: `code.0` is live; the out-pointer is valid.
         unsafe { SecCodeCopySigningInformation(code.0, 0, &raw mut information) },
         "SecCodeCopySigningInformation",
     )?;
@@ -248,8 +248,8 @@ fn static_code_signed_by(
         "CFURLCreateFromFileSystemRepresentation",
     )?;
     let mut code: CFTypeRef = ptr::null();
-    // SAFETY: `url.0` is a live CFURL; the out-pointer is valid.
     status(
+        // SAFETY: `url.0` is a live CFURL; the out-pointer is valid.
         unsafe { SecStaticCodeCreateWithPath(url.0, 0, &raw mut code) },
         "SecStaticCodeCreateWithPath",
     )?;
@@ -343,8 +343,8 @@ fn guest_code(token: &[u32; 8]) -> Result<Owned, String> {
         "CFDictionaryCreate",
     )?;
     let mut guest: CFTypeRef = ptr::null();
-    // SAFETY: a null host means the system; the out-pointer is valid.
     status(
+        // SAFETY: a null host means the system; the out-pointer is valid.
         unsafe { SecCodeCopyGuestWithAttributes(ptr::null(), attributes.0, 0, &raw mut guest) },
         "SecCodeCopyGuestWithAttributes",
     )?;
@@ -360,15 +360,15 @@ fn own_code() -> Result<Owned, String> {
 
 fn signing(code: &Owned) -> Result<Signing, String> {
     let mut static_code: CFTypeRef = ptr::null();
-    // SAFETY: `code.0` is live; the out-pointer is valid.
     status(
+        // SAFETY: `code.0` is live; the out-pointer is valid.
         unsafe { SecCodeCopyStaticCode(code.0, 0, &raw mut static_code) },
         "SecCodeCopyStaticCode",
     )?;
     let static_code = Owned::new(static_code, "SecCodeCopyStaticCode")?;
     let mut information: CFTypeRef = ptr::null();
-    // SAFETY: `static_code.0` is live; the out-pointer is valid.
     status(
+        // SAFETY: `static_code.0` is live; the out-pointer is valid.
         unsafe {
             SecCodeCopySigningInformation(static_code.0, SIGNING_INFORMATION, &raw mut information)
         },
@@ -426,8 +426,8 @@ fn requirement(text: &str) -> Result<Owned, String> {
         "CFStringCreateWithBytes",
     )?;
     let mut requirement: CFTypeRef = ptr::null();
-    // SAFETY: `string.0` is live; the out-pointer is valid.
     status(
+        // SAFETY: `string.0` is live; the out-pointer is valid.
         unsafe { SecRequirementCreateWithString(string.0, 0, &raw mut requirement) },
         "SecRequirementCreateWithString",
     )?;

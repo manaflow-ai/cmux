@@ -692,6 +692,8 @@ fn pump_pty(
             libc::pollfd { fd: reader_fd, events: libc::POLLIN, revents: 0 },
             libc::pollfd { fd: cancel_fd, events: libc::POLLIN, revents: 0 },
         ];
+        // SAFETY: `poll_fds` is a live array and the count passed is its length, so poll touches
+        // only those two entries; both descriptors stay open across the call.
         let poll_result = unsafe { libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as _, -1) };
         if poll_result < 0 {
             if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
@@ -736,6 +738,9 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
     // Keep cwd pinned to the validated directory descriptor. The descriptor
     // is captured by the child-side pre_exec hook, after which path rebinding
     // cannot redirect this process.
+    // SAFETY: the pre_exec closure runs in the forked child and only calls fchdir and reads errno,
+    // both async-signal-safe; it allocates nothing and takes no lock. `directory` is moved into the
+    // closure, so its descriptor is open in the child.
     unsafe {
         command.pre_exec(move || {
             if libc::fchdir(directory.as_raw_fd()) == -1 {
@@ -829,6 +834,8 @@ fn pump_pipe(
             break;
         }
         let mut poll_fd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+        // SAFETY: `poll_fd` is one live pollfd and the count passed is 1, so poll touches only it;
+        // `stream` keeps the descriptor open across the call.
         let poll_result = unsafe { libc::poll(&mut poll_fd, 1, PIPE_READ_POLL_MS) };
         if poll_result < 0 {
             if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
@@ -860,6 +867,9 @@ async fn socket_exists(path: &Path) -> bool {
 /// children it may have spawned before readiness failed.
 async fn cleanup_daemon(mut child: tokio::process::Child) {
     if let Some(pid) = child.id() {
+        // SAFETY: kill takes integers only. `child.id()` is Some, so the child is not reaped yet
+        // and its pid, which leads its own process group (process_group(0)), cannot have been
+        // reused.
         unsafe {
             let _ = libc::kill(-(pid as libc::pid_t), libc::SIGTERM);
         }
@@ -872,6 +882,9 @@ async fn cleanup_daemon(mut child: tokio::process::Child) {
         }
     }
     if let Some(pid) = child.id() {
+        // SAFETY: kill takes integers only. `child.id()` is Some, so the child is not reaped yet
+        // and its pid, which leads its own process group (process_group(0)), cannot have been
+        // reused.
         unsafe {
             let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
         }
@@ -997,6 +1010,9 @@ impl PtyDeps for RealPtyDeps {
         // Tokio exposes the underlying std::process::Command for Unix
         // pre_exec setup. fchdir runs in the child after fork and pins the
         // daemon to the validated directory descriptor.
+        // SAFETY: the pre_exec closure runs in the forked child and only calls fchdir and reads
+        // errno, both async-signal-safe; it allocates nothing and takes no lock. `directory` is
+        // moved into the closure, so its descriptor is open in the child.
         unsafe {
             command.as_std_mut().pre_exec(move || {
                 if libc::fchdir(directory.as_raw_fd()) == -1 {

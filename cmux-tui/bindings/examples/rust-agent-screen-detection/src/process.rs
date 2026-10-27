@@ -1269,8 +1269,12 @@ mod platform {
     }
 
     fn foreground_process_group_id(pid: u32) -> Option<u32> {
+        // SAFETY: proc_bsdinfo is a plain C struct of integers and char arrays, so all-zero bytes
+        // are a valid value.
         let mut info = unsafe { std::mem::zeroed::<libc::proc_bsdinfo>() };
         let size = libc::c_int::try_from(size_of::<libc::proc_bsdinfo>()).ok()?;
+        // SAFETY: `info` is a live proc_bsdinfo of exactly `size` bytes, so proc_pidinfo writes at
+        // most that many bytes into it.
         let written = unsafe {
             libc::proc_pidinfo(
                 pid as libc::c_int,
@@ -1293,6 +1297,8 @@ mod platform {
             let Ok(bytes) = libc::c_int::try_from(bytes) else {
                 return Vec::new();
             };
+            // SAFETY: `pids` is a live Vec of `capacity` pid_t values, `bytes` long, so
+            // proc_listpids writes at most that many bytes into it.
             let written = unsafe {
                 libc::proc_listpids(
                     PROC_PGRP_ONLY,
@@ -1320,8 +1326,12 @@ mod platform {
     }
 
     fn process_bsdinfo(pid: u32) -> Option<libc::proc_bsdinfo> {
+        // SAFETY: proc_bsdinfo is a plain C struct of integers and char arrays, so all-zero bytes
+        // are a valid value.
         let mut info = unsafe { std::mem::zeroed::<libc::proc_bsdinfo>() };
         let size = libc::c_int::try_from(size_of::<libc::proc_bsdinfo>()).ok()?;
+        // SAFETY: `info` is a live proc_bsdinfo of exactly `size` bytes, so proc_pidinfo writes at
+        // most that many bytes into it.
         let written = unsafe {
             libc::proc_pidinfo(
                 pid as libc::c_int,
@@ -1350,40 +1360,47 @@ mod platform {
     }
 
     fn kern_procargs2(pid: u32) -> Option<Vec<u8>> {
-        unsafe {
-            let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as libc::c_int];
-            let mut size = 0usize;
-            if libc::sysctl(
+        let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as libc::c_int];
+        let mut size = 0usize;
+        // SAFETY: `mib` holds the 3 ints whose count is passed; a null old-value buffer asks
+        // sysctl only for the size, which it writes into `size`, a live usize. The new-value
+        // pointer is null with length 0.
+        let sized = unsafe {
+            libc::sysctl(
                 mib.as_mut_ptr(),
                 3,
                 std::ptr::null_mut(),
                 &mut size,
                 std::ptr::null_mut(),
                 0,
-            ) != 0
-                || size == 0
-            {
-                return None;
-            }
-            // A hostile or corrupted process can report an unbounded argv
-            // size. Keep the plugin's inspection memory bounded; the argv
-            // parser already handles a truncated final argument.
-            let mut buffer = vec![0u8; size.min(MAX_PROCARGS_BYTES)];
-            let mut capacity = buffer.len();
-            if libc::sysctl(
+            )
+        };
+        if sized != 0 || size == 0 {
+            return None;
+        }
+        // A hostile or corrupted process can report an unbounded argv
+        // size. Keep the plugin's inspection memory bounded; the argv
+        // parser already handles a truncated final argument.
+        let mut buffer = vec![0u8; size.min(MAX_PROCARGS_BYTES)];
+        let mut capacity = buffer.len();
+        // SAFETY: `mib` holds the 3 ints whose count is passed and `capacity` is the length of
+        // the live, writable `buffer`, so sysctl writes at most that many bytes and stores the
+        // count in `capacity`. The new-value pointer is null with length 0.
+        let copied = unsafe {
+            libc::sysctl(
                 mib.as_mut_ptr(),
                 3,
                 buffer.as_mut_ptr().cast(),
                 &mut capacity,
                 std::ptr::null_mut(),
                 0,
-            ) != 0
-            {
-                return None;
-            }
-            buffer.truncate(capacity.min(MAX_PROCARGS_BYTES));
-            Some(buffer)
+            )
+        };
+        if copied != 0 {
+            return None;
         }
+        buffer.truncate(capacity.min(MAX_PROCARGS_BYTES));
+        Some(buffer)
     }
 
     fn procargs2_argv(buffer: &[u8]) -> Vec<String> {

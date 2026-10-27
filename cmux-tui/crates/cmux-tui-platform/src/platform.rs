@@ -1334,6 +1334,8 @@ fn terminal_pwd_host_is_local(host: &str) -> bool {
 #[cfg(unix)]
 pub fn local_hostname() -> Option<String> {
     let mut hostname = [0_u8; 256];
+    // SAFETY: gethostname writes at most `hostname.len()` bytes into `hostname`, a live local array
+    // of that length.
     if unsafe { libc::gethostname(hostname.as_mut_ptr().cast(), hostname.len()) } != 0 {
         return None;
     }
@@ -1364,6 +1366,7 @@ fn env_string(name: &str) -> Option<String> {
 
 #[cfg(unix)]
 fn user_id_component() -> String {
+    // SAFETY: getuid takes no arguments, cannot fail, and touches no memory.
     unsafe { libc::getuid() }.to_string()
 }
 

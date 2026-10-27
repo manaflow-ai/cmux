@@ -598,6 +598,8 @@ fn open_descriptor_dir(path: &Path, create_missing: bool) -> Result<std::fs::Fil
     use std::os::unix::ffi::OsStrExt as _;
 
     let root = std::ffi::CString::new("/").expect("root has no NUL");
+    // SAFETY: `root` is a NUL-terminated CString that lives across the call; open does not keep the
+    // pointer.
     let root_fd =
         unsafe { libc::open(root.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC) };
     if root_fd < 0 {
@@ -606,11 +608,15 @@ fn open_descriptor_dir(path: &Path, create_missing: bool) -> Result<std::fs::Fil
             std::io::Error::last_os_error()
         )));
     }
+    // SAFETY: `root_fd` is non-negative, so open returned a fresh descriptor that nothing else
+    // owns; the File takes its sole ownership.
     let mut current = unsafe { std::fs::File::from_raw_fd(root_fd) };
     for component in path.components() {
         let Component::Normal(name) = component else { continue };
         let name = std::ffi::CString::new(name.as_bytes())
             .map_err(|_| Refusal::path_forbidden("path contains an embedded NUL byte"))?;
+        // SAFETY: `current` owns the directory descriptor for the call and `name` is a
+        // NUL-terminated CString that lives across it; openat keeps neither.
         let mut fd = unsafe {
             libc::openat(
                 current.as_raw_fd(),
@@ -621,6 +627,8 @@ fn open_descriptor_dir(path: &Path, create_missing: bool) -> Result<std::fs::Fil
         if fd < 0 && create_missing {
             let error = std::io::Error::last_os_error();
             if error.kind() == std::io::ErrorKind::NotFound {
+                // SAFETY: `current` owns the directory descriptor for the call and `name` is a
+                // NUL-terminated CString that lives across it; mkdirat keeps neither.
                 let made = unsafe { libc::mkdirat(current.as_raw_fd(), name.as_ptr(), 0o777) };
                 if made < 0 {
                     let create_error = std::io::Error::last_os_error();
@@ -630,6 +638,8 @@ fn open_descriptor_dir(path: &Path, create_missing: bool) -> Result<std::fs::Fil
                         )));
                     }
                 }
+                // SAFETY: `current` owns the directory descriptor for the call and `name` is a
+                // NUL-terminated CString that lives across it; openat keeps neither.
                 fd = unsafe {
                     libc::openat(
                         current.as_raw_fd(),
@@ -642,6 +652,8 @@ fn open_descriptor_dir(path: &Path, create_missing: bool) -> Result<std::fs::Fil
         if fd < 0 {
             return Err(descriptor_io_refusal(path, std::io::Error::last_os_error()));
         }
+        // SAFETY: `fd` is non-negative, so openat returned a fresh descriptor that nothing else
+        // owns; the File takes its sole ownership (the previous `current` closes its own).
         current = unsafe { std::fs::File::from_raw_fd(fd) };
     }
     Ok(current)
@@ -697,6 +709,8 @@ fn descriptor_parent(
     for name in &parts[..parts.len() - 1] {
         let name = std::ffi::CString::new(name.as_bytes())
             .map_err(|_| Refusal::path_forbidden("path contains an embedded NUL byte"))?;
+        // SAFETY: `current` owns the directory descriptor for the call and `name` is a
+        // NUL-terminated CString that lives across it; openat keeps neither.
         let mut fd = unsafe {
             libc::openat(
                 current.as_raw_fd(),
@@ -707,6 +721,8 @@ fn descriptor_parent(
         if fd < 0 && create_missing {
             let error = std::io::Error::last_os_error();
             if error.kind() == std::io::ErrorKind::NotFound {
+                // SAFETY: `current` owns the directory descriptor for the call and `name` is a
+                // NUL-terminated CString that lives across it; mkdirat keeps neither.
                 let made = unsafe { libc::mkdirat(current.as_raw_fd(), name.as_ptr(), 0o777) };
                 if made < 0 {
                     let create_error = std::io::Error::last_os_error();
@@ -716,6 +732,8 @@ fn descriptor_parent(
                         )));
                     }
                 }
+                // SAFETY: `current` owns the directory descriptor for the call and `name` is a
+                // NUL-terminated CString that lives across it; openat keeps neither.
                 fd = unsafe {
                     libc::openat(
                         current.as_raw_fd(),
@@ -728,6 +746,8 @@ fn descriptor_parent(
         if fd < 0 {
             return Err(descriptor_io_refusal(&target.relative, std::io::Error::last_os_error()));
         }
+        // SAFETY: `fd` is non-negative, so openat returned a fresh descriptor that nothing else
+        // owns; the File takes its sole ownership (the previous `current` closes its own).
         current = unsafe { std::fs::File::from_raw_fd(fd) };
     }
     let name = std::ffi::CString::new(last.as_bytes())
@@ -745,6 +765,8 @@ fn open_descriptor_file(
     use std::os::fd::AsRawFd as _;
     let target = descriptor_anchor(scope, path, create_parents)?;
     let (parent, name) = descriptor_parent(&target, create_parents)?;
+    // SAFETY: `parent` owns the directory descriptor for the call and `name` is a NUL-terminated
+    // CString that lives across it; the mode is passed as the variadic int that O_CREAT reads.
     let fd = unsafe {
         libc::openat(
             parent.as_raw_fd(),
@@ -757,6 +779,8 @@ fn open_descriptor_file(
         return Err(descriptor_io_refusal(path, std::io::Error::last_os_error()));
     }
     use std::os::fd::FromRawFd as _;
+    // SAFETY: `fd` is non-negative, so openat returned a fresh descriptor that nothing else owns;
+    // the File takes its sole ownership.
     Ok(unsafe { std::fs::File::from_raw_fd(fd) })
 }
 
@@ -777,6 +801,9 @@ fn descriptor_stat(
 ) -> Result<Option<libc::stat>, Refusal> {
     use std::os::fd::AsRawFd as _;
     let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    // SAFETY: `parent` owns the directory descriptor for the call, `name` is a NUL-terminated
+    // CString that lives across it, and fstatat writes one stat into `stat`, a live
+    // MaybeUninit<stat>.
     let result = unsafe {
         libc::fstatat(
             parent.as_raw_fd(),
@@ -786,6 +813,7 @@ fn descriptor_stat(
         )
     };
     if result == 0 {
+        // SAFETY: fstatat returned 0, so it filled the whole stat.
         return Ok(Some(unsafe { stat.assume_init() }));
     }
     let error = std::io::Error::last_os_error();
@@ -808,6 +836,8 @@ fn descriptor_unlink(
     flags: libc::c_int,
 ) -> Result<(), Refusal> {
     use std::os::fd::AsRawFd as _;
+    // SAFETY: `parent` owns the directory descriptor for the call and `name` is a NUL-terminated
+    // CString that lives across it; unlinkat keeps neither.
     let result = unsafe { libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), flags) };
     if result == 0 {
         return Ok(());
@@ -824,6 +854,7 @@ fn descriptor_unlink(
 fn read_directory_names(directory: &std::fs::File) -> Result<Vec<std::ffi::CString>, Refusal> {
     use std::ffi::CStr;
     use std::os::fd::AsRawFd as _;
+    // SAFETY: `directory` owns its descriptor for the call; dup takes no pointers.
     let fd = unsafe { libc::dup(directory.as_raw_fd()) };
     if fd < 0 {
         return Err(Refusal::failed(format!(
@@ -831,8 +862,12 @@ fn read_directory_names(directory: &std::fs::File) -> Result<Vec<std::ffi::CStri
             std::io::Error::last_os_error()
         )));
     }
+    // SAFETY: `fd` is a fresh descriptor from dup that only this function holds; fdopendir takes it
+    // over on success.
     let stream = unsafe { libc::fdopendir(fd) };
     if stream.is_null() {
+        // SAFETY: fdopendir failed, so `fd` is still ours alone and closing it here is its only
+        // close.
         unsafe { libc::close(fd) };
         return Err(Refusal::failed(format!(
             "could not read directory: {}",
@@ -841,11 +876,17 @@ fn read_directory_names(directory: &std::fs::File) -> Result<Vec<std::ffi::CStri
     }
     let mut names = Vec::new();
     loop {
+        // SAFETY: `stream` is the non-null DIR from fdopendir, still open; it is closed only after
+        // this loop.
         let entry = unsafe { libc::readdir(stream) };
         if entry.is_null() {
             break;
         }
+        // SAFETY: `entry` is non-null and readdir's dirent stays valid until the next readdir or
+        // closedir on `stream`, neither of which happens while this borrow lives.
         let entry = unsafe { &*entry };
+        // SAFETY: d_name is the NUL-terminated name inside the live dirent borrowed above; the
+        // bytes are copied into a CString before the next readdir.
         let name = unsafe { CStr::from_ptr(entry.d_name.as_ptr()) }.to_bytes();
         if name == b"." || name == b".." {
             continue;
@@ -854,6 +895,8 @@ fn read_directory_names(directory: &std::fs::File) -> Result<Vec<std::ffi::CStri
             .map_err(|_| Refusal::failed("directory entry contained an embedded NUL byte"))?;
         names.push(name);
     }
+    // SAFETY: `stream` is the open DIR from fdopendir and this is its only closedir; it also closes
+    // `fd`.
     if unsafe { libc::closedir(stream) } != 0 {
         return Err(Refusal::failed(format!(
             "could not close directory: {}",
@@ -870,6 +913,8 @@ fn remove_descriptor_tree(directory: &std::fs::File) -> Result<(), Refusal> {
     for name in names {
         let Some(stat) = descriptor_stat(directory, &name)? else { continue };
         if descriptor_is_directory(&stat) {
+            // SAFETY: `directory` owns its descriptor for the call and `name` is a NUL-terminated
+            // CString that lives across it; openat keeps neither.
             let child_fd = unsafe {
                 libc::openat(
                     directory.as_raw_fd(),
@@ -888,6 +933,8 @@ fn remove_descriptor_tree(directory: &std::fs::File) -> Result<(), Refusal> {
                     Refusal::failed(format!("could not open directory for deletion: {error}"))
                 });
             }
+            // SAFETY: `child_fd` is non-negative, so openat returned a fresh descriptor that
+            // nothing else owns; the File takes its sole ownership.
             let child = unsafe { std::fs::File::from_raw_fd(child_fd) };
             remove_descriptor_tree(&child)?;
             descriptor_unlink(directory, &name, libc::AT_REMOVEDIR)?;
@@ -905,6 +952,9 @@ fn rename_descriptor_noreplace(
     destination_parent: std::os::fd::RawFd,
     destination_name: &std::ffi::CString,
 ) -> std::io::Result<()> {
+    // SAFETY: both names are NUL-terminated CStrings that live across the call and both descriptors
+    // are directories the caller holds open; renameat2 takes exactly these five arguments and keeps
+    // none.
     let result = unsafe {
         libc::syscall(
             libc::SYS_renameat2,
@@ -925,6 +975,8 @@ fn rename_descriptor_noreplace(
     destination_parent: std::os::fd::RawFd,
     destination_name: &std::ffi::CString,
 ) -> std::io::Result<()> {
+    // SAFETY: both names are NUL-terminated CStrings that live across the call and both descriptors
+    // are directories the caller holds open; renameatx_np keeps neither pointer.
     let result = unsafe {
         libc::renameatx_np(
             source_parent,
@@ -972,6 +1024,8 @@ fn rename_descriptor(
         ));
     }
     let rename_result = if overwrite {
+        // SAFETY: both parents own their directory descriptors for the call and both names are
+        // NUL-terminated CStrings that live across it; renameat keeps neither pointer.
         let result = unsafe {
             libc::renameat(
                 source_parent.as_raw_fd(),
@@ -1017,6 +1071,8 @@ fn delete_descriptor(scope: &Scope, path: &Path, recursive: bool) -> Result<(), 
     };
     if descriptor_is_directory(&stat) {
         if recursive {
+            // SAFETY: `parent` owns the directory descriptor for the call and `name` is a
+            // NUL-terminated CString that lives across it; openat keeps neither.
             let fd = unsafe {
                 libc::openat(
                     parent.as_raw_fd(),
@@ -1027,6 +1083,8 @@ fn delete_descriptor(scope: &Scope, path: &Path, recursive: bool) -> Result<(), 
             if fd < 0 {
                 return Err(descriptor_io_refusal(path, std::io::Error::last_os_error()));
             }
+            // SAFETY: `fd` is non-negative, so openat returned a fresh descriptor that nothing else
+            // owns; the File takes its sole ownership.
             let directory = unsafe { std::fs::File::from_raw_fd(fd) };
             remove_descriptor_tree(&directory)?;
         }

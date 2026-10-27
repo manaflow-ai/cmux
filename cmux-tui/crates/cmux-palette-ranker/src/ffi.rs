@@ -72,6 +72,8 @@ pub unsafe extern "C" fn cmux_palette_ranker_install(
     if ranker.is_null() {
         return ERR_NULL;
     }
+    // SAFETY: this function's contract gives `entries_len` readable bytes at `entries` (or null
+    // with length 0), which is what `input` requires; the slice is used only during this call.
     let Some(entries) = (unsafe { input(entries, entries_len) }) else { return ERR_NULL };
     // SAFETY: a live handle, used by one caller at a time.
     let handle = unsafe { &mut *ranker };
@@ -114,6 +116,9 @@ pub unsafe extern "C" fn cmux_palette_ranker_rank(
     if ranker.is_null() {
         return ERR_NULL;
     }
+    // SAFETY: this function's contract gives `request_len` readable bytes at `request`, which is
+    // what `input` requires (it refuses a null pointer itself); the slice is used only during
+    // this call.
     let Some(request) = (unsafe { input(request, request_len) }) else { return ERR_NULL };
     // SAFETY: a live handle, used by one caller at a time.
     let handle = unsafe { &mut *ranker };

@@ -162,6 +162,7 @@ fn prepare_datagram_directory(control: &Path) -> io::Result<PathBuf> {
         Err(error) => return Err(error),
     }
     let metadata = std::fs::symlink_metadata(&directory)?;
+    // SAFETY: geteuid takes no arguments, cannot fail, and touches no memory.
     let owner = unsafe { libc::geteuid() };
     if !metadata.file_type().is_dir() || metadata.uid() != owner || metadata.mode() & 0o077 != 0 {
         return Err(io::Error::new(
@@ -508,6 +509,8 @@ fn bind_datagram_socket(path: &Path) -> io::Result<(UnixDatagram, (u64, u64))> {
     for option in [libc::SO_RCVBUF, libc::SO_SNDBUF] {
         let size = DATAGRAM_SOCKET_BUFFER;
         // A smaller buffer than asked is fine; it only drops sooner.
+        // SAFETY: `socket` owns the descriptor for the call and the option value points to `size`,
+        // a live int whose size is the length passed; setsockopt only reads it.
         unsafe {
             libc::setsockopt(
                 socket.as_raw_fd(),
