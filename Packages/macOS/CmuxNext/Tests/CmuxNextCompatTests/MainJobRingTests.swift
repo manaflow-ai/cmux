@@ -5,8 +5,9 @@ import Testing
 /// The main-job census's ring (p08-startup-080): bounded, the enqueuer's stack, priority and label per job, timed runs
 /// of every kind, and nothing recorded once frozen. A test ring is never installed as the runtime's hook.
 struct MainJobRingTests {
-    /// A clock the test moves (`CLOCK_UPTIME_RAW` nanoseconds).
-    final class Ticks: Sendable {
+    /// A clock the test moves (`CLOCK_UPTIME_RAW` nanoseconds). Nonisolated: the ring reads its clock on the enqueuing
+    /// thread, from a `@Sendable` closure, and the atomic makes it safe from any thread.
+    nonisolated final class Ticks: Sendable {
         let value = Atomic<UInt64>(0)
         func set(_ nanos: UInt64) { value.store(nanos, ordering: .relaxed) }
         func read() -> UInt64 { value.load(ordering: .relaxed) }
