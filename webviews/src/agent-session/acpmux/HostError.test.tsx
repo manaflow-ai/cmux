@@ -89,7 +89,8 @@ test("a reconnect is a quiet status with a spinner, never an alert", async () =>
   });
   expect(container.querySelector("output.acpmux-reconnecting")).not.toBeNull();
   expect(container.querySelector('[role="alert"]')).toBeNull();
-  expect(container.querySelector(".acpmux-harness-spinner")).not.toBeNull();
+  expect(container.querySelector(".cv-spinner__arc")).not.toBeNull();
   expect(container.textContent).toContain("Reconnecting…");
   expect(container.textContent).not.toContain("socket closed");
+  expect(buttons(container)).toEqual(["Retry"]);
 });

@@ -56,7 +56,7 @@ export default componentEntry<Props>({
   widths: { narrow: 360, normal: 520, wide: 720 },
   anchors: [{ selector: "[data-host-error-fixture]" }],
   covers: ["agent-session/acpmux/HostError.tsx#HostError"],
-  styles: () => import("./styles.css"),
+  styles: () => Promise.all([import("./styles.css"), import("./conversation/conversation.css")]).then(() => undefined),
   load: async () => GalleryHostError,
   variants: {
     automatic: {

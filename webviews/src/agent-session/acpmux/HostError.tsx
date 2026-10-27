@@ -1,4 +1,5 @@
 import { useT } from "./i18n";
+import { Spinner } from "./conversation/icons";
 
 /// Why the host could not hand the pane acpmux, in the host's words (which carry the next
 /// step, such as where to install it), above the composer. The pane keeps retrying on its own;
@@ -32,11 +33,16 @@ export function HostError({
   if (reconnecting) {
     return (
       <output className="acpmux-reconnecting" aria-live="polite">
-        <span className="acpmux-harness-spinner" aria-hidden="true" />
+        <Spinner size={14} loading className="acpmux-reconnecting-spinner" />
         <span>{t("header.reconnecting")}…</span>
         {onRestart && (
           <button type="button" onClick={onRestart} disabled={restarting}>
             {t(restarting ? "host.restarting" : "host.restart")}
+          </button>
+        )}
+        {onRetry && (
+          <button type="button" onClick={onRetry} disabled={retrying || restarting}>
+            {t(retrying ? "host.retryQueued" : "host.retry")}
           </button>
         )}
       </output>

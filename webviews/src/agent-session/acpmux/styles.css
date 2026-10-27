@@ -246,7 +246,7 @@
 .acpmux-unavailable{gap:10px}
 .acpmux-unavailable-spinner{color:var(--acpmux-composer-placeholder)}
 .acpmux-reconnecting{display:flex;align-items:center;justify-content:center;color:var(--agent-muted);font-size:var(--text-body);line-height:var(--text-body--line-height);letter-spacing:var(--text-body--letter-spacing)}
-.acpmux-reconnecting .acpmux-harness-spinner{flex:none}
+.acpmux-reconnecting-spinner{flex:none;margin-right:6px}
 .acpmux-reconnecting button{margin-left:var(--acpmux-unavailable-actions-gap,8px);border:0;border-radius:var(--acpmux-composer-radius,8px);background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-reconnecting button:hover{background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
 .acpmux-reconnecting button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
