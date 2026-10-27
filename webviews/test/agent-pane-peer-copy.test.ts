@@ -1095,3 +1095,68 @@ test("a row recreated while the reads after the attach are out has the chat read
   expect(shown).toContain("fresh 2.");
   expect(shown).not.toContain("old ");
 });
+
+test("a record a refused attach sent past the copy holds back no record once the machine is read", async () => {
+  const daemon = new Daemon();
+  daemon.copy = { events: turn(1, 4, "kept"), generation: 100, lastSeq: 4 };
+  const tab = open(daemon);
+  live.push(await tab.client);
+  await flush();
+  daemon.log = turn(1, 4, "kept");
+  // Seq 6 comes live, then the attach is refused: the copy (through 4) stays, offline.
+  daemon.beforeAttach = [record(6, "stray 6. ")];
+  daemon.refuseAttach = 1;
+  daemon.comeBack();
+  await flush();
+  expect(tab.last()!.peerCopy?.offline).toBe(true);
+  // Back for good: its page (2..4) joins the copy, and the chat reads on from 4, not from 6.
+  daemon.comeBack();
+  await flush();
+  expect(tab.last()!.peerCopy).toBeUndefined();
+  for (const seq of [5, 6])
+    daemon.onmessage?.({
+      data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: record(seq, `after ${seq}. `) }),
+    });
+  await flush();
+  const shown = text(tab.last());
+  expect(shown).toContain("after 5.");
+  expect(shown).toContain("after 6.");
+  expect(shown).not.toContain("stray");
+});
+
+test("a tail kept of rows not proven of a session names none, so it never joins the session the row moved to", async () => {
+  const daemon = new Daemon();
+  daemon.down = false;
+  daemon.other = true;
+  daemon.peer = undefined;
+  // An acpmux whose row names no generation: the rows on screen are proven of no session.
+  daemon.createdAt = undefined as unknown as number;
+  daemon.log = turn(1, 5, "here");
+  const tab = open(daemon);
+  const client = await tab.client;
+  live.push(client);
+  await flush();
+  expect(text(tab.last())).toContain("here 5.");
+  // A later row names a machine and a session; the chat's summary takes it, its rows do not.
+  daemon.peer = "huge-blue";
+  daemon.createdAt = 300;
+  daemon.down = true;
+  daemon.announce();
+  await flush();
+  await client.select(OTHER);
+  await flush();
+  const kept = keptTail(SESSION);
+  console.log("KEPT_TAIL", JSON.stringify(kept?.summary ?? null));
+  if (kept) {
+    expect(kept.summary?.peer).toBeUndefined();
+    expect(kept.summary?.createdAt).toBeUndefined();
+  }
+  // That machine's chat, read again, does not continue this Mac's rows.
+  daemon.down = false;
+  daemon.log = turn(1, 7, "vm");
+  await client.select(SESSION);
+  await flush();
+  const shown = text(tab.last());
+  expect(shown).toContain("vm 7.");
+  expect(shown).not.toContain("here ");
+});
