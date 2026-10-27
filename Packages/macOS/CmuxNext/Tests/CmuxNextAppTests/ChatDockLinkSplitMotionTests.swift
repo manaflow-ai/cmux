@@ -39,7 +39,7 @@ struct ChatDockLinkSplitMotionTests {
                 self.page = page
                 return page
             case .terminal:
-                _ = GhosttyRuntime.shared
+                GhosttyRuntime.startedForTests()
                 let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
                 terminal = session
                 return session.view

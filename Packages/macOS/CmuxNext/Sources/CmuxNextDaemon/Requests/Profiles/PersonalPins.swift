@@ -17,6 +17,10 @@ public struct PinWorkspaceRequest: DaemonRequest {
         self.workspaceKey = workspaceKey
         self.profile = profile
     }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionID = "session_id", workspaceKey = "workspace_key", profile
+    }
 }
 
 public struct UnpinWorkspaceRequest: DaemonRequest {
@@ -28,5 +32,9 @@ public struct UnpinWorkspaceRequest: DaemonRequest {
     public init(sessionID: String, workspaceKey: WorkspaceKey) {
         self.sessionID = sessionID
         self.workspaceKey = workspaceKey
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionID = "session_id", workspaceKey = "workspace_key"
     }
 }

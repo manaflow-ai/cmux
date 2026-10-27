@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextHibernation
 import CmuxNextWakeups
 
 // The right sidebar (inventory row 24): one shared path for its toggle, focus
@@ -19,7 +20,11 @@ extension WindowController {
         rightSidebar.show(target)
         applyRightSidebar()
         (view.shownSection as? RightSidebarRefreshing)?.refresh()
-        if focus, let section = view.shownSection { window?.makeFirstResponder(Self.firstKeyView(in: section) ?? section) }
+        if focus, let section = view.shownSection {
+            // sync-layout: the panel unhides in the root's layout (`layoutRightPanel`); focus goes into it now.
+            root.layoutSubtreeIfNeeded()
+            window?.makeFirstResponder(Self.firstKeyView(in: section) ?? section)
+        }
         return true
     }
 
@@ -31,6 +36,7 @@ extension WindowController {
         }
         rightSidebar.hide()
         applyRightSidebar()
+        rightSidebarView?.panelDidHide()
     }
 
     func toggleRightSidebar() {
@@ -60,7 +66,8 @@ extension WindowController {
             title: { registry.descriptor(for: $0.actionID)?.title ?? $0.rawValue },
             icon: sections.icon,
             makeSection: { [weak self] mode in self.flatMap { sections.makeView(mode, for: $0) } },
-            run: { registry.perform($0) })
+            run: { registry.perform($0) },
+            planner: services.sidebarSectionDiscards)
         view.onResize = { [weak self] in self?.resizeRightSidebar(to: $0) }
         // The inner edge resizes on a frame interval's first move and once at its frame (feature `pointerFrameDrags`).
         view.resizeHandle.pointerFrames = services.dragFrameInput

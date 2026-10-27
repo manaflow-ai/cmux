@@ -24,7 +24,9 @@ public import Darwin
 public func blockingSysctl(_ name: UnsafeMutablePointer<Int32>, _ count: u_int, _ old: UnsafeMutableRawPointer?,
                            _ oldLength: UnsafeMutablePointer<Int>?, _ new: UnsafeMutableRawPointer?, _ newLength: Int,
                            fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.systemQuery, fileID: fileID, line: line) { sysctl(name, count, old, oldLength, new, newLength) }
+    // SAFETY: forwards the caller's pointers to sysctl unchanged, only for the call; the caller's own `unsafe` states
+    // why they are valid for it.
+    return blockingCall(.systemQuery, fileID: fileID, line: line) { unsafe sysctl(name, count, old, oldLength, new, newLength) }
 }
 
 /// Reads or writes a kernel value by name, like `sysctlbyname(3)`, as a checked blocking call (kind
@@ -43,7 +45,9 @@ public func blockingSysctl(_ name: UnsafeMutablePointer<Int32>, _ count: u_int, 
 public func blockingSysctlByName(_ name: UnsafePointer<CChar>, _ old: UnsafeMutableRawPointer?, _ oldLength: UnsafeMutablePointer<Int>?,
                                  _ new: UnsafeMutableRawPointer?, _ newLength: Int,
                                  fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.systemQuery, fileID: fileID, line: line) { sysctlbyname(name, old, oldLength, new, newLength) }
+    // SAFETY: forwards the caller's pointers to sysctlbyname unchanged, only for the call; the caller's own `unsafe`
+    // states why they are valid for it.
+    return blockingCall(.systemQuery, fileID: fileID, line: line) { unsafe sysctlbyname(name, old, oldLength, new, newLength) }
 }
 
 /// Reads a process's information, like `proc_pidinfo`, as a checked blocking call (kind
@@ -61,7 +65,9 @@ public func blockingSysctlByName(_ name: UnsafePointer<CChar>, _ old: UnsafeMuta
 @inlinable
 public func blockingProcPidInfo(_ pid: pid_t, _ flavor: Int32, _ argument: UInt64, _ buffer: UnsafeMutableRawPointer?, _ size: Int32,
                                 fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.systemQuery, fileID: fileID, line: line) { proc_pidinfo(pid, flavor, argument, buffer, size) }
+    // SAFETY: forwards the caller's pointers to proc_pidinfo unchanged, only for the call; the caller's own `unsafe`
+    // states why they are valid for it.
+    return blockingCall(.systemQuery, fileID: fileID, line: line) { unsafe proc_pidinfo(pid, flavor, argument, buffer, size) }
 }
 
 /// Reads a process's executable path, like `proc_pidpath`, as a checked blocking call (kind
@@ -77,7 +83,9 @@ public func blockingProcPidInfo(_ pid: pid_t, _ flavor: Int32, _ argument: UInt6
 @inlinable
 public func blockingProcPidPath(_ pid: pid_t, _ buffer: UnsafeMutableRawPointer, _ size: UInt32,
                                 fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.systemQuery, fileID: fileID, line: line) { proc_pidpath(pid, buffer, size) }
+    // SAFETY: forwards the caller's pointers to proc_pidpath unchanged, only for the call; the caller's own `unsafe`
+    // states why they are valid for it.
+    return blockingCall(.systemQuery, fileID: fileID, line: line) { unsafe proc_pidpath(pid, buffer, size) }
 }
 
 /// Reads a process's descriptor information, like `proc_pidfdinfo`, as a checked blocking call (kind
@@ -95,7 +103,9 @@ public func blockingProcPidPath(_ pid: pid_t, _ buffer: UnsafeMutableRawPointer,
 @inlinable
 public func blockingProcPidFDInfo(_ pid: pid_t, _ descriptor: Int32, _ flavor: Int32, _ buffer: UnsafeMutableRawPointer?, _ size: Int32,
                                   fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.systemQuery, fileID: fileID, line: line) { proc_pidfdinfo(pid, descriptor, flavor, buffer, size) }
+    // SAFETY: forwards the caller's pointers to proc_pidfdinfo unchanged, only for the call; the caller's own `unsafe`
+    // states why they are valid for it.
+    return blockingCall(.systemQuery, fileID: fileID, line: line) { unsafe proc_pidfdinfo(pid, descriptor, flavor, buffer, size) }
 }
 
 /// Lists process ids, like `proc_listpids`, as a checked blocking call (kind ``BlockingKind/systemQuery``).
@@ -111,7 +121,9 @@ public func blockingProcPidFDInfo(_ pid: pid_t, _ descriptor: Int32, _ flavor: I
 @inlinable
 public func blockingProcListPids(_ type: UInt32, _ typeInfo: UInt32, _ buffer: UnsafeMutableRawPointer?, _ size: Int32,
                                  fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.systemQuery, fileID: fileID, line: line) { proc_listpids(type, typeInfo, buffer, size) }
+    // SAFETY: forwards the caller's pointers to proc_listpids unchanged, only for the call; the caller's own `unsafe`
+    // states why they are valid for it.
+    return blockingCall(.systemQuery, fileID: fileID, line: line) { unsafe proc_listpids(type, typeInfo, buffer, size) }
 }
 
 /// Reads a process's resource usage, like `proc_pid_rusage`, as a checked blocking call (kind
@@ -127,7 +139,9 @@ public func blockingProcListPids(_ type: UInt32, _ typeInfo: UInt32, _ buffer: U
 @inlinable
 public func blockingProcPidRusage(_ pid: pid_t, _ flavor: Int32, _ buffer: UnsafeMutablePointer<rusage_info_t?>,
                                   fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.systemQuery, fileID: fileID, line: line) { proc_pid_rusage(pid, flavor, buffer) }
+    // SAFETY: forwards the caller's pointers to proc_pid_rusage unchanged, only for the call; the caller's own `unsafe`
+    // states why they are valid for it.
+    return blockingCall(.systemQuery, fileID: fileID, line: line) { unsafe proc_pid_rusage(pid, flavor, buffer) }
 }
 
 /// Reads a user's account entry, like `getpwuid(3)`, as a checked blocking call (kind
@@ -140,7 +154,9 @@ public func blockingProcPidRusage(_ pid: pid_t, _ flavor: Int32, _ buffer: Unsaf
 /// - Returns: The entry (valid until the next `getpw*` call on any thread), or nil.
 @inlinable
 public func blockingGetpwuid(_ uid: uid_t, fileID: StaticString = #fileID, line: UInt = #line) -> UnsafeMutablePointer<passwd>? {
-    return blockingCall(.systemQuery, fileID: fileID, line: line) { () -> UnsafeMutablePointer<passwd>? in getpwuid(uid) }
+    // SAFETY: forwards the caller's pointers to getpwuid unchanged, only for the call; the caller's own `unsafe` states
+    // why they are valid for it.
+    return unsafe blockingCall(.systemQuery, fileID: fileID, line: line) { () -> UnsafeMutablePointer<passwd>? in unsafe getpwuid(uid) }
 }
 
 /// Reads a user's account entry by name, like `getpwnam(3)`, as a checked blocking call (kind
@@ -154,5 +170,7 @@ public func blockingGetpwuid(_ uid: uid_t, fileID: StaticString = #fileID, line:
 @inlinable
 public func blockingGetpwnam(_ name: UnsafePointer<CChar>,
                              fileID: StaticString = #fileID, line: UInt = #line) -> UnsafeMutablePointer<passwd>? {
-    return blockingCall(.systemQuery, fileID: fileID, line: line) { () -> UnsafeMutablePointer<passwd>? in getpwnam(name) }
+    // SAFETY: forwards the caller's pointers to getpwnam unchanged, only for the call; the caller's own `unsafe` states
+    // why they are valid for it.
+    return unsafe blockingCall(.systemQuery, fileID: fileID, line: line) { () -> UnsafeMutablePointer<passwd>? in unsafe getpwnam(name) }
 }

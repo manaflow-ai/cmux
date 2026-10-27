@@ -83,7 +83,7 @@ caller's. A script or step that starts an app on its own can run under the same 
     python3 scripts/cmux-next/bench_launch.py finder-exec -- python3 scripts/cmux-next/my-bench.py ...
     python3 scripts/cmux-next/bench_launch.py limits     # launchd's soft limits and this shell's, one JSON line
 """
-import argparse, atexit, contextlib, glob, hashlib, importlib.util, json, os, platform, pwd, re, resource, select, shutil, signal, socket, stat, statistics, subprocess, sys, tempfile, time
+import argparse, atexit, contextlib, copy, glob, hashlib, importlib.util, json, os, platform, pwd, re, resource, select, shutil, signal, socket, stat, statistics, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -112,6 +112,8 @@ def load_by_path(name, path):
 # process's search path, not a switch.
 bench_env = load_by_path("bench_env", os.path.join(PERF_LAB, "bench_env.py"))
 BASE_ENV = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", **bench_env.fixed_env()}
+# The cmux.json a BenchApp writes when its caller passes none: an opaque window, so frames cost the same on any desktop.
+DEFAULT_CONFIG = {"appearance": {"backgroundOpacity": 1}}
 # The shipping measurement mode (idle-budget, p14-energy-100): the launch measures what users run. Occluded windows
 # stop drawing (WindowDrawPolicy.shippingDrawKey), Sentry and hang reports run (a DEV or bench bundle reports only
 # with these opt-ins; hang reports also need ``seed_hang_report_consent`` and the setting on), and
@@ -1041,13 +1043,39 @@ def crash_summary(path, lines=40):
     return "\n".join(text.splitlines()[:lines])
 
 
+def write_local_features(root, features):
+    """Sets `features` ({name: bool}) in `<root>/features/local-overrides.json`, the Labs page's local feature choices
+    (FeatureLocalOverrides.fileName in SidebarSnapshotFile.buildDirectory, the tag's state folder), over the choices
+    the file already has. A DEV or NIGHTLY app reads them once at launch and features.list reports them with source
+    `local`: the way a bench turns a default-off feature on, since the app strips an inherited CMUX_ENABLE_FEATURES
+    (LaunchIdentity.inheritedKeys). Returns the file's path."""
+    path = os.path.join(root, "features", "local-overrides.json")
+    choices = {}
+    try:
+        with open(path) as handle:
+            kept = json.load(handle)
+        if isinstance(kept, dict):
+            choices = {name: value for name, value in kept.items() if isinstance(value, bool)}
+    except (OSError, ValueError):
+        pass
+    choices.update(features)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    partial = path + ".partial"
+    with open(partial, "w") as handle:
+        json.dump(choices, handle, indent=2, sort_keys=True)
+    os.replace(partial, path)
+    return path
+
+
 class BenchApp:
     """A tagged DEV app launched for a bench, its socket, and its teardown.
 
     `env` adds to (and overrides) BASE_ENV; `args` are launch arguments after the binary (for this process only,
     for example `-AppleShowScrollBars Always`, which AppKit reads into NSArgumentDomain); `pass_fds` are descriptors the
     app inherits (subprocess.Popen pass_fds; a bench's CMUX_NEXT_LAUNCH_MARKS_FD pipe), read at each launch, so a
-    relaunch may pass a new pipe; `config` is written as the app's cmux.json; `window` is
+    relaunch may pass a new pipe; `local_features` ({name: bool}) are written as the tag's Labs local feature
+    choices before each spawn, after the fresh state (``write_local_features``); `config` is written as the app's
+    cmux.json; `window` is
     (x, y, width, height) or None; `screen` is CMUX_NEXT_TEST_WINDOW_SCREEN (`0` = the main display).
     `session` reads whether this account has a GUI session (default ``gui_session``, read at each launch;
     tests pass a stub). `socket_only=True` launches without a GUI session for a check that reads only the socket
@@ -1065,8 +1093,9 @@ class BenchApp:
     def __init__(self, app, out=None, env=None, config=None, window=(40, 40, 1440, 900), screen="0",
                  log_name=None, teardown=True, low_power_mode_ok=False, session=None, socket_only=False,
                  fresh_state=True, perf_session=None, host=None, build_config=None, run=None, args=(),
-                 lab_check=None, pass_fds=()):
+                 lab_check=None, pass_fds=(), local_features=None):
         self.args = tuple(args)
+        self.local_features = dict(local_features or {})
         self.pass_fds = tuple(pass_fds)
         self.perf_session = perf_session or os.environ.get(LAB_SESSION) or "light"
         host_file = os.environ.get(LAB_HOST_FILE)
@@ -1091,7 +1120,7 @@ class BenchApp:
         os.makedirs(self.out, exist_ok=True)
         self.scratch = tempfile.mkdtemp(prefix=f"bench-{self.tag}-")
         self.extra_env = dict(env or {})
-        self.config = {"appearance": {"backgroundOpacity": 1}} if config is None else config
+        self.config = copy.deepcopy(DEFAULT_CONFIG) if config is None else config
         self.window, self.screen = window, screen
         self.log_path = os.path.join(self.out, log_name or f"app-{self.tag}.log")
         self.process = None
@@ -1324,6 +1353,8 @@ class BenchApp:
                     self._fail("tag-in-use", {"tag": self.tag, **host_facts(), "socket": path, "log_tail": "",
                                               "detail": f"an app of tag {self.tag} accepts on {path}; quit it or pick a fresh tag"})
                 os.unlink(path)  # nothing listens: a socket a killed run of this tag left; the app makes it again
+        if self.local_features:
+            note(f"bench-launch: local features {write_local_features(self.state_root(), self.local_features)}")
         if self.teardown:
             self.teardown.install()
         log = open(self.log_path, "a")

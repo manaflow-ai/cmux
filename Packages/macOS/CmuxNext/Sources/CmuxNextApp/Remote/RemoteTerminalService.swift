@@ -3,6 +3,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextTerminal
+import CmuxNextWakeups
 import Observation
 
 /// Remote-terminal tabs (plans/cmux-next/data-model.md 1.2b, 1.4, 1.5): a
@@ -29,9 +30,13 @@ final class RemoteTerminalService {
     private var placeholders: [String: RemoteTerminalPlaceholderView] = [:]
     /// Live surfaces: the reference and the tab's own session, by tab id.
     private var live: [String: (ref: RemoteTerminalRef, home: DaemonService)] = [:]
-    private var titleTasks: [String: Task<Void, Never>] = [:]
+    /// Each live terminal's title, saved on its tab when it changes (by tab id).
+    private var titleWatches: [String: ServiceObservation<String>] = [:]
+    /// The title last written on each tab, and the tab's write in flight (they run one after another).
+    private var savedTitles: [String: String] = [:]
+    private var titleWrites: [String: Task<Void, Never>] = [:]
     private var availability: [String: String] = [:]
-    private var observation: Task<Void, Never>?
+    private var observation: ServiceObservation<[String: String]>?
 
     init(services: AppServices) {
         self.services = services
@@ -54,20 +59,19 @@ final class RemoteTerminalService {
 
     /// Re-shows remote-terminal tabs whenever a session connects, drops or
     /// restarts (one Observation of every daemon's connection and generation).
+    /// A service observation: a session that drops saves its tabs' screens and discards their surfaces whether or
+    /// not a window shows them.
     func start() {
         let machines = services.machines
-        observation = Task { [weak self] in
-            let tokens = ObservationStream { () -> [String: String] in
-                var map: [String: String] = [:]
-                for daemon in machines.daemons {
-                    guard let session = daemon.identity?.sessionID else { continue }
-                    map[session] = "\(daemon.connection != nil)#\(daemon.store.isLoaded)#\(daemon.store.generation?.rawValue ?? "")"
-                }
-                return map
+        observation = ServiceObservation(.visible, owner: "RemoteTerminals.availability", on: services.mainWork) { () -> [String: String] in
+            var map: [String: String] = [:]
+            for daemon in machines.daemons {
+                guard let session = daemon.identity?.sessionID else { continue }
+                map[session] = "\(daemon.connection != nil)#\(daemon.store.isLoaded)#\(daemon.store.generation?.rawValue ?? "")"
             }
-            for await map in tokens {
-                self?.availabilityChanged(map)
-            }
+            return map
+        } apply: { [weak self] map in
+            self?.availabilityChanged(map)
         }
     }
 
@@ -79,7 +83,7 @@ final class RemoteTerminalService {
             saveSnapshot(tabID: tabID)
             services.cache.discardTerminal(tabID)
             live[tabID] = nil
-            titleTasks.removeValue(forKey: tabID)?.cancel()
+            stopFollowingTitle(tabID)
         }
         reshow { changed.contains($0.sessionID) }
     }
@@ -150,19 +154,28 @@ final class RemoteTerminalService {
         let key = Self.key(ref)
         guard !resolving.contains(key), !unresolvable.contains(key), let connection = daemon.connection else { return }
         resolving.insert(key)
-        // task-owner: one bounded keep request; `resolving` dedupes it and a gone service drops the result
-        Task { [weak self] in
+        let mainWork = services.mainWork
+        // task-owner: one bounded keep request; `resolving` dedupes it and a gone service drops the result.
+        // The request is off the main thread; its answer is one visible task.
+        Task { @concurrent [weak self] in
             let resource = try? await connection.keepTerminal(ref.terminalID)
-            guard let self else { return }
-            resolving.remove(key)
-            if let resource {
-                remember(ref, resource: resource)
-            } else {
-                unresolvable.insert(key)
-                services.registry.refuse(RemoteStrings.machineHasNoTerminal)
+            mainWork.postFromAnyThread(.visible, owner: "RemoteTerminals.resolved") { [weak self] in
+                self?.resolved(ref, resource: resource)
             }
-            reshow { Self.key($0) == key }
         }
+    }
+
+    /// The terminal's session named it (or could not): the panes showing it show it again.
+    private func resolved(_ ref: RemoteTerminalRef, resource: ResourceID?) {
+        let key = Self.key(ref)
+        resolving.remove(key)
+        if let resource {
+            remember(ref, resource: resource)
+        } else {
+            unresolvable.insert(key)
+            services.registry.refuse(RemoteStrings.machineHasNoTerminal)
+        }
+        reshow { Self.key($0) == key }
     }
 
     func remember(_ ref: RemoteTerminalRef, resource: ResourceID) {
@@ -207,10 +220,12 @@ final class RemoteTerminalService {
 
     private func loadSnapshot(into view: RemoteTerminalPlaceholderView, surface: SurfaceID, home: DaemonService) {
         guard let connection = home.connection, home.supports(DaemonCapability.remoteTerminalTabs.rawValue) else { return }
-        // task-owner: one bounded read into a weak view; a closed tab drops the result
-        Task { [weak view] in
+        let mainWork = services.mainWork
+        // task-owner: one bounded read into a weak view; a closed tab drops the result.
+        // The read is off the main thread; the text lands as one visible task.
+        Task { @concurrent [weak view] in
             guard let text = try? await connection.remoteTerminalSnapshot(surface) else { return }
-            view?.setSnapshot(text)
+            mainWork.postFromAnyThread(.visible, owner: "RemoteTerminals.snapshotLoaded") { [weak view] in view?.setSnapshot(text) }
         }
     }
 
@@ -223,9 +238,11 @@ final class RemoteTerminalService {
               let text = entry.session.surfaceView.viewportText(), !text.isEmpty,
               let tab = home.store.tab(id: tabID), let connection = home.connection else { return nil }
         let surface = tab.surface
+        entry.session.applyWaitingActions() // a title still waiting for its frame is the one to save
         let title = entry.session.model.title
         placeholders[tabID]?.setSnapshot(text)
-        return Task {
+        // The write needs nothing from the main thread.
+        return Task { @concurrent in
             _ = try? await connection.updateRemoteTerminalTab(surface, title: title.isEmpty ? nil : title, snapshot: text)
         }
     }
@@ -237,20 +254,30 @@ final class RemoteTerminalService {
         for task in tasks { await task.value }
     }
 
-    /// Saves the live terminal's title on the tab while it is attached.
+    /// Saves the live terminal's title on the tab while it is attached: a service observation (the tab's session
+    /// keeps the title whether or not a window shows it); each write runs off the main thread, after the one before.
     private func followTitle(of entry: TerminalEntry, tab: TabModel, home: DaemonService) {
-        guard titleTasks[tab.id] == nil else { return }
+        guard titleWatches[tab.id] == nil else { return }
         let model = entry.session.model
         let tabID = tab.id
-        titleTasks[tab.id] = Task { [weak self, weak home] in
-            var last = ""
-            for await title in ObservationStream({ model.title }) {
-                guard !title.isEmpty, title != last, let home, let connection = home.connection,
-                      let surface = home.store.tab(id: tabID)?.surface else { continue }
-                last = title
-                _ = try? await connection.updateRemoteTerminalTab(surface, title: title)
-                if self == nil { return }
-            }
+        titleWatches[tab.id] = ServiceObservation(.background, owner: "RemoteTerminals.title", on: services.mainWork) {
+            model.title
+        } apply: { [weak self, weak home] title in
+            guard let self, let home else { return }
+            saveTitle(title, tabID: tabID, home: home)
+        }
+    }
+
+    /// Writes `title` on tab `tabID` of `home` when it is new, after the tab's write before it.
+    private func saveTitle(_ title: String, tabID: String, home: DaemonService) {
+        guard !title.isEmpty, title != savedTitles[tabID], let connection = home.connection,
+              let surface = home.store.tab(id: tabID)?.surface else { return }
+        savedTitles[tabID] = title
+        let previous = titleWrites[tabID]
+        // task-owner: one bounded title write per change, chained, so the newest title is the last one written
+        titleWrites[tabID] = Task { @concurrent in
+            await previous?.value
+            _ = try? await connection.updateRemoteTerminalTab(surface, title: title)
         }
     }
 
@@ -267,8 +294,8 @@ final class RemoteTerminalService {
               let connection = daemon.connection else { return }
         let terminal = ref.terminalID
         let placed = daemon.store.tab(terminal: terminal) != nil
-        // task-owner: fire-and-forget end of a terminal whose only view closed
-        Task {
+        // task-owner: fire-and-forget end of a terminal whose only view closed; nothing in it runs on the main thread
+        Task { @concurrent in
             if placed {
                 _ = try? await connection.setTerminalKeep(.terminal(terminal), keep: false)
             } else {
@@ -303,6 +330,13 @@ final class RemoteTerminalService {
     func forget(tabID: String) {
         live[tabID] = nil
         placeholders[tabID] = nil
-        titleTasks.removeValue(forKey: tabID)?.cancel()
+        stopFollowingTitle(tabID)
+    }
+
+    /// Stops saving tab `tabID`'s title; a write in flight finishes.
+    private func stopFollowingTitle(_ tabID: String) {
+        titleWatches.removeValue(forKey: tabID)?.cancel()
+        savedTitles[tabID] = nil
+        titleWrites[tabID] = nil
     }
 }

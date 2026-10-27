@@ -55,38 +55,44 @@ public struct FolderNameIndex: Sendable {
     public static func build(root: URL, includeHidden: Bool = false, entryLimit: Int = 2_000_000) throws -> FolderNameIndex {
         let rootPath = root.standardizedFileURL.path
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: rootPath, isDirectory: &isDirectory), isDirectory.boolValue else {
+        // SAFETY: `isDirectory` is a local that outlives the call; Foundation writes one ObjCBool through the pointer
+        // and keeps no reference to it after returning.
+        guard unsafe FileManager.default.fileExists(atPath: rootPath, isDirectory: &isDirectory), isDirectory.boolValue else {
             throw FileBrowserError.missing(root)
         }
         var builder = Builder()
-        let truncated = try rootPath.withCString { cPath -> Bool in
-            let argv = UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>.allocate(capacity: 2)
-            defer { argv.deallocate() }
-            let copy = strdup(cPath)
-            defer { free(copy) }
-            argv[0] = copy
-            argv[1] = nil
+        // SAFETY: fts_open reads `argv`, a NULL-terminated array of one strdup'd copy of the root path; both live
+        // until the walk ends (the defers). Each FTSENT fts_read returns stays valid until the next fts_read or
+        // fts_close on the stream, and the loop reads its fields (fts_info, fts_level, the NUL-terminated fts_path)
+        // or hands it back to fts_set before asking for the next one; no FTSENT pointer outlives its turn.
+        let truncated = try unsafe rootPath.withCString { cPath -> Bool in
+            let argv = unsafe UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>.allocate(capacity: 2)
+            defer { unsafe argv.deallocate() }
+            let copy = unsafe strdup(cPath)
+            defer { unsafe free(copy) }
+            unsafe argv[0] = copy
+            unsafe argv[1] = nil
             // FTS_NOSTAT: directory-ness comes from d_type, so no stat per file.
-            guard let stream = fts_open(argv, FTS_PHYSICAL | FTS_NOCHDIR | FTS_NOSTAT, nil) else {
+            guard let stream = unsafe fts_open(argv, FTS_PHYSICAL | FTS_NOCHDIR | FTS_NOSTAT, nil) else {
                 throw FileBrowserError.unreadable(root, errno)
             }
-            defer { fts_close(stream) }
+            defer { unsafe fts_close(stream) }
             let prefixLength = rootPath == "/" ? 1 : rootPath.utf8.count + 1
-            while let entry = fts_read(stream) {
-                let info = Int32(entry.pointee.fts_info)
-                if entry.pointee.fts_level == 0 { continue }
+            while let entry = unsafe fts_read(stream) {
+                let info = unsafe Int32(entry.pointee.fts_info)
+                if unsafe entry.pointee.fts_level == 0 { continue }
                 if info == FTS_DP { continue }
-                let full = String(cString: entry.pointee.fts_path)
+                let full = unsafe String(cString: entry.pointee.fts_path)
                 let name = (full as NSString).lastPathComponent
                 let isDir = info == FTS_D || info == FTS_DC || info == FTS_DOT
                 if !includeHidden, name.hasPrefix(".") {
-                    if isDir { fts_set(stream, entry, FTS_SKIP) }
+                    if isDir { unsafe fts_set(stream, entry, FTS_SKIP) }
                     continue
                 }
                 if builder.count >= entryLimit { return true }
                 builder.add(relative: String(full.utf8.dropFirst(prefixLength)) ?? name, name: name, isDirectory: isDir)
                 if isDir, FileOpenKind.packageExtensions.contains((name as NSString).pathExtension.lowercased()) {
-                    fts_set(stream, entry, FTS_SKIP)
+                    unsafe fts_set(stream, entry, FTS_SKIP)
                 }
             }
             return false
@@ -117,20 +123,24 @@ public struct FolderNameIndex: Sendable {
         // buckets early instead of sorting every match.
         var buckets: [[Int]] = [[], [], [], []]
         var lastItem = -1
-        folded.withUnsafeBufferPointer { hay in
-            needle.withUnsafeBufferPointer { pin in
-                guard let base = hay.baseAddress, let pinBase = pin.baseAddress else { return }
+        // SAFETY: `hay` and `pin` are the two arrays' own storage, valid only inside these closures, which let no
+        // pointer out. 0 <= offset and offset + needle.count <= hay.count (the loop's condition), so memmem reads the
+        // hay.count - offset bytes from base + offset to the buffer's end and the needle's needle.count bytes, and a
+        // match it returns starts inside that range: `at` is an index into `folded`.
+        unsafe folded.withUnsafeBufferPointer { hay in
+            unsafe needle.withUnsafeBufferPointer { pin in
+                guard let base = unsafe hay.baseAddress, let pinBase = unsafe pin.baseAddress else { return }
                 var offset = 0
-                while offset + needle.count <= hay.count {
-                    guard let found = memmem(base + offset, hay.count - offset, pinBase, needle.count) else { break }
-                    let at = base.distance(to: UnsafePointer(found.assumingMemoryBound(to: UInt8.self)))
+                while unsafe offset + needle.count <= hay.count {
+                    guard let found = unsafe memmem(base + offset, hay.count - offset, pinBase, needle.count) else { break }
+                    let at = unsafe UnsafeRawPointer(base).distance(to: UnsafeRawPointer(found))
                     let item = itemIndex(containing: at)
                     if item != lastItem {
                         lastItem = item
                         let start = Int(starts[item]), end = Int(starts[item + 1]) - 1
                         let rank: Int
                         if at == start { rank = at + needle.count == end ? 0 : 1 }
-                        else { rank = Self.isWordStart(base, at, start) ? 2 : 3 }
+                        else { rank = Self.isWordStart(folded, at, start) ? 2 : 3 }
                         if buckets[rank].count < limit { buckets[rank].append(item) }
                         if buckets[0].count >= limit { break }
                         // Move to the next name: one item counts once.
@@ -167,9 +177,9 @@ public struct FolderNameIndex: Sendable {
         return low
     }
 
-    private static func isWordStart(_ base: UnsafePointer<UInt8>, _ at: Int, _ start: Int) -> Bool {
+    private static func isWordStart(_ folded: [UInt8], _ at: Int, _ start: Int) -> Bool {
         guard at > start else { return true }
-        let before = base[at - 1]
+        let before = folded[at - 1]
         let isAlnum = (before >= 0x30 && before <= 0x39) || (before >= 0x61 && before <= 0x7A) || before >= 0x80
         return !isAlnum
     }

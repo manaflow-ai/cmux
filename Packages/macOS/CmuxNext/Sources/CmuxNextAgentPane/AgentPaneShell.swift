@@ -1,5 +1,8 @@
 import CmuxNextCompat
-import CmuxNextWakeups
+public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Darwin
 public import Foundation
 
@@ -12,7 +15,8 @@ public import Foundation
 /// Bounded: at most ``maximumRunning`` commands run per pane, each keeps the last
 /// ``maximumBuffer`` bytes, and finished runs past ``maximumKept`` are dropped oldest first.
 /// Idle, nothing runs: no timer, only a process-exit source (``ChildExitWatch``) and a pipe read per running command.
-/// Deadlines (a read's wait, Stop's escalation, the drain after exit) are one-shot DemandTimers.
+/// Deadlines (a read's wait, Stop's escalation, the drain after exit) are `visible` MainDeadlines on the app's one
+/// placer: the page waits on each, so none is ever held for a hidden pane (p06-scheduler.md rule 6).
 public final class AgentPaneShell {
     public static let maximumRunning = 4
     public static let maximumKept = 16
@@ -59,12 +63,16 @@ public final class AgentPaneShell {
         var exit: Exit?
         var outputClosed = false
         var stopping = false
-        var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
-        let escalation = DemandTimer(owner: "agent-pane.shell.stop")
-        let drain = DemandTimer(owner: "agent-pane.shell.drain")
+        var waiters: [UUID: OnceContinuation<Void, OnceContinuationError>] = [:]
+        let escalation: MainDeadline
+        let drain: MainDeadline
         var stopReading: (() -> Void)?
 
-        init(pid: pid_t) { self.pid = pid }
+        init(pid: pid_t, deadlines: MainDeadlineScheduler) {
+            self.pid = pid
+            escalation = MainDeadline(owner: "agent-pane.shell.stop", workClass: .visible, scheduler: deadlines)
+            drain = MainDeadline(owner: "agent-pane.shell.drain", workClass: .visible, scheduler: deadlines)
+        }
 
         var end: Int { base + buffer.count }
         var finished: Bool { exit != nil && outputClosed }
@@ -73,7 +81,7 @@ public final class AgentPaneShell {
         func wake() {
             let waiting = waiters.values
             waiters.removeAll()
-            for waiter in waiting { waiter.resume() }
+            for waiter in waiting { waiter.resume(returning: ()) }
         }
     }
 
@@ -92,14 +100,24 @@ public final class AgentPaneShell {
     private let shell: String
     private let environment: [String: String]
     private let home: String
+    /// The app's one deadline placer (`AppServices.mainDeadlines`).
+    private let deadlines: MainDeadlineScheduler
     /// Spawns this pane's commands, in order, off the main actor: a command a person started shows soon.
     let launcher = ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.agent-shell", priority: .userVisible)
 
+    /// - Parameters:
+    ///   - shell: The login shell; one that is not an executable absolute path runs `/bin/zsh`.
+    ///   - environment: The commands' environment.
+    ///   - home: The folder of a command that names none.
+    ///   - deadlines: The app's one deadline placer (`AppServices.mainDeadlines`), for the reads' waits, Stop's
+    ///     escalation and the drain after exit.
     public init(
         shell: String? = ProcessInfo.processInfo.environment["SHELL"],
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        home: String = NSHomeDirectory()
+        home: String = NSHomeDirectory(),
+        deadlines: MainDeadlineScheduler
     ) {
+        self.deadlines = deadlines
         let candidate = shell ?? ""
         self.shell = candidate.hasPrefix("/") && FileManager.default.isExecutableFile(atPath: candidate) ? candidate : "/bin/zsh"
         var environment = environment
@@ -116,12 +134,12 @@ public final class AgentPaneShell {
     public func run(_ command: String, cwd: String?) async throws(Failure) -> String {
         guard runs.values.filter({ $0.exit == nil }).count + spawning < Self.maximumRunning else { throw .tooMany }
         let folder = cwd ?? home
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: folder, isDirectory: &isDirectory), isDirectory.boolValue else {
+        guard AcpmuxPathPolicy.isDirectory(folder) else {
             throw .folderMissing
         }
         var pipe: [Int32] = [-1, -1]
-        guard Darwin.pipe(&pipe) == 0 else { throw .spawnFailed(errno) }
+        // SAFETY: pipe writes its two descriptors into the array's own storage (two Int32), lent for the call.
+        guard unsafe Darwin.pipe(&pipe) == 0 else { throw .spawnFailed(errno) }
         let pid: pid_t
         let (shell, variables, output) = (self.shell, environment.map { "\($0.key)=\($0.value)" }, pipe[1])
         let launcher = self.launcher
@@ -140,7 +158,7 @@ public final class AgentPaneShell {
         }
         Darwin.close(pipe[1])
         let id = UUID().uuidString
-        let run = Run(pid: pid)
+        let run = Run(pid: pid, deadlines: deadlines)
         runs[id] = run
         order.append(id)
         evict()
@@ -189,11 +207,12 @@ public final class AgentPaneShell {
         guard let run = runs[id] else { throw .unknownRun }
         if !run.hasNews(after: after) {
             let token = UUID()
-            let deadline = DemandTimer(owner: "agent-pane.shell.read")
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let deadline = MainDeadline(owner: "agent-pane.shell.read", workClass: .visible, scheduler: deadlines)
+            // Abandoned (the run dropped its waiters) ends the wait as the deadline does: the chunk says what came.
+            try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                 run.waiters[token] = continuation
-                deadline.scheduleOnMain(after: Self.readWait) { [weak run] in
-                    run?.waiters.removeValue(forKey: token)?.resume()
+                deadline.schedule(after: Self.readWait) { [weak run] in
+                    run?.waiters.removeValue(forKey: token)?.resume(returning: ())
                 }
             }
             deadline.cancel()
@@ -214,7 +233,7 @@ public final class AgentPaneShell {
     /// Sends the next of `signals` after ``stopEscalation`` while the command still runs.
     private func escalate(_ run: Run, group: pid_t, signals: [Int32]) {
         guard let signal = signals.first else { return }
-        run.escalation.scheduleOnMain(after: Self.stopEscalation) { [weak self, weak run] in
+        run.escalation.schedule(after: Self.stopEscalation) { [weak self, weak run] in
             guard let self, let run, run.exit == nil else { return }
             kill(group, signal)
             self.escalate(run, group: group, signals: Array(signals.dropFirst()))
@@ -253,7 +272,7 @@ public final class AgentPaneShell {
             run.exit = status.map(Self.exit(status:)) ?? Exit()
             run.escalation.cancel()
             if !run.outputClosed {
-                run.drain.scheduleOnMain(after: Self.drainAfterExit) { [weak run] in
+                run.drain.schedule(after: Self.drainAfterExit) { [weak run] in
                     guard let run, !run.outputClosed else { return }
                     run.outputClosed = true
                     run.stopReading?()
@@ -273,36 +292,35 @@ public final class AgentPaneShell {
     /// Spawns `shell -l -c command` in `folder` at `priority`; blocking, so ``run(_:cwd:)`` calls it on a launcher.
     private nonisolated static func spawn(_ command: String, shell: String, variables: [String], folder: String,
                                           output: Int32, priority: MayBlockPriority) throws(Failure) -> pid_t {
+        // SAFETY (every posix_spawn_* call below): each takes the address of `actions` or `attributes`, locals
+        // initialized here and destroyed once by the defers, and copies the C strings it is lent (the NUL-terminated
+        // copies made for the call) before it returns.
         var actions: posix_spawn_file_actions_t?
         var attributes: posix_spawnattr_t?
-        guard posix_spawn_file_actions_init(&actions) == 0 else { throw .spawnFailed(errno) }
-        defer { posix_spawn_file_actions_destroy(&actions) }
-        guard posix_spawnattr_init(&attributes) == 0 else { throw .spawnFailed(errno) }
-        defer { posix_spawnattr_destroy(&attributes) }
-        let configured = "/dev/null".withCString { posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, $0, O_RDONLY, 0) } == 0
-            && posix_spawn_file_actions_adddup2(&actions, output, STDOUT_FILENO) == 0
-            && posix_spawn_file_actions_adddup2(&actions, output, STDERR_FILENO) == 0
-            && folder.withCString { posix_spawn_file_actions_addchdir_np(&actions, $0) } == 0
-            // Its own process group, so Stop reaches what the command started; every other
-            // descriptor of the app closes in the child.
-            && posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)) == 0
-            && posix_spawnattr_setpgroup(&attributes, 0) == 0
-        guard configured else { throw .spawnFailed(EINVAL) }
+        guard unsafe posix_spawn_file_actions_init(&actions) == 0 else { throw .spawnFailed(errno) }
+        defer { unsafe posix_spawn_file_actions_destroy(&actions) }
+        guard unsafe posix_spawnattr_init(&attributes) == 0 else { throw .spawnFailed(errno) }
+        defer { unsafe posix_spawnattr_destroy(&attributes) }
+        guard unsafe posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0) == 0,
+              unsafe posix_spawn_file_actions_adddup2(&actions, output, STDOUT_FILENO) == 0,
+              unsafe posix_spawn_file_actions_adddup2(&actions, output, STDERR_FILENO) == 0,
+              unsafe posix_spawn_file_actions_addchdir_np(&actions, folder) == 0,
+              // Its own process group, so Stop reaches what the command started; every other
+              // descriptor of the app closes in the child.
+              unsafe posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)) == 0,
+              unsafe posix_spawnattr_setpgroup(&attributes, 0) == 0 else { throw .spawnFailed(EINVAL) }
         let arguments = [shell, "-l", "-c", command]
         var pid: pid_t = 0
-        let status = Self.withCStrings(arguments) { argv in
-            Self.withCStrings(variables) { envp in
-                blockingPosixSpawn(&pid, shell, &actions, &attributes, argv, envp, priority: priority)
+        // SAFETY: argv and envp are NULL-terminated lists that withCStringList lends for its closure; posix_spawn
+        // copies them, writes the child's pid into `pid`, a local, and reads `actions` and `attributes` (above).
+        let status = unsafe withCStringList(arguments) { argv in
+            unsafe withCStringList(variables) { envp in
+                unsafe blockingPosixSpawn(&pid, shell, &actions, &attributes, argv, envp, priority: priority)
             }
         }
+        guard let status = status.flatMap({ $0 }) else { throw .spawnFailed(ENOMEM) }
         guard status == 0 else { throw .spawnFailed(status) }
         return pid
-    }
-
-    private nonisolated static func withCStrings<R>(_ strings: [String], _ body: ([UnsafeMutablePointer<CChar>?]) -> R) -> R {
-        let pointers = strings.map { strdup($0) } + [nil]
-        defer { for pointer in pointers { free(pointer) } }
-        return body(pointers)
     }
 
     /// A `waitpid` status: an exit code, or the signal that ended it.

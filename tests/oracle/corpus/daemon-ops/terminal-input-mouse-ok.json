@@ -141,6 +141,34 @@
           "text": "1b5b3c303b343b334d"
         }
       }
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.input.mouse",
+        "params": {
+          "kind": "down",
+          "row": 2,
+          "column": 3,
+          "button": "left"
+        },
+        "idempotencyKey": "terminal-input-mouse-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

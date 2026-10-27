@@ -268,14 +268,14 @@ import Testing
                              trackA: trackA, hostedWidgets: widgets)
     }
 
-    /// Layer hosting without the developer override, whose turns end on `schedule`.
+    /// Layer hosting without the forced override, whose turns end on `schedule`.
     private static func hosting(schedule: @escaping CEFLayerHosting.Scheduler) -> CEFLayerHosting {
         CEFLayerHosting(isEnabled: { false }, schedule: schedule,
                         makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: { _ in CALayer() }) },
                         resizeDeadlineMs: { 0 }, liveResizeDeadlineMs: { 0 }, refreshIntervals: { [] }, afterCommit: { _ in })
     }
 
-    /// A host view whose hosting ends its turns on `turn`, with the developer override on: a refused attach
+    /// A host view whose hosting ends its turns on `turn`, with the forced override on: a refused attach
     /// would show as a hosting call.
     private static func hostView(_ turn: CEFLayerHostingTests.Turn) -> CEFHostView {
         let hosting = CEFLayerHosting(isEnabled: { true }, schedule: { turn.add($0) },

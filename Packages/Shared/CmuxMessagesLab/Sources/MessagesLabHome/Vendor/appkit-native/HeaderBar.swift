@@ -368,7 +368,7 @@ enum AvatarShadow {
         let n = max(1, CrashGuard.int((side * scale).rounded(), in: 1...4096))
         // The dropped disc, black at the shadow's opacity (CG: bottom-left origin, so the drop is -y).
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
-              let ctx = CGContext(data: nil, width: n, height: n, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+              let ctx = CGContext.ownedBitmap(width: n, height: n, bitsPerComponent: 8, bytesPerRow: 0, space: space,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         ctx.scaleBy(x: scale, y: scale)
         ctx.setFillColor(NSColor(white: 0, alpha: opacity).cgColor)

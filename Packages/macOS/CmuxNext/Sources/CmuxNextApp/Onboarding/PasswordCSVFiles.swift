@@ -26,6 +26,7 @@ struct PasswordCSVFiles {
     /// the picked file and its move to the Trash.
     func chooseImport(profile: String) throws {
         let guide = PasswordCSVGuide(presenter: LivePasswordCSVGuidePresenter(queries: services.workspaceQueries))
+        // main-hop-allow: the action's tracked work awaits the person's own guide sheets and open panel (main-actor AppKit UI), then the file's import
         services.registry.track(Task { @MainActor in
             guard let url = await guide.run() else { return nil }
             return await importFile(url, profile: profile)
@@ -120,6 +121,7 @@ struct PasswordCSVFiles {
                               action: CmuxToast.Action(title: PasswordCSVStrings.replace), duration: .seconds(20))
         let handle = CmuxToastCenter.shared.show(toast, in: window)
         handle.onAction = {
+            // main-hop-allow: the person's Replace click; the task only awaits the hold's main-actor store writes and shows their result in that resume
             Task { @MainActor in
                 let replaced: ChromiumPasswordReplaceResult
                 do {
@@ -141,6 +143,7 @@ struct PasswordCSVFiles {
             guard reason != .action else { return }
             hold.release()
             // After the toast center ends this one (a dismiss can come from inside its show).
+            // main-hop-allow: the toast center's own order: a dismiss from inside its show must not show a toast re-entrantly, so the offer waits one job
             Task { @MainActor in
                 guard let window = windowLookup() else { return }
                 // A newer toast for this file took the slot and says what happened next; other
@@ -154,6 +157,7 @@ struct PasswordCSVFiles {
     /// Moves the file to the Trash; the toast's Undo puts it back.
     private static func recycle(_ url: URL, _ summary: [String], windowLookup: @escaping @MainActor () -> NSWindow?) {
         NSWorkspace.shared.recycle([url]) { @Sendable moved, error in
+            // main-hop-allow: NSWorkspace calls back on a thread of its own; the hop only shows the toast in one main job
             Task { @MainActor in
                 // Looked up again on the main actor: a window is not Sendable.
                 guard let window = windowLookup() else { return }

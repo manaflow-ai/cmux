@@ -404,3 +404,101 @@ fn line_connection_the_declared_capability_negotiates_frames() {
         ConnectionEnd::BadMessage(ConnectionBadMessage::Wire(BadMessage::FramesNotNegotiated))
     );
 }
+
+/// A connection's stream whose next write, once `stall` is set, takes
+/// 150 ms: an injected `mux-line-out` stall.
+struct StallingStream {
+    inner: UnixStream,
+    stall: Arc<AtomicBool>,
+}
+
+impl Read for StallingStream {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.inner.read(buf)
+    }
+}
+
+impl Write for StallingStream {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if self.stall.swap(false, Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(150));
+        }
+        self.inner.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+impl transport::Stream for StallingStream {
+    fn try_clone_box(&self) -> std::io::Result<Box<dyn transport::Stream>> {
+        Ok(Box::new(Self { inner: self.inner.try_clone()?, stall: self.stall.clone() }))
+    }
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.inner.set_read_timeout(timeout)
+    }
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.inner.set_write_timeout(timeout)
+    }
+    fn shutdown(&self, how: Shutdown) -> std::io::Result<()> {
+        self.inner.shutdown(how)
+    }
+}
+
+/// The request watchdog's wakeups once they stop changing (it disarmed).
+fn settled_wakeups(mux: &Mux) -> u64 {
+    let wakeups = || mux.request_watchdog.snapshot().watchdog_wakeups;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut last = wakeups();
+    loop {
+        std::thread::sleep(Duration::from_millis(600));
+        let now = wakeups();
+        if now == last {
+            return now;
+        }
+        assert!(Instant::now() < deadline, "the watchdog never settled");
+        last = now;
+    }
+}
+
+/// p02-threads task 232: the connection's `mux-line-out` writer watches each
+/// item it writes. A reply whose write stalls 150 ms is one hang of the
+/// mux's watchdog (`slow_requests.hangs`; the request watchdog tests check
+/// the row names `mux-line-out`), the replies before and after it none, and
+/// the idle connection then wakes the watchdog 0 times.
+#[test]
+fn line_connection_a_stalled_write_is_one_line_out_hang_and_idle_wakes_nothing() {
+    let mux = Mux::new_for_test("line-conn-stall", crate::SurfaceOptions::default());
+    let (socket, server) = UnixStream::pair().unwrap();
+    let stall = Arc::new(AtomicBool::new(false));
+    let stream = StallingStream { inner: server, stall: stall.clone() };
+    let served_mux = mux.clone();
+    let served = std::thread::spawn(move || {
+        let render = Arc::new(RenderService::new());
+        let mut lane = RequestFrames::default();
+        let stream: Box<dyn transport::Stream> = Box::new(stream);
+        let transport = ClientTransport::Unix;
+        serve_connection(served_mux, stream, render, None, transport, &LinesOnly, &mut lane)
+    });
+    let read_half = socket.try_clone().unwrap();
+    read_half.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let mut peer = Peer { mux, socket, replies: BufReader::new(read_half), served };
+
+    peer.send(&ping(1));
+    assert_eq!(peer.reply().unwrap()["ok"], json!(true));
+    settled_wakeups(&peer.mux);
+    assert_eq!(peer.mux.request_watchdog.snapshot().hangs, 0, "a prompt reply is no hang");
+
+    stall.store(true, Ordering::SeqCst);
+    peer.send(&ping(2));
+    assert_eq!(peer.reply().unwrap()["ok"], json!(true));
+    peer.send(&ping(3));
+    assert_eq!(peer.reply().unwrap()["ok"], json!(true));
+    let idle = settled_wakeups(&peer.mux);
+    assert_eq!(peer.mux.request_watchdog.snapshot().hangs, 1, "one stalled write, one hang");
+
+    std::thread::sleep(Duration::from_secs(1));
+    assert_eq!(settled_wakeups(&peer.mux), idle, "an idle connection wakes the watchdog 0 times");
+    peer.finish();
+}

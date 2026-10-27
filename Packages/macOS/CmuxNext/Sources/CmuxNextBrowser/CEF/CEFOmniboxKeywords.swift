@@ -60,7 +60,7 @@ import Foundation
     /// next omnibar step reads it again.
     func keywords(profile: BrowserProfileID, browser: Int32, shim: CEFShimLibrary) -> [OmnibarKeyword] {
         if let cached = cache[profile] { return cached }
-        guard let json = shim.takeString(shim.omniboxKeywords(browser)) else { return [] }
+        guard let json = shim.omniboxKeywords(browser) else { return [] }
         let keywords = Self.keywords(json: json)
         cache[profile] = keywords
         return keywords

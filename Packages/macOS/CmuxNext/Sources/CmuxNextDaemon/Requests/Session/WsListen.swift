@@ -29,4 +29,8 @@ public struct WsListenRequest: DaemonRequest {
     public init(allowOrigins: [String]) {
         self.allowOrigins = allowOrigins
     }
+
+    enum CodingKeys: String, CodingKey {
+        case allowOrigin = "allow_origin", allowOrigins = "allow_origins"
+    }
 }

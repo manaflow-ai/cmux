@@ -17,9 +17,10 @@ import Darwin
 ///
 /// Slots live in chunks of 64, 128 bytes each (one cache line, so two threads never share one), made on
 /// first use: at most 4,096 registrations, the others are counted (``registrationOverflows``) and not
-/// watched. Opening a scope is a clock read, one store of the packed deadline (a lane also stores the
-/// running thread's port) and one load of the monitor's plan; closing is one store. Neither takes a lock
-/// or makes a system call, except to wake the monitor (``scan(nowNanos:)`` says when).
+/// watched. Opening a scope is a clock read, one exchange of the packed deadline (a lane also stores the
+/// running thread's port) and one load of the monitor's plan; closing is one compare-and-swap. Each edge
+/// is one atomic read-modify-write, as the monitor's mark is, so neither loses a flag the monitor sets.
+/// Neither takes a lock or makes a system call, except to wake the monitor (``scan(nowNanos:)`` says when).
 ///
 /// ```swift
 /// let lane = runtime.hangWatch.registerLane("terminal-output")
@@ -124,16 +125,15 @@ public final class HangWatch: Sendable {
         if live.state & Self.kindMask == UInt64(ThreadKind.lane.rawValue) {
             Self.word(slot, Self.portWord).store(Self.currentPort(), ordering: .relaxed)
         }
-        let word = Self.word(slot, Self.deadlineWord)
-        let previous = word.load(ordering: .relaxed)
         let (sum, overflow) = clock.nowNanos().addingReportingOverflow(timeoutNanos(deadline, slot: slot))
         let due = overflow ? Self.deadlineMask : max(min(sum, Self.deadlineMask), 1)
         // The deadline, then the plan: the monitor stores its scanning mark, then reads the slots, so
-        // either it sees this deadline or this open sees the mark and wakes it.
-        word.store(due, ordering: .sequentiallyConsistent)
+        // either it sees this deadline or this open sees the mark and wakes it. The exchange returns the
+        // enclosing scope with every flag the monitor set on it, up to this instant.
+        let previous = Self.word(slot, Self.deadlineWord).exchange(due, ordering: .sequentiallyConsistent)
         requestScan(by: due)
         return HangWatchScope(registration: registration, previousDeadline: previous, slotAddress: UInt(bitPattern: slot),
-                              owner: Unmanaged.passUnretained(self))
+                              owner: self)
     }
 
     /// Runs `body` inside a scope on `registration`'s slot.
@@ -178,14 +178,18 @@ public final class HangWatch: Sendable {
         guard let slot = UnsafeMutablePointer<UInt64>(bitPattern: slotAddress),
               Self.owns(Self.word(slot, Self.stateWord).load(ordering: .relaxed), registration) else { return }
         let word = Self.word(slot, Self.deadlineWord)
-        let current = word.load(ordering: .relaxed)
-        guard previous & Self.deadlineMask != 0, previous & Self.closedFlag == 0 else {
-            word.store(current & Self.deadlineMask | Self.closedFlag, ordering: .releasing)
-            if current & Self.reportedFlag != 0 { requestScan(by: clock.nowNanos()) }
-            return
+        let outermost = previous & Self.deadlineMask == 0 || previous & Self.closedFlag != 0
+        // A compare-and-swap, as the monitor's mark and `invalidateActive()`'s flag are: `current` is the
+        // word this close replaced, so its reported flag (the wake below) and ignore flag are never stale.
+        func restoring(_ current: UInt64) -> UInt64 {
+            outermost ? current & Self.deadlineMask | Self.closedFlag : previous | current & Self.ignoredFlag
         }
-        let restored = previous | current & Self.ignoredFlag
-        word.store(restored, ordering: .sequentiallyConsistent)
+        var current = word.load(ordering: .relaxed)
+        var restored = restoring(current)
+        while case (false, let original) = word.compareExchange(expected: current, desired: restored, ordering: .sequentiallyConsistent) {
+            current = original
+            restored = restoring(current)
+        }
         if let due = nextTierDue(restored) { requestScan(by: due) }
         if current & Self.reportedFlag != 0, restored != current { requestScan(by: clock.nowNanos()) }
     }

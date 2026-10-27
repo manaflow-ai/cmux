@@ -74,12 +74,12 @@ final class PredictiveEchoSlot {
 
     /// The terminal's font, its colors and its cell geometry in the view now.
     private func style(of view: TerminalSurfaceView, surface: ghostty_surface_t) -> PredictiveEchoOverlay.Style? {
-        var metrics = ghostty_surface_grid_metrics_s()
-        guard ghostty_surface_grid_metrics(surface, &metrics),
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        guard let metrics = unsafe GhosttyTextRead.gridMetrics(surface),
               let cells = CopyModeCursorFrame(cellWidth: metrics.cell_width, cellHeight: metrics.cell_height,
                                               paddingLeft: metrics.padding_left, paddingTop: metrics.padding_top,
                                               viewHeight: view.bounds.height),
-              let font = terminalFont(of: surface, cell: CGSize(width: metrics.cell_width, height: metrics.cell_height)),
+              let font = unsafe terminalFont(of: surface, cell: CGSize(width: metrics.cell_width, height: metrics.cell_height)),
               let theme = view.session?.theme?.colors ?? GhosttyRuntime.shared.themeColors,
               let colors = PredictiveEchoOverlay.colors(of: theme, backgroundOverride: view.session?.model.backgroundOverride)
         else { return nil }
@@ -91,8 +91,8 @@ final class PredictiveEchoSlot {
     /// when the cell size changes (a font size change).
     private func terminalFont(of surface: ghostty_surface_t, cell: CGSize) -> CTFont? {
         if let cachedFont, cachedFont.cell == cell { return cachedFont.font }
-        guard let pointer = ghostty_surface_quicklook_font(surface) else { return nil }
-        let read = Unmanaged<CTFont>.fromOpaque(pointer).takeRetainedValue()
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        guard let read = unsafe GhosttyTextRead.quickLookFont(surface) else { return nil }
         cachedFont = (cell, read)
         return read
     }
@@ -106,27 +106,26 @@ final class PredictiveEchoSlot {
                                           x: UInt32(columns.upperBound), y: UInt32(row)),
             rectangle: false
         )
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
-        defer { ghostty_surface_free_text(surface, &text) }
-        guard let pointer = text.text, text.text_len > 0 else { return [] }
-        return Array(UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)))
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        return unsafe GhosttyTextRead(surface, selection: selection)?.bytes
     }
 }
 
 extension PredictiveEchoSlot: PredictiveEchoHost {
     func readPredictionGrid(row: Int?, leftmost: Int?, readsBefore: Bool) -> PredictionRow? {
         guard let surface = view?.surface else { return nil }
-        var metrics = ghostty_surface_grid_metrics_s()
-        guard ghostty_surface_grid_metrics(surface, &metrics), metrics.cursor_in_viewport, metrics.columns > 0 else { return nil }
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        guard let metrics = unsafe GhosttyTextRead.gridMetrics(surface), metrics.cursor_in_viewport, metrics.columns > 0 else { return nil }
         let (columns, cursorRow, cursorColumn) = (Int(metrics.columns), Int(metrics.cursor_row), Int(metrics.cursor_column))
         let row = row ?? cursorRow
         guard row >= 0, row < Int(metrics.rows) else { return nil }
         let start = min(max(min(cursorColumn, leftmost ?? cursorColumn), 0), columns)
         // The engine predicts nothing on the alternate screen: its cells are not read.
         let alternate = metrics.alternate_screen
-        let text: [UInt8]? = alternate || start >= columns ? [] : Self.text(surface, row: row, columns: start...(columns - 1))
-        let before: [UInt8]? = readsBefore && !alternate && start > 0 ? Self.text(surface, row: row, columns: (start - 1)...(start - 1)) : nil
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        let text: [UInt8]? = unsafe alternate || start >= columns ? [] : Self.text(surface, row: row, columns: start...(columns - 1))
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        let before: [UInt8]? = unsafe readsBefore && !alternate && start > 0 ? Self.text(surface, row: row, columns: (start - 1)...(start - 1)) : nil
         return PredictionRow(cursorRow: cursorRow, cursorColumn: cursorColumn, columns: columns, isAlternateScreen: alternate,
                              row: row, start: start, text: text, beforeText: before)
     }
@@ -178,6 +177,7 @@ extension PredictiveEchoSlot: PredictiveEchoHost {
         let overlay = self.overlay ?? PredictiveEchoOverlay(frame: .zero)
         if overlay.superview !== view { view.addSubview(overlay) }
         self.overlay = overlay
-        overlay.show(cells, cursor: cursor, style: style(of: view, surface: surface))
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        overlay.show(cells, cursor: cursor, style: unsafe style(of: view, surface: surface))
     }
 }

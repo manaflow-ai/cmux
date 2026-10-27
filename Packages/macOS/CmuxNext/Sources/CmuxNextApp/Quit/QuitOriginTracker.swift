@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// Remembers who asked for the next quit. A `quit` action run records its
 /// origin before it calls `NSApp.terminate`; a quit nobody recorded (the
@@ -10,11 +11,12 @@ import CmuxNextCompat
 final class QuitOriginTracker {
     private var pending: QuitOrigin?
     private(set) var isPoweringOff = false
-    private var powerOff: MainActorObservation?
+    private var powerOff: EventSubscription?
 
-    /// The app keeps one for its lifetime; the observer holds it weakly.
-    init(center: NotificationCenter = NSWorkspace.shared.notificationCenter) {
-        powerOff = MainActorObservation(NSWorkspace.willPowerOffNotification, center: center) { [weak self] in
+    /// The app keeps one for its lifetime; the subscription holds it weakly. `workspaceEvents` is the app's one
+    /// fan-out of the NSWorkspace notices (`AppServices.workspaceEvents`; a test's own on its own center).
+    init(workspaceEvents: AppEvents) {
+        powerOff = workspaceEvents.subscribe(NSWorkspace.willPowerOffNotification, owner: "QuitOriginTracker.powerOff") { [weak self] in
             self?.isPoweringOff = true
         }
     }

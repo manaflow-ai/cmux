@@ -238,6 +238,61 @@ int main() {
   Expect(!cmux_shim::GrantsCmuxPageLocalNetwork("cmux-page://cmux.settings", (1u << 27) | (1u << 8)), "no grant with geolocation");
   Expect(!cmux_shim::GrantsCmuxPageLocalNetwork("cmux-page://cmux.settings", 0), "no grant for nothing");
 
+  // cmux.shared (p13-webui-050): ACAO only for a first-party page origin,
+  // serialized exactly; never for a web page, an app page or itself.
+  auto acao = [](const std::string& origin) { return cmux_shim::SharedChunkAllowedOrigin(origin); };
+  Expect(acao("cmux-page://cmux.settings") == "cmux-page://cmux.settings", "shared ACAO for Settings");
+  Expect(acao("cmux-page://cmux.agent") == "cmux-page://cmux.agent", "shared ACAO for the agent page");
+  Expect(acao("https://evil.test").empty(), "no shared ACAO for a web page");
+  Expect(acao("cmux-page://com.example.app").empty(), "no shared ACAO for an app page");
+  Expect(acao("cmux-page://mycmux.settings").empty(), "no shared ACAO for a look-alike host");
+  Expect(acao("cmux-page://cmux.shared").empty(), "no shared ACAO for cmux.shared itself");
+  Expect(acao("cmux-page://CMUX.settings").empty(), "no shared ACAO for an unserialized origin");
+  Expect(acao("cmux-page://cmux.settings:80").empty(), "no shared ACAO with a port");
+  Expect(acao("cmux-page://cmux.settings/").empty(), "no shared ACAO with a path");
+  Expect(acao("null").empty(), "no shared ACAO for an opaque origin");
+  Expect(acao("").empty(), "no shared ACAO without an Origin");
+  Expect(acao("cmux-page://").empty(), "no shared ACAO for an empty host");
+
+  // Only script and style, so nothing it serves is a document.
+  Expect(cmux_shim::IsSharedChunkPath("/react-3f2a.js"), "shared serves .js");
+  Expect(cmux_shim::IsSharedChunkPath("/chunks/ui-9c1d.css"), "shared serves .css");
+  Expect(!cmux_shim::IsSharedChunkPath("/index.html"), "shared refuses .html");
+  Expect(!cmux_shim::IsSharedChunkPath("/data.json"), "shared refuses .json");
+  Expect(!cmux_shim::IsSharedChunkPath("/a.mjs"), "shared refuses .mjs");
+  Expect(!cmux_shim::IsSharedChunkPath("/a.svg"), "shared refuses .svg");
+  Expect(!cmux_shim::IsSharedChunkPath("/a.JS"), "shared refuses an uppercase extension");
+  Expect(!cmux_shim::IsSharedChunkPath("/"), "shared refuses /");
+  Expect(!cmux_shim::IsSharedChunkPath("/dir.js/file"), "shared refuses a file in a .js folder");
+
+  // Never a navigation; a frame must be at the Origin it sends.
+  auto shared = [](bool navigation, const std::string& frame, const std::string& origin) {
+    return cmux_shim::SharedChunkRequestAllowed(navigation, frame, origin);
+  };
+  Expect(shared(false, "cmux-page://cmux.settings/index.html", "cmux-page://cmux.settings"), "Settings imports a chunk");
+  Expect(shared(false, "", "cmux-page://cmux.agent"), "a page worker imports a chunk");
+  Expect(shared(false, "about:srcdoc", "cmux-page://cmux.agent"), "a srcdoc frame of a page imports a chunk");
+  Expect(!shared(true, "", "cmux-page://cmux.settings"), "navigation to cmux.shared refused");
+  Expect(!shared(true, "cmux-page://cmux.settings/", ""), "omnibox navigation to cmux.shared refused");
+  Expect(!shared(false, "https://evil.test/", "https://evil.test"), "a web page is refused");
+  Expect(!shared(false, "https://evil.test/", "cmux-page://cmux.settings"), "a forged Origin from a web frame is refused");
+  Expect(!shared(false, "cmux-page://cmux.settings/", ""), "a no-cors request (no Origin) is refused");
+  Expect(!shared(false, "cmux-page://com.example.app/", "cmux-page://com.example.app"), "an app page is refused");
+
+  bool has_acao = false;
+  for (auto& [name, value] : cmux_shim::SharedChunkResponseHeaders("default-src 'none'", "")) {
+    has_acao = has_acao || name == "Access-Control-Allow-Origin";
+  }
+  Expect(!has_acao, "a refused shared request gets no ACAO");
+  std::string granted;
+  std::string policy;
+  for (auto& [name, value] : cmux_shim::SharedChunkResponseHeaders("default-src 'none'", "cmux-page://cmux.settings")) {
+    if (name == "Access-Control-Allow-Origin") granted = value;
+    if (name == "Content-Security-Policy") policy = value;
+  }
+  Expect(granted == "cmux-page://cmux.settings", "an allowed shared request gets its own origin as ACAO");
+  Expect(policy == "default-src 'none'; frame-ancestors 'none'", "shared responses cannot be framed: " + policy);
+
   std::string cleanup = "rm -rf '" + made + "' '" + base + "'";
   if (system(cleanup.c_str()) != 0) std::cerr << "warning: could not remove " << base << "\n";
   std::cout << g_cases << " cases, " << g_failures << " failures\n";

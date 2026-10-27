@@ -4,6 +4,9 @@ public import Foundation
 import CmuxNextCompat
 public import CmuxNextRemoteFetch
 public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// What cmux already knows about a web page a reply links to: its site's favicon (PNG) and the
 /// page's title, from the user's own browsing. Never fetched for a chip (D4).
@@ -221,9 +224,9 @@ extension AgentPaneModel {
 
     private func confirmOutside(_ path: String) async -> Bool {
         guard let ask = replyLinks.confirmOutside else { return false }
-        return await withCheckedContinuation { continuation in
+        return (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             ask(path) { continuation.resume(returning: $0) }
-        }
+        }) ?? false // dropped unanswered (the pane closed): not a yes
     }
 
     /// A reply image (D5): a file inside the roots, read by the host; or an https image fetched

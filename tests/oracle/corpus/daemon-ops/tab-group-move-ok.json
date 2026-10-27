@@ -117,6 +117,32 @@
         "settled"
       ],
       "note": "the group and its tab move to the front of the split's pane"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "tab_group.move",
+        "params": {
+          "tab_group": "$step:fx-tab-group#/value/id",
+          "pane_id": "$step:fx-split#/value/pane_id",
+          "index": 0
+        },
+        "idempotencyKey": "tab-group-move-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

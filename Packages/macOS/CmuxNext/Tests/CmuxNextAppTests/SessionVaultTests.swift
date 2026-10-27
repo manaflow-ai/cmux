@@ -41,7 +41,7 @@ struct SessionVaultTests {
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         let copied = Copied()
-        let vault = SessionVault(source: FixedSource(sessions), pullRequests: VaultPullRequests(claudeProjects: projects.map { [$0] } ?? []),
+        let vault = SessionVault(source: FixedSource(sessions), work: services.work, pullRequests: VaultPullRequests(claudeProjects: projects.map { [$0] } ?? []),
                                  copyText: { copied.texts.append($0) }, openURL: opened)
         services.vault = vault
         await vault.reload()

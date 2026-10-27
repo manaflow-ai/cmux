@@ -94,6 +94,7 @@ public final class AppSectionProvider {
 }
 
 /// Hosts an `AppSectionFrame` with theme-resolved colors and measures it.
+// hosting-gate: opt-out a sidebar section, not tab content: it shows while the sidebar does, and the sidebar measures it by intrinsic size.
 final class AppSectionHostingView: NSHostingView<AnyView> {
     private let sceneAppearance = AppSceneAppearance()
     private let measurer: NSHostingController<AnyView>

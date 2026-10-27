@@ -40,3 +40,23 @@ struct CEFResizeSyncDeadline: Equatable {
         milliseconds = value
     }
 }
+
+/// Host mode (task p01-process-052, ``ChromiumHostResizeFence``): the main thread never waits for
+/// a page's frame. The WindowServer holds the window's commit on a fence for at most one display
+/// frame, and a page later than that shows its last frame on its background.
+extension CEFResizeSyncDeadline {
+    /// The fork's deadline for a fenced page resize, in display frames (the host passes at most
+    /// `kMaxFenceDeadlineFrames`, ChromiumHost/src/host_resize.h).
+    static let fenceFrames: UInt32 = 1
+
+    /// The display frame a screen with no refresh interval is taken to have (60 Hz).
+    static let defaultFrame: Duration = .microseconds(16_667)
+
+    /// How long cmux waits for the host's answer to a fenced resize before it ends the window's
+    /// fences: ``fenceFrames`` frames of the window's screen (`refreshInterval`, seconds; not positive:
+    /// ``defaultFrame``). The answer comes when the host gave the fork its right, before the page draws.
+    static func fenceDeadline(refreshInterval: Double) -> Duration {
+        let frame = refreshInterval > 0 ? Duration.microseconds(Int64((refreshInterval * 1_000_000).rounded(.up))) : defaultFrame
+        return frame * Int(fenceFrames)
+    }
+}

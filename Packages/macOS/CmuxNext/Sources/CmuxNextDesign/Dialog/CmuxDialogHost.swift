@@ -62,6 +62,7 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
     }
 
     public func show(_ dialog: CmuxDialogView, in scope: CmuxDialogScope, scopeGone: @escaping () -> Void) {
+        // sync-layout: the dialog's wrapped text sets its fitting size, which sizes the overlay below.
         dialog.layoutSubtreeIfNeeded()
         let size = dialog.fittingSize
         dialog.translatesAutoresizingMaskIntoConstraints = true

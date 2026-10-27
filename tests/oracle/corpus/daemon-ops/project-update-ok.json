@@ -77,6 +77,31 @@
         "settled"
       ],
       "note": "the user's rename of a project a source reported"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "project.update",
+        "params": {
+          "path": "/srv/oracle-project",
+          "rename": "Oracle"
+        },
+        "idempotencyKey": "project-update-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

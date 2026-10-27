@@ -11,16 +11,16 @@ extension TabStripView {
         set { hoverCard.coordinator = newValue }
     }
 
-    /// Makes the strip report to `coordinator` (the App's one) and registers its hover card's
-    /// thumbnails and samples, one memory consumer, with `memory` (the App's memory coordinator).
-    public func attachHoverCards(_ coordinator: HoverCardCoordinator, memory: any MemoryConsumerRegistry) {
+    /// Makes the strip report to `coordinator` (the App's one), registers its hover card's thumbnails and samples, one
+    /// memory consumer, with `memory` (the App's memory coordinator), and has its tab cards ask `energy` (nil: none).
+    public func attachHoverCards(_ coordinator: HoverCardCoordinator, memory: any MemoryConsumerRegistry, energy: (any TabEnergySource)? = nil) {
         hoverCards = coordinator
+        hoverCard.energy = energy
         registerHoverCardMemory(with: memory)
     }
 
-    /// Registers the hover card's thumbnails and samples, one memory consumer, with `registry`.
-    /// The strip keeps the registration, so the consumer leaves the registry with the strip; a
-    /// second call replaces the first.
+    /// Registers the hover card's thumbnails and samples, one memory consumer, with `registry`. The strip keeps the
+    /// registration, so the consumer leaves the registry with the strip; a second call replaces the first.
     func registerHoverCardMemory(with registry: any MemoryConsumerRegistry) {
         hoverCard.memoryRegistration?.cancel()
         hoverCard.memoryRegistration = MemoryConsumerRegistration(

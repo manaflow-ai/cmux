@@ -76,7 +76,9 @@ nonisolated final class RemoteVideoDecoder {
         }
         let output = DecodeOutput()
         var info = VTDecodeInfoFlags()
-        let status = VTDecompressionSessionDecodeFrame(
+        // SAFETY: VideoToolbox writes the flags to the local `info`, live for the call.
+        // The decode is synchronous (no asynchronous flag), so it ends before `info` does.
+        let status = unsafe VTDecompressionSessionDecodeFrame(
             session, sampleBuffer: sample, flags: [._1xRealTimePlayback], infoFlagsOut: &info
         ) { status, _, image, _, _ in
             output.set(status: status, image: image)
@@ -117,15 +119,19 @@ nonisolated final class RemoteVideoDecoder {
         var lastStatus: OSStatus = noErr
         for spec in specs {
             var created: VTDecompressionSession?
-            lastStatus = VTDecompressionSessionCreate(
+            // SAFETY: VideoToolbox writes one +1 session to the local `created`; with a
+            // nil callback record it keeps no pointer of ours.
+            lastStatus = unsafe VTDecompressionSessionCreate(
                 allocator: kCFAllocatorDefault, formatDescription: format,
                 decoderSpecification: spec as CFDictionary, imageBufferAttributes: attributes as CFDictionary,
                 outputCallback: nil, decompressionSessionOut: &created)
             guard lastStatus == noErr, let created else { continue }
             VTSessionSetProperty(created, key: kVTDecompressionPropertyKey_RealTime, value: kCFBooleanTrue)
             var usingHardware: CFTypeRef?
-            let query = withUnsafeMutablePointer(to: &usingHardware) {
-                VTSessionCopyProperty(
+            // SAFETY: this property is a CFBoolean: VideoToolbox stores one +1 CFTypeRef
+            // in the local `usingHardware`, live for the call, and Swift takes ownership.
+            let query = unsafe withUnsafeMutablePointer(to: &usingHardware) {
+                unsafe VTSessionCopyProperty(
                     created, key: kVTDecompressionPropertyKey_UsingHardwareAcceleratedVideoDecoder,
                     allocator: kCFAllocatorDefault, valueOut: $0)
             }

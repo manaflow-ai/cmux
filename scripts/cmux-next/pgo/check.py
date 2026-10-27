@@ -4,6 +4,7 @@ done check 9 and query Q10).
 
     python3 scripts/cmux-next/pgo/check.py --app "$NX_APP" --order Resources/build/cmux-next.order --link-map MAP
     python3 scripts/cmux-next/pgo/check.py ... --launch-profile fresh-launch.profraw --profdata cmux-next.profdata
+    python3 scripts/cmux-next/pgo/check.py --order Resources/build/cmux-next.order [--profdata-sha256 SHA256_FILE]
 
 Run it by hand on a Release build that linked the order file (task 051 writes the link map), or from the refresh
 script (054). It is not a CI step. Chrome's equivalent is tools/cygprofile/check_orderfile.py, which checks an
@@ -11,7 +12,12 @@ Android order file against the symbols of the binary it was linked into (docs/or
 the count that clang's -Wprofile-instr-out-of-date gives (warn_profile_data_out_of_date in
 clang/include/clang/Basic/DiagnosticFrontendKinds.td).
 
-Checks, each a line of the report:
+With no --link-map (no Release link yet) it checks only the order file (task 109): exactly one
+`# profdata sha256` header, equal to the sha256 file of the profdata the build uses (--profdata-sha256, the same file
+as --pinned), at least one symbol and no symbol twice. It prints each problem as `pgo-check: FAIL <problem>`, or
+`pgo-check: ok <n> symbols, profdata <sha>`.
+
+Checks with --link-map, each a line of the report:
 
     coverage       the order file's symbols that the link map lists as live. Release is stripped, so the link map,
                    not nm. Fails under --min-coverage (90 %), and when the order file has no symbols.
@@ -47,15 +53,23 @@ DEFAULT_PAGES, MIN_COVERAGE, MIN_LAUNCH_WINDOW, MAX_MISMATCH = 64, 90.0, 90.0, 2
 SHOWN_MISSING = 10
 
 
-def load_runner():
-    """run-scenarios.py, for its llvm-profdata seam, tool runner and sha256."""
-    name = "run_scenarios"
+def load_module(name, file):
     if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, os.path.join(HERE, "run-scenarios.py"))
+        spec = importlib.util.spec_from_file_location(name, os.path.join(HERE, file))
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module
         spec.loader.exec_module(module)
     return sys.modules[name]
+
+
+def load_order_lib():
+    """page-fault-order.py (task 109), for its order file check."""
+    return load_module("page_fault_order", "page-fault-order.py")
+
+
+def load_runner():
+    """run-scenarios.py, for its llvm-profdata seam, tool runner and sha256."""
+    return load_module("run_scenarios", "run-scenarios.py")
 
 
 runner = load_runner()
@@ -441,12 +455,13 @@ def report(results, json_path):
 def parse_args(argv):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--order", required=True, help="the order file (Resources/build/cmux-next.order)")
-    parser.add_argument("--link-map", required=True, help="the link map of the Release link (LD_GENERATE_MAP_FILE)")
+    parser.add_argument("--link-map", help="the link map of the Release link (LD_GENERATE_MAP_FILE); without it "
+                        "only the order file is checked against --profdata-sha256")
     parser.add_argument("--app", help="the Release app bundle or its executable; checks the map is of its link")
     parser.add_argument("--launch-profile", help="a launch.profraw of a profile build at the same source")
     parser.add_argument("--profdata", help="the profdata the Release build used (its sha256 and its hashes)")
-    parser.add_argument("--pinned", help="the pinned profile's sha256 file (default "
-                        "Resources/build/cmux-next.profdata.sha256 when it exists)")
+    parser.add_argument("--pinned", "--profdata-sha256", dest="pinned", help="the pinned profile's sha256 file "
+                        "(default Resources/build/cmux-next.profdata.sha256 when it exists)")
     parser.add_argument("--pages", type=int, default=DEFAULT_PAGES, help="pages of the launch window (64)")
     parser.add_argument("--page-size", type=int, help="bytes per page (default 16384 for arm64, 4096 otherwise)")
     parser.add_argument("--min-coverage", type=float, default=MIN_COVERAGE, help="percent (90)")
@@ -457,12 +472,32 @@ def parse_args(argv):
     args = parser.parse_args(argv)
     if args.pages < 1 or (args.page_size is not None and args.page_size < 1):
         parser.error("--pages and --page-size must be positive")
+    if not args.link_map and (args.app or args.launch_profile or args.profdata):
+        parser.error("--app, --launch-profile and --profdata need --link-map")
     return args
+
+
+def check_order_only(order_path, sha256_path):
+    """The order file against the sha256 file of the profdata the build uses, before a Release link exists."""
+    lib = load_order_lib()
+    try:
+        text = read_text(order_path, "--order")
+        profdata_sha = lib.read_sha256_file(sha256_path)
+    except (OSError, lib.OrderError) as error:
+        raise InputError(str(error))
+    problems = lib.check_order(text, profdata_sha)
+    for problem in problems:
+        print(f"pgo-check: FAIL {problem}")
+    if not problems:
+        print(f"pgo-check: ok {len(lib.order_symbols(text))} symbols, profdata {profdata_sha}")
+    return not problems
 
 
 def main(argv=None):
     args = parse_args(argv)
     try:
+        if not args.link_map:
+            return 0 if check_order_only(args.order, args.pinned or DEFAULT_PINNED) else 1
         results = run_checks(args)
     except InputError as error:
         print(f"pgo-check: error: {error}", file=sys.stderr, flush=True)

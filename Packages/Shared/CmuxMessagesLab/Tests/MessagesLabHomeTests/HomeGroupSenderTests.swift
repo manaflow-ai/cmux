@@ -69,7 +69,9 @@ import Testing
         let w = image.width, h = image.height
         var pixels = [UInt8](repeating: 0, count: w * h * 4)
         let drawn = pixels.withUnsafeMutableBytes { buf -> Bool in
-            guard let ctx = CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+            // SAFETY: buf is the array's storage, w * h * 4 bytes (its count), lent for this closure; the context writes
+            // w * 4 bytes a row for h rows inside it, and is not drawn into after the closure.
+            guard let ctx = unsafe CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                                       space: CGColorSpaceCreateDeviceRGB(),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
             ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))

@@ -59,9 +59,11 @@ pub(super) struct Writer {
 impl Writer {
     pub(super) fn start(&self, mux: Weak<Mux>) -> anyhow::Result<()> {
         let state = self.state.clone();
-        let thread = std::thread::Builder::new()
-            .name("mux-output-store-writer".into())
-            .spawn(move || run(&mux, &state))?;
+        let thread = cmux_threads::spawn(
+            "mux-output-store-writer",
+            crate::request_qos::UPKEEP_THREAD_QOS,
+            move || run(&mux, &state),
+        )?;
         *self.thread.lock().unwrap_or_else(PoisonError::into_inner) = Some(thread);
         Ok(())
     }
@@ -149,6 +151,7 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
             }
         }
         let Some(mux) = mux.upgrade() else { return };
+        let _pass = mux.request_qos().enter_upkeep_pass();
         write_pass(&mux, &mux.output_store);
     }
 }

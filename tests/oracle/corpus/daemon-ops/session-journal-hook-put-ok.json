@@ -362,6 +362,57 @@
       "expect": {
         "outcome": "ok"
       }
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "session.journal.hook.put",
+        "params": {
+          "manifest": {
+            "hook_id": "oracle",
+            "manifest_version": 1,
+            "filter": {
+              "kinds": [
+                "plugin.oracle.never"
+              ]
+            },
+            "exec": {
+              "argv": [
+                "/bin/sh",
+                "-c",
+                "exit 0"
+              ],
+              "timeout_ms": 1000,
+              "max_parallel": 1
+            },
+            "delivery": {
+              "start": "tail",
+              "retry": {
+                "max_attempts": 1,
+                "backoff_ms": 0
+              }
+            },
+            "permissions": [
+              "journal.read"
+            ]
+          }
+        },
+        "idempotencyKey": "session-journal-hook-put-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

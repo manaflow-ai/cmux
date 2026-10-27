@@ -55,6 +55,7 @@ struct TerminalPointerCoalescingTests {
         /// `coalesced`: the feature on. `programHasMouse`: the program turned mouse reporting on.
         init(coalesced: Bool = true, programHasMouse: Bool = false) {
             _ = NSApplication.shared
+            GhosttyRuntime.startedForTests()
             let ledger = WakeupLedger()
             let scheduler = FrameScheduler.testing(clock: ManualClock(), ledger: ledger, mediaTime: { 1000 }) { _ in TestLink() }
             let coalescer = FrameInputCoalescer(scheduler: scheduler, clock: ManualClock(), ledger: ledger)

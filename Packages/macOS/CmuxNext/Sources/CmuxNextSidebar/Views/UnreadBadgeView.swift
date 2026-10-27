@@ -27,6 +27,7 @@ final class UnreadBadgeView: NSView {
         label.font = SidebarStyle.badgeFont
         label.alignment = .center
         addSubview(label)
+        isHidden = true // `.none` until configured
     }
 
     @available(*, unavailable)
@@ -34,7 +35,9 @@ final class UnreadBadgeView: NSView {
 
     nonisolated override var wantsUpdateLayer: Bool { true }
 
+    /// A row configures its badge on every content change: the same state (and font) asks for no paint or layout.
     func configure(_ state: UnreadState) {
+        guard state != self.state || label.font != SidebarStyle.badgeFont else { return }
         self.state = state
         label.setFont(SidebarStyle.badgeFont)
         isHidden = !state.isUnread
@@ -44,8 +47,8 @@ final class UnreadBadgeView: NSView {
         } else {
             label.isHidden = true
         }
-        needsDisplay = true
-        needsLayout = true
+        // invalidate: a new state or font (the guard above) paints another look at another width and radius.
+        needsDisplay = true; needsLayout = true
     }
 
     /// Width of a count badge for `count` (without a view).
@@ -107,19 +110,19 @@ final class UnreadBadgeView: NSView {
         let y = (((bounds.height - font.capHeight) / 2 + font.descender) * scale).rounded() / scale
         label.frame = NSRect(x: 0, y: y, width: bounds.width, height: h)
         layer?.cornerRadius = state == .dot ? bounds.height / 2 : Metrics.chipCornerRadius(height: bounds.height)
-        needsDisplay = true
     }
 
     override func setFrameSize(_ newSize: NSSize) {
-        let changed = newSize != frame.size
+        let oldSize = frame.size
         super.setFrameSize(newSize)
-        if changed { needsLayout = true }
+        if newSize != oldSize { needsLayout = true }
     }
 }
 
 /// The sidebar's look watch repaints the badge when Debug Settings changes its look (no polling).
 extension UnreadBadgeView: SidebarLookFollower {
     func sidebarLookChanged() {
+        // invalidate: the look watch calls this on a changed look only; a fixed look did not change.
         if fixedLook == nil { needsDisplay = true }
     }
 }

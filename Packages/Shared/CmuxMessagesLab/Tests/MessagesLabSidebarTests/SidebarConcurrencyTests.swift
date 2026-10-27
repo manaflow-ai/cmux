@@ -71,7 +71,7 @@ struct SidebarConcurrencyTests {
                 let line = ObjectIdentifier(m.name)
                 let taken = inUse.withLock { $0.insert(line).inserted }
                 if !taken { overlaps.withLock { $0 += 1 } }
-                _ = CTLineGetTypographicBounds(m.name, nil, nil, nil)
+                _ = SidebarDraw.width(m.name)
                 if let ts = m.preview { _ = CTTypesetterSuggestLineBreak(ts, 0, 120) }
                 if taken { inUse.withLock { _ = $0.remove(line) } }
             }

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 public import Foundation
@@ -43,16 +44,17 @@ extension AgentPaneView {
     /// records where the files of the person's drop or paste are, for the page's
     /// `chat.attach.dropped` (``AgentPaneDroppedPaths``).
     func installContextMenu() {
+        // A drop runs outside any dispatch: the drag's own end decides whether it is the person's.
         let dropped: @MainActor ([URL]) -> Void = { [weak self] urls in
-            guard let self, AgentPanePersonInput.currentIsPerson else { return }
-            AgentPanePersonInput.record(model.transport.gestures)
+            guard let self, dragEnd().isPersons else { return }
+            model.transport.gestures.record()
             model.droppedPaths.stash(urls, kind: .drop)
         }
         // Read as the paste goes to WebKit: the pasteboard WebKit hands the page. As for a drop, only
         // the person's paste (a posted Cmd-V records nothing).
         let pasted: @MainActor () -> Void = { [weak self] in
-            guard AgentPanePersonInput.currentIsPerson else { return }
-            self?.model.droppedPaths.stash(AgentPaneDroppedPaths.fileURLs(on: .general), kind: .paste)
+            guard let self, AgentPanePersonInput.isPerson(answering: gestureRouter.input) else { return }
+            model.droppedPaths.stash(AgentPaneDroppedPaths.fileURLs(on: .general), kind: .paste)
         }
         (page.onFilesDropped, page.onPaste) = (dropped, pasted)
         // Both engines: the page host relays the report (a Chromium page's menu waits for it).
@@ -79,8 +81,11 @@ extension AgentPaneView {
     func receiveContextMenuReport(_ body: Any?) {
         if let anchor = AgentPaneContextMenu.popUpAnchor(report: body) {
             let target = AgentPaneMessageTarget(report: body)
-            // task-owner: one menu per More press, after the page's message returns; it ends when the menu closes
-            Task { @MainActor [weak self] in self?.popUpMessageMenu(target: target, anchor: anchor) }
+            // The menu opens after the page's message callback returns (Chrome posts a context menu's show the same
+            // way, RenderViewContextMenuMac::Show), from a run-loop callout and not inside a scheduler task: its
+            // tracking loop then lets the scheduler's turns keep running, and they never re-enter a running drain.
+            // main-hop-allow: menu tracking must start from a run-loop callout (MainRunLoopBlock), outside the scheduler's drain
+            MainRunLoopBlock.perform { [weak self] in self?.popUpMessageMenu(target: target, anchor: anchor) }
             return
         }
         messageMenuTarget = AgentPaneMessageTarget(report: body)
@@ -132,20 +137,20 @@ extension AgentPaneView {
     /// Retry, Edit and Resend, Open Image and a path's Open: the page's own actions, with the menu choice as the gesture.
     private func runMessageAction(_ name: String, _ params: [String: String]) {
         guard let data = try? JSONSerialization.data(withJSONObject: params) else { return }
-        AgentPanePersonInput.record(model.transport.gestures)
+        AgentPanePersonInput.record(model.transport.gestures, input: gestureRouter.input)
         evaluateScript("window.cmuxAcpmuxActions?.['\(name)']?.(\(String(decoding: data, as: UTF8.self)));")
     }
 
     /// Open Link: outside the pane, on the rule a click on the link follows.
     private func openLink(_ url: URL) {
-        AgentPanePersonInput.record(model.transport.gestures)
+        AgentPanePersonInput.record(model.transport.gestures, input: gestureRouter.input)
         _ = AgentPaneNavigation.openOutside(url, gestures: model.transport.gestures) { self.openURL($0, []) }
     }
 
     /// Fork from Here: the turn footer's fork, through the page's own action. The menu choice is
     /// the user's gesture, as a native permission shortcut is.
     private func fork(through seq: Int) {
-        AgentPanePersonInput.record(model.transport.gestures)
+        AgentPanePersonInput.record(model.transport.gestures, input: gestureRouter.input)
         evaluateScript("window.cmuxAcpmuxActions?.['chat.fork']?.({ throughSeq: \(seq) });")
     }
 }

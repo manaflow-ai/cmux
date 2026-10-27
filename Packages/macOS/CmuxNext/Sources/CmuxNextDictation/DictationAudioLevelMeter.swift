@@ -40,9 +40,11 @@ public final class DictationAudioLevelMeter: Sendable {
     /// Folds one tap buffer into the meter.
     public func record(_ buffer: AVAudioPCMBuffer) {
         recording?.record(buffer)
-        guard let channels = buffer.floatChannelData, buffer.frameLength > 0 else { return }
-        let samples = UnsafeBufferPointer(start: channels[0], count: Int(buffer.frameLength))
-        update(rms: Self.rootMeanSquare(samples))
+        // SAFETY: a float buffer's floatChannelData holds one pointer per channel, each to frameLength valid
+        // samples owned by `buffer`, which outlives this call; the meter reads the first channel and keeps no pointer.
+        guard let channels = unsafe buffer.floatChannelData, buffer.frameLength > 0 else { return }
+        let samples = unsafe UnsafeBufferPointer(start: channels[0], count: Int(buffer.frameLength))
+        update(rms: unsafe Self.rootMeanSquare(samples))
     }
 
     /// Sets the level from a precomputed RMS amplitude (`0...1`). Fixture
@@ -63,7 +65,7 @@ public final class DictationAudioLevelMeter: Sendable {
         continuation.finish()
     }
 
-    static func rootMeanSquare(_ samples: UnsafeBufferPointer<Float>) -> Float {
+    static func rootMeanSquare(_ samples: some Collection<Float>) -> Float {
         guard !samples.isEmpty else { return 0 }
         var sum: Float = 0
         for sample in samples {

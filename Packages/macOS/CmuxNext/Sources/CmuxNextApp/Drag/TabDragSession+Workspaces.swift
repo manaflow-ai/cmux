@@ -112,7 +112,7 @@ extension TabDragSession {
                 services.windows.bringToFront(controller)
             }
         case let .window(id, target):
-            guard let controller = services.windows.controller(for: id) else { break }
+            guard let controller = services.windows.controllerBuildingIfWaiting(for: id) else { break }
             switch target {
             case let .position(position): controller.sidebar.accept(workspaceIDs, at: position)
             case let .intoGroup(group): controller.sidebar.accept(workspaceIDs, intoGroup: group)

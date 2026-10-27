@@ -44,7 +44,7 @@ struct MachineIconTests {
         let hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: "cn-icon-test")
         let link = CloudMachineLink(machineID: id, api: api, hub: hub, paths: paths, binary: binary, deviceName: "cn-icon-test")
         let session = CloudMachineSession(machine: CloudMachine(id: id, displayName: "Icon VM"), link: link,
-                                          mainWork: services.mainWork)
+                                          mainWork: services.mainWork, work: services.work)
         services.machines.add(session)
         return session
     }

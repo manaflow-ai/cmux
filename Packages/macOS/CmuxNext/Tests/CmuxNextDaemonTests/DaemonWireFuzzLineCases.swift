@@ -1,15 +1,28 @@
 import CmuxFuzzSupport
+import CmuxNextIPC
 import Foundation
 @testable import CmuxNextDaemon
 
-/// ``LineSplitter`` against a byte-by-byte model: the same lines (empty ones skipped) and the same unfinished
-/// rest for one read, random chunks and one to three bytes a read, and every byte searched once.
-enum WireFuzzSplitterCase {
-    /// Bytes with newlines often enough to cut many lines, empty ones included; now and then a long stream.
+/// The transport's ``FrameReader`` against a byte-by-byte model on JSON-line traffic (valid UTF-8, no frames):
+/// the same lines, empty ones included, and the same unfinished rest at the end, for one read, random chunks
+/// and one to three bytes a read, with a multi-byte character cut anywhere.
+enum WireFuzzLineCutCase {
+    /// UTF-8 pieces with newlines often enough to cut many lines, empty ones included; now and then a long stream.
     static func stream(_ rng: inout FuzzRNG) -> [UInt8] {
+        let pieces: [[UInt8]] = [Array("é".utf8), Array("✓".utf8), Array("\u{1F600}".utf8), [0x7B], [0x22], [0x09]]
         let count = rng.oneIn(16) ? 1 + rng.below(70_000) : rng.below(600)
         let newlineOdds = 1 + rng.below(40)
-        return (0..<count).map { _ in rng.oneIn(newlineOdds) ? 0x0A : rng.byte() }
+        var stream: [UInt8] = []
+        while stream.count < count {
+            if rng.oneIn(newlineOdds) {
+                stream.append(0x0A)
+            } else if rng.oneIn(8) {
+                stream += pieces[rng.below(pieces.count)]
+            } else {
+                stream.append(0x20 + UInt8(rng.below(0x5F)))
+            }
+        }
+        return stream
     }
 
     static func check(_ stream: [UInt8], _ rng: inout FuzzRNG) throws {
@@ -17,13 +30,14 @@ enum WireFuzzSplitterCase {
         var rest: [UInt8] = []
         for byte in stream {
             if byte == 0x0A {
-                if !rest.isEmpty { expected.append(rest) }
+                expected.append(rest)
                 rest = []
             } else {
                 rest.append(byte)
             }
         }
-        var splitter = LineSplitter()
+        if !rest.isEmpty { expected.append(rest) }
+        var reader = FrameReader(limits: FrameReader.Limits(maxLine: LineTransport.maxLineBytes))
         var lines: [[UInt8]] = []
         let mode = rng.below(3)
         var at = 0
@@ -35,26 +49,28 @@ enum WireFuzzSplitterCase {
             case 1: count = 1 + rng.below(left)
             default: count = min(left, 1 + rng.below(3))
             }
-            splitter.append(stream[at..<(at + count)]) { lines.append([UInt8]($0)) }
+            // SAFETY: push copies the slice's bytes out of the storage the closure lends for the call.
+            unsafe stream[at..<(at + count)].withUnsafeBytes { unsafe reader.push($0) }
+            try drain(&reader, into: &lines)
             at += count
         }
+        reader.markEndOfStream()
+        try drain(&reader, into: &lines)
         try FuzzRun.check(lines == expected, "mode \(mode): \(lines.count) lines, the model cut \(expected.count) from \(stream.count) bytes")
-        try FuzzRun.check([UInt8](splitter.pending) == rest,
-                          "mode \(mode): the unfinished rest is \(splitter.pending.count) bytes, not \(rest.count)")
-        try FuzzRun.check(splitter.scannedBytes == stream.count, "searched \(splitter.scannedBytes) bytes of \(stream.count): not once each")
-        try checkNewlineOffsets(stream, &rng)
     }
 
-    /// The offsets count from the data's first byte, also for a slice whose start index is not 0.
-    private static func checkNewlineOffsets(_ stream: [UInt8], _ rng: inout FuzzRNG) throws {
-        let data = Data(stream)
-        let drop = rng.below(min(data.count, 8) + 1)
-        let slice = data[(data.startIndex + drop)...]
-        let offset = rng.below(slice.count + 2)
-        let expected = offset < slice.count ? (offset..<slice.count).filter { slice[slice.startIndex + $0] == 0x0A } : []
-        let (offsets, searched) = LineSplitter.newlineOffsets(in: slice, from: offset)
-        try FuzzRun.check(offsets == expected, "newline offsets from \(offset) of a \(slice.count) byte slice differ")
-        try FuzzRun.check(searched == max(slice.count - offset, 0), "searched \(searched) bytes from \(offset) of \(slice.count)")
+    private static func drain(_ reader: inout FrameReader, into lines: inout [[UInt8]]) throws {
+        while true {
+            let message: FrameReader.Message?
+            do throws(BadMessage) {
+                message = try reader.next()
+            } catch {
+                return try FuzzRun.check(false, "the reader refused UTF-8 JSON-line traffic: \(error.reason)")
+            }
+            guard let message else { return }
+            guard case .json(let line) = message else { return try FuzzRun.check(false, "a frame out of JSON-line traffic") }
+            lines.append([UInt8](line))
+        }
     }
 }
 
@@ -166,9 +182,10 @@ struct WireFuzzLine {
         return WireFuzzLine(bytes: try WireFuzzJSON.bytes(object), route: .stream(type: type, streamID: streamID))
     }
 
-    /// Bytes that are never JSON: a `#` first, and no newline.
+    /// Text that is never JSON: a `#` first, printable ASCII, and no newline. The daemon writes UTF-8 only;
+    /// a line that is not UTF-8 is a bad message that ends the connection (the reader's own rule).
     static func garbage(_ rng: inout FuzzRNG) -> WireFuzzLine {
-        let tail = rng.bytes(count: rng.below(48)).map { $0 == 0x0A ? 0x20 : $0 }
+        let tail = rng.bytes(count: rng.below(48)).map { 0x20 + $0 % 0x5F }
         return WireFuzzLine(bytes: [UInt8(ascii: "#")] + tail, route: .ignored)
     }
 
@@ -187,9 +204,31 @@ struct WireFuzzLine {
 }
 
 /// ``LineTransport/Envelope`` reads the routing fields of every generated line; a mutated line decodes or
-/// throws.
+/// throws. ``LineRouteScan``, which routes in its place, reads the same fields or gives the line up.
 enum WireFuzzEnvelopeCase {
     static func isStream(_ type: String?) -> Bool { type == "stream_item" || type == "stream_end" }
+
+    /// When the scan reads a UTF-8 line (the reader's guarantee), the decoder reads it too, to the same routing
+    /// fields; any bytes at all never trap the scan.
+    static func checkScanAgrees(_ line: Data) throws {
+        guard let scan = LineRouteScan(line), isUTF8(line) else { return }
+        let shown = String(decoding: line.prefix(200), as: UTF8.self)
+        let decoded = try? WireCoding.decoder().decode(LineTransport.Envelope.self, from: line)
+        let read = try WireFuzzJSON.required(decoded, "the scan routes a line the decoder refuses: \(shown)")
+        try FuzzRun.check(scan.id == read.id && scan.ok == read.ok && scan.event == read.event && scan.type == read.type
+                              && scan.streamID == read.streamID && scan.cause == read.cause,
+                          "the scan read \(scan), the decoder \(read): \(shown)")
+    }
+
+    /// One line of strict UTF-8, as the transport's reader hands it on (no newline inside).
+    static func isUTF8(_ line: Data) -> Bool {
+        guard !line.contains(0x0A) else { return false }
+        var reader = FrameReader(limits: FrameReader.Limits(maxLine: line.count))
+        // SAFETY: push copies the bytes out of the storage the closure lends for the call.
+        unsafe (line + [UInt8(0x0A)]).withUnsafeBytes { unsafe reader.push($0) }
+        guard case .json? = try? reader.next() else { return false }
+        return true
+    }
 
     static func check(_ line: WireFuzzLine, _ rng: inout FuzzRNG) throws {
         let decoder = WireCoding.decoder()
@@ -214,7 +253,9 @@ enum WireFuzzEnvelopeCase {
             try FuzzRun.check(read.error == message,
                               "reply error \(String(describing: read.error)), want \(String(describing: message)): \(shown)")
         }
+        try checkScanAgrees(Data(line.bytes))
         let mutated = FuzzMutator(dictionary: WireFuzzJSON.tokens).mutate(Data(line.bytes), using: &rng)
         _ = try? decoder.decode(LineTransport.Envelope.self, from: mutated)
+        try checkScanAgrees(mutated)
     }
 }

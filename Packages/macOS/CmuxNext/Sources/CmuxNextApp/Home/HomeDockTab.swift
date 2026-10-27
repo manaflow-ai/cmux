@@ -3,6 +3,7 @@ import CmuxNextHomeEngine
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextHome
+import CmuxNextWakeups
 
 extension InternalPageID {
     /// The docked Home's tab (`HomeDock.page`): the Messages or Channels view.
@@ -16,6 +17,8 @@ extension InternalPageID {
 final class HomeDockTab: InternalPageProvider {
     private weak var services: AppServices?
     private var views: [String: HomeDockView] = [:]
+    /// Each dock view's follow of `home.channelsEnabled` (``HomeDock/followChannelsSetting(_:work:shown:)``), by key.
+    private var channelsFollows: [String: ServiceObservation<Bool>] = [:]
     /// Bumped when a dock's view is made or goes: `views` is plain storage, so a reader of ``messagesViews`` hears it.
     private let installs = PageInstallCounter()
     /// The Messages list width every docked Home shares (`HomeSidebarWidth` keeps one per key).
@@ -36,7 +39,7 @@ final class HomeDockTab: InternalPageProvider {
         guard let services else { return NSView() }
         let view = HomeDockView(services: services, mode: .messages)
         view.channelsSelection = { await Self.askSelection($0) }
-        HomeDock.followChannelsSetting(view) { [weak services] in services?.home.dockMode = $0 }
+        channelsFollows[key] = HomeDock.followChannelsSetting(view, work: services.mainWork) { [weak services] in services?.home.dockMode = $0 }
         views[key] = view
         installs.bump()
         for tab in pending.keys where services.pages.storeKey(of: tab) == key {
@@ -49,6 +52,7 @@ final class HomeDockTab: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         views.removeValue(forKey: key)?.close()
+        channelsFollows.removeValue(forKey: key)?.cancel()
         installs.bump()
         services?.home.dockMode = .messages // no dock view shows Channels now
     }

@@ -1,6 +1,7 @@
 package import AppKit
 package import CmuxNextBrowser
 package import CmuxNextDesign
+package import CmuxNextInput
 package import CmuxNextWakeups
 import Foundation
 package import os
@@ -22,6 +23,7 @@ package final class WebAuthSessionWindows: WebAuthSessionOpening {
     private let signInCallbacks: CEFSignInCallbacks
     private let contextMenus: BrowserContextMenuBuilder
     private let mainWork: MainWorkScheduler
+    private let inputTap: InputEventTap?
     private let present: @MainActor (NSWindow, WindowActivation.Intent) -> Void
     private(set) var windows: [UUID: WebAuthSessionWindow] = [:]
 
@@ -34,6 +36,7 @@ package final class WebAuthSessionWindows: WebAuthSessionOpening {
     ///     Must be the instance the Chromium engine reports stopped callbacks to.
     ///   - contextMenus: The builder for a sign-in page's right-click menu.
     ///   - mainWork: The app's one main-thread scheduler, for the sign-in panels' location bars.
+    ///   - inputTap: The app's one input tap, which each sign-in panel carries (``InputTapHosting``).
     ///   - present: Orders a sign-in panel in (always with `.focus`). The default is
     ///     ``WindowActivation/show(_:_:)``, the app's one owner of window order and
     ///     activation; a test passes a recorder so it neither orders a window in nor
@@ -45,9 +48,11 @@ package final class WebAuthSessionWindows: WebAuthSessionOpening {
         signInCallbacks: CEFSignInCallbacks,
         contextMenus: BrowserContextMenuBuilder,
         mainWork: MainWorkScheduler,
+        inputTap: InputEventTap?,
         present: @escaping @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
     ) {
         self.mainWork = mainWork
+        self.inputTap = inputTap
         self.host = host
         self.logger = logger
         self.profiles = profiles
@@ -60,7 +65,7 @@ package final class WebAuthSessionWindows: WebAuthSessionOpening {
         let window = WebAuthSessionWindow(
             request: request, broker: broker, host: host, logger: logger,
             profiles: profiles, signInCallbacks: signInCallbacks, contextMenus: contextMenus, mainWork: mainWork,
-            present: present
+            inputTap: inputTap, present: present
         ) { [weak self] id in
             self?.windows[id] = nil
         }

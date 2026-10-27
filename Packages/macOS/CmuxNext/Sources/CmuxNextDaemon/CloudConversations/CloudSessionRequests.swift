@@ -46,6 +46,11 @@ public struct CloudSessionSetRequest: DaemonRequest, CustomStringConvertible {
         if let auth { return "cloud-session-set(\(apiBaseURL), auth: \(auth))" }
         return "cloud-session-set(\(apiBaseURL), expires_at: \(expiresAt ?? 0))"
     }
+
+    enum CodingKeys: String, CodingKey {
+        case apiBaseURL = "api_base_url", auth, accessToken = "access_token", expiresAt = "expires_at"
+        case clientVersion = "client_version"
+    }
 }
 
 /// `cloud-session-clear`: ends the lease (sign-out, account switch).

@@ -324,8 +324,7 @@ final class MenuHighlight: NSObject, NSMenuDelegate {
         if let shape = layer as? CAShapeLayer, let path = shape.path {
             let box = path.boundingBoxOfPath
             let to = anchor.convert(box, from: space)
-            var t = CGAffineTransform(translationX: to.minX - box.minX, y: to.minY - box.minY)
-            shape.path = path.copy(using: &t)
+            shape.path = path.copy(applying: CGAffineTransform(translationX: to.minX - box.minX, y: to.minY - box.minY))
         } else {
             layer.frame = anchor.convert(layer.frame, from: space)
         }

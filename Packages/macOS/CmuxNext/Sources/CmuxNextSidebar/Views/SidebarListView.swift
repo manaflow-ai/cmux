@@ -81,6 +81,8 @@ final class SidebarListView: NSView {
     let chatHistory = SidebarChatHistoryViews()
     /// Recycled row views by class; only rows near the viewport have views.
     var rowPool = SidebarRowViewPool()
+    /// The row views built while the app starts (SidebarListView+LaunchRows, p08-startup-064).
+    var launchRows = SidebarModel.LaunchRows()
     var hoveredKey: SidebarRowKey?
     /// The hovered row changed (nil: off every row); the App prewarms a hidden page ahead of the click.
     var onHoverRow: ((SidebarRowKey?) -> Void)?
@@ -90,13 +92,13 @@ final class SidebarListView: NSView {
     var onPressRow: ((SidebarRowKey?) -> Void)?
     /// The list's hover moves (feature `pointerFrameHover`): with `hoverFrameInput`, a frame interval's first
     /// move hovers at once and the rest once at its frame, at the latest point; without it, each move hovers.
-    private(set) lazy var hoverMoves = PointerFrameHover(owner: "SidebarListView.hover", view: self) { [weak self] point in
+    private(set) lazy var frameInputHover = PointerFrameHover(owner: "SidebarListView.hover", view: self) { [weak self] point in
         self?.updateHover(point)
     }
     /// The windows' frame-aligned pointer input (feature `pointerFrameHover`); nil: each move hovers at once.
     var hoverFrameInput: FrameInputCoalescers? {
-        get { hoverMoves.frames }
-        set { hoverMoves.frames = newValue }
+        get { frameInputHover.frames }
+        set { frameInputHover.frames = newValue }
     }
     /// True while a scroll moves the hover to the row under a still pointer: that row's hover
     /// shows at once instead of fading, so a scroll does not start a fade on every row it passes.
@@ -158,8 +160,17 @@ final class SidebarListView: NSView {
     let tabRowDrag = SidebarTabRowDrag()
     /// Hover time before an external tab drag over a row selects it.
     var springLoadDelay: Duration = .milliseconds(500)
-    /// Clock for the spring-load delay; tests inject a manual clock.
-    var springLoadClock: any Clock<Duration> = ContinuousClock()
+    /// The app's one deadline placer (the container injects `AppServices.mainDeadlines`). The spring-load hover is a
+    /// deadline on it; a list with none (a space page, a list made alone) takes no external drag and springs nothing.
+    var deadlines: MainDeadlineScheduler? {
+        didSet {
+            springLoad?.cancel()
+            springLoad = deadlines.map { MainDeadline(owner: "Sidebar.springLoad", workClass: .userBlocking, scheduler: $0) }
+        }
+    }
+    /// The spring-load hover of an external tab drag on one row (`updateSpringLoad`): the person holds the tab there
+    /// and waits for it, so it is the rest of their action (userBlocking), on a flexible wake, never aligned as hidden.
+    private(set) var springLoad: MainDeadline?
     /// The group header that holds keyboard focus (arrow keys stop on
     /// headers; focus is not selection). Nil when a workspace has it.
     var focusedGroup: GroupID?
@@ -230,7 +241,7 @@ final class SidebarListView: NSView {
         MainActor.assumeIsolated {
             // Leave the frame client alone: an active one goes idle on its next tick
             // once self is gone (touching the lazy property here would create one).
-            for observer in focusObservers { NotificationCenter.default.removeObserver(observer) }
+            for subscription in focusObservers { subscription.cancel() }
             for subscription in pointerEnds { subscription.cancel() }
         }
     }
@@ -240,7 +251,11 @@ final class SidebarListView: NSView {
     private var windowVisibility: VisibilitySubscription?
     /// This list's observation of `docStore` (released with the list, which ends it).
     private(set) var docObservation: SidebarDocObservation?
-    private var focusObservers: [any NSObjectProtocol] = []
+    /// The window's resign-key and the app's resign-active subscriptions while the list is in a window (`observeFocusLoss`).
+    private var focusObservers: [EventSubscription] = []
+    /// The app's one fan-out of app-wide notices (the container injects `AppServices.appEvents`); a list made
+    /// elsewhere (a space page, a test) has one of its own on the default center.
+    lazy var appEvents = AppEvents(center: .default)
     /// The app's one input tap (the App injects it; nil hears no press or release outside the list).
     var inputTap: InputEventTap? {
         didSet { if inputTap !== oldValue { subscribePointerEnds() } }
@@ -262,11 +277,10 @@ final class SidebarListView: NSView {
         if window != nil { hoverCards.register(hoverCard) }
         reportListedRows() // the rows its last reload listed off screen show from this window's next commit
         guard observedWindow !== window else { return }
-        let center = NotificationCenter.default
         observedWindow = window
         // A gesture ends when its window or the app loses focus (`pointerFocusLost`). Off screen no card can land:
         // a drag ends in place (`abandonDrag`, its rows shown again).
-        for observer in focusObservers { center.removeObserver(observer) }
+        for subscription in focusObservers { subscription.cancel() }
         focusObservers = window == nil ? [] : observeFocusLoss(of: window)
         // A press whose release never came here ends at the app's next press, or after a release that went to
         // another window (`pointerEventSeen`).
@@ -300,18 +314,18 @@ final class SidebarListView: NSView {
         trackingAreas.forEach(removeTrackingArea)
         addTrackingArea(NSTrackingArea(
             rect: .zero,
-            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
             owner: self
         ))
     }
-    override func mouseMoved(with event: NSEvent) { hoverMoves.moved(event) }
+    override func mouseMoved(with event: NSEvent) { frameInputHover.moved(event) }
     // Enter and exit are discrete: the pending moves land first (Chromium's `ShouldFlushQueue`).
     override func mouseEntered(with event: NSEvent) {
-        hoverMoves.flush()
+        frameInputHover.flush()
         updateHover(event.locationInWindow)
     }
     override func mouseExited(with event: NSEvent) {
-        hoverMoves.flush()
+        frameInputHover.flush()
         releaseHeldModelChange()
         setHovered(nil)
         hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })

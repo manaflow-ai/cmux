@@ -1,20 +1,75 @@
+import CmuxNextCompat
 import CmuxNextServerHelper
+import CmuxNextWakeups
 import Foundation
 import ServiceManagement
 
-/// One launchd job the app registered with `SMAppService`, as a seam.
+/// One launchd job the app registers with `SMAppService`, as a seam. `status` and `register` wait for
+/// backgroundtaskmanagementd's reply, so the app runs them through the blocking seams on the system lane,
+/// never on the main thread (Chrome's UI-thread rule, base/threading/scoped_blocking_call.h).
 struct ServerServiceRegistration {
-    var status: @MainActor () -> SMAppService.Status
+    /// launchd's answer; throws when it was not read (the caller was cancelled or the lane shut down), which is
+    /// never a registration state.
+    var status: @MainActor () async throws -> SMAppService.Status
+    /// ``ensureRegistered(status:register:)`` as one item: the status after.
+    var ensureRegistered: @MainActor () async throws -> SMAppService.Status
     var unregister: @MainActor () async throws -> Void
+    var openLoginItems: @MainActor () -> Void = { SMAppService.openSystemSettingsLoginItems() }
 
-    static func agent(plistName: String) -> ServerServiceRegistration {
-        ServerServiceRegistration(status: { SMAppService.agent(plistName: plistName).status },
-                                  unregister: { try await SMAppService.agent(plistName: plistName).unregister() })
+    /// The cmux server LaunchAgent (``ServerLaunchAgent``).
+    static func agent(work: BackgroundWork) -> ServerServiceRegistration {
+        let name = ServerLaunchAgent.plistName
+        return app(work: work) { .agent(plistName: name) }
     }
 
-    static func daemon(plistName: String) -> ServerServiceRegistration {
-        ServerServiceRegistration(status: { SMAppService.daemon(plistName: plistName).status },
-                                  unregister: { try await SMAppService.daemon(plistName: plistName).unregister() })
+    /// The privileged helper LaunchDaemon (``ServerHelperClient``).
+    static func helper(work: BackgroundWork) -> ServerServiceRegistration {
+        let name = ServerHelperConstants().plistName
+        return app(work: work) { .daemon(plistName: name) }
+    }
+
+    private static func app(work: BackgroundWork, _ service: @escaping @Sendable () -> SMAppService) -> ServerServiceRegistration {
+        ServerServiceRegistration(
+            status: { try await work.run(.userBlocking, mayBlock: .system) { blockingSMAppServiceStatus(service()) } },
+            ensureRegistered: {
+                try await work.run(.userBlocking, mayBlock: .system) {
+                    let job = service()
+                    return try Self.ensureRegistered(status: { blockingSMAppServiceStatus(job) },
+                                                     register: { try blockingSMAppServiceRegister(job) })
+                }
+            },
+            unregister: { try await service().unregister() })
+    }
+
+    /// Registers the job unless launchd already has it (enabled or awaiting approval) and returns the status
+    /// after. Idempotent: when two enables overlap on the lane, both read "not registered" and the second
+    /// register finds the job registered; launchd's status then says so, and that is success, not its error.
+    nonisolated static func ensureRegistered(status: () throws -> SMAppService.Status,
+                                             register: () throws -> Void) throws -> SMAppService.Status {
+        let registered = { (state: SMAppService.Status) in state == .enabled || state == .requiresApproval }
+        let before = try status()
+        guard !registered(before) else { return before }
+        do {
+            try register()
+        } catch {
+            guard let after = try? status(), registered(after) else { throw error }
+            return after
+        }
+        return try status()
+    }
+
+    /// Registers the job. Idempotent: an enabled job stays enabled. It may open System Settings, so
+    /// call it from an explicit user action only.
+    func enable<Failure: Error>(requiresApproval: Failure, failed: (String) -> Failure) async throws(Failure) {
+        let after: SMAppService.Status
+        do {
+            after = try await ensureRegistered()
+        } catch {
+            throw failed(String(describing: error))
+        }
+        guard after == .requiresApproval else { return }
+        openLoginItems()
+        throw requiresApproval
     }
 }
 
@@ -57,12 +112,13 @@ struct ServerStopServing {
     /// The fixes this app had the helper apply.
     let ledger: ServerFixLedger
 
-    static func app() -> ServerStopServing {
-        ServerStopServing(
-            agent: ServerLaunchAgent.isBundled ? .agent(plistName: ServerLaunchAgent.plistName) : nil,
-            helper: ServerHelperClient.isBundled ? .daemon(plistName: ServerHelperConstants().plistName) : nil,
+    static func app(work: BackgroundWork) -> ServerStopServing {
+        let helper = ServerServiceRegistration.helper(work: work)
+        return ServerStopServing(
+            agent: ServerLaunchAgent.isBundled ? .agent(work: work) : nil,
+            helper: ServerHelperClient.isBundled ? helper : nil,
             revert: { (fix: ServerFix) async throws(ServerHelperClient.Failure) in
-                try await ServerHelperClient.run(fix, revert: true)
+                try await ServerHelperClient.run(fix, revert: true, helper: helper)
             }, ledger: .standard)
     }
 
@@ -85,7 +141,14 @@ struct ServerStopServing {
     /// Nil when nothing is left to restore, else the failure.
     private func revertRecorded() async -> Failure? {
         let recorded = await ledger.load()
-        switch helper?.status() {
+        let status: SMAppService.Status?
+        do {
+            status = try await helper?.status()
+        } catch {
+            // Not knowing whether the helper is enabled is not "none is registered": keep it and its fixes.
+            return .revert(String(describing: error))
+        }
+        switch status {
         case .enabled:
             break
         case .requiresApproval:
@@ -114,8 +177,8 @@ struct ServerStopServing {
     }
 
     private func unregister(_ job: ServerServiceRegistration) async throws(Failure) {
-        guard job.status() != .notRegistered else { return }
         do {
+            guard try await job.status() != .notRegistered else { return }
             try await job.unregister()
         } catch {
             throw .unregister(String(describing: error))

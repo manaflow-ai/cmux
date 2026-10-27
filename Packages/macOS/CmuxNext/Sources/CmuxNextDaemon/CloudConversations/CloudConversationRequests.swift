@@ -23,6 +23,10 @@ public struct CloudConversationOpRequest: DaemonRequest {
         self.origin = origin
         self.op = op
     }
+
+    enum CodingKeys: String, CodingKey {
+        case conversation, idempotencyKey = "idempotency_key", origin, op
+    }
 }
 
 /// `cloud-conversation-subscribe`: at most 64 per daemon (`too_many_subscriptions`).

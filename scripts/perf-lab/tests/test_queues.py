@@ -440,10 +440,12 @@ class Checkout(unittest.TestCase):
         for item in items:
             self.assertTrue(os.path.isfile(os.path.join(REPO, item.key)), item.key)
 
-    def test_mq6_includes_motion_pane_hold_content(self):
+    def test_mq6_drops_the_motion_holds_that_became_features(self):
+        """p12-perf-process-102: features paneHoldsContentInMotion and sidebarSlideHoldsContent replace them."""
         with contextlib.redirect_stderr(io.StringIO()):
             listed = {item.key for item in queues.unmigrated_features(REPO)}
-        self.assertIn("motion.pane.holdContent", listed)
+        self.assertNotIn("motion.pane.holdContent", listed)
+        self.assertNotIn("sidebar.slideHoldsContent", listed)
 
     def test_mq1_keeps_only_the_allowlist_out(self):
         with contextlib.redirect_stderr(io.StringIO()):

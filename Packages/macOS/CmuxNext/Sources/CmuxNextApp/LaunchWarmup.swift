@@ -38,6 +38,9 @@ enum LaunchWarmup {
 private nonisolated func prewarmDisplayUUIDs() {
     var displays = [CGDirectDisplayID](repeating: 0, count: 16)
     var count: UInt32 = 0
-    guard CGGetActiveDisplayList(UInt32(displays.count), &displays, &count) == .success else { return }
-    for display in displays.prefix(Int(count)) { _ = CGDisplayCreateUUIDFromDisplayID(display)?.takeRetainedValue() }
+    // SAFETY: CGGetActiveDisplayList writes at most displays.count IDs into the array's storage and the count
+    // into a local, both live for the call. CGDisplayCreateUUIDFromDisplayID follows the Create rule (+1),
+    // which takeRetainedValue balances.
+    guard unsafe CGGetActiveDisplayList(UInt32(displays.count), &displays, &count) == .success else { return }
+    for display in displays.prefix(Int(count)) { _ = unsafe CGDisplayCreateUUIDFromDisplayID(display)?.takeRetainedValue() }
 }

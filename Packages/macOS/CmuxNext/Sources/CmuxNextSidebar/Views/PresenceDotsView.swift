@@ -18,6 +18,7 @@ final class PresenceDotsView: NSView {
         overflow.isHidden = true
         addSubview(overflow)
         setAccessibilityElement(false)
+        isHidden = true // no agents until configured
     }
 
     @available(*, unavailable)
@@ -26,7 +27,9 @@ final class PresenceDotsView: NSView {
     nonisolated override var isFlipped: Bool { true }
     nonisolated override var wantsUpdateLayer: Bool { true }
 
+    /// A row configures its dots on every content change: the same agents ask for no paint or layout.
     func configure(_ presence: [SidebarPresence]) {
+        guard presence != self.presence else { return }
         self.presence = presence
         isHidden = presence.isEmpty
         let shown = min(presence.count, Self.maxDots)
@@ -39,8 +42,8 @@ final class PresenceDotsView: NSView {
         overflow.setString(presence.count > shown ? Strings.presenceOverflow(presence.count - shown) : "")
         overflow.isHidden = overflow.stringValue.isEmpty
         themedToolTip = presence.isEmpty ? nil : presence.map(Strings.presenceLine).joined(separator: "\n")
-        needsLayout = true
-        needsDisplay = true
+        // invalidate: the agents changed (the guard above): other dot colors, count and width.
+        needsLayout = true; needsDisplay = true
     }
 
     /// The width the dots and the count take.

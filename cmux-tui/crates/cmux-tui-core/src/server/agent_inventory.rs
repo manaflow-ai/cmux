@@ -4,8 +4,9 @@
 //!
 //! Wire: `agent-inventory` and `agent-inventory-refresh` in spec/sdk-schema.json (agents
 //! family; the refresh is `background` priority because it waits on registries for
-//! seconds). `try_handle` decodes them as [`Command`] before the server's `Command` enum,
-//! so check-sdk-schema.py reads their request fields from it (scripts/handler_commands.py).
+//! seconds). This module's route ([`ROUTES`], server/routes.rs) decodes them as
+//! [`Command`] before the server's `Command` enum, so check-sdk-schema.py reads their
+//! request fields from it (scripts/handler_commands.py).
 
 #[path = "agent_inventory_watch.rs"]
 pub(super) mod watch;
@@ -17,12 +18,13 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::agent_session_attach::agent_session_link::{AcpmuxLink, LinkError};
 use super::command_args::present_non_null;
 use super::responses::send_response;
-use super::{MessageWriter, Response};
+use super::routes::{Route, RouteLine, RouteName};
+use super::{FrameStage, MessageWriter, Response};
 use crate::mux::Mux;
 
 pub(super) const CAPABILITY: &str = "agent-inventory-v1";
@@ -42,7 +44,7 @@ const FAMILIES: [&str; 9] =
     ["claude", "codex", "opencode", "pi", "chief", "gemini", "amp", "copilot", "cursor"];
 pub(super) const CALL_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// The two requests `try_handle` serves; spec/sdk-schema.json types them.
+/// The two requests [`handle`] serves; spec/sdk-schema.json types them.
 #[derive(Deserialize)]
 #[serde(tag = "cmd")]
 enum Command {
@@ -141,34 +143,22 @@ impl Failure {
 }
 
 /// The `cmd` names this module answers (server/routes.rs).
-pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
-    &[crate::server::routes::Route {
-        names: &[
-            crate::server::routes::RouteName::Exact("agent-inventory"),
-            crate::server::routes::RouteName::Exact("agent-inventory-refresh"),
-        ],
-        stage: crate::server::FrameStage::AgentInventory,
-        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
-    }];
+pub(in crate::server) const ROUTES: &[Route] = &[Route {
+    names: &[RouteName::Exact(READ_COMMAND), RouteName::Exact(REFRESH_COMMAND)],
+    stage: FrameStage::AgentInventory,
+    entry: handle,
+}];
 
+/// The route's typed handler: the line's `cmd` named one of [`Command`], so it decodes
+/// the line once and answers it. A line whose full decode fails is left to the `Command`
+/// parse (`None`).
+///
 /// The owner fence (required for refresh) only verifies this daemon; it never selects or
 /// connects to another machine. Trust precedes params and no client fields
 /// reach the owner's acpmux.
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("agent-inventory") {
-        return None;
-    }
-    let Ok(Value::Object(mut fields)) = crate::line_parses::parse::<Value>(message) else {
-        return None;
-    };
-    if !matches!(fields.get("cmd").and_then(Value::as_str), Some(READ_COMMAND | REFRESH_COMMAND)) {
-        return None;
-    }
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
+    let mut fields = crate::line_parses::parse::<Map<String, Value>>(message).ok()?;
     let id = fields.remove("id");
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
         return Some(reply(writer, id, Err(Failure::NotTrusted)));
@@ -196,20 +186,18 @@ pub(super) fn try_handle(
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let owner_echo = matches!(mode, ReadMode::Refresh).then(|| mux.machine_public_id.clone());
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-inventory".into())
-        .stack_size(256 * 1024)
-        .spawn(move || {
-            let result = read(&socket, mode).map(|mut value| {
-                if let Some(machine) = owner_echo {
-                    value.insert("machine", json!(machine));
-                }
-                value
-            });
-            drop(slot);
-            reply(&worker_writer, worker_id, result);
+    // The read waits on acpmux (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        let result = read(&socket, mode).map(|mut value| {
+            if let Some(machine) = owner_echo {
+                value.insert("machine", json!(machine));
+            }
+            value
         });
-    if spawned.is_err() {
+        drop(slot);
+        reply(&worker_writer, worker_id, result);
+    });
+    if posted.is_err() {
         return Some(reply(writer, id, Err(Failure::Busy)));
     }
     Some(true)

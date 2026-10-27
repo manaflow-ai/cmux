@@ -198,7 +198,8 @@ struct PageFactory {
                 .init(resources: GhosttyRuntime.resourcesDirectory(), home: FileManager.default.homeDirectoryForCurrentUser,
                       environment: ProcessInfo.processInfo.environment)
             },
-            reload: { [weak services] in await services?.themes.catalog.reload() },
+            // Only the person saves or imports a theme file (`SettingsThemeFiles`): the page waits on the reload.
+            reload: { [weak services] in await services?.themes.catalog.reload(.userBlocking) },
             pickFile: { [weak services] in await services?.viewers.picker.open(.init(choose: .files))?.first })
         provider.backdropImages = SettingsWindowService.userImages.map { images in
             SettingsBackdropImages(images: images) { [weak services] in
@@ -226,7 +227,8 @@ struct PageFactory {
         }
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native),
                       // Agents > Chiefs: the same Chief editor routes as Home (ChiefProfilePageRelay, AgentHarnessCenter).
-                      PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
+                      PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(
+                          owner: services.home.chief, channels: services.webUI.relayChannels, deadlines: services.mainDeadlines)),
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
                       PageRoute(prefix: "cmux.settings.mobile.", provider: MobilePageProvider(host: services.iphone)),
                       PageRoute(prefix: ChannelsPageProvider.prefix, provider: ChannelsPageProvider(updater: services.updater)),

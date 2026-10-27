@@ -83,6 +83,29 @@
         "maxMs": 10000
       },
       "settleMaxMs": 10000
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.close",
+        "params": {},
+        "idempotencyKey": "terminal-close-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

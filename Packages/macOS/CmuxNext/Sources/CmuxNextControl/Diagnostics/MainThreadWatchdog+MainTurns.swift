@@ -13,13 +13,22 @@ extension MainThreadWatchdog {
     }
 
     /// The heartbeat's call at the sleep that ends a turn, with the wake and sleep stamps it took: the turn
-    /// counts in ``turnHistogram`` (no clock read). A start of 0 is a turn whose wake was never seen.
+    /// counts in ``turnHistogram`` and `main.turn` (``MainThreadFieldMetrics``; no clock read). A start of 0 is a
+    /// turn whose wake was never seen.
     // perf-hot: 1us frame-tick
     func mainTurnEnded(start: UInt64, end: UInt64) {
         guard start > 0, end > start else { return }
         turnHistogram.record(nanos: end - start)
+        fieldMetrics.turnEnded(start: start, end: end)
         guard end - start >= mainTurnMinimumNanos.load(ordering: .relaxed),
               let sink = mainTurnSink.withLock({ $0 }) else { return }
         sink(start, end)
+    }
+
+    /// A decided quit is ending: records the open `hang.over250.per_hour` interval, so the stalls of a launch's
+    /// last active seconds are not lost (``MainThreadFieldMetrics/recordOpenInterval()``). Main thread, once.
+    @MainActor
+    public func recordFieldMetricsAtQuit() {
+        fieldMetrics.recordOpenInterval()
     }
 }

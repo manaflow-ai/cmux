@@ -32,8 +32,8 @@ extension TranscriptDocumentView {
 
     /// Whether the pointer is over a link now (the hand is set).
     private var overLink: Bool {
-        get { objc_getAssociatedObject(self, linkHoverStateKey.address) as? Bool ?? false }
-        set { objc_setAssociatedObject(self, linkHoverStateKey.address, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+        get { linkHoverStateKey.value(on: self) as? Bool ?? false }
+        set { linkHoverStateKey.set(newValue, on: self) }
     }
 
     /// Sets the hand over a link, else the arrow (`always`: on entering, else only when the
@@ -48,9 +48,5 @@ extension TranscriptDocumentView {
 }
 
 /// The associated-object key of ``TranscriptDocumentView``'s link-hover state (an extension
-/// cannot add a stored property to the vendored view). Only the address of this one
-/// immutable object is used, so there is no shared mutable state.
-private final class LinkHoverStateKey: Sendable {
-    var address: UnsafeRawPointer { UnsafeRawPointer(Unmanaged.passUnretained(self).toOpaque()) }
-}
-private let linkHoverStateKey = LinkHoverStateKey()
+/// cannot add a stored property to the vendored view).
+private let linkHoverStateKey = AssociationKey()

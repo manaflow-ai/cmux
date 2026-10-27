@@ -5,6 +5,7 @@ import CmuxNextDesign
 import CmuxNextDesignTokens
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Foundation
 import Observation
@@ -256,7 +257,7 @@ import Testing
 
     @Test(.timeLimit(.minutes(1))) func aForgottenIconIsReadAgainFromItsOwnerOnItsNextRead() async throws {
         let clock = ManualClock()
-        let images = IconAssetImages(clock: clock)
+        let images = IconAssetImages(clock: clock, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let log = BlobLog()
         let source = Self.source(log)
         let icon = Self.icon(7)

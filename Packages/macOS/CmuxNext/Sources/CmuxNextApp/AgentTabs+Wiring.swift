@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextFeatures
 import CmuxNextHomeEngine
 import struct CmuxNextLayout.MainPaneLayout
 import Foundation
@@ -110,7 +111,11 @@ extension AgentTabStore {
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, work: services.work, webUI: services.webUI, input: services.inputTap, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel, warmup: services.agentPageWarmup,
-                                 mainWork: services.mainWork, chatStores: state.map { AgentPaneChatStores(directory: $0) } ?? .keepsNothing)
+                                 chromiumChat: services.agentChromiumChat,
+                                 mainThread: AgentPaneMainThread(deadlines: services.mainDeadlines, appEvents: services.appEvents,
+                                                                 workspaceEvents: services.workspaceEvents),
+                                 chatStores: state.map { AgentPaneChatStores(directory: $0) } ?? .keepsNothing,
+                                 daemonFeatures: services.features.daemonEnvironment)
         (tabs.launchImages, tabs.pullRequestReader) = (services.launchImages, services.pullRequests.reader)
         tabs.pageShown = { [weak services] in services?.home.launchFeeds?.need() }  // the New Tab feeds right after the first frame
         tabs.createTabs = services.cache.createTabs
@@ -231,7 +236,7 @@ extension AgentTabStore {
                 guard started else { return nil }
                 return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
             }
-            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
+            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, mainWork: services.mainWork, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.

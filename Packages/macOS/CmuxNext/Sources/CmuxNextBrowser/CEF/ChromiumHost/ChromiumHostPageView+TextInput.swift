@@ -1,6 +1,8 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its text input.
 public import AppKit
+import Carbon.HIToolbox
+import CmuxNextWakeups
 
 /// The page's `NSTextInputClient` in host mode
 /// (plans/cmux-next/chrome-parity/p01-process.md 3.3, task 043): input
@@ -36,6 +38,7 @@ extension ChromiumHostPageView: NSTextInputClient {
         let applied = textInput.apply(state)
         if applied.discardMarkedText { context?.discardMarkedText() }
         if applied.invalidateCharacterCoordinates { context?.invalidateCharacterCoordinates() }
+        updatePasswordInput()
     }
 
     /// A mouse down while composing, before the down goes to the page: the
@@ -82,6 +85,49 @@ extension ChromiumHostPageView: NSTextInputClient {
         textInput.state.type.takesInputMethod ? super.inputContext : nil
     }
 
+    // MARK: Secure event input
+
+    /// Secure event input on exactly while a password field has focus here: the
+    /// pushed type is password (a host that ended pushed no field), this view is
+    /// first responder of a window and that window is key
+    /// (``ChromiumHostPasswordInput``). Hiding the view takes its first
+    /// responder status (AppKit's `isHidden`), so a hidden page is a blurred one.
+    func updatePasswordInput() {
+        guard textInput.state.type == .password, passwordInput.focused, let window else {
+            passwordInput.keyWatch = []
+            passwordInput.turn(false)
+            return
+        }
+        if passwordInput.keyWatch.isEmpty {
+            let events = WindowEvents.of(window, center: passwordInput.windowCenter)
+            let owner = "ChromiumHostPageView.passwordInput"
+            passwordInput.keyWatch = [
+                events.subscribe(NSWindow.didBecomeKeyNotification, owner: owner) { [weak self] in self?.updatePasswordInput() },
+                events.subscribe(NSWindow.didResignKeyNotification, owner: owner) { [weak self] in self?.updatePasswordInput() },
+            ]
+        }
+        passwordInput.turn(passwordInput.isKey(window))
+    }
+
+    /// The view moved to another window or out of every window: the key watch was the old window's, and the
+    /// focus is what the new window says (AppKit need not tell a view that leaves a window that it resigned),
+    /// as Chrome reads `[[self window] firstResponder] == self` (render_widget_host_view_cocoa.mm).
+    func passwordInputWindowChanged() {
+        passwordInput.keyWatch = []
+        passwordInput.focused = window?.firstResponder === self
+        updatePasswordInput()
+    }
+
+    // MARK: Caret accessory
+
+    /// macOS 14's caret bubble over a cmux page stays hidden, as on Chromium's
+    /// own view of one; a web page keeps the system's placement
+    /// (``ChromiumPageTextAccessory/placement(showsCmuxPage:)``). The page's
+    /// owner says which page shows (``showsCmuxPage``).
+    public func preferredTextAccessoryPlacement() -> NSTextCursorAccessoryPlacement {
+        ChromiumPageTextAccessory.placement(showsCmuxPage: showsCmuxPage())
+    }
+
     // MARK: NSTextInputClient: changes
 
     public func insertText(_ string: Any, replacementRange: NSRange) {
@@ -113,10 +159,15 @@ extension ChromiumHostPageView: NSTextInputClient {
         deliver(textInput.doCommand(NSStringFromSelector(selector)))
     }
 
-    /// Chrome's set: the underlines an input method marks clauses with.
+    /// Chrome's set: the underlines an input method marks clauses with, and the replacement range.
+    /// AppKit's `NSTextInputReplacementRangeAttributeName` does not import into Swift, so the key is
+    /// spelled by its value.
     public func validAttributesForMarkedText() -> [NSAttributedString.Key] {
-        [.underlineStyle, .underlineColor, .markedClauseSegment, .textInputReplacementRange]
+        [.underlineStyle, .underlineColor, .markedClauseSegment, Self.textInputReplacementRangeKey]
     }
+
+    /// `NSTextInputReplacementRangeAttributeName` (NSTextInputClient.h).
+    static let textInputReplacementRangeKey = NSAttributedString.Key("NSTextInputReplacementRangeAttributeName")
 
     // MARK: NSTextInputClient: questions, from pushed state only
 
@@ -133,9 +184,11 @@ extension ChromiumHostPageView: NSTextInputClient {
     }
 
     public func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
-        actualRange?.pointee = NSRange(location: NSNotFound, length: 0)
+        // SAFETY: AppKit's out-parameter, an NSRange it owns for this call (NSTextInputClient); NULL is skipped.
+        unsafe actualRange?.pointee = NSRange(location: NSNotFound, length: 0)
         guard let requested = Self.range(range), let found = textInput.substring(of: requested) else { return nil }
-        actualRange?.pointee = Self.nsRange(found.actual)
+        // SAFETY: as above.
+        unsafe actualRange?.pointee = Self.nsRange(found.actual)
         return NSAttributedString(string: found.text)
     }
 
@@ -144,7 +197,8 @@ extension ChromiumHostPageView: NSTextInputClient {
     public func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
         let requested = Self.range(range) ?? (textInput.state.selection ?? 0..<0)
         let found = textInput.firstRect(for: requested)
-        actualRange?.pointee = Self.nsRange(found.actual)
+        // SAFETY: AppKit's out-parameter, an NSRange it owns for this call (NSTextInputClient); NULL is skipped.
+        unsafe actualRange?.pointee = Self.nsRange(found.actual)
         let page = found.rect
         // Page points have a top-left origin; this view's are bottom-left.
         let local = NSRect(x: page.minX, y: bounds.height - page.maxY, width: page.width, height: page.height)
@@ -178,6 +232,63 @@ extension ChromiumHostPageView: NSTextInputClient {
     static func nsRange(_ range: Range<Int>?) -> NSRange {
         guard let range else { return NSRange(location: NSNotFound, length: 0) }
         return NSRange(location: range.lowerBound, length: range.count)
+    }
+}
+
+/// Secure event input for the page's password fields
+/// (plans/cmux-next/chrome-parity/p01-process.md item 16, task 230). While a
+/// password field has focus the frontmost process turns it on, so no event tap
+/// in another process reads the keys. Chrome's browser process holds a
+/// `ui::ScopedPasswordInputEnabler` (ui/base/cocoa/secure_password_input.mm)
+/// while its focused view in the active window has a TEXT_INPUT_TYPE_PASSWORD
+/// field (`RenderWidgetHostViewMac::SetTextInputActive`,
+/// content/browser/renderer_host/render_widget_host_view_mac.mm). In host mode
+/// cmux is the frontmost process, not the host, so the page view holds it.
+struct ChromiumHostPasswordInput {
+    /// The system's secure event input switch; tests pass a recorder.
+    nonisolated struct Switch: Sendable {
+        let enable: @Sendable () -> Void
+        let disable: @Sendable () -> Void
+
+        /// HIToolbox's `EnableSecureEventInput` and `DisableSecureEventInput` (counted per process, so each
+        /// page view's enable and disable pair stays balanced beside the terminals' `TerminalSecureInput`).
+        static let carbon = Switch(enable: { _ = EnableSecureEventInput() }, disable: { _ = DisableSecureEventInput() })
+    }
+
+    /// Secure event input on for its life: one enable when made, one disable when released (the view's
+    /// release included), as Chrome's scoped enabler.
+    nonisolated final class Enabler {
+        private let system: Switch
+
+        init(_ system: Switch) {
+            self.system = system
+            system.enable()
+        }
+
+        deinit { system.disable() }
+    }
+
+    var system: Switch = .carbon
+    /// Where windows post their key changes (``WindowEvents/of(_:center:)``); tests pass their own.
+    var windowCenter: NotificationCenter = .default
+    /// Whether a window is the key window; tests pass their own (a test window never becomes key).
+    var isKey: @MainActor (NSWindow) -> Bool = { $0.isKeyWindow }
+    /// The view is its window's first responder.
+    var focused = false
+    /// The window's key changes, watched only while a password field has focus.
+    var keyWatch: [EventSubscription] = []
+    /// Held while secure event input is on.
+    private(set) var enabler: Enabler?
+
+    /// Whether this view holds secure event input now (`debug.chromium_host` `password_input`).
+    var isOn: Bool { enabler != nil }
+
+    mutating func turn(_ on: Bool) {
+        if !on {
+            enabler = nil
+        } else if enabler == nil {
+            enabler = Enabler(system)
+        }
     }
 }
 

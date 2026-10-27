@@ -4,6 +4,9 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// What a Cloud action found, for whoever ran it: a person sees `text` in a
 /// sheet titled `title`; a CLI, MCP, script or remote run gets `text` and
@@ -121,7 +124,8 @@ extension CloudHandlers {
     /// the creation in the automation class (only a capturing caller, an agent or the CLI, waits on it).
     static func settledCreation(_ creation: CloudMachineCreation, in creations: CloudCreations, within limit: Duration,
                                 work: MainWorkScheduler, deadlines: MainDeadlineScheduler) async -> CreatedMachine? {
-        await withCheckedContinuation { (continuation: CheckedContinuation<CreatedMachine?, Never>) in
+        // A wait dropped unanswered answers as the limit does: still pending.
+        try? await withOnceContinuation { (continuation: OnceContinuation<CreatedMachine?, OnceContinuationError>) in
             FirstValueWait<CreatedMachine>.start(.automation, owner: "CloudHandlers.createdMachine", within: limit, work: work, deadlines: deadlines) {
                 let state = CreatedMachine(creation, in: creations)
                 return state == .pending ? nil : state

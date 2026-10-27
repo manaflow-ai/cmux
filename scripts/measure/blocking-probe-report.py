@@ -18,8 +18,11 @@ and JSON, with the owner area (plans/cmux-next/OWNERS.md) of the module the site
   daemon_request     the daemon's watched request and echo threads (a dump with any other #threads header); the
                      site is the first frame in a cmux crate, past the statically linked Rust std
   daemon_input_wait  the same threads' waits for their next input (kind input-wait:*: a socket, pipe or PTY read,
-                     recv, poll, select, waitpid), listed apart: an idle wait is not blocking work, as Chrome's
-                     message pump waits outside any ScopedBlockingCall
+                     recv, poll, select, waitpid, a mach receive without a send), listed apart: an idle wait is
+                     not blocking work, as Chrome's message pump waits outside any ScopedBlockingCall
+
+Each section's summary also counts its calls by kind without the call's name (by_kind: file-io, process-spawn,
+xpc-reply, mach-receive, library-load, system-call, system-query, ...).
 
 With --until-mark NAME, a fifth section, listed first:
 
@@ -64,6 +67,10 @@ SWIFT_MODULE = re.compile(r"^\$s(\d+)(\w+)")
 RUST_CRATE = re.compile(r"(?<![A-Za-z])((?:cmux|acpmux)\w*?)(?:::|\d|$)")
 # The preflight program's watched thread pattern (blocking-probe.sh).
 PREFLIGHT_THREAD = "probe-test-*-host"
+# The preflight app's one main-thread call of each cross-process and loader kind (blocking-probe.sh cross_process).
+PREFLIGHT_CROSS_PROCESS = ("xpc-reply:xpc_connection_send_message_with_reply_sync", "mach-receive:mach_msg",
+                           "library-load:dlopen", "system-query:getpwuid_r", "process-spawn:fork")
+MACH_RECEIVE = "mach-receive:"
 
 
 def app_images_of(app):
@@ -135,8 +142,8 @@ def rows_of(path):
 
 def preflight_window(apps, windows, until_mark):
     """The launch window's problems: the preflight app spawns its chain, makes LaunchMarkSink's fcntls and writes on
-    the probe's mark descriptor, sends the mark, then checks access("/"); its one window holds the spawn and neither
-    the access nor the self-test (queued for the main run loop), nor a write or fcntl: the probe made that
+    the probe's mark descriptor, sends the mark, then checks access("/") and makes its cross-process calls; its one
+    window holds the spawn and neither the access, the cross-process calls nor the self-test (queued for the main run loop), nor a write or fcntl: the probe made that
     descriptor, so calls on it are not the app's."""
     if len(windows) != 1:
         return [f"{len(windows)} launch window dumps, want 1: the probe did not see the app's {until_mark} mark on "
@@ -147,13 +154,33 @@ def preflight_window(apps, windows, until_mark):
         problems.append(f"the launch window ends at {header.get('window')!r}, want {until_mark!r}")
     if ("process-spawn:posix_spawn", "main") not in rows:
         problems.append("the launch window lacks the app's spawn, made before the mark")
-    if any(kind in ("file-io:access", "selftest") for kind, _ in rows):
-        problems.append("the launch window holds calls made after the mark (access or the self-test)")
+    if any(kind in ("file-io:access", "selftest", *PREFLIGHT_CROSS_PROCESS) for kind, _ in rows):
+        problems.append("the launch window holds calls made after the mark (access, the cross-process calls or the "
+                        "self-test)")
     if any(kind in ("io:write", "file-io:fcntl") for kind, _ in rows):
         problems.append("the launch window holds a write or fcntl: the probe recorded calls on its own mark "
                         "descriptor")
     if apps and ("file-io:access", "main") not in rows_of(apps[0]):
         problems.append("the app's dump lacks its access after the mark: the dump left out calls after the window")
+    return problems
+
+
+def preflight_cross_process(path):
+    """The app dump's problems with the cross-process and loader kinds: one main-thread row of each, and its 5 ms
+    mach receive the only mach receive (the main run loop's idle wait and the receives inside the XPC send and
+    getpwuid_r are not)."""
+    problems = []
+    with open(path, errors="replace") as f:
+        main = [fields for fields in (line.split("\t") for line in f if not line.startswith("#"))
+                if len(fields) > 2 and fields[1] == "main"]
+    main_kinds = {fields[0] for fields in main}
+    for kind in PREFLIGHT_CROSS_PROCESS:
+        if kind not in main_kinds:
+            problems.append(f"the app's dump lacks its main-thread {kind}: the probe does not interpose it")
+    receives = sum(int(fields[2]) for fields in main if fields[0].startswith(MACH_RECEIVE) and fields[2].isdigit())
+    if receives > 1:
+        problems.append(f"{receives} main-thread mach receives, want 1: the run loop's idle wait or a receive inside "
+                        "the XPC send or getpwuid_r was recorded")
     return problems
 
 
@@ -174,6 +201,7 @@ def preflight(paths, until_mark=None):
         if dump_header(path).get("final") != "1" or ("selftest", "main") not in rows_of(path):
             problems.append("the app's dump has no main-thread self-test row at exit: the probe did not load or "
                             "did not interpose")
+        problems.extend(preflight_cross_process(path))
     for path in daemons[:1]:
         threads, rows = dump_header(path).get("threads"), rows_of(path)
         if threads != PREFLIGHT_THREAD:
@@ -417,11 +445,21 @@ def build(entries, images, dsyms, owned, sections=SECTIONS):
     return report
 
 
+def kind_family(kind):
+    """The kind without its call (`xpc-reply:xpc_connection_send_message_with_reply_sync` -> `xpc-reply`)."""
+    return kind.split(":", 1)[0]
+
+
 def section_summary(rows):
+    by_kind = collections.Counter()
+    for r in rows:
+        for kind, count in r["kinds"].items():
+            by_kind[kind_family(kind)] += count
     return {"sites": len(rows), "blocked_ms": round(sum(r["total_ms"] for r in rows), 1),
             "by_owner": dict(collections.Counter(r["owner"] for r in rows)),
             "by_module": dict(collections.Counter(r["module"] or "system/other" for r in rows)),
-            "by_thread": dict(sum((collections.Counter(r["threads"]) for r in rows), collections.Counter()))}
+            "by_thread": dict(sum((collections.Counter(r["threads"]) for r in rows), collections.Counter())),
+            "by_kind": dict(by_kind)}
 
 
 def write_launch(md, launch, rows, info):
@@ -458,9 +496,11 @@ def write_markdown(path, summary, report, overhead_ms):
                  f"{summary['calls_timed']} timed calls. Dropped entries: {summary['dropped']}. Torn dump lines "
                  f"skipped: {summary['bad_lines']}.\n\n"
                  "Known gaps (probe.c header): pthread_rwlock_*, os_unfair_lock_lock_with_options, semaphore_wait, "
-                 "mach_msg (sync XPC), __ulock_wait, kevent, renamex_np, ftruncate, xattrs, readv/writev, "
-                 "getdirentries64, copyfile/clonefile, dispatch_async_and_wait, some $NOCANCEL forms, calls a system "
-                 "library makes to itself. A daemon thread's wait for its next input (input-wait:*) is in "
+                 "mach_msg_overwrite, __ulock_wait, kevent, renamex_np, ftruncate, xattrs, readv/writev, "
+                 "getdirentries64, copyfile/clonefile, dispatch_async_and_wait, vfork, other getpw*/getgr* lookups, "
+                 "some $NOCANCEL forms, calls a system library makes to itself. An xpc-reply, SecItem (system-call), "
+                 "getpwuid (system-query) or dlopen (library-load) row holds its whole call, the mach receives inside "
+                 "it not counted again; the main run loop's idle wait is never a mach-receive. A daemon thread's wait for its next input (input-wait:*) is in "
                  "daemon_input_wait, a recv or poll that waits for another process's reply inside a request too; a "
                  "worker's condition or semaphore wait for its next job stays in daemon_request (read the kinds "
                  "column).\n")

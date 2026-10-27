@@ -74,7 +74,8 @@ import Testing
         displays.fireRateClass(1, frames: 1, from: 1)
         #expect(displays.frameRate(on: 1) == .ambient)
         let capped = try #require(link.requested.last)
-        #expect(capped.maximum <= 30 && capped.preferred <= 30)
+        // No preferred rate (nil) leaves the system to pick within the maximum.
+        #expect(capped.maximum <= 30 && (capped.preferred ?? capped.maximum) <= 30)
 
         energy.update(.normal)
         #expect(scheduler.ambientCap == nil)

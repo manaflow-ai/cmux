@@ -284,7 +284,7 @@ impl Surface {
                 #[cfg(test)]
                 vt_replay_builds: AtomicUsize::new(0),
                 mux,
-                taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", Vec::new()),
+                taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", AttachTaps::default()),
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
                 last_input_flow: Default::default(),

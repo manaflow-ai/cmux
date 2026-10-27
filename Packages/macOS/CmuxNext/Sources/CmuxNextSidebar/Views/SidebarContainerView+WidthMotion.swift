@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Pacing and the end of the sidebar's width animation. Every frame of the
 /// animation moves the content edge, so both costs beside it are kept off the
@@ -17,7 +18,7 @@ extension SidebarContainerView {
     /// in the normal case this never fires.
     func armWidthMotionWatchdog(_ token: MotionSpring) {
         let due = Duration.seconds(Motion.sidebar.duration(token)) + Self.widthMotionSlack
-        widthMotionWatchdog.scheduleOnMain(after: due) { [weak self] in
+        widthMotionWatchdog.schedule(after: due) { [weak self] in
             guard let self, self.isWidthAnimating else { return }
             self.isWidthAnimating = false
             self.refreshHover()

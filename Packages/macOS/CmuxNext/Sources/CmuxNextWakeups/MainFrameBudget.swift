@@ -457,7 +457,8 @@ public final class MainFrameBudget {
         if let index { ranThisFrame[index] = true }
         open.append(task)
         turns.beginSpan(.scheduled, at: task.start)
-        board.begin(workClass, owner: owner.index, sequence: task.sequence, startNanos: task.start, budgetNanos: task.budgetNanos)
+        board.begin(workClass, owner: owner.index, sequence: task.sequence, startNanos: task.start, budgetNanos: task.budgetNanos,
+                    hangAtNanos: task.hangAtNanos)
         if let post { board.notePostedFrom(post.site) }
         let interval = signposts
             ? Signposter.stall.begin(.stallMainTask, taskClass: workClass.description, owner: owner.name,
@@ -512,7 +513,7 @@ public final class MainFrameBudget {
     /// Names `task` on the board again, as the running task.
     private func publish(_ task: OpenTask) {
         board.begin(task.workClass, owner: task.owner.index, sequence: task.sequence, startNanos: task.start,
-                    budgetNanos: task.budgetNanos, notify: false)
+                    budgetNanos: task.budgetNanos, hangAtNanos: task.hangAtNanos, notify: false)
     }
 
     /// Whether a task runs now: one is open and not waiting in a nested run loop it ran.
@@ -527,11 +528,9 @@ public final class MainFrameBudget {
     /// window rolls on an idle app as when no task is open. Tasks run inside the loop are charged as
     /// themselves; the task's work after the loop returns is its own again.
     private func nestedLoop(running: Bool, at now: UInt64) {
+        defer { board.nestedLoops(running: parkedBy.count, startedAt: running ? now : nil) } // invalidates hang scopes
         if running {
-            guard let index = open.indices.last else {
-                parkedBy.append(nil)
-                return
-            }
+            guard let index = open.indices.last else { return parkedBy.append(nil) }
             parkedBy.append(open[index].sequence)
             if open[index].parks == 0 {
                 open[index].parkedSince = now

@@ -51,8 +51,11 @@ public nonisolated struct FolderListing: Equatable, Sendable {
     public static func readNow(_ directory: URL, mode: PickerMode, limit: Int, scanLimit: Int = Self.scanLimit) -> FolderListing {
         let path = directory.path
         let base = path == "/" ? "" : path
-        guard let handle = opendir(path) else { return FolderListing(entries: [], failure: failure(errno)) }
-        defer { closedir(handle) }
+        // SAFETY: opendir reads the NUL-terminated copy of the path made for the call; `handle` is this call's own
+        // directory stream, closed once on return. Each record readdir returns is valid until the next readdir or
+        // closedir on it, and record(_:) copies the name and type out before the loop asks for the next one.
+        guard let handle = unsafe opendir(path) else { return FolderListing(entries: [], failure: failure(errno)) }
+        defer { unsafe closedir(handle) }
         var folders: [String] = [], files: [String] = []
         var scanned = 0, stoppedEarly = false
         // One type check per extension, not per file.
@@ -64,8 +67,9 @@ public nonisolated struct FolderListing: Equatable, Sendable {
             verdicts[ext] = verdict
             return verdict
         }
-        while let entry = readdir(handle) {
-            let (name, type) = record(entry)
+        // SAFETY: `handle` is the open stream above; each record is copied out (record(_:)) before the next readdir.
+        while let entry = unsafe readdir(handle) {
+            let (name, type) = unsafe record(entry)
             if name == "." || name == ".." { continue }
             scanned += 1
             if scanned > scanLimit {
@@ -93,7 +97,8 @@ public nonisolated struct FolderListing: Equatable, Sendable {
                 // A guarded folder (Documents, Library, ...) is not looked
                 // into until the user opens it: a probe could raise a prompt.
                 let child = base + "/" + name
-                let git = isDirectory && PickerPrivacy.mayProbe(child) && access(child + "/.git", F_OK) == 0
+                // SAFETY: access reads the NUL-terminated copy of the path made for the call.
+                let git = unsafe isDirectory && PickerPrivacy.mayProbe(child) && access(child + "/.git", F_OK) == 0
                 entries.append(FolderEntry(name: name, isDirectory: isDirectory, isGitRepository: git))
             }
         }
@@ -113,11 +118,14 @@ public nonisolated struct FolderListing: Equatable, Sendable {
     /// read (the fields at their offsets, the name by `d_namlen`), never
     /// the whole struct or its 1024-byte `d_name`.
     static func record(_ entry: UnsafeMutablePointer<dirent>) -> (name: String, type: UInt8) {
-        let raw = UnsafeRawPointer(entry)
-        let length = Int(raw.loadUnaligned(fromByteOffset: Self.nameLengthOffset, as: UInt16.self))
-        let type = raw.loadUnaligned(fromByteOffset: Self.typeOffset, as: UInt8.self)
-        let bytes = UnsafeRawBufferPointer(start: raw + Self.nameOffset, count: length)
-        return (String(decoding: bytes, as: UTF8.self), type)
+        // SAFETY: `entry` is a record readdir returned and has not yet reused (the caller's loop); d_namlen and
+        // d_type lie inside the record's fixed head, and its d_namlen name bytes start at d_name and end inside
+        // the record's d_reclen bytes. Only those bytes are read, by unaligned loads and one copy into a String.
+        let raw = unsafe UnsafeRawPointer(entry)
+        let length = unsafe Int(raw.loadUnaligned(fromByteOffset: Self.nameLengthOffset, as: UInt16.self))
+        let type = unsafe raw.loadUnaligned(fromByteOffset: Self.typeOffset, as: UInt8.self)
+        let bytes = unsafe UnsafeRawBufferPointer(start: raw + Self.nameOffset, count: length)
+        return (unsafe String(decoding: bytes, as: UTF8.self), type)
     }
 
     private static let nameOffset = MemoryLayout<dirent>.offset(of: \dirent.d_name) ?? 21
@@ -130,7 +138,9 @@ public nonisolated struct FolderListing: Equatable, Sendable {
         case DT_DIR: return true
         case DT_LNK, DT_UNKNOWN:
             var info = stat()
-            return stat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR
+            // SAFETY: stat reads the NUL-terminated copy of the path made for the call and writes one struct stat
+            // into `info`, a local live for the call.
+            return unsafe stat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR
         default: return false
         }
     }

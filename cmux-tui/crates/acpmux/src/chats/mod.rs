@@ -109,6 +109,38 @@ impl ChatService {
         service
     }
 
+    /// What the index keeps, estimated (a memory consumer's bytes): each chat
+    /// twice, in its root's scan and in the merged list. Reads lengths only;
+    /// `None` while a scan holds the index (`daemon status` never waits on one).
+    pub fn approx_bytes(&self) -> Option<u64> {
+        use crate::memory::{inline_bytes, string_bytes};
+        let state = match self.state.try_lock() {
+            Ok(state) => state,
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return None,
+        };
+        let words = |list: &[String]| list.iter().map(|s| string_bytes(s)).sum::<u64>();
+        let bytes = state
+            .index
+            .chats()
+            .into_iter()
+            .map(|chat| {
+                let e = &chat.entry;
+                let entry = inline_bytes::<cmux_chat_index::ChatEntry>(1)
+                    + string_bytes(&e.session_id)
+                    + e.title.as_deref().map_or(0, string_bytes)
+                    + e.cwd.as_deref().map_or(0, string_bytes)
+                    + e.source_path.as_os_str().len() as u64
+                    + e.originator.as_deref().map_or(0, string_bytes);
+                2 * entry
+                    + inline_bytes::<IndexedChat>(1)
+                    + words(&chat.accounts)
+                    + words(&chat.roots)
+            })
+            .sum();
+        Some(bytes)
+    }
+
     pub fn subscribe(&self) -> broadcast::Receiver<Arc<Vec<SeqChange>>> {
         self.changes.subscribe()
     }

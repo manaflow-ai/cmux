@@ -199,6 +199,14 @@ Largest first. Each fix lands with a failing bench row or test first.
    cmux's React pages through CEF (ChromiumPageHost). Fix: Home chat native (a488's SwiftUI/AppKit
    track) or one shared WebKit page process; never one renderer per cmux page. Row:
    `budget-idle-cpu-home`, `budget-memory-home`.
+   Status (chrome-parity p13-webui, 2026-10-26; each named feature is off by default until the
+   testing phase, 060, measures it): pages of one capability group share one renderer
+   (`pageProcessGroups`); hidden pages freeze and then discard (`pageLifecycle`); the spare
+   Chromium window's placeholder has no renderer where the fork can (`rendererlessSpareWindow`);
+   Chromium keeps its spare renderer only after a browser tab (`chromiumSpareAfterFirstTab`); New
+   Tab preloads through the app's one `PagePreloadSlot` (Settings, History and Cloud move off
+   `PageHostPool` in 045). The design is
+   [webui-DESIGN.md](webui-DESIGN.md).
 3. **The main thread wakes 27-107 times a second at idle, more when the app is hidden.** Floor 0.
    Root cause unknown in a Release build (debug.wakeups is Debug-only); the bench now records a
    main-thread sample of the hidden app so the owner gets named, then a red row and the fix
@@ -263,6 +271,7 @@ New ranked gaps from these rows (added to section 6):
 | Profiling | a421 |
 | CEF per-frame cost | a462 |
 | Hidden-tab hibernation | a456 |
+| cmux pages (WebUI): lifecycle, preload, renderer groups, spare windows | PL-webui (chrome-parity p13-webui) |
 | Spinners and animation frames | a465, a477 |
 | Chat switch | a470 |
 | Space and workspace switch | a489, a492 |

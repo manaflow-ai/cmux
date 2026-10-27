@@ -107,7 +107,8 @@ public actor SavedEnvironments: AgentPaneEnvironmentStoring {
                 throw error
             }
             // A plain rename: the new file's own 0600 mode replaces whatever the old one had.
-            guard rename(temporary.path, url.path) == 0 else { throw Failure.unwritable }
+            // SAFETY: rename reads the NUL-terminated copies of the two paths made for the call.
+            guard unsafe rename(temporary.path, url.path) == 0 else { throw Failure.unwritable }
         } catch {
             try? FileManager.default.removeItem(at: temporary)
             throw error

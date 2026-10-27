@@ -21,7 +21,8 @@
 // The parent view of a page window. Its occlusion rect (the fork's
 // -cmuxOcclusionRects) covers it, so the fork's tracker keeps the page
 // window from taking the mouse; on each tracker read Chromium's page window
-// (a child of this view's window) is made to ignore the mouse too.
+// (a child of this view's window until it is detached) is made to ignore the
+// mouse too.
 @interface ChromiumHostParentView : NSView
 @end
 
@@ -41,7 +42,7 @@
 namespace cmux_host {
 namespace {
 
-// A page window's size until cmux sends the page view's geometry (task 040).
+// A page window's size until cmux sends the page view's geometry (Place).
 constexpr CGFloat kDefaultPageWidth = 800;
 constexpr CGFloat kDefaultPageHeight = 600;
 
@@ -68,22 +69,42 @@ void* HostPageViews::Open(uint64_t token) {
   window.backgroundColor = NSColor.clearColor;
   window.hasShadow = NO;
   window.ignoresMouseEvents = YES;
-  // Above normal windows: on macOS 14 and 15 Chromium reads the window
-  // server's occlusion state, and a covered page window makes the page
-  // hidden. It has no pixels (the parent view's alpha is 0) and takes no
-  // clicks; detached hosting (task 053) takes the page window out of it.
-  window.level = NSFloatingWindowLevel;
-  window.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorStationary |
-                              NSWindowCollectionBehaviorIgnoresCycle |
-                              NSWindowCollectionBehaviorFullScreenAuxiliary;
+  window.collectionBehavior = NSWindowCollectionBehaviorIgnoresCycle;
   ChromiumHostParentView* view = [[ChromiumHostParentView alloc] initWithFrame:frame];
   view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
   view.alphaValue = 0;
   window.contentView = view;
   [view release];
-  [window orderFrontRegardless];
+  // Never ordered in: the page window under the view is detached once its
+  // layers are hosted (HostContext::HandleLayerHosting), and cmux gives the
+  // page its visibility (set_page_visibility), so no window of the host
+  // is ever on screen. The window only carries the page's place and screen
+  // (Place), as Chrome's browser process keeps a window's bounds in
+  // NativeWidgetMacNSWindowHost while the app shim shows the window
+  // (ui/views/cocoa/native_widget_mac_ns_window_host.mm).
   windows_[token] = (__bridge void*)window;
   return (__bridge void*)window.contentView;
+}
+
+void HostPageViews::Place(uint64_t token, const PageGeometry& geometry) {
+  auto found = windows_.find(token);
+  if (found == windows_.end()) return;
+  NSWindow* page_window = (__bridge NSWindow*)found->second;
+  [page_window setFrame:NSMakeRect(geometry.screen_x, geometry.screen_y, geometry.width, geometry.height) display:NO];
+}
+
+// The page window follows its parent view, as in cmux the fork's page window
+// follows CEFHostView: its tracker re-reads the view on the parent view
+// geometry post (CEFHostView.postGeometryChange). Only on change (task 053).
+void HostPageViews::Resize(uint64_t token, int32_t width, int32_t height) {
+  auto found = windows_.find(token);
+  if (found == windows_.end()) return;
+  NSWindow* page_window = (__bridge NSWindow*)found->second;
+  const NSSize size = NSMakeSize(width, height);
+  if (NSEqualSizes(page_window.contentView.frame.size, size)) return;
+  [page_window setContentSize:size];
+  [NSNotificationCenter.defaultCenter postNotificationName:@"CmuxParentViewGeometryDidChange"
+                                                    object:page_window.contentView];
 }
 
 void HostPageViews::Close(uint64_t token) {

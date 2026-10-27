@@ -2,6 +2,8 @@
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 import CmuxNextCompat
 import Darwin
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
 
 /// The state of one ``ChromiumHostControlChannel``, shared by the channel,
 /// its reader thread and the main-thread drains it posts, so a channel
@@ -43,7 +45,7 @@ nonisolated final class ChromiumHostControlCore: Sendable {
         var readerDone = false
         var endDelivered = false
         var lastToken: UInt32 = 0
-        var replies: [UInt32: CheckedContinuation<Reply, Never>] = [:]
+        var replies: [UInt32: OnceContinuation<Reply, OnceContinuationError>] = [:]
         /// Tokens of posts whose ACK goes to the mirror on main.
         var acks: Set<UInt32> = []
         /// The mirror refused a frame: nothing read after it runs.
@@ -79,11 +81,13 @@ nonisolated final class ChromiumHostControlCore: Sendable {
         _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
         _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
         var noSigPipe: Int32 = 1
-        _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+        // SAFETY: setsockopt reads the one Int32 `noSigPipe` holds, the length given, during the call.
+        _ = unsafe setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
         var initial = State(fd: fd, outbox: ChromiumHostControlOutbox(quotaBytes: options.quotaBytes,
                                                                        quotaMessages: options.quotaMessages))
         var wake: [Int32] = [-1, -1]
-        if Darwin.pipe(&wake) == 0 {
+        // SAFETY: pipe writes two Int32 descriptors, the two elements `wake` holds, during the call.
+        if unsafe Darwin.pipe(&wake) == 0 {
             for end in wake {
                 _ = fcntl(end, F_SETFL, fcntl(end, F_GETFL) | O_NONBLOCK)
                 _ = fcntl(end, F_SETFD, FD_CLOEXEC)
@@ -105,7 +109,7 @@ nonisolated final class ChromiumHostControlCore: Sendable {
 
     /// Sends `message` under a fresh token; `continuation` resumes with the
     /// reply (on the reader thread) or the end.
-    func request(_ message: ChromiumHostControlMessage, _ continuation: CheckedContinuation<Reply, Never>) {
+    func request(_ message: ChromiumHostControlMessage, _ continuation: OnceContinuation<Reply, OnceContinuationError>) {
         let shared = message.sharedFieldIndices()
         // Made before the lock, as in ChromiumHostControlChannel.send.
         guard let payloads = ChromiumHostSharedPayloads(message, sharing: shared) else {
@@ -195,7 +199,9 @@ nonisolated final class ChromiumHostControlCore: Sendable {
                          pollfd(fd: wakeRead, events: Int16(POLLIN), revents: 0)]
             // Whole frames wait in `buffer` and the inbox has room: take them
             // now, whether or not the socket brings more.
-            let ready = Darwin.poll(&polls, 2, plan.wantsRead && framesWait ? 0 : plan.timeoutMilliseconds)
+            let timeout = plan.wantsRead && framesWait ? 0 : plan.timeoutMilliseconds
+            // SAFETY: poll reads and writes `polls.count` pollfd entries, the count given, during the call.
+            let ready = unsafe Darwin.poll(&polls, nfds_t(polls.count), timeout)
             if ready < 0, errno != EINTR {
                 end(.ioError)
                 break
@@ -236,7 +242,7 @@ nonisolated final class ChromiumHostControlCore: Sendable {
         }
         for received in fds { Darwin.close(received) }
         let (waiters, reason, postsDrain) = state.withLock {
-            state -> ([CheckedContinuation<Reply, Never>], ChromiumHostControlEnd, Bool) in
+            state -> ([OnceContinuation<Reply, OnceContinuationError>], ChromiumHostControlEnd, Bool) in
             Darwin.close(state.fd)
             state.fd = -1
             Darwin.close(state.wakeRead)
@@ -327,8 +333,10 @@ nonisolated final class ChromiumHostControlCore: Sendable {
         if failure == nil, !paused, !ChromiumHostControlMessage.pendingFdsFit(buffer[start...], pending: fds.count) {
             failure = .malformed
         }
-        buffer.removeFirst(start)
         if postsDrain { scheduleDrain() }
+        // A decoded frame never claims more bytes than it was decoded from; a decoder that did is a malformed wire.
+        guard start <= buffer.count else { return (.malformed, false) }
+        buffer.removeFirst(start)
         return (failure, paused)
     }
 
@@ -419,7 +427,8 @@ nonisolated final class ChromiumHostControlCore: Sendable {
     /// the host closed its end (the outbox is dropped; the reader reads to EOF).
     private static func flushLocked(_ state: inout State) -> Bool {
         let socket = ChromiumHostControlSocket(fd: state.fd)
-        switch state.outbox.flush({ bytes, fds in socket.send(bytes, fds: fds) }) {
+        // SAFETY: the outbox's view is valid for the call, and sendmsg only reads it during the call.
+        switch state.outbox.flush({ bytes, fds in unsafe socket.send(bytes, fds: fds) }) {
         case .drained, .blocked:
             if !state.outbox.isOverQuota { state.overSince = nil }
             return true

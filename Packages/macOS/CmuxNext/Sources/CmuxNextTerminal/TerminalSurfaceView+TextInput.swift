@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextInput
 import GhosttyNextKit
 
 // IME and marked text, exactly as upstream Ghostty's SurfaceView
@@ -20,7 +21,7 @@ extension TerminalSurfaceView: NSTextInputClient {
     }
 
     public func selectedRange() -> NSRange {
-        TerminalSelection.read(surface)?.range ?? NSRange()
+        TerminalSelection.read(of: self)?.range ?? NSRange()
     }
 
     public func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
@@ -39,6 +40,14 @@ extension TerminalSurfaceView: NSTextInputClient {
         }
     }
 
+    /// Upstream takes only text that comes with an event (a key, a click on a candidate, the emoji
+    /// picker, dictation): a key typed here, or an input method's text once the window's input tap
+    /// dispatched input. A window with no tap takes it.
+    private var textComesWithInput: Bool {
+        guard keyTextAccumulator == nil, let tap = (window as? InputTapHosting)?.inputTap else { return true }
+        return tap.lastDispatched != nil
+    }
+
     public func unmarkText() {
         guard markedText.length > 0 else { return }
         markedText.mutableString.setString("")
@@ -50,11 +59,10 @@ extension TerminalSurfaceView: NSTextInputClient {
     }
 
     public func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
-        guard let surface, range.length > 0, let selection = TerminalSelection.read(surface) else { return nil }
+        guard let surface, range.length > 0, let selection = TerminalSelection.read(of: self) else { return nil }
         var attributes: [NSAttributedString.Key: Any] = [:]
-        if let fontPointer = ghostty_surface_quicklook_font(surface) {
-            // Ghostty returns a +1 CTFont.
-            let font = Unmanaged<CTFont>.fromOpaque(fontPointer).takeRetainedValue()
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        if let font = unsafe GhosttyTextRead.quickLookFont(surface) {
             attributes[.font] = font
         }
         return NSAttributedString(string: selection.text, attributes: attributes)
@@ -73,11 +81,13 @@ extension TerminalSurfaceView: NSTextInputClient {
         var height = Double(cell.height)
         // Quick Look asks for the selection, not the cursor.
         var usedSelection = false
-        if range.length > 0, range != selectedRange(), let selection = TerminalSelection.read(surface) {
+        if range.length > 0, range != selectedRange(), let selection = TerminalSelection.read(of: self) {
             (x, y, usedSelection) = (selection.topLeft.x - 2, selection.topLeft.y + 2, true)
         }
         if !usedSelection {
-            ghostty_surface_ime_point(surface, &x, &y, &width, &height)
+            // SAFETY: the view's live surface (TerminalSurfaceView.surface); Ghostty writes one
+            // double into each of the four locals, alive for the call.
+            unsafe ghostty_surface_ime_point(surface, &x, &y, &width, &height)
         }
         if range.length == 0, width > 0 {
             // A zero-width rect places the dictation indicator at the caret.
@@ -91,9 +101,7 @@ extension TerminalSurfaceView: NSTextInputClient {
     }
 
     public func insertText(_ string: Any, replacementRange: NSRange) {
-        // Upstream: only text that comes with an event (a key, a click on a
-        // candidate, the emoji picker, dictation).
-        guard surface != nil, NSApp.currentEvent != nil else { return }
+        guard surface != nil, textComesWithInput else { return }
         let text: String
         switch string {
         case let attributed as NSAttributedString:

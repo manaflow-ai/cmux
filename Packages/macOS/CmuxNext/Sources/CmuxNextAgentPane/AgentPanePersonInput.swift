@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextInput
 import Darwin
 
 /// Whether a key or mouse event in an agent pane is the person's own input, for the pane's gesture
@@ -29,20 +30,47 @@ enum AgentPanePersonInput {
         return personServices.contains { path.hasPrefix($0) }
     }
 
-    /// Whether the event AppKit is dispatching now (a menu choice, a shortcut, a drop) is the
-    /// person's; none (a call from outside an event) is not.
-    @MainActor static var currentIsPerson: Bool { NSApp.currentEvent.map(isPerson) ?? false }
+    /// Whether the event the running action answers (a menu choice, a shortcut, a drop:
+    /// ``InputEventTap/actionEvent``) is the person's; none (a CLI, socket or script run) is not.
+    @MainActor static func isPerson(answering input: InputEventTap) -> Bool { input.actionEvent.map(isPerson) ?? false }
 
     /// Records the gesture of a native choice (a menu item, a shortcut, a drop) only when the event
-    /// in dispatch is the person's: a posted click or key, or a scripted run, grants nothing.
+    /// it answers is the person's: a posted click or key, or a scripted run, grants nothing.
     /// `answer`: the native permission shortcut, which may answer a prompt as a click does.
-    @MainActor static func record(_ gestures: AgentPaneUserGestures, if byPerson: Bool = true, answer: Bool = false) {
-        if byPerson, currentIsPerson { gestures.record(click: answer) }
+    @MainActor static func record(_ gestures: AgentPaneUserGestures, input: InputEventTap, if byPerson: Bool = true,
+                                  answer: Bool = false) {
+        if byPerson, isPerson(answering: input) { gestures.record(click: answer) }
+    }
+
+    /// How the drag a drop ends was ended, read as the drop lands. A drop has no event to judge:
+    /// AppKit calls `performDragOperation` from the drag session, outside any dispatch, and the window
+    /// server sends the destination no mouse event during a drag.
+    struct DragEnd: Equatable {
+        /// Seconds since the HID system's last button release. Posted events (CGEventPost) never move
+        /// the HID state, only the session's.
+        var sinceHIDRelease: TimeInterval
+        /// Seconds since the login session's last button drag, posted ones included.
+        var sinceSessionDrag: TimeInterval
+
+        /// The person's drop: the HID system released the button after the drag's last move, so the
+        /// person's hand ended the drag. A drag a script posts moves after the person's last release.
+        var isPersons: Bool { sinceHIDRelease < sinceSessionDrag }
+
+        /// Read now. The release is read first, so the time between the two reads never makes a
+        /// posted drag look older than the person's release.
+        static func now() -> DragEnd {
+            let release = [CGEventType.leftMouseUp, .rightMouseUp, .otherMouseUp]
+                .map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }.min() ?? .infinity
+            let drag = [CGEventType.leftMouseDragged, .rightMouseDragged, .otherMouseDragged]
+                .map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) }.min() ?? .infinity
+            return DragEnd(sinceHIDRelease: release, sinceSessionDrag: drag)
+        }
     }
 
     private static func executablePath(_ pid: pid_t) -> String? {
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
-        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
-        return String(cString: buffer)
+        // SAFETY: proc_pidpath writes at most buffer.count bytes into the array's own storage, lent for the call.
+        guard unsafe proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        return String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 }

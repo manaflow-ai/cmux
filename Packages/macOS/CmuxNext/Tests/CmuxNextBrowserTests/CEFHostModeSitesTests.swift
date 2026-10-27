@@ -311,7 +311,7 @@ import Testing
     static func hostRuntime() async throws -> (CEFRuntime, CEFHostStart) {
         let runtime = try inProcessRuntime()
         let host = CEFHostStart(supervisor: OneSpyHost(), open: { _ in
-            do { return .success(try CEFRemoteShim.make(symbol: SitesSpy.symbol, expected: SitesSpy.abi)) } catch { return .failure(.shim(error)) }
+            do throws(CEFShimLibrary.LoadError) { return .success(try CEFRemoteShim.make(symbol: SitesSpy.symbol, expected: SitesSpy.abi)) } catch { return .failure(.shim(error)) }
         })
         guard case .success = await host.attached() else { throw BrowserTabError.closed }
         runtime.hostStart = host

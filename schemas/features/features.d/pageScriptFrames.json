@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "pageScriptFrames",
+  "owner": "PL-webui",
+  "description": "A cmux page gets its host events as one script per display frame, and a hidden page gets none until it shows, then the latest state of each stream at once.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["home-perf", "sidebar-churn-typing"],
+  "sticky": false,
+  "runtimeMutable": false
+}

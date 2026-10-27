@@ -22,9 +22,11 @@ enum NotificationHandlers {
         services.pages.register(services.feedPage)
         registry.bind("clearAllNotifications", requires: ack, daemon: context.daemon, run: { _ in
             _ = try context.requireConnection()
+            // The panel's reload is the run's completion: userBlocking for the person, automation for the CLI.
+            let end = registry.completion(on: services.mainWork)
             context.daemon.send("notification.clear") { connection in
                 try await connection.clearNotifications()
-                await MainActor.run { panel.reload() }
+                await end.apply(owner: "NotificationHandlers.reload", answering: true) { panel.reload() }
             }
         })
         registry.bind("jumpToUnread", run: { _ in try open(latestUnread(context), context) })
@@ -86,6 +88,7 @@ enum NotificationHandlers {
             if let row = try panel.row(invocation) { return context.copy(row.copyText) }
             // An empty ledger is refused: the CLI awaits the reason, a palette or key run shows it.
             let awaited = registry.isCapturingWork, none = MiscHandlerStrings.noNotificationToCopy
+            let end = registry.completion(on: services.mainWork)
             context.daemon.send("copy-notification", onFailure: { [weak registry] failure in
                 if !awaited { registry?.refuse(failure.message) }
             }) { connection in
@@ -93,7 +96,7 @@ enum NotificationHandlers {
                     throw ActionFailure.invalidTarget(none)
                 }
                 let text = entry.body.isEmpty ? entry.title : "\(entry.title)\n\(entry.body)"
-                await MainActor.run { context.copy(text) }
+                await end.apply(owner: "NotificationHandlers.copy", answering: true) { context.copy(text) }
             }
         })
         NotificationSettingsHandlers.bind(into: registry, context: context)
@@ -116,9 +119,10 @@ enum NotificationHandlers {
             guard let surface = row.surface else { throw ActionFailure(message: NotificationsPanelStrings.sourceClosed) }
             return try acknowledge([surface], context)
         }
+        let end = context.registry.completion(on: context.services.mainWork)
         context.daemon.send("notification.clear") { connection in
             try await connection.clearNotifications(terminal: terminal)
-            await MainActor.run { panel.reload() }
+            await end.apply(owner: "NotificationHandlers.reload", answering: true) { panel.reload() }
         }
     }
 

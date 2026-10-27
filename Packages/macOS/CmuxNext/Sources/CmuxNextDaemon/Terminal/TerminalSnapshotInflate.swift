@@ -21,15 +21,19 @@ enum TerminalSnapshotInflate {
         guard !data.isEmpty else { return nil }
         // One spare byte: an input that inflates past rawBytes fills it.
         var out = Data(count: rawBytes + 1)
-        let written = out.withUnsafeMutableBytes { dst -> Int in
-            data.withUnsafeBytes { src -> Int in
-                guard let target = dst.bindMemory(to: UInt8.self).baseAddress,
-                      let source = src.bindMemory(to: UInt8.self).baseAddress else { return -1 }
-                return compression_decode_buffer(target, rawBytes + 1, source, data.count, nil, COMPRESSION_ZLIB)
+        // SAFETY: `dst` and `src` are the storage of `out` (rawBytes + 1 bytes) and `data` (data.count bytes),
+        // valid only inside these closures, which never let a pointer out; both are plain bytes, so binding them to
+        // UInt8 changes no other typed view. compression_decode_buffer writes at most the rawBytes + 1 it is given
+        // and reads at most data.count; a nil scratch buffer makes it allocate its own.
+        let written = unsafe out.withUnsafeMutableBytes { dst -> Int in
+            unsafe data.withUnsafeBytes { src -> Int in
+                guard let target = unsafe dst.bindMemory(to: UInt8.self).baseAddress,
+                      let source = unsafe src.bindMemory(to: UInt8.self).baseAddress else { return -1 }
+                return unsafe compression_decode_buffer(target, rawBytes + 1, source, data.count, nil, COMPRESSION_ZLIB)
             }
         }
         guard written == rawBytes else { return nil }
-        out.removeLast()
+        out.count = rawBytes  // drops the spare byte
         return out
     }
 }

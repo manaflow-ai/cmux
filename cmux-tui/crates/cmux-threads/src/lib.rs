@@ -16,6 +16,12 @@
 //! [`blocking::snapshot`]) and [`checked`] has checked forms of the blocking
 //! std primitives.
 //!
+//! [`hang`] watches scopes with a deadline on threads of the processes
+//! that have no daemon request watchdog (Chrome's HangWatcher).
+//!
+//! [`lock_boost`] raises a lock's owner to the QoS of its highest waiter
+//! until it unlocks (priority inheritance for locks that do not donate).
+//!
 //! [`lock_wait`] times contended lock acquisitions: a failed try on a thread
 //! that disallows blocking is a `lock-wait` violation, and a wait over the
 //! 2 ms budget is recorded with the holder's thread name.
@@ -23,17 +29,26 @@
 //! Blocking work runs on [`work`] lanes by kind, priority and shutdown
 //! behavior (Chrome's base/task/thread_pool).
 //!
+//! [`sync`] channels (std `mpsc`, and `crossbeam_channel` behind the
+//! `crossbeam` feature) carry their producer's QoS in Debug: a blocking
+//! receive on a higher-QoS thread records a `priority-inversion` site.
+//! Release sends the plain value.
+//!
 //! Child processes never run at an echo thread's QoS: a user child starts
 //! at Default and a helper runs at [`HELPER_CHILD`] (Utility) at most, see
-//! [`process`].
+//! [`process`]. [`process_role`] reads the process's Mach task role.
 
 pub mod blocking;
 pub mod checked;
+pub mod hang;
+pub mod lock_boost;
 pub mod lock_wait;
 pub mod process;
+pub mod process_role;
 pub mod qos;
 pub mod registry;
 pub mod spawn;
+pub mod sync;
 pub mod work;
 
 pub use blocking::{
@@ -45,16 +60,18 @@ pub use blocking::{
 pub use blocking::{
     OwnDescriptorToken, own_fd_read, own_fd_write, own_fd_write_all, register_own_descriptor,
 };
+pub use hang::{HangRecord, HangScope, HangSink, HangSite, HangSnapshot, HangWatcher};
+pub use lock_boost::{BoostCounts, OwnerBoost, OwnerHold, WaitBoost};
 pub use lock_wait::{
     LOCK_WAIT_BUDGET, LockHolder, LockWait, LockWaitSnapshot, lock_waits, note_thread_lock_wait,
     set_holder_tracking, thread_lock_wait_nanos,
 };
 pub use process::HELPER_CHILD;
 pub use qos::{
-    LiveQos, QosChange, QosScope, ThreadQos, current, refused_changes, reversible, set_current,
-    with_qos,
+    LiveQos, QosChange, QosScope, ThreadQos, current, current_effective, refused_changes,
+    reversible, set_current, with_qos,
 };
 pub use registry::{
     QosSlot, ThreadInfo, current_slot, deregister_current, register_current, snapshot,
 };
-pub use spawn::spawn;
+pub use spawn::{spawn, spawn_with_stack};

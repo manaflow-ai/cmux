@@ -10,6 +10,25 @@ When we change the fork, update this document and the parent submodule SHA.
 3) Update this file with the new change summary + conflict notes.
 4) In the parent repo: `git add ghostty` and commit the submodule SHA.
 
+## ghostty-next pins (cmux-next)
+
+cmux-next links GhosttyNextKit from
+[manaflow-ai/ghostty-next](https://github.com/manaflow-ai/ghostty-next), not this fork. A pin is one commit
+that:
+
+1) moves the `ghostty-next` gitlink and the GhosttyNextKit `url` and `checksum` in
+   `Packages/Shared/CmuxGhosttyKit/Package.swift` to the same ghostty-next commit (release
+   `xcframework-<sha>-apple-vN`, published by a push to ghostty-next `main`). The pre-push guardrail
+   `ghostty-pin` refuses a push that moves one without the other;
+2) names each PR it brings as `manaflow-ai/ghostty-next#N`;
+3) regenerates the notice files with `scripts/cmux-next/notices/ghosttykit_repin.py`.
+
+During the Chrome-parity push, PL-ghostty is the integrator: ghostty-next PRs merge in the order of
+[rendering-DESIGN.md](../plans/cmux-next/rendering-DESIGN.md#ghostty-integrator-lane-task-079), and cmux takes at
+most 3 pins in the 72 h. `python3 scripts/cmux-next/render-done-checks.py` checks the pin: `GHOSTTY` (the
+submodule is initialized at the gitlink), `GHOSTTY-kit` (the gitlink is the GhosttyNextKit source sha) and
+`LANE-ghostty-pins` (the pins in the 72 h before HEAD, and the PRs each names).
+
 ## Current fork changes
 
 ### Offscreen embedded platform behind `-Dembedded-offscreen`
@@ -2456,6 +2475,66 @@ and pinned its archive checksum in `scripts/ghosttykit-checksums.txt`. The
 release and checksum pin must be regenerated whenever this commit changes, even
 for comment-only amends, because the release tag is keyed by the Ghostty commit
 SHA.
+
+### ghostty-next: a key never waits on the terminal lock behind output parsing
+
+This section is about the `ghostty-next` fork (`manaflow-ai/ghostty-next`), which cmux-next embeds as
+GhosttyNextKit.
+
+- Branch: `cp/p04-input-078` on `manaflow-ai/ghostty-next`, commits `a06d1bdef` and `89b8a98a8`, on
+  fork `main` `9ce9b7d08`. cmux task p04-input-078 (plans/cmux-next/chrome-parity/p04-input.md).
+- What:
+  - Input entry points take the terminal lock through `renderer.State.lockInput`, which counts them in
+    the atomic `input_waiting`. The `lockInput` list: `Surface.encodeKeyOpts` (key encoding options),
+    the KAM check and the link refresh in `Surface.keyCallback`, `Surface.modsChanged` (a modifier
+    press or release, and the first key after a modifier change), `Surface.imePoint` (each IME
+    composition keystroke), `Surface.preeditCallback` and a manual surface's input write
+    (`Termio.queueWriteManual`). `Termio.processOutputLocked` parses each chunk in 4 KiB sub-slices
+    and, while an input waits, releases the lock until it had its turn (`yieldToInputLocked`, the
+    `handoff_gen` futex that `lockDemand` uses for the renderer). A key waits for at most one 4 KiB slice,
+    never a 64 KiB chunk. This is Blink's parser yield
+    (third_party/blink/renderer/core/html/parser/html_document_parser.cc, `PumpTokenizer` checks
+    `ShouldYield` between token chunks).
+  - A plain press takes no lock for its side effects. The parser, `Surface.setSelection`, every viewport
+    move and every terminal swap publish two atomics under the lock: `input_selection` (the active screen
+    has a selection) and `input_viewport_follows` (the viewport is at the active area and no place is kept
+    for a snapshot restore). `Surface.typedSideEffects` reads them; only a press that has a selection to
+    clear or a viewport to bring down tries the lock, and when output holds it the press posts termio
+    `Message.typed`. The termio thread clears the selection and scrolls under the lock, and tells the
+    surface (`selection_changed`) so the apprt hears of the clear as before. A stale atomic only sends a
+    press down the locked path.
+  - `ghostty_surface_set_lock_wait_callback(surface, cb, userdata)`: one-shot; reports each input wait of
+    50 us or more in ns, on the thread that waited, after it released the lock.
+- cmux side: `GhosttyLockWaitSignpost` (CmuxNextTerminal) records `ghostty.lock_wait` (catalog id 87,
+  ring instant, arg0 the wait in ns) in Debug and bench builds. The callback's userdata is the
+  surface's `SurfaceBridge`, which holds one `GhosttyLockWaitSignpost` for the surface's life, and
+  `Signposter.ghosttyLockWait(nanos:)` formats the wait as an OSLogMessage integer: a report inside a
+  key handler builds no handle and no `String`. It is compiled only with
+  `GHOSTTY_LOCK_WAIT` (`ghosttyNextKitHasLockWait` in Packages/macOS/CmuxNext/Package.swift, false now):
+  the pin bump that brings the export turns it on. The gitlink and the GhosttyNextKit pin do not move in
+  the task commit; the bump is a separate commit.
+- Coverage: `manual: input mirrors follow the selection and the viewport` (src/termio/Termio.zig) and
+  the `key: ` tests (src/Surface.zig), which run the real key path on a Surface with a manual-backend
+  Termio (`TestKeySurface`):
+  - `key: a press with output holding the terminal lock does not wait and posts its side effects`:
+    another thread holds the lock; a plain press returns while it is still held and queues one termio
+    `.typed` with `clear_selection` and `scroll_bottom`.
+  - `key: a press with the lock free brings the viewport down itself`.
+  - `key: the key path waits for one 4 KiB slice of dense SGR output, not a 64 KiB chunk`: 8 MiB of
+    full-screen dense SGR repaints are parsed in 64 KiB chunks while a second thread runs a press every
+    100 us (`modsChanged` with alternating Shift, `encodeKeyOpts`, `typedSideEffects`) and times the
+    whole path. It asserts p99 < a quarter of a chunk's parse, and p99 < 0.5 ms when the test build is
+    optimized. The unit test executable is Debug by default; `-Dtest-optimize` (build.zig) sets its mode.
+    Run the budget with `zig build test -Dtest-optimize=ReleaseFast -Dtest-filter="key: "`.
+- `apprt.none.App.performAction` returns false, so core code that notifies the apprt compiles in the
+  test executable's runtime.
+- Files touched (conflict surface): `build.zig`, `src/renderer/State.zig`, `src/termio/Termio.zig`,
+  `src/termio/Thread.zig`, `src/termio/message.zig`, `src/termio/stream_handler.zig`, `src/Surface.zig`,
+  `src/apprt/surface.zig`, `src/apprt/embedded.zig`, `src/apprt/none.zig`, `include/ghostty.h`, `NEXT.md`.
+- Conflict notes: a new input entry point that takes the terminal lock uses `lockInput`/`unlockInput`,
+  not `mutex.lock`. A new change that can give the active screen a selection or move its viewport off the
+  active area calls `Termio.publishInputMirrorsLocked` before it releases the lock. Do not parse a whole
+  chunk in one `nextSlice` call again.
 
 ## Upstreamed fork changes
 

@@ -72,6 +72,8 @@ public nonisolated struct KeyBindingTable: Sendable {
     public let claimedByGhostty: [KeyBinding]
     /// Entry indexes by first key, ascending.
     private let byFirstKey: [Shortcut: [Int]]
+    /// Each entry's `when`, compiled (``CompiledWhen``), by entry index.
+    private let compiledWhen: [CompiledWhen]
 
     public init(_ entries: [KeyBinding], removed: [KeyBinding] = [], claimedByGhostty: [KeyBinding] = []) {
         self.entries = entries
@@ -83,6 +85,7 @@ public nonisolated struct KeyBindingTable: Sendable {
             index[first, default: []].append(offset)
         }
         byFirstKey = index
+        compiledWhen = entries.map { CompiledWhen($0.when) }
     }
 
     /// Why an entry won or lost a resolution (`keybinding.resolve`).
@@ -107,7 +110,33 @@ public nonisolated struct KeyBindingTable: Sendable {
         public var candidates: [Candidate]
     }
 
-    /// The entry `keys` runs in `context`, with every candidate's verdict.
+    /// The entry `keys` runs: ``resolve(_:in:isRunnable:accepts:)``'s winner, with no
+    /// candidate list and the compiled `when` clauses, so a key-down allocates nothing here
+    /// (p04-input-055). Pass `CollectionOfOne(key)` for one key. Chromium finds an accelerator's
+    /// targets with one map lookup that copies nothing the same way
+    /// (ui/base/accelerators/accelerator_map.h, `AcceleratorMap::Find`).
+    // perf-hot: 0.5ms key-dispatch (every chord key-down)
+    public func resolveWinner(_ keys: some Collection<Shortcut>, in input: CompiledWhen.Input, isRunnable: (ActionID) -> Bool,
+                              accepts: (KeyBinding) -> Bool = { _ in true }) -> KeyBinding? {
+        guard let first = keys.first, let offsets = byFirstKey[first] else { return nil }
+        for offset in offsets.reversed() {
+            guard entries[offset].keys.elementsEqual(keys) else { continue }
+            let entry = entries[offset]
+            guard accepts(entry), compiledWhen[offset].evaluate(input) else { continue }
+            if isRunnable(entry.command) { return entry }
+            // An entry meant for this context that cannot run ends the search (R88, as resolve).
+            if entry.when != nil { return nil }
+        }
+        return nil
+    }
+
+    public func resolveWinner(_ keys: some Collection<Shortcut>, in context: KeyContext, isRunnable: (ActionID) -> Bool,
+                              accepts: (KeyBinding) -> Bool = { _ in true }) -> KeyBinding? {
+        resolveWinner(keys, in: CompiledWhen.Input(context), isRunnable: isRunnable, accepts: accepts)
+    }
+
+    /// The entry `keys` runs in `context`, with every candidate's verdict
+    /// (diagnostics: `keybinding.resolve`; a key-down uses `resolveWinner`, which agrees with it).
     /// `accepts` leaves entries out of the search (they are not candidates).
     public func resolve(_ keys: [Shortcut], in context: KeyContext, isRunnable: (ActionID) -> Bool,
                         accepts: (KeyBinding) -> Bool = { _ in true }) -> Resolution {
@@ -163,12 +192,28 @@ public nonisolated struct KeyBindingTable: Sendable {
     /// Whether `prefix` starts a longer entry that could run here: the next
     /// key may complete a chord.
     public func continues(_ prefix: [Shortcut], in context: KeyContext, isRunnable: (ActionID) -> Bool) -> Bool {
-        guard let first = prefix.first else { return false }
-        return (byFirstKey[first] ?? []).contains { offset in
+        continues(prefix, in: CompiledWhen.Input(context), isRunnable: isRunnable)
+    }
+
+    /// `continues` over any sequence view, so the chord step asks about the armed keys plus a
+    /// reading without building that array (``KeysThenOne``).
+    // perf-hot: 0.5ms key-dispatch (every chord key-down)
+    public func continues(_ prefix: some Collection<Shortcut>, in input: CompiledWhen.Input, isRunnable: (ActionID) -> Bool) -> Bool {
+        guard let first = prefix.first, let offsets = byFirstKey[first] else { return false }
+        let count = prefix.count
+        return offsets.contains { offset in
             let entry = entries[offset]
-            return entry.keys.count > prefix.count && Array(entry.keys.prefix(prefix.count)) == prefix
-                && entry.applies(in: context) && isRunnable(entry.command)
+            return entry.keys.count > count && entry.keys.starts(with: prefix)
+                && compiledWhen[offset].evaluate(input) && isRunnable(entry.command)
         }
+    }
+
+    /// Whether any entry, whatever its `when` clause, is longer than `prefix` and starts with it:
+    /// ``entries(after:)`` is not empty, with no array built.
+    public func hasEntries(after prefix: some Collection<Shortcut>) -> Bool {
+        guard let first = prefix.first, let offsets = byFirstKey[first] else { return false }
+        let count = prefix.count
+        return offsets.contains { entries[$0].keys.count > count && entries[$0].keys.starts(with: prefix) }
     }
 
     /// One key that may follow an armed prefix (the which-key overlay).
@@ -196,12 +241,13 @@ public nonisolated struct KeyBindingTable: Sendable {
             }
             grouped[key, default: []].append(entry)
         }
+        let input = CompiledWhen.Input(context)
         return grouped.map { key, group in
             let keys = prefix + [key]
             let exact = group.filter { $0.keys.count == keys.count }
-            let winner = resolve(keys, in: context, isRunnable: isRunnable).winner
+            let winner = resolveWinner(keys, in: input, isRunnable: isRunnable)
             let continues = group.count > exact.count
-            let runnable = winner != nil || (continues && self.continues(keys, in: context, isRunnable: isRunnable))
+            let runnable = winner != nil || (continues && self.continues(keys, in: input, isRunnable: isRunnable))
             return NextKey(key: key, binding: winner ?? exact.first, continues: continues, isRunnable: runnable)
         }.sorted { ($0.key.key, $0.key.modifiers.rawValue) < ($1.key.key, $1.key.modifiers.rawValue) }
     }

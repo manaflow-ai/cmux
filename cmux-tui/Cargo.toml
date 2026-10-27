@@ -55,6 +55,8 @@ members = [
     "crates/cmux-flow-trace",
     "crates/cmux-threads",
     "crates/cmux-trace",
+    "crates/cmux-hang-watch",
+    "crates/cmux-wake",
     "crates/cmux-holder-v3",
     "crates/cmux-process",
     "crates/cmux-remote-protocol",
@@ -130,6 +132,7 @@ default-members = [
     "crates/cmux-memory",
     "crates/cmux-process",
     "crates/cmux-threads",
+    "crates/cmux-wake",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-features",
@@ -193,6 +196,12 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)", "cfg(tokio_unstabl
 uninlined_format_args = "warn"
 semicolon_if_nothing_returned = "warn"
 redundant_clone = "warn"
+# clippy.toml lists the std thread spawns and sleep; a crate denies them on its roots
+# once its sites use cmux_threads (plans/cmux-next/chrome-parity/p02-threads.md, 202).
+disallowed_methods = "allow"
+# clippy.toml lists std's Mutex, RwLock and Condvar; a module denies them once its
+# sites use cmux_threads::sync (p02-threads.md, 227).
+disallowed_types = "allow"
 # Evaluated and dropped: needless_pass_by_value causes signature churn across cmux-tui-core call sites.
 
 [workspace.dependencies]
@@ -219,7 +228,9 @@ cmux-process = { path = "crates/cmux-process" }
 cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-features = { path = "crates/cmux-features" }
 cmux-threads = { path = "crates/cmux-threads" }
+cmux-wake = { path = "crates/cmux-wake" }
 cmux-trace = { path = "crates/cmux-trace" }
+cmux-hang-watch = { path = "crates/cmux-hang-watch" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-history = { path = "crates/cmux-history" }
