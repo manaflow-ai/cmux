@@ -72,10 +72,16 @@ if argv[0] == "notary-submit":
     print("created submission ID: 0f0e0d0c-0b0a-4908-8706-050403020100")
     if os.environ.get("FAKE_NOTARY") == "timeout":
         sys.exit("Error: reached time limit waiting for notarization to complete")
+    print("poll state after 30s: " + ("Invalid" if os.environ.get("FAKE_NOTARY") == "invalid" else "Accepted"))
     if os.environ.get("FAKE_NOTARY") == "invalid":
         sys.exit("notarization failed: Invalid")
+    if os.environ.get("FAKE_NOTARY") in ("nolog", "latelog"):
+        sys.exit("error interacting with Notary API: log not found")
 if argv[0] == "notary-log":
     if os.environ.get("FAKE_NOTARY") == "nolog":
+        sys.exit("log not ready")
+    if os.environ.get("FAKE_NOTARY") == "latelog" and sum(1 for _ in open(os.environ["FAKE_LOG"])) and \
+            [json.loads(l)["argv"][0] for l in open(os.environ["FAKE_LOG"])].count("notary-log") < 2:
         sys.exit("log not ready")
     print(json.dumps({"status": "Accepted", "ticketContents": [{"arch": "arm64", "cdhash": os.environ["FAKE_TICKET"]}]}))
 if argv[0] == "staple":
@@ -436,6 +442,13 @@ class HelperFirstTest(SignAppTest):
                 self.assertEqual(result.returncode, 75, result.stderr)
                 self.assertEqual(self.signs(self.app), [])
         self.assertEqual(len(self.calls("signer", "notary-log")), 4)
+
+    def test_an_accepted_helper_whose_log_is_late_goes_on(self) -> None:
+        """notary-submit --wait fails when Apple has accepted but its log is not
+        ready; the bounded log reads take over, and signing goes on."""
+        self.run_script(FAKE_NOTARY="latelog", CMUX_HELPER_LOG_RETRY_SECONDS="0")
+        self.assertEqual(len(self.calls("signer", "notary-log")), 2)
+        self.assertEqual(len(self.signs(self.app)), 1)
 
     def test_an_unstamped_signature_is_not_submitted(self) -> None:
         self.assertIn("cannot be notarized", self.run_script(ok=False, CMUX_TIMESTAMP="none").stderr)

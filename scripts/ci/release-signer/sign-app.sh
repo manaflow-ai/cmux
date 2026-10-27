@@ -276,7 +276,13 @@ if [[ "$MODE" == helper-first ]]; then
     echo "error: Apple has not answered the Computer Use helper submission ${submission:-?} within ${helper_wait}s" >&2
     exit 75
   fi
-  (( notary_status == 0 )) && [[ -n "$submission" ]] ||
+  # notary-submit --wait also fetches the log once and fails when it is not
+  # ready yet; a submission whose last polled state was Accepted goes on to the
+  # bounded log reads below, which check the status again.
+  accepted=false
+  [[ "$(grep -oE 'poll state after [0-9]+s: [A-Za-z]+' "$work/notary.log" | tail -n 1)" == *": Accepted" ]] && accepted=true
+  (( notary_status == 0 )) || [[ "$accepted" == true ]] || submission=""
+  [[ -n "$submission" ]] ||
     { echo "error: Computer Use helper notarization failed (submission ${submission:-none})" >&2; exit 1; }
   # Apple can answer Accepted before the ticket log is ready: a few bounded
   # tries, then 75 (accepted, nothing signed after it), as the Mac script.
