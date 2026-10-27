@@ -359,6 +359,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
             runtime.shim?.loadURL(browserID, url.absoluteString)
         } else {
             pendingURL = url
+            hostRestoreNavigated()
         }
     }
 
@@ -378,7 +379,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         (reloadWhenShown, isDiscardedInPlace) = (false, false)
         if runtime.awaitsHostRestart { return runtime.reloadAfterHostRestart(self) }
         guard let browserID else {
-            if let url = pendingURL ?? state.url { load(url) }
+            // A page its host restore brings back loads with its saved navigation (``hostRestoreShown()``).
+            if !hasHostRestore, let url = pendingURL ?? state.url { load(url) }
             return
         }
         switch reloadPlan {
