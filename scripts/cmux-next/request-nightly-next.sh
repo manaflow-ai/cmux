@@ -221,6 +221,19 @@ lower="$sha"
 if [[ -n "$promoted" ]] && git cat-file -e "$promoted^{commit}" 2>/dev/null; then
   lower="$promoted"
 fi
+# <sha> itself is the last candidate. After a Release compile it is requested
+# only when it provably descends from nightly-next: a compile that finished
+# late, beyond this history's reach, must not ask for its old commit (main's
+# promote job would refuse it as behind nightly-next).
+if [[ "$mode" == release-compile-green && -n "$promoted" ]] && ! git cat-file -e "$promoted^{commit}" 2>/dev/null; then
+  echo "not requesting: nightly-next (${promoted:0:12}) is not in this history, so no candidate is provably ahead of it; the tree side asks"
+  exit 0
+fi
+fallback="$sha"
+if [[ "$mode" == release-compile-green && -n "$promoted" ]] \
+   && ! git merge-base --is-ancestor "$promoted" "$sha" 2>/dev/null; then
+  fallback=""
+fi
 refused=0
 max_refused="${CMUX_NIGHTLY_NEXT_MAX_REFUSED:-5}"
 [[ "$max_refused" =~ ^[1-9][0-9]?$ ]] || { echo "error: CMUX_NIGHTLY_NEXT_MAX_REFUSED must be 1 to 99" >&2; exit 2; }
@@ -255,5 +268,5 @@ while read -r run_sha; do
     echo "not promoting: the $refused newest commits with tree $key are not promotable (see above)"
     exit 0
   fi
-done < <({ git rev-list --first-parent -n "$window" "$tip" ^"$lower" 2>/dev/null || true; echo "$sha"; } | awk '!seen[$0]++')
+done < <({ git rev-list --first-parent -n "$window" "$tip" ^"$lower" 2>/dev/null || true; [[ -z "$fallback" ]] || echo "$fallback"; } | awk '!seen[$0]++')
 echo "not promoting: no recent feat-cmux-next push with tree $key is promotable yet"

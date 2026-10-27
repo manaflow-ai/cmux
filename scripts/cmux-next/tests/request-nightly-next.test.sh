@@ -314,6 +314,17 @@ branch "$publisher"
 request --sha "$greenx" --release-compile-green
 [[ "$status" == 0 ]] && [[ ! -s "$TMP/gh.log" ]] \
   || fail "a late compile of a commit nightly-next contains must request nothing (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+# nightly-next at a commit this history does not have (a shallow checkout
+# whose fetch did not reach it): the compiled commit cannot be proven ahead of
+# it, so it is not requested. The remote here has only that nightly-next.
+far="$TMP/far"
+git_q init "$far"; git_q -C "$far" commit --allow-empty -m "far ahead"
+git_q -C "$far" branch -M nightly-next
+git -C "$src" remote set-url origin "$far"
+request --sha "$greenx" --release-compile-green
+[[ "$status" == 0 ]] && [[ ! -s "$TMP/gh.log" ]] \
+  || fail "a compiled commit not provably ahead of nightly-next must not be requested (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+git -C "$src" remote set-url origin "$src"
 git_q -C "$src" update-ref refs/heads/nightly-next "$head^"
 request --sha "$greenx" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$publisher" && ! dispatched "$greenx" \
