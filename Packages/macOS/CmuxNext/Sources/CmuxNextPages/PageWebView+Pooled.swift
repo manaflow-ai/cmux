@@ -41,7 +41,7 @@ extension PageWebView {
             guard let view = owner?.view else { return nil }
             return PageServedHosts.served(host: host, current: view.descriptor, dynamicSource: view.dynamicResources)
         }
-        // No process group (WebProcessGroups): a claim may retarget the spare to Settings, a solo page.
+        // A store of its own: the pool serves only pages that join no process group (PageHostPool.spareServes).
         let host = hostConfiguration(handler: handler, documentAttributes: [:], options: options)
         // The spare's document is parked until a claim binds routes (PageWebView+Claim.swift).
         host.configuration.userContentController.addUserScript(
