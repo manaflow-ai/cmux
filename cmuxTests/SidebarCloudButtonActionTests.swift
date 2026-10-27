@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCloud
 import CmuxSettings
 import Testing
 
@@ -90,5 +91,26 @@ struct SidebarCloudButtonActionTests {
             presentIntroduction: { events += 1 }
         ).perform()
         #expect(events == 0)
+    }
+
+    @Test("the footer button hides for a signed-in free account, which the server refuses to provision")
+    func freeAccountHidesButton() {
+        let free = BillingPlanState(accountID: "user-free", isPro: false, canManageBilling: false)
+        #expect(!SidebarCloudButtonVisibility.shows(showsSetting: true, isAvailable: true, billing: free))
+    }
+
+    @Test("the footer button stays for a Pro account, a signed-out Mac and an account whose plan is not loaded yet")
+    func paidUnknownAndSignedOutKeepButton() {
+        let pro = BillingPlanState(accountID: "user-pro", isPro: true, canManageBilling: true)
+        #expect(SidebarCloudButtonVisibility.shows(showsSetting: true, isAvailable: true, billing: pro))
+        #expect(SidebarCloudButtonVisibility.shows(showsSetting: true, isAvailable: true, billing: .unknown))
+        #expect(SidebarCloudButtonVisibility.shows(showsSetting: true, isAvailable: true, billing: nil))
+    }
+
+    @Test("the setting and managed policy still hide the button regardless of plan")
+    func settingAndPolicyStillHide() {
+        let pro = BillingPlanState(accountID: "user-pro", isPro: true, canManageBilling: true)
+        #expect(!SidebarCloudButtonVisibility.shows(showsSetting: false, isAvailable: true, billing: pro))
+        #expect(!SidebarCloudButtonVisibility.shows(showsSetting: true, isAvailable: false, billing: pro))
     }
 }
