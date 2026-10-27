@@ -3772,6 +3772,9 @@ class NightlySigningStall(unittest.TestCase):
         self.assertIsNone(rescue.signing_stall([dict(queued, labels=[MINI])], now))
         self.assertIsNone(rescue.signing_stall([dict(queued, name="build-nightly-app")], now))
         self.assertIsNone(rescue.signing_stall([dict(queued, runner_name="bs-1")], now))
+        # Any Blacksmith macOS size and image suffix (the module has a narrower BLACKSMITH_MACOS_LABEL too).
+        for label in ("blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26-arm64"):
+            self.assertEqual(rescue.signing_stall([dict(queued, labels=[label])], now).action, "stalled", label)
         # A verify leg's rendered matrix name maps to its job.
         self.assertEqual(rescue.sign_job_key({"name": "Verify signed nightly app (arm64)"}), "verify-signed-nightly")
         self.assertEqual(rescue.sign_stall_gate(SIGN_WORKFLOW, ["build-sign-notarize-nightly"]), [])

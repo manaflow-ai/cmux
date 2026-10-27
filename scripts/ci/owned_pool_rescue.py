@@ -690,7 +690,7 @@ NIGHTLY_SIGN_ALTERNATES: dict[str, tuple[str, str]] = {
     "sign-nightly-identity-legacy": ("sign-nightly-identity-legacy", _LEGACY_ALTERNATE),
     "verify-nightly-identity-legacy": ("verify-nightly-identity-legacy", _LEGACY_ALTERNATE),
 }
-BLACKSMITH_MACOS_LABEL = re.compile(r"blacksmith-[0-9]+vcpu-macos-[0-9]+(?:-[a-z0-9]+)*")
+SIGN_BLACKSMITH_LABEL = re.compile(r"blacksmith-[0-9]+vcpu-macos-[0-9]+(?:-[a-z0-9]+)*")
 # simple_pool_picker.blacksmith_stalled()'s rule: a Blacksmith job with no runner this long is on a stalled label.
 SIGN_STALL_SECONDS = simple_pool_picker.BLACKSMITH_STALL_MINUTES * 60
 
@@ -716,12 +716,12 @@ def signing_stall(jobs: Sequence[Mapping[str, Any]], now: dt.datetime,
     """
     seen = first_seen or {}
     stalled = [job for job in jobs if sign_job_key(job) and waiting_for_runner(job)
-               and any(BLACKSMITH_MACOS_LABEL.fullmatch(str(label)) for label in job.get("labels") or [])
+               and any(SIGN_BLACKSMITH_LABEL.fullmatch(str(label)) for label in job.get("labels") or [])
                and queued_seconds(job, now, seen.get(job.get("id"))) >= SIGN_STALL_SECONDS]
     if not stalled:
         return None
     names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in stalled))
-    label = next(str(label) for label in stalled[0].get("labels") or [] if BLACKSMITH_MACOS_LABEL.fullmatch(str(label)))
+    label = next(str(label) for label in stalled[0].get("labels") or [] if SIGN_BLACKSMITH_LABEL.fullmatch(str(label)))
     busy = sorted(str(job.get("name") or job.get("id")) for job in jobs
                   if job.get("status") != "completed" and not any(job is other for other in stalled))
     if busy:
