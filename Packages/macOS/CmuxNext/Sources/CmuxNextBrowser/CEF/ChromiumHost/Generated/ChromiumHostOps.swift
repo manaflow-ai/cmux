@@ -13,56 +13,59 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     case postUserInputTask = 19, browserSendWheel = 20, browserTextInputWatch = 21, browserAccessibilityToken = 22
     case setDragSourceHandler = 23, browserDragSourceEnded = 24, browserDragTargetEnterSource = 25
     case browserDragTargetEnter = 26, browserDragTargetOver = 27, browserDragTargetLeave = 28
-    case browserDragTargetDrop = 29, setColorChooserHandler = 30, colorChooserChoose = 31, colorChooserEnd = 32
-    case setDeviceChooserHandler = 33, deviceChooserAnswer = 34, setDesktopMediaHandler = 35
-    case desktopMediaAnswer = 36, setLockHandler = 37, browserPointerLockAnswer = 38, browserKeyboardLockAnswer = 39
-    case browserExitPointerLock = 40, browserExitKeyboardLock = 41, browserSendLockedMouseMove = 42
-    case browserSetPageDisplay = 43, browserSetPageVisibility = 44, tabEntryPageState = 45, tabPageStateWatch = 46
-    case tabRestoreEntries = 47, setNewTabPageURL = 48, addNativeMessagingDir = 49, prepareApplication = 50
-    case initialize = 51, doWork = 52, setScheduleDelayed = 53, setEnergySaver = 54, createWindow = 55
-    case createPlaceholderWindow = 56, placeholderSupported = 57, tabAdd = 58, tabDuplicate = 59, tabActivate = 60
-    case tabNavigationEntries = 61, tabGoToEntry = 62, tabWindowID = 63, loadURL = 64, goBack = 65, goForward = 66
-    case reload = 67, stop = 68, setFocus = 69, setFocusRequestHandler = 70, setUnhandledKeyHandler = 71
-    case setZoomLevel = 72, setAccessibility = 73, print = 74, find = 75, stopFinding = 76, close = 77
-    case tryClose = 78, beforeUnloadReply = 79, devToolsCall = 80, devToolsWatchEvents = 81, devToolsSend = 82
-    case devToolsSetKeyHandler = 83, devToolsSetPlacement = 84, devToolsCommand = 85, devToolsBrowser = 86
-    case devToolsSetFocus = 87, devToolsShowPanel = 88, extActions = 89, extActionRun = 90, extActionHidePopup = 91
-    case extActionContextMenu = 92, free = 93, tabNavigationState = 94, tabRestoreNavigation = 95
-    case navigationRestoreSupported = 96, extList = 97, extSetEnabled = 98, extUninstall = 99, extReload = 100
-    case extMovePinned = 101, extSetPinned = 102, extOpenOptions = 103, extLoadUnpacked = 104, extCommands = 105
-    case extCommandRun = 106, tabMoveToWindow = 107, unresponsiveReply = 108, contextMenuDone = 109
-    case setPopupWindowsEnabled = 110, popupWindowBounds = 111, devToolsInspectedBounds = 112
-    case popupWindowAttach = 113, sidePanelState = 114, sidePanelPress = 115, installPromptReply = 116
-    case omniboxKeywords = 117, omniboxInput = 118, setWindowRequestHandler = 119, foreignBrowserCount = 120
-    case downloadURL = 121, downloadContinue = 122, downloadControl = 123, permissionContinue = 124, closeAll = 125
-    case liveBrowserCount = 126, windowCount = 127, shutdown = 128, contentSetting = 129, setContentSetting = 130
-    case visitCookies = 131, deleteCookies = 132, downloadFavicon = 133, importCookies = 134, clearCookies = 135
-    case importPasswords = 136, passwordEntrySize = 137, passwordImportAvailable = 138, passwordPromptAnswer = 139
-    case setPasswordGenerationEnabled = 140, passwordReplaceAvailable = 141, replacePasswords = 142
-    case setPasswordFill = 143, passkeysAvailable = 144, passkeysList = 145, passkeyDelete = 146
-    case setWebauthnPlatform = 147, webauthnPlatformReply = 148, passwordCoreAvailable = 149, passwordList = 150
-    case passwordRemove = 151, passwordExceptionRemove = 152, passwordSetUsername = 153, passwordReveal = 154
-    case passwordExport = 155, sslStatus = 156, clearCertificateExceptions = 157, certificateProceed = 158
-    case freeOwned = 159, rendererClientIDs = 160, rendererFrames = 161, rendererPid = 162, setContextProxy = 163
-    case setContextProxyServer = 164, contextProxyState = 165, releaseContext = 166, setNavigationGuard = 167
-    case setAuthCallback = 168, prefGet = 169, prefSetBool = 170, prefWatch = 171, bookmarksSync = 172
-    case pageSchemeAdd = 173, pageSchemeAddFirstParty = 174, pageSchemeAddFirstPartyDynamic = 175
-    case pageResourceRespond = 176, memoryPressureVote = 177, setCursorEvents = 178, tabSetVisibility = 179
-    case extLoadLaterSupported = 180, extLoadCommandLine = 181, addDocumentScript = 182, addPageChannel = 183
-    case tabEvaluate = 184, tabSetFrozen = 185, tabSendClick = 186, tabSetColorScheme = 187
-    case pageSchemeSetGroup = 188, tabDiscard = 189, widgetSetGeometry = 190, widgetDismiss = 191
-    case widgetSendInput = 192, browserImeSetComposition = 193, browserImeCommitText = 194
-    case browserImeFinishComposing = 195, browserImeCancelComposition = 196
+    case browserDragTargetDrop = 29, setSuggestionEvents = 30, browserSuggestionAction = 31
+    case setColorChooserHandler = 32, colorChooserChoose = 33, colorChooserEnd = 34, setDeviceChooserHandler = 35
+    case deviceChooserAnswer = 36, setDesktopMediaHandler = 37, desktopMediaAnswer = 38, setLockHandler = 39
+    case browserPointerLockAnswer = 40, browserKeyboardLockAnswer = 41, browserExitPointerLock = 42
+    case browserExitKeyboardLock = 43, browserSendLockedMouseMove = 44, browserSetPageDisplay = 45
+    case browserSetPageVisibility = 46, tabEntryPageState = 47, tabPageStateWatch = 48, tabRestoreEntries = 49
+    case setNewTabPageURL = 50, addNativeMessagingDir = 51, prepareApplication = 52, initialize = 53, doWork = 54
+    case setScheduleDelayed = 55, setEnergySaver = 56, createWindow = 57, createPlaceholderWindow = 58
+    case placeholderSupported = 59, tabAdd = 60, tabDuplicate = 61, tabActivate = 62, tabNavigationEntries = 63
+    case tabGoToEntry = 64, tabWindowID = 65, loadURL = 66, goBack = 67, goForward = 68, reload = 69, stop = 70
+    case setFocus = 71, setFocusRequestHandler = 72, setUnhandledKeyHandler = 73, setZoomLevel = 74
+    case setAccessibility = 75, print = 76, find = 77, stopFinding = 78, close = 79, tryClose = 80
+    case beforeUnloadReply = 81, devToolsCall = 82, devToolsWatchEvents = 83, devToolsSend = 84
+    case devToolsSetKeyHandler = 85, devToolsSetPlacement = 86, devToolsCommand = 87, devToolsBrowser = 88
+    case devToolsSetFocus = 89, devToolsShowPanel = 90, extActions = 91, extActionRun = 92, extActionHidePopup = 93
+    case extActionContextMenu = 94, free = 95, tabNavigationState = 96, tabRestoreNavigation = 97
+    case navigationRestoreSupported = 98, extList = 99, extSetEnabled = 100, extUninstall = 101, extReload = 102
+    case extMovePinned = 103, extSetPinned = 104, extOpenOptions = 105, extLoadUnpacked = 106, extCommands = 107
+    case extCommandRun = 108, tabMoveToWindow = 109, unresponsiveReply = 110, contextMenuDone = 111
+    case setPopupWindowsEnabled = 112, popupWindowBounds = 113, devToolsInspectedBounds = 114
+    case popupWindowAttach = 115, sidePanelState = 116, sidePanelPress = 117, installPromptReply = 118
+    case omniboxKeywords = 119, omniboxInput = 120, setWindowRequestHandler = 121, foreignBrowserCount = 122
+    case downloadURL = 123, downloadContinue = 124, downloadControl = 125, permissionContinue = 126, closeAll = 127
+    case liveBrowserCount = 128, windowCount = 129, shutdown = 130, contentSetting = 131, setContentSetting = 132
+    case visitCookies = 133, deleteCookies = 134, downloadFavicon = 135, importCookies = 136, clearCookies = 137
+    case importPasswords = 138, passwordEntrySize = 139, passwordImportAvailable = 140, passwordPromptAnswer = 141
+    case setPasswordGenerationEnabled = 142, passwordReplaceAvailable = 143, replacePasswords = 144
+    case setPasswordFill = 145, passkeysAvailable = 146, passkeysList = 147, passkeyDelete = 148
+    case setWebauthnPlatform = 149, webauthnPlatformReply = 150, passwordCoreAvailable = 151, passwordList = 152
+    case passwordRemove = 153, passwordExceptionRemove = 154, passwordSetUsername = 155, passwordReveal = 156
+    case passwordExport = 157, sslStatus = 158, clearCertificateExceptions = 159, certificateProceed = 160
+    case freeOwned = 161, rendererClientIDs = 162, rendererFrames = 163, rendererPid = 164, setContextProxy = 165
+    case setContextProxyServer = 166, contextProxyState = 167, releaseContext = 168, setNavigationGuard = 169
+    case setAuthCallback = 170, prefGet = 171, prefSetBool = 172, prefWatch = 173, bookmarksSync = 174
+    case pageSchemeAdd = 175, pageSchemeAddFirstParty = 176, pageSchemeAddFirstPartyDynamic = 177
+    case pageResourceRespond = 178, memoryPressureVote = 179, setCursorEvents = 180, tabSetVisibility = 181
+    case extLoadLaterSupported = 182, extLoadCommandLine = 183, setPopupMenus = 184, browserPopupMenuReply = 185
+    case addDocumentScript = 186, addPageChannel = 187, tabEvaluate = 188, tabSetFrozen = 189, tabSendClick = 190
+    case tabSetColorScheme = 191, pageSchemeSetGroup = 192, tabDiscard = 193, widgetSetGeometry = 194
+    case widgetDismiss = 195, widgetSendInput = 196, browserImeSetComposition = 197, browserImeCommitText = 198
+    case browserImeFinishComposing = 199, browserImeCancelComposition = 200, tabCopySurface = 201
+    case tabSendMouseMove = 202
 
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
-    static let abiIdentity = "9432eb6fd43f0f77ae130e6a595b4ebed62bf6b509218f63222f71621999a728"
+    static let abiIdentity = "254e4629295bf514a777029dffe8602ee06e4bada130f6bd1cf47ba8529fc08e"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "016775208e446f83e00b64020cd43a51fd4d7369926106f5187c4a58d68c82f6"
+    static let wireIdentity = "980cdd7a0e987b6b0b699e8df9fc637c72d4551b6c95710640f951b9aef520f8"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
         .pageSchemeSetGroup, .tabDiscard, .widgetSetGeometry, .widgetDismiss, .widgetSendInput,
         .browserImeSetComposition, .browserImeCommitText, .browserImeFinishComposing, .browserImeCancelComposition,
+        .tabCopySurface, .tabSendMouseMove,
     ]
     /// Host -> cmux control ops: a shim event, an async result, a mirror value, an ack.
     static let eventOp: UInt16 = 0x8001, replyOp: UInt16 = 0x8002
@@ -186,6 +189,8 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.post, [.int32, .int32, .int32, .int32, .int32], [.int32]),
         Row(.post, [.int32], [.int32]),
         Row(.post, [.int32, .int32, .int32, .int32], [.int32]),
+        Row(.preinit, [.int32], []),
+        Row(.post, [.int32, .int64, .int32, .int32], [.int32]),
         Row(.local, [], []),
         Row(.post, [.int64, .uint32], [.int32]),
         Row(.post, [.int64], [.int32]),
@@ -378,6 +383,8 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.post, [.int32, .int32, .int32], [.int32]),
         Row(.mirror, [], [.int32]),
         Row(.async, [.string, .int32, .string], [.int32]),
+        Row(.preinit, [.int32], []),
+        Row(.post, [.int32, .int64, .int32], []),
         Row(.preinit, [.string, .string, .int32, .int32], [.int32]),
         Row(.preinit, [.string, .string], [.int32]),
         Row(.async, [.int32, .int32, .string, .string, .int32], [.int32]),
@@ -393,6 +400,8 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.post, [.int32, .bytes, .int32, .int32], []),
         Row(.post, [.int32], []),
         Row(.post, [.int32], []),
+        Row(.async, [.int32, .int32, .int32, .int32, .int32, .int32], [.int32]),
+        Row(.post, [.int32, .double, .double, .int32], [.int32]),
     ]
 
     private var row: Row { Self.rows[Int(rawValue) - 1] }
@@ -515,8 +524,9 @@ nonisolated enum ChromiumHostEventKind: Int32, CaseIterable, Sendable {
     case localFileHandoff = 38, bookmarksEvent = 39, externalURL = 40, permissionPrompt = 41
     case permissionDismissed = 42, passwordPrompt = 43, beforeUnloadDialog = 44, beforeUnloadDismissed = 45
     case pageResource = 46, pageDragEnter = 47, fileDialog = 48, cursor = 54, dragOperation = 55, tooltip = 57
-    case webauthnPlatformRequest = 62, webauthnPlatformCancel = 63, pageMessage = 49, evaluateResult = 50
-    case createFailed = 51, widgetContext = 52, widgetGone = 53, wheelAck = 56
+    case popupMenu = 58, popupMenuHide = 59, suggestions = 60, webauthnPlatformRequest = 62
+    case webauthnPlatformCancel = 63, pageMessage = 49, evaluateResult = 50, createFailed = 51, widgetContext = 52
+    case widgetGone = 53, wheelAck = 56
 
     /// The mirrors this event refreshes; the host pushes them before the event. `request` is the
     /// event's request (CMUX_SHIM_TAB_EVENT's sub-kind).

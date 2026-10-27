@@ -120,6 +120,8 @@ pub(super) fn identify(
         // How this daemon was installed and how to update it, for a client's refusal text.
         identity.insert("install", json!(channel.as_str()));
         identity.insert("update_command", json!(channel.update_command()));
+        // The stream frame cut (bench-daemon-latency.py --bulk-interference).
+        identity.insert("bulk_frame_max", json!(mux.bulk_frame_max()));
     }
     if machine_metadata {
         identity.insert("machine_id", json!(mux.machine_public_id));

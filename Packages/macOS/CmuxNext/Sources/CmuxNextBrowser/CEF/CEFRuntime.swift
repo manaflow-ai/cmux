@@ -174,6 +174,7 @@ final class CEFRuntime {
     var spareAfterFirstTabFeature: @MainActor () -> Bool = { false }
     private(set) var builtInAdBlockerLoaded = false  // this Chromium has the built-in uBlock Origin (at start or first tabs)
     let builtInLoader = CEFBuiltInExtensionLoader()  // built-in extensions at each profile's first tab (chromiumAdBlockerAtFirstTab)
+    let surfaceCopies = CEFSurfaceCopies()  // pages' surface copies waiting for Chromium (fork API 38, p13-webui-078)
     /// True when this Chromium started with `cmux-process-reuse-per-renderer-devtools` (`debug.cef` `windows`).
     private(set) var processReusePerRendererDevTools = false
     private var terminationObserver: (any NSObjectProtocol)?
@@ -241,13 +242,17 @@ final class CEFRuntime {
     /// Takes the engine's stores, sign-in tabs and wait deadlines (the process has one Chromium, so the
     /// App's one engine hands them over before its first start or tab), and its host supervisor, which
     /// puts a runtime that has not started in host mode (host widgets in cmux with `hostWidgets`, drops with `hostDrags`,
-    /// page resizes fenced with `hostResizeFence`, iCloud Keychain in cmux with `hostPasskeys`). Without `waitDeadlines` the runtime keeps its own queue; the pump made
-    /// at the start runs on the queue adopted before it. Idempotent for the same stores.
+    /// page resizes fenced with `hostResizeFence`, `<select>` popups as cmux menus with `hostPopupMenus`, suggestions in
+    /// cmux's list with `hostSuggestions`, page file choosers answered by `hostFileDialogs`, iCloud Keychain in cmux
+    /// with `hostPasskeys`). Without `waitDeadlines` the runtime keeps its own queue; the pump made at the start runs on
+    /// the queue adopted before it. Idempotent for the same stores.
     func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks, waitDeadlines: MainWakeUpQueue? = nil,
                hostSupervisor: (any ChromiumHostSupervising)? = nil, hostWidgets: Bool = false, hostDrags: Bool = false,
-               hostResizeFence: Bool = false, hostPasskeys: Bool = false) {
+               hostResizeFence: Bool = false, hostPopupMenus: Bool = false, hostSuggestions: Bool = false,
+               hostFileDialogs: (any ChromiumFileDialogAnswering)? = nil, hostPasskeys: Bool = false) {
         if let hostSupervisor, hostStart == nil, state == .idle {
             adoptHost(hostSupervisor, showsWidgets: hostWidgets, takesDrags: hostDrags, fencesResizes: hostResizeFence,
+                      drawsPopupMenus: hostPopupMenus, drawsSuggestions: hostSuggestions, fileDialogs: hostFileDialogs,
                       platformPasskeys: hostPasskeys ? CEFPlatformPasskeys.system() : nil)
         }
         self.signInCallbacks = signInCallbacks
@@ -501,7 +506,8 @@ final class CEFRuntime {
         if case .inProcess = library, shim.prepareApplication() != 1 { throw .application }
         self.shim = shim
         if case .host = library {
-            showHostWidgets(shim)
+            showHostNativeUI(shim, forkAPIVersion: shim.forkAPIVersion())
+            answerHostFileDialogs(shim)
             // A preinit op: before cmux_shim_initialize.
             hostStart?.platformPasskeys?.hostAttached(setPlatform: { [shim] in shim.setWebauthnPlatform($0) })
         }
@@ -539,9 +545,7 @@ final class CEFRuntime {
         // chrome://newtab without an extension override (BrowserNewTabPage).
         shim.setNewTabPageURL(BrowserNewTabPage.blankURL)
         // cmux-page:// first-party pages from their bundled roots, with their renderer groups (CEFPageSchemes).
-        let refusedPages = CEFPageSchemes.add(CEFPageSchemes.firstParty, to: shim)
-        if !refusedPages.pages.isEmpty { logger.error("cmux-page refused by the shim: \(refusedPages.pages.joined(separator: ", "), privacy: .public)") }
-        if !refusedPages.groups.isEmpty { logger.error("cmux-page groups refused by the shim: \(refusedPages.groups.joined(separator: ", "), privacy: .public)") }
+        CEFPageSchemes.add(CEFPageSchemes.firstParty, through: self) { [logger] refusal in logger.error("cmux-page refused by the shim: \(String(describing: refusal), privacy: .public)") }
         // Every document's start scripts and report channels, once for every browser, in the
         // renderer (fork API 29): no tab opens a DevTools session for them (`CEFDocumentScripts`).
         if CEFForkFeatures(shim).rendererPaths {

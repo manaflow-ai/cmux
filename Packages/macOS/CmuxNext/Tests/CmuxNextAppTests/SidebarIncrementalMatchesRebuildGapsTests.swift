@@ -255,10 +255,11 @@ import Testing
             #expect(doc.drops.isEmpty, "a drop went through while the list is grouped by folder")
         case .groupByFolderTabIntoGroup:
             // A tab from a pane still drops: over the folded group (it springs open), then into Work between docs and web.
-            list.springLoadDelay = .zero
+            let rig = MainDeadlineRig()
+            list.deadlines = rig.deadlines
             let foldedY = try mid(list, .group(folded))
             _ = list.externalDragMoved(windowPoint: list.convert(NSPoint(x: 80, y: foldedY), to: nil), sourceMachine: nil)
-            try? await Task.sleep(for: .milliseconds(50))
+            rig.fireAndRun()
             await Base.expectMatchesRebuild(sidebar, "after the folded group springs open")
             let web = try shown(list, ws("web"))
             _ = list.externalDragMoved(windowPoint: list.convert(NSPoint(x: 80, y: web.y), to: nil), sourceMachine: nil)

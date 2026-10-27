@@ -1,0 +1,192 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "child-crash-renderer",
+  "suite": "e2e",
+  "title": "SIGKILL a Chromium tab's renderer: the app stays up, the tab shows the sad tab, and Reload brings the page back",
+  "priority": "P1",
+  "surface": "cmux-next-native",
+  "source": {
+    "repo": "manaflow-ai/cmux",
+    "ref": "$RUN",
+    "artifact": "$RUN"
+  },
+  "environment": {
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "engine": "chromium"
+  },
+  "fixture": {
+    "seed": "e2e-child-crash-renderer-v1",
+    "network": "offline",
+    "clock": "fixed",
+    "agent": "mock",
+    "web": true
+  },
+  "preconditions": [
+    "private scratch config",
+    "tagged bench build",
+    "no unrelated app instance",
+    "a fresh launch: one window, one workspace, one terminal tab",
+    "the loopback web fixture serves load.html ($WEB)",
+    "the default browser engine is Chromium"
+  ],
+  "requires": [
+    "actions",
+    "keys",
+    "gui",
+    "chromium",
+    "restart"
+  ],
+  "platforms": [
+    "mac"
+  ],
+  "allow_crashes": [
+    {
+      "kind": "renderer",
+      "reason": "kill-renderer ends the tab's renderer on purpose (the script's renderer case)",
+      "steps": [
+        "kill-renderer"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "id": "launched",
+      "op": "snapshot",
+      "args": {
+        "facets": [
+          "topology",
+          "tabs",
+          "crashes"
+        ]
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "open-page",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "tab",
+          "new-browser",
+          "--url",
+          "$WEB/load.html",
+          "--focus"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a CLI run prints the new tab, not the action's receipt"
+      },
+      "waitFor": {
+        "pointer": "/topology/tab_count",
+        "predicate": "changed",
+        "maxMs": 10000
+      },
+      "note": "a Chromium tab on the fixture page in the focused pane, shown (--focus)"
+    },
+    {
+      "id": "loaded",
+      "op": "snapshot",
+      "args": {
+        "facets": [
+          "topology",
+          "tabs",
+          "crashes",
+          "liveObjects"
+        ]
+      },
+      "settleMaxMs": 10000
+    },
+    {
+      "id": "kill-renderer",
+      "op": "kill",
+      "target": {
+        "process": "renderer"
+      },
+      "args": {
+        "signal": "KILL"
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a kill step signals a process; no action runs"
+      },
+      "waitFor": {
+        "pointer": "/crashes/counts/renderer",
+        "predicate": {
+          "op": "gte",
+          "value": 1
+        },
+        "maxMs": 10000
+      },
+      "note": "SIGKILL the renderer of the case's only Chromium tab (an exact pid of the app's process tree)"
+    },
+    {
+      "id": "sad-tab",
+      "op": "snapshot",
+      "args": {
+        "facets": [
+          "topology",
+          "tabs",
+          "crashes",
+          "focus"
+        ]
+      },
+      "settleMaxMs": 5000,
+      "note": "the tab says its page is gone (crashed true); the app runs"
+    },
+    {
+      "id": "reload",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "cmd+r"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "settleMaxMs": 10000,
+      "note": "Reload (Cmd-R, browserReload) on the tab brings the page back in a new renderer"
+    },
+    {
+      "id": "reloaded",
+      "op": "snapshot",
+      "args": {
+        "facets": [
+          "topology",
+          "tabs",
+          "crashes",
+          "liveObjects"
+        ]
+      },
+      "settleMaxMs": 10000
+    }
+  ],
+  "invariants": [
+    "converted from scripts/cmux-next/child-crash-e2e.py, which stays as the live check; tests/oracle/corpus/e2e/coverage.json lists the script as blocked: this case moves into tests/oracle/corpus/e2e/ when driver_app.py runs its steps",
+    "the app's pid is unchanged: a renderer exit never ends cmux (crash-elimination.md classes 13 and 14)",
+    "sad-tab: the tab is crashed and every other value equals loaded's (no other tab, pane or workspace changes)",
+    "reloaded: the tab is not crashed and shows $WEB/load.html again; crashes counts one renderer exit only"
+  ],
+  "teardown": [
+    "quit the tagged app the run started",
+    "verify its debug socket is gone",
+    "end the tag's daemons (TagTeardown)"
+  ],
+  "untested": [
+    "the sad tab's own Reload button (the script presses it through debug.browser.page_status press): Cmd-R runs the browser's reload",
+    "a terminal beside the page answering keys through the kill window: that is the crash-survival perf story (key_to_frame)",
+    "the WebKit WebContent and agent page kills: their pids come from debug methods (page_pid, debug.agent_pane pid) that no kill target names"
+  ]
+}

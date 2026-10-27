@@ -39,6 +39,8 @@ extension AppControl {
             ObservationsControl(ledger: services.observations).method,
             // Lane queue wait and run time per lane and priority (RUN-13); {"reset": true} zeroes them.
             WorkControl(work: services.work).method,
+            // The detector's context per kind of thread and a running item's raise, per macOS (RUN-10, os-matrix threads).
+            PoolContextControl(work: services.work, detector: services.blocking).method,
             // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class,
             // the run loop's turns, per owner the wait and run percentiles, and its idle class's periods under
             // "idle"; main only copies, the turns and owners fold off it.
@@ -59,6 +61,31 @@ extension AppControl {
             },
             // The startup trace (CMUX_TRACE_STARTUP): write what it holds now, its file and counts.
             DebugTimings.startupTraceMethod,
+            // The launch's main jobs and main turns until startup completed (startup-queue.py mainjobs, p08-startup-080):
+            // copied on main, symbolized off it.
+            .mainActor("debug.startup.main_jobs") { [weak services] _ in
+                guard let services, let census = services.environment.mainJobCensus else { return .value(["main_job_census": ["armed": false]]) }
+                let snapshot = census.snapshot(mainTasks: services.launchStartup.map { MainJobCensus.mainTasks($0.log) } ?? [])
+                return .followUp {
+                    let symbolicator = StackSymbolicator(map: nil) // Debug and bench executables keep their names: no map read
+                    let report = MainJobCensusReport(snapshot) { addresses in
+                        symbolicator.frames(for: addresses).map { .init(image: $0.image, symbol: $0.symbol, imageOffset: $0.imageOffset) }
+                    }
+                    return try JSONValue(foundation: report.foundationObject()) ?? .null
+                }
+            },
+            // The tasks that started on the cooperative pool until startup completed (startup-queue.py globaljobs,
+            // p08-startup-082): copied and symbolized off main.
+            .mainActor("debug.startup.global_jobs") { [weak services] _ in
+                guard let census = services?.environment.globalJobCensus else { return .value(["global_job_census": ["armed": false]]) }
+                return .followUp {
+                    let symbolicator = StackSymbolicator(map: nil) // Debug and bench executables keep their names: no map read
+                    let report = GlobalJobCensusReport(census.snapshot()) { addresses in
+                        symbolicator.frames(for: addresses).map { .init(image: $0.image, symbol: $0.symbol, imageOffset: $0.imageOffset) }
+                    }
+                    return try JSONValue(foundation: report.foundationObject()) ?? .null
+                }
+            },
             // Each tab switch's own time: intent to shown, and to the next frame (perf-gate.py).
             .mainActor("debug.tab_switch") { call in .value(DebugTabSwitch.timer.handle(call.params, key: "switches")) },
             // Each pane focus move's own time: intent to settled, and to the next frame (perf-gate.py pane_focus).
@@ -176,6 +203,13 @@ extension AppControl {
                 if let control = call.params["side_panel"]?.stringValue { DebugCEF.pressSidePanel(control, services: services) }
                 // {"drop_spare": true} closes the spare Chromium window (its memory cost, PL-cef-tab).
                 if call.params["drop_spare"]?.boolValue == true { services.cache.cef.closeUntakenSpareWindows() }
+                // {"file_dialog_choose": ["/abs/path", ...]} or {"file_dialog_cancel": true} answers the newest page
+                // file chooser in cmux's picker, as a choice there would (host mode, chromiumHostFileDialogs).
+                if let paths = call.params["file_dialog_choose"]?.arrayValue?.compactMap(\.stringValue) {
+                    _ = services.cache.cef.answerHostFileDialog(with: paths.map { URL(filePath: $0) })
+                } else if call.params["file_dialog_cancel"]?.boolValue == true {
+                    _ = services.cache.cef.answerHostFileDialog(with: nil)
+                }
                 return .value(DebugCEF.report(services))
             },
             // Remote localhost proxy: port, counters, recent outcomes.
@@ -189,6 +223,10 @@ extension AppControl {
                 return .value(DebugCrashes.report(services))
             },
         ])
+        // Synthetic sleep, wake and display-change notices on the centers macOS posts them on (lifecycle-sweep.py, RUN-12).
+        // raw-observer-allow: the center the synthetic sleep and wake notices are posted on; nothing observes it here
+        router.register(LifecycleSimulationControl(notices: .appKit, workspaceCenter: NSWorkspace.shared.notificationCenter,
+                                                   workspace: NSWorkspace.shared, appCenter: .default, application: NSApp).methods)
         #if CMUX_PGO_PROFILE
         // The profile build only (p08-startup-103): rest.profraw before quit, on the files lane; launch.profraw
         // was written at startup complete.
@@ -200,5 +238,13 @@ extension AppControl {
         }
         #endif
     }
+}
+
+extension LifecycleSimulationControl.Notices {
+    /// What macOS posts at a sleep, a wake and a display change, in its order (lifecycle-sweep.py, RUN-12).
+    static let appKit = Self(sleep: [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification],
+                             wake: [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification],
+                             // raw-observer-allow: posted by debug.simulate.display, never observed: the notice every screen observer hears
+                             display: NSApplication.didChangeScreenParametersNotification)
 }
 #endif

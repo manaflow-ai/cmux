@@ -65,26 +65,32 @@ extension CEFRuntime {
         tab.host.recreateShown(tab)
     }
 
-    /// Puts a runtime that has not started in host mode (``adopt(stores:signInCallbacks:waitDeadlines:hostSupervisor:hostWidgets:hostDrags:hostResizeFence:hostPasskeys:)``):
+    /// Puts a runtime that has not started in host mode (``adopt(stores:signInCallbacks:waitDeadlines:hostSupervisor:hostWidgets:hostDrags:hostResizeFence:hostPopupMenus:hostSuggestions:hostFileDialogs:hostPasskeys:)``):
     /// its start attaches through `supervisor` (host widgets in cmux with `showsWidgets`, drops with `takesDrags`, page
-    /// resizes fenced with `fencesResizes`), and the host's ends reach ``hostEnded(_:)`` when the supervisor reports
-    /// them (``ChromiumHostExitReporting``).
+    /// resizes fenced with `fencesResizes`, `<select>` popups as cmux menus with `drawsPopupMenus`, suggestions in cmux's
+    /// list with `drawsSuggestions`, page file choosers answered by `fileDialogs`, iCloud Keychain in cmux with
+    /// `platformPasskeys`), and the host's ends reach
+    /// ``hostEnded(_:)`` when the supervisor reports them (``ChromiumHostExitReporting``).
     func adoptHost(_ supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, takesDrags: Bool = false,
-                   fencesResizes: Bool = false, platformPasskeys: CEFPlatformPasskeys? = nil) {
+                   fencesResizes: Bool = false, drawsPopupMenus: Bool = false, drawsSuggestions: Bool = false,
+                   fileDialogs: (any ChromiumFileDialogAnswering)? = nil, platformPasskeys: CEFPlatformPasskeys? = nil) {
         hostStart = CEFHostStart(supervisor: supervisor, showsWidgets: showsWidgets, takesDrags: takesDrags,
-                                 fencesResizes: fencesResizes, platformPasskeys: platformPasskeys)
+                                 fencesResizes: fencesResizes, drawsPopupMenus: drawsPopupMenus, fileDialogs: fileDialogs,
+                                 platformPasskeys: platformPasskeys)
+        hostStart?.drawsSuggestions = drawsSuggestions
         guard let reporting = supervisor as? any ChromiumHostExitReporting else { return }
         reporting.onHostEnded = { [weak self] exit in self?.hostEnded(exit) }
     }
 }
 
 extension CEFPaneHost {
-    /// The Chromium Host ended (``CEFRuntime/hostEnded(_:)``): this pane's Chromium window went with
-    /// it, so the next tab shown here asks the next host for a new one.
+    /// The Chromium Host ended (``CEFRuntime/hostEnded(_:)``): this pane's Chromium window went with it, so the
+    /// next tab shown here asks the next host for a new one, and the page view drops all the host gave it in
+    /// this turn, under each tab's sad tab (``CEFTab/hostEnded(_:)``). The next host numbers browsers anew.
     func hostEnded() {
-        (window, windowTab, lastActivated, popupWindow) = (.none, nil, nil, nil)
+        (window, windowTab, lastActivated, popupWindow, pageCursors) = (.none, nil, nil, nil, [:])
         hostView.layerHosting.windowBrowsersChanged([])
-        hostedPageView?.show(contextID: 0)
+        hostedPageView?.hostEnded()
     }
 
     /// After a new host was attached, `tab`, shown here with no browser (its own went with the old

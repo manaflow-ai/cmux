@@ -1,45 +1,19 @@
 //! The local runtime spawn path of a terminal surface: the parser, the
-//! reader thread (bytes -> terminal state -> events) and the reaper thread
-//! (the end of the far side). A PTY child and an app's byte-backend
+//! reader (bytes -> terminal state -> events, `local_reader`) and the reaper
+//! thread (the end of the far side). A PTY child and an app's byte-backend
 //! terminal (`terminal_backend`) both start here, from a [`LocalLaunch`].
 
 use std::io::{Read, Write};
 #[cfg(unix)]
-use std::os::fd::{AsRawFd, BorrowedFd, RawFd};
-#[cfg(unix)]
-use std::os::unix::net::UnixStream;
+use std::os::fd::BorrowedFd;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
-use std::time::Duration;
 
 use cmux_pty::{ChildKiller, MasterPty};
 use ghostty_vt::{Callbacks, RenderState, Terminal};
 
 use super::*;
 use crate::terminal_end::TerminalEnd;
-
-#[cfg(unix)]
-fn wait_for_local_output(fd: RawFd, wake: &mut UnixStream) -> std::io::Result<bool> {
-    let mut descriptors = [
-        libc::pollfd { fd, events: libc::POLLIN, revents: 0 },
-        libc::pollfd { fd: wake.as_raw_fd(), events: libc::POLLIN, revents: 0 },
-    ];
-    loop {
-        // SAFETY: both descriptors are initialized and owned by the reader.
-        let result = unsafe { libc::poll(descriptors.as_mut_ptr(), 2, -1) };
-        if result >= 0 {
-            let mut bytes = [0u8; 64];
-            if descriptors[1].revents != 0 {
-                let _ = wake.read(&mut bytes);
-            }
-            return Ok(descriptors[0].revents != 0);
-        }
-        let error = std::io::Error::last_os_error();
-        if error.kind() != std::io::ErrorKind::Interrupted {
-            return Err(error);
-        }
-    }
-}
 
 /// What the local runtime of one terminal runs on.
 pub(crate) struct LocalLaunch {
@@ -97,7 +71,7 @@ impl Surface {
         } = spawn;
         let LocalLaunch {
             master,
-            mut reader,
+            reader,
             writer,
             killer,
             wait,
@@ -113,9 +87,10 @@ impl Surface {
         // reads the screen and what is still unparsed at one instant.
         #[cfg(unix)]
         let parsed_sink = holder.as_ref().map(|terminal| terminal.sink.clone());
-        // Direct PTY readers can wait for readiness before taking the source
-        // order gate. Holder and byte-backend readers are not backed by this
-        // PTY descriptor, so they retain their existing blocking path.
+        // Direct PTY readers wait for readiness on the owner's read loop
+        // before taking the source order gate. Holder and byte-backend
+        // readers are not backed by this PTY descriptor, so they keep their
+        // blocking reader thread (local_reader.rs).
         #[cfg(unix)]
         let read_fd = holder.is_none().then(|| master.as_raw_fd()).flatten();
         #[cfg(unix)]
@@ -126,15 +101,6 @@ impl Surface {
                 unsafe { BorrowedFd::borrow_raw(fd) }.try_clone_to_owned()
             })
             .transpose()?;
-        #[cfg(unix)]
-        let (wake_writer, mut wake_reader) = if read_fd.is_some() {
-            let (writer, reader) = UnixStream::pair()?;
-            writer.set_nonblocking(true)?;
-            reader.set_nonblocking(true)?;
-            (Some(writer), Some(reader))
-        } else {
-            (None, None)
-        };
         // Query responses generated while parsing pty output are queued
         // here and flushed to the pty after each vt_write (the callback
         // runs under the terminal lock; writing to the pty from inside it
@@ -184,8 +150,6 @@ impl Surface {
             pending_bells,
             #[cfg(unix)]
             read_descriptor,
-            #[cfg(unix)]
-            wake_writer,
             #[cfg(unix)]
             parsed_sink,
         )));
@@ -283,7 +247,7 @@ impl Surface {
                 #[cfg(test)]
                 vt_replay_builds: AtomicUsize::new(0),
                 mux,
-                taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", Vec::new()),
+                taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", AttachTaps::default()),
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
                 last_input_flow: Default::default(),
@@ -321,100 +285,16 @@ impl Surface {
         }
         spawn_frame_producer(&surface)?;
 
-        // PTY reader: pty bytes -> terminal state -> SurfaceOutput events.
-        let reader_thread = crate::echo_thread::spawn(format!("surface-{id}-reader"), {
-            let surface = surface.clone();
-            #[cfg(unix)]
-            let read_fd = output
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .descriptor
-                .as_ref()
-                .map(AsRawFd::as_raw_fd);
-            move || {
-                let _reader_completion = ReaderCompletionGuard(
-                    surface
-                        .as_pty()
-                        .expect("local PTY reader owns a PTY surface")
-                        .reader_completion
-                        .clone(),
-                );
-                let mut would_block = crate::backoff::Backoff::new(
-                    Duration::from_millis(1),
-                    Duration::from_millis(50),
-                );
-                let publisher =
-                    output.lock().unwrap_or_else(std::sync::PoisonError::into_inner).publisher();
-                loop {
-                    let pty = surface.as_pty().expect("surface reader got non-pty surface");
-                    #[cfg(unix)]
-                    let ready = if let (Some(fd), Some(wake)) = (read_fd, wake_reader.as_mut()) {
-                        match wait_for_local_output(fd, wake) {
-                            Ok(ready) => ready,
-                            Err(_) => break,
-                        }
-                    } else {
-                        true
-                    };
-                    #[cfg(not(unix))]
-                    let ready = true;
-                    #[cfg(all(test, unix))]
-                    if ready {
-                        pty.run_geometry_test_hook(PtyGeometryTestStep::LocalReaderReady);
-                    }
-                    let (result, events) = {
-                        let mut output =
-                            output.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                        // A resize may have drained the readiness that woke
-                        // us. Recheck under the same parser lock before a
-                        // blocking read, then parse on that same boundary.
-                        #[cfg(unix)]
-                        let ready = ready
-                            && read_fd
-                                .is_none_or(|fd| local_output::readable(fd, 0).unwrap_or(false));
-                        let result = if ready {
-                            output.read(pty, |buf| reader.read(buf)).map(Some)
-                        } else {
-                            Ok(None)
-                        };
-                        let events = output.take_pending();
-                        (result, events)
-                    };
-                    publisher.publish(&surface, events);
-                    match result {
-                        Ok(Some(0)) => break,
-                        Ok(_) => would_block.reset(),
-                        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
-                            continue;
-                        }
-                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                            // No parser or source lock is held across backoff.
-                            would_block.sleep();
-                        }
-                        Err(_) => break,
-                    }
-                }
-                #[cfg(unix)]
-                {
-                    let mut output =
-                        output.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                    // Dead surfaces can remain visible. Do not keep their
-                    // duplicated PTY descriptor alive with that placement.
-                    output.finish();
-                }
-                if let Some(pty) = surface.as_pty() {
-                    pty.publish_final_frame();
-                    pty.local_pty_drained.store(true, Ordering::Release);
-                }
-                publish_local_exit_if_ready(&surface);
-            }
-        })?;
+        // PTY reader: pty bytes -> terminal state -> SurfaceOutput events,
+        // on the owner's read loop for a direct PTY (local_reader.rs).
+        let local_reader = local_reader::LocalReader::new(surface.clone(), output, reader);
+        let local_reader = local_reader.start(id)?;
         *surface
             .as_pty()
             .expect("local PTY surface owns its reader")
             .reader_thread
             .lock()
-            .unwrap() = Some(reader_thread);
+            .unwrap() = Some(local_reader);
 
         // Child reaper: retain the native status and rendezvous with PTY EOF
         // so final output is visible before the mux observes completion.

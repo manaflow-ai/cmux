@@ -571,8 +571,27 @@ fn print_status(config_path: &Path) -> ! {
     std::process::exit(0);
 }
 
-#[tokio::main]
-async fn main() {
+/// The relay's tokio runtime is cmux-blocking's (Chrome's ThreadPool with
+/// `MayBlock` compensation, base/task/thread_pool/thread_group.cc): a wrapped
+/// blocking call on a worker hands the worker's queue to another thread. The
+/// body runs as a task on a worker; the main thread only waits for it.
+fn main() -> std::process::ExitCode {
+    let runtime = match cmux_blocking::runtime::multi_thread().build() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("could not start the relay runtime: {error}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    let body = runtime.spawn(run());
+    match cmux_blocking::runtime::block_on(&runtime, body) {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+        Err(_) => std::process::ExitCode::FAILURE,
+    }
+}
+
+async fn run() {
     // The workspace pins rustls to the ring provider (tungstenite does the
     // same); reqwest's rustls-no-provider build needs it installed as the
     // process default before any TLS client is built.

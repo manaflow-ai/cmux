@@ -61,6 +61,7 @@ fn server_threads_lists_a_registered_thread_until_it_exits() {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         assert!(reply["process"]["role"].is_null(), "Linux has no task role: {reply}");
+        assert!(reply["process"]["darwin_bg"].is_null(), "Linux has no PRIO_DARWIN_BG: {reply}");
         let nice = thread["nice"].as_i64().unwrap_or_else(|| panic!("Linux reads nice: {thread}"));
         assert_eq!(thread["priority"].as_i64(), Some(20 + nice), "{thread}");
         assert_eq!(thread["matches"], nice == i64::from(ThreadQos::Utility.linux_nice()));
@@ -69,6 +70,9 @@ fn server_threads_lists_a_registered_thread_until_it_exits() {
     #[cfg(target_vendor = "apple")]
     {
         assert!(reply["process"]["role"].is_string(), "macOS reads a task role: {reply}");
+        let darwin_bg = &reply["process"]["darwin_bg"];
+        assert!(darwin_bg["internal"].is_boolean(), "macOS reads PRIO_DARWIN_BG: {reply}");
+        assert!(darwin_bg["external"].is_boolean(), "macOS reads PRIO_DARWIN_BG: {reply}");
         assert_eq!(thread["requested_qos"], "utility", "{thread}");
         assert_eq!(thread["matches"], true);
         assert!(thread["priority"].is_i64(), "{thread}");

@@ -19,21 +19,27 @@ let package = Package(
         .library(name: "CmuxConversationUI", targets: ["CmuxConversationUI"]),
         .library(name: "CmuxConversationMacUI", targets: ["CmuxConversationMacUI"]),
     ],
+    dependencies: [
+        // OnceContinuation, the continuation that resumes exactly once (p10-stability-089).
+        .package(path: "../../Shared/CmuxSafeConcurrency"),
+    ],
     targets: [
         .target(
             name: "CmuxConversationCore",
+            dependencies: [.product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [.process("Resources")],
             swiftSettings: swiftSettings
         ),
         .target(name: "CmuxConversationGeometry", dependencies: ["CmuxConversationCore"], swiftSettings: swiftSettings),
         .target(
             name: "CmuxConversationTranslation",
-            dependencies: ["CmuxConversationCore"],
+            dependencies: ["CmuxConversationCore", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: swiftSettings
         ),
         .target(
             name: "CmuxConversationUI",
-            dependencies: ["CmuxConversationCore", "CmuxConversationGeometry", "CmuxConversationTranslation"],
+            dependencies: ["CmuxConversationCore", "CmuxConversationGeometry", "CmuxConversationTranslation",
+                           .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [.process("Resources")],
             swiftSettings: swiftSettings
         ),

@@ -133,6 +133,7 @@ std::string ReplayKey(uint16_t op, const std::vector<Field>& fields) {
     case kOpSetBackgroundColor:
     case kOpSetNewTabPageUrl:
     case kOpSetPopupWindowsEnabled:
+    case kOpSetSuggestionEvents:
     case kOpSetWebauthnPlatform:  // the launch handler, then the latest permission
       return std::to_string(op);
     case kOpPageSchemeAdd:

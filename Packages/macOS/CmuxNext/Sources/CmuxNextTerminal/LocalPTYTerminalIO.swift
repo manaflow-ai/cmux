@@ -21,7 +21,11 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
 
     private let masterFD: Int32
     private let continuation: AsyncStream<TerminalIOEvent>.Continuation
+    private let readQueue: DispatchQueue
     private let readSource: any DispatchSourceRead
+    /// The output `events` holds that the session has not taken (``outputConsumed(_:)``): the read
+    /// source pauses at its limit.
+    private let outputWindow: ByteCreditWindow
     private let exitSource: any DispatchSourceProcess
     // qos-allow: key echo path: a typed key reaches the shell through this queue and its frame waits for the echo
     private let writeQueue = DispatchQueue(label: "com.cmuxterm.next.localpty.write", qos: .userInteractive)
@@ -37,12 +41,17 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     static let readHangDeadline: Duration = .seconds(1)
     /// One flush's budget (write until EAGAIN): the descriptor is nonblocking, so the same holds for writes.
     static let writeHangDeadline: Duration = .seconds(2)
+    /// The output `events` may hold before the PTY is read no more: 1 MiB, as for pending input
+    /// (``PendingInput``). A shell that prints faster than the surface parses then blocks in write(2),
+    /// as it does under any terminal whose reader is slower.
+    public static let outputBound = 1 << 20
 
     /// Spawns `shell` as a login shell in `workingDirectory`. `installedTerminfo` is the caller's lane read of
     /// ``GhosttyLaunchProbe/terminfoInstalled``: true makes the shell's `TERM`
     /// `xterm-ghostty`, false `xterm-256color` (``terminalEnvironment(resourcesDirectory:version:installedTerminfo:)``),
     /// unless `environment` sets it. The init reads no file for it. `hangs` watches each read chunk
-    /// (`localpty.read`) and each input flush (`localpty.write`); nil watches nothing.
+    /// (`localpty.read`) and each input flush (`localpty.write`); nil watches nothing. `outputBound`: the
+    /// output `events` may hold that the session has not taken before the PTY is read no more.
     public init(
         shell: String = LocalPTYTerminalIO.defaultShell,
         workingDirectory: String = NSHomeDirectory(),
@@ -50,7 +59,8 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         installedTerminfo: Bool,
         columns: Int = 80,
         rows: Int = 24,
-        hangs: (any HangWatchScoping)? = nil
+        hangs: (any HangWatchScoping)? = nil,
+        outputBound: Int = LocalPTYTerminalIO.outputBound
     ) throws {
         var environment = ProcessInfo.processInfo.environment
         for key in ["CMUX_SOCKET_PATH", "CMUX_SOCKET_ENABLE", "CMUX_TAG", "CMUX_BUNDLE_ID"] {
@@ -115,20 +125,35 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         _ = fcntl(master, F_SETFL, fcntl(master, F_GETFL) | O_NONBLOCK)
 
         // concurrency-allow: debug-only local PTY (CMUX_NEXT_DEBUG_TERMINAL), not the daemon path
+        // memory: bounded-by outputWindow (outputBound, 1 MiB, plus one read chunk): the read source pauses at it
         let (stream, continuation) = AsyncStream<TerminalIOEvent>.makeStream(bufferingPolicy: .unbounded)
         events = stream
         self.continuation = continuation
+        let outputWindow = ByteCreditWindow(limit: outputBound)
+        self.outputWindow = outputWindow
 
         let readQueue = DispatchQueue(label: "com.cmuxterm.next.localpty.read", qos: .userInteractive)
+        self.readQueue = readQueue
         readSource = DispatchSource.makeReadSource(fileDescriptor: master, queue: readQueue)
         writeSource = DispatchSource.makeWriteSource(fileDescriptor: master, queue: writeQueue)
         exitSource = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: readQueue)
 
-        readSource.setEventHandler { [continuation, master, readSource, readWatched] in
+        readSource.setEventHandler { [continuation, master, readSource, readWatched, outputWindow] in
+            switch Self.drain(master, into: continuation, watched: readWatched, window: outputWindow) {
+            case .drained: break
+            // The session holds `outputBound` bytes: read again once it took them (outputConsumed).
+            // Suspended here, on the read queue, where every resume runs too, so the two pair.
+            case .full: readSource.suspend()
             // The slave side closed while the shell may live on: stop
             // reading, or the level-triggered source fires forever on the
             // hung-up master. The exit source still ends the stream.
-            if Self.drain(master, into: continuation, watched: readWatched) == .hangup { readSource.cancel() }
+            case .hangup: readSource.cancel()
+            }
+        }
+        // The stream ended (finish) or its consumer went: a paused source resumes, so that it can be
+        // cancelled and released, and a shell no one reads any more never blocks on a full PTY.
+        continuation.onTermination = { [readQueue, readSource, outputWindow] _ in
+            readQueue.async { if outputWindow.releasePause() { readSource.resume() } }
         }
         exitSource.setEventHandler { [weak self] in
             self?.finish()
@@ -141,6 +166,19 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
 
     /// The write queue's QoS (tests).
     var writeQueueQoS: DispatchQoS { writeQueue.qos }
+    /// Output `events` holds that the session has not taken (tests).
+    var bufferedOutputBytes: Int { outputWindow.bufferedBytes }
+    /// True while the PTY is not read because the session holds `outputBound` bytes (tests).
+    var isOutputPaused: Bool { outputWindow.isPaused }
+
+    /// The session took `bytes` of output: the read source resumes, on the read queue, once the session
+    /// holds half the bound or less.
+    public func outputConsumed(_ bytes: Int) {
+        guard outputWindow.consumed(bytes) else { return }
+        readQueue.async { [readSource, outputWindow] in
+            if outputWindow.resumeIfDrained() { readSource.resume() }
+        }
+    }
 
     deinit {
         terminate()
@@ -204,8 +242,9 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         exitSource.cancel()
         readSource.cancel()
 
-        // Output written just before exit may still be buffered.
-        Self.drain(masterFD, into: continuation, watched: readWatched)
+        // Output written just before exit may still be buffered: at most the PTY's own buffer, read past
+        // the window. The stream's end (onTermination) resumes a paused read source.
+        Self.drain(masterFD, into: continuation, watched: readWatched, window: outputWindow, pauses: false)
         var status: Int32 = 0
         // SAFETY: waitpid writes one Int32 into `status`, alive for the call.
         _ = unsafe waitpid(processID, &status, WNOHANG)
@@ -332,32 +371,5 @@ private nonisolated final class PendingInput: Sendable {
             armed = true
             source.cancel()
         }
-    }
-}
-
-/// NULL-terminated `char *[]` that outlives a fork.
-private nonisolated final class CStringArray {
-    /// SAFETY: `count + 1` slots, each a strdup copy this object owns or the final nil,
-    /// allocated in `init` and freed in `deinit`; readers use it while they hold the object.
-    @safe let pointer: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>
-    private let count: Int
-
-    init(_ strings: [String]) {
-        count = strings.count
-        // SAFETY: strings.count + 1 slots: every index written below is below that.
-        pointer = unsafe UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>.allocate(capacity: strings.count + 1)
-        for (index, string) in strings.enumerated() {
-            // SAFETY: as above.
-            unsafe pointer[index] = strdup(string)
-        }
-        // SAFETY: as above.
-        unsafe pointer[strings.count] = nil
-    }
-
-    deinit {
-        // SAFETY: frees the `count` copies and the slots `init` allocated, once.
-        for index in 0..<count { unsafe free(pointer[index]) }
-        // SAFETY: as above.
-        unsafe pointer.deallocate()
     }
 }

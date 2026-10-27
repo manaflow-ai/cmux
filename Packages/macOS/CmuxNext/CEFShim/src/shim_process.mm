@@ -375,6 +375,10 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(tab_page_state_watch, "cmux_tab_page_state_watch");
   CMUX_BIND(tab_restore_entries, "cmux_tab_restore_entries");
   CMUX_BIND(browser_drag_target_watch, "cmux_browser_drag_target_watch");
+  CMUX_BIND(browser_set_popup_menu_handler, "cmux_browser_set_popup_menu_handler");
+  CMUX_BIND(browser_popup_menu_reply, "cmux_browser_popup_menu_reply");
+  CMUX_BIND(browser_set_suggestion_handler, "cmux_browser_set_suggestion_handler");
+  CMUX_BIND(browser_suggestion_action, "cmux_browser_suggestion_action");
   CMUX_BIND(set_webauthn_platform_handler, "cmux_set_webauthn_platform_handler");
   CMUX_BIND(webauthn_platform_set_permission, "cmux_webauthn_platform_set_permission");
   CMUX_BIND(webauthn_platform_reply, "cmux_webauthn_platform_reply");
