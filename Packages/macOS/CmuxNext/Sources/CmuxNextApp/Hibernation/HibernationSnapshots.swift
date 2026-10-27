@@ -23,6 +23,12 @@ import UniformTypeIdentifiers
 /// discarded tab; its `FrameEvictionManager` (components/viz/client/frame_eviction_manager.cc) keeps
 /// the saved frames of the most recently shown hidden views and culls them on `OnReleaseMemory`.
 ///
+/// Each picture's bytes live in a ``PurgeablePicture`` from ``allocator`` (task 107): with feature
+/// `purgeableImageCaches` on they are volatile purgeable pages except while an image of them lives, so the
+/// kernel takes them back under pressure with no call into cmux (Chrome's discardable memory). A picture
+/// the kernel took is a miss: it leaves the store and the page wakes loading, never to a blank frame. The
+/// memory report splits locked (footprint) bytes from volatile ones.
+///
 /// A picture's image decodes from its bytes when drawn; the placeholder decodes it off the main
 /// thread, and holds the decoded pixels only while a pane shows it (`HibernatedBrowserTab`).
 @MainActor
@@ -44,6 +50,8 @@ final class HibernationSnapshots {
     /// The bytes it keeps at the default limit. A page picture at 2x is about 0.2 to 1.5 MB as JPEG,
     /// so 64 MiB holds 40 to 300 of them.
     let fullCapacityBytes: Int
+    /// Makes the pictures' pages (`ImageCacheShares.pictureAllocator`): purgeable with `purgeableImageCaches` on.
+    let allocator: PurgeableAllocator
     /// The bytes it keeps now: ``fullCapacityBytes`` scaled by the memory coordinator's limit. The
     /// neighbors' pictures stay past it.
     var capacityBytes: Int { memoryLimit.scale(fullCapacityBytes) }
@@ -56,24 +64,19 @@ final class HibernationSnapshots {
     /// from this launch's features).
     var keepsCompressed = true
     private(set) var totalBytes = 0
-    private var pictures: [String: Picture] = [:]
+    /// The pictures' locked bytes, which readers on any thread move in and out.
+    private let ledger = PurgeableLedger()
+    private var pictures: [String: PurgeablePicture] = [:]
     /// Least recently used first.
     private var order: [String] = []
     private var memoryRegistration: MemoryConsumerRegistration?
 
-    /// One page's picture: `data` is the JPEG or PNG (nil for a decoded picture, when
-    /// feature `compressedSnapshots` is off), `image` decodes from it.
-    nonisolated struct Picture: Sendable {
-        let data: Data?
-        let image: CGImage
-
-        /// The bytes it holds in the store: the compressed bytes, or the decoded pixels.
-        var cost: Int { data?.count ?? max(image.bytesPerRow * image.height, image.width * image.height * 4) }
-    }
-
-    /// - Parameter fullCapacityBytes: The bytes it keeps at the default limit (`ImageCacheShares.hibernationSnapshotBytes`).
-    init(fullCapacityBytes: Int) {
+    /// - Parameters:
+    ///   - fullCapacityBytes: The bytes it keeps at the default limit (`ImageCacheShares.hibernationSnapshotBytes`).
+    ///   - allocator: Makes the pictures' pages (`ImageCacheShares.pictureAllocator`).
+    init(fullCapacityBytes: Int, allocator: PurgeableAllocator = .resident) {
         self.fullCapacityBytes = max(0, fullCapacityBytes)
+        self.allocator = allocator
     }
 
     var count: Int { pictures.count }
@@ -86,11 +89,17 @@ final class HibernationSnapshots {
             name: Self.memoryConsumerName, traits: Self.memoryTraits, consumer: self, registry: registry)
     }
 
+    /// The picture of `key`, now the most recent one, its bytes locked while the image lives. Nil when there is
+    /// none or the kernel purged it: a purged picture leaves the store, so the page wakes loading.
     func image(for key: String) -> CGImage? {
         guard let picture = pictures[key] else { return nil }
+        guard let image = picture.image() else {
+            remove(key)
+            return nil
+        }
         order.removeAll { $0 == key }
         order.append(key)
-        return picture.image
+        return image
     }
 
     /// Whether a new picture of `key` would be kept now: the limit leaves room, or `key` is a neighbor's.
@@ -103,11 +112,12 @@ final class HibernationSnapshots {
     /// neighbor's only as far as the store would grow past ``capacityBytes`` or its size before the insert,
     /// whichever is larger: the drop down to a lowered limit is the release slices' work. A picture larger
     /// than the full store is not kept.
-    func insert(_ picture: Picture, for key: String) {
-        let cost = picture.cost
+    func insert(_ picture: PurgeablePicture, for key: String) {
+        let cost = picture.byteCount
         guard cost <= fullCapacityBytes else { return }
         let ceiling = max(capacityBytes, totalBytes)
         remove(key)
+        picture.attach(to: ledger)
         pictures[key] = picture
         order.append(key)
         totalBytes += cost
@@ -116,7 +126,8 @@ final class HibernationSnapshots {
 
     func remove(_ key: String) {
         guard let picture = pictures.removeValue(forKey: key) else { return }
-        totalBytes -= picture.cost
+        picture.attach(to: nil)
+        totalBytes -= picture.byteCount
         order.removeAll { $0 == key }
     }
 
@@ -138,7 +149,8 @@ final class HibernationSnapshots {
             if kept.contains(key) {
                 survivors.append(key)
             } else if let picture = pictures.removeValue(forKey: key) {
-                totalBytes -= picture.cost
+                picture.attach(to: nil)
+                totalBytes -= picture.byteCount
             }
         }
         order = survivors + order[index...]
@@ -148,14 +160,21 @@ final class HibernationSnapshots {
     /// Pixels a picture keeps at most: a 2560 x 1600 pt pane at 2x (16.4 M) keeps its size.
     nonisolated static let maxPixels = 16 << 20
 
-    /// `image` as a JPEG at most `maxPixels` large (same aspect and color space), encoded on a
-    /// background task; a PNG when it has transparent pixels, which JPEG would turn black (a page
+    /// `image` as a JPEG at most `maxPixels` large (same aspect and color space) in pages from `allocator`,
+    /// encoded off the main actor; a PNG when it has transparent pixels, which JPEG would turn black (a page
     /// with a transparent background); nil when ImageIO cannot encode it.
-    nonisolated static func compress(_ image: CGImage, quality: Double = 0.8) async -> Picture? {
-        await Task.detached(priority: .userInitiated) { compressed(image, quality: quality) }.value
+    @concurrent nonisolated static func compress(_ image: CGImage, allocator: PurgeableAllocator,
+                                                 quality: Double = 0.8) async -> PurgeablePicture? {
+        compressed(image, quality: quality, allocator: allocator)
     }
 
-    nonisolated static func compressed(_ image: CGImage, quality: Double) -> Picture? {
+    /// `image`'s decoded pixels in pages from `allocator` (feature `compressedSnapshots` off), copied off the
+    /// main actor; nil when the pages cannot be made.
+    @concurrent nonisolated static func decoded(_ image: CGImage, allocator: PurgeableAllocator) async -> PurgeablePicture? {
+        PurgeablePicture(decoding: image, allocator: allocator)
+    }
+
+    nonisolated static func compressed(_ image: CGImage, quality: Double, allocator: PurgeableAllocator) -> PurgeablePicture? {
         let pixels = Double(image.width * image.height)
         let scale = min(1, (Double(maxPixels) / max(pixels, 1)).squareRoot())
         let source = scale < 1
@@ -167,8 +186,9 @@ final class HibernationSnapshots {
         CGImageDestinationAddImage(destination, source, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { return nil }
         let bytes = data as Data
-        guard let decoded = CheckedImageSource(bytes)?.image(at: 0, options: [kCGImageSourceShouldCache: false]) else { return nil }
-        return Picture(data: bytes, image: decoded)
+        // The bytes must open as an image before they are kept: a picture whose image is nil reads as purged.
+        guard CheckedImageSource(bytes)?.image(at: 0, options: [kCGImageSourceShouldCache: false]) != nil else { return nil }
+        return PurgeablePicture(encoded: bytes, allocator: allocator)
     }
 
     /// True when `image` has no alpha, or no transparent pixel in a 32 x 32 sample of it (a
@@ -197,8 +217,8 @@ extension HibernationSnapshots: MemoryConsumer {
         trim(to: slice.limit.scale(fullCapacityBytes), within: slice)
     }
 
-    /// The compressed bytes and picture count, from counters.
+    /// The kept bytes, locked (footprint) apart from volatile, and the picture count, from counters.
     var memoryUsage: MemoryUsage? {
-        MemoryUsage(footprintBytes: totalBytes, entries: pictures.count)
+        ledger.usage(totalBytes: totalBytes, entries: pictures.count)
     }
 }

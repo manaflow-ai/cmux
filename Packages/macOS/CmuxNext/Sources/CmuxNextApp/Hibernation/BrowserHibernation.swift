@@ -58,7 +58,7 @@ final class BrowserHibernation {
     /// pressure, so a page does not close under a script or between two calls of one task.
     static let agentGrace: Double = 30
     /// History and snapshot captured by the probe, used by the `release` effect.
-    private var prepared: [String: (state: BrowserRestoreState, snapshot: HibernationSnapshots.Picture?)] = [:]
+    private var prepared: [String: (state: BrowserRestoreState, snapshot: PurgeablePicture?)] = [:]
     /// Hibernated pages' pictures, sized by the cache's `ImageCacheShares`, and their wakes (`debug.surfaces`).
     let snapshots: HibernationSnapshots
     var wakeLog = HibernationWakes()
@@ -225,7 +225,7 @@ final class BrowserHibernation {
         hoverDwell = MainDeadline(owner: "BrowserNeighborHover", workClass: .background, scheduler: deadlines)
         mainWork = deadlines.work
         mainDeadlines = deadlines
-        snapshots = HibernationSnapshots(fullCapacityBytes: cache.imageCaches.hibernationSnapshotBytes)
+        snapshots = HibernationSnapshots(fullCapacityBytes: cache.imageCaches.hibernationSnapshotBytes, allocator: cache.imageCaches.pictureAllocator)
         self.energy = energy
         energySaver = energy.policy.pageSaver
         self.memory = memory
@@ -750,7 +750,7 @@ final class BrowserHibernation {
                 mayAsk = probe.unloadHandler
             }
             // A page that stays needs no picture (each replan probes it again); a cmux page saves its view state too.
-            let (snapshot, viewState): (HibernationSnapshots.Picture?, BrowserAppPageState?) = exemption == nil
+            let (snapshot, viewState): (PurgeablePicture?, BrowserAppPageState?) = exemption == nil
                 ? (await self?.snapshot(tab, key: key), await (tab as? any BrowserAppPage)?.saveViewState()) : (nil, nil)
             guard let self else { return }
             // The page's beforeunload handlers run last, only when nothing else keeps it, still hidden

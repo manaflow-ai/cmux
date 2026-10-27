@@ -1,8 +1,9 @@
+import CmuxNextCompat
 public import CoreGraphics
 import IOSurface
 
 /// An evicted terminal's last presented frame (cx-8w027.10 item b). The warm set closes a hidden
-/// terminal's surface; its last IOSurface stays, volatile (``TerminalFramePurgeability``), so the
+/// terminal's surface; its last IOSurface stays, volatile (CmuxNextCompat's `IOSurface.makeVolatile()`), so the
 /// terminal shows that frame at once when it is shown again, until its fresh surface draws the
 /// replay (``TerminalSession/showLastFrame(_:)``), and the hover card pictures it on demand. No
 /// copy, no readback. A frame the system purged shows nothing: the pane attaches as before.

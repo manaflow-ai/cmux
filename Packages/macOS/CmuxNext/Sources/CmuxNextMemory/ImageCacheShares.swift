@@ -1,3 +1,5 @@
+public import CmuxNextCompat
+
 /// The full sizes of the app content cache's picture stores (plans/cmux-next/chrome-parity/p07-memory.md,
 /// task 058).
 ///
@@ -9,6 +11,9 @@
 /// `hibernationSnapshotBytes`. With the feature off they keep the fixed sizes they had before (``legacy``),
 /// whatever the Mac's memory. These are the sizes at the default limit; the memory coordinator scales them
 /// under pressure.
+///
+/// ``purgeable`` (`purgeableImageCaches`, task 107) says where the stores and the hover cards keep their pixels:
+/// purgeable virtual memory, volatile whenever nothing draws them, else resident heap memory.
 public nonisolated struct ImageCacheShares: Hashable, Sendable {
     /// `TabContentCache.previews`' full size (terminal previews).
     public let previewBytes: Int
@@ -18,6 +23,11 @@ public nonisolated struct ImageCacheShares: Hashable, Sendable {
     public let internalPagePictureBytes: Int
     /// `BrowserHibernation.snapshots`' full size (hibernated pages' pictures).
     public let hibernationSnapshotBytes: Int
+    /// Whether the pictures' pages are purgeable (`purgeableImageCaches`); false keeps them resident.
+    public private(set) var purgeable = false
+
+    /// Makes the pictures' pages: ``PurgeableAllocator/virtualMemory`` when ``purgeable``, else resident ones.
+    public var pictureAllocator: PurgeableAllocator { purgeable ? .virtualMemory : .resident }
 
     /// The fixed sizes from before the budget: previews 32 MB, page thumbnails 16 MB, the hibernation
     /// pictures 64 MB, and discarded internal pages' pictures the 32 MB they shared with the previews.
@@ -39,8 +49,10 @@ public nonisolated struct ImageCacheShares: Hashable, Sendable {
     /// - Parameters:
     ///   - budget: This Mac's memory budget.
     ///   - budgeted: Whether the stores take their shares of it.
-    public init(_ budget: SubsystemBudget, budgeted: Bool) {
+    ///   - purgeable: Whether the pictures' pages are purgeable (the `purgeableImageCaches` feature).
+    public init(_ budget: SubsystemBudget, budgeted: Bool, purgeable: Bool = false) {
         self = budgeted ? ImageCacheShares(budget) : .legacy
+        self.purgeable = purgeable
     }
 
     /// Explicit sizes (tests).

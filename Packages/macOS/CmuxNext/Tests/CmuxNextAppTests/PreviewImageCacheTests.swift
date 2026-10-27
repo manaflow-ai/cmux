@@ -125,6 +125,42 @@ struct PreviewImageCacheTests {
         withExtendedLifetime((pressure, coordinator)) {}
     }
 
+    /// p07-memory-107: a picture the kernel purged is a miss and leaves the cache (its bytes with it), so the
+    /// owner pictures it again; the others stay readable.
+    @Test func aPurgedPictureIsAMissAndLeavesTheCache() throws {
+        let fakes = FakePurgeableAllocations()
+        let cache = PreviewImageCache(fullCapacityBytes: 3 * Self.imageBytes, allocator: fakes.allocator)
+        for index in 0..<3 { cache.insert(try image(), for: "k\(index)") }
+        let pages = fakes.pages
+        try #require(pages.count == 3 && pages.allSatisfy(\.isVolatile), "kept pictures are not volatile at rest")
+        #expect(pages[1].purge())
+        #expect(cache.image(for: "k1") == nil, "a purged picture was returned")
+        #expect(cache.count == 2 && cache.totalBytes == 2 * Self.imageBytes, "a purged picture stayed in the cache")
+        #expect(cache.image(for: "k0") != nil && cache.image(for: "k2") != nil)
+        #expect(cache.insert(try image(), for: "k1"), "the owner could not picture the key again")
+        #expect(cache.image(for: "k1") != nil)
+    }
+
+    /// p07-memory-107: a picture is locked only while an image of it lives, and reads wrap the kept pixels (no
+    /// new pages per read). The report splits locked (footprint) bytes from volatile ones, and a picture
+    /// removed while drawn leaves the locked bytes at once.
+    @Test func lockedAndVolatileBytesAreReportedApart() throws {
+        let fakes = FakePurgeableAllocations()
+        let cache = PreviewImageCache(fullCapacityBytes: 3 * Self.imageBytes, allocator: fakes.allocator)
+        for index in 0..<3 { cache.insert(try image(), for: "k\(index)") }
+        #expect(cache.memoryUsage == MemoryUsage(footprintBytes: 0, volatileBytes: 3 * Self.imageBytes, entries: 3))
+        try withExtendedLifetime(try #require(cache.image(for: "k0"))) { _ in
+            #expect(cache.memoryUsage == MemoryUsage(footprintBytes: Self.imageBytes, volatileBytes: 2 * Self.imageBytes, entries: 3))
+            #expect(!fakes.pages[0].isVolatile && !fakes.pages[0].purge(), "a drawn picture could be purged")
+            _ = cache.image(for: "k0")
+            #expect(fakes.pages.count == 3, "a read made new pages: it copied the pixels")
+            cache.remove("k0")
+            #expect(cache.memoryUsage == MemoryUsage(footprintBytes: 0, volatileBytes: 2 * Self.imageBytes, entries: 2))
+        }
+        #expect(cache.memoryUsage == MemoryUsage(footprintBytes: 0, volatileBytes: 2 * Self.imageBytes, entries: 2))
+        #expect(fakes.pages[0].isVolatile, "the last image's free left the pixels locked")
+    }
+
     /// Through the app's coordinator: warning gives the medium mode's 25 %, critical empties it on the
     /// release slice, never in the pressure event's turn.
     @Test func followsTheCoordinatorsLimits() throws {

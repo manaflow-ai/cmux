@@ -11,6 +11,12 @@ public import CoreGraphics
 /// `OnMemoryPressure`). A new limit only lowers ``capacityBytes``: an insert never grows the cache past
 /// its size before the insert, and the coordinator's release slices drop the oldest images past the cap,
 /// on later frames.
+///
+/// The pixels live in ``PurgeableBitmap``s from its allocator (p07-memory-107): with feature `purgeableImageCaches`
+/// on they are volatile purgeable pages whenever nothing draws them, so the kernel takes them back under pressure
+/// with no call into cmux, as Chrome keeps decoded images in discardable memory. ``image(for:)`` locks a picture for
+/// as long as its image lives; a picture the kernel purged is a miss and leaves the cache, never a blank draw. The
+/// memory report splits locked (footprint) bytes from volatile ones.
 public final class PreviewImageCache {
     /// What the cache holds, which decides when the memory coordinator takes its images.
     public enum Contents: Sendable {
@@ -54,7 +60,10 @@ public final class PreviewImageCache {
     /// The limit the memory coordinator gave last.
     public private(set) var memoryLimit: MemoryLimit = .default
     public private(set) var totalBytes = 0
-    private var images: [String: CGImage] = [:]
+    private let allocator: PurgeableAllocator
+    /// Its pictures' locked bytes, which readers on any thread move in and out.
+    private let ledger = PurgeableLedger()
+    private var images: [String: PurgeableBitmap] = [:]
     /// Least recently used first.
     private var order: [String] = []
     private var memoryRegistration: MemoryConsumerRegistration?
@@ -62,8 +71,10 @@ public final class PreviewImageCache {
     /// - Parameters:
     ///   - fullCapacityBytes: The cap at the default limit (a share of `SubsystemBudget.imageCacheBytes`).
     ///   - contents: Whether its pictures can be taken again.
-    public init(fullCapacityBytes: Int, contents: Contents = .rebuildable) {
+    ///   - allocator: Makes its pictures' pages: purgeable ones with `purgeableImageCaches` on, resident ones otherwise.
+    public init(fullCapacityBytes: Int, contents: Contents = .rebuildable, allocator: PurgeableAllocator = .resident) {
         self.fullCapacityBytes = max(0, fullCapacityBytes)
+        self.allocator = allocator
         switch contents {
         case .rebuildable: memoryTraits = Self.rebuildableTraits
         case .onlyCopy: memoryTraits = Self.onlyCopyTraits
@@ -81,8 +92,15 @@ public final class PreviewImageCache {
         memoryRegistration = MemoryConsumerRegistration(name: name, traits: memoryTraits, consumer: self, registry: registry)
     }
 
+    /// The picture for `key`, now the most recent one, its pixels locked while the image lives (no pixel copy).
+    /// Nil when there is none or the kernel purged its pages: a purged picture leaves the cache, so its owner
+    /// takes it again or shows none.
     public func image(for key: String) -> CGImage? {
-        guard let image = images[key] else { return nil }
+        guard let bitmap = images[key] else { return nil }
+        guard let image = bitmap.image() else {
+            remove(key)
+            return nil
+        }
         touch(key)
         return image
     }
@@ -90,9 +108,10 @@ public final class PreviewImageCache {
     /// Whether an image of `bytes` would be kept now: a caller skips work whose picture would be refused.
     public func fits(bytes: Int) -> Bool { bytes <= capacityBytes }
 
-    /// Keeps `image` for `key` as the most recent one. An image larger than the cap now is not kept, and
-    /// the key's older image goes with it. Older images are dropped only as far as the cache would grow
-    /// past its size before the insert: the drop down to a lowered cap is the release slices' work.
+    /// Keeps a copy of `image`'s pixels for `key` as the most recent one (the one copy: reads wrap the kept
+    /// pixels). An image larger than the cap now is not kept, and the key's older image goes with it. Older
+    /// images are dropped only as far as the cache would grow past its size before the insert: the drop down
+    /// to a lowered cap is the release slices' work.
     ///
     /// - Returns: Whether `image` was kept.
     @discardableResult
@@ -100,10 +119,11 @@ public final class PreviewImageCache {
         let cost = Self.cost(image)
         let ceiling = max(capacityBytes, totalBytes)
         remove(key)
-        guard cost <= capacityBytes else { return false }
-        images[key] = image
+        guard cost <= capacityBytes, let bitmap = PurgeableBitmap(image, allocator: allocator) else { return false }
+        bitmap.attach(to: ledger)
+        images[key] = bitmap
         order.append(key)
-        totalBytes += cost
+        totalBytes += bitmap.byteCount
         while totalBytes > ceiling, order.first != key, let oldest = order.first {
             remove(oldest)
         }
@@ -111,13 +131,15 @@ public final class PreviewImageCache {
     }
 
     public func remove(_ key: String) {
-        guard let image = images.removeValue(forKey: key) else { return }
-        totalBytes -= Self.cost(image)
+        guard let bitmap = images.removeValue(forKey: key) else { return }
+        bitmap.attach(to: nil)
+        totalBytes -= bitmap.byteCount
         order.removeAll { $0 == key }
     }
 
+    /// The bytes `image` takes in the cache, known before its copy is made.
     static func cost(_ image: CGImage) -> Int {
-        max(image.bytesPerRow * image.height, image.width * image.height * 4)
+        PurgeableBitmap.byteCount(width: image.width, height: image.height)
     }
 
     private func touch(_ key: String) {
@@ -142,8 +164,8 @@ extension PreviewImageCache: MemoryConsumer {
         return .done
     }
 
-    /// The decoded bytes and image count, from counters.
+    /// The decoded bytes, locked (footprint) apart from volatile, and the image count, from counters.
     public var memoryUsage: MemoryUsage? {
-        MemoryUsage(footprintBytes: totalBytes, entries: images.count)
+        ledger.usage(totalBytes: totalBytes, entries: images.count)
     }
 }

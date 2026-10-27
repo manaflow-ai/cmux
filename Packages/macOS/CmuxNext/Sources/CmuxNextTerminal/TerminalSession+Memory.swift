@@ -16,7 +16,7 @@ extension TerminalSession {
     /// The estimated non-volatile IOSurface bytes the surface holds while it does not draw: the swap
     /// chain's two buffers besides the presented frame while it is GPU resident; 0 once it let them
     /// go, and 0 while it draws. The presented frame is volatile while paused
-    /// (``TerminalFramePurgeability``) and not counted.
+    /// (CmuxNextCompat's `IOSurface.makeVolatile()`) and not counted.
     public var pausedNonvolatileIOSurfaceBytes: UInt64 {
         guard surfaceView.pause != nil, surfaceView.gpu.resident, let surface = surfaceView.surface else { return 0 }
         // SAFETY: the view's live surface (TerminalSurfaceView.surface).

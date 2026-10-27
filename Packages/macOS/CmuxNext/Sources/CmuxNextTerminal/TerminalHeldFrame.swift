@@ -1,7 +1,8 @@
+import CmuxNextCompat
 import IOSurface
 
 /// The frame a paused ``TerminalSurfaceView`` keeps presented: volatile until the surface draws again
-/// (``TerminalFramePurgeability``), so memory pressure may take it. Drawing again makes it non-volatile
+/// (CmuxNextCompat's `IOSurface.makeVolatile()`), so memory pressure may take it. Drawing again makes it non-volatile
 /// before the next commit; a purged one is dropped by its renderer (``TerminalPresentation/purge``), so
 /// the pane is empty until Ghostty's next frame.
 @MainActor

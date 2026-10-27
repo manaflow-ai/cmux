@@ -213,9 +213,9 @@ final class TabContentCache {
          terminalPointerFrames: FrameInputCoalescers? = nil, mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler,
          appEvents: AppEvents, imageCaches: ImageCacheShares = .legacy, gpuResidency: (any TerminalGPUResidency)? = nil) {
         self.imageCaches = imageCaches
-        previews = PreviewImageCache(fullCapacityBytes: imageCaches.previewBytes, contents: .rebuildable)
-        internalPagePictures = PreviewImageCache(fullCapacityBytes: imageCaches.internalPagePictureBytes, contents: .onlyCopy)
-        pageThumbnails = PreviewImageCache(fullCapacityBytes: imageCaches.pageThumbnailBytes, contents: .onlyCopy)
+        previews = PreviewImageCache(fullCapacityBytes: imageCaches.previewBytes, contents: .rebuildable, allocator: imageCaches.pictureAllocator)
+        internalPagePictures = PreviewImageCache(fullCapacityBytes: imageCaches.internalPagePictureBytes, contents: .onlyCopy, allocator: imageCaches.pictureAllocator)
+        pageThumbnails = PreviewImageCache(fullCapacityBytes: imageCaches.pageThumbnailBytes, contents: .onlyCopy, allocator: imageCaches.pictureAllocator)
         (self.daemon, self.terminalModifiers, self.chromium, self.resizes, self.mainWork) = (daemon, terminalModifiers, chromium, resizes, mainWork)
         self.terminalPointerFrames = terminalPointerFrames
         self.gpuResidency = gpuResidency
