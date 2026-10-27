@@ -3,7 +3,7 @@
  "corpusVersion": 1,
  "id": "show-shortcuts",
  "suite": "tui",
- "title": "prefix ? shows the shortcut overlay; Escape closes it",
+ "title": "prefix ? shows the shortcut overlay (its turn checkpoint); Escape closes it",
  "surface": "cmux-tui",
  "source": {
   "repo": "manaflow-ai/cmux",
@@ -43,11 +43,12 @@
     "noReceiptReason": "a key press has no receipt: its effect is the settled daemon facet and screen"
    },
    "checkpoint": [
-    "before"
+    "before",
+    "turn"
    ],
    "waitFor": {
-    "pointer": "/tui/screenSha256",
-    "predicate": "changed",
+    "pointer": "/tui/cursor/visible",
+    "equals": false,
     "maxMs": 10000
    }
   },

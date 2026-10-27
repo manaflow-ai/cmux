@@ -3,7 +3,7 @@
  "corpusVersion": 1,
  "id": "focus-sidebar",
  "suite": "tui",
- "title": "prefix S focuses the sidebar; Escape returns to the pane",
+ "title": "prefix S focuses the sidebar (the cursor hides); Escape returns to the pane",
  "surface": "cmux-tui",
  "source": {
   "repo": "manaflow-ai/cmux",
@@ -43,11 +43,11 @@
     "noReceiptReason": "a key press has no receipt: its effect is the settled daemon facet and screen"
    },
    "checkpoint": [
-    "before"
+    "settled"
    ],
    "waitFor": {
-    "pointer": "/tui/screenSha256",
-    "predicate": "changed",
+    "pointer": "/tui/cursor/visible",
+    "equals": false,
     "maxMs": 10000
    }
   },

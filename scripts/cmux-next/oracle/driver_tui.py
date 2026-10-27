@@ -20,33 +20,45 @@ negotiates the same terminal.
 
 The screen is a cell grid the driver keeps from the PTY output (Screen: the cursor, erase, scroll, SGR and
 alternate-screen controls ratatui and crossterm write; OSC, DCS and APC strings draw no cell and are dropped).
-Each cell keeps its text and canonical SGR style, since the TUI draws focus and selection in color only. The
-`tui` facet of a checkpoint (snapshot-v1 facets.tui) is the grid size, the sha256 of the rows' text (the case's
-own session name and state root written as the fixture's) and style runs, the cursor, and the TUI's exit
-status. Private text is never recorded: only the hash.
+Each cell keeps its text and canonical SGR style, since the TUI draws focus and selection in color only. The driver
+reads only complete frames: ratatui ends every frame with the cursor control (`CSI ?25l`, or `CSI ?25h` and a cursor
+position; ratatui Terminal::try_draw), and a frame larger than the TUI's stdout buffer reaches the PTY in parts. The
+`tui` facet of a checkpoint (snapshot-v1 facets.tui) is the last complete frame: the grid size, the sha256 of its
+rows' text (the case's own session name and state root written as the fixture's), a blank line and its rows'
+style runs, the cursor (no position while it is hidden: a hidden cursor stays where the last diff ended), and the
+TUI's exit status. Private text is never recorded: only the hash.
 
 Settling (spec 3B). The daemon facet settles as in driver_daemon.py. The frontend has no settle method of its
-own, so a checkpoint waits for three things, none of them by sleeping:
+own, so a settled checkpoint waits for three things, none of them by sleeping:
 1. the daemon: every running terminal's viewport shows the fixed shell prompt (`terminal.wait`, which the
    daemon wakes on viewport output, never by polling), so a shell that has not printed yet cannot race a hash;
-2. the frontend's input queue: a barrier through the same queue the step's keys took. The driver presses the
-   prefix (Ctrl-b), waits until the prefix help bar is on screen, presses Escape and waits until it is gone:
-   the TUI reads input in order, so every earlier key has been handled and drawn. Chrome's browser tests
-   settle a renderer the same way, with a message through the main thread's own queue
-   (content/public/test/browser_test_utils.h MainThreadFrameObserver, RenderFrameSubmissionObserver);
-3. a fixed point: barrier rounds repeat until two in a row give the same screen hash, daemon revision and
-   terminal output revisions, so a daemon event the frontend applies after the first round is in the hash. A
-   round that ends while the TUI re-reads the daemon's tree (its remote-tree-refresh thread is alive) does not
-   count: the result of that read is not drawn yet.
-A frontend that exited (a detach) is settled once the daemon has dropped its connections (`client-detached`
-events, as driver_cli.py waits for a `cmux` call's connection). The barrier needs the frontend in pane input
-mode: a step that leaves a prompt, menu, overlay or the sidebar focused records only its `before` checkpoint,
-and may prove that it drew with a waitFor on `/tui/...` (`changed`), which wakes on PTY output; the next step
-closes it, records no `before` checkpoint, and settles.
-A step that ends with the prefix armed is refused: the barrier's own prefix would complete it.
+2. the frontend's input queue: a probe through the same queue the step's keys took, which leaves the screen as
+   it was. The driver Shift-right-clicks (cmux-tui opens its own context menu for it whatever the pane runs:
+   app/input_admission.rs mouse_opens_cmux_context_menu), waits until the menu is on screen, presses Escape and
+   waits until it is gone. The TUI reads input in order and holds a click while a mutation it sent is pending
+   (input_can_update_pending_mutation), so every earlier key, and the mutation it started, has been handled and
+   drawn. It drops a held click when the layout changed meanwhile, so each new frame without the menu gets
+   another click (a click on the open menu builds it again). A key barrier would erase what it measures: every key outside a menu clears the status message
+   (app/keyboard.rs resolve_keyboard_ingress), a mouse press does not, and Escape closes the menu with the
+   message kept. Chrome's browser tests settle a renderer the same way, with a message through the main thread's
+   own queue (content/public/test/browser_test_utils.h MainThreadFrameObserver, RenderFrameSubmissionObserver);
+3. a fixed point: probe rounds repeat until two in a row give the same frame, daemon revision and terminal
+   output revisions, so a daemon event the frontend applies after the first round is in the hash. A round that
+   ends while the TUI re-reads the daemon's tree (its remote-tree-refresh thread is alive) does not count: the
+   result of that read is not drawn yet.
+The probe works in pane input mode and with a sidebar rail focused. A prompt, the shortcut overlay or a menu
+would take the click, so a step that leaves one open records a `before` checkpoint, or a `turn` checkpoint: the
+first complete frame that meets its waitFor on `/tui` (a predicate the prefix help bar cannot meet, such as the
+hidden cursor). The next step closes it, records no `before` checkpoint, and settles. A step that ends with the
+prefix armed is refused: the next step's first key would complete it.
 
-Teardown: the frontend's PTY hangs up, as when a terminal window closes, and the frontend must exit on its
-own; one still running after the bound is killed and fails the case (I6). Then the daemon case's teardown.
+The frontend exits only when a step waits for it (a detach waits on `/tui/exit`); an exit at any other time is a
+Crash, as driver_daemon.py's check_alive treats a daemon that exits on its own (I17). A frontend that detached is
+settled once the daemon has dropped its connections (`client-detached` events, as driver_cli.py waits for a
+`cmux` call's connection).
+
+Teardown: the frontend's PTY hangs up, as when a terminal window closes, and the frontend must exit on its own;
+one still running after the bound is killed and fails the case (I6). Then the daemon case's teardown.
 
 The corpus (tests/oracle/corpus/tui/, one case per inventory action the default key map reaches) is gen_tui.py's.
 
@@ -72,6 +84,7 @@ import termios
 import threading
 import time
 import unicodedata
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
@@ -85,6 +98,7 @@ from gen_tui import TUI_CONFIG  # noqa: E402 - the frontend's config, shared wit
 import driver_daemon  # noqa: E402 - the daemon driver's case runner (p15-oracle-023)
 from driver_cli import ClientEvents  # noqa: E402 - client-detached events of the case daemon (p15-oracle-048)
 from driver_daemon import (  # noqa: E402
+    DEFAULT_FACETS,
     DEFAULT_STATE_BASE,
     REQUEST_S,
     SELECTORS,
@@ -103,20 +117,26 @@ from driver_daemon import (  # noqa: E402
 
 PRODUCT = "tui"
 TUI_FACET = "tui"
+EXIT_POINTER = "/tui/exit"
 TUI_CAPABILITY = "tui"
 TASK = "p15-oracle-234"
 COLS, ROWS = 120, 36
 # hermetic_env.FIXED_PS1 as a terminal.wait regex: every running shell has printed its prompt.
 PROMPT_PATTERN = r"(?m)^\$"
-# The default prefix (cmux-tui config/keys.rs Keys::default), and the prefix help bar the TUI draws while it is
-# armed (ui/mod.rs draw_prefix_help_bar; English: hermetic_env sets LANG=C.UTF-8).
+# The default prefix (cmux-tui config/keys.rs Keys::default).
 PREFIX_KEY = "ctrl+b"
-PREFIX_BAR = re.compile(r" Ctrl-b  › ")
+# The settle probe: a Shift-right press and release at PROBE_CELL (column, row from 0), right of the sidebar and
+# above the status bar in every corpus layout. Every context menu ends with the global group, whose last row is
+# Keyboard shortcuts (app/menu_build.rs global_menu_items), padded two cells from the menu border (ContextMenu::PAD;
+# the shortcut overlay's title has one). English: hermetic_env sets LANG=C.UTF-8.
+PROBE_CELL = (COLS - 21, ROWS // 2)
+SGR_SHIFT_RIGHT = 2 | 4
+MENU_ROW = re.compile(r"│  Keyboard shortcuts\b")
 # Seconds: the frontend's first frame, one settle, and the frontend's exit after its terminal hangs up.
 ATTACH_S = 30.0
 SETTLE_S = 20.0
 HANG_UP_S = 10.0
-# Barrier rounds before a checkpoint gives up: the fixed point needs two equal rounds in a row.
+# Probe rounds before a checkpoint gives up: the fixed point needs two equal rounds in a row.
 MAX_ROUNDS = 20
 # The TUI thread that re-reads the daemon's tree after an event (its 15-byte Linux comm prefix).
 REFRESH_THREAD = "remote-tree-ref"
@@ -235,6 +255,12 @@ def check_keys(step: Mapping[str, Any]) -> List[bytes]:
     return encoded
 
 
+def probe_click() -> bytes:
+    """The settle probe's Shift-right press and release at PROBE_CELL, as SGR mouse reports (1-based cells)."""
+    col, row = PROBE_CELL[0] + 1, PROBE_CELL[1] + 1
+    return f"\x1b[<{SGR_SHIFT_RIGHT};{col};{row}M\x1b[<{SGR_SHIFT_RIGHT};{col};{row}m".encode()
+
+
 # ---------------------------------------------------------------------------------------------------------
 # The screen: a character grid from the PTY output
 
@@ -265,9 +291,23 @@ def sgr_color(values: Sequence[str], colon: bool) -> Tuple[Optional[str], int]:
     return None, len(values) if colon else 0
 
 
+@dataclass(frozen=True)
+class Frame:
+    """The screen once the TUI has written a whole frame: the rows' text and style runs, and the cursor."""
+
+    cols: int
+    rows: int
+    lines: Tuple[str, ...]
+    styles: Tuple[str, ...]
+    row: int
+    col: int
+    cursor_visible: bool
+
+
 class Screen:
     """The cells a terminal shows for the TUI's output: each cell's text and the canonical SGR style it was
-    written with (the pen), so a focus or selection drawn only in color still changes the screen."""
+    written with (the pen), so a focus or selection drawn only in color still changes the screen. `frame` is the
+    last complete frame: ratatui ends each one with `CSI ?25l`, or `CSI ?25h` and a cursor position."""
 
     def __init__(self, cols: int, rows: int):
         self.cols, self.rows = cols, rows
@@ -282,6 +322,16 @@ class Screen:
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self.state = "ground"
         self.seq = ""
+        self.show_pending = False
+        self.frame = self.snapshot()
+
+    def snapshot(self) -> Frame:
+        return Frame(self.cols, self.rows, tuple(self.lines()), tuple(self.styles()), self.row, self.col,
+                     self.cursor_visible)
+
+    def end_frame(self) -> None:
+        self.show_pending = False
+        self.frame = self.snapshot()
 
     def blank_row(self) -> List[Cell]:
         """An erased row: blanks with the pen's background (xterm erases with the current background)."""
@@ -390,6 +440,7 @@ class Screen:
             self.row += 1
 
     def put(self, char: str) -> None:
+        self.show_pending = False
         width = char_width(char)
         if width == 0:
             return
@@ -464,13 +515,20 @@ class Screen:
                 for mode in params:
                     if mode == 25:
                         self.cursor_visible = on
+                        if on:
+                            self.show_pending = True
+                        else:
+                            self.end_frame()
                     elif mode in (47, 1047, 1049):
                         self.alternate(on, mode == 1049)
             return
         self.wrap_pending = False
+        shown, self.show_pending = self.show_pending, False
         if final in "Hf":
             self.row = min(self.rows - 1, arg(0) - 1)
             self.col = min(self.cols - 1, arg(1) - 1)
+            if shown:
+                self.end_frame()
         elif final == "A":
             self.row = max(0, self.row - arg(0))
         elif final in "Be":
@@ -602,20 +660,22 @@ def untruncate(text: str, name: str, new: str) -> str:
     return "".join(out)
 
 
-def screen_digest(screen: Screen, renames: Renames) -> str:
-    """sha256 of the rows' text (trailing blanks dropped, the case's names renamed) and of their style runs."""
-    text = renames.apply("\n".join(screen.lines()).rstrip("\n"))
-    styles = "\n".join(screen.styles())
+def screen_digest(frame: Frame, renames: Renames) -> str:
+    """sha256 of the rows' text (trailing blanks dropped, the case's names renamed, rows joined by newlines), a
+    blank line, and the rows' style runs (Screen.styles), so a change of color alone changes the hash."""
+    text = renames.apply("\n".join(frame.lines).rstrip("\n"))
+    styles = "\n".join(frame.styles)
     return hashlib.sha256(f"{text}\n\n{styles}".encode("utf-8")).hexdigest()
 
 
-def facet_value(screen: Screen, renames: Renames, exit_code: Optional[int]) -> Dict[str, Any]:
-    """The tui facet (snapshot-v1 facets.tui) of `screen`."""
+def facet_value(frame: Frame, renames: Renames, exit_code: Optional[int]) -> Dict[str, Any]:
+    """The tui facet (snapshot-v1 facets.tui) of `frame`. A hidden cursor has no position."""
+    visible = frame.cursor_visible
     return {
-        "cols": screen.cols,
-        "rows": screen.rows,
-        "screenSha256": screen_digest(screen, renames),
-        "cursor": {"row": screen.row, "col": screen.col, "visible": screen.cursor_visible},
+        "cols": frame.cols,
+        "rows": frame.rows,
+        "screenSha256": screen_digest(frame, renames),
+        "cursor": {"row": frame.row if visible else None, "col": frame.col if visible else None, "visible": visible},
         "exit": exit_code,
     }
 
@@ -694,6 +754,9 @@ class TuiProcess:
                         self.screen.feed(data)
                         self.chunks += 1
                     else:
+                        # The TUI has closed its terminal: all it wrote is on screen, the restore it writes on
+                        # exit too (it leaves the alternate screen), whatever frame it was drawing then.
+                        self.screen.end_frame()
                         self.eof = True
                     self.changed.notify_all()
                 if not data:
@@ -705,17 +768,19 @@ class TuiProcess:
                 raise TuiExited("the TUI's terminal is closed")
             os.write(self.master, data)
 
-    def wait_screen(self, holds: Callable[[Screen], bool], deadline: float) -> bool:
-        """True once `holds(screen)` is true; False at the deadline. TuiExited when the PTY hangs up first."""
+    def wait_frame(self, holds: Callable[[Frame], bool], deadline: float) -> Optional[Frame]:
+        """The first complete frame (from the current one on) for which `holds` is true; None at the deadline.
+        TuiExited when the PTY hangs up first."""
         with self.changed:
             while True:
-                if holds(self.screen):
-                    return True
+                frame = self.screen.frame
+                if holds(frame):
+                    return frame
                 if self.eof:
                     raise TuiExited("the TUI exited")
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    return False
+                    return None
                 self.changed.wait(remaining)
 
     def refreshing(self) -> bool:
@@ -729,10 +794,11 @@ class TuiProcess:
             return False
         return any(name.startswith(REFRESH_THREAD) for name in names)
 
-    def read(self, view: Callable[[Screen], Any]) -> Any:
-        """`view(screen)` under the reader's lock: one consistent screen."""
+    @property
+    def frame(self) -> Frame:
+        """The last complete frame."""
         with self.changed:
-            return view(self.screen)
+            return self.screen.frame
 
     def hang_up(self, timeout: float) -> Optional[int]:
         """The TUI's terminal hangs up, as when a terminal window closes: the reader closes the master. Then the
@@ -781,6 +847,11 @@ class TuiCaseRun(CaseRun):
         self.tui_exit: Optional[int] = None
         self.tui_wait: Optional[Mapping[str, Any]] = None
         self.client_events: Optional[ClientEvents] = None
+        # Set by the step that waits on /tui/exit: from then on the frontend's exit is the step's effect.
+        self.exit_expected = False
+        self.frontend_crashed = False
+        # The frame a turn checkpoint records: the first that met its step's waitFor.
+        self.turn_frame: Optional[Frame] = None
 
     # -- the frontend
 
@@ -799,10 +870,11 @@ class TuiCaseRun(CaseRun):
         status = f"[{self.paths.session}]"
         deadline = time.monotonic() + ATTACH_S * self.scale
         try:
-            drawn = self.tui.wait_screen(lambda screen: any(status in line for line in screen.lines()), deadline)
+            drawn = self.tui.wait_frame(lambda frame: any(status in line for line in frame.lines), deadline)
         except TuiExited:
+            self.frontend_crashed = True
             raise CaseError("Crash", f"the TUI exited before its first frame: {self.tui_log_tail()}", step) from None
-        if not drawn:
+        if drawn is None:
             raise CaseError("Timeout", f"the TUI drew no status bar in {ATTACH_S * self.scale:.0f} s", step)
 
     def tui_log_tail(self) -> str:
@@ -812,18 +884,38 @@ class TuiCaseRun(CaseRun):
         """The case's own state root and session name as the fixture's ($ROOT, `oracle`)."""
         return Renames([(str(self.paths.root), "$ROOT"), (self.paths.session, SESSION_NAME)])
 
-    def tui_facet(self) -> Dict[str, Any]:
+    def tui_facet(self, frame: Optional[Frame] = None) -> Dict[str, Any]:
+        """The facet of `frame`, by default the last complete one."""
         tui = self.tui
         if tui is None:
             return not_comparable("the case does not require tui, so no frontend is attached", TASK)
-        if self.tui_exit is None and tui.eof:
-            # Its terminal is closed: the exit follows, within the hang-up bound.
+        return facet_value(frame or tui.frame, self.renames(), self.read_exit())
+
+    def read_exit(self) -> Optional[int]:
+        """The frontend's exit code once its terminal has closed (the exit follows, within the hang-up bound)."""
+        tui = self.tui
+        if self.tui_exit is None and tui is not None and tui.eof:
             try:
                 self.tui_exit = tui.proc.wait(HANG_UP_S * self.scale)
             except subprocess.TimeoutExpired:
                 pass
-        renames = self.renames()
-        return tui.read(lambda screen: facet_value(screen, renames, self.tui_exit))
+        return self.tui_exit
+
+    def unexpected_exit(self) -> Optional[str]:
+        """Why the case crashed, when the frontend has exited and no step waited for its exit; else None."""
+        tui = self.tui
+        if tui is None or self.exit_expected or (tui.running and not tui.eof):
+            return None
+        code = self.read_exit()
+        status = f"exit {code}" if code is not None else "its terminal closed"
+        return f"I17: the TUI exited on its own ({status}) and no step waited on {EXIT_POINTER}: {self.tui_log_tail()}"
+
+    def check_frontend(self, step: str) -> None:
+        """A frontend that exited while no step waited for it is a Crash, as check_alive is for the daemon."""
+        message = self.unexpected_exit()
+        if message:
+            self.frontend_crashed = True
+            raise CaseError("Crash", message, step)
 
     # -- settling
 
@@ -833,21 +925,29 @@ class TuiCaseRun(CaseRun):
             return
         bound = (bound_ms / 1000 if bound_ms else SETTLE_S) * self.scale
         deadline = time.monotonic() + bound
-        if tui.eof:
+        if tui.eof or not tui.running:
+            self.check_frontend(step)
             self.await_frontend_gone(step, deadline)
             return
         self.settle_terminals(step, deadline)
         last = None
+        refreshing = frames = progress = 0
         for _ in range(MAX_ROUNDS):
-            self.barrier(step, deadline)
+            self.probe(step, deadline)
             state = None
-            if not tui.refreshing():
-                state = (tui.read(lambda screen: facet_value(screen, Renames(), None)), self.daemon_progress(step))
-            if state is not None and state == last:
-                return
+            if tui.refreshing():
+                refreshing += 1
+            else:
+                state = (tui.frame, self.daemon_progress(step))
+                if state == last:
+                    return
+                if last is not None:
+                    frames += state[0] != last[0]
+                    progress += state[1] != last[1]
             last = state
-        raise CaseError("Timeout", f"the TUI's screen did not reach a fixed point in {MAX_ROUNDS} barrier rounds",
-                        step)
+        raise CaseError("Timeout", f"the TUI's screen did not reach a fixed point in {MAX_ROUNDS} probe rounds (rounds "
+                                   f"with a tree refresh running: {refreshing}, with a new frame: {frames}, with daemon "
+                                   f"progress: {progress})", step)
 
     def await_frontend_gone(self, step: str, deadline: float) -> None:
         """A frontend that exited is settled once the daemon has dropped its connections from session.clients:
@@ -900,21 +1000,37 @@ class TuiCaseRun(CaseRun):
                                if isinstance(t, dict)))
         return (cursor.get("generation"), cursor.get("revision"), streams)
 
-    def barrier(self, step: str, deadline: float) -> None:
-        """Ctrl-b, the prefix help bar, Escape, the bar gone: every key written before is handled and drawn."""
+    def probe(self, step: str, deadline: float) -> None:
+        """A Shift-right-click opens the context menu, Escape closes it: every input written before is handled
+        and drawn, and the screen is as it was (a menu keeps the status message: app/keyboard.rs)."""
         tui = self.tui
         assert tui is not None
-        for key, want, what in ((key_bytes(PREFIX_KEY), True, "show"), (CSI_U_ESCAPE, False, "hide")):
-            try:
-                tui.write(key)
-                shown = tui.wait_screen(lambda screen, want=want: prefix_bar_shown(screen) is want, deadline)
-            except (TuiExited, OSError):
-                raise CaseError("Crash", f"the TUI exited during the settle barrier: {self.tui_log_tail()}",
-                                step) from None
-            if not shown:
-                raise CaseError("Timeout", f"the settle barrier's prefix help bar did not {what}: the TUI is not in "
-                                           "pane input mode (a step that leaves a prompt, menu or overlay open "
-                                           "records only its before checkpoint)", step)
+        try:
+            opened = self.open_menu(tui, deadline)
+            if opened is None:
+                raise CaseError("Timeout", "the settle probe's context menu did not open: a prompt, the shortcut "
+                                           "overlay or a menu holds the TUI's input (a step that leaves one open "
+                                           "records a before or turn checkpoint)", step)
+            tui.write(CSI_U_ESCAPE)
+            if tui.wait_frame(lambda frame: not menu_shown(frame), deadline) is None:
+                raise CaseError("Timeout", "Escape did not close the settle probe's context menu", step)
+        except (TuiExited, OSError):
+            self.check_frontend(step)
+            raise CaseError("Crash", f"the TUI exited during the settle probe: {self.tui_log_tail()}", step) from None
+
+    @staticmethod
+    def open_menu(tui: TuiProcess, deadline: float) -> Optional[Frame]:
+        """Clicks until a frame shows the menu. The TUI holds a click while a mutation is pending and drops it
+        when the layout changed meanwhile, since its target moved (app.rs handle_inner, replayed_route_changed);
+        a mutation always ends in a frame, so each new frame without the menu gets a new click. A click while the
+        menu is open builds the same menu again."""
+        last = tui.frame
+        while True:
+            tui.write(probe_click())
+            frame = tui.wait_frame(lambda frame, last=last: frame is not last or menu_shown(frame), deadline)
+            if frame is None or menu_shown(frame):
+                return frame
+            last = frame
 
     # -- steps
 
@@ -922,12 +1038,17 @@ class TuiCaseRun(CaseRun):
         step_id = step["id"]
         if self.tui is None and wants_tui(self.case):
             self.attach(step_id)
+        self.check_frontend(step_id)
         self.tui_wait = None
         if facet_pointer(step) == TUI_FACET:
             if step["op"] != "tui.key":
                 raise CaseError("Crash", "a waitFor on /tui reads the screen a tui.key step changed", step_id)
             self.tui_wait = step["waitFor"]
+            self.exit_expected = self.exit_expected or self.tui_wait["pointer"] == EXIT_POINTER
             step = {key: value for key, value in step.items() if key != "waitFor"}
+        elif step["op"] == "tui.key" and "turn" in (step.get("checkpoint") or ()):
+            raise CaseError("Crash", "a tui.key turn checkpoint is the first frame that meets the step's waitFor on "
+                                     "/tui; the step has none", step_id)
         super().run_step(index, step)
 
     def op_tui_key(self, index: int, step: Mapping[str, Any]) -> Tuple[str, Any]:
@@ -942,29 +1063,38 @@ class TuiCaseRun(CaseRun):
             for key in keys:
                 tui.write(key)
         except (TuiExited, OSError):
+            self.check_frontend(step_id)
             raise CaseError("Crash", f"the TUI exited before the step's keys: {self.tui_log_tail()}", step_id) from None
         if wait:
-            self.wait_tui(step_id, wait, baseline)
+            frame = self.wait_tui(step_id, wait, baseline)
+            if "turn" in (step.get("checkpoint") or ()):
+                self.turn_frame = frame
+                self.capture(index, step_id, "turn", DEFAULT_FACETS)
         reply = {"keys": len(keys)}
         self.state.replies[step_id] = reply
         return ("ok", reply)
 
-    def wait_tui(self, step: str, wait: Mapping[str, Any], baseline: Any) -> None:
+    def wait_tui(self, step: str, wait: Mapping[str, Any], baseline: Any) -> Frame:
+        """The first complete frame that meets the step's waitFor on /tui."""
         tui = self.tui
         assert tui is not None
         bound = wait["maxMs"] / 1000 * self.scale
         renames = self.renames()
 
-        def holds(screen: Screen) -> bool:
-            value = facet_value(screen, renames, self.tui_exit)
+        def holds(frame: Frame) -> bool:
+            value = facet_value(frame, renames, self.tui_exit)
             return predicate_holds(wait, resolve_pointer({TUI_FACET: value}, wait["pointer"]), baseline)
 
         try:
-            held = tui.wait_screen(holds, time.monotonic() + bound)
+            held = tui.wait_frame(holds, time.monotonic() + bound)
         except TuiExited:
-            held = predicate_holds(wait, resolve_pointer({TUI_FACET: self.tui_facet()}, wait["pointer"]), baseline)
-        if not held:
+            self.check_frontend(step)
+            last = tui.frame
+            facet = {TUI_FACET: self.tui_facet(last)}
+            held = last if predicate_holds(wait, resolve_pointer(facet, wait["pointer"]), baseline) else None
+        if held is None:
             raise CaseError("Timeout", f"waitFor {wait['pointer']} did not hold within {bound * 1000:.0f} ms", step)
+        return held
 
     def check_expect(self, step: Mapping[str, Any], outcome: Tuple[str, Any]) -> None:
         if step["op"] != "tui.key":
@@ -973,12 +1103,17 @@ class TuiCaseRun(CaseRun):
     # -- snapshots
 
     def capture(self, index: int, step: str, checkpoint: str, names: Sequence[str]) -> None:
+        """A turn checkpoint records its frame as it was; the others settle first."""
         if self.tui is not None:
-            spec = next((s for s in self.case.get("steps") or () if s.get("id") == step), {})
-            self.settle_frontend(step, spec.get("settleMaxMs"))
+            if checkpoint != "turn":
+                spec = next((s for s in self.case.get("steps") or () if s.get("id") == step), {})
+                self.settle_frontend(step, spec.get("settleMaxMs"))
             if TUI_FACET not in names:
                 names = (*names, TUI_FACET)
-        super().capture(index, step, checkpoint, names)
+        try:
+            super().capture(index, step, checkpoint, names)
+        finally:
+            self.turn_frame = None
 
     def daemon_facet(self, step: str) -> Any:
         """The daemon facet with the panic log's file name, which holds the case's own session name, written with
@@ -993,13 +1128,20 @@ class TuiCaseRun(CaseRun):
     def facets(self, names: Sequence[str], step: str) -> Dict[str, Any]:
         out = super().facets([name for name in names if name != TUI_FACET], step)
         if TUI_FACET in names:
-            out[TUI_FACET] = self.tui_facet()
+            out[TUI_FACET] = self.tui_facet(self.turn_frame)
         return out
 
     def snapshot(self, index: int, checkpoint: str, facets: Dict[str, Any]) -> Dict[str, Any]:
         value = super().snapshot(index, checkpoint, facets)
         value["meta"]["product"] = PRODUCT
         return value
+
+    def run(self) -> Dict[str, Any]:
+        """driver_daemon.py's run; a frontend that exited on its own, first found at the teardown, is a Crash."""
+        result = super().run()
+        if self.frontend_crashed and result["status"] in ("Pass", "Failure"):
+            result["status"] = "Crash"
+        return result
 
     def shutdown(self) -> List[str]:
         """The frontend's terminal hangs up first (it must exit on its own: cmux-tui tests/tty_hangup_exit.rs),
@@ -1008,6 +1150,10 @@ class TuiCaseRun(CaseRun):
         if self.client_events is not None:
             self.client_events.close()
         if self.tui is not None:
+            message = None if self.frontend_crashed else self.unexpected_exit()
+            if message:
+                self.frontend_crashed = True
+                problems.append(message)
             bound = HANG_UP_S * self.scale
             if self.tui.hang_up(bound) is None:
                 problems.append(f"the TUI did not exit {bound:.0f} s after its terminal hung up; it was killed")
@@ -1020,8 +1166,9 @@ class TuiSession(DaemonSession):
     worker_script = Path(__file__).resolve()
 
 
-def prefix_bar_shown(screen: Screen) -> bool:
-    return any(PREFIX_BAR.search(line) for line in screen.lines())
+def menu_shown(frame: Frame) -> bool:
+    """A context menu is open: its last row, Keyboard shortcuts, is on screen."""
+    return any(MENU_ROW.search(line) for line in frame.lines)
 
 
 def case_worker() -> int:

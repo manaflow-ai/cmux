@@ -44,7 +44,7 @@
     "noReceiptReason": "a key press has no receipt: its effect is the settled daemon facet and screen"
    },
    "checkpoint": [
-    "before"
+    "settled"
    ],
    "waitFor": {
     "pointer": "/daemon/session/extra/state/sidebar",

@@ -4,10 +4,14 @@
  "task": "p15-oracle-234",
  "inventory": "cmux-tui/spec/inventory.json",
  "total": 104,
- "covered": 69,
+ "covered": 61,
  "excluded": {
   "tui_actions/new-browser-tab": "new-browser-tab opens a browser tab whose engine never starts in the hermetic case (no browser host): the tab shows `starting browser...` until the start times out, so neither its screen nor its daemon state settles",
   "tui_actions/provider-menu": "provider-menu needs a machine provider (--machine-provider); the hermetic case has none",
+  "tui_actions/browser-back": "browser-back acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-back checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)",
+  "tui_actions/browser-forward": "browser-forward acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-forward checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)",
+  "tui_actions/browser-reload": "browser-reload acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-reload checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)",
+  "tui_actions/browser-edit-url": "browser-edit-url acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-edit-url checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)",
   "menu_actions/RenameClientMachine": "RenameClientMachine is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only",
   "menu_actions/RenameManagedMachine": "RenameManagedMachine needs a machine provider (--machine-provider); the hermetic case has none",
   "menu_actions/DeleteManagedMachine": "DeleteManagedMachine needs a machine provider (--machine-provider); the hermetic case has none",
@@ -18,6 +22,10 @@
   "menu_actions/DeleteManagedWorkspace": "DeleteManagedWorkspace needs a machine provider (--machine-provider); the hermetic case has none",
   "menu_actions/RestoreManagedWorkspace": "RestoreManagedWorkspace needs a machine provider (--machine-provider); the hermetic case has none",
   "menu_actions/PurgeManagedWorkspace": "PurgeManagedWorkspace needs a machine provider (--machine-provider); the hermetic case has none",
+  "menu_actions/BrowserBack": "BrowserBack acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-back checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)",
+  "menu_actions/BrowserForward": "BrowserForward acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-forward checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)",
+  "menu_actions/BrowserReload": "BrowserReload acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-reload checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)",
+  "menu_actions/BrowserEditUrl": "BrowserEditUrl acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-edit-url checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)",
   "menu_actions/BrowserCopyUrl": "BrowserCopyUrl is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only, on a browser tab the hermetic daemon cannot open",
   "menu_actions/BrowserActivate": "BrowserActivate is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only, on a browser tab the hermetic daemon cannot open",
   "menu_actions/RenameSurface": "RenameSurface is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only",
@@ -189,7 +197,8 @@
   },
   "undo-layout": {
    "cases": [
-    "undo-layout"
+    "undo-layout",
+    "undo-layout-nothing"
    ]
   },
   "focus-left": {
@@ -258,24 +267,16 @@
    ]
   },
   "browser-back": {
-   "cases": [
-    "browser-back"
-   ]
+   "reason": "browser-back acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-back checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)"
   },
   "browser-forward": {
-   "cases": [
-    "browser-forward"
-   ]
+   "reason": "browser-forward acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-forward checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)"
   },
   "browser-reload": {
-   "cases": [
-    "browser-reload"
-   ]
+   "reason": "browser-reload acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-reload checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)"
   },
   "browser-edit-url": {
-   "cases": [
-    "browser-edit-url"
-   ]
+   "reason": "browser-edit-url acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-edit-url checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)"
   },
   "show-shortcuts": {
    "cases": [
@@ -350,24 +351,16 @@
    ]
   },
   "BrowserBack": {
-   "cases": [
-    "browser-back"
-   ]
+   "reason": "BrowserBack acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-back checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)"
   },
   "BrowserForward": {
-   "cases": [
-    "browser-forward"
-   ]
+   "reason": "BrowserForward acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-forward checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)"
   },
   "BrowserReload": {
-   "cases": [
-    "browser-reload"
-   ]
+   "reason": "BrowserReload acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-reload checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)"
   },
   "BrowserEditUrl": {
-   "cases": [
-    "browser-edit-url"
-   ]
+   "reason": "BrowserEditUrl acts only on a browser tab (app/action_policy.rs browser_only_action; on a terminal tab the key goes to the shell, which case tui/browser-edit-url checks), and no browser tab settles in the hermetic case: the tab's engine never starts (no browser host)"
   },
   "BrowserCopyUrl": {
    "reason": "BrowserCopyUrl is reached only from a context menu, which opens on a mouse right-click (app/menu_build.rs open_context_menu); a tui.key step sends keys only, on a browser tab the hermetic daemon cannot open"
@@ -501,13 +494,13 @@
  },
  "nondeterministic": {
   "close-workspace": "two workspaces: session.snapshot orders screens by workspace id (workspace_registry resource_store/topology_load.rs load_screens, ORDER BY workspace_id), and ids are random until p15-oracle-185 seeds them, so the canonical labels swap in about half the runs; the daemon-ops suite's two-workspace cases show the same",
-  "new-pane-right": "cmux-tui: the frontend selects a surface it created when the creation's completion arrives, and only if its tree already holds the surface (app/session_apply.rs select_completed_surface, tab_locations); when the remote tree refresh lands after the completion, the old pane or screen stays selected (1 to 3 runs in 20 on the VM). The daemon facet is the same; the screen differs",
-  "new-pane-smart": "cmux-tui: the frontend selects a surface it created when the creation's completion arrives, and only if its tree already holds the surface (app/session_apply.rs select_completed_surface, tab_locations); when the remote tree refresh lands after the completion, the old pane or screen stays selected (1 to 3 runs in 20 on the VM). The daemon facet is the same; the screen differs",
-  "new-screen": "cmux-tui: the frontend selects a surface it created when the creation's completion arrives, and only if its tree already holds the surface (app/session_apply.rs select_completed_surface, tab_locations); when the remote tree refresh lands after the completion, the old pane or screen stays selected (1 to 3 runs in 20 on the VM). The daemon facet is the same; the screen differs",
+  "new-pane-right": "#26031 cmux-tui: the frontend selects a surface it created when the creation's completion arrives, and only if its tree already holds the surface (app/session_apply.rs select_completed_surface, tab_locations); when the remote tree refresh lands after the completion, the old pane or screen stays selected (1 to 3 runs in 20 on the VM). The daemon facet is the same; the screen differs",
+  "new-pane-smart": "#26031 cmux-tui: the frontend selects a surface it created when the creation's completion arrives, and only if its tree already holds the surface (app/session_apply.rs select_completed_surface, tab_locations); when the remote tree refresh lands after the completion, the old pane or screen stays selected (1 to 3 runs in 20 on the VM). The daemon facet is the same; the screen differs",
+  "new-screen": "#26031 cmux-tui: the frontend selects a surface it created when the creation's completion arrives, and only if its tree already holds the surface (app/session_apply.rs select_completed_surface, tab_locations); when the remote tree refresh lands after the completion, the old pane or screen stays selected (1 to 3 runs in 20 on the VM). The daemon facet is the same; the screen differs",
   "new-workspace": "two workspaces: session.snapshot orders screens by workspace id (workspace_registry resource_store/topology_load.rs load_screens, ORDER BY workspace_id), and ids are random until p15-oracle-185 seeds them, so the canonical labels swap in about half the runs; the daemon-ops suite's two-workspace cases show the same",
   "next-workspace": "two workspaces: session.snapshot orders screens by workspace id (workspace_registry resource_store/topology_load.rs load_screens, ORDER BY workspace_id), and ids are random until p15-oracle-185 seeds them, so the canonical labels swap in about half the runs; the daemon-ops suite's two-workspace cases show the same",
   "prev-workspace": "two workspaces: session.snapshot orders screens by workspace id (workspace_registry resource_store/topology_load.rs load_screens, ORDER BY workspace_id), and ids are random until p15-oracle-185 seeds them, so the canonical labels swap in about half the runs; the daemon-ops suite's two-workspace cases show the same",
-  "split-down": "cmux-tui: the frontend selects a surface it created when the creation's completion arrives, and only if its tree already holds the surface (app/session_apply.rs select_completed_surface, tab_locations); when the remote tree refresh lands after the completion, the old pane or screen stays selected (1 to 3 runs in 20 on the VM). The daemon facet is the same; the screen differs",
-  "split-right": "cmux-tui: the frontend selects a surface it created when the creation's completion arrives, and only if its tree already holds the surface (app/session_apply.rs select_completed_surface, tab_locations); when the remote tree refresh lands after the completion, the old pane or screen stays selected (1 to 3 runs in 20 on the VM). The daemon facet is the same; the screen differs"
+  "split-down": "#26031 cmux-tui: the frontend selects a surface it created when the creation's completion arrives, and only if its tree already holds the surface (app/session_apply.rs select_completed_surface, tab_locations); when the remote tree refresh lands after the completion, the old pane or screen stays selected (1 to 3 runs in 20 on the VM). The daemon facet is the same; the screen differs",
+  "split-right": "#26031 cmux-tui: the frontend selects a surface it created when the creation's completion arrives, and only if its tree already holds the surface (app/session_apply.rs select_completed_surface, tab_locations); when the remote tree refresh lands after the completion, the old pane or screen stays selected (1 to 3 runs in 20 on the VM). The daemon facet is the same; the screen differs"
  }
 }

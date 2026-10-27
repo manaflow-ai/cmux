@@ -46,7 +46,7 @@
     "before"
    ],
    "waitFor": {
-    "pointer": "/tui/screenSha256",
+    "pointer": "/tui/cursor",
     "predicate": "changed",
     "maxMs": 10000
    }
