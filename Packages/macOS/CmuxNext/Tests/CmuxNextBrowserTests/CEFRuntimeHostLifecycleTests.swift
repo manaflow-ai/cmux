@@ -232,6 +232,8 @@ import Testing
 
     func hostSaidHello() {}
 
+    func hostRuns(forkAPI: Int32) {}
+
     func endHost(within limit: Duration) async {
         endLimits.append(limit)
     }

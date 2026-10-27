@@ -128,6 +128,7 @@ extension AppServices {
         let supervisor = chromiumRuntime.source.hostSupervisor as? ChromiumHostSupervisor
         supervisor?.isQuitting = { [weak self] in self?.quit.isQuitting == true }
         supervisor?.deadlines = mainDeadlines  // an end cmux asks for kills a host that outlives its limit (p01-process-087)
+        AppRunMarker.reportHostCrashes(of: chromiumRuntime.source.hostSupervisor, writer: crashRecovery.writer, work: work)
         // A crashed host's tabs come back with the history their daemon records keep (p01-process-083).
         supervisor?.savedNavigation = { [weak self] tab, url in
             guard let tabs = self?.cache.browserTabs else { return nil }
