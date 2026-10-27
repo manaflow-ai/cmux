@@ -206,6 +206,9 @@ public nonisolated enum RefusalStrings {
     public static var hibernateUnsupported: String {
         text("handlers.refusal.hibernateUnsupported", "This page cannot keep its history when it hibernates.")
     }
+    public static var hibernateDiscardAttempted: String {
+        text("handlers.refusal.hibernateDiscardAttempted", "This tab could not hibernate. It stays loaded until you show it again.")
+    }
     public static var hibernateFormSubmission: String {
         text("handlers.refusal.hibernateFormSubmission", "This page shows the result of a form. It stays loaded so the form is not sent again.")
     }
