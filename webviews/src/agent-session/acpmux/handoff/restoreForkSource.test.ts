@@ -81,7 +81,6 @@ test("failed source attachment does not persist a session", async () => {
   expect(state.persisted).toEqual([]);
 });
 
-
 test("a late failure does not undo leaving and returning to the target", async () => {
   const { state, recovery } = fixture();
   await recovery.select("another-chat");
