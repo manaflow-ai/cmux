@@ -152,6 +152,9 @@ nonisolated struct AgentPaneReplyPaths {
         roots.contains { AcpmuxPathPolicy.contains(root: $0, path: path) }
     }
 
+    /// Whether `path` (canonical) is inside one of the chat's roots (not the image roots).
+    func isInsideRoot(_ path: String) -> Bool { isInsideRoot(path, roots: roots) }
+
     /// The chip for `text`, nil when it is not a path. An outside path is not checked on disk, so
     /// the page never learns whether a file outside the project exists.
     private func resolve(_ text: String, inside roots: [String]) -> Resolved? {

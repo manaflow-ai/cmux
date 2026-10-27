@@ -236,10 +236,62 @@ html[data-cmux-page="changelog"] {
 .cl-build { user-select: all; }
 .cl-maintenance { margin: 12px 0 0; color: var(--page-text-2); }
 
-/* The span's reels as one player: the video, then a row of nightly chips and the open link. */
+/* The span's reels as one video card on glass: the reel's first frame with a play button and its
+   length, its title under it, then a row of nightly chips (and the open link when it cannot play). */
 .cl-reel-player { margin: 16px 0 8px; }
-.cl-reel-video { aspect-ratio: 16 / 9; margin: 0 0 10px; }
-.cl-reel-video video { object-fit: contain; background: transparent; }
+.cl-reel-card {
+  max-width: 640px;
+  margin: 0 0 10px;
+  padding: 8px 8px 12px;
+  border-radius: 14px;
+  background: var(--page-hover);
+  box-shadow: inset 0 0 0 1px var(--page-separator);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
+}
+.cl-reel-stage { position: relative; aspect-ratio: 16 / 10; border-radius: 8px; overflow: hidden; }
+.cl-reel-stage video { display: block; width: 100%; height: 100%; object-fit: cover; background: transparent; }
+.cl-reel-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+}
+.cl-reel-play svg {
+  box-sizing: content-box;
+  width: 24px;
+  height: 24px;
+  padding: 16px;
+  border-radius: 50%;
+  fill: currentColor;
+  background: rgb(0 0 0 / 0.45);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.25);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
+  transition: transform 120ms ease, background-color 120ms ease;
+}
+.cl-reel-play:hover svg { transform: scale(1.06); background: rgb(0 0 0 / 0.6); }
+.cl-reel-play:focus-visible { outline: none; }
+.cl-reel-play:focus-visible svg { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 3px; }
+.cl-reel-length {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 0 4px;
+  border-radius: 5px;
+  background: rgb(0 0 0 / 0.55);
+  color: #fff;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.cl-reel-title { margin: 10px 4px 0; font-size: var(--text-body); font-weight: 600; color: var(--page-text); }
 .cl-reel-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
 .cl-reel-picker { display: flex; flex-wrap: wrap; gap: 6px; }
 .cl-reel-chip {
