@@ -7,6 +7,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { installPaintedFrames } from "./support/paintedFrames";
 
 await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -60,6 +61,7 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
   const open = async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 900, height: 560 } });
+    await installPaintedFrames(page);
     await page.goto(`http://127.0.0.1:${port}/test/browser/send-scroll-setting.html`);
     await page.waitForFunction(() => "__showRows" in window);
     return page;
