@@ -7,6 +7,8 @@ import Foundation
 /// machine on any other build than the app's gets the app's own pinned build. The CLI keeps the
 /// running binary, swaps `~/.cmux/bin/cmux-tui`, restarts only the daemon (terminals and chats keep
 /// running) and rolls back when the new daemon does not serve. The VM's acpmux is that same binary.
+/// A machine too old for that (`machine_update_unsupported`) gets the same build through the Cloud
+/// API's exec instead (``CloudLegacyMachineUpdate``), with the same guarantees.
 ///
 /// When: whenever the policy asks, with no wait for idle, also while an agent works there; the new
 /// daemon adopts the terminals and chats that kept running and resumes what it interrupted (Leo:
@@ -32,6 +34,10 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
         /// `restarted` (``mayHaveRestarted(_:)``): the daemon may have restarted, so a connection the
         /// app still holds may be to the old one.
         var reconnect: @Sendable (_ restarted: Bool) async -> Void
+        /// The update of a machine too old to update in place to `build` (``CloudLegacyMachineUpdate``),
+        /// run when ``update`` answers `machine_update_unsupported`; nil when the machine has no way
+        /// for it (no Cloud API exec, or no pinned build of `build` in this app).
+        var legacy: @Sendable (_ build: DaemonBuildCommit) async -> CloudMoveCLI.Answer? = { _ in nil }
     }
 
     let machineID: String
@@ -81,7 +87,9 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
         var outcome: DaemonUpdateOutcome
         var answer: CloudMoveCLI.Answer?
         do {
-            let reply = try await source.update()
+            var reply = try await source.update()
+            // Too old to update in place: the Cloud API's exec installs the build instead.
+            if reply.errorCode == "machine_update_unsupported", let legacy = await source.legacy(build) { reply = legacy }
             answer = reply
             outcome = Self.outcome(reply, machine: displayName)
         } catch DaemonError.timedOut {
@@ -130,9 +138,10 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
         // changed; not recorded, so a later connect or launch tries again.
         case "machine_update_unavailable", "machine_update_download_failed":
             return .needsBinary(target: cloudTarget)
-        // Too old to update in place: final for this build, one notice.
+        // Too old to update in place: no failure and no notice; not asked again while it runs
+        // this build, whatever the app's build. Settings > Updates names it, with what still works.
         case "machine_update_unsupported":
-            return .failed(reason: CloudMachineUpdateStrings.unsupported(machine))
+            return .unsupported(reason: CloudMachineUpdateStrings.unsupported(machine))
         case "machine_update_rolled_back":
             return .rolledBack(reason: detail)
         default:

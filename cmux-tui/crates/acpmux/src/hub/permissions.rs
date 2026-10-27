@@ -7,6 +7,10 @@ use super::*;
 #[path = "permission_settled.rs"]
 pub(super) mod settled;
 
+/// The person-readable line on a request (`toolCall._meta.acpmux.display`).
+mod display;
+pub(crate) use display::{ChildTags, drop_display_lines};
+
 impl Hub {
     // ------------------------------------------------------------- inbound
 
@@ -17,7 +21,15 @@ impl Hub {
     ) {
         while let Some(item) = rx.recv().await {
             match item {
-                Inbound::Notification { method: m, params, agent } => {
+                Inbound::Notification {
+                    method: m,
+                    params,
+                    agent,
+                    host_incarnation,
+                    host_seq,
+                    persisted,
+                    ..
+                } => {
                     if m == method::SESSION_UPDATE {
                         // A /context breakdown or usage limits from an agent that was replaced
                         // (a failover's dying primary answering late) are not the chat's now. The
@@ -40,9 +52,40 @@ impl Hub {
                             .unwrap_or_else(|e| e.into_inner())
                             .contains(&agent);
                         self.on_update(&session, params.as_ref(), replayed);
+                    } else if m == method::CANCEL_REQUEST
+                        && let Some(id) = params.as_ref().and_then(|p| p.get("requestId"))
+                    {
+                        // A hosted reader waits for this marker before it
+                        // acknowledges the host entry. A later daemon can
+                        // therefore recover the cancellation even if this
+                        // process dies before the request task runs.
+                        let stored = self
+                            .append_logged(
+                                &session,
+                                "mux",
+                                "permission_withdrawn",
+                                json!({
+                                    "agentRequestId": id,
+                                    "incarnation": host_incarnation.clone(),
+                                }),
+                                host_seq,
+                            )
+                            .1;
+                        if let Some(done) = persisted {
+                            let _ = done.send(stored);
+                        }
+                        if !stored {
+                            continue;
+                        }
+                        let hub = self.clone();
+                        let session = session.clone();
+                        let id = id.clone();
+                        tokio::spawn(async move {
+                            hub.withdraw_permission(&session, host_incarnation.as_deref(), &id);
+                        });
                     }
                 }
-                Inbound::Request { id, method: m, params } => {
+                Inbound::Request { id, method: m, params, host_incarnation, .. } => {
                     let hub = self.clone();
                     let s = session.clone();
                     let epoch = session.permission_epoch.load(Ordering::SeqCst);
@@ -54,8 +97,28 @@ impl Hub {
                     // of its own.
                     let ask = (m == method::SESSION_REQUEST_PERMISSION)
                         .then(|| super::permission_groups::AskInFlight::new(&session));
+                    if m == method::SESSION_REQUEST_PERMISSION {
+                        hub.register_agent_request(&s, &id, host_incarnation.as_deref());
+                    }
+                    let request_id = id.clone();
                     tokio::spawn(async move {
-                        hub.on_agent_request(s, id, m, params, epoch, turn_id, ask).await
+                        let finish_hub = hub.clone();
+                        hub.on_agent_request(
+                            s.clone(),
+                            id,
+                            m,
+                            params,
+                            epoch,
+                            turn_id,
+                            ask,
+                            host_incarnation.clone(),
+                        )
+                        .await;
+                        finish_hub.finish_agent_request(
+                            &s,
+                            &request_id,
+                            host_incarnation.as_deref(),
+                        );
                     });
                 }
                 Inbound::Stderr(line, host_seq) => {
@@ -163,7 +226,8 @@ impl Hub {
                 }
             }
             "tool_call" | "tool_call_update" => {
-                super::pull_requests::absorb(session, update, &mut m)
+                super::pull_requests::absorb(session, update, &mut m);
+                super::lineage::note_tool_call(session, update);
             }
             "usage_update" => m.usage = Some(update.clone()),
             "available_commands_update" => m.available_commands = Some(update.clone()),
@@ -242,6 +306,7 @@ impl Hub {
         epoch: u64,
         turn_id: Option<String>,
         ask: Option<super::permission_groups::AskInFlight>,
+        host_incarnation: Option<String>,
     ) {
         // Context was captured before spawning this request task, so cancel
         // or a new turn cannot make a delayed request join the new ask.
@@ -273,8 +338,17 @@ impl Hub {
         }
         if m == method::SESSION_REQUEST_PERMISSION {
             let params = params.unwrap_or(Value::Null);
-            let result =
-                self.handle_permission_for(&session, params, epoch, turn_id, Some(&id), ask).await;
+            let result = self
+                .handle_permission_for(
+                    &session,
+                    params,
+                    epoch,
+                    turn_id,
+                    Some(&id),
+                    host_incarnation.as_deref(),
+                    ask,
+                )
+                .await;
             let _ = child.respond(id, Ok(result)).await;
             return;
         }
@@ -483,7 +557,7 @@ impl Hub {
         epoch: u64,
         turn_id: Option<String>,
     ) -> Value {
-        self.handle_permission_for(session, request, epoch, turn_id, None, None).await
+        self.handle_permission_for(session, request, epoch, turn_id, None, None, None).await
     }
 
     /// `handle_permission` for the agent's own `session/request_permission`
@@ -496,11 +570,15 @@ impl Hub {
         epoch: u64,
         turn_id: Option<String>,
         agent_request_id: Option<&Id>,
+        agent_host_incarnation: Option<&str>,
         ask: Option<super::permission_groups::AskInFlight>,
     ) -> Value {
         // One harness-neutral copy of any questions, before rules and the
         // record see the request (questions.rs).
         super::questions::normalize(&mut request, Self::preview_format(session));
+        // A person-readable line for a tool whose name and JSON mean nothing
+        // to a person (permissions/display.rs), before anything shows the request.
+        self.stamp_permission_display(session, &mut request);
         let needs_person = super::questions::needs_person(&request);
         // A shell command that only reads (`shell_readonly.rs`), judged before the lock and off
         // the async workers: its git reads look at the repositories on disk.
@@ -544,9 +622,17 @@ impl Hub {
             full_access_mode(&session.meta()).is_some() && self.full_access_allowed();
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
-            let mut state = session.permissions.lock().unwrap();
+            let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
             if session.permission_epoch.load(Ordering::SeqCst) != epoch
                 || stale_turn(session, &turn_id)
+            {
+                return json!({"outcome":{"outcome":"cancelled"}});
+            }
+            if let Some(agent_request_id) = agent_request_id
+                && state.cancelled_requests.remove(&super::permission_groups::AgentRequestKey::new(
+                    agent_host_incarnation,
+                    agent_request_id,
+                ))
             {
                 return json!({"outcome":{"outcome":"cancelled"}});
             }
@@ -695,6 +781,8 @@ impl Hub {
                     reply: tx,
                     decision_nonce: decision_nonce.clone(),
                     prev_status: prev,
+                    agent_request: agent_request_id.cloned(),
+                    agent_host_incarnation: agent_host_incarnation.map(str::to_owned),
                 },
             );
             self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"decisionNonce":decision_nonce,"personInstance":self.person.instance(),"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored}));
@@ -738,7 +826,7 @@ impl Hub {
             decision["answeredBy"] = by;
         }
         self.append(session, "mux", "permission_decision", decision.clone());
-        let mut state = session.permissions.lock().unwrap();
+        let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
         state.settled.remember(permission_id, decision.get("answeredBy"), &decision["outcome"]);
         if state.pending.is_empty()
             && session.status() == SessionStatus::Waiting
@@ -790,11 +878,35 @@ impl Hub {
         answerer: super::person::Answerer<'_>,
         control: Control,
     ) -> Result<(), RpcError> {
-        // Checked again here, at the answer, not only in the remote guard.
-        self.web_control_check(session, control)?;
+        // The Web's asking rule, checked here at the answer, where its option
+        // and proof are known (`Hub::web_answer_check`); the prompt's own
+        // checks below run again under its lock.
+        if control == Control::Web {
+            let (narrows, proved) = {
+                let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+                state.pending.get(permission_id).map_or((false, false), |p| {
+                    let options = p.request["options"].as_array().map_or(&[][..], Vec::as_slice);
+                    let narrows = option_id.as_deref().is_none_or(|o| {
+                        matches!(option_kind(options, o), Some("reject_once" | "reject_always"))
+                    });
+                    let (proved, signed) = self.answer_proof(
+                        session,
+                        permission_id,
+                        p,
+                        option_id.as_deref(),
+                        answers.as_ref(),
+                        annotations.as_ref(),
+                        answered_by.is_some(),
+                        &answerer,
+                    );
+                    (narrows, proved || signed)
+                })
+            };
+            self.web_answer_check(session, control, narrows, proved)?;
+        }
         let cfg = self.config.read().await;
         let (pending, answered_by, annotations) = {
-            let mut guard = session.permissions.lock().unwrap();
+            let mut guard = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
             let state = &mut *guard;
             let map = &mut state.pending;
             // Answered already: the first answer won, and this one is told who gave it and how.
@@ -901,46 +1013,34 @@ impl Hub {
                     return Err(super::person::person_required("annotations"));
                 }
                 if needs_proof {
-                    let proved = match (&option_id, answerer.decision) {
-                        (Some(o), Some((nonce, proof))) => {
-                            cmux_local_auth::tokens_match(nonce, &p.decision_nonce)
-                                && self.person.decision_proves(
-                                    &session.id,
-                                    permission_id,
-                                    o,
-                                    nonce,
-                                    answers.as_ref(),
-                                    annotations.as_ref(),
-                                    proof,
-                                )
-                        }
-                        _ => false,
-                    };
-                    // A phone's signed allow or answer (`approvers.rs`): it
-                    // covers the answers, never `answeredBy` or annotations.
-                    let signed = !proved
-                        && answered_by.is_none()
-                        && annotations.is_none()
-                        && match (&option_id, answerer.approver) {
-                            (Some(o), Some((nonce, decision))) => {
-                                cmux_local_auth::tokens_match(nonce, &p.decision_nonce)
-                                    && self.person.approver_proves(
-                                        &session.id,
-                                        permission_id,
-                                        o,
-                                        nonce,
-                                        answers.as_ref(),
-                                        decision,
-                                    )
-                            }
-                            _ => false,
-                        };
+                    let (proved, signed) = self.answer_proof(
+                        session,
+                        permission_id,
+                        p,
+                        option_id.as_deref(),
+                        answers.as_ref(),
+                        annotations.as_ref(),
+                        answered_by.is_some(),
+                        &answerer,
+                    );
+                    // A phone's signature counts only while its phone is still enrolled, checked
+                    // again as the nonce is spent (`approver_spends`: lock order there).
                     let spent = (proved
                         && answerer.decision.is_some_and(|(n, _)| self.person.spend_decision(n)))
                         || (signed
-                            && answerer
-                                .approver
-                                .is_some_and(|(n, _)| self.person.spend_decision(n)));
+                            && option_id.as_deref().zip(answerer.approver).is_some_and(
+                                |(o, (n, d))| {
+                                    self.person.approver_spends(
+                                        &session.id,
+                                        permission_id,
+                                        &p.request,
+                                        o,
+                                        n,
+                                        answers.as_ref(),
+                                        d,
+                                    )
+                                },
+                            ));
                     if !spent {
                         return Err(super::person::person_required("allowing a permission"));
                     }
@@ -982,10 +1082,72 @@ impl Hub {
         Ok(())
     }
 
+    pub(super) fn register_agent_request(
+        &self,
+        session: &Session,
+        agent_request: &Id,
+        host_incarnation: Option<&str>,
+    ) {
+        let key = super::permission_groups::AgentRequestKey::new(host_incarnation, agent_request);
+        let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+        state.active_requests.insert(key);
+    }
+
+    pub(super) fn finish_agent_request(
+        &self,
+        session: &Session,
+        agent_request: &Id,
+        host_incarnation: Option<&str>,
+    ) {
+        let key = super::permission_groups::AgentRequestKey::new(host_incarnation, agent_request);
+        let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+        state.active_requests.remove(&key);
+        state.cancelled_requests.remove(&key);
+    }
+
+    /// Withdraw the pending prompt raised by one agent request. Cancellation
+    /// markers are retained only while the matching request task is active,
+    /// so late or duplicate notifications cannot grow process memory.
+    pub(super) fn withdraw_permission(
+        &self,
+        session: &Session,
+        host_incarnation: Option<&str>,
+        agent_request: &Value,
+    ) {
+        let key = super::permission_groups::AgentRequestKey::new(host_incarnation, agent_request);
+        let withdrawn = {
+            let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            let id = state
+                .pending
+                .iter()
+                .find(|(_, p)| {
+                    p.agent_request.as_ref() == Some(agent_request)
+                        && p.agent_host_incarnation.as_deref() == host_incarnation
+                })
+                .map(|(id, _)| id.clone());
+            let Some(id) = id else {
+                if state.active_requests.contains(&key) {
+                    state.cancelled_requests.insert(key);
+                }
+                return;
+            };
+            state.settled.remember(&id, None, &json!({"outcome": "cancelled"}));
+            if let Some(group) = state.finish_item(&session.id, &id, true) {
+                self.append(session, "mux", "permission_group", json!({"group": group}));
+            }
+            state.pending.remove(&id)
+        };
+        if let Some(p) = withdrawn {
+            let _ = p.reply.send(json!({"outcome": "cancelled"}));
+        }
+    }
+
     pub(super) fn cancel_pending_permissions(&self, session: &Session) {
         let drained: Vec<_> = {
-            let mut state = session.permissions.lock().unwrap();
+            let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
             session.permission_epoch.fetch_add(1, Ordering::SeqCst);
+            state.active_requests.clear();
+            state.cancelled_requests.clear();
             let drained: Vec<_> = state.pending.drain().collect();
             for (id, _) in &drained {
                 // Told to a later answer at once (`permission_settled.rs`): no one answered.
@@ -1033,6 +1195,61 @@ fn full_access_allow(session: &Session, request: &Value) -> Option<(String, Stri
 }
 
 /// The kind of the offered option `id`.
+impl Hub {
+    /// Whether `answerer`'s answer `option` to the pending prompt `p` carries
+    /// the person's decision proof (`.0`), or else an enrolled approver's
+    /// signature (`.1`, `approvers.rs`: it covers the answers, never
+    /// `answeredBy` or annotations), that counts now. Nothing is spent: the answer that
+    /// counts spends the nonce under the prompt's lock.
+    #[allow(clippy::too_many_arguments)]
+    fn answer_proof(
+        &self,
+        session: &Session,
+        permission_id: &str,
+        p: &PendingPermission,
+        option: Option<&str>,
+        answers: Option<&Value>,
+        annotations: Option<&Value>,
+        answered_by: bool,
+        answerer: &super::person::Answerer<'_>,
+    ) -> (bool, bool) {
+        let proved = match (option, answerer.decision) {
+            (Some(o), Some((nonce, proof))) => {
+                cmux_local_auth::tokens_match(nonce, &p.decision_nonce)
+                    && self.person.decision_proves(
+                        &session.id,
+                        permission_id,
+                        o,
+                        nonce,
+                        answers,
+                        annotations,
+                        proof,
+                    )
+            }
+            _ => false,
+        };
+        let signed = !proved
+            && !answered_by
+            && annotations.is_none()
+            && match (option, answerer.approver) {
+                (Some(o), Some((nonce, decision))) => {
+                    cmux_local_auth::tokens_match(nonce, &p.decision_nonce)
+                        && self.person.approver_proves(
+                            &session.id,
+                            permission_id,
+                            &p.request,
+                            o,
+                            nonce,
+                            answers,
+                            decision,
+                        )
+                }
+                _ => false,
+            };
+        (proved, signed)
+    }
+}
+
 fn option_kind<'a>(options: &'a [Value], id: &str) -> Option<&'a str> {
     options
         .iter()

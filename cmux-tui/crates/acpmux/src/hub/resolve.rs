@@ -294,6 +294,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         name: String::new(),
         harness: d.agent.into(),
         harness_argv: d.profile.argv.clone(),
+        spawn_argv: None,
         family: Some(d.family.to_owned()),
         preset: d.preset,
         model_request: d.model_request,
@@ -355,5 +356,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         worktree: None,
         subsession: None,
         subsession_limits: Default::default(),
+        lineage: None,
+        subagent_retry_open: false,
     }
 }

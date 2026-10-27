@@ -219,7 +219,7 @@ const REMOTE_CLI: &str = "a=; for f in /Applications/cmux*.app/Contents/Resource
 
 /// A remote script running `"$@" --json TAIL`. `tail` is acpmux's own text
 /// with only checked names in it.
-fn remote_cli(tail: &str) -> String {
+pub(crate) fn remote_cli(tail: &str) -> String {
     format!("{REMOTE_CLI}\"$@\" --json {tail}")
 }
 

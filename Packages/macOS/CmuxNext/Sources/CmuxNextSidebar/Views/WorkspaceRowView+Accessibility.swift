@@ -29,15 +29,17 @@ extension WorkspaceRowView {
         return actions.isEmpty ? nil : actions
     }
 
-    func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent) -> String {
-        Self.accessibilityText(ws, content: content, tabCount: count, presence: presenceDots.isHidden ? [] : presenceDots.presence)
+    func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent, title: String? = nil) -> String {
+        Self.accessibilityText(ws, content: content, tabCount: count, presence: presenceDots.isHidden ? [] : presenceDots.presence,
+                               title: title)
     }
 
     /// The row's label: what it draws, in reading order. `tabCount` and `presence` are what the
-    /// row's tab count and presence dots show (nil and empty when hidden).
+    /// row's tab count and presence dots show (nil and empty when hidden). `title` is the name the
+    /// row reads (`SidebarWorkspace.spokenRowTitle`), nil for the workspace's.
     static func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent, tabCount count: Int?,
-                                  presence: [SidebarPresence]) -> String {
-        var parts = [ws.title]
+                                  presence: [SidebarPresence], title: String? = nil) -> String {
+        var parts = [title ?? ws.title]
         let detail = content.now.map(Strings.rowNow) ?? content.detail
         if let detail { parts.append(detail) }
         // The chip's word (never drawn: no status words on a row), else the one-line status the row draws.

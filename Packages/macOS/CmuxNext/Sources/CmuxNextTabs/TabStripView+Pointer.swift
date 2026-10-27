@@ -165,8 +165,9 @@ extension TabStripView {
                 cells[id]?.isAudioPressed = true
                 return
             }
-            if event.clickCount == 2, renamesOnDoubleClick, Self.selectionClick(event.modifierFlags) == .plain {
-                beginInlineRename(id)
+            // The first click selected the tab; the second renames it (the screen bar) or zooms its pane.
+            if event.clickCount == 2, Self.selectionClick(event.modifierFlags) == .plain {
+                if renamesOnDoubleClick { beginInlineRename(id) } else { model.send(.toggleZoom(id)) }
                 return
             }
             // Select on mouse down; Cmd and Shift add to the selection (`selectOnPress`).
