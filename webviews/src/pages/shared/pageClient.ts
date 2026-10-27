@@ -74,6 +74,12 @@ export interface PageClient {
    * before its first render.
    */
   readonly restore?: PageRestore | null;
+  /**
+   * The fragment the host showed this document with: its load URL's, or the pooled host's claim
+   * route (`CLAIM_OP`). The page's saved state (pageState.ts) puts its own route back only when the
+   * restored document comes with the same one. Absent for a mock.
+   */
+  readonly entryRoute?: string;
 }
 
 type Envelope =
@@ -234,7 +240,7 @@ interface Held {
   reject: (error: unknown) => void;
 }
 
-/** The part of `window.location` a claim uses. */
+/** The part of `window.location` a claim and the entry route use. */
 interface ClaimLocation {
   hash: string;
   replace(url: string): void;
@@ -259,6 +265,7 @@ export class BridgePageClient implements PageClient {
   private held: Held[] = [];
   private readonly location: ClaimLocation | undefined;
   readonly restore: PageRestore | null;
+  private entry: string;
 
   constructor(
     private readonly handler: ReplyHandler,
@@ -271,6 +278,11 @@ export class BridgePageClient implements PageClient {
     this.parked = target[PARKED_NAME] === true;
     this.restore = takePageRestore(target);
     this.location = target.location as ClaimLocation | undefined;
+    this.entry = this.location?.hash ?? "";
+  }
+
+  get entryRoute(): string {
+    return this.entry;
   }
 
   async call<R>(op: string, params: unknown, options?: PageCallOptions): Promise<R> {
@@ -361,8 +373,10 @@ export class BridgePageClient implements PageClient {
   private claim(params: unknown): unknown {
     if (!this.parked) throw pageError("cmux.page.not_parked", "the document already ran");
     const route = (params as { route?: unknown } | null)?.route;
-    if (typeof route === "string" && route.startsWith("#") && this.location && this.location.hash !== route)
-      this.location.replace(route);
+    if (typeof route === "string" && route.startsWith("#")) {
+      if (this.location && this.location.hash !== route) this.location.replace(route);
+      this.entry = route;
+    }
     this.parked = false;
     // A parked document is hidden to its timers (pageLifecycle.ts) until this claim.
     pageLifecycleFor(this.target).claimed();
