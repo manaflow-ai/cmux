@@ -1,5 +1,10 @@
 @testable import CmuxNextApp
-import CmuxNextDaemon
+// Only the daemon types the fake answers with: CmuxNextDaemon's JSONValue would shadow the pages' one.
+import enum CmuxNextDaemon.DaemonError
+import struct CmuxNextDaemon.FileSystemReadRequest
+import struct CmuxNextDaemon.FileSystemReplaceRequest
+import struct CmuxNextDaemon.FileSystemStatRequest
+import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
