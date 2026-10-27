@@ -19,7 +19,11 @@ const MARK: &str = "ACPMUX_AU=";
 /// whether a user systemd manager runs, and the timer's units. A unit is
 /// there when the manager knows it (any load state but `not-found`) or its
 /// file is in `~/.config/systemd/user`, enabled or not, or a drop-in for it
-/// exists (one systemd would apply once acpmux writes the unit). They are
+/// exists (one systemd would apply once acpmux writes the unit): what the
+/// manager lists, and a `NAME.d` or `acpmux-.TYPE.d` directory in any user
+/// unit path (`systemd-analyze --user unit-paths`, and the defaults when it
+/// cannot say). A drop-in for every service or timer (`service.d`) is the
+/// system's (distributions ship them), not about this unit, and is not read. They are
 /// acpmux's own only when each file there holds acpmux's own text, each unit
 /// the manager knows loads from there, and no drop-in exists for either;
 /// any other is someone else's (`foreign`), which runs what it likes. acpmux's own timer is
@@ -35,14 +39,34 @@ pub(super) fn probe_script() -> String {
         r#"echo "{MARK}os=$(uname -s)"; [ ! -e {cloud} ] || echo {MARK}cloud; [ ! -e {home}/{off} ] || echo {MARK}off
 if systemctl --user show-environment >/dev/null 2>&1; then echo {MARK}systemd
 au_d=$HOME/.config/systemd/user; au_there=; au_own=1; au_all=1
+au_c=${{XDG_CONFIG_HOME:-$HOME/.config}}; au_r=${{XDG_RUNTIME_DIR:-/run/user/$(id -u)}}; au_l=${{XDG_DATA_HOME:-$HOME/.local/share}}
+au_paths="$(systemd-analyze --user unit-paths 2>/dev/null)
+$au_d
+$au_c/systemd/user.control
+$au_c/systemd/user
+$(printf %s "${{XDG_CONFIG_DIRS:-/etc/xdg}}" | tr : '\n' | sed 's|$|/systemd/user|')
+/etc/systemd/user
+$au_r/systemd/user.control
+$au_r/systemd/transient
+$au_r/systemd/generator.early
+$au_r/systemd/user
+/run/systemd/user
+$au_r/systemd/generator
+$au_l/systemd/user
+$(printf %s "${{XDG_DATA_DIRS:-/usr/local/share:/usr/share}}" | tr : '\n' | sed 's|$|/systemd/user|')
+/usr/local/lib/systemd/user
+/usr/lib/systemd/user
+/lib/systemd/user
+$au_r/systemd/generator.late"
 for au_f in acpmux-update.service acpmux-update.timer; do
 au_s=$(systemctl --user show "$au_f" -p LoadState --value 2>/dev/null) || au_s=error
 if [ -e "$au_d/$au_f" ]; then au_there=1; else au_all=; fi
 case "$au_s" in not-found) ;; *) au_there=1
 [ "$au_s" = loaded ] && [ "$(systemctl --user show "$au_f" -p FragmentPath --value 2>/dev/null)" = "$au_d/$au_f" ] || au_own= ;; esac
 au_x=$(systemctl --user show "$au_f" -p DropInPaths --value 2>/dev/null) || au_x=error; [ -z "$au_x" ] || {{ au_there=1; au_own=; }}
-for au_p in "$au_d" "${{XDG_CONFIG_HOME:-$HOME/.config}}/systemd/user" /etc/systemd/user "$HOME/.local/share/systemd/user" /usr/local/lib/systemd/user /usr/lib/systemd/user /run/systemd/user; do
-[ ! -d "$au_p/$au_f.d" ] || {{ au_there=1; au_own=; }}; done
+au_i=$IFS; IFS='
+'; for au_p in $au_paths; do for au_n in "$au_f.d" "acpmux-.${{au_f##*.}}.d"; do
+[ -z "$au_p" ] || [ ! -d "$au_p/$au_n" ] || {{ au_there=1; au_own=; }}; done; done; IFS=$au_i
 done
 if [ -n "$au_there" ]; then
 [ ! -e "$au_d/acpmux-update.service" ] || cmp -s - "$au_d/acpmux-update.service" <<'ACPMUX_UPDATE_SERVICE' || au_own=
@@ -95,8 +119,11 @@ pub(super) fn parse(stdout: &str) -> Found {
 const EVERY: &str = "updates itself to the newest build every 15 minutes (acpmux-update.timer)";
 
 /// The step. With `fix`, a Linux host without the timer gets it, under the
-/// host's update lock; without `fix` nothing changes.
-pub(super) fn update(r: &dyn Remote, fix: bool) -> StepResult {
+/// host's update lock; without `fix` nothing changes. `cmux_own`: the path of
+/// cmux's own acpmux when that runs the daemon (the app's install, a cmux
+/// session daemon): the timer runs `~/.local/bin/acpmux host self-update`, a
+/// standalone acpmux's updater, so it is never installed there.
+pub(super) fn update(r: &dyn Remote, fix: bool, cmux_own: Option<&str>) -> StepResult {
     let host = r.host();
     let found = match r.exec(&probe_script(), None) {
         Ok(out) if out.ok => parse(&out.stdout),
@@ -126,6 +153,15 @@ pub(super) fn update(r: &dyn Remote, fix: bool) -> StepResult {
     }
     if found.os == "Darwin" {
         return ok("a Mac: cmux moves it to this Mac's build each time it connects");
+    }
+    if let Some(path) = cmux_own {
+        return StepResult::new(
+            Step::Update,
+            StepState::Skip,
+            format!(
+                "cmux's own acpmux runs here ({path}): it is updated with cmux, as the install step says, not by acpmux-update.timer"
+            ),
+        );
     }
     if found.timer {
         return ok(EVERY);

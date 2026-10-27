@@ -174,8 +174,9 @@ pub(crate) fn pick_target(peers: &[Value], target: &str) -> (String, String, Opt
         .unwrap_or_else(|| (hosts::short_name(target), target.to_owned(), None))
 }
 
-/// How a running daemon stays current: [`update_step::update`].
-type UpdateStep<'a> = &'a dyn Fn(&dyn Remote, bool) -> StepResult;
+/// How a running daemon stays current: [`update_step::update`], given the
+/// path of cmux's own acpmux when that is what runs there.
+type UpdateStep<'a> = &'a dyn Fn(&dyn Remote, bool, Option<&str>) -> StepResult;
 
 /// reach, install, daemon, update and harness: the steps on the machine
 /// itself, and the port the peer link uses (the daemon step's). The
@@ -201,7 +202,10 @@ fn machine_steps(
                 port = listening;
                 result
             }
-            (Step::Update, Some(update), _) => update(r, fix),
+            (Step::Update, Some(update), _) => match probe(r) {
+                Ok(p) => update(r, fix, p.in_use().filter(|u| u.app).map(|u| u.path).as_deref()),
+                Err(e) => fail(Step::Update, format!("{e:#}"), "Check again."),
+            },
             _ => harness(r, &plan.name, &plan.harnesses, local, fix),
         };
         emit(&result);

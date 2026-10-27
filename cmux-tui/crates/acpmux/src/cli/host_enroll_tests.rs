@@ -114,7 +114,11 @@ fn machine_steps(
 #[test]
 fn the_update_step_runs_between_the_daemon_and_the_harness() {
     let local = local_with("order", "pi", "command = \"/Users/leo/bin/pi\"\n");
-    let update = |_: &dyn Remote, _: bool| StepResult::new(Step::Update, StepState::Ok, "timer");
+    let owners = std::cell::RefCell::new(Vec::new());
+    let update = |_: &dyn Remote, _: bool, own: Option<&str>| {
+        owners.borrow_mut().push(own.map(str::to_owned));
+        StepResult::new(Step::Update, StepState::Ok, "timer")
+    };
     let old: &[(&str, &str)] = &[(LOCAL_BIN, "old")];
     let fake = host_with(old, Some(("old", false)), LOCAL_BIN, crate::hub::BUILD);
     let mut lines = Vec::new();
@@ -133,6 +137,13 @@ fn the_update_step_runs_between_the_daemon_and_the_harness() {
         super::machine_steps(&fake, &plan(&[]), &local, false, Some(&update), &mut |_| {}).0;
     assert_eq!(results[2].state, StepState::Fail, "{results:?}");
     assert_eq!((results[3].step, results[3].state), (Step::Update, StepState::Skip));
+    // A standalone acpmux has no owner; the app's daemon names its path
+    // (update_step's tests: the timer is then left alone).
+    let both: &[(&str, &str)] = &[(LOCAL_BIN, "old"), (APP_BIN, crate::hub::BUILD)];
+    let fake = host_with(both, Some((crate::hub::BUILD, true)), APP_EXE, crate::hub::BUILD);
+    super::machine_steps(&fake, &plan(&[]), &local, true, Some(&update), &mut |_| {});
+    assert_eq!(*owners.borrow(), [None, Some(APP_EXE.to_owned())]);
+    assert_read_only(&fake);
 }
 
 #[test]

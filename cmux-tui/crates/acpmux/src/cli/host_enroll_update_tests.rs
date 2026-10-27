@@ -93,34 +93,34 @@ fn the_probe_reads_only_its_own_lines() {
 fn each_kind_of_host_says_how_it_stays_current() {
     for fix in [false, true] {
         let mac = Host::new(&["os=Darwin", "systemd"]);
-        let r = update(&mac, fix);
+        let r = update(&mac, fix, None);
         assert_eq!((r.step, r.state), (Step::Update, StepState::Ok));
         assert!(r.detail.starts_with("a Mac:"), "{r:?}");
 
         let cloud = Host::new(&["os=Linux", "cloud", "systemd"]);
-        let r = update(&cloud, fix);
+        let r = update(&cloud, fix, None);
         assert_eq!(r.state, StepState::Ok);
         assert!(r.detail.contains("cmux Cloud VM"), "{r:?}");
 
         let timer = Host::new(&["os=Linux", "systemd", "timer"]);
-        let r = update(&timer, fix);
+        let r = update(&timer, fix, None);
         assert_eq!(r.state, StepState::Ok);
         assert!(r.detail.contains("every 15 minutes"), "{r:?}");
 
         let off = Host::new(&["os=Linux", "off", "systemd"]);
-        let r = update(&off, fix);
+        let r = update(&off, fix, None);
         assert_eq!(r.state, StepState::Skip, "turned off by the person: left off");
         assert!(r.fix.as_deref().unwrap().contains("Remove ~/.acpmux/no-auto-update"), "{r:?}");
 
         let no_systemd = Host::new(&["os=Linux"]);
-        let r = update(&no_systemd, fix);
+        let r = update(&no_systemd, fix, None);
         assert_eq!(r.state, StepState::Warn);
         assert!(r.detail.contains("no user systemd"), "{r:?}");
 
         // Turned off is turned off on a Mac and a Cloud VM too.
         for os in [&["os=Darwin", "off"][..], &["os=Linux", "cloud", "off", "systemd"]] {
             let host = Host::new(os);
-            assert_eq!(update(&host, fix).state, StepState::Skip, "{os:?}");
+            assert_eq!(update(&host, fix, None).state, StepState::Skip, "{os:?}");
         }
 
         for host in [mac, cloud, timer, off, no_systemd] {
@@ -132,7 +132,7 @@ fn each_kind_of_host_says_how_it_stays_current() {
 #[test]
 fn doctor_reports_a_missing_timer_and_changes_nothing() {
     let host = Host::new(&["os=Linux", "systemd"]);
-    let r = update(&host, false);
+    let r = update(&host, false, None);
     assert_eq!(r.state, StepState::Warn, "a host without the timer still works");
     assert!(r.fix.as_deref().unwrap().contains("--fix"), "{r:?}");
     assert!(host.fenced.borrow().is_empty());
@@ -143,7 +143,7 @@ fn doctor_reports_a_missing_timer_and_changes_nothing() {
 #[test]
 fn enroll_installs_the_timer_under_the_update_lock() {
     let host = Host::new(&["os=Linux", "systemd"]);
-    let r = update(&host, true);
+    let r = update(&host, true, None);
     assert_eq!((r.step, r.state), (Step::Update, StepState::Fixed), "{r:?}");
     assert!(r.detail.starts_with("installed acpmux-update.timer"), "{r:?}");
     assert_eq!(host.fenced.borrow().len(), 1, "one install, fenced for the lease");
@@ -154,7 +154,7 @@ fn enroll_installs_the_timer_under_the_update_lock() {
 fn a_unit_someone_else_wrote_is_left_alone_and_said() {
     let mut host = Host::new(&["os=Linux", "systemd"]);
     host.install_out = "ACPMUX_AUTO_UPDATE_OFF=/etc/systemd/user/acpmux-update.timer is a unit acpmux did not write, so this host does not update itself: remove it, then run host update again";
-    let r = update(&host, true);
+    let r = update(&host, true, None);
     assert_eq!(r.state, StepState::Warn);
     assert!(
         r.detail
@@ -167,7 +167,7 @@ fn a_unit_someone_else_wrote_is_left_alone_and_said() {
 fn an_enabled_timer_acpmux_did_not_write_is_not_counted_or_replaced() {
     for fix in [false, true] {
         let host = Host::new(&["os=Linux", "systemd", "foreign"]);
-        let r = update(&host, fix);
+        let r = update(&host, fix, None);
         assert_eq!(r.state, StepState::Warn, "{r:?}");
         assert!(r.detail.contains("acpmux did not write"), "{r:?}");
         assert!(r.fix.as_deref().unwrap().starts_with("Remove the acpmux-update units"), "{r:?}");
@@ -185,19 +185,19 @@ fn an_enabled_timer_acpmux_did_not_write_is_not_counted_or_replaced() {
 #[test]
 fn a_stopped_timer_is_said_and_started() {
     let host = Host::new(&["os=Linux", "systemd", "stopped"]);
-    let r = update(&host, false);
+    let r = update(&host, false, None);
     assert_eq!(r.state, StepState::Warn, "{r:?}");
     assert!(r.detail.contains("off or stopped"), "{r:?}");
     assert!(r.fix.as_deref().unwrap().contains("--fix to start"), "{r:?}");
     assert!(host.fenced.borrow().is_empty());
 
-    let r = update(&host, true);
+    let r = update(&host, true, None);
     assert_eq!(r.state, StepState::Fixed, "{r:?}");
     assert_eq!(host.fenced.borrow().len(), 1);
 
     let mut host = Host::new(&["os=Linux", "systemd"]);
     host.starts = false;
-    let r = update(&host, true);
+    let r = update(&host, true, None);
     assert_eq!(r.state, StepState::Warn, "installed but not running: {r:?}");
     assert!(r.detail.contains("not running"), "{r:?}");
 }
@@ -227,6 +227,8 @@ mod probe_in_a_shell {
         timer: Option<&'static str>,
         /// A drop-in directory on disk, under ~/.config/systemd/user.
         drop_in_dir: Option<&'static str>,
+        /// A drop-in directory in a unit path only `systemd-analyze` names.
+        analyzed_drop_in_dir: Option<&'static str>,
     }
 
     const OWN: Units = Units {
@@ -238,6 +240,7 @@ mod probe_in_a_shell {
         service: Some(hosts::UPDATE_SERVICE),
         timer: Some(hosts::UPDATE_TIMER),
         drop_in_dir: None,
+        analyzed_drop_in_dir: None,
     };
     const NONE: Units = Units {
         enabled: "",
@@ -248,6 +251,7 @@ mod probe_in_a_shell {
         service: None,
         timer: None,
         drop_in_dir: None,
+        analyzed_drop_in_dir: None,
     };
     const OTHER_TEXT: &str = "[Service]\nExecStart=/usr/bin/true\n";
 
@@ -266,10 +270,16 @@ mod probe_in_a_shell {
                 fs::write(units.join(file), text).unwrap();
             }
         }
-        if let Some(dir) = u.drop_in_dir {
-            fs::create_dir_all(units.join(dir)).unwrap();
-            fs::write(units.join(dir).join("o.conf"), OTHER_TEXT).unwrap();
+        let extra = root.join("extra-units");
+        for (dir, name) in [(&units, u.drop_in_dir), (&extra, u.analyzed_drop_in_dir)] {
+            if let Some(name) = name {
+                fs::create_dir_all(dir.join(name)).unwrap();
+                fs::write(dir.join(name).join("o.conf"), OTHER_TEXT).unwrap();
+            }
         }
+        let analyze = bin.join("systemd-analyze");
+        fs::write(&analyze, format!("#!/bin/sh\necho {}\n", extra.display())).unwrap();
+        fs::set_permissions(&analyze, fs::Permissions::from_mode(0o755)).unwrap();
         let frag = if u.frag == "own" { units.display().to_string() } else { u.frag.into() };
         let fake = format!(
             r#"#!/bin/sh
@@ -334,6 +344,13 @@ esac
     }
 
     #[test]
+    fn a_drop_in_for_every_service_is_the_systems_not_this_units() {
+        let u =
+            Units { drop_in_dir: Some("service.d"), analyzed_drop_in_dir: Some("timer.d"), ..OWN };
+        assert_eq!(kind(&probe(u)), "timer");
+    }
+
+    #[test]
     fn a_unit_acpmux_did_not_write_is_foreign_enabled_or_not() {
         for enabled in ["enabled", "disabled", "enabled-runtime", "static"] {
             for u in [
@@ -345,8 +362,11 @@ esac
                 Units { frag: "/etc/systemd/user", service: None, timer: None, ..OWN },
                 // Only on disk, not loaded, with other text.
                 Units { timer: Some(OTHER_TEXT), service: None, loaded: false, ..OWN },
-                // acpmux's own files with a drop-in directory beside them.
+                // acpmux's own files with a drop-in directory beside them,
+                // by name, by its dash prefix, or in a path systemd names.
                 Units { drop_in_dir: Some("acpmux-update.timer.d"), ..OWN },
+                Units { drop_in_dir: Some("acpmux-.service.d"), ..OWN },
+                Units { analyzed_drop_in_dir: Some("acpmux-update.service.d"), ..OWN },
             ] {
                 assert_eq!(kind(&probe(Units { enabled, ..u })), "foreign", "{enabled}");
             }
@@ -356,8 +376,27 @@ esac
         for u in [
             Units { drop_in: Some("acpmux-update.service"), ..NONE },
             Units { drop_in_dir: Some("acpmux-update.service.d"), ..NONE },
+            Units { analyzed_drop_in_dir: Some("acpmux-.timer.d"), ..NONE },
         ] {
             assert_eq!(kind(&probe(u)), "foreign");
+        }
+    }
+}
+
+#[test]
+fn cmux_own_acpmux_never_gets_the_timer() {
+    // The app's install or a cmux session daemon: the timer would run a
+    // standalone acpmux's updater, which is not what runs there.
+    for fix in [false, true] {
+        for found in [&["os=Linux", "systemd"][..], &["os=Linux", "systemd", "stopped"]] {
+            let host = Host::new(found);
+            let r = update(&host, fix, Some("/home/leo/.local/bin/cmux-tui"));
+            assert_eq!(r.state, StepState::Skip, "{r:?}");
+            assert!(
+                r.detail.starts_with("cmux's own acpmux runs here (/home/leo/.local/bin/cmux-tui)"),
+                "{r:?}"
+            );
+            assert!(host.fenced.borrow().is_empty(), "nothing installed");
         }
     }
 }
@@ -366,7 +405,7 @@ esac
 fn another_update_holding_the_lock_is_a_warning() {
     let mut host = Host::new(&["os=Linux", "systemd"]);
     host.locked = true;
-    let r = update(&host, true);
+    let r = update(&host, true, None);
     assert_eq!(r.state, StepState::Warn);
     assert!(r.detail.contains("another update of leo@box.tail is running"), "{r:?}");
     assert!(host.fenced.borrow().is_empty());
