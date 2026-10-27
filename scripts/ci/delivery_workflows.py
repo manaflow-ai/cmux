@@ -179,10 +179,11 @@ def builds_the_same(waiting: Sequence[str], other_jobs: Sequence[Mapping[str, An
     listed: dict[str, list[Mapping[str, Any]]] = {}
     for job in other_jobs:
         listed.setdefault(str(job.get("name") or ""), []).append(job)
-    for name in waiting:
-        legs = listed.get(name)
-        if not legs:
-            return f"it lists no job {name!r} (yet)"
+    for name in sorted(set(waiting)):
+        legs = listed.get(name) or []
+        want = list(waiting).count(name)
+        if len(legs) < want:
+            return f"it lists {len(legs)} job(s) {name!r} where the old run has {want}"
         for leg in legs:
             live = leg.get("status") in WAITING_JOB_STATUSES or leg.get("status") == "in_progress"
             if not live and not (leg.get("status") == "completed" and leg.get("conclusion") == "success"):
@@ -218,7 +219,8 @@ def superseded_unstarted(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any
         # Still at its gates (decide, inputs): whether it would build at all is not known yet, so nothing can show
         # that a newer run does the same.
         return False, "it waits on no build job yet, so what it would deliver cannot be matched"
-    waiting = sorted({str(job.get("name") or "") for job in jobs if job.get("conclusion") != "skipped"})
+    # Every leg, with multiplicity: matrix legs may share a name, and each needs its own leg in the newer run.
+    waiting = sorted(str(job.get("name") or "") for job in jobs if job.get("conclusion") != "skipped")
     newer = newer_head_runs(run, runs)
     if not newer:
         return False, f"no newer head of {run.get('head_branch') or 'its branch'} has its own run of this workflow"

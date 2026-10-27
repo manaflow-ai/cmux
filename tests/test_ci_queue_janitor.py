@@ -1375,6 +1375,23 @@ class SupersededDeliveryTests(unittest.TestCase):
         self.assertEqual({d.run["id"]: d.action for d in decisions}[old["id"]], "keep")
         self.assertEqual(fake.posts(), [])
 
+    def test_a_pr_opened_at_the_head_during_the_sweep_keeps_the_run(self):
+        old, tip = nightly_run("864dceb6", 70), nightly_run("ccb74c4d", 20)
+        jobs = {old["id"]: gate_jobs(70), tip["id"]: gate_jobs(20)}
+        fake = FakeGitHub({r["id"]: dict(r) for r in (old, tip)}, jobs)
+        fake.prs = {"nightly-next": [make_pr(9, head="864dceb6")]}  # what the re-read sees; the snapshot had none
+        candidates = janitor.superseded_candidates([old, tip], jobs)
+        decisions, _ = janitor.skip_superseded_delivery(fake, candidates, [old, tip], jobs, {}, dry_run=False)
+        self.assertIn("open PR #9", {d.run["id"]: d.note for d in decisions}[old["id"]])
+        self.assertEqual(fake.posts(), [])
+
+    def test_matrix_legs_need_a_leg_each(self):
+        old, new = nightly_run("864dceb6", 60), nightly_run("ccb74c4d", 20)
+        two = gate_jobs(60) + [dict(gate_jobs(60)[-1])]  # two `build-nightly-app` legs
+        one = gate_jobs(20)
+        self.assertFalse(janitor.superseded_unstarted(old, two, [old, new], lambda other: one)[0])
+        self.assertTrue(janitor.superseded_unstarted(old, two, [old, new], lambda other: one + [dict(one[-1])])[0])
+
     def test_a_finished_newer_run_is_found_by_one_branch_listing(self):
         old = nightly_run("864dceb6", 70)
         done = {**nightly_run("ccb74c4d", 20, status="completed"), "conclusion": "success"}

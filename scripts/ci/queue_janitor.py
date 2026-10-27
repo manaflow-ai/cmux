@@ -2404,6 +2404,21 @@ def skip_superseded_delivery(
         if not ok:
             decisions.append(SupersededDecision(run, "keep", f"on re-read: {why}"))
             continue
+        # The branch's open pull requests again too: one may have been opened at this head during the reads.
+        branch = str(current.get("head_branch") or "")
+        try:
+            fresh_prs = github.pull_requests([branch]).get(branch, []) if branch else []
+        except RateLimited:
+            raise
+        except RuntimeError as error:
+            failures += 1
+            decisions.append(SupersededDecision(run, "keep", f"failed to re-read open PRs: {error}"))
+            continue
+        at_head = open_pr_at_head(current, fresh_prs)
+        if at_head is not None:
+            decisions.append(SupersededDecision(run, "keep", f"on re-read, at the head of open PR "
+                                                f"#{at_head.get('number')}; {OPEN_HEAD_RULE}"))
+            continue
         try:
             github.cancel(run_id)
         except RuntimeError as error:
