@@ -5178,7 +5178,10 @@ Sets (`true`/`false`) or clears (`null`) one participant's counts-toward-size
 override. At most one selector: `client:uint64` (that client's view of this
 placement), `lease:string` (the caller's own leased view), `view:string` (the
 caller's relay sub-view), or `participant:string`. Without a selector it
-targets the caller's own view.
+targets the caller's own view. With `lease`, `counts:false` also says the
+view is hidden and `null` that it shows again: with daemon feature
+`hiddenTerminalQos`, a terminal no view shows runs its threads at utility. The
+other selectors set only the sizing choice; the view still shows the terminal.
 
 Params: required `surface:Id` and `counts:bool|null`, plus the optional
 selector.

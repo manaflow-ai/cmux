@@ -19,18 +19,30 @@ use crate::echo_thread::ECHO_PATH_QOS;
 pub(crate) const HIDDEN_TERMINAL_QOS: ThreadQos = ThreadQos::Utility;
 
 impl Surface {
-    /// Runs this terminal's threads at the echo class when `shown`, at
-    /// [`HIDDEN_TERMINAL_QOS`] when not. A hosted terminal's host gets the
-    /// class too when its record takes `SetThreadQos`. No effect when the
-    /// class is unchanged or the surface is not a terminal.
-    pub(crate) fn set_threads_shown(&self, shown: bool) {
-        let Some(pty) = self.as_pty() else { return };
-        let qos = if shown { ECHO_PATH_QOS } else { HIDDEN_TERMINAL_QOS };
-        if !pty.thread_qos.request(qos) {
-            return;
-        }
+    /// Asks this terminal's threads to run at the echo class when `shown`,
+    /// at [`HIDDEN_TERMINAL_QOS`] when not. One atomic store, so a caller
+    /// may hold its own lock. True when the class changed: the caller then
+    /// calls [`Self::send_thread_qos_to_host`] without its lock.
+    pub(crate) fn request_threads_shown(&self, shown: bool) -> bool {
+        let Some(pty) = self.as_pty() else { return false };
+        pty.thread_qos.request(if shown { ECHO_PATH_QOS } else { HIDDEN_TERMINAL_QOS })
+    }
+
+    /// Sends the terminal's current class to its host, when it is hosted
+    /// and its record takes `SetThreadQos`.
+    pub(crate) fn send_thread_qos_to_host(&self) {
         #[cfg(any(unix, windows))]
-        pty.send_host_thread_qos();
+        if let Some(pty) = self.as_pty() {
+            pty.send_host_thread_qos();
+        }
+    }
+
+    /// [`Self::request_threads_shown`], then the host's copy when it changed.
+    #[cfg(test)]
+    pub(crate) fn set_threads_shown(&self, shown: bool) {
+        if self.request_threads_shown(shown) {
+            self.send_thread_qos_to_host();
+        }
     }
 
     /// The class this terminal's threads were last asked to run at.
@@ -41,24 +53,19 @@ impl Surface {
 }
 
 impl PtySurface {
-    /// Sends the terminal's class to its host.
+    /// Sends the terminal's class to its host. The class is read under the
+    /// runtime lock, so the last of two racing sends carries the latest
+    /// request. A new host connection calls it too: a host keeps the class
+    /// a previous owner set (`HostShared::thread_qos`), whatever this
+    /// owner's start value.
     #[cfg(any(unix, windows))]
-    fn send_host_thread_qos(&self) {
-        let qos = self.thread_qos.get();
+    pub(super) fn send_host_thread_qos(&self) {
         let runtime = self.runtime.lock().unwrap_or_else(PoisonError::into_inner);
         if let PtyRuntime::Hosted(host) = &*runtime {
             // Advisory: after a failed write the host keeps its class, and
-            // the connection's reader sees the broken stream and reconnects.
-            let _ = host.send_thread_qos(qos);
-        }
-    }
-
-    /// A new host connection (a reconnect or a replacement host) starts its
-    /// threads at the echo class: send it a lowered class again.
-    #[cfg(any(unix, windows))]
-    pub(super) fn resend_lowered_host_thread_qos(&self) {
-        if self.thread_qos.get() != ECHO_PATH_QOS {
-            self.send_host_thread_qos();
+            // the connection's reader sees the broken stream, reconnects and
+            // sends the class again.
+            let _ = host.send_thread_qos(self.thread_qos.get());
         }
     }
 }

@@ -103,11 +103,23 @@ pub(super) struct SizingMember {
     pub(super) joining: Option<SurfaceId>,
     /// Relay sub-view name; `None` for the connection's own view.
     pub(super) view: Option<String>,
+    /// The view said it is hidden (a parked tab, a workspace switched away:
+    /// `set-size-counts` by its lease, `TerminalAttachment.sendHidden`).
+    /// Unlike a `counts:false` choice it means no one sees the view
+    /// (`mux/terminal_sizing/thread_qos.rs`).
+    pub(super) hidden: bool,
 }
 
 impl SizingMember {
     pub(super) fn own_view(client: u64, placement: SurfaceId) -> Self {
-        Self { client, placement, views: BTreeSet::from([placement]), joining: None, view: None }
+        Self {
+            client,
+            placement,
+            views: BTreeSet::from([placement]),
+            joining: None,
+            view: None,
+            hidden: false,
+        }
     }
 
     pub(super) fn sub_view(client: u64, placement: SurfaceId, view: &str) -> Self {
@@ -117,6 +129,7 @@ impl SizingMember {
             views: BTreeSet::from([placement]),
             joining: None,
             view: Some(view.to_string()),
+            hidden: false,
         }
     }
 
@@ -287,9 +300,12 @@ pub(super) struct ClientSizingState {
     /// Counts [`Self::visible_terminals`] publications, so an older one never
     /// replaces a newer one (the Kitty share, `mux/kitty_share.rs`).
     pub(super) visibility_publications: u64,
-    /// Terminal threads run at utility while no view counting toward the
-    /// size shows the terminal (feature `hiddenTerminalQos`, read at start).
+    /// Terminal threads run at utility while no view shows the terminal
+    /// (feature `hiddenTerminalQos`, read at start).
     pub(super) threads_follow_visibility: bool,
+    /// Runtimes whose views may have been shown or hidden since the last
+    /// flush (`mux/terminal_sizing/thread_qos.rs`); empty with the feature off.
+    pub(super) pending_thread_visibility: BTreeSet<SurfaceId>,
 }
 
 pub(super) fn entry_owns(
@@ -436,6 +452,15 @@ impl ClientSizingState {
     pub(super) fn note_size_state(&mut self, runtime: SurfaceId, changed: bool) {
         if changed {
             self.pending_size_states.insert(runtime);
+            self.note_thread_visibility(runtime);
+        }
+    }
+
+    /// Marks `runtime` for the next pass of its threads' class
+    /// (`Mux::request_terminal_threads_shown`), with the feature on.
+    pub(super) fn note_thread_visibility(&mut self, runtime: SurfaceId) {
+        if self.threads_follow_visibility {
+            self.pending_thread_visibility.insert(runtime);
         }
     }
 

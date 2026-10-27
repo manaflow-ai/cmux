@@ -173,12 +173,14 @@ record advertises `supports_trace_control`, which records before version 4
 must not set.
 
 `SetThreadQos` asks the host to run its PTY reader and parser threads at a
-class: the daemon sends utility when no view of the terminal counts toward
-its size (its workspace or tab is hidden) and user-interactive when one does
-again (feature `hiddenTerminalQos`). It has request id 0 and no answer; each
-thread applies the class itself after its next wake. The daemon sends it only
-when the host record advertises `supports_thread_qos`, which records before
-version 4 must not set.
+class: the daemon sends utility when no view shows the terminal (its
+workspace or tab is hidden) and user-interactive when one does again
+(feature `hiddenTerminalQos`). The host keeps the class across owner
+connections, so the daemon also sends the current class on every new owner
+connection (launch, reconnect, adoption). It has request id 0 and no answer;
+each thread applies the class itself after its next wake. The daemon sends it
+only when the host record advertises `supports_thread_qos`, which records
+before version 4 must not set.
 
 OSC 52 clipboard reads are denied by default. While a `CLIPBOARD_READ` owner
 connection is attached, the host defers each program read and sends

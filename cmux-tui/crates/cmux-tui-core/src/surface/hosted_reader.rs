@@ -139,8 +139,9 @@ impl HostedReader {
             Ok(frames) => frames,
             Err(_) => return None,
         };
-        // This connection's host threads start at the echo class.
-        pty.resend_lowered_host_thread_qos();
+        // A host keeps the class an earlier connection or owner set: tell
+        // every connection the current one.
+        pty.send_host_thread_qos();
         loop {
             if journal_update.is_none() {
                 journal_target = pty.journal_target();

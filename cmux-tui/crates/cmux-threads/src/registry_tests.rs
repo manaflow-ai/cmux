@@ -46,6 +46,9 @@ fn following_threads_apply_a_request_at_their_next_pass_only() {
     for result in &results {
         assert_eq!(result.recv().unwrap(), (None, None), "no request, no syscall");
     }
+    // The start state is the runner's: from a raised nice the raise to
+    // UserInteractive at spawn is refused and counted already.
+    let start = names.map(|name| row(name).expect("a running thread has a row"));
 
     // One request reaches both threads; each applies it once.
     assert!(desired.request(ThreadQos::Utility));
@@ -56,14 +59,18 @@ fn following_threads_apply_a_request_at_their_next_pass_only() {
         step.send(()).unwrap();
         assert_eq!(result.recv().unwrap(), (Some(demoted), None));
     }
-    for name in names {
+    for (name, start) in names.iter().zip(&start) {
         let row = row(name).expect("a running thread has a row");
         assert_eq!(row.desired, ThreadQos::Utility);
         assert_eq!(row.declared, ThreadQos::UserInteractive);
         if demoted == QosChange::Applied {
             assert_eq!(row.effective, Some(ThreadQos::Utility));
         } else {
-            assert_eq!(row.refused_changes, 1, "a demotion it could not undo is counted");
+            assert_eq!(
+                row.refused_changes,
+                start.refused_changes + 1,
+                "a demotion it could not undo is counted"
+            );
         }
         #[cfg(target_vendor = "apple")]
         assert_eq!(row.live, LiveQos::Class(ThreadQos::Utility));
