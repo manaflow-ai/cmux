@@ -51,4 +51,26 @@ describe("new chat Auto environment", () => {
       }).environment.id,
     ).toBe("local");
   });
+
+  test("explicit local intent wins over remote keywords", () => {
+    expect(chooseAutoEnvironment({ prompt: "Build the macOS app locally", environments }).environment.id).toBe("local");
+  });
+
+  test("requires a complete machine-name reference", () => {
+    expect(chooseAutoEnvironment({ prompt: "Improve the developer documentation", environments: [
+      ...environments,
+      { id: "dev", label: "dev", kind: "ssh", connected: true },
+    ] }).environment.id).toBe("local");
+  });
+
+  test("keeps a known project folder when the prompt names its machine", () => {
+    expect(
+      chooseAutoEnvironment({
+        prompt: "Continue the work on gpu-box",
+        project: "/home/dev/model",
+        environments,
+        sessions: [{ cwd: "/home/dev/model", peer: "gpu-box" }],
+      }),
+    ).toMatchObject({ environment: { id: "gpu-box" }, cwd: "/home/dev/model" });
+  });
 });

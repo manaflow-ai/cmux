@@ -297,7 +297,10 @@ export function EnvironmentPicker({
       : []),
   ];
   const suggestions = [
-    ...actions.filter((action) => action.kind === "auto").map((action) => action.value),
+    ...actions
+      .filter((action) => action.kind === "auto")
+      .filter((action) => matches(words, `${action.text} ${action.detail ?? ""}`))
+      .map((action) => action.value),
     ...savedShown.map((environment) => SAVED + environment.id),
     ...shown.map((environment) => environment.id),
     ...actions.filter((action) => action.kind !== "auto").map((action) => action.value),

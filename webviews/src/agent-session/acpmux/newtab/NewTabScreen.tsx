@@ -1233,7 +1233,10 @@ export function NewTabScreen(props: Props) {
       machines={sshMachines}
       machineFolders={machineFolders}
       {...(props.onConnect ? { onConnectSSH: () => props.onConnect!("ssh") } : {})}
-      onSave={saved.save}
+      onSave={async (draft) => {
+        await saved.save(draft);
+        setAutoEnvironment(false);
+      }}
       onRemove={saved.remove}
       onClose={() => {
         saved.edit(undefined);

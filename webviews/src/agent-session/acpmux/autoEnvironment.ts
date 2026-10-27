@@ -15,6 +15,7 @@ export type AutoEnvironmentChoice = {
 };
 
 const REMOTE_WORDS = /\b(?:cloud|remote|server|vm|deploy|build|ci|linux)\b/i;
+const LOCAL_WORDS = /\b(?:local(?:ly)?|here|this mac|on my mac|on this computer)\b/i;
 
 /// Resolve the default destination for a new prompt. The local machine is the safe default;
 /// an explicitly named machine, a project that already runs on a remote machine, or a prompt
@@ -33,27 +34,40 @@ export function chooseAutoEnvironment({
   const ready = environments.filter(environmentReady);
   const remotes = ready.filter((environment) => environment.kind !== "local");
   const words = prompt.trim().toLocaleLowerCase();
+  const local = environments.find((environment) => environment.kind === "local") ?? {
+    id: "local",
+    label: "This Mac",
+    kind: "local" as const,
+  };
+
+  if (LOCAL_WORDS.test(words)) return { environment: local, reason: "local" };
+
+  const normalizedProject = normalizePath(project);
+  const projectSession = normalizedProject
+    ? sessions
+        .map((session) => {
+          const id = session.peer ?? (session.hostKind === "cloud" ? session.host : undefined);
+          return id && normalizePath(session.cwd) === normalizedProject ? session : undefined;
+        })
+        .find((session) => {
+          const id = session?.peer ?? (session?.hostKind === "cloud" ? session.host : undefined);
+          return id !== undefined && remotes.some((environment) => environment.id === id);
+        })
+    : undefined;
+  const projectMachine = projectSession?.peer ?? (projectSession?.hostKind === "cloud" ? projectSession.host : undefined);
 
   const named = [...remotes]
     .sort((left, right) => right.label.length - left.label.length)
-    .find((environment) => words.includes(environment.label.toLocaleLowerCase()));
-  if (named) return { environment: named, reason: "machine" };
+    .find((environment) => containsMachineReference(words, environment.label));
+  if (named)
+    return {
+      environment: named,
+      reason: "machine",
+      ...(named.id === projectMachine && projectSession?.cwd ? { cwd: projectSession.cwd } : {}),
+    };
 
-  const normalizedProject = normalizePath(project);
-  if (normalizedProject) {
-    const projectSession = sessions
-      .map((session) => {
-        const id = session.peer ?? (session.hostKind === "cloud" ? session.host : undefined);
-        return id && normalizePath(session.cwd) === normalizedProject ? session : undefined;
-      })
-      .find((session) => {
-        const id = session?.peer ?? (session?.hostKind === "cloud" ? session.host : undefined);
-        return id !== undefined && remotes.some((environment) => environment.id === id);
-      });
-    const projectMachine = projectSession?.peer ?? (projectSession?.hostKind === "cloud" ? projectSession.host : undefined);
-    const environment = projectMachine ? remotes.find((candidate) => candidate.id === projectMachine) : undefined;
-    if (environment) return { environment, reason: "project", cwd: projectSession?.cwd };
-  }
+  const projectEnvironment = projectMachine ? remotes.find((candidate) => candidate.id === projectMachine) : undefined;
+  if (projectEnvironment) return { environment: projectEnvironment, reason: "project", cwd: projectSession?.cwd };
 
   if (REMOTE_WORDS.test(words)) {
     const cloud = remotes.find((environment) => environment.kind === "cloud");
@@ -63,13 +77,14 @@ export function chooseAutoEnvironment({
   }
 
   return {
-    environment: environments.find((environment) => environment.kind === "local") ?? {
-      id: "local",
-      label: "This Mac",
-      kind: "local",
-    },
+    environment: local,
     reason: "local",
   };
+}
+
+function containsMachineReference(prompt: string, label: string): boolean {
+  const escaped = label.toLocaleLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|[^\\p{L}\\p{N}_])${escaped}(?=$|[^\\p{L}\\p{N}_])`, "u").test(prompt);
 }
 
 function normalizePath(path?: string): string | undefined {
