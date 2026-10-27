@@ -477,6 +477,9 @@ export function Composer({
   const notTyped = () => {
     typedAt.current = Number.NEGATIVE_INFINITY;
   };
+  /// The person edited this chat's prompt before its durable draft read answered (a clear too):
+  /// that read keeps their text, empty or not, and a quit before it answers saves it.
+  const editedBeforeHydration = useRef(false);
   const prompts = usePromptHistory(snapshot.rows);
   // Send becomes Stop in place once the turn starts; a second click of a
   // double-click, or a click right after Enter, must not cancel the new turn.
@@ -663,7 +666,7 @@ export function Composer({
         // shows what it had before, so writing it would clear the draft being restored.
         // Before the durable read answers, only what the person typed goes (the read keeps a typed
         // prompt over acpmux's the same way); an untouched editor leaves acpmux's draft alone.
-        const ready = hydratedSession.current === session || typedAt.current > Number.NEGATIVE_INFINITY;
+        const ready = hydratedSession.current === session || editedBeforeHydration.current;
         if (session && ready && !restoringSession.current && typed !== lastQueuedDraftText(session)) {
           writePersistedDraft(session, typed);
         }
@@ -709,6 +712,7 @@ export function Composer({
     // Another chat's prompt comes in: no key before it was typing for this one.
     notTyped();
     hydratedSession.current = undefined;
+    editedBeforeHydration.current = false;
     restoringSession.current = true;
     const restored = readPersistedDraft(sessionId) ?? "";
     // A relaunch draft arrives with the handshake at the same time as the session reset. Keep it
@@ -754,13 +758,15 @@ export function Composer({
       if (!current) return;
       const hasPendingWrite = hasPendingDraftWrite(sessionId);
       const currentText = field.current?.value() ?? textRef.current;
-      if (!hasPendingWrite && restored && !currentText) {
+      const edited = editedBeforeHydration.current;
+      editedBeforeHydration.current = false;
+      if (!hasPendingWrite && restored && !currentText && !edited) {
         restoringSession.current = true;
         notTyped();
         setText(restored);
         setCaret(restored.length);
         pendingCaret.current = restored.length;
-      } else if (!hasPendingWrite && currentText.trim()) {
+      } else if (!hasPendingWrite && (currentText.trim() || edited)) {
         // A local remount cache or keystroke arrived before the daemon read. Preserve it durably.
         writePersistedDraft(sessionId, currentText);
       }
@@ -1350,6 +1356,7 @@ export function Composer({
   promptChange.current = (value, at) => {
     edit(value, at);
     if (performance.now() - typedAt.current >= TYPED_WINDOW_MS) return;
+    if (hydratedSession.current !== sessionId) editedBeforeHydration.current = true;
     // One change per key: what the field does after it (normalizing) is not another.
     typedAt.current = Number.NEGATIVE_INFINITY;
     if (sessionId && value.trim()) onTyping?.(value, sessionId);
