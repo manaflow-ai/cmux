@@ -13877,6 +13877,7 @@
    "priority": "control",
    "durability": "memory",
    "clients": [
+    "cli",
     "sdk"
    ]
   },
@@ -21581,6 +21582,7 @@
    "ordering": "independent",
    "durability": "read_only",
    "clients": [
+    "cli",
     "sdk"
    ]
   },

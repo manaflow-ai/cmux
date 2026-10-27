@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2e19e93c210ccad074d2927c5cdbb72fb2ddba7b7266cdbfede44aa74f140e10. */
+/* cmux-tui mux protocol 12, IR c1086155af4d796904f6490f45a796ba9c185e1674946064938c507c88cc9754. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "2e19e93c210ccad074d2927c5cdbb72fb2ddba7b7266cdbfede44aa74f140e10" as const;
+export const SDK_IR_SHA256 = "c1086155af4d796904f6490f45a796ba9c185e1674946064938c507c88cc9754" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",

@@ -536,6 +536,39 @@ def cli_call_helper_names() -> set[str]:
     return set(CLI_CALL_HELPER_SENDS)
 
 
+_CLIENT_USE = re.compile(r"\bcmux_ipc::client::(?:\{([^}]*)\}|(\w+))")
+
+
+def _pascal(name: str) -> str:
+    """The Rust type stem cmux-ipc's build.rs gives a command (build-support/client_requests.rs)."""
+
+    return "".join(part[:1].upper() + part[1:] for part in re.split(r"[-_.]", name))
+
+
+def cli_typed_request_names(commands: Iterable[str]) -> set[str]:
+    """Wire names of the generated `<Command>Request` types (cmux_ipc::client) the
+    Rust CLI imports. A command the CLI sends through its typed request has no
+    `"cmd"` literal for census Q14 to see, so without this the migrated commands
+    would lose `cli`, and with it the very types the CLI imports."""
+
+    by_type = {f"{_pascal(name)}Request": name for name in commands}
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--", "*.rs"],
+        cwd=CLI_SRC, capture_output=True, check=True,
+    ).stdout.decode().split("\0")
+    names: set[str] = set()
+    for relative in filter(None, listed):
+        try:
+            text = (CLI_SRC / relative).read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            raise AssignError(f"cannot read {relative}: {error}") from error
+        for group, single in _CLIENT_USE.findall(text):
+            for ident in re.findall(r"\w+", group or single):
+                if ident in by_type:
+                    names.add(by_type[ident])
+    return names
+
+
 def _match_brace(text: str, open_: int) -> int:
     depth = 0
     for index in range(open_, len(text)):
@@ -646,6 +679,15 @@ def swift_spawning_commands() -> set[str]:
 # Assignment ------------------------------------------------------------------------
 
 
+def _schema_commands() -> list[str]:
+    """The command names of the committed schema, to resolve the CLI's request types."""
+
+    try:
+        return list(json.loads(SCHEMA.read_text(encoding="utf-8"))["commands"])
+    except (OSError, UnicodeError, ValueError, KeyError) as error:
+        raise AssignError(f"cannot read the commands of {SCHEMA}: {error}") from error
+
+
 @dataclass
 class Sources:
     """The name sets read outside the schema, loaded only when a command needs them."""
@@ -653,7 +695,9 @@ class Sources:
     macos: Callable[[], set[str]] = (
         lambda: census_names("Q1") | swift_typed_commands() | swift_call_site_names() | swift_line_commands()
     )
-    cli: Callable[[], set[str]] = lambda: census_names("Q14") | cli_call_helper_names()
+    cli: Callable[[], set[str]] = lambda: (
+        census_names("Q14") | cli_call_helper_names() | cli_typed_request_names(_schema_commands())
+    )
     ios: Callable[[], set[str]] = ios_command_names
     swift_spawning: Callable[[], set[str]] = swift_spawning_commands
 

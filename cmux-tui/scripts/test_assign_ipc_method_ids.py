@@ -359,6 +359,18 @@ class SwiftSourceTests(unittest.TestCase):
         for name in commands:
             self.assertIn("macos", live()["commands"][name]["clients"])
 
+    def test_cli_typed_requests_keep_cli(self) -> None:
+        # The CLI sends these through cmux_ipc::client request types, which exist only
+        # while the schema lists `cli`; census Q14 sees no "cmd" literal for them.
+        names = ASSIGN.cli_typed_request_names(live()["commands"])
+        self.assertTrue({"identify", "reload-config", "server-stats", "shutdown-daemon"} <= names)
+        for name in names:
+            self.assertIn("cli", live()["commands"][name]["clients"], name)
+
+    def test_cli_typed_request_type_names_follow_build_rs(self) -> None:
+        self.assertEqual(ASSIGN._pascal("reload-config"), "ReloadConfig")
+        self.assertEqual(ASSIGN._pascal("fs.stat"), "FsStat")
+
     def test_swift_spawning_requests_are_listed(self) -> None:
         spawning = ASSIGN.swift_spawning_commands()
         self.assertTrue({"new-tab", "split", "create-terminal"} <= spawning)
