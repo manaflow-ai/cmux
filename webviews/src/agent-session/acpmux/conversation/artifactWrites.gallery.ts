@@ -31,6 +31,13 @@ export default agentPaneEntry({
   title: "Recorded HTML artifacts",
   area: "Agent pane",
   height: 640,
+  checks: {
+    layoutShiftMax: {
+      value: 0.2,
+      reason:
+        "The play explicitly expands a tool group and opens the side panel, which reflows the transcript and composer. The assertions test whole-document detection, not a stationary layout during these clicks.",
+    },
+  },
   covers: [
     "agent-session/acpmux/conversation/artifactWrites.ts",
     "agent-session/acpmux/conversation/writtenArtifacts.tsx",
