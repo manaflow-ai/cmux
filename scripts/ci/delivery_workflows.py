@@ -203,12 +203,13 @@ def superseded_unstarted(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any
     head's run among (the same workflow's runs on the branch, or every in-flight run); `jobs_of(newer)` reads a
     newer run's jobs (None when unread), at most REPLACEMENT_JOB_READS of them. The newer run must show the same
     build: each job the old run waits on is listed there and not skipped or failed."""
-    if run.get("status") == "completed":
-        return False, "it has completed"
+    if run.get("status") not in WAITING_JOB_STATUSES and run.get("status") != "in_progress":
+        return False, f"it is {run.get('status') or 'in an unknown state'}"
     if jobs is None:
         return False, "its jobs could not be read"
-    if int(run.get("run_attempt") or 1) > 1:
-        return False, f"it is attempt {run.get('run_attempt')}, and an earlier attempt's jobs are not read"
+    if run.get("run_attempt") != 1:
+        return False, (f"it is attempt {run.get('run_attempt')}, and an earlier attempt's jobs are not read"
+                       if run.get("run_attempt") else "its attempt could not be read")
     started = build_started(jobs)
     if started:
         return False, f"its build has started: {started}"

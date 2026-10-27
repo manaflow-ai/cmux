@@ -1322,6 +1322,9 @@ class SupersededDeliveryTests(unittest.TestCase):
         ok, why = self.judge(old, gate_jobs(60), [old, new])
         self.assertFalse(ok)
         self.assertIn("attempt 2", why)
+        for broken in ({"run_attempt": None}, {"status": None}, {"status": "completed"}, {"status": "weird"}):
+            with self.subTest(broken=broken):
+                self.assertFalse(self.judge({**old, "run_attempt": 1, **broken}, gate_jobs(60), [old, new])[0])
 
     def sweep(self, runs, jobs, *, completed=(), dry_run=False, prs=None, rejob=None, extra_runs=()):
         fake = FakeGitHub({r["id"]: dict(r) for r in [*runs, *extra_runs]}, jobs)
