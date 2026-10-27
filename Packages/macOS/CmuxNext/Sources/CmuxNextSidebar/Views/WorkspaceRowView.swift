@@ -76,7 +76,7 @@ final class WorkspaceRowView: SidebarRowView {
     let statusBlock = WorkspaceStatusView()
     internal(set) var statusHeight: CGFloat = 0
     var hasSubtitle = false, isExpanded = false, timeText: String?
-    /// The workspace's name, while the row draws another (`sidebar.rowTitle` focused tab): calm
+    /// The workspace's name, while the row draws another (`sidebar.rowTitle` focused tab, an inherited chat): calm
     /// mode's tooltip says it, since no hover card opens there.
     var hiddenWorkspaceName: String?
     /// An idle workspace nobody named: its name reads in the secondary ink (`SidebarTunables.quietUnnamedRows`).
@@ -265,7 +265,7 @@ final class WorkspaceRowView: SidebarRowView {
         let shownTitle = ws.rowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)
         title.stringValue = shownTitle
         lastTitle = shownTitle
-        hiddenWorkspaceName = shownTitle.hasPrefix(ws.title) ? nil : ws.title
+        hiddenWorkspaceName = ws.namesWorkspace(shownTitle) ? nil : ws.title
         isQuiet = tunables.quietUnnamedRows && ws.isUnnamed && !ws.unread.isUnread && ws.activity == .idle && !ws.agentWorking
         isArchived = ws.isArchived
         icon.alphaValue = isArchived ? SidebarStyle.archivedAlpha : 1

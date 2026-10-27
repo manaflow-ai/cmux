@@ -63,9 +63,17 @@ nonisolated extension SidebarWorkspace {
         }
     }
 
-    /// What VoiceOver reads for the row's name: the focused tab alone still says its workspace.
+    /// What VoiceOver reads for the row's name: a name without the workspace (the focused tab
+    /// alone, an inherited chat name) still says its workspace first.
     public func spokenRowTitle(_ mode: SidebarRowTitleMode, inheritsSingleChat: Bool = false) -> String {
-        rowTitle(mode == .focusedTab ? .breadcrumb : mode, inheritsSingleChat: inheritsSingleChat)
+        let shown = rowTitle(mode, inheritsSingleChat: inheritsSingleChat)
+        return namesWorkspace(shown) ? shown : title + SidebarRowTitleMode.crumb + shown
+    }
+
+    /// `shown` (a `rowTitle`) says the workspace's name: it is the name, or the name's breadcrumb.
+    /// A tab that only starts with the name ("Project setup" in "Project") does not.
+    public func namesWorkspace(_ shown: String) -> Bool {
+        shown == title || shown.hasPrefix(title + SidebarRowTitleMode.crumb)
     }
 
     private static func named(_ title: String) -> String? {

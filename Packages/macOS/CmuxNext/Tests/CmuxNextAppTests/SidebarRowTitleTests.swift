@@ -36,6 +36,20 @@ import Testing
     @Test func theFocusedTabAloneStillSaysItsWorkspaceToVoiceOver() {
         #expect(Self.mixed.spokenRowTitle(.focusedTab) == "Sidebar breadcrumb › zsh")
         #expect(Self.mixed.spokenRowTitle(.breadcrumb) == Self.mixed.rowTitle(.breadcrumb))
+        // An inherited chat name says its workspace too, in every mode (review of #25808).
+        let chat = Self.workspace("workspace-3", tabs: [("Write the release notes", .agentChat)], focused: 0)
+        for mode in SidebarRowTitleMode.allCases {
+            #expect(chat.spokenRowTitle(mode, inheritsSingleChat: true) == "workspace-3 › Write the release notes", "\(mode)")
+        }
+    }
+
+    /// A tab whose name only starts with the workspace's does not say the workspace (review of #25808).
+    @Test func aTabThatStartsWithTheWorkspaceNameDoesNotNameIt() {
+        let ws = Self.workspace("Project", tabs: [("Project setup", .terminal)], focused: 0)
+        #expect(!ws.namesWorkspace(ws.rowTitle(.focusedTab)))
+        #expect(ws.spokenRowTitle(.focusedTab) == "Project › Project setup")
+        #expect(ws.namesWorkspace(ws.rowTitle(.breadcrumb)))
+        #expect(ws.namesWorkspace(ws.rowTitle(.workspace)))
     }
 
     /// Automatic names follow the focused chat's title (cmux#25416): the crumb never says it twice.
