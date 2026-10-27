@@ -2352,7 +2352,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextActionsTests",
-            dependencies: ["CmuxNextActions", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups", "CmuxNextTestSupport"],
+            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups", "CmuxNextTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
     ] + [appFFI]
