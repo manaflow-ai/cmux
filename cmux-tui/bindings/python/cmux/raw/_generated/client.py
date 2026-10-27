@@ -1020,8 +1020,8 @@ class GeneratedClientMixin:
     def terminal_resume_command(self, surface: Union[Id, None, MissingType] = MISSING, *, terminal_id: Union[str, None, MissingType] = MISSING, command: Union[str, None, MissingType] = MISSING) -> TerminalResumeCommandResult:
         return self._invoke_command('terminal-resume-command', TerminalResumeCommandRequest(surface=surface, terminal_id=terminal_id, command=command))
 
-    def trace_fetch(self, *, offset: Union[int, MissingType] = MISSING) -> TraceFetchResult:
-        return self._invoke_command('trace-fetch', TraceFetchRequest(offset=offset))
+    def trace_fetch(self, *, fetch_id: Union[int, MissingType] = MISSING, offset: Union[int, MissingType] = MISSING) -> TraceFetchResult:
+        return self._invoke_command('trace-fetch', TraceFetchRequest(fetch_id=fetch_id, offset=offset))
 
     def trace_start(self, *, categories: Union[List[str], None, MissingType] = MISSING, keys: Union[bool, MissingType] = MISSING) -> Any:
         return self._invoke_command('trace-start', TraceStartRequest(categories=categories, keys=keys))

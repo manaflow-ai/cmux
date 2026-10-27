@@ -3002,7 +3002,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "7006cb767b6fefe90d916f9e9a4dbd724f1ca855d12a998dfe5b1f150dba76fe",
+      "sha256": "935fead42c5e170148905a1332b736f0361993727fca37255cf45bae75ed59b7",
       "size": 7906
     },
     {
@@ -4237,13 +4237,13 @@
     },
     {
       "path": "TraceFetchRequest.java",
-      "sha256": "83ee6c153d9a26eb06efb1f0ba4898cec69a78fe41462ed645ed657688e52b85",
-      "size": 2841
+      "sha256": "04ce372ddccaff1e934b094d95774ed38f75b669423581132920c8e876dd6c81",
+      "size": 3469
     },
     {
       "path": "TraceFetchResult.java",
-      "sha256": "21ce9ccea820f2999ccb55020db743303573bad4828094abf759dfcbe51ef214",
-      "size": 5173
+      "sha256": "874162f4b07b0e6da7d6179a3dc9b5c3a36073f306075d79dd60064da7a23b3d",
+      "size": 5873
     },
     {
       "path": "TraceFetchResultRole.java",
@@ -4492,7 +4492,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "b1f312cb2752fb6e2e30b9ff897ff4fb630dc756f53799c7751ba0ab860c293f",
+  "ir_sha256": "e94915cf910941bce017ae9588e94785e4800d01464d2fa90ddc351b5e7bd28e",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

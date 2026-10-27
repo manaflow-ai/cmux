@@ -6087,6 +6087,9 @@ def check_clock_command():
         code, report = check_clock(out, rings)
         assert code == 1 and report["clock_order"]["checked_requests"] == 1, report
         assert [(v["kind"], v["pid"]) for v in report["clock_order"]["violations"]] == [("request", 20)], report
+        rings[1]["records"][0]["t_ns"] = 110_000
+        assert check_clock(out, rings)[0] == 0
+        assert request_flow_summary(load_flow_inputs(out, read_signposts(""), rings)[2])["request_flow_linked"] == 100.0
     check_clock_bridge_recording()
 
 
@@ -6127,9 +6130,6 @@ def check_clock_bridge_recording():
         write(out, [], "local")
         code, report = check_clock(out)
         assert code == 1 and [v["pid"] for v in report["clock_order"]["violations"]] == [10], report
-        rings[1]["records"][0]["t_ns"] = 110_000
-        assert check_clock(out, rings)[0] == 0
-        assert request_flow_summary(load_flow_inputs(out, read_signposts(""), rings)[2])["request_flow_linked"] == 100.0
 
 
 def check_focus_quiet_terminal():

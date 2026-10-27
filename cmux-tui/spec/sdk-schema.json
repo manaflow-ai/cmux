@@ -13272,6 +13272,17 @@
      "presence": "required",
      "nullable": false
     },
+    "fetch_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The id of the copy the offset-0 call took; every later piece of the fetch names it. Another fetch's offset-0 call replaces the copy and gets a new id."
+     ]
+    },
     "offset": {
      "type": {
       "kind": "scalar",
@@ -21754,6 +21765,18 @@
       "default": 0,
       "constraints": [
        "0 takes a new copy of the daemon's recording ring; a later offset reads that copy."
+      ]
+     },
+     "fetch_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": 0,
+      "constraints": [
+       "Past offset 0, the fetch_id of the offset-0 reply. A piece of a copy another fetch replaced is refused, never read from the new copy."
       ]
      }
     },

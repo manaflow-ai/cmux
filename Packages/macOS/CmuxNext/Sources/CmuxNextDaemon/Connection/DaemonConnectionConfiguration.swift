@@ -13,8 +13,9 @@ public struct DaemonConnectionConfiguration: Sendable {
     public var healthyAfter: Duration
     /// The connection asks the daemon this often whether it still answers;
     /// `heartbeatMisses` unanswered asks in a row close it (`.disconnected`,
-    /// then reconnect). A bridged connection always asks (a lost server: the
-    /// link itself waits 10 min); a local one only with `localHeartbeat`.
+    /// then reconnect). A bridged or remote connection always asks (a lost
+    /// server: the link itself waits 10 min); a local one only with
+    /// `localHeartbeat` (``heartbeats(_:)``).
     public var heartbeat: Duration = .seconds(15)
     public var heartbeatMisses = 2
     /// Heartbeat a local daemon too: an owner stopped (SIGSTOP) or wedged
@@ -22,6 +23,10 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// Only the app's main connection sets it (it drives the not-connected
     /// state), so page relays and short reads add no idle wakeups.
     public var localHeartbeat = false
+    /// The daemon runs on another machine behind a socket this Mac forwards (an SSH bridge, a Cloud machine):
+    /// heartbeat it like a bridge child, so a lost link shows and every ask measures that machine's trace clock
+    /// (``ConnectionHeartbeat/clockOffset()``, p09-observability-116). `DaemonService.start(remote:)` sets it.
+    public var remoteMachine = false
     /// Extra events that may let a reconnect succeed (network, sign-in).
     /// The connection also watches its daemon socket through it.
     public var retryWake: RetryWake?
@@ -65,6 +70,12 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// `daemon.line` scope, never its `read(2)` wait). The App's composition root sets it to its
     /// ``HangWatch``; nil (the default) watches nothing.
     public var hangWatch: (any HangWatchScoping)?
+    /// Whether a connection to `endpoint` runs the heartbeat: a bridge child, a daemon on another machine, or
+    /// this Mac's daemon with ``localHeartbeat``.
+    func heartbeats(_ endpoint: DaemonEndpoint) -> Bool {
+        endpoint.bridge != nil || remoteMachine || localHeartbeat
+    }
+
     /// Told each time the connection's quiet-handoff gate parks a wait (a test seam; the default ignores it).
     var handoffWaits: @Sendable (QuietHandoffGate.Wait) -> Void = { _ in }
 

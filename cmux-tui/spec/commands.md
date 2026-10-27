@@ -368,7 +368,8 @@ and `capabilities`.
 With `trace_clock: true` (capability `trace-fetch-v1`), the reply adds
 `trace_clock_ns` (uint64, this daemon's trace clock read last, just before the
 reply) and `trace_clock_domain` (`uptime_raw`, `monotonic` or `qpc`). The app's
-heartbeat over a bridge sends it on every ask and keeps the round trip with the
+heartbeat to a daemon on another machine (an SSH or Cloud socket, or a bridge
+child) sends it on every ask and keeps the round trip with the
 shortest time of its last 8 as the clock offset of that machine, with half that
 round trip as its error bound (p09-observability-116). Off by default, so strict
 older SDK decoders keep reading the reply.
@@ -1250,10 +1251,14 @@ offset is read. The link's `owner_session` splice is the owner of the remote
 session, so a bridge collects through it. It shares the one-call-at-a-time
 rule of the other trace calls (`another trace control call is running`).
 
-Params: `{offset?: uint64}` (default 0). Offset 0 takes a consistent copy of
-the recording ring (it may still be recording) and answers its first piece; a
-later offset reads that copy. The reader asks again at `offset + piece length`
-until `done`. Reading the last piece drops the copy, and so does a
+Params: `{offset?: uint64, fetch_id?: uint64}` (both default 0). Offset 0
+takes a consistent copy of the recording ring (it may still be recording),
+gives it a new `fetch_id` and answers its first piece; a later offset reads
+that copy. The reader asks again at `offset + piece length` with the offset-0
+reply's `fetch_id` until `done`. The daemon keeps one copy for all clients:
+another client's offset-0 call replaces it, and a piece whose `fetch_id` is not
+the current copy's is refused, so a reader never joins two copies of a
+fixed-size ring. Reading the last piece drops the copy, and so does a
 `trace-start` (a new recording): a later offset is then refused. A piece is at
 most 1 MiB, so a 32 MiB ring never holds the connection's other replies behind
 one line.
@@ -1264,6 +1269,7 @@ Result:
 object{
   role:"daemon",
   pid:uint32,
+  fetch_id:uint64,
   offset:uint64,
   total_bytes:uint64,
   done:bool,
@@ -1276,7 +1282,8 @@ object{
 Errors: `trace control requires a trusted local connection`, `another trace
 control call is running`, `this daemon has no trace recording to fetch`, `no
 trace fetch is in progress: start it again at offset 0`, `the trace fetch
-offset is past the recording's end`.
+offset is past the recording's end`, `another trace fetch replaced this one's
+copy: start it again at offset 0`.
 
 ### browser-host-provider
 

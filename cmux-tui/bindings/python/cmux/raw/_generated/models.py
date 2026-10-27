@@ -2892,6 +2892,7 @@ class TraceFetchResult:
     __cmux_schema_path__: ClassVar[str] = 'types/TraceFetchResult'
     data: str
     done: bool
+    fetch_id: int
     offset: int
     pid: int
     role: Literal['daemon']
@@ -6368,6 +6369,7 @@ class TerminalResumeCommandRequest:
 @dataclass(frozen=True)
 class TraceFetchRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/trace-fetch/request'
+    fetch_id: Union[int, MissingType] = field(default=MISSING)
     offset: Union[int, MissingType] = field(default=MISSING)
     extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
 

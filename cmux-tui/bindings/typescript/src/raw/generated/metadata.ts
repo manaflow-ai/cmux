@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b1f312cb2752fb6e2e30b9ff897ff4fb630dc756f53799c7751ba0ab860c293f. */
+/* cmux-tui mux protocol 12, IR e94915cf910941bce017ae9588e94785e4800d01464d2fa90ddc351b5e7bd28e. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "b1f312cb2752fb6e2e30b9ff897ff4fb630dc756f53799c7751ba0ab860c293f" as const;
+export const SDK_IR_SHA256 = "e94915cf910941bce017ae9588e94785e4800d01464d2fa90ddc351b5e7bd28e" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -18090,6 +18090,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "boolean"
         }
       },
+      "fetch_id": {
+        "constraints": [
+          "The id of the copy the offset-0 call took; every later piece of the fetch names it. Another fetch's offset-0 call replaces the copy and gets a new id."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
       "offset": {
         "nullable": false,
         "presence": "required",
@@ -34922,6 +34933,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": true,
       "fields": {
+        "fetch_id": {
+          "constraints": [
+            "Past offset 0, the fetch_id of the offset-0 reply. A piece of a copy another fetch replaced is refused, never read from the new copy."
+          ],
+          "default": 0,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
         "offset": {
           "constraints": [
             "0 takes a new copy of the daemon's recording ring; a later offset reads that copy."

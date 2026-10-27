@@ -12,27 +12,34 @@ import java.util.Objects;
 
 /** Immutable trace-fetch request. Protocol v12; authority: local-admin. */
 public final class TraceFetchRequest implements WireValue {
+    private final Field<UInt64> fetchId;
     private final Field<UInt64> offset;
     private final Map<String, Object> additionalProperties;
 
     private TraceFetchRequest(Builder builder) {
+        this.fetchId = builder.fetchId;
         this.offset = builder.offset;
         this.additionalProperties = Collections.unmodifiableMap(new LinkedHashMap<>(builder.additionalProperties));
     }
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<UInt64> fetchId() { return fetchId; }
     public Field<UInt64> offset() { return offset; }
     public Map<String, Object> additionalProperties() { return additionalProperties; }
 
     public static TraceFetchRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "TraceFetchRequest");
         Builder builder = builder();
+        Object rawFetchId = Wire.optional(object, "fetch_id");
+        if (!Wire.isMissing(rawFetchId)) {
+            builder.fetchId(Wire.uint64(rawFetchId, "TraceFetchRequest.fetch_id"));
+        }
         Object rawOffset = Wire.optional(object, "offset");
         if (!Wire.isMissing(rawOffset)) {
             builder.offset(Wire.uint64(rawOffset, "TraceFetchRequest.offset"));
         }
-        List<String> known = List.of("offset");
+        List<String> known = List.of("fetch_id", "offset");
         object.forEach((key, item) -> { if (!known.contains(key)) builder.putAdditional(key, Wire.immutableJson(item)); });
         return builder.build();
     }
@@ -40,6 +47,7 @@ public final class TraceFetchRequest implements WireValue {
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "fetch_id", fetchId);
         Wire.put(object, "offset", offset);
         additionalProperties.forEach((key, value) -> object.putIfAbsent(key, Wire.encode(value)));
         return Collections.unmodifiableMap(object);
@@ -48,19 +56,24 @@ public final class TraceFetchRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof TraceFetchRequest that)) return false;
-        return Objects.equals(offset, that.offset) && Objects.equals(additionalProperties, that.additionalProperties);
+        return Objects.equals(fetchId, that.fetchId) && Objects.equals(offset, that.offset) && Objects.equals(additionalProperties, that.additionalProperties);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(offset, additionalProperties); }
+    public int hashCode() { return Objects.hash(fetchId, offset, additionalProperties); }
 
     @Override
     public String toString() { return "TraceFetchRequest" + toWire(); }
 
     public static final class Builder {
+        private Field<UInt64> fetchId = Field.omitted();
         private Field<UInt64> offset = Field.omitted();
         private final LinkedHashMap<String, Object> additionalProperties = new LinkedHashMap<>();
 
+        public Builder fetchId(UInt64 value) {
+            this.fetchId = Field.of(value);
+            return this;
+        }
         public Builder offset(UInt64 value) {
             this.offset = Field.of(value);
             return this;

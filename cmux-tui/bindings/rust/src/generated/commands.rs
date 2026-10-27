@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR b1f312cb2752fb6e2e30b9ff897ff4fb630dc756f53799c7751ba0ab860c293f.
+// cmux-tui mux protocol 12, IR e94915cf910941bce017ae9588e94785e4800d01464d2fa90ddc351b5e7bd28e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -4801,6 +4801,8 @@ pub struct TerminalResumeCommandRequest {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct TraceFetchRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub fetch_id: Option<u64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub offset: Option<u64>,
     #[serde(flatten)]

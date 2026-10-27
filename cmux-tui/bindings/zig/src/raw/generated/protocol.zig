@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "b1f312cb2752fb6e2e30b9ff897ff4fb630dc756f53799c7751ba0ab860c293f";
+pub const ir_sha256 = "e94915cf910941bce017ae9588e94785e4800d01464d2fa90ddc351b5e7bd28e";
 
 pub const AccessRequestKind = enum {
     file,
@@ -4241,6 +4241,7 @@ pub const TraceFetchResultRole = enum {
 pub const TraceFetchResult = struct {
     data: []const u8,
     done: bool,
+    fetch_id: u64,
     offset: u64,
     pid: u32,
     role: TraceFetchResultRole,
@@ -12385,9 +12386,11 @@ pub fn terminalResumeCommand(client: anytype, request: TerminalResumeCommandRequ
 }
 
 pub const TraceFetchRequest = struct {
+    fetch_id: ?u64 = null,
     offset: ?u64 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "fetch_id",
         "offset",
     };
 };

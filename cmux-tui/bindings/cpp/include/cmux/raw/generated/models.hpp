@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "b1f312cb2752fb6e2e30b9ff897ff4fb630dc756f53799c7751ba0ab860c293f";
+inline constexpr std::string_view kProtocolIrSha256 = "e94915cf910941bce017ae9588e94785e4800d01464d2fa90ddc351b5e7bd28e";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -7430,6 +7430,7 @@ struct TitleChangedEvent {
 };
 
 struct TraceFetchRequest {
+    std::optional<std::uint64_t> fetch_id{};
     std::optional<std::uint64_t> offset{};
     Json::Object additional_properties{};
     friend bool operator==(const TraceFetchRequest&, const TraceFetchRequest&) = default;
@@ -7442,6 +7443,7 @@ enum class TraceFetchResultRole {
 struct TraceFetchResult {
     std::string data{};
     bool done{};
+    std::uint64_t fetch_id{};
     std::uint64_t offset{};
     std::uint32_t pid{};
     TraceFetchResultRole role{};

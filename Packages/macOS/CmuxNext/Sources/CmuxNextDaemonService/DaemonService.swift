@@ -296,6 +296,18 @@ public final class DaemonService {
         }
     }
 
+    /// A remote machine's connection configuration (`start(remote:)`): session events, and the heartbeat on
+    /// every connection whether or not a bridge child carries it (an SSH socket forward, a Cloud link), so each
+    /// machine has a trace clock offset (``DaemonConnectionConfiguration/remoteMachine``, p09-observability-116).
+    nonisolated static func remoteConfiguration(retryWake: RetryWake, echoesPlacementShift: Bool,
+                                                hangWatch: (any HangWatchScoping)?) -> DaemonConnection.Configuration {
+        var configuration = DaemonConnection.Configuration(retryWake: retryWake, terminalEnvironment: nil, sessionEvents: true)
+        configuration.remoteMachine = true
+        configuration.echoesPlacementShift = echoesPlacementShift
+        configuration.hangWatch = hangWatch
+        return configuration
+    }
+
     /// Connects to a remote daemon through `endpoint` (a Cloud machine's link
     /// socket). The first connect is retried with capped backoff
     /// (`DaemonStartup`); afterwards the connection reconnects by itself,
@@ -328,9 +340,7 @@ public final class DaemonService {
         monitor.start(queue: DispatchQueue(label: "com.cmuxterm.next.daemon.path.\(machineID)", qos: .utility))
         pathMonitor = monitor
         let clock = startupClock
-        var configuration = DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil, sessionEvents: true)
-        configuration.echoesPlacementShift = echoesPlacementShift
-        configuration.hangWatch = hangWatch
+        let configuration = Self.remoteConfiguration(retryWake: wake, echoesPlacementShift: echoesPlacementShift, hangWatch: hangWatch)
         runTask = Task { [weak self, drainScheduler, logger, configuration] in
             weak let weakSelf = self
             var ends = RetryPacer(.firstConnect)

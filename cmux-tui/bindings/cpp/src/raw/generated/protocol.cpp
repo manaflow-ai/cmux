@@ -18715,6 +18715,9 @@ Result<Json> Codec<TraceFetchResult>::encode(const TraceFetchResult& value) {
     auto encoded_done = encode_value(value.done);
     if (!encoded_done) return std::move(encoded_done).error();
     object.emplace("done", std::move(encoded_done).value());
+    auto encoded_fetch_id = encode_value(value.fetch_id);
+    if (!encoded_fetch_id) return std::move(encoded_fetch_id).error();
+    object.emplace("fetch_id", std::move(encoded_fetch_id).value());
     auto encoded_offset = encode_value(value.offset);
     if (!encoded_offset) return std::move(encoded_offset).error();
     object.emplace("offset", std::move(encoded_offset).value());
@@ -18751,6 +18754,15 @@ Result<TraceFetchResult> Codec<TraceFetchResult>::decode(const Json& value) {
         auto decoded = decode_value<bool>(*field_done);
         if (!decoded) return std::move(decoded).error();
         result.done = std::move(decoded).value();
+    }
+    const Json* field_fetch_id = value.find("fetch_id");
+    if (!field_fetch_id) {
+        return make_error(ErrorCode::decode, "missing required field 'fetch_id'");
+    }
+    if (field_fetch_id) {
+        auto decoded = decode_value<std::uint64_t>(*field_fetch_id);
+        if (!decoded) return std::move(decoded).error();
+        result.fetch_id = std::move(decoded).value();
     }
     const Json* field_offset = value.find("offset");
     if (!field_offset) {
@@ -41654,6 +41666,11 @@ Result<TerminalResumeCommandRequest> Codec<TerminalResumeCommandRequest>::decode
 Result<Json> Codec<TraceFetchRequest>::encode(const TraceFetchRequest& value) {
     (void)value;
     Json::Object object;
+    if (value.fetch_id) {
+        auto encoded = encode_value(*value.fetch_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("fetch_id", std::move(encoded).value());
+    }
     if (value.offset) {
         auto encoded = encode_value(*value.offset);
         if (!encoded) return std::move(encoded).error();
@@ -41669,6 +41686,12 @@ Result<TraceFetchRequest> Codec<TraceFetchRequest>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     TraceFetchRequest result{};
+    const Json* field_fetch_id = value.find("fetch_id");
+    if (field_fetch_id) {
+        auto decoded = decode_value<std::uint64_t>(*field_fetch_id);
+        if (!decoded) return std::move(decoded).error();
+        result.fetch_id = std::move(decoded).value();
+    }
     const Json* field_offset = value.find("offset");
     if (field_offset) {
         auto decoded = decode_value<std::uint64_t>(*field_offset);
@@ -41676,7 +41699,7 @@ Result<TraceFetchRequest> Codec<TraceFetchRequest>::decode(const Json& value) {
         result.offset = std::move(decoded).value();
     }
     for (const auto& [key, item] : *source.value()) {
-        if (key != "offset") result.additional_properties.emplace(key, item);
+        if (key != "fetch_id" && key != "offset") result.additional_properties.emplace(key, item);
     }
     return result;
 }

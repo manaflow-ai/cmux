@@ -76,6 +76,10 @@ pub(crate) struct FetchParams {
     /// later offset reads the copy the offset-0 call took.
     #[serde(default)]
     offset: u64,
+    /// Past offset 0, the `fetch_id` the offset-0 reply gave: a piece of a
+    /// copy another fetch replaced is refused, never read from the new one.
+    #[serde(default)]
+    fetch_id: u64,
 }
 
 /// One forwarded call to a terminal host.
@@ -154,6 +158,9 @@ pub(crate) enum TraceControlRefused {
     NoFetch,
     /// A fetch offset past the copy's end.
     BadOffset,
+    /// A fetch past offset 0 whose `fetch_id` is not the current copy's:
+    /// another fetch's offset-0 call replaced the copy it was reading.
+    FetchReplaced,
 }
 
 impl std::fmt::Display for TraceControlRefused {
@@ -169,6 +176,9 @@ impl std::fmt::Display for TraceControlRefused {
                 "no trace fetch is in progress: start it again at offset 0"
             }
             TraceControlRefused::BadOffset => "the trace fetch offset is past the recording's end",
+            TraceControlRefused::FetchReplaced => {
+                "another trace fetch replaced this one's copy: start it again at offset 0"
+            }
         })
     }
 }
@@ -184,7 +194,15 @@ pub(crate) struct TraceControlGate {
     /// The recording copy a `trace-fetch` reads piece by piece, from its
     /// offset-0 call until its last piece or the next start; at most one ring
     /// (32 MiB). Only the call holding the turn locks it, so it never waits.
-    fetched: Mutex<Option<Vec<u8>>>,
+    fetched: Mutex<FetchState>,
+}
+
+/// The one fetch copy a daemon keeps, and the id of the last one taken.
+#[derive(Debug, Default)]
+struct FetchState {
+    /// The id the last offset-0 call gave its copy; ids start at 1.
+    last_id: u64,
+    copy: Option<Vec<u8>>,
 }
 
 /// The running call's turn; it ends on drop.
@@ -203,30 +221,39 @@ impl TraceControlGate {
 }
 
 impl TraceControlTurn<'_> {
-    /// Runs `read` on the fetch copy: a new one from `snapshot` at offset 0,
-    /// else the one the offset-0 call took. `read` returns whether the copy
-    /// was read to its end, which drops it.
+    /// Runs `read` on the fetch copy and its id: a new one from `snapshot`
+    /// at offset 0, else the one the offset-0 call that gave `fetch_id`
+    /// took. Clients share the daemon's one copy, so a later offset-0 call
+    /// replaces it and the earlier fetch's next piece is refused
+    /// ([`TraceControlRefused::FetchReplaced`]). `read` returns whether the
+    /// copy was read to its end, which drops it.
     fn read_fetched<T>(
         &self,
         offset: u64,
+        fetch_id: u64,
         snapshot: impl FnOnce() -> Option<Vec<u8>>,
-        read: impl FnOnce(&[u8]) -> Result<(T, bool), TraceControlRefused>,
+        read: impl FnOnce(u64, &[u8]) -> Result<(T, bool), TraceControlRefused>,
     ) -> Result<T, TraceControlRefused> {
         let mut fetched = self.gate.fetched.lock().unwrap_or_else(PoisonError::into_inner);
         if offset == 0 {
-            *fetched = Some(snapshot().ok_or(TraceControlRefused::NoRecording)?);
+            let copy = snapshot().ok_or(TraceControlRefused::NoRecording)?;
+            fetched.last_id += 1;
+            fetched.copy = Some(copy);
+        } else if fetch_id != fetched.last_id {
+            return Err(TraceControlRefused::FetchReplaced);
         }
-        let copy = fetched.as_deref().ok_or(TraceControlRefused::NoFetch)?;
-        let (value, finished) = read(copy)?;
+        let id = fetched.last_id;
+        let copy = fetched.copy.as_deref().ok_or(TraceControlRefused::NoFetch)?;
+        let (value, finished) = read(id, copy)?;
         if finished {
-            *fetched = None;
+            fetched.copy = None;
         }
         Ok(value)
     }
 
     /// Drops a fetch copy: a start begins a new recording.
     fn drop_fetched(&self) {
-        *self.gate.fetched.lock().unwrap_or_else(PoisonError::into_inner) = None;
+        self.gate.fetched.lock().unwrap_or_else(PoisonError::into_inner).copy = None;
     }
 }
 
@@ -337,20 +364,23 @@ pub(super) fn fetch_live(
     params: &FetchParams,
 ) -> Result<Value, TraceControlRefused> {
     let turn = mux.trace_control.begin()?;
-    fetch(&turn, params.offset, cmux_trace::snapshot_recording)
+    fetch(&turn, params.offset, params.fetch_id, cmux_trace::snapshot_recording)
 }
 
 /// One piece of the recording from `offset`, `snapshot` taking the copy at
-/// offset 0: `{role, pid, offset, total_bytes, done, data}` with `data` the
-/// piece in base64. A reader asks again at `offset + piece length` until
-/// `done`; a start in between drops the copy, and the next piece is refused.
+/// offset 0: `{role, pid, fetch_id, offset, total_bytes, done, data}` with
+/// `data` the piece in base64. A reader asks again at `offset + piece length`
+/// with the offset-0 reply's `fetch_id` until `done`; a start or another
+/// fetch's offset-0 call in between replaces the copy, and the next piece is
+/// refused.
 pub(super) fn fetch(
     turn: &TraceControlTurn<'_>,
     offset: u64,
+    fetch_id: u64,
     snapshot: impl FnOnce() -> Option<Vec<u8>>,
 ) -> Result<Value, TraceControlRefused> {
     use base64::Engine;
-    turn.read_fetched(offset, snapshot, |copy| {
+    turn.read_fetched(offset, fetch_id, snapshot, |id, copy| {
         let start = usize::try_from(offset)
             .ok()
             .filter(|start| *start <= copy.len())
@@ -360,6 +390,7 @@ pub(super) fn fetch(
         let reply = json!({
             "role": Role::Daemon.as_str(),
             "pid": std::process::id(),
+            "fetch_id": id,
             "offset": offset,
             "total_bytes": copy.len() as u64,
             "done": done,

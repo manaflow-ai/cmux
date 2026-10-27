@@ -125,6 +125,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.SidebarPluginRequest, "relaunch");
     try expectExplicitNullRejected(protocol.SplitRequest, "keep");
     try expectExplicitNullRejected(protocol.TerminalEventsRequest, "after_revision");
+    try expectExplicitNullRejected(protocol.TraceFetchRequest, "fetch_id");
     try expectExplicitNullRejected(protocol.TraceFetchRequest, "offset");
     try expectExplicitNullRejected(protocol.TraceStartRequest, "keys");
     try expectExplicitNullRejected(protocol.UndoLayoutRequest, "confirm_close");

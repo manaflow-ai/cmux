@@ -13470,6 +13470,9 @@
       }
     },
     "request:trace-fetch": {
+      "/fetch_id": {
+        "ty": "uint64"
+      },
       "/offset": {
         "ty": "uint64"
       }
@@ -25408,6 +25411,10 @@
       },
       "/data/done": {
         "ty": "boolean",
+        "required": true
+      },
+      "/data/fetch_id": {
+        "ty": "uint64",
         "required": true
       },
       "/data/offset": {
