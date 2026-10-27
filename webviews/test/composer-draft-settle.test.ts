@@ -14,6 +14,8 @@ const scope = globalThis as Record<string, unknown>;
 const hadWindow = "window" in scope;
 const savedWindow = scope.window;
 
+let currentWriter: { release: () => void } | undefined;
+
 function installWriter(): { landed: Write[]; release: () => void } {
   const landed: Write[] = [];
   let waiting: (() => void)[] = [];
@@ -28,17 +30,24 @@ function installWriter(): { landed: Write[]; release: () => void } {
         }),
     },
   };
-  return {
+  return (currentWriter = {
     landed,
     release: () => {
       const now = waiting;
       waiting = [];
       for (const run of now) run();
     },
-  };
+  });
 }
 
-afterEach(() => {
+afterEach(async () => {
+  // Answer every write a test left waiting, so no later test inherits a drain or a web-swap hold.
+  for (let round = 0; round < 20; round += 1) {
+    currentWriter?.release();
+    await tick();
+  }
+  await settlePendingDraftWrites();
+  currentWriter = undefined;
   if (hadWindow) scope.window = savedWindow;
   else delete scope.window;
 });

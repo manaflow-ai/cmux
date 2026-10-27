@@ -47,6 +47,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     var stagedGeneration: UInt64 = 0
     /// The automatic relaunch the host holds at Sparkle's relaunch, run once by its release or a click.
     var heldAutomaticRelaunch: InstallOnce?
+    /// The update an automatic install handed to Sparkle, so a relaunch the host holds still names it
+    /// as the staged update (``stagedItem``) and the indicator keeps its click.
+    var automaticInstallItem: SUAppcastItem?
     /// Cancels the held installer (Skip on the ready prompt: no skipped version is recorded).
     var stagedCancel: (() -> Void)?
     var installsWhenStaged = false
@@ -262,6 +265,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         guard actionDelegate?.updaterDefersAutomaticInstall(until: { [weak self] in
             guard let self, self.heldAutomaticRelaunch === once else { return }
             self.heldAutomaticRelaunch = nil
+            self.automaticInstallItem = nil
             self.log.append("automatic relaunch: the host's hold ended; relaunching")
             once.run()
         }) == true else { return false }
@@ -282,6 +286,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// the update session took over.
     func endAutomaticInstallHold() {
         heldAutomaticRelaunch = nil
+        automaticInstallItem = nil
         actionDelegate?.updaterEndsAutomaticInstallHold()
     }
 

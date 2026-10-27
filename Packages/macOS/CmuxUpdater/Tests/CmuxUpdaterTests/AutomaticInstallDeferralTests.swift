@@ -189,4 +189,29 @@ private final class PlainHost: UpdateActionDelegate {
         #expect(!driver.handleShouldPostponeRelaunch(installHandler: {}))
         #expect(host.asked == asked)
     }
+
+    @Test func aHeldRelaunchStillNamesTheStagedUpdate() {
+        let item = SUAppcastItem(dictionary: [
+            "title": "cmux 0.64.17",
+            "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
+            "enclosure": [
+                "url": "https://example.com/cmux.zip",
+                "length": "1024",
+                "sparkle:version": "0.64.17",
+                "sparkle:shortVersionString": "0.64.17",
+            ],
+        ])!
+        let host = DeferringHost()
+        host.holds = false
+        let driver = makeDriver(host)
+        driver.holdsUserInstalls = false
+        driver.backgroundItem = item
+        stage(driver, into: ChoiceBox())
+        host.holds = true
+        #expect(driver.handleShouldPostponeRelaunch(installHandler: {}))
+        #expect(driver.stagedItem?.versionString == "0.64.17")
+
+        host.ready?()
+        #expect(driver.automaticInstallItem == nil)
+    }
 }

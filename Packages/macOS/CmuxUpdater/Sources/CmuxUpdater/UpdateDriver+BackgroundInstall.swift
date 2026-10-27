@@ -74,6 +74,7 @@ extension UpdateDriver {
     /// while its install still waits.
     var stagedItem: SUAppcastItem? {
         if stagedInstall != nil { return backgroundItem }
+        if heldAutomaticRelaunch != nil { return automaticInstallItem }
         guard case .installing(let installing) = model.state else { return nil }
         if installing.relaunchBlockers != nil { return heldRelaunchItem }
         guard installing.isAutoUpdate else { return nil }
@@ -97,6 +98,7 @@ extension UpdateDriver {
         guard let install = stagedInstall else { return false }
         log.append("background install: installing staged update (automatic=\(automatic))")
         if !automatic { endAutomaticInstallHold() }
+        automaticInstallItem = automatic ? backgroundItem : nil
         stagedInstall = nil
         stagedCancel = nil
         installsWhenStaged = false
