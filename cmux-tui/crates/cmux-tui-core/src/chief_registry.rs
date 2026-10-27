@@ -311,11 +311,11 @@ impl ChiefHost {
         store.as_ref().map_or(Ok(()), |store| store.connection.release_memory())
     }
 
-    /// The bytes the open store's page cache holds now.
+    /// Runs `operation` on the open store's connection under the store lock.
     #[cfg(test)]
-    pub(crate) fn cache_used_bytes(&self) -> Option<u64> {
+    pub(crate) fn with_connection<T>(&self, operation: impl FnOnce(&Connection) -> T) -> Option<T> {
         let store = self.lock_store().unwrap_or_else(std::sync::PoisonError::into_inner);
-        cmux_history::page_cache::cache_used_bytes(&store.as_ref()?.connection)
+        Some(operation(&store.as_ref()?.connection))
     }
 
     /// The threads waiting for the store lock now.

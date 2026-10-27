@@ -39,6 +39,19 @@ pub struct HistorySearch {
     /// ([`Self::release_memory`]).
     trim: Arc<AtomicBool>,
     worker: Mutex<Option<JoinHandle<()>>>,
+    /// Hears each release the worker makes on its own connection.
+    #[cfg(test)]
+    worker_releases: Arc<std::sync::OnceLock<std::sync::mpsc::SyncSender<WorkerRelease>>>,
+}
+
+/// A worker release as the test observer sees it: the writer's cache bytes
+/// before and after it, and the thread it ran on.
+#[cfg(test)]
+#[derive(Debug)]
+struct WorkerRelease {
+    before: Option<u64>,
+    after: Option<u64>,
+    thread: Option<String>,
 }
 
 impl HistorySearch {
@@ -52,23 +65,37 @@ impl HistorySearch {
         let reader = SearchIndex::open(path)?;
         let stop = Arc::new(AtomicBool::new(false));
         let trim = Arc::new(AtomicBool::new(false));
-        let signals = Signals { stop: stop.clone(), trim: trim.clone() };
+        let signals = Signals {
+            stop: stop.clone(),
+            trim: trim.clone(),
+            #[cfg(test)]
+            releases: Arc::default(),
+        };
+        #[cfg(test)]
+        let worker_releases = signals.releases.clone();
         let worker = std::thread::Builder::new()
             .name("history-search".into())
             .spawn(move || index_loop(writer, feeds, pace, &signals))?;
-        Ok(Self { reader: Mutex::new(reader), stop, trim, worker: Mutex::new(Some(worker)) })
+        Ok(Self {
+            reader: Mutex::new(reader),
+            stop,
+            trim,
+            worker: Mutex::new(Some(worker)),
+            #[cfg(test)]
+            worker_releases,
+        })
     }
 
     /// Frees both connections' unused page cache, each on its owner: the
-    /// reader's here under its lock, the indexing worker's on the worker
-    /// thread, which this wakes (`mux/sqlite_trim.rs`).
+    /// reader's here under its lock, then the indexing worker's on the
+    /// worker thread, which this wakes (`mux/sqlite_trim.rs`).
     pub(crate) fn release_memory(&self) -> anyhow::Result<()> {
+        let reader = self.reader.lock().unwrap_or_else(PoisonError::into_inner).release_memory();
         self.trim.store(true, Ordering::Release);
         if let Some(worker) = self.worker.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
             worker.thread().unpark();
         }
-        let reader = self.reader.lock().unwrap_or_else(PoisonError::into_inner);
-        Ok(reader.release_memory()?)
+        Ok(reader?)
     }
 
     /// Newest first; every word must match. `kinds` empty: every kind.
@@ -97,6 +124,28 @@ impl Drop for HistorySearch {
 struct Signals {
     stop: Arc<AtomicBool>,
     trim: Arc<AtomicBool>,
+    #[cfg(test)]
+    releases: Arc<std::sync::OnceLock<std::sync::mpsc::SyncSender<WorkerRelease>>>,
+}
+
+impl Signals {
+    /// Frees the worker's own connection's page cache, on the worker.
+    fn release(&self, index: &SearchIndex) {
+        #[cfg(test)]
+        let before = index.cache_used_bytes();
+        if let Err(error) = index.release_memory() {
+            eprintln!("cmux-tui: history search page cache release failed: {error}");
+        }
+        #[cfg(test)]
+        if let Some(observer) = self.releases.get() {
+            let thread = std::thread::current().name().map(str::to_owned);
+            let _ = observer.try_send(WorkerRelease {
+                before,
+                after: index.cache_used_bytes(),
+                thread,
+            });
+        }
+    }
 }
 
 fn index_loop(
@@ -114,10 +163,8 @@ fn index_loop(
             }
         }
         // After the step, so the cache stays empty while the worker rests.
-        if signals.trim.swap(false, Ordering::AcqRel)
-            && let Err(error) = index.release_memory()
-        {
-            eprintln!("cmux-tui: history search page cache release failed: {error}");
+        if signals.trim.swap(false, Ordering::AcqRel) {
+            signals.release(&index);
         }
         rest(if backlog { pace.pause } else { pace.idle }, signals);
     }
@@ -138,12 +185,15 @@ fn rest(period: Duration, signals: &Signals) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicI64;
+    use std::sync::mpsc::sync_channel;
+
     use cmux_history::{HistoryError, SearchDoc};
 
     use super::*;
 
-    /// One source of `count` command docs.
-    struct Docs(i64);
+    /// One source of the first `count` command docs; the test grows it.
+    struct Docs(Arc<AtomicI64>);
 
     impl SearchFeed for Docs {
         fn sources(&self) -> Result<Vec<String>, HistoryError> {
@@ -157,7 +207,8 @@ mod tests {
             max: usize,
         ) -> Result<(Vec<SearchDoc>, i64), HistoryError> {
             let start = after.map_or(0, |after| after + 1);
-            let end = (start + i64::try_from(max).unwrap_or(i64::MAX)).min(self.0);
+            let count = self.0.load(Ordering::Acquire);
+            let end = (start + i64::try_from(max).unwrap_or(i64::MAX)).min(count);
             let docs = (start..end)
                 .map(|i| SearchDoc {
                     key: format!("doc-{i}"),
@@ -174,10 +225,12 @@ mod tests {
         }
     }
 
-    /// The reader frees its cache on the caller; the worker takes the
-    /// request at its next turn, woken from its rest.
+    /// The reader frees its cache on the caller. The request wakes the
+    /// worker from an hour's rest; its step indexes the 2,000 docs added
+    /// meanwhile, then it frees what that write left in its own cache, on
+    /// the `history-search` thread.
     #[test]
-    fn sqlite_trim_history_search_frees_the_reader_and_wakes_the_worker() {
+    fn sqlite_trim_history_search_frees_the_reader_and_the_worker() {
         let dir = std::env::temp_dir()
             .join(format!("cmux-history-search-trim-{}", crate::workspace_registry::new_uuid_v4()));
         let pace = SearchPace {
@@ -185,9 +238,9 @@ mod tests {
             pause: Duration::from_millis(1),
             idle: Duration::from_secs(3600),
         };
-        let search =
-            HistorySearch::start(&dir.join("search.sqlite"), vec![Box::new(Docs(2000))], pace)
-                .unwrap();
+        let count = Arc::new(AtomicI64::new(2000));
+        let feeds: Vec<BoxedSearchFeed> = vec![Box::new(Docs(count.clone()))];
+        let search = HistorySearch::start(&dir.join("search.sqlite"), feeds, pace).unwrap();
         let deadline = Instant::now() + Duration::from_secs(10);
         while search.search("cargo test", &[], 2000).unwrap().len() < 2000 {
             assert!(Instant::now() < deadline, "the worker indexed the docs");
@@ -196,16 +249,19 @@ mod tests {
         let cache = || search.reader.lock().unwrap().cache_used_bytes().unwrap();
         let filled = cache();
         assert!(filled > 64 * 1024, "the search filled {filled} bytes");
+        let (observer, releases) = sync_channel(4);
+        search.worker_releases.set(observer).unwrap();
+        count.store(4000, Ordering::Release);
 
         search.release_memory().unwrap();
         let trimmed = cache();
         assert!(trimmed < 32 * 1024, "release left {trimmed} of {filled} bytes");
-        // The worker rests for an hour; the request wakes it.
-        while search.trim.load(Ordering::Acquire) {
-            assert!(Instant::now() < deadline, "the worker took the release");
-            std::thread::park_timeout(Duration::from_millis(5));
-        }
-        assert_eq!(search.search("number1999", &[], 10).unwrap().len(), 1);
+        let release = releases.recv_timeout(Duration::from_secs(10)).expect("the worker released");
+        assert_eq!(release.thread.as_deref(), Some("history-search"));
+        let (before, after) = (release.before.unwrap(), release.after.unwrap());
+        assert!(before > 64 * 1024, "the worker's write filled {before} bytes");
+        assert!(after < 32 * 1024, "the worker's release left {after} of {before} bytes");
+        assert_eq!(search.search("number3999", &[], 10).unwrap().len(), 1);
         drop(search);
         std::fs::remove_dir_all(dir).unwrap();
     }
