@@ -155,7 +155,7 @@ pub(super) fn serve_remote_entry_with(
     let shutdown = Arc::new(AtomicBool::new(false));
     let thread_shutdown = shutdown.clone();
     let thread_mux = mux.clone();
-    let thread = std::thread::Builder::new().name("mux-remote-entry".into()).spawn(move || {
+    let thread = cmux_threads::spawn("mux-remote-entry", listen::ACCEPT_THREAD_QOS, move || {
         let config = EntryConfig { entry_fs, record_checks };
         accept_loop(&thread_mux, &listener, &thread_shutdown, &verifier, &gate, config);
     })?;

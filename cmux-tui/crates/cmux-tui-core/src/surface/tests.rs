@@ -20,6 +20,7 @@ mod lifecycle;
 #[cfg(unix)]
 mod local_resize_order;
 mod lock_order;
+mod poisoned_locks;
 #[cfg(unix)]
 mod read_loop;
 mod render_geometry;

@@ -46,9 +46,11 @@ impl LocalReader {
         surface: Arc<Surface>,
         output: Arc<Mutex<LocalOutput>>,
         reader: Box<dyn Read + Send>,
+        reader_completion: Arc<ReaderCompletion>,
     ) -> Self {
-        let pty = surface.as_pty().expect("a local reader reads a PTY surface");
-        let completion = ReaderCompletionGuard(pty.reader_completion.clone());
+        // The caller hands over its runtime's completion, so the reader
+        // needs no `as_pty` lookup that could fail.
+        let completion = ReaderCompletionGuard(reader_completion);
         let parser = output.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let publisher = parser.publisher();
         #[cfg(unix)]

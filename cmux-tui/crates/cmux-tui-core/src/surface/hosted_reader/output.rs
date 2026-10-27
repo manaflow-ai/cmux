@@ -2,13 +2,22 @@
 
 use super::*;
 
+/// The payload of an `Output`, `FlowOutput` or `OutputWithColors`
+/// [`HostedTransition`].
+pub(super) struct HostedOutput {
+    pub(super) output: Vec<u8>,
+    pub(super) colors: Option<TerminalColorOverrides>,
+    /// The key press this output echoes, as the host stamped its PTY read.
+    pub(super) flow: u64,
+}
+
 impl HostedReader {
-    /// Apply one `Output` or `OutputWithColors` transition to the mirror.
+    /// Apply one output transition to the mirror.
     pub(super) fn apply_output(
         &mut self,
         surface: &Arc<Surface>,
         pty: &PtySurface,
-        transition: HostedTransition,
+        HostedOutput { output, colors, flow }: HostedOutput,
         journal_target: &mut Option<(Arc<Mux>, Arc<TerminalPublicId>)>,
         journal_update: &mut Option<TerminalJournalUpdateGuard<'_>>,
     ) -> Flow {
@@ -16,13 +25,6 @@ impl HostedReader {
         if let Some(delay) = self.output_apply_delay {
             crate::request_path::sleep(delay);
         }
-        // `flow`: the key press this output echoes, as the host stamped its PTY read.
-        let (output, colors, flow) = match transition {
-            HostedTransition::Output(output) => (output, None, 0),
-            HostedTransition::FlowOutput { output, flow } => (output, None, flow),
-            HostedTransition::OutputWithColors { output, colors } => (output, Some(colors), 0),
-            _ => unreachable!(),
-        };
         if crate::debug_spans::following() {
             follow_marks(pty, &output);
         }
@@ -33,7 +35,7 @@ impl HostedReader {
         let finished_commands;
         let defaults = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let generation = {
-            let mut term = pty.term.lock().unwrap();
+            let mut term = pty.term.lock().recover_poison();
             if let Some(update) = journal_update.as_mut()
                 && !update.activate()
             {
@@ -77,7 +79,7 @@ impl HostedReader {
                 // violated the producer's iff contract.
                 return Flow::Break;
             }
-            pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+            pty.mouse_encoders.lock().recover_poison().sync_from_terminal(&term);
             let after = terminal_scroll_position(&term);
             // The parser already contains the complete
             // coupled state before any attach observer can
@@ -98,7 +100,7 @@ impl HostedReader {
                 // A program that rewrites the same title (a spinner's
                 // resting frame, a prompt redraw) announces nothing.
                 let title = crate::terminal_title::read(&term);
-                let mut stored = pty.title.lock().unwrap();
+                let mut stored = pty.title.lock().recover_poison();
                 if *stored != title {
                     *stored = title.clone();
                     title_update = Some(title);

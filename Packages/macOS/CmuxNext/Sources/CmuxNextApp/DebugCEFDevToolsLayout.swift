@@ -4,11 +4,11 @@ import CmuxNextControl
 import CmuxNextSettings
 import Foundation
 
-// `debug.cef.devtools_layout` (DEBUG builds): the focused (or `tab`, a layout tab id) Chromium tab's
+// `debug.cef.devtools_layout` (Debug and bench builds; read-only): the focused (or `tab`, a layout tab id) Chromium tab's
 // docked DevTools (`CEFDevToolsDebug`): open, dock, sizes, divider grab area.
 enum DebugCEFDevToolsLayout {
     static func register(on router: ControlRouter?, services: AppServices) {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         router?.register([
             .mainActor("debug.cef.devtools_layout") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -19,7 +19,7 @@ enum DebugCEFDevToolsLayout {
     }
 }
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 extension DebugCEFDevToolsLayout {
     static func handle(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let entry: BrowserEntry?

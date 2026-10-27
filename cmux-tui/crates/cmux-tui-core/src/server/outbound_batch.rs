@@ -31,7 +31,8 @@ impl BoundedOutbound {
     /// Waits for the next item, then takes it and every item ready behind
     /// it in write order into `batch`, until the batch holds
     /// [`WRITE_BATCH_BYTES`] or [`WRITE_BATCH_ITEMS`]. A flush or a chunk
-    /// ends a batch. `false` once the queue is closed and empty.
+    /// ends a batch. `false` once the queue is closed and empty. The wait is
+    /// an idle wait, so a writer that disallows blocking may take it.
     pub(in crate::server) fn recv_batch(&self, batch: &mut Vec<OutboundItem>) -> bool {
         batch.clear();
         let mut state = self.state.lock().recover_poison();
