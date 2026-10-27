@@ -137,6 +137,7 @@ public final class RemoteSystemShortcutTap {
         guard !removalPending else { return }
         removalPending = true
         // task-owner: one removal after the tap callback that found its conditions gone
+        // main-hop-allow: an event tap may not invalidate its own run loop source inside its callback, so the removal is the next main turn; until then every event asks stillHolds and passes through. The tap is made in a property initializer (MacScreenSystemShortcuts) with no scheduler
         Task { @MainActor [weak self] in
             guard let self, removalPending else { return }
             remove()

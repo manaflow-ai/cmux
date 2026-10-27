@@ -24,7 +24,7 @@ extension AppRunMarker {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Writes a crash report on the files lane for each end of the Chromium Host that was not a clean exit
     /// (p01-process-085): its signal or exit code, what it ran and its log's last lines without URLs. It stands for
-    /// the crash log's `chromium-host` record of that end, which writes no report (``CrashRecoveryService/observe(_:)``).
+    /// the crash log's `chromium-host` record of that end, which writes no report (``CrashRecoveryService/observe(_:reporter:)``).
     static func reportHostCrashes(of supervising: (any ChromiumHostSupervising)?, writer: CrashReportWriter, work: BackgroundWork) {
         guard let supervisor = supervising as? ChromiumHostSupervisor else { return }
         supervisor.onHostCrash = { record in
