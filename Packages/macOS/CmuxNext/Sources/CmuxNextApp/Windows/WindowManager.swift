@@ -146,6 +146,9 @@ final class WindowManager {
         return lastActive ?? controllers.first
     }
 
+    /// The id of the window actions without an explicit target act in (``active``'s).
+    var activeWindowID: String? { active?.state.id }
+
     /// The controller whose window is `window` or owns it: a sheet, a
     /// Chromium page window, the palette or another panel over it.
     func owner(of window: NSWindow) -> WindowController? {

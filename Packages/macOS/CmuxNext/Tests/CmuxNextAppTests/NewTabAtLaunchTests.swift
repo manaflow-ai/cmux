@@ -107,4 +107,76 @@ struct NewTabAtLaunchTests {
         #expect(services.windows.pendingClaims[Self.created] == "saved-front")
         #expect(services.windows.pendingFrames[launch] == nil && services.windows.pendingFrames["saved-front"] != nil)
     }
+
+    /// Home only: the store before the asked-for workspace is created.
+    private static func homeOnly() -> DaemonTree {
+        DaemonTree(workspaces: [tree().workspaces[0]])
+    }
+
+    /// The real create runs a reconcile before it sends the create command (`FirstTabHold.creating` releases at
+    /// once for a terminal), with Home already listed: that reconcile registers the launch window early. The
+    /// workspace's own delta came next and its reconcile placed the claim in the registry the restore then
+    /// replaces with the saved one (a relaunch with saved windows lost it to another window, unselected).
+    /// The claim stays pending until the restore's own reconcile places it.
+    @Test func aClaimOnTheLaunchWindowSurvivesTheReconcilesBeforeTheRestore() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        services.windows.ordersWindowsIn = false
+        services.windows.restoreWhenLoaded()
+        defer { for controller in services.windows.controllers { controller.window?.close() } }
+        let launch = try #require(services.windows.controllers.first)
+        let target = services.windows.targetWindow(preferring: services.windows.active?.state.id)
+        services.windows.claimNew(workspaceID: Self.created, window: target)
+
+        // In one main-actor turn, before the restore task runs: the release's reconcile, then the workspace's delta.
+        services.daemon.store.apply(snapshot: Self.homeOnly())
+        services.windows.reconcileMembership()
+        services.daemon.store.apply(snapshot: Self.tree())
+        services.windows.reconcileMembership()
+        #expect(services.windows.registry.value.owner(of: Self.created) == nil,
+                "a reconcile before the restore placed the launch window's claim in the registry the restore replaces")
+        #expect(services.windows.pendingClaims[Self.created] == launch.state.id, "a reconcile before the restore dropped the claim")
+
+        await withCheckedContinuation { continuation in services.windows.whenRestored { continuation.resume() } }
+        #expect(services.windows.registry.value.windows.count == 1)
+        #expect(services.windows.registry.value.owner(of: Self.created) == launch.state.id)
+        #expect(launch.state.workspaceID == Self.created, "the launch window does not show the workspace asked for in it")
+    }
+
+    /// A script's create without `focus` (no view change) during the launch files the workspace into the
+    /// launch window without showing it, as it does for any open window: it neither selects it there nor
+    /// sends the launch window, the one the person looks at, behind the others.
+    @Test func aQuietCreateAtLaunchFilesItsWorkspaceWithoutShowingItOrSendingTheWindowBehind() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        services.windows.ordersWindowsIn = false
+        services.windows.restoreWhenLoaded()
+        defer { for controller in services.windows.controllers { controller.window?.close() } }
+        let launch = try #require(services.windows.controllers.first)
+        let target = services.windows.targetWindow(preferring: services.windows.active?.state.id)
+        ActionRunScope.$current.withValue(ActionRunScope(origin: .cli, allowsViewChange: false)) {
+            services.windows.claimNew(workspaceID: Self.created, window: target)
+        }
+        #expect(!services.windows.behindWindows.contains(launch.state.id), "a quiet create sends the launch window behind")
+        #expect(services.windows.quietClaims.contains(Self.created), "a quiet create at launch would be shown on arrival")
+
+        services.daemon.store.apply(snapshot: Self.tree())
+        await withCheckedContinuation { continuation in services.windows.whenRestored { continuation.resume() } }
+        #expect(services.windows.registry.value.owner(of: Self.created) == launch.state.id, "the quiet workspace is not in the launch window")
+        #expect(launch.state.workspaceID != Self.created, "a quiet create at launch took the launch window")
+    }
+
+    /// While the launch shows its saved window's picture, that window has no controller yet, so no window is
+    /// active: New Workspace's target was a new window, beside the launch window. The window the launch stands
+    /// for is the target (`activeWindowID`).
+    @Test func beforeTheLaunchWindowHasAControllerNewWorkspaceTargetsIt() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.windows.ordersWindowsIn = false
+        services.windows.launchWindowID = "picture-front"
+        #expect(services.windows.active == nil)
+        #expect(services.windows.targetWindow(preferring: services.windows.activeWindowID) == "picture-front")
+    }
 }
