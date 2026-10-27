@@ -5269,7 +5269,7 @@ jobs:
   # unavailable, no result by the deadline, a result for another sha, repo, configuration or
   # recipe version, or a mint or post error is failure. The wait blocks on the endpoint
   # (`wait=N` returns at a terminal state, else at its deadline) under one overall deadline of
-  # 45 min, each read hard-bounded by `timeout` to what is left; a missing result (404) is
+  # 40 min from the job's start, each read hard-bounded by `timeout` to what is left; a missing result (404) is
   # retried by curl itself, 30 s apart, inside that bound. The terminal post comes before the
   # App token's hour ends (it is minted just before the wait). Nothing sleeps in a loop here.
   #
@@ -5307,17 +5307,19 @@ jobs:
         run: |
           set -uo pipefail
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Linux compile::bad head sha '$SHA'"; exit 1; }
+          # One deadline for the pending post and the wait (40 min); the terminal post comes after it
+          # (at most 110 s), so the step (50 min) and the App token (60 min) always outlast both.
+          deadline=$((SECONDS + ${WAIT_SECONDS:-2400}))
           post() {  # state, description, target url
             local body
             body="$(jq -nc --arg s "$1" --arg d "${2:0:140}" --arg u "$3" \
               '{state: $s, description: $d, target_url: $u, context: "cmux-next/linux-compile"}')"
-            curl -sS --fail-with-body --connect-timeout 10 --max-time 30 --retry 5 --retry-delay 10 --retry-all-errors \
+            curl -sS --fail-with-body --connect-timeout 10 --max-time 30 --retry 2 --retry-delay 10 --retry-all-errors \
               -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
               "$API/statuses/$SHA" -d "$body" > /dev/null
           }
           post pending "The Linux Release compile (-Onone) of this head is running" "$RUN_URL" \
             || { echo "::error title=Linux compile::could not post the pending status"; exit 1; }
-          deadline=$((SECONDS + ${WAIT_SECONDS:-2700}))
           reply="$RUNNER_TEMP/compile-check.json"
           state=""
           for attempt in 1 2 3; do
@@ -5345,7 +5347,7 @@ jobs:
             fail) post failure "The app did not compile in SwiftPM Release (-Onone) on Linux; see the log" "$log_url" ;;
             unavailable) post failure "The Linux compile gave no verdict (unavailable); re-run this job" "$RUN_URL" ;;
             mismatch|unreadable) post failure "The compile result does not match this head; re-run this job" "$RUN_URL" ;;
-            *) post failure "No Linux compile result for this head in 45 minutes${state:+ (last: $state)}" "$RUN_URL" ;;
+            *) post failure "No Linux compile result for this head in 40 minutes${state:+ (last: $state)}" "$RUN_URL" ;;
           esac
           echo "::error title=Linux compile::cmux-next/linux-compile is not a pass for $SHA (${state:-no result})"
           exit 1

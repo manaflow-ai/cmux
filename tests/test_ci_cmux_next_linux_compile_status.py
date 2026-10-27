@@ -119,9 +119,13 @@ class StatusMapping(unittest.TestCase):
     def test_the_whole_wait_fits_the_step_and_the_token_hour(self):
         step = next(step for step in job()["steps"] if "run" in step)
         self.assertIn("timeout \"$left\" curl", step["run"])
-        self.assertIn("WAIT_SECONDS:-2700", step["run"])
-        # 45 min of waiting, inside the step's 50, the job's 55 and the App token's 60.
-        self.assertLessEqual(2700 / 60 + 3, step["timeout-minutes"])
+        self.assertIn("WAIT_SECONDS:-2400", step["run"])
+        # The deadline starts before the pending post, and the terminal post (3 tries of 30 s, 2 waits
+        # of 10 s) fits after it: 40 min + 110 s, inside the step's 50, the job's 55 and the token's 60.
+        run = step["run"]
+        self.assertLess(run.index("deadline=$((SECONDS"), run.index("post pending"))
+        self.assertIn("--max-time 30 --retry 2 --retry-delay 10", run)
+        self.assertLessEqual(2400 + 3 * 30 + 2 * 10, step["timeout-minutes"] * 60 - 300)
         self.assertLessEqual(step["timeout-minutes"], job()["timeout-minutes"])
         self.assertLess(job()["timeout-minutes"], 60)
 
