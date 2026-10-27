@@ -39,6 +39,8 @@ extension AppControl {
             ObservationsControl(ledger: services.observations).method,
             // Lane queue wait and run time per lane and priority (RUN-13); {"reset": true} zeroes them.
             WorkControl(work: services.work).method,
+            // The detector's context per kind of thread and a running item's raise, per macOS (RUN-10, os-matrix threads).
+            PoolContextControl(work: services.work, detector: services.blocking).method,
             // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class,
             // the run loop's turns, per owner the wait and run percentiles, and its idle class's periods under
             // "idle"; main only copies, the turns and owners fold off it.
