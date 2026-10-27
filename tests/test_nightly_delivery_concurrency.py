@@ -226,6 +226,9 @@ def test_the_check_reads_triggers_and_inputs_per_event() -> None:
     assert check(boolean + job.format(group="release-${{ inputs.force_build || github.run_id }}"))
     # An indentless trigger list is read; workflow_run's id is empty on push.
     assert check("on:\n- push\n- workflow_dispatch\n" + job.format(group="r-${{ github.event.workflow_run.id }}"))
+    # Unread triggers (a flow map) are an unknown event: an event_name guard can go either way.
+    assert check("on: {schedule: [{cron: '1 * * * *'}], workflow_dispatch: {}}\n"
+                 + job.format(group="${{ github.event_name == 'schedule' && 'scheduled' || github.run_id }}"))
     # The usual PR-or-push SHA is keyed on both events.
     assert not check("on:\n  pull_request:\n  push:\n"
                      + job.format(group="c-${{ github.event.pull_request.head.sha || github.sha }}"))

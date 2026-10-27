@@ -104,7 +104,7 @@ class _Parser:
         return kinds
 
     def compare(self) -> set[str]:
-        if self.event is not None and self.at + 2 < len(self.tokens):
+        if self.event not in (None, UNREAD) and self.at + 2 < len(self.tokens):
             left, op, right = self.tokens[self.at:self.at + 3]
             if left == ("name", "github.event_name") and op in (("op", "=="), ("op", "!=")) and right[0] == "str":
                 self.at += 3
