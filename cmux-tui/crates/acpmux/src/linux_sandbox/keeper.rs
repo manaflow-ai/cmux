@@ -8,13 +8,14 @@
 //! streams, and owns services until bwrap exits. SpawnPlan and both spawn paths
 //! therefore need no additional descriptor plumbing.
 //!
-//! Linux remote chains remain refused in Bound::for_session until G2. This
-//! staged helper lacks persistence supervision; G1b supplies the marked hook.
-//! Collection loops stop at finite input exhaustion. Service loops stop on child
-//! exit, cancellation, or runtime teardown. No daemon-owned threads are added.
+//! Linux remote chains remain refused in Bound::for_session until G2. The
+//! supervisor enforces write-open persistence names here; rename and creator
+//! enforcement waits for F. Collection loops stop at finite input exhaustion.
+//! Service loops stop on child exit, cancellation, or runtime teardown; the
+//! supervisor thread stops on its eventfd or listener hangup.
 pub(crate) use crate::hub::remote_sandbox::loader_env_key;
 
-use super::{bwrap, proxy, rules};
+use super::{bwrap, proxy, rules, supervisor};
 use bwrap::Paths;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -26,6 +27,7 @@ use std::os::unix::net::UnixStream;
 use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
+use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use tokio::io::unix::AsyncFd;
 use tokio::process::{Child, Command};
@@ -33,6 +35,61 @@ use tokio::signal::unix::{Signal, SignalKind, signal};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 type Result<T> = std::result::Result<T, String>;
+
+/// The supervisor stops when the sandbox child exits, the listener hangs up,
+/// or keeper setup fails; dropping this guard signals its eventfd and joins it.
+struct SupervisorHandle {
+    stop: OwnedFd,
+    join: Option<JoinHandle<io::Result<()>>>,
+}
+impl SupervisorHandle {
+    fn start(notify: OwnedFd, policy: rules::WritePolicy) -> Result<Self> {
+        let raw = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK) };
+        if raw < 0 {
+            return Err(format!("create supervisor stop eventfd: {}", io::Error::last_os_error()));
+        }
+        // SAFETY: eventfd returned a new owned descriptor.
+        let stop = unsafe { OwnedFd::from_raw_fd(raw) };
+        let thread_stop =
+            stop.try_clone().map_err(|e| format!("clone supervisor stop eventfd: {e}"))?;
+        let join = thread::Builder::new()
+            .name("acpmux-sandbox-supervisor".into())
+            .spawn(move || supervisor::run(notify, policy, thread_stop))
+            .map_err(|e| format!("start sandbox supervisor: {e}"))?;
+        Ok(Self { stop, join: Some(join) })
+    }
+
+    fn signal(&self) -> Result<()> {
+        let one = 1u64;
+        let size = std::mem::size_of::<u64>();
+        // SAFETY: stop is an eventfd and the pointer references one u64.
+        let written =
+            unsafe { libc::write(self.stop.as_raw_fd(), (&one as *const u64).cast(), size as _) };
+        if written == size as isize
+            || (written < 0 && io::Error::last_os_error().kind() == io::ErrorKind::WouldBlock)
+        {
+            Ok(())
+        } else {
+            Err(format!("stop sandbox supervisor: {}", io::Error::last_os_error()))
+        }
+    }
+
+    fn stop_join(mut self) -> Result<()> {
+        self.signal()?;
+        let join = self.join.take().ok_or("sandbox supervisor already joined")?;
+        join.join()
+            .map_err(|_| "sandbox supervisor thread panicked".to_owned())?
+            .map_err(|e| format!("sandbox supervisor: {e}"))
+    }
+}
+impl Drop for SupervisorHandle {
+    fn drop(&mut self) {
+        let _ = self.signal();
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
+    }
+}
 /// Hidden canary helper; the parent's 20-second canary deadline bounds connect.
 /// Only an explicit permission denial proves the Unix-socket boundary held.
 pub(crate) fn canary_unix(args: &[OsString]) -> Result<()> {
@@ -133,6 +190,21 @@ fn validate_handoff(
 ) -> Result<Vec<TcpListener>> {
     validate_handoff_inner(payload, fds, proxy_port, api_port, true)
 }
+fn validate_handoff_with_notify(
+    payload: &[u8],
+    mut fds: Vec<OwnedFd>,
+    proxy_port: u16,
+    api_port: Option<u16>,
+) -> Result<(Vec<TcpListener>, OwnedFd)> {
+    let expected = 1 + usize::from(api_port.is_some());
+    if fds.len() != expected + 1 {
+        return Err("handoff missing supervisor notification fd".into());
+    }
+    let notify = fds.pop().ok_or("handoff missing supervisor notification fd")?;
+    let listeners = validate_handoff_inner(payload, fds, proxy_port, api_port, true)?;
+    Ok((listeners, notify))
+}
+
 fn validate_handoff_inner(
     payload: &[u8],
     fds: Vec<OwnedFd>,
@@ -274,7 +346,7 @@ async fn handoff(socket: &AsyncFd<UnixStream>) -> Result<(Vec<u8>, Vec<OwnedFd>)
             Ok(result) => result.map_err(|e| e.to_string())?,
         };
         fds.extend(received);
-        if n == 0 || fds.len() > 2 {
+        if n == 0 || fds.len() > 3 {
             return Err("handoff EOF or excess descriptors".into());
         }
         bytes.extend_from_slice(&chunk[..n]);
@@ -384,19 +456,29 @@ async fn start_service(
 }
 /// Handoff ends within 20 s or on child exit. Services stop on child exit,
 /// accept failure, cancellation or future drop; JoinSet drop aborts all tunnels.
-async fn session(child: &mut Child, socket: UnixStream, options: &Options) -> Result<i32> {
+async fn session(
+    child: &mut Child,
+    socket: UnixStream,
+    options: &Options,
+    policy: rules::WritePolicy,
+) -> Result<i32> {
     socket.set_nonblocking(true).map_err(|e| e.to_string())?;
     let socket = AsyncFd::new(socket).map_err(|e| e.to_string())?;
     let (payload, fds) = tokio::select! {
         status = child.wait() => return Err(format!("bwrap exited before handoff: {status:?}")),
         result = tokio::time::timeout(Duration::from_secs(20), handoff(&socket)) => result.map_err(|_| "handoff timed out after 20 s")??,
     };
-    // G1b SUPERVISOR HOOK: receive its notify fd here and start the supervisor
-    // with the parsed WritePolicy before ack; stop/join it with these services.
-    // Until then, the validator rejects any additional descriptor.
-    let mut listeners =
-        validate_handoff(&payload, fds, options.proxy_port, options.api.map(|a| a.port()))?
-            .into_iter();
+    // G1b SUPERVISOR HOOK: the init helper sends listeners followed by the
+    // notify fd. The supervisor owns it before ack, so no target can exec
+    // without a host receiver for every notified write-open.
+    let (listeners, notify) = validate_handoff_with_notify(
+        &payload,
+        fds,
+        options.proxy_port,
+        options.api.map(|a| a.port()),
+    )?;
+    let mut listeners = listeners.into_iter();
+    let supervisor = SupervisorHandle::start(notify, policy)?;
     let stop = CancellationToken::new();
     let mut services = JoinSet::new();
     let policy = proxy::NetPolicy { api: options.api.map(|a| (a.port(), true)) };
@@ -428,9 +510,15 @@ async fn session(child: &mut Child, socket: UnixStream, options: &Options) -> Re
         service = services.join_next() => Err(format!("sandbox service ended: {service:?}")),
     };
     stop.cancel();
-    // No await after reaping: the outer signal relay must stop before this PID
-    // can be reused. JoinSet/runtime drop cancels and destroys the services.
-    result
+    // Cancellation stops proxy and forward loops; shutdown awaits every task
+    // before the supervisor eventfd is joined and the keeper exits.
+    services.shutdown().await;
+    let supervisor_result = supervisor.stop_join();
+    match (result, supervisor_result) {
+        (Err(error), _) => Err(error),
+        (Ok(code), Ok(())) => Ok(code),
+        (Ok(_), Err(error)) => Err(error),
+    }
 }
 /// Setup collections are finite. Signal relay ends with session; on failure,
 /// SIGKILL/reaping has a five-second deadline and kill_on_drop is a final backstop.
@@ -495,7 +583,7 @@ async fn run(options: Options) -> Result<i32> {
         options.proxy_port.to_string(),
     ]);
     if let Some(api) = options.api {
-        prefix.extend(["--api-port".into(), api.port().to_string()]);
+        prefix.extend(["--api-port".into(), api.port().to_string(), "--api-loopback-v4".into()]);
     }
     prefix.push("--".into());
     let (mut argv, bind_fds) = bwrap::plan(paths, &denies, &prefix)?;
@@ -558,7 +646,7 @@ async fn run(options: Options) -> Result<i32> {
     drop(bwrap_fd);
     let pid = child.id().ok_or("bwrap has no PID")?;
     let result = tokio::select! {
-        result = session(&mut child, parent, &options) => result,
+        result = session(&mut child, parent, &options, policy) => result,
         result = forward_signals(pid, [term, int, hup]) => result,
     };
     if result.is_err() {
@@ -584,20 +672,6 @@ pub(crate) fn main(args: Vec<OsString>) -> ! {
     });
     std::process::exit(code) // crash-allow: keeper returns the sandbox status to its launcher
 }
-// Red-phase lifecycle contract; G1b will use this guard around supervisor::run.
-#[cfg(test)]
-struct SupervisorThread;
-#[cfg(test)]
-impl Drop for SupervisorThread {
-    fn drop(&mut self) {}
-}
-#[cfg(test)]
-impl SupervisorThread {
-    fn start(_worker: impl FnOnce(OwnedFd) -> io::Result<()> + Send + 'static) -> Result<Self> {
-        Err("supervisor lifecycle is not wired".into())
-    }
-}
-
 /// Table loops stop at finite input exhaustion. Socket connects have a two-second
 /// deadline; listeners are only inspected, never accepted, and all fds are RAII-owned.
 #[cfg(test)]
@@ -826,34 +900,7 @@ mod tests {
     fn handoff_without_notify_fd_is_refused() {
         let (fd, port) = listener("127.0.0.1");
         // Bypass namespace proof only: this isolates the missing-notify failure.
-        assert!(validate_handoff_for_test(&payload(port, None), vec![fd], port, None).is_err());
-    }
-
-    /// The worker's poll times out after two seconds; peer reads have the same
-    /// deadline. Guard drop must signal stop, join, and release worker resources.
-    #[test]
-    fn supervisor_thread_stops_and_releases_fds_on_session_end() {
-        use std::io::Read;
-        let (mut peer, owned) = UnixStream::pair().unwrap();
-        peer.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-        let captured = std::sync::Arc::new(());
-        let worker_capture = captured.clone();
-        let (done, result) = std::sync::mpsc::channel();
-        let guard = SupervisorThread::start(move |stop| {
-            let _owned = owned;
-            let _capture = worker_capture;
-            let mut wait = libc::pollfd { fd: stop.as_raw_fd(), events: libc::POLLIN, revents: 0 };
-            // SAFETY: wait is writable and stop remains owned throughout poll.
-            let stopped =
-                unsafe { libc::poll(&mut wait, 1, 2_000) } == 1 && wait.revents & libc::POLLIN != 0;
-            done.send(stopped).unwrap();
-            Ok(())
-        })
-        .unwrap();
-        drop(guard); // The child/session exit path must drop this guard.
-        assert!(result.try_recv().expect("supervisor was joined before cleanup returned"));
-        assert_eq!(std::sync::Arc::strong_count(&captured), 1, "worker capture leaked");
-        assert_eq!(peer.read(&mut [0]).unwrap(), 0, "worker descriptor leaked");
+        assert!(validate_handoff_with_notify(&payload(port, None), vec![fd], port, None).is_err());
     }
 
     #[test]

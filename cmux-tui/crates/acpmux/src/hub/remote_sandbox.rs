@@ -53,7 +53,8 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(target_os = "linux")]
-/// Enables an incomplete Linux sandbox without persistence enforcement; tests only, until G1b.
+/// Enables the Linux sandbox for tests only; write-open persistence is enforced,
+/// while rename and creator enforcement waits for F.
 static LINUX_REMOTE_SANDBOX: AtomicBool = AtomicBool::new(false);
 
 /// The checked-in Seatbelt profile.
@@ -798,18 +799,28 @@ const CANARY: &str = r#": > "$1" 2>/dev/null; o=$?
 (exec 3<>"/dev/tcp/127.0.0.1/$2") 2>/dev/null; l=$?
 [ "$l" -ne 0 ] && { (exec 3<>"/dev/tcp/::1/$4") 2>/dev/null; [ $? -eq 0 ] && l=0; }
 t=$(mktemp "$3/acpmux-canary.XXXXXX" 2>/dev/null) && rm -f "$t"; i=$?
+g=unknown; c=unknown
 if [ -n "$5" ]; then
-  socket=$5; helper=$6; shift 6
-  u=unknown
+  printf x > "$5/.git/hooks/pre-commit" 2>/dev/null; g=$?
+  printf x > "$5/CLAUDE.md" 2>/dev/null; c=$?
+fi
+u=unknown
+if [ -n "$6" ]; then
+  socket=$6; helper=$7; shift 7
   if probe=$("$helper" "$@" __remote-sandbox-canary-unix "$socket" 2>/dev/null); then
     case "$probe" in unix=0) u=0;; unix=1) u=1;; esac
   fi
-  echo "acpmux-canary outside=$o loopback=$l tmp=$i unix=$u"
-else echo "acpmux-canary outside=$o loopback=$l tmp=$i"; fi"#;
+fi
+if [ -n "$5" ]; then
+  echo "acpmux-canary outside=$o loopback=$l tmp=$i git=$g claude=$c unix=$u"
+else
+  echo "acpmux-canary outside=$o loopback=$l tmp=$i"
+fi"#;
 
 /// Run the canary under `exec` with the profile and `bound`; Ok only when
-/// the sandbox held: the outside write failed and left no file, the loopback
-/// connection failed and never arrived, and the temporary write worked.
+/// the sandbox held: outside and persistence write-opens failed, loopback
+/// connections never arrived, and the temporary write worked. Rename and
+/// creator checks are enforced after F lands.
 pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<(), String> {
     let listener =
         std::net::TcpListener::bind("127.0.0.1:0").map_err(|e| format!("listen: {e}"))?;
@@ -821,6 +832,14 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
         l.set_nonblocking(true).map_err(|e| format!("listen: {e}"))?;
     }
     let port6 = listener6.as_ref().and_then(|l| l.local_addr().ok()).map_or(0, |a| a.port());
+    // The supervisor checks names, so the canary creates the parent dirs before
+    // entering the sandbox; it never asks the target to mkdir them.
+    let hooks = bound.cwd.join(".git/hooks");
+    std::fs::create_dir_all(&hooks).map_err(|e| format!("canary setup .git/hooks: {e}"))?;
+    let git_canary = hooks.join("pre-commit");
+    let claude_canary = bound.cwd.join("CLAUDE.md");
+    let git_canary_existed = git_canary.exists();
+    let claude_canary_existed = claude_canary.exists();
     let outside = bound.home.join(format!(".acpmux-sandbox-canary-{}", uuid::Uuid::now_v7()));
     #[cfg(unix)]
     let socket_path = bound
@@ -845,6 +864,8 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
     let socket_arg = if linux { socket_path.to_string_lossy().into_owned() } else { String::new() };
     #[cfg(not(unix))]
     let socket_arg = String::new();
+    let persistence_arg =
+        if linux { bound.cwd.to_string_lossy().into_owned() } else { String::new() };
     let canary_args = ["/bin/bash", "-c", CANARY, "acpmux-canary"]
         .into_iter()
         .map(str::to_owned)
@@ -853,6 +874,7 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
             port.to_string(),
             bound.tmp.to_string_lossy().into_owned(),
             port6.to_string(),
+            persistence_arg,
         ])
         .chain([socket_arg, exec.to_string_lossy().into_owned()])
         .chain(crate::daemon::daemon_prefix().iter().map(|s| s.to_string_lossy().into_owned()))
@@ -887,6 +909,12 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
     if landed {
         let _ = std::fs::remove_file(&outside);
     }
+    if !git_canary_existed {
+        let _ = std::fs::remove_file(&git_canary);
+    }
+    if !claude_canary_existed {
+        let _ = std::fs::remove_file(&claude_canary);
+    }
     #[cfg(unix)]
     let _ = std::fs::remove_file(&socket_path);
     let arrived =
@@ -910,7 +938,10 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
             .and_then(|v| v.parse::<i32>().ok())
     };
     let (o, l, t, u) = (field("outside"), field("loopback"), field("tmp"), field("unix"));
+    let (g, c) = (field("git"), field("claude"));
     let held = canary_report_held(out.status.success(), (o, l, t, u), linux)
+        && (!linux
+            || (matches!(g, Some(code) if code != 0) && matches!(c, Some(code) if code != 0)))
         && !landed
         && !arrived
         && (!linux || !arrived_unix);
@@ -968,9 +999,9 @@ impl Hub {
         *self.remote_sandbox_exec.lock().unwrap_or_else(|e| e.into_inner()) = path;
     }
 
-    /// Enables an incomplete Linux sandbox without persistence enforcement;
-    /// tests only, until G1b wires the supervisor and persistence canary checks.
-    /// Production remains refused until G2.
+    /// Enables the Linux sandbox for tests only; production remains refused
+    /// until G2. Write-open persistence is enforced here; rename and creator
+    /// checks are enforced after F lands.
     #[doc(hidden)]
     pub fn set_linux_remote_sandbox_for_tests(&self, enabled: bool) {
         #[cfg(target_os = "linux")]
