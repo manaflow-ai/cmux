@@ -331,6 +331,8 @@ jobs:
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
         run: |
           set -euo pipefail
+          # rcodesign reads RCODESIGN_* environment variables as its config.
+          while IFS= read -r name; do unset "$name"; done < <(compgen -e | grep '^RCODESIGN_' || true)
           work="$RUNNER_TEMP/work"
           mkdir -p "$work"
           tar -C "$work" -xf "$RUNNER_TEMP/signed/signed.tar"
