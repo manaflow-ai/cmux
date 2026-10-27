@@ -1,11 +1,12 @@
-//! p10-stability-141: peer frames and poisoned locks no longer panic.
+//! p10-stability-141: peer frames no longer panic; a poisoned one-value slot
+//! keeps serving and a poisoned shared-state lock escalates to Fatal.
 
 use std::sync::{Arc, Mutex};
 
 use cmux_remote::identity::{KnownDaemon, KnownDaemonAuth};
 use cmux_tui_core::terminal_host_protocol::{Frame, MessageKind};
 
-use super::panic_free::{RecoverPoison as _, ResizeAckPayload, ResizedPayload};
+use super::panic_free::{LockShared as _, RecoverPoison as _, ResizeAckPayload, ResizedPayload};
 use super::{ClientState, ResizeDelivery, ResizeRequest, select_enrolled_daemon};
 
 fn client_state() -> ClientState {
@@ -113,4 +114,33 @@ fn recover_poison_yields_the_data_left_behind() {
     .join();
     assert!(joined.is_err());
     assert_eq!(*lock.lock().recover_poison(), vec![1, 2]);
+}
+
+#[test]
+fn a_panic_during_frame_apply_escalates_to_fatal() {
+    let state = Arc::new(Mutex::new(client_state()));
+    let stream_task = Arc::clone(&state);
+    let joined = std::thread::spawn(move || {
+        // The stream task's hold: the frame is applied under the lock and
+        // the panic comes before the frame is whole.
+        let mut guard = stream_task.lock_shared();
+        guard.status = "live".into();
+        let _ = guard.apply(Frame::new(MessageKind::Resized, vec![80, 0, 24, 0]));
+        std::panic::panic_any("panic part way through a frame");
+    })
+    .join();
+    assert!(joined.is_err());
+    assert!(state.is_poisoned());
+
+    // Every FFI entry point locks through lock_shared; its panic cannot
+    // unwind out of `extern "C"`, so the process ends instead of serving
+    // the half-applied state with status "live".
+    let next_locker = std::panic::catch_unwind(|| state.lock_shared().exited);
+    let payload = next_locker.expect_err("a poisoned shared lock is Fatal");
+    let message = payload
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| payload.downcast_ref::<&str>().copied())
+        .unwrap_or_default();
+    assert!(message.contains("INVARIANT"), "{message}");
 }

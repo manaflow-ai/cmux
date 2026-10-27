@@ -1,18 +1,21 @@
 //! Small panic-free helpers (plans/cmux-next/rust-panic-free.md).
 //!
-//! [`RecoverPoison`]: a `std::sync` lock is poisoned when a thread panicked
-//! while it held the lock. Unwrapping that error turns one panic into a
-//! panic in every later user of the lock, and every FFI entry point takes
-//! these locks, so a panic in one stream task aborted the embedding app at
-//! its next call (a panic cannot unwind out of `extern "C"`). The client's
-//! locks guard callback registrations, the desired resize and the per-stream
-//! render state; a frame the panicking task left half applied fails the next
-//! frame's sequence check, which restarts the stream from a fresh snapshot.
-//! The same rule as cmux-tui-core's `panic_free::RecoverPoison`.
+//! A `std::sync` lock is poisoned when a thread panicked while it held the
+//! lock. Two rules, by what the lock guards (p10-stability.md section E):
+//!
+//! - [`LockShared`]: the per-stream render state and the active terminal
+//!   tasks. The stream task and the FFI both change them, and a panic can
+//!   leave them half changed (a frame half applied with its sequence already
+//!   advanced). Poison there escalates to Fatal: the next locker panics, and
+//!   in an `extern "C"` entry point that panic aborts the process.
+//! - [`RecoverPoison`]: a slot that holds one `Copy` value written whole (a
+//!   callback registration, the desired resize). A panic cannot leave it half
+//!   written, so the value left behind is valid and is used.
 
-use std::sync::{LockResult, PoisonError};
+use std::sync::{LockResult, Mutex, MutexGuard, PoisonError};
 
-/// `.recover_poison()` in place of `.unwrap()` on any `LockResult`.
+/// `.recover_poison()` in place of `.unwrap()` on the `LockResult` of a
+/// one-value slot. Never on state a panic can leave half changed.
 pub(crate) trait RecoverPoison<T> {
     fn recover_poison(self) -> T;
 }
@@ -20,6 +23,22 @@ pub(crate) trait RecoverPoison<T> {
 impl<T> RecoverPoison<T> for LockResult<T> {
     fn recover_poison(self) -> T {
         self.unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// `.lock_shared()` on a lock whose state a panic can leave half changed.
+pub(crate) trait LockShared<T> {
+    fn lock_shared(&self) -> MutexGuard<'_, T>;
+}
+
+impl<T> LockShared<T> for Mutex<T> {
+    #[allow(
+        clippy::expect_used,
+        reason = "INVARIANT: a poisoned lock holds state a panic left half changed; serving it \
+                  is a silent wrong default, so poison escalates to Fatal (p10-stability.md E)"
+    )]
+    fn lock_shared(&self) -> MutexGuard<'_, T> {
+        self.lock().expect("INVARIANT: no panic while shared terminal state is locked")
     }
 }
 

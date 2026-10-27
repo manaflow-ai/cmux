@@ -103,18 +103,18 @@ pub(super) fn append(source: &str, value: &Value) -> Result<String, JsoncError> 
         return Ok(format!("{source}{separator}[\n  {}\n]\n", render(value, "  ")));
     };
     let Some(last) = array.elements.last() else {
-        let indent = line_indent(bytes, array.open) + "  ";
-        let at = line_start_if_blank(bytes, array.close);
+        let indent = line_indent(bytes, array.open)? + "  ";
+        let at = line_start_if_blank(bytes, array.close)?;
         if matches!(at.checked_sub(1).map(|before| bytes.get(before)), None | Some(Some(b'\n'))) {
             // `]` starts its line: the entry goes on the line before it.
             let insert = format!("{indent}{}\n", render(value, &indent));
             return splice(source, at, at, &insert);
         }
-        let closing = line_indent(bytes, array.close);
+        let closing = line_indent(bytes, array.close)?;
         let insert = format!("\n{indent}{}\n{closing}", render(value, &indent));
         return splice(source, array.close, array.close, &insert);
     };
-    let indent = line_indent(bytes, last.start);
+    let indent = line_indent(bytes, last.start)?;
     let rendered = render(value, &indent);
     match last.comma_after {
         Some(comma) => {
@@ -139,7 +139,7 @@ pub(super) fn remove(source: &str, index: usize) -> Result<String, JsoncError> {
         Some(comma) => comma + 1,
         None => element.end,
     };
-    let start = line_start_if_blank(bytes, element.start);
+    let start = line_start_if_blank(bytes, element.start)?;
     let end = line_end_if_blank(bytes, same_line_trivia_end(bytes, end));
     let removed = splice(source, start, end, "")?;
     // The last element without a comma: drop only the previous element's
@@ -158,7 +158,7 @@ pub(super) fn replace(source: &str, index: usize, value: &Value) -> Result<Strin
     let bytes = source.as_bytes();
     let array = root_array(bytes)?.ok_or(JsoncError::Malformed { offset: 0 })?;
     let element = array.elements.get(index).ok_or(JsoncError::Malformed { offset: 0 })?;
-    let indent = line_indent(bytes, element.start);
+    let indent = line_indent(bytes, element.start)?;
     splice(source, element.start, element.end, &render(value, &indent))
 }
 

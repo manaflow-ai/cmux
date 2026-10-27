@@ -89,23 +89,30 @@ pub(super) fn same_line_trivia_end(bytes: &[u8], start: usize) -> usize {
     }
 }
 
-/// The spaces and tabs that start the line containing `offset`.
-pub(super) fn line_indent(bytes: &[u8], offset: usize) -> String {
-    let before = bytes.get(..offset).unwrap_or(bytes);
-    let line_start =
-        before.iter().rposition(|&byte| byte == b'\n').map_or(0, |newline| newline + 1);
-    let line = bytes.get(line_start..).unwrap_or_default();
-    line.iter().take_while(|&&byte| is_blank(byte)).map(|&byte| char::from(byte)).collect()
+/// `bytes[..offset]`, or `Malformed` at `offset` when it is past the end.
+fn prefix(bytes: &[u8], offset: usize) -> Result<&[u8], JsoncError> {
+    bytes.get(..offset).ok_or(JsoncError::Malformed { offset })
 }
 
-/// The start of `offset`'s line when only blanks precede it there, else `offset`.
-pub(super) fn line_start_if_blank(bytes: &[u8], offset: usize) -> usize {
-    let before = bytes.get(..offset).unwrap_or(bytes);
+/// The spaces and tabs that start the line containing `offset`; `Malformed`
+/// when `offset` is past the end.
+pub(super) fn line_indent(bytes: &[u8], offset: usize) -> Result<String, JsoncError> {
+    let before = prefix(bytes, offset)?;
+    let line_start =
+        before.iter().rposition(|&byte| byte == b'\n').map_or(0, |newline| newline + 1);
+    let line = span(bytes, line_start, bytes.len())?;
+    Ok(line.iter().take_while(|&&byte| is_blank(byte)).map(|&byte| char::from(byte)).collect())
+}
+
+/// The start of `offset`'s line when only blanks precede it there, else
+/// `offset`; `Malformed` when `offset` is past the end.
+pub(super) fn line_start_if_blank(bytes: &[u8], offset: usize) -> Result<usize, JsoncError> {
+    let before = prefix(bytes, offset)?;
     let blanks = before.iter().rev().take_while(|&&byte| is_blank(byte)).count();
-    match before.iter().rev().nth(blanks) {
-        None | Some(b'\n') => before.len() - blanks,
+    Ok(match before.iter().rev().nth(blanks) {
+        None | Some(b'\n') => offset - blanks,
         Some(_) => offset,
-    }
+    })
 }
 
 /// Just past the newline when only blanks follow `offset` on its line, the
@@ -117,5 +124,27 @@ pub(super) fn line_end_if_blank(bytes: &[u8], offset: usize) -> usize {
         Some(b'\n') => offset + blanks + 1,
         None => offset + blanks,
         Some(_) => offset,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{JsoncError, line_indent, line_start_if_blank};
+
+    #[test]
+    fn line_helpers_read_the_line_of_an_offset() {
+        let bytes = b"{\n  \t\"a\": 1\n}";
+        assert_eq!(line_indent(bytes, 5), Ok("  \t".to_string()));
+        assert_eq!(line_start_if_blank(bytes, 5), Ok(2));
+        assert_eq!(line_start_if_blank(bytes, 8), Ok(8));
+        assert_eq!(line_start_if_blank(bytes, bytes.len()), Ok(bytes.len()));
+    }
+
+    #[test]
+    fn line_helpers_refuse_an_offset_past_the_end() {
+        let bytes = b"[\n  1\n]";
+        let past = bytes.len() + 1;
+        assert_eq!(line_indent(bytes, past), Err(JsoncError::Malformed { offset: past }));
+        assert_eq!(line_start_if_blank(bytes, past), Err(JsoncError::Malformed { offset: past }));
     }
 }

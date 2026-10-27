@@ -48,7 +48,7 @@ use zeroize::Zeroizing;
 mod panic_deny_tests;
 mod panic_free;
 
-use panic_free::{RecoverPoison as _, ResizeAckPayload, ResizedPayload};
+use panic_free::{LockShared as _, RecoverPoison as _, ResizeAckPayload, ResizedPayload};
 
 /// Teardown moved off the caller's thread so AppKit never waits on it; no
 /// one waits for it to finish.
@@ -923,7 +923,7 @@ enum StreamOutcome {
 }
 
 fn set_client_status(state: &Arc<Mutex<ClientState>>, updates: &ClientUpdates, status: String) {
-    state.lock().recover_poison().status = status;
+    state.lock_shared().status = status;
     updates.notify();
 }
 
@@ -960,7 +960,7 @@ async fn receive_frames(
                     Ok(frames) => {
                         let mut outcome = None;
                         for frame in frames {
-                            let applied = state.lock().recover_poison().apply(frame);
+                            let applied = state.lock_shared().apply(frame);
                             // The state lock is released before the embedding
                             // renderer runs, so a callback may call back into
                             // this API without deadlocking.
@@ -1067,8 +1067,7 @@ impl TerminalStreamSupervisor {
             if closed.load(Ordering::Acquire) {
                 return;
             }
-            if let Err(error) = state.lock().recover_poison().prepare_handshake(terminal_id.clone())
-            {
+            if let Err(error) = state.lock_shared().prepare_handshake(terminal_id.clone()) {
                 set_client_status(&state, &updates, format!("resync: {error}"));
                 return;
             }
@@ -1237,7 +1236,7 @@ fn start_terminal_tasks(
     let resize_streams = streams.subscribe();
     let resize_delivery = Arc::new(ResizeDelivery::default());
     {
-        let mut state = state.lock().recover_poison();
+        let mut state = state.lock_shared();
         state.resize_delivery = Some(resize_delivery.clone());
         state.resize_acknowledgement = None;
     }
@@ -1335,7 +1334,7 @@ impl CmuxTerminalClient {
         terminal_id: TerminalPublicId,
         timeout: Option<StdDuration>,
     ) -> Result<(), String> {
-        let mut terminal = self.terminal.lock().recover_poison();
+        let mut terminal = self.terminal.lock_shared();
         if attach_target_already_satisfied(
             terminal
                 .as_ref()
@@ -1383,7 +1382,7 @@ impl CmuxTerminalClient {
         // The delivery mode is fixed per attach: a renderer that installs its
         // callback after the snapshot would miss the replay.
         next_state.raw_mode = self.raw_output.is_installed();
-        *self.state.lock().recover_poison() = next_state;
+        *self.state.lock_shared() = next_state;
         self.updates.notify();
         *terminal = Some(start_terminal_tasks(
             &self.runtime,
@@ -1399,11 +1398,11 @@ impl CmuxTerminalClient {
     }
 
     fn detach_terminal(&self) {
-        let terminal = self.terminal.lock().recover_poison().take();
+        let terminal = self.terminal.lock_shared().take();
         if let Some(terminal) = terminal {
             self.runtime.block_on(terminal.close());
         }
-        let mut state = self.state.lock().recover_poison();
+        let mut state = self.state.lock_shared();
         state.bootstrap_committed = false;
         state.ready = false;
         state.exited = false;
@@ -1448,7 +1447,7 @@ fn enqueue_command(client: &CmuxTerminalClient, frame: Frame) -> bool {
     let Ok(encoded) = encode_frame(&frame) else {
         return false;
     };
-    let terminal = client.terminal.lock().recover_poison();
+    let terminal = client.terminal.lock_shared();
     let Some(terminal) = terminal.as_ref() else {
         return false;
     };
@@ -1733,7 +1732,7 @@ pub unsafe extern "C" fn cmux_terminal_client_disconnect(client: *mut CmuxTermin
     // Connection teardown may wait on the carrier. Transfer ownership to a
     // background thread so the C call is nonblocking for AppKit.
     let _ = cmux_threads::spawn("cmux-terminal-disconnect", TEARDOWN_QOS, move || {
-        let terminal = client.terminal.lock().recover_poison().take();
+        let terminal = client.terminal.lock_shared().take();
         client.runtime.block_on(async {
             if let Some(terminal) = terminal {
                 terminal.close().await;
@@ -1808,16 +1807,16 @@ pub unsafe extern "C" fn cmux_terminal_client_send_key(
     let chord = match chord.to_str() {
         Ok(chord) => chord,
         Err(error) => {
-            client.state.lock().recover_poison().status = format!("key: {error}");
+            client.state.lock_shared().status = format!("key: {error}");
             client.updates.notify();
             return false;
         }
     };
-    let key_result = client.state.lock().recover_poison().encode_key(chord, repeat);
+    let key_result = client.state.lock_shared().encode_key(chord, repeat);
     let encoded = match key_result {
         Ok(encoded) => encoded,
         Err(error) => {
-            client.state.lock().recover_poison().status = format!("key: {error}");
+            client.state.lock_shared().status = format!("key: {error}");
             client.updates.notify();
             return false;
         }
@@ -1900,7 +1899,7 @@ pub unsafe extern "C" fn cmux_terminal_client_resize_with_request_id(
 }
 
 fn queue_resize(client: &CmuxTerminalClient, cols: u16, rows: u16) -> Option<u64> {
-    let terminal = client.terminal.lock().recover_poison();
+    let terminal = client.terminal.lock_shared();
     let terminal = terminal.as_ref()?;
     if terminal.closed.load(Ordering::Acquire) {
         return None;
@@ -1938,7 +1937,7 @@ pub unsafe extern "C" fn cmux_terminal_client_last_resize_ack(
     if request_id.is_null() || cols.is_null() || rows.is_null() || canonical_changed.is_null() {
         return false;
     }
-    let state = client.state.lock().recover_poison();
+    let state = client.state.lock_shared();
     let Some(acknowledgement) = state.resize_acknowledgement else {
         return false;
     };
@@ -1971,7 +1970,7 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame(
     let Some(client) = (unsafe { client.as_ref() }) else {
         return 0;
     };
-    let mut state = client.state.lock().recover_poison();
+    let mut state = client.state.lock_shared();
     if let Err(error) = state.materialize_frame() {
         state.status = format!("render: {error}");
     }
@@ -1997,7 +1996,7 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame_dirty_rows(
     let Some(client) = (unsafe { client.as_ref() }) else {
         return 0;
     };
-    let mut state = client.state.lock().recover_poison();
+    let mut state = client.state.lock_shared();
     if let Err(error) = state.materialize_frame() {
         state.status = format!("render: {error}");
     }
@@ -2025,7 +2024,7 @@ pub unsafe extern "C" fn cmux_terminal_client_frame_row_count(
     let Some(client) = (unsafe { client.as_ref() }) else {
         return 0;
     };
-    let mut state = client.state.lock().recover_poison();
+    let mut state = client.state.lock_shared();
     if let Err(error) = state.materialize_frame() {
         state.status = format!("render: {error}");
     }
@@ -2052,7 +2051,7 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame_row(
     let Some(client) = (unsafe { client.as_ref() }) else {
         return 0;
     };
-    let mut state = client.state.lock().recover_poison();
+    let mut state = client.state.lock_shared();
     if let Err(error) = state.materialize_frame() {
         state.status = format!("render: {error}");
     }
@@ -2077,7 +2076,7 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_diagnostics(
     let Some(client) = (unsafe { client.as_ref() }) else {
         return 0;
     };
-    copy_utf8(&client.state.lock().recover_poison().diagnostics(), buffer, capacity)
+    copy_utf8(&client.state.lock_shared().diagnostics(), buffer, capacity)
 }
 
 /// Returns whether the attached PTY has exited.
@@ -2094,7 +2093,7 @@ pub unsafe extern "C" fn cmux_terminal_client_has_exited(
     let Some(client) = (unsafe { client.as_ref() }) else {
         return false;
     };
-    client.state.lock().recover_poison().exited
+    client.state.lock_shared().exited
 }
 
 /// Keep the diagnostics snapshot current across carrier generations.
@@ -2117,7 +2116,7 @@ fn spawn_diagnostics(
                 .as_ref()
                 .map(|path| format!("{:?}", path.kind).to_lowercase())
                 .unwrap_or_else(|| snapshot.transport.route.clone());
-            let mut state = state.lock().recover_poison();
+            let mut state = state.lock_shared();
             state.transport_provider = snapshot.transport.provider;
             state.transport_path = path;
             state.generation = snapshot.generation;
