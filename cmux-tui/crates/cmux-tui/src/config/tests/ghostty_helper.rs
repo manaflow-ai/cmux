@@ -97,6 +97,8 @@ impl TestProcessExit {
                 data: 0,
                 udata: std::ptr::null_mut(),
             };
+            // SAFETY: `change` is a fully initialized kevent that outlives the call; the event list
+            // is empty (null, 0) and the timeout null.
             let registered = unsafe {
                 libc::kevent(
                     descriptor.as_raw_fd(),
@@ -125,6 +127,7 @@ impl TestProcessExit {
             let mut descriptor =
                 libc::pollfd { fd: self.descriptor.as_raw_fd(), events: libc::POLLIN, revents: 0 };
             let timeout_ms = i32::try_from(timeout.as_millis()).unwrap_or(i32::MAX);
+            // SAFETY: the pointer names one live, exclusively borrowed pollfd and the count is 1.
             unsafe { libc::poll(&raw mut descriptor, 1, timeout_ms) }
         };
         #[cfg(target_vendor = "apple")]
@@ -135,6 +138,8 @@ impl TestProcessExit {
                 tv_sec: timeout.as_secs().try_into().unwrap_or(libc::time_t::MAX),
                 tv_nsec: timeout.subsec_nanos().into(),
             };
+            // SAFETY: the change list is empty; kevent writes at most one event into `event` and
+            // reads `timeout`, both live locals.
             unsafe {
                 libc::kevent(
                     self.descriptor.as_raw_fd(),
@@ -324,6 +329,7 @@ fn unix_process_is_live(pid: libc::pid_t) -> bool {
 
 #[cfg(unix)]
 fn unix_process_exists(pid: libc::pid_t) -> bool {
+    // SAFETY: kill takes no pointer; signal 0 only checks that the process exists.
     if unsafe { libc::kill(pid, 0) } == 0 {
         return true;
     }
@@ -333,9 +339,11 @@ fn unix_process_exists(pid: libc::pid_t) -> bool {
 #[cfg(all(unix, not(target_os = "macos")))]
 fn unix_process_group_is_live(group: libc::pid_t) -> bool {
     let Ok(output) = Command::new("/bin/ps").args(["-axo", "pgid=,stat="]).output() else {
+        // SAFETY: killpg takes no pointer; signal 0 only checks that the group exists.
         return unsafe { libc::killpg(group, 0) } == 0;
     };
     if !output.status.success() {
+        // SAFETY: killpg takes no pointer; signal 0 only checks that the group exists.
         return unsafe { libc::killpg(group, 0) } == 0;
     }
     String::from_utf8_lossy(&output.stdout).lines().any(|line| {

@@ -1,7 +1,7 @@
 #[cfg(unix)]
 use std::fs::OpenOptions;
 #[cfg(unix)]
-use std::io;
+use std::io::{self, IsTerminal as _};
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, RawFd};
 #[cfg(unix)]
@@ -26,9 +26,9 @@ struct ProbeIo {
 #[cfg(unix)]
 impl ProbeIo {
     fn open() -> Option<Self> {
-        if is_tty(libc::STDIN_FILENO) {
+        if io::stdin().is_terminal() {
             let write_fd =
-                if is_tty(libc::STDOUT_FILENO) { libc::STDOUT_FILENO } else { libc::STDIN_FILENO };
+                if io::stdout().is_terminal() { libc::STDOUT_FILENO } else { libc::STDIN_FILENO };
             return Some(ProbeIo { read_fd: libc::STDIN_FILENO, write_fd, _tty: None });
         }
 
@@ -61,13 +61,9 @@ pub fn probe_default_colors() -> DefaultColors {
 }
 
 #[cfg(unix)]
-fn is_tty(fd: RawFd) -> bool {
-    unsafe { libc::isatty(fd) == 1 }
-}
-
-#[cfg(unix)]
 fn write_all_fd(fd: RawFd, mut bytes: &[u8]) -> io::Result<()> {
     while !bytes.is_empty() {
+        // SAFETY: `bytes` is a live slice and write(2) reads at most `bytes.len()` bytes of it.
         let written = unsafe { libc::write(fd, bytes.as_ptr().cast(), bytes.len()) };
         if written < 0 {
             let err = io::Error::last_os_error();
@@ -96,6 +92,7 @@ fn read_available_until(fd: RawFd, timeout: Duration) -> Vec<u8> {
         let remaining = deadline.saturating_duration_since(now);
         let timeout_ms = remaining.as_millis().min(i32::MAX as u128) as i32;
         let mut poll_fd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+        // SAFETY: the pointer names one live, exclusively borrowed pollfd and the count is 1.
         let ready = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
         if ready < 0 {
             let err = io::Error::last_os_error();
@@ -116,6 +113,7 @@ fn read_available_until(fd: RawFd, timeout: Duration) -> Vec<u8> {
         }
 
         let mut buf = [0u8; 512];
+        // SAFETY: read(2) writes at most `buf.len()` bytes into `buf`, a live local.
         let read = unsafe { libc::read(fd, buf.as_mut_ptr().cast(), buf.len()) };
         if read < 0 {
             let err = io::Error::last_os_error();

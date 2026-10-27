@@ -176,10 +176,13 @@ fn install_signal_handlers() -> io::Result<()> {
     for descriptor in [wake_reader.as_raw_fd(), wake_writer.as_raw_fd()] {
         // UnixStream currently creates close-on-exec descriptors, but enforce
         // the ownership contract before these descriptors become process-wide.
+        // SAFETY: `descriptor` belongs to a live UnixStream above; F_GETFD takes no pointer.
         let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
         if flags < 0 {
             return Err(io::Error::last_os_error());
         }
+        // SAFETY: `descriptor` belongs to a live UnixStream above; F_SETFD takes an integer flag
+        // set.
         if unsafe { libc::fcntl(descriptor, libc::F_SETFD, flags | libc::FD_CLOEXEC) } != 0 {
             return Err(io::Error::last_os_error());
         }
@@ -188,6 +191,9 @@ fn install_signal_handlers() -> io::Result<()> {
     wake_writer.set_nonblocking(true)?;
     SIGNAL_WAKE_READER.store(wake_reader.as_raw_fd(), Ordering::Release);
     SIGNAL_WAKE_WRITER.store(wake_writer.as_raw_fd(), Ordering::Release);
+    // SAFETY: `action` is a zeroed plain-data sigaction filled in before use. `handle_signal` has
+    // the SA_SIGINFO signature and does only async-signal-safe work: atomics and one write(2) to
+    // the wake socket, which stays open for the process lifetime.
     unsafe {
         let mut action = std::mem::zeroed::<libc::sigaction>();
         action.sa_sigaction = signal_sender::handle_signal as *const () as libc::sighandler_t;
@@ -256,6 +262,8 @@ pub(crate) fn wait_for_shutdown_signal() {
         }
         if result < 0 && io::Error::last_os_error().kind() == io::ErrorKind::WouldBlock {
             let mut pollfd = libc::pollfd { fd: reader, events: libc::POLLIN, revents: 0 };
+            // SAFETY: the pointer names one live, exclusively borrowed pollfd and the count is 1.
+            // `reader` is the process-lifetime wake descriptor.
             let polled = unsafe { libc::poll(&mut pollfd, 1, -1) };
             if polled > 0
                 || (polled < 0 && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted)
@@ -300,10 +308,12 @@ pub(crate) async fn wait_for_shutdown_signal_peek_async() -> io::Result<()> {
             "shutdown wake reader unavailable",
         ));
     }
+    // SAFETY: dup takes no pointer; `reader` is the process-lifetime wake descriptor.
     let duplicate = unsafe { libc::dup(reader) };
     if duplicate < 0 {
         return Err(io::Error::last_os_error());
     }
+    // SAFETY: `dup` succeeded, so `duplicate` is a new descriptor that this function alone owns.
     let stream = unsafe { UnixStream::from_raw_fd(duplicate) };
     let stream = tokio::net::UnixStream::from_std(stream)?;
     stream.readable().await?;
@@ -322,10 +332,12 @@ pub(crate) async fn wait_for_shutdown_signal_async() -> io::Result<()> {
             "shutdown wake reader unavailable",
         ));
     }
+    // SAFETY: dup takes no pointer; `reader` is the process-lifetime wake descriptor.
     let duplicate = unsafe { libc::dup(reader) };
     if duplicate < 0 {
         return Err(io::Error::last_os_error());
     }
+    // SAFETY: `dup` succeeded, so `duplicate` is a new descriptor that this function alone owns.
     let stream = unsafe { UnixStream::from_raw_fd(duplicate) };
     let stream = match tokio::net::UnixStream::from_std(stream) {
         Ok(stream) => stream,
@@ -364,6 +376,8 @@ fn install_signal_handlers() -> io::Result<()> {
 
 #[cfg(target_os = "linux")]
 fn linux_environment_variable_present(name: &[u8]) -> bool {
+    // SAFETY: `environ` is a null-terminated array of NUL-terminated C strings, and startup calls
+    // this before the runtime starts threads that could change the environment while it is walked.
     unsafe {
         let mut cursor = environ;
         while !cursor.is_null() && !(*cursor).is_null() {
@@ -384,12 +398,14 @@ fn harden_provider_secret_process() -> io::Result<()> {
     {
         return Ok(());
     }
+    // SAFETY: PR_SET_DUMPABLE takes integer arguments only and touches no memory of this process.
     let result = unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) };
     if result == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
 }
 
 #[cfg(target_os = "linux")]
 fn require_non_dumpable_provider_process() -> anyhow::Result<()> {
+    // SAFETY: PR_GET_DUMPABLE takes integer arguments only and touches no memory of this process.
     let dumpable = unsafe { libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0) };
     if dumpable == 0 {
         Ok(())
@@ -411,6 +427,9 @@ fn scrub_initial_environment_variable(name: &str) {
     // Linux exposes the initial environment block through /proc even after
     // unsetenv. Clear the value in that original block before removing the
     // entry from the process environment.
+    // SAFETY: as in `linux_environment_variable_present`, startup walks `environ` before any thread
+    // can change it. A matched entry is a NUL-terminated string of at least `prefix.len() +
+    // value_length` bytes, so the zeroed range stays inside it.
     unsafe {
         let mut cursor = environ;
         while !cursor.is_null() && !(*cursor).is_null() {
@@ -434,6 +453,8 @@ fn remove_secret_environment_variable(name: &str) {
     scrub_initial_environment_variable(name);
     // Startup calls this before creating runtime threads. The connector or
     // provider-managed mux already owns any credential selected for this mode.
+    // SAFETY: startup calls this before it creates the runtime threads (see above), so no other
+    // thread reads the environment while the variable is removed.
     unsafe { std::env::remove_var(name) };
 }
 
@@ -2116,14 +2137,10 @@ fn take_provider_management_listener() -> anyhow::Result<Option<std::os::unix::n
 
     const SYSTEMD_FIRST_FD: RawFd = 3;
     const FD_NAME: &str = "cmux-provider-authority";
-    let listen_pid = std::env::var("LISTEN_PID").ok();
-    let listen_fds = std::env::var("LISTEN_FDS").ok();
-    let listen_names = std::env::var("LISTEN_FDNAMES").ok();
-    unsafe {
-        std::env::remove_var("LISTEN_PID");
-        std::env::remove_var("LISTEN_FDS");
-        std::env::remove_var("LISTEN_FDNAMES");
-    }
+    // Taken from the environment as the first statement of `main`, before
+    // this function's caller started its threads.
+    let startup_env::SystemdListenEnv { pid: listen_pid, fds: listen_fds, names: listen_names } =
+        startup_env::take_systemd_listen_env();
     if listen_pid.is_none() && listen_fds.is_none() && listen_names.is_none() {
         return Ok(None);
     }
@@ -2142,12 +2159,17 @@ fn take_provider_management_listener() -> anyhow::Result<Option<std::os::unix::n
     if socket_type != libc::SOCK_STREAM || accepting != 1 {
         anyhow::bail!("provider management descriptor is not a listening stream socket");
     }
+    // SAFETY: F_GETFD takes no pointer; descriptor 3 was checked above to be the listening socket
+    // systemd passed to this process.
     let flags = unsafe { libc::fcntl(SYSTEMD_FIRST_FD, libc::F_GETFD) };
     if flags < 0
+        // SAFETY: F_SETFD takes an integer flag set; descriptor 3 is open (checked above).
         || unsafe { libc::fcntl(SYSTEMD_FIRST_FD, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0
     {
         return Err(io::Error::last_os_error().into());
     }
+    // SAFETY: systemd passed descriptor 3 to this process (LISTEN_PID and LISTEN_FDS checked
+    // above), and only the first take of the variables reaches this line, so this is its one owner.
     let owned = unsafe { OwnedFd::from_raw_fd(SYSTEMD_FIRST_FD) };
     Ok(Some(std::os::unix::net::UnixListener::from(owned)))
 }
@@ -2158,6 +2180,8 @@ fn socket_option(fd: std::os::fd::RawFd, option: libc::c_int) -> io::Result<libc
 
     let mut value = 0;
     let mut length = size_of::<libc::c_int>() as libc::socklen_t;
+    // SAFETY: getsockopt writes at most `length` bytes into `value` and updates `length`; both are
+    // live locals and `length` starts as the size of `value`.
     let result = unsafe {
         libc::getsockopt(fd, libc::SOL_SOCKET, option, (&raw mut value).cast(), &raw mut length)
     };

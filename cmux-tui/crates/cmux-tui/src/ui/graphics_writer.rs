@@ -3,7 +3,7 @@ use std::io;
 #[cfg(test)]
 use std::io::Write;
 #[cfg(unix)]
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::{AsRawFd, OwnedFd};
 #[cfg(test)]
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -489,15 +489,30 @@ impl InterruptibleStdout {
         // `dup` would share file-status flags with stdout, so setting
         // O_NONBLOCK on the duplicate would also make ratatui's stdout
         // writes nonblocking. Opening the controlling terminal creates an
-        // independent open-file description for the same terminal.
-        let raw = unsafe {
-            libc::open(c"/dev/tty".as_ptr(), libc::O_WRONLY | libc::O_NONBLOCK | libc::O_CLOEXEC)
-        };
-        if raw < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        let fd = unsafe { OwnedFd::from_raw_fd(raw) };
-        Ok(Self { fd })
+        // independent open-file description for the same terminal. std opens
+        // it close-on-exec.
+        use std::os::unix::fs::OpenOptionsExt as _;
+        let terminal = std::fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open("/dev/tty")?;
+        Ok(Self { fd: OwnedFd::from(terminal) })
+    }
+
+    /// One nonblocking write(2), not retried: the byte count, or -1 with errno set.
+    fn write_once(&self, bytes: &[u8]) -> isize {
+        // SAFETY: `bytes` is a live slice and write(2) reads at most `bytes.len()` bytes of
+        // it; `self.fd` is open for as long as `self` lives.
+        unsafe { libc::write(self.fd.as_raw_fd(), bytes.as_ptr().cast(), bytes.len()) }
+    }
+
+    /// Waits up to `timeout_ms` for the terminal to accept output: poll(2)'s result,
+    /// -1 with errno set on failure.
+    fn poll_writable(&self, timeout_ms: libc::c_int) -> libc::c_int {
+        let mut poll_fd =
+            libc::pollfd { fd: self.fd.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
+        // SAFETY: the pointer names one live, exclusively borrowed pollfd and the count is 1.
+        unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) }
     }
 
     fn abort_partial_control_string(&mut self) -> io::Result<()> {
@@ -512,9 +527,7 @@ impl InterruptibleStdout {
                     "terminal stayed blocked while canceling a partial control string",
                 ));
             }
-            let written = unsafe {
-                libc::write(self.fd.as_raw_fd(), (&CONTROL_STRING_CANCEL as *const u8).cast(), 1)
-            };
+            let written = self.write_once(&[CONTROL_STRING_CANCEL]);
             if written == 1 {
                 return Ok(());
             }
@@ -528,13 +541,11 @@ impl InterruptibleStdout {
             match error.raw_os_error() {
                 Some(libc::EINTR) => continue,
                 Some(libc::EAGAIN) => {
-                    let mut poll_fd =
-                        libc::pollfd { fd: self.fd.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
                     let remaining = deadline.saturating_duration_since(Instant::now());
                     let poll_ms = remaining
                         .min(Duration::from_millis(OUTPUT_POLL_INTERVAL_MS as u64))
                         .as_millis() as i32;
-                    let ready = unsafe { libc::poll(&mut poll_fd, 1, poll_ms) };
+                    let ready = self.poll_writable(poll_ms);
                     if ready < 0 && io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
                         return Err(io::Error::last_os_error());
                     }
@@ -572,13 +583,7 @@ impl GraphicsOutput for InterruptibleStdout {
                     "terminal stayed blocked while writing a graphics segment",
                 ));
             }
-            let written = unsafe {
-                libc::write(
-                    self.fd.as_raw_fd(),
-                    bytes[offset..].as_ptr().cast(),
-                    bytes.len() - offset,
-                )
-            };
+            let written = self.write_once(&bytes[offset..]);
             if written > 0 {
                 offset += written as usize;
                 *emitted = offset;
@@ -596,9 +601,7 @@ impl GraphicsOutput for InterruptibleStdout {
                 Some(libc::EAGAIN) => {
                     #[cfg(test)]
                     permit.control.report_write_attempt();
-                    let mut poll_fd =
-                        libc::pollfd { fd: self.fd.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
-                    let ready = unsafe { libc::poll(&mut poll_fd, 1, OUTPUT_POLL_INTERVAL_MS) };
+                    let ready = self.poll_writable(OUTPUT_POLL_INTERVAL_MS);
                     if ready < 0 && io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
                         return Err(io::Error::last_os_error());
                     }
@@ -627,13 +630,7 @@ impl GraphicsOutput for InterruptibleStdout {
                     "terminal stayed blocked while recovering a graphics command",
                 ));
             }
-            let written = unsafe {
-                libc::write(
-                    self.fd.as_raw_fd(),
-                    bytes[offset..].as_ptr().cast(),
-                    bytes.len() - offset,
-                )
-            };
+            let written = self.write_once(&bytes[offset..]);
             if written > 0 {
                 offset += written as usize;
                 continue;
@@ -651,13 +648,11 @@ impl GraphicsOutput for InterruptibleStdout {
             match error.raw_os_error() {
                 Some(libc::EINTR) => continue,
                 Some(libc::EAGAIN) => {
-                    let mut poll_fd =
-                        libc::pollfd { fd: self.fd.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
                     let remaining = deadline.saturating_duration_since(Instant::now());
                     let poll_ms = remaining
                         .min(Duration::from_millis(OUTPUT_POLL_INTERVAL_MS as u64))
                         .as_millis() as i32;
-                    let ready = unsafe { libc::poll(&mut poll_fd, 1, poll_ms) };
+                    let ready = self.poll_writable(poll_ms);
                     if ready < 0 && io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
                         if offset != 0 {
                             let _ = self.abort_partial_control_string();
@@ -1636,6 +1631,8 @@ mod tests {
     };
     use cmux_tui_core::Rect;
     use ghostty_vt::{Callbacks, Terminal};
+    #[cfg(unix)]
+    use std::os::fd::FromRawFd;
     use std::sync::atomic::{AtomicBool, Ordering};
 
     struct BlockingOutput {
@@ -1865,23 +1862,58 @@ mod tests {
         assert!(next_graphics_write_end(b"\x1b_Gunterminated", 0).is_none());
     }
 
+    /// A pipe whose write end fails with EAGAIN instead of blocking, the way a
+    /// stopped terminal's output queue does once it is full.
+    #[cfg(unix)]
+    fn nonblocking_pipe() -> (OwnedFd, OwnedFd) {
+        let (read, write) = io::pipe().unwrap();
+        let write = OwnedFd::from(write);
+        set_nonblocking(&write);
+        (OwnedFd::from(read), write)
+    }
+
+    #[cfg(unix)]
+    fn set_nonblocking(fd: &OwnedFd) {
+        // SAFETY: `fd` stays open for the call; F_GETFL takes no pointer argument.
+        let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
+        assert!(flags >= 0);
+        // SAFETY: `fd` stays open for the call; F_SETFL takes an integer flag set.
+        let set = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) };
+        assert_eq!(set, 0);
+    }
+
+    /// One write(2), not retried: its result, with errno left for the caller.
+    #[cfg(unix)]
+    fn raw_write(fd: &OwnedFd, bytes: &[u8]) -> isize {
+        // SAFETY: `bytes` is a live slice and write(2) reads at most `bytes.len()` bytes of it.
+        unsafe { libc::write(fd.as_raw_fd(), bytes.as_ptr().cast(), bytes.len()) }
+    }
+
+    /// One read(2), not retried: its result, with errno left for the caller.
+    #[cfg(unix)]
+    fn raw_read(fd: &OwnedFd, buffer: &mut [u8]) -> isize {
+        // SAFETY: `buffer` is a live, exclusively borrowed slice and read(2) writes at most
+        // `buffer.len()` bytes into it.
+        unsafe { libc::read(fd.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len()) }
+    }
+
+    /// The bytes queued for reading on `fd` (FIONREAD).
+    #[cfg(unix)]
+    fn queued_bytes(fd: &OwnedFd) -> usize {
+        let mut available: libc::c_int = 0;
+        // SAFETY: FIONREAD writes one c_int through its pointer, which points at `available`.
+        let result = unsafe { libc::ioctl(fd.as_raw_fd(), libc::FIONREAD, &mut available) };
+        assert_eq!(result, 0);
+        usize::try_from(available).unwrap()
+    }
+
     #[cfg(unix)]
     #[test]
     fn shutdown_cancels_a_writer_blocked_by_terminal_backpressure() {
-        let mut raw_fds = [-1; 2];
-        assert_eq!(unsafe { libc::pipe(raw_fds.as_mut_ptr()) }, 0);
-        let read_fd = unsafe { OwnedFd::from_raw_fd(raw_fds[0]) };
-        let write_fd = unsafe { OwnedFd::from_raw_fd(raw_fds[1]) };
-        let flags = unsafe { libc::fcntl(write_fd.as_raw_fd(), libc::F_GETFL) };
-        assert!(flags >= 0);
-        assert_eq!(
-            unsafe { libc::fcntl(write_fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) },
-            0
-        );
+        let (read_fd, write_fd) = nonblocking_pipe();
         let fill = [0_u8; 4_096];
         loop {
-            let written =
-                unsafe { libc::write(write_fd.as_raw_fd(), fill.as_ptr().cast(), fill.len()) };
+            let written = raw_write(&write_fd, &fill);
             if written >= 0 {
                 continue;
             }
@@ -1930,21 +1962,11 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn segment_backpressure_has_a_total_deadline_without_external_supersession() {
-        let mut raw_fds = [-1; 2];
-        assert_eq!(unsafe { libc::pipe(raw_fds.as_mut_ptr()) }, 0);
-        let _read_fd = unsafe { OwnedFd::from_raw_fd(raw_fds[0]) };
-        let write_fd = unsafe { OwnedFd::from_raw_fd(raw_fds[1]) };
-        let flags = unsafe { libc::fcntl(write_fd.as_raw_fd(), libc::F_GETFL) };
-        assert!(flags >= 0);
-        assert_eq!(
-            unsafe { libc::fcntl(write_fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) },
-            0
-        );
+        let (_read_fd, write_fd) = nonblocking_pipe();
         let fill = [0_u8; MAX_LOCKED_GRAPHICS_WRITE_BYTES];
         let mut fill_len = fill.len();
         loop {
-            let written =
-                unsafe { libc::write(write_fd.as_raw_fd(), fill.as_ptr().cast(), fill_len) };
+            let written = raw_write(&write_fd, &fill[..fill_len]);
             if written > 0 {
                 continue;
             }
@@ -1995,16 +2017,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn cancellation_terminates_a_partially_written_apc_before_returning() {
-        let mut raw_fds = [-1; 2];
-        assert_eq!(unsafe { libc::pipe(raw_fds.as_mut_ptr()) }, 0);
-        let read_fd = unsafe { OwnedFd::from_raw_fd(raw_fds[0]) };
-        let write_fd = unsafe { OwnedFd::from_raw_fd(raw_fds[1]) };
-        let flags = unsafe { libc::fcntl(write_fd.as_raw_fd(), libc::F_GETFL) };
-        assert!(flags >= 0);
-        assert_eq!(
-            unsafe { libc::fcntl(write_fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) },
-            0
-        );
+        let (read_fd, write_fd) = nonblocking_pipe();
 
         let mut command = b"\x1b_Gq=2;".to_vec();
         command.resize(256 * 1024, b'A');
@@ -2026,12 +2039,7 @@ mod tests {
 
         let deadline = Instant::now() + Duration::from_secs(1);
         loop {
-            let mut available: libc::c_int = 0;
-            assert_eq!(
-                unsafe { libc::ioctl(read_fd.as_raw_fd(), libc::FIONREAD, &mut available) },
-                0
-            );
-            if available > 0 {
+            if queued_bytes(&read_fd) > 0 {
                 break;
             }
             assert!(Instant::now() < deadline, "writer never emitted its APC prefix");
@@ -2042,9 +2050,7 @@ mod tests {
         let mut emitted = Vec::new();
         let mut buffer = [0_u8; 8 * 1024];
         while !emitted.contains(&CONTROL_STRING_CANCEL) {
-            let count = unsafe {
-                libc::read(read_fd.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len())
-            };
+            let count = raw_read(&read_fd, &mut buffer);
             assert!(count > 0, "pipe closed before the APC cancellation byte");
             emitted.extend_from_slice(&buffer[..count as usize]);
         }
@@ -2059,35 +2065,20 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn partial_apc_abort_is_bounded_when_output_never_becomes_writable() {
-        let mut raw_fds = [-1; 2];
-        assert_eq!(unsafe { libc::pipe(raw_fds.as_mut_ptr()) }, 0);
-        let read_fd = unsafe { OwnedFd::from_raw_fd(raw_fds[0]) };
-        let write_fd = unsafe { OwnedFd::from_raw_fd(raw_fds[1]) };
-        let flags = unsafe { libc::fcntl(write_fd.as_raw_fd(), libc::F_GETFL) };
-        assert!(flags >= 0);
-        assert_eq!(
-            unsafe { libc::fcntl(write_fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) },
-            0
-        );
+        let (read_fd, write_fd) = nonblocking_pipe();
 
         let fill = [0_u8; 4_096];
         loop {
-            let written =
-                unsafe { libc::write(write_fd.as_raw_fd(), fill.as_ptr().cast(), fill.len()) };
+            let written = raw_write(&write_fd, &fill);
             if written >= 0 {
                 continue;
             }
             assert_eq!(io::Error::last_os_error().raw_os_error(), Some(libc::EAGAIN));
             break;
         }
-        let mut full_bytes: libc::c_int = 0;
-        assert_eq!(unsafe { libc::ioctl(read_fd.as_raw_fd(), libc::FIONREAD, &mut full_bytes) }, 0);
         let mut drained = [0_u8; 4_096];
-        let drain_bytes = usize::try_from(full_bytes).unwrap().min(drained.len());
-        assert_eq!(
-            unsafe { libc::read(read_fd.as_raw_fd(), drained.as_mut_ptr().cast(), drain_bytes) },
-            drain_bytes as isize
-        );
+        let drain_bytes = queued_bytes(&read_fd).min(drained.len());
+        assert_eq!(raw_read(&read_fd, &mut drained[..drain_bytes]), drain_bytes as isize);
 
         let mut command = b"\x1b_Gq=2;".to_vec();
         command.resize(256 * 1024, b'A');
@@ -2128,6 +2119,9 @@ mod tests {
         let mut master = -1;
         let mut slave = -1;
         assert_eq!(
+            // SAFETY: openpty writes one descriptor through each of the first two
+            // pointers, which point at live locals; the null name, termios and
+            // winsize pointers are documented as optional.
             unsafe {
                 libc::openpty(
                     &mut master,
@@ -2139,25 +2133,21 @@ mod tests {
             },
             0
         );
+        // SAFETY: openpty succeeded, so `master` is a new descriptor that
+        // nothing else owns or closes.
         let master = unsafe { OwnedFd::from_raw_fd(master) };
+        // SAFETY: as for `master`, openpty returned `slave` as a new descriptor
+        // with no other owner.
         let slave = unsafe { OwnedFd::from_raw_fd(slave) };
         // Linux can reject even the first nonblocking write after TCOOFF. Queue
         // unrelated output before suspending the PTY, then fill the stopped queue.
-        assert_eq!(
-            unsafe { libc::write(slave.as_raw_fd(), sentinel.as_ptr().cast(), sentinel.len()) },
-            sentinel.len() as isize
-        );
+        assert_eq!(raw_write(&slave, sentinel), sentinel.len() as isize);
+        // SAFETY: `slave` is an open terminal descriptor; tcflow takes no pointer.
         assert_eq!(unsafe { libc::tcflow(slave.as_raw_fd(), libc::TCOOFF) }, 0);
-        let flags = unsafe { libc::fcntl(slave.as_raw_fd(), libc::F_GETFL) };
-        assert!(flags >= 0);
-        assert_eq!(
-            unsafe { libc::fcntl(slave.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) },
-            0
-        );
+        set_nonblocking(&slave);
         let fill = [b'x'; 4_096];
         loop {
-            let written =
-                unsafe { libc::write(slave.as_raw_fd(), fill.as_ptr().cast(), fill.len()) };
+            let written = raw_write(&slave, &fill);
             if written >= 0 {
                 continue;
             }
@@ -2169,10 +2159,10 @@ mod tests {
 
     #[cfg(unix)]
     fn resume_pty_and_read_prefix(master: &OwnedFd, output: &InterruptibleStdout) -> Vec<u8> {
+        // SAFETY: `output.fd` is an open terminal descriptor; tcflow takes no pointer.
         assert_eq!(unsafe { libc::tcflow(output.fd.as_raw_fd(), libc::TCOON) }, 0);
         let mut bytes = vec![0_u8; 8 * 1024];
-        let count =
-            unsafe { libc::read(master.as_raw_fd(), bytes.as_mut_ptr().cast(), bytes.len()) };
+        let count = raw_read(master, &mut bytes);
         assert!(count > 0, "resumed pseudo-terminal produced no queued output");
         bytes.truncate(count as usize);
         bytes

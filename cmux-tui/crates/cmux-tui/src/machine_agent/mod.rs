@@ -7,8 +7,7 @@ mod transport;
 
 use std::fmt;
 use std::fs::{File, OpenOptions};
-use std::io::{self, Write};
-use std::os::fd::AsRawFd;
+use std::io::{self, IsTerminal as _, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -221,7 +220,7 @@ struct StderrReporter {
 
 fn open_pairing_terminal() -> Option<File> {
     let terminal = OpenOptions::new().write(true).open("/dev/tty").ok()?;
-    if unsafe { libc::isatty(terminal.as_raw_fd()) } != 1 {
+    if !terminal.is_terminal() {
         return None;
     }
     Some(terminal)

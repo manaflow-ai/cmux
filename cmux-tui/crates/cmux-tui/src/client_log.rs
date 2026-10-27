@@ -184,6 +184,8 @@ fn queue() -> Option<&'static SyncSender<Message>> {
             // `std::process::exit` (usage errors, startup failures) skips
             // destructors but runs atexit handlers, so queued diagnostics
             // still reach disk on the paths this log exists for.
+            // SAFETY: `flush_at_exit` is an `extern "C" fn()` that lives for the whole program;
+            // atexit only stores the pointer, and the OnceLock runs this once.
             #[cfg(unix)]
             unsafe {
                 libc::atexit(flush_at_exit);

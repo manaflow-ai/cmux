@@ -821,6 +821,8 @@ fn provider_token_errors_never_echo_the_secret() {
 
 #[cfg(target_os = "linux")]
 fn initial_environment_contains(needle: &[u8]) -> bool {
+    // SAFETY: `environ` is a null-terminated array of NUL-terminated C strings, and nothing in this
+    // single-test child process changes the environment during the walk.
     unsafe {
         let mut cursor = environ;
         while !cursor.is_null() && !(*cursor).is_null() {
@@ -847,6 +849,8 @@ fn linux_provider_authority_process_is_non_dumpable_and_scrubs_env() {
         assert!(initial_environment_contains(TOKEN.as_bytes()));
         assert!(initial_environment_contains(AUTHORITY.as_bytes()));
         harden_provider_secret_process().unwrap();
+        // SAFETY: PR_GET_DUMPABLE takes integer arguments only and touches no memory of this
+        // process.
         let dumpable = unsafe { libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0) };
         assert_eq!(dumpable, 0);
         let authority =

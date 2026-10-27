@@ -831,6 +831,8 @@ fn reap_on_exit(state: &OwnerProcessState, pid: u32) {
     loop {
         // SAFETY: waitid writes only into the zeroed siginfo it is given.
         let mut info = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
+        // SAFETY: waitid writes one siginfo_t into `info`, a live local; WNOWAIT leaves the child
+        // unreaped.
         let result =
             unsafe { libc::waitid(libc::P_PID, pid, &mut info, libc::WEXITED | libc::WNOWAIT) };
         if result == 0 || io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {

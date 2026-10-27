@@ -89,6 +89,8 @@ impl BoundedDiagnosticBuffer {
         let terminal_events = libc::POLLIN | libc::POLLHUP | libc::POLLERR | libc::POLLNVAL;
         let mut buffer = [0_u8; 4096];
         loop {
+            // SAFETY: the pointer and length describe `poll_fds`, a live, exclusively borrowed
+            // array.
             let ready = unsafe { libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as _, -1) };
             if ready < 0 {
                 if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
