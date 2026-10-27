@@ -218,7 +218,7 @@ jobs:
     # Keep its default on the hosted runner so a busy paid Linux pool cannot
     # delay every nightly before the macOS work is admitted; retain the normal
     # Linux runner fallback for repositories that do not set the override.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
@@ -1471,7 +1471,7 @@ jobs:
   resolve-nightly-ghostty-cli-helper:
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -1821,7 +1821,7 @@ jobs:
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: ${{ !cancelled() && needs.resolve-nightly-cmux-tui-client.result == 'success' }}
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # A dispatch mints the routing token too, so the key is read in the routing environment, as
     # the other dispatchable pickers do (iroh-release-gate.yml, test-ios.yml).
     environment: ci-routing-agent
@@ -3087,7 +3087,7 @@ jobs:
     # Runs for every app build (build_only and fast included): it picks the
     # commit every app job checks out (build_sha).
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
       actions: read
@@ -3251,7 +3251,13 @@ jobs:
     # gives Apple lipo's bytes). The client install, its probes and the strip
     # run in build-nightly-app; the checks that execute Mach-O run in
     # verify-signed-nightly. The fallback below runs only after a failure.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # While Blacksmith Linux starts nothing (the overflow record is set) and
+    # hosted Ubuntu is saturated, this and the other light nightly jobs take
+    # Blacksmith macOS 26, which still moves. Apple's lipo then does the
+    # thinning llvm-lipo copies. No owned label: a runs-on never reads an
+    # unpicked owned variable (tests/test_nightly_trusted_routing.py), and the
+    # picker that validates one itself runs after decide.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 100
     strategy:
       fail-fast: false
@@ -3320,7 +3326,7 @@ jobs:
       # shim trims it.
       - &put-llvm-lipo-on-path-as-lipo
         name: Put llvm-lipo on PATH as lipo
-        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
+        if: runner.os == 'Linux' && (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true')
         run: |
           set -euo pipefail
           llvm_lipo="$(ls /usr/lib/llvm-18/bin/llvm-lipo 2>/dev/null || command -v llvm-lipo || ls /usr/lib/llvm-*/bin/llvm-lipo 2>/dev/null | sort -V | tail -n 1 || true)"
@@ -3440,7 +3446,13 @@ jobs:
           products="build-universal/Build/Products/Release"
           mkdir -p "$products"
           # The Mac's tar records extended attributes GNU tar does not restore.
-          tar --warning=no-unknown-keyword -C "$products" -xzf nightly-inputs/app/cmux-nightly-unsigned.tar.gz
+          # On an owned Mac (the outage fallback) the Mac's own tar restores them,
+          # as this job did before it moved to Linux (#25885).
+          if [ "$RUNNER_OS" = Linux ]; then
+            tar --warning=no-unknown-keyword -C "$products" -xzf nightly-inputs/app/cmux-nightly-unsigned.tar.gz
+          else
+            tar -C "$products" -xzf nightly-inputs/app/cmux-nightly-unsigned.tar.gz
+          fi
 
       # The cx-f58x browser-data scan runs here, on the per-run hosted lane,
       # before anything is injected or signed. In build-nightly-app it took
@@ -3684,7 +3696,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'ubuntu-24.04' }}
     timeout-minutes: 100
     strategy:
       fail-fast: false
@@ -3970,7 +3982,7 @@ jobs:
   prepare-nightly-variant:
     needs: [prepare-nightly-variant-primary, prepare-nightly-variant-fallback]
     if: always() && (needs.prepare-nightly-variant-primary.result == 'success' || needs.prepare-nightly-variant-fallback.result == 'success')
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'ubuntu-24.04' }}
     steps:
       - name: Accept primary or fallback preparation
         run: echo "nightly preparation completed on the primary or fallback route"
@@ -3990,7 +4002,7 @@ jobs:
     # vars.MACOS_RUNNER_26: a pick never blocks signing. It runs on GitHub's hosted runner, as
     # prepare-nightly-variant does, so it never waits on a queue of its own before that fallback.
     continue-on-error: true
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'ubuntu-24.04' }}
     # Room for every step budget in turn (the Blacksmith pick 2, then the owned pick's token
     # mints 1 + 1 and picker 2) plus checkout, so the job is never cut off before its outputs;
     # the Blacksmith pick runs first so `runner` is set before the owned steps start.
@@ -5556,7 +5568,7 @@ jobs:
   find-nightly-next-recovery:
     needs: [decide]
     if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 70
     permissions:
       actions: read
