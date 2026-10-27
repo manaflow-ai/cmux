@@ -13,8 +13,8 @@ on at --interval (no wait for the terminal: the person types at once), reads the
 
 Reports, per tab, what it showed and the first key's key-to-frame (the typing probe's contents_ms), then the counts
 and the first key's p50/p95/p99/max. Exits 1 when any tab lost a key (--max-lost, default 0), 2 when the app did not
-come up. Keys are debug.key (labelled automation); the lost-key race is the same for a person's keys, which the
-window also dispatches before the move's focus lands.
+come up. The app is active, as for a person (keys it holds for a new terminal go on to the key window). Keys are
+debug.key (labelled automation) or, with --input real, HID key events.
 
   new-terminal-first-keys.py --app APP --out DIR [--json FILE] [--tabs 40] [--keys 5]
   split-spring.sh --suite=first-keys --tabs=40      (on a perf lab Mac, through cmux-ci)
@@ -25,7 +25,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import hid_input  # noqa: E402
 import typing_report  # noqa: E402
-from bench_launch import BenchApp, LaunchError  # noqa: E402
+from bench_launch import BenchApp, LaunchError, shipping_env  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -36,6 +36,11 @@ parser.add_argument("--tabs", type=int, default=40)
 parser.add_argument("--keys", type=int, default=5)
 parser.add_argument("--interval", type=float, default=0.06)
 parser.add_argument("--settle", type=float, default=1.5, help="seconds after the last key before the line is read")
+parser.add_argument("--input", choices=("debug", "real"), default="debug",
+                    help="debug: debug.key (labelled automation); real: HID key events (needs the Accessibility grant)")
+parser.add_argument("--background", action="store_true",
+                    help="keep the app inactive (CMUX_NEXT_NO_ACTIVATE): a key the app holds and sends again then has no key "
+                         "window to go to, so only the inactive-window path is measured")
 parser.add_argument("--max-lost", type=int, default=0, help="tabs that may lose keys before the check fails")
 opts, _unknown = parser.parse_known_args()
 
@@ -44,7 +49,7 @@ os.makedirs(OUT, exist_ok=True)
 APP = os.path.abspath(opts.app.rstrip("/"))
 PROBE = os.path.join(OUT, "first-keys-typing.csv")
 CONTROL = hid_input.Control("", os.path.join(APP, "Contents/Resources/bin/cmux"), None)
-result = {"app": os.path.basename(APP), "host": os.uname().nodename, "opts": vars(opts), "input": "debug", "tabs": []}
+result = {"app": os.path.basename(APP), "host": os.uname().nodename, "opts": vars(opts), "input": opts.input, "tabs": []}
 
 
 def note(text):
@@ -84,8 +89,11 @@ def first_key_ms(rows, base):
 
 
 def main():
+    # Active by default, as for a person: keys the app holds for a new terminal go on through NSApp.sendEvent to the key
+    # window, which an inactive app does not have.
+    env = {"CMUX_NEXT_TYPING_PROBE": PROBE, **({} if opts.background else shipping_env(draw=False))}
     bench = BenchApp(APP, out=OUT, config={"browser": {"defaultEngine": "chromium"}}, window=(40, 40, 1400, 900),
-                     log_name="app-first-keys.log", env={"CMUX_NEXT_TYPING_PROBE": PROBE})
+                     log_name="app-first-keys.log", env=env)
     try:
         try:
             bench.launch(timeout=180)
@@ -94,8 +102,13 @@ def main():
             result["launch_failure"] = error.reason
             return 2
         CONTROL.socket_path, CONTROL.config = bench.socket, os.path.join(bench.scratch, "cmux.json")
-        poster = hid_input.poster_for("debug", control=CONTROL)
         time.sleep(6)  # the launch settles
+        if not opts.background:
+            result["activate"] = bench.activate()
+            note(f"first-keys: activate {result['activate']}")
+            if opts.input == "real":
+                hid_input.bring_front(bench.process.pid)
+        poster = hid_input.poster_for(opts.input, control=CONTROL)
         typed = "".join(hid_input.LETTERS[i % 26] for i in range(opts.keys))
         for index in range(opts.tabs):
             before = hid_input.probe_rows(PROBE)
