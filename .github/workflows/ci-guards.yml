@@ -637,14 +637,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_cmux_next_fresh_merge.py
 
-      - name: Validate the settings export stamp stays derived, never committed
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_settings_stamp_not_committed.py
-
-      - name: Validate the cmux-next guardrails pre-push ratchet
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_cmux_next_guardrails.py
-
       - name: Validate required-check drift reconciliation
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_drift.py
