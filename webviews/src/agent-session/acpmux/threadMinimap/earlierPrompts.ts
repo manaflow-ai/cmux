@@ -123,7 +123,8 @@ export class TurnStarts {
         return false;
       case "turn_result":
         this.open = false;
-        if (String(msg.status ?? "completed") !== "failed") {
+        if (String(msg.status ?? "completed") === "failed") this.continued = undefined;
+        else {
           if (this.interrupting === UNKNOWN) this.continued = UNKNOWN;
           else if (this.interrupting !== undefined) this.continued = this.interrupting;
         }

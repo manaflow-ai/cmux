@@ -648,3 +648,41 @@ test("cap cost stays linear and releases payloads after state becomes known", as
   }
   console.info("prompt index cap cost", JSON.stringify(measurements));
 });
+
+for (const stop of ["read failure", "page cap"] as const) {
+  test(`a failed result clears unknown continuation before ${stop}`, async () => {
+    const idle = manualIdle();
+    let reads = 0;
+    const published: string[][] = [];
+    const earlier = new EarlierPrompts(
+      async () => {
+        reads++;
+        if (reads === 1)
+          return {
+            events: [
+              { seq: 400, dir: "mux", kind: "turn_result", msg: { status: "failed" } },
+              { seq: 401, dir: "mux", kind: "user_message", msg: { promptId: "new", text: "New turn" } },
+            ],
+            hasMore: true,
+          };
+        if (stop === "read failure") throw new Error("offline");
+        return {
+          events: [{ seq: 400 - reads, dir: "mux", kind: "queue_removed", msg: { promptId: "other" } }],
+          hasMore: true,
+        };
+      },
+      toRow,
+      () => published.push(earlier.shown(500).map((row) => row.id)),
+      idle,
+    );
+    earlier.start("s", 500);
+    while (idle.queue.length) {
+      idle.queue.shift()!();
+      await flush();
+    }
+    expect(reads).toBe(stop === "read failure" ? 2 : 200);
+    expect(earlier.loading).toBe(false);
+    expect(earlier.shown(500).map((row) => row.id)).toEqual(["user-401"]);
+    expect(published).toEqual([["user-401"]]);
+  });
+}
