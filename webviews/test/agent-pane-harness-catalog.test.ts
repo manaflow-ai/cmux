@@ -24,10 +24,13 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
 
   const CHAT = "0190a000-0000-7000-8000-0000000000c1";
   const PROJECT = "/Users/you/src/atlas";
+  const VIDEO_PATH = "/Users/you/Desktop/first-chat.mov";
   const DRAFT = "Implement a todo list from this screenshot";
   type FirstRunWindow = Window & {
     cmuxWebSwap: { hold(): string | null };
     finishFirstRunImage(): void;
+    finishFirstRunVideo(): void;
+    firstRunVideoCalls: { src: string }[];
     firstRunChatCalls: { method: string; params: Record<string, unknown> }[];
   };
   const START = Date.UTC(2026, 9, 12, 9, 0, 0);
@@ -214,7 +217,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
           webkit: {
             messageHandlers: {
               agentSession: {
-                postMessage: async ({ method }: { method: string }) => {
+                postMessage: async ({ method, params }: { method: string; params?: Record<string, unknown> }) => {
                   let value: unknown = null;
                   switch (method.replace(/^cmux\.agent\./, "")) {
                     case "ready":
@@ -237,6 +240,28 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
                     case "project.browse":
                       value = { cwd: project };
                       break;
+                    case "chat.attach.dropped":
+                      value = { items: [{ path: "/Users/you/Desktop/first-chat.mov", folder: false }] };
+                      break;
+                    case "video.info": {
+                      const calls = ((
+                        window as unknown as { firstRunVideoCalls?: { src: string }[] }
+                      ).firstRunVideoCalls ??= []);
+                      calls.push({ src: String(params?.src ?? "") });
+                      value = await new Promise((resolve) =>
+                        Object.assign(window, {
+                          finishFirstRunVideo: () =>
+                            resolve({
+                              durationMs: 42_400,
+                              width: 1_920,
+                              height: 1_080,
+                              poster: "data:image/jpeg;base64,/9j/AA==",
+                              frames: [{ atMs: 5_300, data: "/9j/AA==" }],
+                            }),
+                        }),
+                      );
+                      break;
+                    }
                     case "shell.run":
                       value = { id: "install-claude" };
                       break;
@@ -295,6 +320,22 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     return { field, image };
   }
 
+  async function preparePendingVideo(page: Page, noProject: boolean) {
+    await page
+      .locator(noProject ? '.nt-env .nt-stage-row[aria-pressed="false"]' : '[data-action="browse-project"]')
+      .click();
+    await page.locator('.nt-env .nt-stage-row[aria-pressed="true"]').waitFor();
+    const field = page.locator(".nt-field");
+    await field.fill(DRAFT);
+    await field.evaluate((target) => {
+      const data = new DataTransfer();
+      data.items.add(new File([new Uint8Array([0x00, 0x01, 0x02])], "first-chat.mov", { type: "video/quicktime" }));
+      target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    });
+    await page.locator(".acpmux-attachment-link-name").filter({ hasText: "first-chat.mov" }).waitFor();
+    await page.waitForFunction(() => typeof (window as unknown as FirstRunWindow).finishFirstRunVideo === "function");
+  }
+
   test.each(["", "Implement a todo list"])("first-run Return opens setup and returns to draft %j", async (draft) => {
     const page = await firstRunPage();
     try {
@@ -329,6 +370,55 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       expect(await image.getAttribute("src")).toBe(source);
       expect(await page.locator('.nt-env .nt-stage-row[aria-pressed="true"]').count()).toBe(1);
       expect(await page.locator('[data-action="browse-project"]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("first-run Start Chat waits for a revealed video read before sending the draft", async () => {
+    const page = await firstRunPage();
+    try {
+      await preparePendingVideo(page, true);
+      await page.locator('[data-create="chat"]').click();
+      const claude = page.locator('[data-harness-row="claude"]');
+      await page.locator('[data-harness-row="claude"][data-harness-status="notInstalled"]').waitFor();
+      await claude.locator(".acpmux-harness-action").click();
+      await page.locator('[data-harness-row="claude"][data-harness-status="ready"]').waitFor();
+      await page.evaluate(() => {
+        const calls: { method: string; params: Record<string, unknown> }[] = [];
+        Object.assign(window, { firstRunChatCalls: calls });
+        for (const method of ["chat.new", "chat.send"])
+          window.cmuxAcpmuxActions![method] = async (params) => {
+            calls.push({ method, params });
+            return "first-chat";
+          };
+      });
+      await claude.locator(".acpmux-harness-action").click();
+
+      // Setup hides and then reveals the New Tab Activity. The first video.info is interrupted;
+      // the second is the read that the resumed Start Chat must wait for.
+      await page.waitForFunction(() => (window as unknown as FirstRunWindow).firstRunVideoCalls?.length === 2);
+      expect(await page.evaluate(() => (window as unknown as FirstRunWindow).firstRunChatCalls)).toEqual([]);
+      await page.evaluate(() => (window as unknown as FirstRunWindow).finishFirstRunVideo());
+      await page.waitForFunction(() =>
+        (window as unknown as FirstRunWindow).firstRunChatCalls.some((call) => call.method === "chat.send"),
+      );
+
+      const calls = await page.evaluate(() => (window as unknown as FirstRunWindow).firstRunChatCalls);
+      expect(calls.map((call) => call.method)).toEqual(["chat.new", "chat.send"]);
+      expect(calls[0]!.params).toEqual({ harness: "claude", noProject: true });
+      expect(calls[1]!.params).toEqual({
+        text: DRAFT,
+        attachments: [
+          expect.objectContaining({
+            kind: "link",
+            name: "first-chat.mov",
+            mimeType: "video/quicktime",
+            path: VIDEO_PATH,
+            video: expect.objectContaining({ durationMs: 42_400, width: 1_920, height: 1_080 }),
+          }),
+        ],
+      });
     } finally {
       await page.close();
     }
