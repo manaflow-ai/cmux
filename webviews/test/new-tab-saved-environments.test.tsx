@@ -37,6 +37,7 @@ const kept = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
 let root: Root | undefined;
 let host: HTMLElement;
+let left = 0;
 
 beforeAll(() => {
   dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -116,6 +117,7 @@ async function mount({
   const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
   const { newWorktree, pickFolder } = await import("../src/agent-session/acpmux/startFolder");
   const calls: Call[] = [];
+  left = 0;
   const callNative = async (method: string, params?: Record<string, unknown>) => {
     calls.push({ method, ...(params ? { params } : {}) });
     switch (method) {
@@ -143,7 +145,9 @@ async function mount({
   const actions = newTabScreenActions({
     callNative,
     cwd: tabCwd,
-    leave: noop,
+    leave: () => {
+      left += 1;
+    },
     selectSession: noop,
     showAllChats: noop,
     runShell: noop,
@@ -413,13 +417,21 @@ test("a saved local environment starts in its folder even when the tab already s
   expect(calls.find((call) => call.method === "chat.new")?.params).toMatchObject({ cwd: APP });
 });
 
-test("a start the SSH machine refused sends the prompt nowhere", async () => {
+test("a refused session/new keeps the prompt, chosen machine and inline reason", async () => {
   const calls = await mount({ peerStart: "refused" });
   await click(environmentButton());
   await click(row("Devbox API"));
   await ask("tail the logs");
   expect(calls.some((call) => call.method === "chat.new")).toBe(true);
   expect(calls.some((call) => call.method === "chat.send")).toBe(false);
+  expect(left).toBe(0);
+  expect(host.querySelector<HTMLTextAreaElement>(".nt-field")?.value).toBe("tail the logs");
+  expect(environmentButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: Devbox API`);
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("devbox is not connected");
+  // A retry goes to the same machine with the retained prompt, never to this Mac.
+  await click(host.querySelector('[data-create="chat"]'));
+  expect(calls.filter((call) => call.method === "chat.new")).toHaveLength(2);
+  expect(calls.filter((call) => call.method === "chat.new").every((call) => call.params?.peer === "devbox")).toBe(true);
 });
 
 test("New chat after a refused worktree leaves the page's create buttons working", async () => {
