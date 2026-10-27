@@ -30,19 +30,46 @@ public final class RemoteLocalhostService {
 
     public init(machines: any RemoteLocalhostMachines, environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.machines = machines
+        debugSocket = Self.debugSocketPath(in: environment)
+    }
+
+    private static func debugSocketPath(in environment: [String: String]) -> String? {
         #if DEBUG
-        debugSocket = environment["CMUX_NEXT_REMOTE_LOCALHOST_DEBUG_SOCKET"].flatMap { $0.isEmpty ? nil : $0 }
+        return environment["CMUX_NEXT_REMOTE_LOCALHOST_DEBUG_SOCKET"].flatMap { $0.isEmpty ? nil : $0 }
         #else
-        debugSocket = nil
+        return nil
         #endif
+    }
+
+    /// Whether every tab of `daemon` routes to `.thisMac`, whatever the service's state: a tab of
+    /// this Mac with no debug socket. Asked before the service is made, so this Mac's pages make
+    /// none (p08-startup-021).
+    public static func routesToThisMac(_ daemon: DaemonService,
+                                       environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        daemon.isLocal && debugSocketPath(in: environment) == nil
+    }
+
+    /// `base` for a tab whose route is `.thisMac`, as ``configuration(for:url:base:)`` gives it,
+    /// with no service state.
+    public static func thisMacConfiguration(url: URL?, base: BrowserTabConfiguration) -> BrowserTabConfiguration {
+        var configuration = base
+        if case .profile(let guardMode) = RemoteLocalhostStorePlan.plan(route: .thisMac, url: url) {
+            configuration.navigationGuard = guardMode
+        }
+        return configuration
     }
 
     private static let debugMachineName = "debug-remote"
 
+    /// Follows cmux.json `browser.remoteLocalhost*`: the current value applies in this turn (a
+    /// service made by a tab's first route routes that tab by the person's setting), later ones
+    /// as they change.
     public func follow(_ settings: SettingsController) {
         observation?.cancel()
+        let (value, later) = ObservationStream.current { settings.snapshot.remoteLocalhost }
+        setting = value
         observation = Task { [weak self] in
-            for await value in ObservationStream({ settings.snapshot.remoteLocalhost }) {
+            for await value in later {
                 self?.setting = value
             }
         }

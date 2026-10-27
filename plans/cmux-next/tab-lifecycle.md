@@ -60,18 +60,42 @@ tab's page window covers the pane (`foreign_pages`).
   strip at once and queues `showSelected` on the frame scheduler, so holding
   Ctrl-Tab creates, attaches or reveals content only for the tab selected
   when the frame runs.
-- Terminal warm set sized by memory (`WarmSetBudget`: 1/128 of RAM at 48 MB a
-  surface, 4 to 12 hidden surfaces; pressure warning 4, critical 0). Browser
+- Terminal warm set sized by memory (`WarmSetBudget`: 1/64 of RAM at 48 MB a
+  surface, 8 to 24 hidden surfaces; memory pressure below). Browser
   pages no longer count in (or evict terminals from) that LRU; hibernation
   manages their memory.
 - Workspace switches park the previous workspace (`WindowController.parked`):
-  its layout view leaves the window but its panes stay in the keep-alive
-  band (mounted, paused, never evicted). Switching back swaps the view in
-  within the frame: no pane controller rebuild, no surface re-attach, no
-  blank frame. Budget: at most 8 parked workspaces per window and as many
-  parked panes in total as the terminal warm set (4 to 12); pressure warning
-  one workspace of up to 2 panes, critical none. Many small workspaces stay
-  warm; a few large ones do not crowd memory.
+  its layout view leaves the window and its panes stay mounted and paused;
+  only their GPU surfaces leave, under the terminal warm set's LRU. Switching
+  back swaps the view in within the frame: no pane controller rebuild, no
+  blank frame. One `ParkedWorkspaceBudget` follows every window's parked
+  workspaces. By default it has no budget: a window keeps every workspace it
+  showed until it closes, and critical memory pressure tears the parked
+  workspaces down through the memory coordinator, one per release slice
+  (p07-memory-096), off-screen windows' first, then the least recently
+  parked, except the ones the window keeps: the workspace under a top page
+  and the ones on screen beside the shown one (`sidebar.multiView`).
+- With `memoryDiscardParkedWorkspaces` (labs, default off; p07-memory-032,
+  taking back 6f04ec90105) the budget is `SubsystemBudget.parkedWorkspaces`
+  (RAM/2048 MiB, 4 to 16) across every window: past it the least recently
+  parked one that is not kept is torn down, as Chrome's
+  `FrameEvictionManager` culls saved frames; kept ones count but stay. With
+  `memoryDiscardParkedIdleTimeout` too, one hidden 15 minutes goes even
+  within the budget. Each look runs on one background `MainDeadline` after the switch's
+  turn and tears down at most one workspace; nothing polls. A kept workspace
+  arms no look: the window tells the budget after each arrangement
+  (`arrangeOnScreen`), and one it stopped keeping is hidden from then on,
+  the most recently parked. A torn-down
+  workspace mounts again when shown, with its view-only state (strip and
+  screen bar scroll) reset until p07-memory-033's `WorkspaceViewRecord`.
+- Memory pressure shrinks the terminal warm set through the memory
+  coordinator too (`WarmSetRelease`, p07-memory-096): the coordinator's
+  limit scales the warm set's normal capacity (warning: the Memory Saver
+  mode's share of 50 %, critical: 0), and each release slice closes one
+  surface at once (no last picture), the least recently hidden first. A
+  surface hidden in the last 2 s is the working set and stays. A closing
+  consumer yields the rest of its slice, so the browser's urgent discard
+  pass and the parked workspaces' teardown run in the same first frame.
 - No screenshot or PNG decode on the main thread on hide.
 
 Bench: `scripts/cmux-next/bench-tab-switch.sh <tag>` (Ctrl-Tab held over 20
@@ -216,6 +240,30 @@ Now (`HibernationPlanner.plan`):
   tabs and Never Hibernate hosts unless the settings say otherwise.
 - Never Hibernate This Site (tab context menu, palette, `tab
   never-hibernate-site`) adds the host to `browser.hibernationExclusions`.
+
+### 3b. cmux pages (chrome-parity p13-webui, 2026-10-26)
+
+cmux's own pages (agent chats, New Tab, Settings, History, Cloud and the other page tabs) have a
+lifecycle of their own, behind feature `pageLifecycle` (off; when on it replaces
+`memoryDiscardInternalPages` for page tabs). Design: [webui-DESIGN.md](webui-DESIGN.md) and
+[chrome-parity/p13-webui.md](chrome-parity/p13-webui.md) section 3.C.
+
+- States: Active, Hidden, Frozen, Discarded (`PageLifecyclePlanner`, CmuxNextHibernation, pure;
+  `PageLifecycle`, CmuxNextPages, performs it). As Chrome's freezing policy
+  (`components/performance_manager/freezing/freezing_policy.cc`), nothing observes a page: the
+  `ContentLifecycle` show and hide of section 1 and the page's own load start and end are O(1) calls.
+- Times: a hidden page may freeze after 10 s (3 s in Energy Saver) once no keep reason holds
+  (Chrome's `CannotFreezeReason`s plus a running agent turn, a draft, focus and the preload); it is
+  discarded after 300 s hidden, 60 s at warning and 10 s at critical pressure, never sooner than the
+  minutes written in `browser.hibernation`, at the browser tabs' pace (section 3a).
+- One deadline: the planner runs on hidden pages only, from one `MainDeadline` in the background
+  class (owner `webui.lifecycle`). A show thaws in its own turn, before the page is revealed.
+- Freeze: Chromium `SetPageFrozen` from fork API 29 (DevTools `Page.setWebLifecycleState` before);
+  WebKit throttles the page and keeps it in its window (029 measured the detach rule).
+- Discard: the page keeps a picture and state taken at hide (it is asked nothing when frozen);
+  Chromium discards in place (`WebContents::Discard`, fork export, 031) and reloads its entry on show.
+- The page router holds a frozen page's events and thaws before it delivers (023); a renderer
+  crash marks every page of its group, and a hidden page reloads only when it shows (039).
 
 ## 4. Not done / open
 

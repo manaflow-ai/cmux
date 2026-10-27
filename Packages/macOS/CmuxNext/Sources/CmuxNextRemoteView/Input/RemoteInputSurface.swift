@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextWakeups
 
 /// The remote view's input surface for panes outside this module (Mac
 /// Screen tabs): the same capture view, keyboard policy, release chord and
@@ -74,6 +75,13 @@ public final class RemoteInputSurface {
         set { capture.acceptsPointer = newValue }
     }
 
+    /// The windows' frame-aligned pointer input (feature `pointerFrameRemoteInput`): moves, drags and
+    /// mid-gesture scrolls reach the host at most twice per display frame. Nil sends each at once.
+    public var pointerFrames: FrameInputCoalescers? {
+        get { capture.pointerFrames }
+        set { capture.pointerFrames = newValue }
+    }
+
     /// cmux shortcut matcher: true keeps the chord in the viewer.
     public var isLocalShortcut: (NSEvent) -> Bool {
         get { capture.controller.isLocalShortcut }
@@ -85,7 +93,11 @@ public final class RemoteInputSurface {
 
     /// A key from the system shortcut tap: true when it was sent (the tap
     /// consumes it), false to let it go on to macOS.
-    public func takeSystemKey(_ key: RemoteTapKey) -> Bool { capture.controller.takeSystemKey(key) }
+    public func takeSystemKey(_ key: RemoteTapKey) -> Bool {
+        // The key must not pass the moves and scrolls waiting for the frame.
+        capture.flushPointer()
+        return capture.controller.takeSystemKey(key)
+    }
 
     /// The window the surface is in.
     public var window: NSWindow? { capture.window }

@@ -40,6 +40,7 @@ impl WorkspaceRegistry {
     /// [`WorkspaceRegistry::session_journal_after`], except that a range
     /// whose stored bytes do not decode is returned as a skip instead of an
     /// error. A page never contains records after a skipped range.
+    #[track_caller]
     pub(crate) fn session_journal_after_salvaging(
         &self,
         sequence: u64,
@@ -53,6 +54,7 @@ impl WorkspaceRegistry {
     /// Distinct subject ids of one kind that records in `start..=end` name.
     /// It reads the append-only subject index, so it works for a range whose
     /// records do not decode.
+    #[track_caller]
     pub(crate) fn journal_subject_ids_in_range(
         &self,
         kind: &str,

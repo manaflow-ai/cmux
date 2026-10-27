@@ -4,9 +4,9 @@
 //! explicit, opt-in process launches and never discover or mutate a cmux
 //! daemon on their own.
 
+use cmux_process::Command;
 use std::env;
 use std::path::PathBuf;
-use std::process::Command;
 
 use super::surface::Surface;
 
@@ -58,8 +58,12 @@ fn run_ui_layer(args: &[String]) -> i32 {
         return 1;
     }
 
-    let status =
-        Command::new("/bin/bash").arg(&launcher).args(args).current_dir(&repository).status();
+    let status = Command::new("/bin/bash")
+        .arg(&launcher)
+        .args(args)
+        .current_dir(&repository)
+        .inherit_like_std()
+        .status();
     match status {
         Ok(status) => status.code().unwrap_or(1),
         Err(error) => {

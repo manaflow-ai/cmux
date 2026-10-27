@@ -1,6 +1,6 @@
 public import Foundation
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// A remote browser host's per-launch secret, kept in a file that only this
 /// user can read (like an SSH key): the address form's secure source
 /// (cx-erey). The host gets its secret as the first line of its stdin

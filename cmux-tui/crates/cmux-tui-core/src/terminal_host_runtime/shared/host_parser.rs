@@ -4,6 +4,7 @@
 //! after every command.
 
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
@@ -13,7 +14,7 @@ use ghostty_vt::Callbacks;
 
 use super::super::*;
 use super::clipboard_read::*;
-use super::host_shared::HostShared;
+use super::host_shared::{HostLoop, HostShared};
 use super::host_state::*;
 
 /// State the parser shares with the terminal's callbacks.
@@ -118,6 +119,22 @@ impl HostShared {
     }
 }
 
+/// A `task.host_parse` slice's arg1: the command's kind in the high byte (0 Output, 1 Resize,
+/// 2 SetDefaults, 3 ClearHistory, 4 ClipboardReadComplete, 5 Barrier, 6 Drain), an Output's byte
+/// count below it.
+pub(crate) fn parser_command_trace_arg(command: &ParserCommand) -> u64 {
+    let (kind, bytes): (u64, usize) = match command {
+        ParserCommand::Output { bytes, .. } => (0, bytes.len()),
+        ParserCommand::Resize { .. } => (1, 0),
+        ParserCommand::SetDefaults { .. } => (2, 0),
+        ParserCommand::ClearHistory { .. } => (3, 0),
+        ParserCommand::ClipboardReadComplete { .. } => (4, 0),
+        ParserCommand::Barrier(_) => (5, 0),
+        ParserCommand::Drain => (6, 0),
+    };
+    (kind << 56) | (bytes as u64 & ((1 << 56) - 1))
+}
+
 pub(crate) fn run_host_parser(
     parser_host: Arc<HostShared>,
     parser_command_receiver: Receiver<ParserCommand>,
@@ -138,12 +155,25 @@ pub(crate) fn run_host_parser(
     let flush_pending_responses = || {
         let responses = std::mem::take(&mut *pending_responses.lock().recover_poison());
         if !responses.is_empty() {
-            let mut writer = parser_host.writer.lock().recover_poison();
+            let mut writer = parser_host.pty_writer();
             let _ = writer.write_all(&responses);
             let _ = writer.flush();
         }
     };
-    while let Ok(command) = parser_command_receiver.recv() {
+    let hang_watch = HostLoop::Parser.register();
+    // The parser's wait for its next command is idle: it holds no one
+    // else's work at the top of its loop (p02-threads 308).
+    while let Ok(command) = waits::idle_recv(&parser_command_receiver) {
+        // One hang-watch scope per command, after its wait.
+        let _item = HostLoop::Parser.watch(&hang_watch);
+        // One `task.host_parse` slice per command, after its wait: terminal hash, command kind
+        // and, for Output, its bytes.
+        let _parse = cmux_trace::trace_scope!(
+            task,
+            "task.host_parse",
+            cmux_trace::terminal_hash(parser_host.terminal_id.as_bytes()),
+            parser_command_trace_arg(&command)
+        );
         match command {
             ParserCommand::Output { bytes, source_cursor, accounted_bytes } => {
                 let title = {

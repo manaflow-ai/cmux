@@ -10,7 +10,10 @@ public import CmuxNextTrace
 /// ```
 extension TraceRuntime {
     /// Begins a same-thread slice (B); end it on this thread with ``end(_:arg0:arg1:)``.
-    public func begin(_ name: SignpostName, arg0: UInt64, arg1: UInt64 = 0) {
+    ///
+    /// - Returns: Whether the begin was written (its category was on).
+    @discardableResult
+    public func begin(_ name: SignpostName, arg0: UInt64, arg1: UInt64 = 0) -> Bool {
         record(name, .begin, arg0: arg0, arg1: arg1)
     }
 
@@ -19,18 +22,33 @@ extension TraceRuntime {
         record(name, .end, arg0: arg0, arg1: arg1)
     }
 
-    /// Runs `body` inside a same-thread slice named `name`.
+    /// Runs `body` inside a same-thread slice named `name`. The category is read once, at the begin: a
+    /// written begin always gets its end.
     ///
     /// - Returns: What `body` returns.
     public func interval<T>(_ name: SignpostName, arg0: UInt64, arg1: UInt64 = 0, _ body: () throws -> T) rethrows -> T {
-        record(name, .begin, arg0: arg0, arg1: arg1)
-        defer { record(name, .end) }
+        let recorded = record(name, .begin, arg0: arg0, arg1: arg1)
+        defer { if recorded { endRecorded(name, arg0: 0) } }
         return try body()
     }
 
     /// Begins an async slice (AB) keyed by `id`; ``asyncEnd(_:id:arg0:)`` with the same name and id ends it.
-    public func asyncBegin(_ name: SignpostName, id: UInt64, arg0: UInt64 = 0) {
+    ///
+    /// - Returns: Whether the begin was written (its category was on).
+    @discardableResult
+    public func asyncBegin(_ name: SignpostName, id: UInt64, arg0: UInt64 = 0) -> Bool {
         record(name, .asyncBegin, flags: .asyncID, arg0: arg0, arg1: id)
+    }
+
+    /// The E of a B that ``begin(_:arg0:arg1:)`` wrote, whatever the category flags are now.
+    func endRecorded(_ name: SignpostName, arg0: UInt64, arg1: UInt64 = 0) {
+        writeEnd(name: name.rawValue, categoryBit: name.traceCategory.traceBit, phase: .end, arg0: arg0, arg1: arg1)
+    }
+
+    /// The AE of an AB that ``asyncBegin(_:id:arg0:)`` wrote, whatever the category flags are now.
+    func asyncEndRecorded(_ name: SignpostName, id: UInt64, arg0: UInt64) {
+        writeEnd(name: name.rawValue, categoryBit: name.traceCategory.traceBit, phase: .asyncEnd, flags: .asyncID,
+                 arg0: arg0, arg1: id)
     }
 
     /// Ends the async slice named `name` with `id` (AE), with its result number.
@@ -58,8 +76,9 @@ extension TraceRuntime {
         record(name, .counter, arg0: value)
     }
 
+    @discardableResult
     private func record(_ name: SignpostName, _ phase: Phase, flags: RecordFlags = [], arg0: UInt64 = 0,
-                        arg1: UInt64 = 0) {
+                        arg1: UInt64 = 0) -> Bool {
         write(name: name.rawValue, categoryBit: name.traceCategory.traceBit, phase: phase, flags: flags,
               arg0: arg0, arg1: arg1)
     }

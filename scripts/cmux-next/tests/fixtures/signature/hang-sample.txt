@@ -1,0 +1,38 @@
+Sampling process 4242 for 5 seconds with 1 millisecond of run time between samples
+Sampling completed, processing symbols...
+Analysis of sampling cmux NEXT (pid 4242) every 1 millisecond
+Process:         cmux NEXT [4242]
+Path:            /Applications/cmux NEXT.app/Contents/MacOS/cmux NEXT
+Load Address:    0x100000000
+Identifier:      com.cmuxterm.app.next
+Version:         0.9.1 (101)
+Code Type:       ARM64
+Platform:        macOS
+Parent Process:  launchd [1]
+
+Date/Time:       2026-10-24 10:20:00.000 -0700
+OS Version:      macOS 26.1 (25B78)
+
+Call graph:
+    4123 Thread_8812301   DispatchQueue_1: com.apple.main-thread  (serial)
+    + 4123 start  (in dyld) + 6076  [0x18e9a2b98]
+    +   4123 main  (in cmux NEXT) + 64  [0x100004040]
+    +     4123 NSApplicationMain  (in AppKit) + 880  [0x192a3c370]
+    +       4123 -[NSApplication run]  (in AppKit) + 480  [0x192a65000]
+    +         4100 __CFRUNLOOP_IS_SERVICING_THE_MAIN_DISPATCH_QUEUE__  (in CoreFoundation) + 16  [0x18ee50000]
+    +         ! 4100 _dispatch_main_queue_drain  (in libdispatch.dylib) + 988  [0x18e7f0000]
+    +         !   4100 closure #1 in WorkspaceStore.refresh(reason:)  (in cmux NEXT) + 64  [0x1001312d0]
+    +         !     4012 SessionModel.snapshot()  (in cmux NEXT) + 412  [0x1001400a0]
+    +         !     : 4012 FileManager.contentsOfDirectory(atPath:)  (in Foundation) + 120  [0x18fa00000]
+    +         !     :   4012 __getdirentries64  (in libsystem_kernel.dylib) + 8  [0x18ed00000]
+    +         !     88 SessionModel.diff(_:)  (in cmux NEXT) + 40  [0x100141000]
+    +         23 -[NSApplication nextEventMatchingMask:untilDate:inMode:dequeue:]  (in AppKit) + 700  [0x192a70000]
+    +           23 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x18ed01000]
+    4123 Thread_8812345
+    + 4123 start_wqthread  (in libsystem_pthread.dylib) + 8  [0x18ee00000]
+    +   4123 __workq_kernreturn  (in libsystem_kernel.dylib) + 8  [0x18ed02000]
+
+Total number in stack (recursive counted multiple, when >=5):
+
+Sort by top of stack, same collapsed (when >= 5):
+        __getdirentries64  (in libsystem_kernel.dylib)        4012

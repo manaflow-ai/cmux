@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// `appearance.backgroundOpacity` (0...1) and `appearance.backgroundBlur`
 /// (`frosted`, `glass`, `glass-clear` or `none` for no blur) in cmux.json: cmux's own

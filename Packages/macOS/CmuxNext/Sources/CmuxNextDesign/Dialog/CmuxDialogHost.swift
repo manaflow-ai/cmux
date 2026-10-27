@@ -9,6 +9,13 @@ public protocol CmuxDialogHosting: AnyObject {
     /// tab or window closed), and the center then cancels the dialog.
     func show(_ dialog: CmuxDialogView, in scope: CmuxDialogScope, scopeGone: @escaping () -> Void)
     func hide(_ dialog: CmuxDialogView)
+    /// `dialog` shows a new spec in place (`CmuxDialogView.update(_:)`) and may have a new size.
+    func dialogDidUpdate(_ dialog: CmuxDialogView)
+}
+
+public extension CmuxDialogHosting {
+    /// A host that places nothing on screen has nothing to resize.
+    func dialogDidUpdate(_ dialog: CmuxDialogView) {}
 }
 
 /// Dialogs on the R84 overlay host: a window-scope dialog is a dimming
@@ -62,6 +69,7 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
     }
 
     public func show(_ dialog: CmuxDialogView, in scope: CmuxDialogScope, scopeGone: @escaping () -> Void) {
+        // sync-layout: the dialog's wrapped text sets its fitting size, which sizes the overlay below.
         dialog.layoutSubtreeIfNeeded()
         let size = dialog.fittingSize
         dialog.translatesAutoresizingMaskIntoConstraints = true
@@ -91,6 +99,16 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         detach(entry)
     }
 
+    /// The panel takes its new rows' size and the overlay places it again, as a Chrome bubble does on
+    /// `SizeToContents()` (ui/views/bubble/bubble_dialog_delegate.cc).
+    public func dialogDidUpdate(_ dialog: CmuxDialogView) {
+        guard let entry = shown[ObjectIdentifier(dialog)] else { return }
+        // sync-layout: the new rows' wrapped text sets the fitting size the overlay is placed by.
+        dialog.layoutSubtreeIfNeeded()
+        dialog.setFrameSize(dialog.fittingSize)
+        entry.handle?.contentDidResize()
+    }
+
     /// Presents or withdraws the overlay to match the scope's visibility.
     private func sync(_ entry: Shown) {
         guard let scope = entry.scope.live else { return detach(entry) }
@@ -106,6 +124,7 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         if let handle = entry.handle, !handle.isDismissed, handle.host === host { return }
         detach(entry)
         let handle = host.present(entry.dialog, options: Self.options(for: scope))
+        handle.name = entry.dialog.spec.identifier
         // The window closed (its host dismissed every overlay): the dialog ends.
         handle.onDismiss = entry.scopeGone
         entry.handle = handle

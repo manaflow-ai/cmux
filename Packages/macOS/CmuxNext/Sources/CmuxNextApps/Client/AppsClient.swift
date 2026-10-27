@@ -53,9 +53,18 @@ public final class AppsClient {
     @ObservationIgnored var followed: Set<String> = []
     @ObservationIgnored let keyPrefix = UUID().uuidString.prefix(8).lowercased()
     static let logLimit = 500
+    /// The decoded bundle images every scene and section header of these apps draws; its owner
+    /// registers it as a memory consumer.
+    @ObservationIgnored public let bundleImages: AppBundleImageCache
 
-    public init(transport: any AppsTransport) {
+    /// Makes a client.
+    ///
+    /// - Parameters:
+    ///   - transport: The supervisor connection.
+    ///   - bundleImages: The decoded bundle image cache (the composition root makes one).
+    public init(transport: any AppsTransport, bundleImages: AppBundleImageCache) {
         self.transport = transport
+        self.bundleImages = bundleImages
         availability = transport.availability
         transport.onEvent = { [weak self] event in self?.handle(event) }
     }

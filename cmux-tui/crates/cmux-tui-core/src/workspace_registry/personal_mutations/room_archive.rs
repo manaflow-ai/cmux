@@ -172,6 +172,7 @@ pub(super) fn reinsert(mut order: Vec<String>, ids: &[(String, Option<u64>)]) ->
 /// Restore the room of `archive` when it is gone, then move the pins and
 /// group of each reopened workspace (`placements`: closed key, new key, of
 /// session `local`) to its new key. Returns whether personal rows changed.
+#[track_caller]
 pub(crate) fn restore_room(
     transaction: &Transaction<'_>,
     archive: &Value,

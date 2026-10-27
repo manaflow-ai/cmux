@@ -136,6 +136,36 @@ struct ChromiumRuntimeInstallerTests {
         #expect(store.installations().isEmpty)
     }
 
+    /// p02-threads-053 fixer: a check that never ran (its task cancelled, or quit dropped it) is no failed
+    /// attempt. The job ends without `.failed` and without a retry, so nothing reports a false signature failure.
+    @Test func aCheckThatNeverRanEndsTheJobWithoutAFailureOrARetry() async throws {
+        let (data, pin) = try PackFixture.make(in: folder.url, teamID: "ABCDE12345")
+        let signatures = RecordingSignatures(failing: "Renderer", failure: .cancelled)
+        let downloader = MemoryDownloader(bytes: data)
+        let installer = installer(pin, downloader: downloader, signatures: signatures, maxAttempts: 3)
+        let states = await installer.states()
+        let state = await installer.run(.user)
+        #expect(state == .installing)
+        #expect(await downloader.calls == 1, "a dropped check retried the attempt")
+        #expect(store.installations().isEmpty)
+        var seen: [ChromiumRuntimeInstallState] = []
+        for await next in states {
+            seen.append(next)
+            if next == .installing { break }
+        }
+        #expect(!seen.contains { if case .failed = $0 { true } else { false } })
+    }
+
+    /// p02-threads-053 fixer: each check carries the job's priority, so the checker can run a prefetch's checks at
+    /// best effort and a person's at user-visible priority.
+    @Test func eachCheckCarriesTheJobPriority() async throws {
+        let (data, pin) = try PackFixture.make(in: folder.url, teamID: "ABCDE12345")
+        let signatures = RecordingSignatures()
+        let state = await installer(pin, downloader: MemoryDownloader(bytes: data), signatures: signatures).run(.background)
+        #expect(state.name == "installed")
+        #expect(await signatures.priorities == Array(repeating: .background, count: 5))
+    }
+
     @Test func aDevPackSkipsOnlyTheSignatureCheck() async throws {
         let (data, pin) = try PackFixture.make(in: folder.url, teamID: nil)
         let signatures = RecordingSignatures(failing: "")

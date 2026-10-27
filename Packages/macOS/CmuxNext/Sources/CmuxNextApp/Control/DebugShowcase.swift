@@ -5,6 +5,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextWakeups
 
 /// Seeds the deterministic DEBUG showcase in the current app window.
 /// `debug.showcase.seed` is intentionally one mutation path shared by the
@@ -78,39 +79,55 @@ enum DebugShowcase {
             "docs-site",
             "infra",
         ]
-        Task { @MainActor in
-            guard let connection = services.daemon.connection else { return }
+        guard let connection = services.daemon.connection else { return }
+        let (work, logger, owner) = (services.mainWork, services.daemon.logger, "debug.showcase.seed")
+        // task-owner: one showcase seed; it ends after the last workspace. The daemon calls await off main, and
+        // each step on the app's model is one automation task (the showcase is a scripted fixture).
+        services.work.task(.userVisible) {
             for name in workspaces {
-                if let existing = services.showcase.workspaces[name], services.machines.workspace(id: existing) != nil {
-                    if let controller = services.windows.controller(for: windowID) {
-                        services.windows.claim(workspaceID: existing, in: controller.state, select: false)
-                    }
+                guard await work.apply(.automation, owner: owner, { needsWorkspace(name, services: services, windowID: windowID) }) else {
                     continue
                 }
-                if let existing = services.daemon.store.workspaces.first(where: { $0.displayName == name }) {
-                    let id = existing.id
-                    services.showcase.workspaces[name] = id
-                    if let controller = services.windows.controller(for: windowID) {
-                        services.windows.claim(workspaceID: id, in: controller.state, select: false)
-                    }
-                    continue
-                }
-                services.showcase.workspaces[name] = nil
                 do {
                     let id = try await connection.state.createWorkspace(name: name, ephemeral: false, terminal: false, focus: true).workspaceID.rawValue
-                    services.windows.claimNew(workspaceID: id, window: windowID)
-                    services.showcase.workspaces[name] = id
-                    if let controller = services.windows.controller(for: windowID) {
-                        services.windows.claim(workspaceID: id, in: controller.state, select: false)
-                    }
-                    let seededIDs = Array(services.showcase.workspaces.values)
-                    _ = services.windows.moveWorkspaces(seededIDs, toWindow: windowID, select: false)
-                    services.windows.reconcileMembership()
+                    await work.apply(.automation, owner: owner) { claimCreated(id, name: name, services: services, windowID: windowID) }
                 } catch {
-                    services.daemon.logger.error("showcase workspace \(name, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                    logger.error("showcase workspace \(name, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 }
             }
         }
+    }
+
+    /// Claims showcase workspace `name` in window `windowID` when it exists already; true when it must be created.
+    private static func needsWorkspace(_ name: String, services: AppServices, windowID: String) -> Bool {
+        if let existing = services.showcase.workspaces[name], services.machines.workspace(id: existing) != nil {
+            if let controller = services.windows.controllerBuildingIfWaiting(for: windowID) {
+                services.windows.claim(workspaceID: existing, in: controller.state, select: false)
+            }
+            return false
+        }
+        if let existing = services.daemon.store.workspaces.first(where: { $0.displayName == name }) {
+            let id = existing.id
+            services.showcase.workspaces[name] = id
+            if let controller = services.windows.controllerBuildingIfWaiting(for: windowID) {
+                services.windows.claim(workspaceID: id, in: controller.state, select: false)
+            }
+            return false
+        }
+        services.showcase.workspaces[name] = nil
+        return true
+    }
+
+    /// Claims the new showcase workspace `id` (named `name`) in window `windowID` and moves the seeded set there.
+    private static func claimCreated(_ id: String, name: String, services: AppServices, windowID: String) {
+        services.windows.claimNew(workspaceID: id, window: windowID)
+        services.showcase.workspaces[name] = id
+        if let controller = services.windows.controllerBuildingIfWaiting(for: windowID) {
+            services.windows.claim(workspaceID: id, in: controller.state, select: false)
+        }
+        let seededIDs = Array(services.showcase.workspaces.values)
+        _ = services.windows.moveWorkspaces(seededIDs, toWindow: windowID, select: false)
+        services.windows.reconcileMembership()
     }
 }
 #endif

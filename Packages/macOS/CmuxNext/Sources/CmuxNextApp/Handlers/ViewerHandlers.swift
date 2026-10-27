@@ -34,17 +34,19 @@ enum ViewerHandlers {
             // No repository at the pane's folder: the picker asks for one (only when the run may
             // change the view, as a person's click on the chat header's Changes may; an agent or
             // the CLI without focus gets needsFocus).
-            registry.track(Task { @MainActor in
-                do { try await viewers.openDiff(folder, turn: turn, showTurn: showTurn, in: pane, focus: focus, created: created) } catch {
-                    guard invocation.allowsViewChange else { return backgroundPickerRefusal() }
-                    // The header's pick still opens beside the chat, as its diff would have.
-                    let page = invocation.besideCaller
-                        ? viewers.diffPickerPage(for: pane, beside: { AgentBesidePlacement.placed(invocation, in: pane, then: nil) })
-                        : viewers.diffPickerPage(for: pane)
-                    context.services.palette.show(page: page, relativeTo: context.activeWindow?.window)
-                }
+            // The diff's repository read is awaited off main; the picker (no repository there) shows in one task on main.
+            registry.trackWork(owner: "ViewerHandlers.openDiff", on: services.mainWork) {
+                try await viewers.openDiff(folder, turn: turn, showTurn: showTurn, in: pane, focus: focus, created: created)
+            } then: { result in
+                guard case .failure = result else { return nil }
+                guard invocation.allowsViewChange else { return backgroundPickerRefusal() }
+                // The header's pick still opens beside the chat, as its diff would have.
+                let page = invocation.besideCaller
+                    ? viewers.diffPickerPage(for: pane, beside: { AgentBesidePlacement.placed(invocation, in: pane, then: nil) })
+                    : viewers.diffPickerPage(for: pane)
+                context.services.palette.show(page: page, relativeTo: context.activeWindow?.window)
                 return nil
-            })
+            }
         })
         // The Screenshots pane: selected when open, else a new tab (focused only when the run may change the view).
         registry.bind("screenshots.open", run: { invocation in services.screenshotsPage.open(focus: invocation.allowsViewChange) })
@@ -61,14 +63,14 @@ enum ViewerHandlers {
             }
         })
         // In the palette each picker is a page of the palette, pushed in place.
-        services.palette.sources.actionPages["palette.openDirectoryDiffViewer"] = { [weak services] in
+        services.palettes.sources.actionPages["palette.openDirectoryDiffViewer"] = { [weak services] in
             guard let pane = services?.windows.active?.focusedPane else { return nil }
             return services?.viewers.diffPickerPage(for: pane)
         }
-        services.palette.sources.actionPages["openMarkdownFile"] = { [weak services] in
+        services.palettes.sources.actionPages["openMarkdownFile"] = { [weak services] in
             services?.viewers.filePickerPage(for: services?.windows.active?.focusedPane, markdown: true)
         }
-        services.palette.sources.actionPages["file.open"] = { [weak services] in
+        services.palettes.sources.actionPages["file.open"] = { [weak services] in
             services?.viewers.filePickerPage(for: services?.windows.active?.focusedPane, markdown: false)
         }
     }

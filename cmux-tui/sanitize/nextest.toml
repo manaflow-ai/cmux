@@ -1,0 +1,31 @@
+# nextest profiles of the sanitizer and Miri lane, passed by
+# cmux-tui/scripts/sanitize.sh as --tool-config-file sanitize:<this file>. The
+# workspace's .config/nextest.toml keeps priority; these profiles exist only
+# here, so they inherit its default profile and its per-test overrides.
+#
+# Instrumented code runs slower (ASan about 2x, TSan 5-15x, Miri 50x or more),
+# so the 120 s hang limit of the default profile would fail correct tests.
+# A real hang still fails. Every test runs once: a retry hides a finding.
+
+[profile.sanitize]
+retries = 0
+fail-fast = false
+failure-output = "final"
+slow-timeout = { period = "120s", terminate-after = 5, grace-period = "10s" }
+
+[profile.miri]
+retries = 0
+fail-fast = false
+failure-output = "final"
+slow-timeout = { period = "300s", terminate-after = 6, grace-period = "10s" }
+# Under Miri these three cmux-layout-reducer tests take 3 min
+# (random_ops_keep_invariants) to more than 30 min each (measured 2026-10-26,
+# nightly-2026-10-20): thousands of random or exhaustive layouts through a
+# crate with no unsafe code. Every other test of the crate still runs, and the
+# stable `cargo nextest` run keeps them. `-- --ignore-default-filter` runs
+# them under Miri.
+default-filter = """
+not (test(=exhaustive_tests::exhaustive_small_layouts_keep_invariants)
+  | test(=tests::random_op_sequences_keep_invariants)
+  | test(=sidebar_layout::tests::random_ops_keep_invariants))
+"""

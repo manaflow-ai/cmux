@@ -73,6 +73,13 @@ Sites that move onto the control or page-relay connection, so they are not allow
 (101), `AgentSessionAttachClient.connect` (102), `PageRelayChannel` (104), `AgentPaneGitLink.open` (105),
 `ChiefProfilePageRelay` (108). Its task removes each one from Q4.
 
+The rows for `DaemonConnection.connectOnce`, the bridge open, `DaemonConnection.shutdownDaemon`,
+`SessionEnding.closeEveryWorkspace` and `SessionTransferService.answers` have no allowlist entry now: those
+sites open through the shared `LineTransport.open` (`DaemonBridge.swift`) and `UnixSocketAddress.connect`,
+and the census counts the socket at that shared helper, not at each caller. An entry keyed to one caller
+would match no site, and an entry on the helper would also hide `TerminalAttachment` and
+`LoopbackForwardClient`. They get their entries back when Q4 counts each caller of those helpers.
+
 ## 3. Wire
 
 Three additive capabilities, each advertised by the daemon in `identify` and by the client in its

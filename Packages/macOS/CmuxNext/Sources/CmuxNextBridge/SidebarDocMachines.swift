@@ -84,15 +84,18 @@ public struct SidebarDocMachines {
 
     /// Link rows draw the favicon at their item's icon address. An open tab's favicon address can change while its image
     /// is cached already (no favicon `revision`): this watches the addresses too (`byOrigin`, one origin -> favicon table
-    /// read once per change) and stores them on the link items; `faviconKey` is a page's origin key.
+    /// read once per change) and stores them on the link items; `faviconKey` is a page's origin key. The returned task is
+    /// the follow (the app's runs for the app; a test cancels its own).
+    @discardableResult
     public static func followFavicons(_ store: SidebarDocStore, revision: @escaping @MainActor () -> Int?,
-                                      byOrigin: @escaping @MainActor () -> [String: String], faviconKey: @escaping (URL) -> String?) {
+                                      byOrigin: @escaping @MainActor () -> [String: String],
+                                      faviconKey: @escaping (URL) -> String?) -> Task<Void, Never> {
         // task-owner: the app's services (live for the app); event-driven (Observation)
         Task {
             var last: [String: String]?
             var lastVersion: UInt64?
             for await (_, version, origins) in ObservationStream({ (revision(), store.version, byOrigin()) }) {
-                NotificationCenter.default.post(name: SidebarModel.itemFaviconsChanged, object: nil)
+                store.faviconsChanged() // every list draws its link rows again
                 guard origins != last || version != lastVersion else { continue } // a tab change that moves no favicon address
                 (last, lastVersion) = (origins, version)
                 store.storeIconURLs { page in URL(string: page).flatMap(faviconKey).flatMap { origins[$0] } }

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// `cef_content_setting_values_t`.
@@ -48,7 +49,7 @@ nonisolated struct CEFCookie: Sendable, Hashable {
 
     static func parse(_ json: String) -> [CEFCookie] {
         guard let data = json.data(using: .utf8),
-              let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
+              let list = try? JSONSerialization.blockingJSONObject(with: data) as? [[String: Any]] else { return [] }
         return list.compactMap { entry in
             guard let name = entry["name"] as? String, let domain = entry["domain"] as? String else { return nil }
             return CEFCookie(name: name, domain: domain, path: entry["path"] as? String ?? "/")
@@ -77,7 +78,7 @@ nonisolated struct CEFSSLStatus: Sendable, Equatable {
 
     static func parse(_ json: String) -> CEFSSLStatus? {
         guard let data = json.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+              let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else { return nil }
         let chain = (object["chain"] as? [String] ?? []).compactMap { Data(base64Encoded: $0) }
         return CEFSSLStatus(
             isSecure: object["secure"] as? Bool ?? false,

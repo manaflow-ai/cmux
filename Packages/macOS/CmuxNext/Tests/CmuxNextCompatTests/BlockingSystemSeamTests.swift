@@ -7,15 +7,16 @@ import Security
 import ServiceManagement
 import Testing
 import UniformTypeIdentifiers
+import XPC
 
 /// The checked seams over synchronous system calls (Security, Accessibility, host resolution, window
-/// lists and captures, NSWorkspace queries, SMAppService): on the main thread each one records exactly one
-/// site at its caller's line with its kind; on a named serial queue none records. Each test binds its own
+/// lists and captures, NSWorkspace queries, SMAppService, XPC replies): on the main thread each one
+/// records exactly one site at its caller's line with its kind; on a named serial queue none records. Each test binds its own
 /// table (``BlockingViolationTable/scoped``). The calls are chosen to change nothing on the host: the
 /// keychain calls name an access group no test runner is entitled to, so securityd refuses the add
 /// (`errSecMissingEntitlement`) and nothing is written; the AX calls go to this process's own element, with
 /// its own short timeout, and name no real attribute or action; the captures name no window; the
-/// SMAppService agent has no plist.
+/// SMAppService agent has no plist; the XPC send names a service that does not exist.
 @Suite(.serialized)
 struct BlockingSystemSeamTests {
     /// The names the debug log and the hang reports use never change.
@@ -23,15 +24,19 @@ struct BlockingSystemSeamTests {
         #expect(BlockingKind.systemCall.rawValue == "system-call")
         #expect(BlockingKind.sleep.rawValue == "sleep")
         #expect(BlockingKind.ipcReply.rawValue == "ipc-reply")
+        #expect(BlockingKind.xpcReply.rawValue == "xpc-reply")
     }
 
     #if DEBUG || CMUX_BLOCKING_CHECKS
+    /// Each seam runs its call through `blockingCall`, so its site also carries the call's wall time (the
+    /// injected clock measures every timed call as ``TickClock/tick``).
     @MainActor @Test func eachSeamOnTheMainThreadRecordsOneSiteAtItsCaller() async throws {
-        let table = BlockingViolationTable(mode: .record)
+        let clock = TickClock()
+        let table = BlockingViolationTable(mode: .record, uptimeNanos: { clock.read() })
         let expected = try BlockingViolationTable.$scoped.withValue(table) { try callEachSystemSeam() }
         await table.flush()
 
-        #expect(expected.count == 28)
+        #expect(expected.count == 29)
         #expect(Set(expected.map(\.location)).count == expected.count)
         #expect(BlockingDetector(table: table).sites == expected)
     }
@@ -42,7 +47,7 @@ struct BlockingSystemSeamTests {
         await table.flush()
 
         #expect(!onMain)
-        #expect(called == 28)
+        #expect(called == 29)
         #expect(BlockingDetector(table: table).sites.isEmpty)
     }
     #endif
@@ -54,7 +59,8 @@ struct BlockingSystemSeamTests {
 private nonisolated func callEachSystemSeam() throws -> [BlockingSite] {
     var expected: [BlockingSite] = []
     func seam(_ kind: BlockingKind, fileID: StaticString = #fileID, line: UInt = #line, _ call: () -> Void) {
-        expected.append(BlockingSite(kind: kind, location: "\(fileID):\(line)", count: 1))
+        expected.append(BlockingSite(kind: kind, location: "\(fileID):\(line)", count: 1,
+                                     totalNanos: TickClock.tick, maxNanos: TickClock.tick))
         call()
     }
 
@@ -133,7 +139,29 @@ private nonisolated func callEachSystemSeam() throws -> [BlockingSite] {
     seam(.ipcReply) { _ = blockingSMAppServiceStatus(missingAgent) }
     seam(.ipcReply) { _ = try? blockingSMAppServiceRegister(missingAgent) }
     seam(.ipcReply) { _ = try? blockingSMAppServiceUnregister(missingAgent) }
+
+    // No such service is registered, so the reply is an XPC_TYPE_ERROR at once (blocking-probe.sh's preflight
+    // makes the same call).
+    let connection = xpc_connection_create_mach_service("com.cmuxterm.blocking-probe.none", nil, 0)
+    xpc_connection_set_event_handler(connection) { _ in }
+    xpc_connection_resume(connection)
+    defer { xpc_connection_cancel(connection) }
+    let request = xpc_dictionary_create(nil, nil, 0)
+    seam(.xpcReply) { _ = blockingXPCSendWithReply(connection, request) }
     return expected
+}
+
+/// A clock that moves ``tick`` nanoseconds per read, so each timed call (two reads) measures ``tick``.
+private nonisolated final class TickClock: Sendable {
+    static let tick: UInt64 = 1_000
+    private let now = Mutex(UInt64(0))
+
+    func read() -> UInt64 {
+        now.withLock { now in
+            now += Self.tick
+            return now
+        }
+    }
 }
 
 /// The same calls on a named serial queue, a context where blocking is allowed (not the cooperative pool
