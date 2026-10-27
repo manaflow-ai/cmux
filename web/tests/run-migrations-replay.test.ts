@@ -208,7 +208,7 @@ describe("Run migrations replay onto every starting shape", () => {
         values ('00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000020', 'a', 1, 'sha256:${"a".repeat(64)}', 'r2://b/a');
     `);
     const snapshotRows = async () => Object.fromEntries(await Promise.all(["runs", "run_attempts", "run_events", "run_artifacts", "cloud_runtimes"]
-      .map(async (table) => [table, (await pool.query(`select to_jsonb(t) as row from "${table}" t order by id`)).rows]));
+      .map(async (table) => [table, (await pool.query(`select to_jsonb(t) as row from "${table}" t order by id`)).rows])));
     const before = { catalog: await catalog(pool), rows: await snapshotRows() };
 
     expect(await applyRealFolder(pool)).toBe(runModelSteps.length);
