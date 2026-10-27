@@ -500,9 +500,17 @@ impl Hub {
     /// what it kept while its link was down is unknown until then, so under MDM's off it counts as
     /// full access, and its log is not read back (nor `left_host_read` kept) before the replay is
     /// in it (review 1 of #26057).
+    ///
+    /// The wait for the agent slot is bounded, as an end's is (review 81 of #23322): a slot held
+    /// past it (a stop waiting on its host) keeps no push waiting. The replay is then not known,
+    /// so the agent counts as in full access; the end that follows marks itself pending while the
+    /// slot stays held (`end_managed_full_access`).
     async fn host_replaying(session: &Session) -> bool {
-        let child = session.child.lock().await.clone();
-        child.is_some_and(|c| c.replay_pending())
+        let wait = super::shutdown::SHUTDOWN_GRACE;
+        match tokio::time::timeout(wait, session.child.lock()).await {
+            Ok(slot) => slot.as_ref().is_some_and(|c| c.replay_pending()),
+            Err(_) => true,
+        }
     }
 
     /// Whether `session`'s agent runs in full access by what acpmux keeps of it, or, for a host a
