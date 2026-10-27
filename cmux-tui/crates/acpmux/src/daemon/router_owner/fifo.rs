@@ -165,6 +165,8 @@ fn let_go(owner: FifoOwner, stop: bool) {
         return;
     }
     crate::daemon::hang_watch::will_block();
+    // wakeup-allow: deadline one ROUTER_STOP_BUDGET for the router's exit after shutdown; the exit
+    // ends the wait first
     if matches!(child.wait_timeout(ROUTER_STOP_BUDGET), Ok(Some(_))) {
         return;
     }
@@ -173,6 +175,8 @@ fn let_go(owner: FifoOwner, stop: bool) {
         child.id()
     );
     let _ = child.kill();
+    // wakeup-allow: deadline one ROUTER_STOP_BUDGET for the killed router's exit; the exit ends the
+    // wait first
     let _ = child.wait_timeout(ROUTER_STOP_BUDGET);
 }
 

@@ -120,6 +120,8 @@ pub fn run_store(cmd: &StoreCommand) -> Result<()> {
     if let Some(mut stdin) = child.stdin.take() {
         stdin.write_all(cmd.stdin.as_bytes())?;
     }
+    // wakeup-allow: deadline one 60 s bound on the store command (the CLI's `harness secret set`
+    // and the daemon's harness admin); its exit ends the wait first
     match child.wait_timeout(std::time::Duration::from_secs(60))? {
         Some(status) if status.success() => Ok(()),
         Some(status) => bail!("{} failed ({status}); nothing was stored", cmd.argv[0]),

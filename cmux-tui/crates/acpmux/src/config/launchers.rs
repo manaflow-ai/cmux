@@ -125,6 +125,7 @@ pub(crate) fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
     crate::daemon::hang_watch::will_block();
     // Woken by the child's exit (SIGCHLD), not a polling tick.
     use wait_timeout::ChildExt;
+    // wakeup-allow: deadline one 20 s bound on `--version`; its exit ends the wait first
     match child.wait_timeout(std::time::Duration::from_secs(20)) {
         Ok(Some(_)) => {}
         Ok(None) => {

@@ -371,6 +371,9 @@ pub(crate) async fn replay<S: Source>(
             }
             Err(TailError::Other(e)) => return Err(e),
         }
+        // wakeup-allow: cli-only `acpmux process tail --follow` re-reads a running process's
+        // output, doubling from pause_min to pause_max while it prints nothing; a key ends the wait
+        // first
         let sleep = tokio::time::sleep(pause);
         tokio::pin!(sleep);
         loop {

@@ -474,6 +474,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if let Some(ms) =
         std::env::var("ACPMUX_TEST_HOLD_AFTER_READY_MS").ok().and_then(|v| v.parse::<u64>().ok())
     {
+        // wakeup-allow: debug the hold a test asks for, debug builds only and only with
+        // ACPMUX_TEST_HOLD_AFTER_READY_MS; it runs once
         tokio::time::sleep(Duration::from_millis(ms.min(5_000))).await;
     }
     #[cfg(all(unix, debug_assertions))]
@@ -491,6 +493,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 .ok()
                 .and_then(|v| v.parse::<u64>().ok())
             {
+                // wakeup-allow: debug the load delay a test asks for, debug builds only and only
+                // with ACPMUX_TEST_DELAY_LOAD_LOGS_MS; it runs once
                 tokio::time::sleep(Duration::from_millis(ms.min(10_000))).await;
             }
             // The chat logs (tails, cut-off turns, queues), before adoption as before.
@@ -704,6 +708,8 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
                 home().join("daemon.lock").display()
             ));
         }
+        // wakeup-allow: bounded a keyed start retries only while another daemon exits and holds the
+        // lock, at most HANDOVER_BUDGET
         tokio::time::sleep(HANDOVER_RETRY).await;
         if Client::connect(&path).await.is_ok() {
             return Err(anyhow!(
@@ -944,6 +950,8 @@ where
                 home().join("daemon.log").display()
             ));
         }
+        // wakeup-allow: bounded a start retries only while another daemon exits and holds the lock,
+        // at most HANDOVER_BUDGET
         tokio::time::sleep(HANDOVER_RETRY).await;
         if let Ok(c) = connect().await {
             return Ok(c);
@@ -1116,6 +1124,8 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
 #[cfg(unix)]
 fn hand_key(mut link: std::os::unix::net::UnixStream, key: &str) {
     use std::io::{Read, Write};
+    // wakeup-allow: deadline one START_BUDGET on the daemon's not-dumpable line; the line or end of
+    // file ends the read first
     let _ = link.set_read_timeout(Some(START_BUDGET));
     let mut said = [0u8; KEY_READY.len()];
     if link.read_exact(&mut said).is_err() || said != KEY_READY {

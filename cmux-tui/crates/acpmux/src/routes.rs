@@ -791,6 +791,8 @@ pub fn local_router_with(
         ))
     };
     let stream = UnixStream::connect(&socket).map_err(|e| unavailable(e.to_string()))?;
+    // wakeup-allow: deadline a 3 s bound on each answer of the local CodeRouter; the answer line
+    // ends the read first
     let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
     let mut writer = stream.try_clone().map_err(|e| unavailable(e.to_string()))?;
     let mut reader = BufReader::new(stream);

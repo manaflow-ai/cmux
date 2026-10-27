@@ -65,6 +65,8 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
                     Err(e) => {
                         tracing::warn!("accept failed: {e}");
                         // No busy loop on a persistent accept error.
+                        // wakeup-allow: backoff 100 ms after a failed accept; a good accept blocks
+                        // with no timeout
                         cmux_blocking::thread::sleep(Duration::from_millis(100));
                     }
                 }
@@ -108,6 +110,8 @@ pub fn router_admin(path: &Path) -> Result<cmux_coderouter::AdminConnections> {
                         let _ = cmux_blocking::fs::remove_file(path);
                     }
                 }
+                // wakeup-allow: bounded only while a stopping router still holds the socket, at
+                // most 1 s
                 cmux_blocking::thread::sleep(Duration::from_millis(50));
             }
             Err(e) => {
@@ -131,6 +135,8 @@ pub fn router_admin(path: &Path) -> Result<cmux_coderouter::AdminConnections> {
                     }
                     Err(e) => {
                         tracing::warn!("router admin accept failed: {e}");
+                        // wakeup-allow: backoff 100 ms after a failed accept; a good accept blocks
+                        // with no timeout
                         cmux_blocking::thread::sleep(Duration::from_millis(100));
                     }
                 }

@@ -263,6 +263,8 @@ impl Hub {
         tokio::spawn(async move {
             // Let a harness's own session-info title and a manual rename win before spending a
             // completion. This is also the debounce between the prompt placeholder and the model.
+            // wakeup-allow: deadline one 50 ms debounce per title request, so a harness title or a
+            // rename wins
             tokio::time::sleep(Duration::from_millis(50)).await;
             let (source, harness) = {
                 let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());

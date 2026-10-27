@@ -450,6 +450,7 @@ impl Started {
             let wait = pooled_owner_wait();
             // task-owner: one bounded wait; the runtime ends it with the host.
             tokio::spawn(async move {
+                // wakeup-allow: deadline one pooled owner wait per host; the host's end drops it
                 tokio::time::sleep(wait).await;
                 let _ = tx.send(Event::OwnerWaitOver).await;
             });
@@ -582,6 +583,8 @@ impl Started {
                 // task-owner: one bounded quiet period; a later line makes
                 // its generation stale, the runtime ends it with the host.
                 tokio::spawn(async move {
+                    // wakeup-allow: deadline one DRAIN_BUDGET quiet period after the leader exited;
+                    // a later line makes it stale
                     tokio::time::sleep(DRAIN_BUDGET).await;
                     let _ = tx.send(Event::DrainOver(generation)).await;
                 });
@@ -928,6 +931,8 @@ impl State {
                     // A bounded kill deadline, not synchronization: the exit
                     // entry is the signal that the harness ended.
                     tokio::spawn(async move {
+                        // wakeup-allow: deadline the one SIGKILL grace after SIGTERM; the leader's
+                        // exit makes it a no-op
                         tokio::time::sleep(grace).await;
                         if alive.load(std::sync::atomic::Ordering::SeqCst) {
                             // SAFETY: the leader is unreaped, so the group is ours.

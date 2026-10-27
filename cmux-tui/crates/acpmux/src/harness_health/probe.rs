@@ -69,6 +69,7 @@ pub(super) fn run_for(
     let started = Instant::now();
     let did_not_finish = || format!("`{}` did not finish in {}s", argv.join(" "), limit.as_secs());
     // Woken by the child's exit (SIGCHLD), not a polling tick.
+    // wakeup-allow: deadline the probe's one `limit`; its exit ends the wait first
     let status = match child.wait_timeout(limit) {
         Ok(Some(status)) => status,
         Ok(None) => {
@@ -79,6 +80,8 @@ pub(super) fn run_for(
     };
     let mut text = Vec::new();
     for _ in 0..2 {
+        // wakeup-allow: deadline what is left of the same `limit`, two reads at most; each closed
+        // pipe ends a wait first
         match rx.recv_timeout(limit.saturating_sub(started.elapsed())) {
             Ok(part) => text.extend(part),
             // Both pipes closed.

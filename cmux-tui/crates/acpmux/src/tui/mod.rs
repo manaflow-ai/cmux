@@ -166,7 +166,6 @@ pub struct App {
     pub(super) quit: bool,
     pub(super) pending_select: Option<String>,
     pub(super) initial_empty_checked: bool,
-    pub tick: u64,
     pub chrome: Chrome,
     pub areas: Areas,
     /// Per-session transcript viewport.
@@ -203,7 +202,7 @@ pub struct App {
     pub toggled: HashMap<String, std::collections::HashSet<Toggle>>,
     /// Composer mouse selection as (anchor, head) char offsets.
     pub composer_sel: Option<(usize, usize)>,
-    /// Direction (-1/1) while a transcript drag sits past an edge; the tick scrolls.
+    /// Direction (-1/1) while a transcript drag sits past an edge; each animation step scrolls (`scheduler::Ticker`).
     pub drag_autoscroll: Option<isize>,
     /// Most composer rows before it scrolls.
     pub composer_max_rows: u16,

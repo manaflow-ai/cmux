@@ -276,6 +276,8 @@ impl Hub {
             let msg =
                 json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "delayMs": delay});
             hub.append(&session, "mux", "auto_resume_scheduled", msg);
+            // wakeup-allow: backoff the configured auto-resume delay before one retry of a cut
+            // turn; the delays list ends the retries
             tokio::time::sleep(Duration::from_millis(delay)).await;
             let cut =
                 CutTurn { prompt_id: &root, turn_id: &turn_id, control, trust_gate, error: &error };

@@ -163,6 +163,7 @@ impl Tailnet {
             let _ = (&mut stderr).take(64 * 1024).read_to_end(&mut buf);
             buf
         });
+        // wakeup-allow: deadline one bound on the tailscale CLI; its exit ends the wait first
         let status = match child.wait_timeout(bound)? {
             Some(status) => status,
             None => {

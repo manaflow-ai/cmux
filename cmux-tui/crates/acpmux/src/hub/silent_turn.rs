@@ -23,6 +23,8 @@ impl Hub {
         let session = session.clone();
         let turn_id = turn_id.to_owned();
         tokio::spawn(async move {
+            // wakeup-allow: deadline one silence bound per prompt; it does nothing when the turn
+            // moved on
             tokio::time::sleep(after).await;
             // Held while it logs, so a sign the tap counts meanwhile finds the silence to end.
             let mut silent = session.silent_turn.lock().unwrap_or_else(|e| e.into_inner());

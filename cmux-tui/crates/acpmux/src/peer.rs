@@ -402,6 +402,8 @@ impl Peer {
             }
             let delay = backoff.next(crate::peer_link::jitter());
             tokio::select! {
+                // wakeup-allow: backoff peer_link::Backoff's reconnect delay (2 to 60 s, jittered)
+                // after a lost link; stop ends it first
                 _ = tokio::time::sleep(delay) => {}
                 _ = self.stop_signal.notified() => break,
             }
@@ -572,6 +574,8 @@ impl Peer {
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut last_frame = tokio::time::Instant::now();
         let mut ticks: u64 = 0;
+        // wakeup-allow: deadline the one handshake bound of a connection; the ready answer disarms
+        // it
         let handshake_deadline = tokio::time::sleep(timings.handshake);
         tokio::pin!(handshake_deadline);
         let result = loop {

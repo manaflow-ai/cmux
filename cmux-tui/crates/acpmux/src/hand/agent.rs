@@ -32,6 +32,8 @@ struct Session {
     last: std::time::Instant,
     /// A turn is running (a prompt sent, no turn_end yet): the idle stop leaves it alone.
     busy: bool,
+    /// After an idle stop failed: not tried again before this.
+    retry_at: Option<std::time::Instant>,
 }
 
 /// Asks the owner (the Cloud approval flow, link.rs) and answers true when allowed.
@@ -47,7 +49,12 @@ pub struct Agents {
     sessions: Arc<Mutex<HashMap<String, Session>>>,
     /// The owner approval round trip, for an agent's permission prompt (set by link.rs).
     ask: Arc<Mutex<Option<Ask>>>,
+    /// A turn ended: the idle stop task reads its next deadline again (`run_idle_stops`).
+    turn_ended: Arc<tokio::sync::Notify>,
 }
+
+/// A failed idle stop is tried again after this long.
+const IDLE_STOP_RETRY: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// A session with no prompt and no event for this long is stopped (its model access ends with it).
 /// CMUX_HAND_AGENT_IDLE_MINUTES overrides (0: never).
@@ -57,6 +64,21 @@ fn idle_limit() -> Option<std::time::Duration> {
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(30);
     (minutes > 0).then(|| std::time::Duration::from_secs(minutes * 60))
+}
+
+/// When a session with no turn running passes `limit` after its `last` activity, or, after
+/// a failed stop, when that stop may go again; None while its turn runs.
+fn idle_deadline(
+    busy: bool,
+    last: std::time::Instant,
+    retry_at: Option<std::time::Instant>,
+    limit: std::time::Duration,
+) -> Option<std::time::Instant> {
+    if busy {
+        return None;
+    }
+    let due = last + limit;
+    Some(retry_at.map_or(due, |retry| retry.max(due)))
 }
 
 /// One outbound frame: `{"t":"event","session","seq","event"}`.
@@ -76,22 +98,79 @@ impl Agents {
             if let Some(b) = busy {
                 s.busy = b;
             }
+        } else {
+            return;
+        }
+        if busy == Some(false) {
+            self.turn_ended.notify_one();
         }
     }
 
-    /// Whether a session is idle past `limit` now (no turn running).
-    fn idle(&self, session: &str, limit: std::time::Duration) -> Option<EventSink> {
+    fn idle_due(s: &Session, limit: std::time::Duration) -> Option<std::time::Instant> {
+        idle_deadline(s.busy, s.last, s.retry_at, limit)
+    }
+
+    /// The earliest moment a session becomes idle past `limit`; None while every turn runs.
+    fn next_idle_due(&self, limit: std::time::Duration) -> Option<std::time::Instant> {
+        self.sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .filter_map(|s| Self::idle_due(s, limit))
+            .min()
+    }
+
+    /// Whether a session is idle past `limit` at `now` (no turn running).
+    fn idle(
+        &self,
+        session: &str,
+        limit: std::time::Duration,
+        now: std::time::Instant,
+    ) -> Option<EventSink> {
         self.sessions
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .get(session)
-            .filter(|s| !s.busy && s.last.elapsed() > limit)
+            .filter(|s| Self::idle_due(s, limit).is_some_and(|due| due <= now))
             .map(|s| s.sink.clone())
     }
 
-    /// Stops every session idle past the limit (called each minute by link.rs).
-    pub async fn stop_idle(&self) {
+    /// Stops each session when it passes the idle limit. It sleeps until the earliest
+    /// session's deadline, and with none due (every turn running) waits for a turn's end:
+    /// activity only moves deadlines later, so no periodic sweep (as `hub/idle.rs`).
+    pub async fn run_idle_stops(&self) {
         let Some(limit) = idle_limit() else { return };
+        loop {
+            // Enabled before the deadlines are read, so a turn that ends after the read is not missed.
+            let ended = self.turn_ended.notified();
+            tokio::pin!(ended);
+            ended.as_mut().enable();
+            match self.next_idle_due(limit) {
+                Some(due) => tokio::select! {
+                    // wakeup-allow: deadline the earliest session's idle limit; a turn's end re-reads it first
+                    () = tokio::time::sleep_until(due.into()) => {}
+                    () = &mut ended => continue,
+                },
+                None => {
+                    ended.await;
+                    continue;
+                }
+            }
+            self.stop_idle(limit, std::time::Instant::now()).await;
+        }
+    }
+
+    fn retry_idle_stop_at(&self, session: &str, at: std::time::Instant) {
+        if let Some(s) =
+            self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get_mut(session)
+        {
+            s.retry_at = Some(at);
+        }
+    }
+
+    /// Stops every session idle past `limit` at `now`; a failed stop goes again after
+    /// `IDLE_STOP_RETRY`.
+    async fn stop_idle(&self, limit: std::time::Duration, now: std::time::Instant) {
         let ids: Vec<String> = self
             .sessions
             .lock()
@@ -101,8 +180,9 @@ impl Agents {
             .collect();
         for id in ids {
             // Checked again for each one: a prompt may have come in since.
-            if let Some(sink) = self.idle(&id, limit) {
-                let _ = self.stop(&id, &sink).await;
+            let Some(sink) = self.idle(&id, limit, now) else { continue };
+            if self.stop(&id, &sink).await.is_err() {
+                self.retry_idle_stop_at(&id, now + IDLE_STOP_RETRY);
             }
         }
     }
@@ -228,6 +308,7 @@ impl Agents {
                 sink: sink.clone(),
                 last: std::time::Instant::now(),
                 busy: true,
+                retry_at: None,
             },
         );
         // Pump: daemon events -> summaries -> the Cloud.
@@ -516,5 +597,34 @@ pub fn summarize(ev: &Value) -> Option<Value> {
             _ => None,
         },
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod idle_tests {
+    use super::idle_deadline;
+    use std::time::{Duration, Instant};
+
+    const LIMIT: Duration = Duration::from_secs(30 * 60);
+
+    #[test]
+    fn a_running_turn_has_no_idle_deadline() {
+        assert_eq!(idle_deadline(true, Instant::now(), None, LIMIT), None);
+    }
+
+    #[test]
+    fn an_idle_session_is_due_one_limit_after_its_last_activity() {
+        let last = Instant::now();
+        assert_eq!(idle_deadline(false, last, None, LIMIT), Some(last + LIMIT));
+    }
+
+    #[test]
+    fn a_failed_stop_is_due_again_at_its_retry_not_at_once() {
+        let last = Instant::now();
+        let retry = last + LIMIT + Duration::from_secs(60);
+        assert_eq!(idle_deadline(false, last, Some(retry), LIMIT), Some(retry));
+        // Activity after the failure moves the deadline past the retry.
+        let later = retry + Duration::from_secs(1);
+        assert_eq!(idle_deadline(false, later, Some(retry), LIMIT), Some(later + LIMIT));
     }
 }

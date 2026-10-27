@@ -262,6 +262,8 @@ impl Hub {
         };
         let mut guard = Wait { hub: self.clone(), session: parent.clone(), call, tag, task: None };
         let answer = guard.task.insert(task);
+        // wakeup-allow: deadline one WAIT for the person's trust answer; the answer or a folder
+        // change ends a turn of the loop first
         let deadline = tokio::time::sleep(WAIT);
         tokio::pin!(deadline);
         let outcome = loop {

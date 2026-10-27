@@ -140,6 +140,7 @@ fn output_by(
         let _ = child.kill();
         let _ = child.wait();
     };
+    // wakeup-allow: deadline git's one deadline `by`; its exit ends the wait first
     let status = match wait_timeout::ChildExt::wait_timeout(
         &mut child,
         by.saturating_duration_since(Instant::now()),
@@ -152,6 +153,8 @@ fn output_by(
     };
     let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
     for _ in 0..2 {
+        // wakeup-allow: deadline what is left of the same deadline `by`, two reads at most; each
+        // closed pipe ends a wait first
         match rx.recv_timeout(by.saturating_duration_since(Instant::now())) {
             Ok((true, bytes)) => stdout = bytes,
             Ok((false, bytes)) => stderr = bytes,

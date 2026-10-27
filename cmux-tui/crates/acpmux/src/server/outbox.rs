@@ -171,6 +171,8 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                     d.error = Some(error);
                 });
                 let Some(secs) = delay else { return };
+                // wakeup-allow: backoff the outbox's retry delays after a failed delivery; the list
+                // ends the retries
                 tokio::time::sleep(Duration::from_secs(*secs)).await;
             }
         }
@@ -213,6 +215,7 @@ async fn attempt_once(
             return Err(("this daemon's connection closed".into(), Next::Retry));
         }
     }
+    // wakeup-allow: deadline one ATTEMPT_WAIT per delivery attempt; the answer ends the wait first
     let deadline = tokio::time::sleep(ATTEMPT_WAIT);
     tokio::pin!(deadline);
     loop {

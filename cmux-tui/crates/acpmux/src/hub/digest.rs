@@ -202,6 +202,8 @@ impl Hub {
                 .filter(|d| !d.is_empty())
                 .unwrap_or_else(|| super::auto_resume::DEFAULT_DELAYS_MS.to_vec());
             let delay = delays[retries.min(delays.len() - 1)];
+            // wakeup-allow: backoff the auto-resume delay before held prompts go again, once per
+            // release
             tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
             if session.meta().status == SessionStatus::Closed {
                 return;

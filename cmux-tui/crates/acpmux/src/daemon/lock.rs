@@ -88,6 +88,8 @@ pub(super) async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bo
         if tokio::time::Instant::now() >= deadline {
             return false;
         }
+        // wakeup-allow: bounded only while a stop or handover waits for the old daemon's lock, at
+        // most `budget`; flock has no release event
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
@@ -108,6 +110,8 @@ pub(super) async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bo
         if tokio::time::Instant::now() >= deadline {
             return false;
         }
+        // wakeup-allow: bounded only while a stop or handover waits for the old daemon's lock, at
+        // most `budget`; LockFileEx has no release event
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }

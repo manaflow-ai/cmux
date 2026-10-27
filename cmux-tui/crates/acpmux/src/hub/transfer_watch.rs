@@ -130,6 +130,8 @@ impl Hub {
             let idle = last_activity(&dir).map_or(lease, |t| t.elapsed().unwrap_or_default());
             if idle < lease {
                 tokio::select! {
+                    // wakeup-allow: deadline the move's lease expiry from its last activity; a
+                    // lease change ends the wait first
                     () = tokio::time::sleep(lease - idle) => {}
                     () = changed => {}
                 }
@@ -140,6 +142,8 @@ impl Hub {
             }
             tracing::warn!(session = %session.id, transfer_id, "a stalled move's target cannot say whether it took the chat; it stays frozen");
             tokio::select! {
+                // wakeup-allow: backoff the stalled move's target did not answer; ask again one
+                // lease (5 min) later, a lease change ends the wait first
                 () = tokio::time::sleep(lease) => {}
                 () = changed => {}
             }

@@ -107,6 +107,8 @@ fn run(rx: &Events, service: &Weak<ChatService>) {
             if left.is_zero() {
                 break;
             }
+            // wakeup-allow: bounded the quiet period after a file event, at most MAX_BURST; while
+            // idle the thread blocks in rx.recv() with no timeout
             match rx.recv_timeout(QUIET.min(left)) {
                 Ok(event) => burst.add(event),
                 Err(RecvTimeoutError::Timeout) => break,

@@ -1194,6 +1194,8 @@ impl Store for LocalStore {
                 Ok(()) => return Ok(()),
                 Err(e) => {
                     last = Some(e);
+                    // wakeup-allow: bounded at most 4 waits of 40 ms, only after remove_dir_all
+                    // failed (ENOTEMPTY while a file lands)
                     cmux_blocking::thread::sleep(std::time::Duration::from_millis(40));
                 }
             }

@@ -580,6 +580,8 @@ pub(crate) async fn collect_reply(
                     (1000u64 * 2u64.pow(attempt.min(4))).min(10_000),
                 );
                 eprintln!("acpmux: agent error, retry {attempt}/{} in {:?}", opts.retries, backoff);
+                // wakeup-allow: backoff the doubling retry (2 to 10 s) after an agent error, at
+                // most opts.retries times
                 tokio::time::sleep(backoff).await;
                 prompt = PromptId::new(None);
             }

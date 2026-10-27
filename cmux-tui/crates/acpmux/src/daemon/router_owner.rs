@@ -69,6 +69,8 @@ fn ask_router(line: &[u8]) -> std::io::Result<Value> {
     use std::io::{BufRead, BufReader, Write};
     let socket = cmux_coderouter::admin_socket_path(&home());
     let stream = crate::router_socket::UnixStream::connect(socket)?;
+    // wakeup-allow: deadline a 1 s bound on the router's answer; the answer line ends the read
+    // first
     stream.set_read_timeout(Some(Duration::from_secs(1)))?;
     let mut writer = stream.try_clone()?;
     writer.write_all(line)?;

@@ -35,6 +35,7 @@ impl UnixStream {
         &self,
         timeout: Option<std::time::Duration>,
     ) -> std::io::Result<()> {
+        // wakeup-allow: deadline the caller's own timeout, forwarded unchanged
         self.0.set_read_timeout(timeout)
     }
 

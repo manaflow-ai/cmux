@@ -56,6 +56,8 @@ pub(crate) fn apply(cmd: &mut tokio::process::Command, session: Option<&str>) {
 fn mint(socket: &std::path::Path, session: &str) -> Option<String> {
     use std::io::{BufRead, BufReader, Read, Write};
     let stream = std::os::unix::net::UnixStream::connect(socket).ok()?;
+    // wakeup-allow: deadline one MINT_TIMEOUT on the mint's answer; the answer line ends the read
+    // first
     stream.set_read_timeout(Some(MINT_TIMEOUT)).ok()?;
     stream.set_write_timeout(Some(MINT_TIMEOUT)).ok()?;
     let id = format!("acpmux-mint-{}", uuid::Uuid::now_v7().simple());

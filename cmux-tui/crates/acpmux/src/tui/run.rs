@@ -69,9 +69,9 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
         )
     );
     let mut events = EventStream::new();
-    let mut tick = tokio::time::interval(std::time::Duration::from_millis(80));
-    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut ticker = scheduler::Ticker::default();
     let mut frames = scheduler::FrameSchedule::new(Instant::now());
+    let status = StatusReads::start(client.clone(), tx.clone());
     let result: Result<()> = loop {
         // First paint with no sessions: open the form so the empty screen is not a dead end.
         if !app.initial_empty_checked && !app.harnesses.is_empty() {
@@ -88,6 +88,9 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
             memory.drew(&app.transcript_cache);
             frames.presented(Instant::now());
         }
+        let moving = app.drag_autoscroll.is_some() || animated(&app);
+        let toast_ends = app.toast.as_ref().map(|(_, at)| *at + scheduler::TOAST_FOR);
+        let wake = ticker.due(Instant::now(), moving, &[app.keymap.expires_at(), toast_ends]);
         tokio::select! {
             biased;
             ev = events.next() => {
@@ -99,7 +102,12 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
                         frames.request();
                     }
                     Some(Ok(Event::Mouse(m))) => { app.on_mouse(m); frames.request(); }
-                    Some(Ok(Event::Resize(..))) | Some(Ok(Event::FocusGained)) => frames.request(),
+                    Some(Ok(Event::Resize(..))) => frames.request(),
+                    // The person looks again: host chips and the web URL may have changed meanwhile.
+                    Some(Ok(Event::FocusGained)) => {
+                        frames.request();
+                        status.read_again();
+                    }
                     Some(Ok(Event::Paste(s))) => {
                         frames.request();
                         if matches!(app.overlay, Overlay::None) && app.paste_images(&s) {
@@ -127,8 +135,10 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
             }
             // This deadline cannot be starved by a continuous daemon stream.
             _ = tokio::time::sleep_until(frames.deadline.into()), if frames.dirty => {}
-            _ = tick.tick() => {
-                app.tick = app.tick.wrapping_add(1);
+            // wakeup-allow: deadline the next animation step while something moves, else a chord's
+            // or toast's expiry; a quiet screen has no wake (`scheduler::Ticker`)
+            _ = tokio::time::sleep_until(wake.unwrap_or_else(Instant::now).into()), if wake.is_some() => {
+                ticker.fired(Instant::now());
                 if app.keymap.expire() && app.status.starts_with("chord · ") {
                     app.status = DEFAULT_STATUS.into();
                     frames.request();
@@ -137,19 +147,8 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
                     app.autoscroll_step();
                     frames.request();
                 }
-                let animated = app.draft().map(|d| d.creating).unwrap_or(false)
-                    || app.selected_id().and_then(|id| app.transcripts.get(&id)).map(|t| t.status == "running").unwrap_or(false);
-                if animated { frames.request(); }
-                if app.tick % 50 == 0 {
-                    let c = client.clone();
-                    let tx = tx.clone();
-                    tokio::spawn(async move {
-                        if let Ok(v) = c.request(method::MUX_STATUS, json!({})).await {
-                            let _ = tx.send(AppMsg::Status(v));
-                        }
-                    });
-                }
-                if app.toast.as_ref().map(|(_, at)| at.elapsed().as_millis() > 1800).unwrap_or(false) {
+                if animated(&app) { frames.request(); }
+                if app.toast.as_ref().is_some_and(|(_, at)| at.elapsed() >= scheduler::TOAST_FOR) {
                     app.toast = None;
                     frames.request();
                 }
@@ -171,6 +170,10 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
                     Some(Message::Notification { method: m, params }) if m != method::MUX_DISCONNECTED => {
                         let p = params.unwrap_or(Value::Null);
                         let selected = p.get("sessionId").and_then(Value::as_str) == app.selected_id().as_deref();
+                        // A peer's sessions change when it connects or drops: its host chip may too.
+                        if (m == method::MUX_SESSION_CHANGED && p.get("peer").is_some()) || m == "_acpmux/lagged" {
+                            status.read_again();
+                        }
                         let visible = match m.as_str() {
                             method::SESSION_UPDATE => selected,
                             method::MUX_EVENT => selected || matches!(p.get("kind").and_then(Value::as_str), Some("turn_end" | "turn_error")),
@@ -193,6 +196,8 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
                             Ok(new_notes) => {
                                 notes = new_notes;
                                 client = app.client.clone();
+                                status.use_client(client.clone());
+                                status.read_again();
                                 frames.request();
                             }
                             Err(e) => break Err(e),
@@ -305,7 +310,6 @@ pub(super) fn make_app(
         quit: false,
         pending_select: None,
         initial_empty_checked: false,
-        tick: 0,
         chrome: Chrome::detect(),
         areas: Areas::default(),
         viewport: HashMap::new(),
@@ -350,6 +354,58 @@ pub(super) fn make_app(
     })
 }
 
+/// What moves on screen: a draft being created, or the selected session's running turn.
+fn animated(app: &App) -> bool {
+    app.draft().is_some_and(|d| d.creating)
+        || app
+            .selected_id()
+            .and_then(|id| app.transcripts.get(&id))
+            .is_some_and(|t| t.status == "running")
+}
+
+/// Daemon status (host chips, the web URL), read again on the events that can change it:
+/// focus, a peer's session change, a lagged stream, a reconnect. No poll. Asks made while
+/// a read is in flight fold into one more read (`Notify` keeps one permit).
+struct StatusReads {
+    wanted: Arc<tokio::sync::Notify>,
+    client: tokio::sync::watch::Sender<Arc<Client>>,
+}
+
+impl StatusReads {
+    fn start(client: Arc<Client>, tx: mpsc::UnboundedSender<AppMsg>) -> Self {
+        let wanted = Arc::new(tokio::sync::Notify::new());
+        let (client, mut current) = tokio::sync::watch::channel(client);
+        let asked = wanted.clone();
+        // task-owner: the TUI; it ends when the TUI drops its sender or its messages.
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    () = asked.notified() => {}
+                    changed = current.changed() => {
+                        if changed.is_err() { return; }
+                        continue;
+                    }
+                }
+                let c = current.borrow_and_update().clone();
+                if let Ok(v) = c.request(method::MUX_STATUS, json!({})).await
+                    && tx.send(AppMsg::Status(v)).is_err()
+                {
+                    return;
+                }
+            }
+        });
+        Self { wanted, client }
+    }
+
+    fn read_again(&self) {
+        self.wanted.notify_one();
+    }
+
+    fn use_client(&self, client: Arc<Client>) {
+        self.client.send_replace(client);
+    }
+}
+
 /// Wait for a daemon to come back (starting one if none does), then rebuild
 /// the client side: watch, session list, harness list, and the attachment
 /// of the selected session with its transcript replayed.
@@ -357,6 +413,8 @@ async fn reconnect(app: &mut App) -> Result<tokio::sync::mpsc::Receiver<Message>
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
     let mut delay = std::time::Duration::from_millis(300);
     loop {
+        // wakeup-allow: backoff the doubling reconnect delay (0.3 to 3 s) after the daemon went
+        // away, at most 60 s
         tokio::time::sleep(delay).await;
         match crate::daemon::connect(true).await {
             Ok(c) => {

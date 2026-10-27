@@ -512,7 +512,7 @@ impl App {
         }
     }
 
-    /// Called every tick: keeps scrolling while a selection drag sits past
+    /// Called each animation step: keeps scrolling while a selection drag sits past
     /// the transcript's top or bottom edge, extending the selection.
     pub(super) fn autoscroll_step(&mut self) {
         let Some(d) = self.drag_autoscroll else { return };

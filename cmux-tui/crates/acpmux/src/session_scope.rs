@@ -167,18 +167,15 @@ fn probe(runner: &std::path::Path, properties: &[String], env: &BTreeMap<String,
     let Ok(mut child) = child else {
         return false;
     };
-    let started = std::time::Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return status.success(),
-            Ok(None) if started.elapsed() < PROBE_TIMEOUT => {
-                std::thread::sleep(std::time::Duration::from_millis(20));
-            }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return false;
-            }
+    use wait_timeout::ChildExt;
+    // Woken by the probe's exit (SIGCHLD), not a polling tick.
+    // wakeup-allow: deadline the probe's one PROBE_TIMEOUT; its exit ends the wait first
+    match child.wait_timeout(PROBE_TIMEOUT) {
+        Ok(Some(status)) => status.success(),
+        _ => {
+            let _ = child.kill();
+            let _ = child.wait();
+            false
         }
     }
 }

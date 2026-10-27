@@ -470,6 +470,8 @@ impl Hub {
         if found.is_none() {
             // The stderr reader can trail stdout's close by a moment: one
             // bounded wait for its last lines, then the bare error.
+            // wakeup-allow: deadline one 150 ms wait for the stderr reader's last lines after the
+            // agent closed
             tokio::time::sleep(std::time::Duration::from_millis(150)).await;
             Self::drain_inbound(session).await;
             found = last();

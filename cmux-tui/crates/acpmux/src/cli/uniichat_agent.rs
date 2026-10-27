@@ -704,6 +704,8 @@ async fn run_prompt(
                         if reconnects > 5 {
                             return Err((-32603, format!("UniiChat: lost the chat with {} 5 times", endpoint.host)));
                         }
+                        // wakeup-allow: backoff UniiChat's own 1 s retry after a lost socket, at
+                        // most 5 times
                         tokio::time::sleep(Duration::from_secs(1)).await; // UniiChat's own RETRY between sockets
                         ws = connect(endpoint, &token).await?;
                         let busy = joined(&mut ws, endpoint).await?;

@@ -160,6 +160,8 @@ fn codex_holder(home: &Path, id: &str) -> Option<LiveUse> {
         // Still held after that: a writer is taking the thread lock now, so the chat is busy.
         let taken = (0..50).any(|attempt| {
             if attempt > 0 {
+                // wakeup-allow: bounded at most 49 waits of 10 ms, only while a writer holds the
+                // coordination lock; then the chat counts as busy
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
             // SAFETY: flock on an open descriptor this function owns.

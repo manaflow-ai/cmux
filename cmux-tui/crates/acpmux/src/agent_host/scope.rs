@@ -224,6 +224,8 @@ mod linux {
             if Instant::now() >= deadline {
                 return Err(format!("{unit} did not take the host within {PLACEMENT_WAIT:?}"));
             }
+            // wakeup-allow: bounded only while a new host's scope placement is queued, at most
+            // PLACEMENT_WAIT (2 s); /proc cgroup has no change event
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }

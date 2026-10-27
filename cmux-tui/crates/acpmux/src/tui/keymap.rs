@@ -232,6 +232,10 @@ impl Keymap {
             .collect::<Vec<_>>()
             .join(" / ")
     }
+    /// When a pending chord expires; None with no chord pending.
+    pub fn expires_at(&self) -> Option<Instant> {
+        self.at.map(|t| t + std::time::Duration::from_millis(self.timeout_ms))
+    }
     pub fn expire(&mut self) -> bool {
         if self.at.map(|t| t.elapsed().as_millis() >= self.timeout_ms as u128).unwrap_or(false) {
             self.clear();

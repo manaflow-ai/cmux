@@ -288,6 +288,8 @@ async fn wait_for_winner(home: &Path, deadline: tokio::time::Instant) {
         if !binding.await.unwrap_or(false) {
             return;
         }
+        // wakeup-allow: bounded only while a start waits for another start's daemon to bind its
+        // socket, at most `deadline`
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
 }

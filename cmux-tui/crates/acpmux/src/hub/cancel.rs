@@ -43,6 +43,8 @@ impl Hub {
         if let Some(turn) = session.turn() {
             let session = session.clone();
             tokio::spawn(async move {
+                // wakeup-allow: deadline one CANCEL_GRACE for the agent's answer to a cancel, once
+                // per stop
                 tokio::time::sleep(CANCEL_GRACE).await;
                 if session.turn().is_some_and(|t| t.turn_id == turn.turn_id) {
                     tracing::warn!(session = %session.id, "the agent did not answer the cancel: ending its turn");

@@ -71,14 +71,10 @@ pub async fn run(cfg: HandConfig) -> Result<()> {
     // The hand's agents run on its own keyed acpmux daemon (daemon.rs), so its
     // connection is the proven person that answers their permission prompts.
     agents.set_ask(owner_ask(&out_tx, &approvals));
+    // The idle stops live as long as this run: the set aborts them when `run` returns.
+    let mut background = tokio::task::JoinSet::new();
     let idle = agents.clone();
-    tokio::spawn(async move {
-        let mut tick = tokio::time::interval(Duration::from_secs(60));
-        loop {
-            tick.tick().await;
-            idle.stop_idle().await;
-        }
-    });
+    background.spawn(async move { idle.run_idle_stops().await });
     let mut backoff = Duration::from_secs(1);
     loop {
         let mut connected = false;
@@ -105,6 +101,8 @@ pub async fn run(cfg: HandConfig) -> Result<()> {
             }
         }
         // A bounded, intentional delay between reconnects (not synchronization).
+        // wakeup-allow: backoff the doubling reconnect delay (1 to 60 s, 10 min after a refusal)
+        // after the socket ended
         tokio::time::sleep(backoff).await;
         backoff = (backoff * 2).min(MAX_BACKOFF).max(Duration::from_secs(1));
     }
