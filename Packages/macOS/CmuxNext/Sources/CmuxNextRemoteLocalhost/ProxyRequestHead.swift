@@ -44,13 +44,14 @@ public struct ProxyRequestHead: Sendable, Equatable {
         guard let text = String(data: buffer[buffer.startIndex..<end.lowerBound], encoding: .utf8) else {
             throw .malformed("head is not UTF-8")
         }
-        var lines = text.components(separatedBy: "\r\n")
-        let requestLine = lines.removeFirst().split(separator: " ", omittingEmptySubsequences: true)
+        let lines = text.components(separatedBy: "\r\n")
+        guard let first = lines.first else { throw .malformed("request line") }
+        let requestLine = first.split(separator: " ", omittingEmptySubsequences: true)
         guard requestLine.count == 3 else { throw .malformed("request line") }
         let method = String(requestLine[0]), target = String(requestLine[1]), version = String(requestLine[2])
         guard version == "HTTP/1.1" || version == "HTTP/1.0" else { throw .malformed("version \(version)") }
         var headers: [(String, String)] = []
-        for line in lines {
+        for line in lines.dropFirst() {
             guard let colon = line.firstIndex(of: ":"), colon != line.startIndex else { throw .malformed("header") }
             let name = String(line[..<colon])
             guard !name.contains(" "), !name.contains("\t") else { throw .malformed("header name") }

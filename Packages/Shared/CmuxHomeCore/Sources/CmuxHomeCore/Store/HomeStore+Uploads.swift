@@ -40,9 +40,10 @@ extension HomeStore {
             job.waitingForReconnect = false
             job.active = true
             let uploaded = job.uploaded
-            job.progress = Dictionary(uniqueKeysWithValues: job.attachments.map {
+            // A file attached twice has one hash, so both copies share one progress value.
+            job.progress = Dictionary(job.attachments.map {
                 ($0.ref.hash, uploaded.contains($0.ref.hash) ? 1.0 : 0.0)
-            })
+            }, uniquingKeysWith: { first, _ in first })
             let attempt = job.attempt
             let passKey = key
             let task = Task { [weak self] () -> HomeRejection? in

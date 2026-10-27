@@ -520,7 +520,8 @@ expect 1 "CEFReads.swift:7:" "only the head of a site names functions" -- --root
 edit_ops "$rewrite" 'd["host_mode_rewrites"][0]["site"] = "CmuxNextBrowser/CEF/CEFReads.swift: moves() and other()"'
 expect 0 "0 stand-in results read" "a site that names two functions" -- --root "$rewrite" --check-return-use
 
-# --swift-sites drops a site that is done (task p01-process-021): an async call in the token form
+# --swift-sites drops a site that is done (task p01-process-021): an async call, or a preinit whose
+# verdict is a wire:REPLY, in the token form
 # (inside a closure handed to sendAsync, siteCall or profileWrite), a mint_returns id call in the mint
 # form (its id keys a `.reply(for:` wait), and a site listed with needs after_attach, host_exit or
 # kept. A `reply` entry alone does not settle a site: its call must take the token form. A mint call
@@ -533,7 +534,8 @@ path = sys.argv[1]
 text = open(path, encoding="utf-8").read()
 text = text.replace('        goBack = try r("cmux_shim_go_back")\n',
                     '        goBack = try r("cmux_shim_go_back")\n        tabAdd = try r("cmux_shim_tab_add")\n'
-                    '        initialize = try r("cmux_shim_initialize")\n')
+                    '        initialize = try r("cmux_shim_initialize")\n'
+                    '        pageSchemeAdd = try r("cmux_shim_page_scheme_add")\n')
 open(path, "w", encoding="utf-8").write(text)
 EOF
 cat >"$settled/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFAsync.swift" <<'EOF'
@@ -580,14 +582,23 @@ extension CEFRuntime {
     func boot(_ library: Boot) {
         if case .inProcess = library, shim.initialize(nil, nil, nil) != 1 { return }
     }
+
+    func scheme() {
+        let verdict = sendAsync { shim in shim.pageSchemeAdd("x", "/tmp") }
+    }
+
+    func schemeRead(_ shim: CEFShimLibrary) -> Bool {
+        shim.pageSchemeAdd("y", "/tmp") == 1
+    }
 }
 EOF
 listed() { grep -q "CEFAsync.swift:$1"$'\t' <<<"$sites"; }
 sites="$(python3 "$gen" --root "$settled" --swift-sites)"
-for line in 3 9 32; do
+# A preinit whose verdict is a wire:REPLY is done in the token form too (task p01-process-070).
+for line in 3 9 32 46; do
   listed "$line" && fail "a call in the token or mint form is listed (line $line): $sites"
 done
-for line in 15 19 24 28 38 42; do
+for line in 15 19 24 28 38 42 50; do
   listed "$line" || fail "a site in neither form is not listed (line $line): $sites"
 done
 edit_ops "$settled" 'd["host_mode_rewrites"] = [

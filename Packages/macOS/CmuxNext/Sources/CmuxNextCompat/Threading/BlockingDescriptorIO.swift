@@ -10,6 +10,7 @@ public import Darwin
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `read(2)` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingRead(_ descriptor: Int32, _ buffer: UnsafeMutableRawPointer?, _ count: Int, fileID: StaticString = #fileID, line: UInt = #line) -> Int {
     // SAFETY: forwards the caller's pointers to read unchanged, only for the call; the caller's own `unsafe` states why
@@ -28,6 +29,7 @@ public func blockingRead(_ descriptor: Int32, _ buffer: UnsafeMutableRawPointer?
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `recv(2)` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingRecv(_ descriptor: Int32, _ buffer: UnsafeMutableRawPointer?, _ count: Int, _ flags: Int32, fileID: StaticString = #fileID, line: UInt = #line) -> Int {
     // SAFETY: forwards the caller's pointers to recv unchanged, only for the call; the caller's own `unsafe` states why
@@ -46,6 +48,7 @@ public func blockingRecv(_ descriptor: Int32, _ buffer: UnsafeMutableRawPointer?
 ///   - fileID: The calling code's `#fileID`.
 ///   - line: The calling code's `#line`.
 /// - Returns: What `write(2)` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingWrite(_ descriptor: Int32, _ buffer: UnsafeRawPointer?, _ count: Int,
                           fileID: StaticString = #fileID, line: UInt = #line) -> Int {
@@ -65,6 +68,7 @@ public func blockingWrite(_ descriptor: Int32, _ buffer: UnsafeRawPointer?, _ co
 ///   - fileID: The calling code's `#fileID`.
 ///   - line: The calling code's `#line`.
 /// - Returns: What `send(2)` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingSend(_ descriptor: Int32, _ buffer: UnsafeRawPointer?, _ count: Int, _ flags: Int32,
                          fileID: StaticString = #fileID, line: UInt = #line) -> Int {

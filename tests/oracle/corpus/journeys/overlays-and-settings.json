@@ -1,0 +1,151 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "overlays-and-settings",
+  "suite": "journeys",
+  "title": "Open and close the Settings tab, the palette and Settings on Accounts in a narrow window, zooming the window around the Settings tab",
+  "journey": "overlays-and-settings",
+  "priority": "P1",
+  "surface": "cmux-next-native",
+  "source": {"repo": "manaflow-ai/cmux", "ref": "$RUN", "artifact": "$RUN"},
+  "environment": {"viewport": {"width": 800, "height": 900}},
+  "fixture": {"seed": "journey-overlays-and-settings-v1", "network": "offline", "clock": "fixed", "agent": "mock"},
+  "preconditions": [
+    "private scratch config",
+    "tagged bench build",
+    "no unrelated app instance",
+    "a fresh launch: one 800 x 900 pt window, one workspace, one terminal tab, no overlay"
+  ],
+  "requires": ["actions", "keys", "gui"],
+  "platforms": ["mac"],
+  "steps": [
+    {
+      "id": "launched",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "windows", "focus", "tabs", "overlays", "settings"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "open-settings",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+,"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/tabs/panes", "predicate": "nonEmpty", "maxMs": 10000},
+      "checkpoint": ["turn", "settled"],
+      "note": "Settings… (openSettings): Settings opens as a session-local page tab of the focused pane (SettingsWindowService.show), selected; no window opens. The tabs facet lists page and browser tabs only, so its panes go from none to this one (topology tab_count counts daemon tabs, not this one)"
+    },
+    {
+      "id": "settings-open",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "windows", "focus", "tabs", "overlays"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "zoom-with-settings",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "zoomWindow"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/windows/list/0/frame/width", "predicate": "changed", "maxMs": 5000},
+      "note": "Zoom: the window grows to the screen while the Settings tab shows"
+    },
+    {
+      "id": "settings-wide",
+      "op": "snapshot",
+      "args": {"facets": ["windows", "focus", "tabs", "overlays"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "unzoom",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "zoomWindow"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/windows/list/0/frame/width", "predicate": "changed", "maxMs": 5000},
+      "note": "Zoom again: the window returns to its 800 pt frame with the Settings tab still selected"
+    },
+    {
+      "id": "close-settings",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+w"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/tabs/panes", "predicate": "empty", "maxMs": 5000},
+      "checkpoint": ["turn", "settled"],
+      "note": "Cmd-W closes the selected tab, the Settings tab; the terminal tab is selected again"
+    },
+    {
+      "id": "open-palette",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "commandPalette"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/overlays/palette/open", "equals": true, "maxMs": 5000},
+      "note": "Command Palette: a layer of the overlays facet's stack, above the narrow window"
+    },
+    {
+      "id": "palette-open",
+      "op": "snapshot",
+      "args": {"facets": ["focus", "overlays"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "dismiss-palette",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "paletteKey.escape"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/overlays/palette/open", "equals": false, "maxMs": 5000},
+      "note": "Palette: Clear or Close, the action Escape runs in the open palette (PaletteKeyMap): with an empty query it closes the palette; debug.key would reach the shell window, not the palette panel"
+    },
+    {
+      "id": "show-accounts",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "accounts.show"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/tabs/panes", "predicate": "nonEmpty", "maxMs": 10000},
+      "note": "Accounts… (AccountsHandlers: settingsWindow.show(section: .accounts)): the Settings tab opens again, on its Accounts section"
+    },
+    {
+      "id": "accounts-open",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus", "tabs", "overlays"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "close-accounts",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+w"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/tabs/panes", "predicate": "empty", "maxMs": 5000},
+      "note": "Cmd-W closes the Settings tab again"
+    },
+    {
+      "id": "closed-all",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "windows", "focus", "tabs", "overlays", "settings"]},
+      "settleMaxMs": 5000
+    }
+  ],
+  "invariants": [
+    "while Settings or Accounts shows, the focused pane's selected tab is a page tab of page settings in the main window, and the window list has the one window: Settings is a tab, not a window",
+    "after each Cmd-W the Settings tab is gone, the terminal tab it was opened over is selected again and the focused pane is the one the window had",
+    "the window's frame is the screen's width at settings-wide and returns to its launch fraction after unzoom; the Settings tab stays selected through both zooms",
+    "the palette is a layer of the overlays facet's stack while it shows, and the stack is empty again after dismiss-palette",
+    "no step changes a setting: the settings facet at closed-all equals the launch's",
+    "every mutation has one receipt or one typed error (I1)",
+    "the turn checkpoint of each key step is a prefix of its settled checkpoint (I3)"
+  ],
+  "teardown": ["quit the tagged app the run started", "verify its debug socket is gone", "end the tag's daemons (TagTeardown)"],
+  "untested": [
+    "the profile menu: it is an NSMenu in tracking, which the overlays facet does not list, and debug.key's Escape goes to the shell window, not the menu's tracking loop (actions/sidebar/_tuning.json, sidebar.profileMenu)",
+    "the notifications panel: a child NSPanel of the window (NotificationsPanelController), which the overlays facet does not list (actions/misc/_tuning.json, showNotifications)",
+    "click hints: hints.show is unavailable while labs.previewFeatures is off, as in the oracle launch, and the hint labels are a subview, not an overlays facet layer",
+    "outside dismissal by a click: the app driver has no pointer step",
+    "the update surface: Check for Updates… reaches the update feed over the network, and oracle cases run offline",
+    "the overlays' own controls: the ax suite (tests/oracle/corpus/ax/overlays-and-settings-*.json) records them at three widths"
+  ]
+}

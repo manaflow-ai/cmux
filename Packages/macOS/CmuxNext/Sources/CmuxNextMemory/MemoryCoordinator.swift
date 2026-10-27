@@ -419,7 +419,8 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
     /// One slice's release: the consumers over their limit, in order, until `duration` is spent.
     private func runSlice(for duration: Duration) {
         needsSlice = false
-        let isExpired = Self.deadline(on: clock, after: duration)
+        // `self.`: CmuxNextCompat re-exports the C library, whose `clock()` would otherwise be a candidate too.
+        let isExpired = Self.deadline(on: self.clock, after: duration)
         for record in consumers.liveRecords() where record.needsRelease {
             guard !isExpired() else {
                 scheduleSlice()

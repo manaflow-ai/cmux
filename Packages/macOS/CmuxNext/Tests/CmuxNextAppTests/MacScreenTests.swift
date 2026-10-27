@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextMacScreen
+import CmuxNextWakeups
 import CmuxNextRemoteView
 import CmuxNextSettings
 import CmuxScreenKit
@@ -31,7 +32,7 @@ private func makeStore(removeLinkPairings: @escaping @Sendable () -> Void = {}) 
 /// A device's screen pane, not asking the hub.
 @MainActor
 private func devicePane(_ name: String = "Studio") -> MacScreenPane {
-    MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: deviceID) { nil }, name: name, preferences: ScreenPreferences(),
+    MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: deviceID, deadlines: linklessDeadlines()) { nil }, name: name, preferences: ScreenPreferences(),
                   node: shownNode(), on: linklessMainWork())
 }
 
@@ -196,7 +197,7 @@ struct MacScreenRightClickTests {
 @MainActor
 struct MacScreenPageTabTests {
     private func makePages() -> MacScreenPages {
-        MacScreenPages(store: makeStore().0, mainWork: linklessMainWork())
+        MacScreenPages(store: makeStore().0, deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
     }
 
     /// Makes `key`'s view and waits until its screen (or home page) is in.
@@ -307,7 +308,7 @@ struct MacScreenThemeTests {
         let root = try #require(window.contentView)
         scope.root(root)
 
-        let pages = MacScreenPages(store: makeStore().0, mainWork: linklessMainWork())
+        let pages = MacScreenPages(store: makeStore().0, deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
         pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
         let tab = pages.makeView(for: "home")
         root.addSubview(tab)

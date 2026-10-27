@@ -22,6 +22,15 @@ final class DecidedKeyEvents {
         }
     }
 
+    /// Where the window offered a decided chord as a key equivalent (`debug.key` `key_equivalents`):
+    /// the focused surface alone, a field's pane, or AppKit's walk over every view of the window.
+    struct Offers: Equatable {
+        var focusedSurface = 0
+        var fieldPane = 0
+        var windowWalks = 0
+    }
+
+    var offers = Offers()
     private let events = NSHashTable<NSEvent>.weakObjects()
     private var recent: [Signature] = []
     private static let recentLimit = 16

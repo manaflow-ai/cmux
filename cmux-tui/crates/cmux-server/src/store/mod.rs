@@ -14,7 +14,6 @@ pub mod profile;
 pub mod state;
 pub mod unpack;
 
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use cmux_server_core::layout::Layout;
@@ -180,7 +179,7 @@ impl Store {
     /// `<current>/pkgs/<name>`, when the current profile has that package.
     pub fn current_package(&self, name: &str) -> Option<PathBuf> {
         let path = self.current.join("pkgs").join(name);
-        path.exists().then_some(path)
+        cmux_blocking::fs::metadata(&path).is_ok().then_some(path)
     }
 
     fn package_dir(&self, sha256: &str) -> PathBuf {
@@ -188,7 +187,8 @@ impl Store {
     }
 
     fn has_package(&self, sha256: &str) -> bool {
-        self.package_dir(sha256).join(MARKER).is_file()
+        cmux_blocking::fs::metadata(self.package_dir(sha256).join(MARKER))
+            .is_ok_and(|m| m.is_file())
     }
 
     /// Verifies and applies one manifest; see the module docs. A manifest
@@ -312,17 +312,18 @@ impl Store {
     pub fn verified_package_file(&self, package: &Package, file: &Path) -> Result<PathBuf> {
         let refuse = |what: String| Error::verification(format!("refusing to run {what}"));
         let dir = self.package_dir(&package.sha256);
-        let marker: serde_json::Value = fs::read(dir.join(MARKER))
+        let marker: serde_json::Value = cmux_blocking::fs::read(dir.join(MARKER))
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .ok_or_else(|| refuse(format!("{}: no verified package marker", dir.display())))?;
         if marker["sha256"] != package.sha256.as_str() || marker["name"] != package.name.as_str() {
             return Err(refuse(format!("{}: the marker names another package", dir.display())));
         }
-        let real_dir = fs::canonicalize(&dir).map_err(|e| Error::io(dir.display(), e))?;
-        let real = fs::canonicalize(file)
+        let real_dir =
+            cmux_blocking::fs::canonicalize(&dir).map_err(|e| Error::io(dir.display(), e))?;
+        let real = cmux_blocking::fs::canonicalize(file)
             .map_err(|_| refuse(format!("{}: it does not exist in the package", file.display())))?;
-        let meta = fs::metadata(&real).map_err(|e| Error::io(real.display(), e))?;
+        let meta = cmux_blocking::fs::metadata(&real).map_err(|e| Error::io(real.display(), e))?;
         if !real.starts_with(&real_dir) || !meta.is_file() || fsx::mode_of(&meta) & 0o111 == 0 {
             return Err(refuse(format!(
                 "{}: not an executable file inside the verified package",
@@ -350,10 +351,11 @@ impl Store {
             fsx::make_read_only(&staging)?;
             // A leftover directory without a marker is an interrupted unpack.
             fsx::remove_tree(&target)?;
-            fs::rename(&staging, &target).map_err(|e| Error::io(target.display(), e))?;
+            cmux_blocking::fs::rename(&staging, &target)
+                .map_err(|e| Error::io(target.display(), e))?;
             crate::sys::fsync_dir(&self.store).map_err(|e| Error::io(self.store.display(), e))
         })();
-        let _ = fs::remove_file(&archive);
+        let _ = cmux_blocking::fs::remove_file(&archive);
         if result.is_err() {
             let _ = fsx::remove_tree(&staging);
         }
@@ -427,7 +429,7 @@ impl Store {
             }
         }
         let mut removed_packages = Vec::new();
-        for entry in fs::read_dir(&self.store).into_iter().flatten().flatten() {
+        for entry in cmux_blocking::fs::read_dir(&self.store).into_iter().flatten().flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
             let leftover = name.starts_with('.');
             let unreferenced = manifest::valid_sha256(&name) && !referenced.contains(&name);
@@ -438,7 +440,7 @@ impl Store {
                 }
             }
         }
-        for entry in fs::read_dir(&self.profiles).into_iter().flatten().flatten() {
+        for entry in cmux_blocking::fs::read_dir(&self.profiles).into_iter().flatten().flatten() {
             if entry.file_name().to_string_lossy().starts_with('.') {
                 fsx::remove_tree(&entry.path())?;
             }
@@ -450,7 +452,7 @@ impl Store {
     /// Uninstall: removes `current`, the profiles, the store, the lock and
     /// the root when it is then empty. State is elsewhere and stays.
     pub fn remove_all(&self) -> Result<()> {
-        if !self.root.is_dir() {
+        if !cmux_blocking::fs::metadata(&self.root).is_ok_and(|m| m.is_dir()) {
             return Ok(());
         }
         {
@@ -462,7 +464,7 @@ impl Store {
             fsx::remove_tree(&self.root.join(".downloads"))?;
         }
         fsx::remove_tree(&self.root.join(".lock"))?;
-        let _ = fs::remove_dir(&self.root);
+        let _ = cmux_threads::checked::fs::remove_dir(&self.root);
         Ok(())
     }
 }

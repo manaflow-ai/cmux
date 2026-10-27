@@ -2448,7 +2448,9 @@ jobs:
           SENTRY_PROJECT: cmuxterm-macos
         # Retried, and only a warning when Sentry stays down: a nightly is never lost to symbolication.
         # The fast build also uploads the Rust client's dSYMs (cmux-tui, cmux-tui-host, cmux-holder; acpmux is
-        # linked into cmux-tui), when the build step above made them.
+        # linked into cmux-tui), when the build step above made them. Also the OptChat Chief's and Chromium's
+        # (embed-cef.sh unpacks it beside Release/); Release/ holds those of the CEF helper, the shims,
+        # the server helper and the diff sidecar.
         # It runs in the background while the unsigned app and the kept dSYMs upload (it held
         # this serialized warm slot 38-39 s after them in runs 39509829525, 39519824930); "Finish
         # the dSYM upload to Sentry" waits for it. The FIFO write blocks until that step reads
@@ -2458,7 +2460,9 @@ jobs:
           paths=(build-universal/Build/Products/Release/)
           for dsym in cmux-tui/target/aarch64-apple-darwin/release/cmux-tui.dSYM \
                       cmux-tui/target/aarch64-apple-darwin/release/cmux-tui-host.dSYM \
-                      cmux-tui/target/aarch64-apple-darwin/release/cmux-holder.dSYM; do
+                      cmux-tui/target/aarch64-apple-darwin/release/cmux-holder.dSYM \
+                      "$RUNNER_TEMP/cmux-next-optchat-chief/optchat-chief.dSYM" \
+                      build-universal/Build/Products/CEF-dSYMs; do
             [ -d "$dsym" ] && paths+=("$dsym")
           done
           state="$RUNNER_TEMP/sentry-dsyms"
