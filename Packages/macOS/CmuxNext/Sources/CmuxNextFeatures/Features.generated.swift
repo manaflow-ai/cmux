@@ -1504,12 +1504,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// Spinners, the working shimmer and the running wave in cmux's own pages draw 15 frames a second from one page clock instead of one frame per display refresh, and none while the page is hidden.
+    /// Spinners, the working shimmer, the running wave and every other ambient loop in cmux's own Chromium-hosted pages draw 15 frames a second from one page clock instead of one frame per display refresh, and none while the page is hidden. WebKit-hosted pages keep their loops in the render server.
     public static let pageAmbientSteps = Feature(
         index: 86,
         name: "pageAmbientSteps",
         owner: "Performance Lead",
-        description: "Spinners, the working shimmer and the running wave in cmux's own pages draw 15 frames a second from one page clock instead of one frame per display refresh, and none while the page is hidden.",
+        description: "Spinners, the working shimmer, the running wave and every other ambient loop in cmux's own Chromium-hosted pages draw 15 frames a second from one page clock instead of one frame per display refresh, and none while the page is hidden. WebKit-hosted pages keep their loops in the render server.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

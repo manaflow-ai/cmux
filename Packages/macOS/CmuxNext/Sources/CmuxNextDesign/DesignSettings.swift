@@ -115,9 +115,10 @@ public final class DesignSettings {
     /// Feature `frameRateClasses`, set once at launch by the composition root: looping indicators
     /// ask the render server for their own rate (``MotionPolicy/pacesLoops``).
     public var loopsFollowFrameRate = false
-    /// Feature `pageAmbientSteps`, set once at launch by the composition root: cmux pages draw their
-    /// spinners, shimmer and running wave 15 frames a second from the page clock
-    /// (``WebTheme/ambient``, webviews `ui/ambientStep.ts`).
+    /// Feature `pageAmbientSteps`, set once at launch by the composition root: cmux's Chromium pages
+    /// draw their ambient loops (spinners, shimmer, the running wave and every other infinite loop the
+    /// person did not start) 15 frames a second from the page clock (``WebTheme/ambient``, webviews
+    /// `ui/ambientStep.ts`); WebKit pages keep them in the render server.
     public var pageAmbientSteps = false
     /// Energy Saver is on (`EnergyPolicy.isSaver`): ambient motion loops hold still
     /// (``MotionPolicy/energySaver``). The composition root writes it from the app's

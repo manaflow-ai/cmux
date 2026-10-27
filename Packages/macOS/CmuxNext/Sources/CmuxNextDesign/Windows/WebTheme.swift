@@ -49,10 +49,11 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// the payload as it was and the bootstrap removes the attribute.
     public let energy: String?
     /// `step` with feature `pageAmbientSteps` (``DesignSettings/pageAmbientSteps``), else nil:
-    /// `data-cmux-ambient` on `<html>`, under which a page's ambient loops (spinners, shimmer, the
-    /// running wave) draw 15 frames a second from its page clock, as Chrome steps an animated image
-    /// on its own frame times (cc/paint/image_animation_controller.cc). Nil leaves the payload as it
-    /// was and the bootstrap removes the attribute.
+    /// `data-cmux-ambient` on `<html>`, under which a Chromium page's ambient loops (every infinite
+    /// CSS animation the person did not start) draw 15 frames a second from its page clock, as Chrome
+    /// steps an animated image on its own frame times (cc/paint/image_animation_controller.cc). A
+    /// WebKit page (`data-engine="webkit"`) ignores it: its render server runs those loops without a
+    /// wake of the page or the app. Nil leaves the payload as it was and the bootstrap removes the attribute.
     public let ambient: String?
 
     /// The terminal colors a page highlights code with: the scope's opaque background and
