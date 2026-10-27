@@ -373,6 +373,9 @@ test("a selected historical version does not follow a live rewrite", async () =>
   const next = { ...live, code: "# Notes\n\nUpdated.", revision: 2 };
   act(() => root!.render(<ArtifactPanel artifact={next} versions={[old, next]} onClose={() => {}} />));
   expect(host.querySelector(".acpmux-artifact-doc p")?.textContent).toBe("Historical.");
+  // The bounded live history can evict it; the single explicitly chosen version stays held.
+  act(() => root!.render(<ArtifactPanel artifact={next} versions={[next]} onClose={() => {}} />));
+  expect(host.querySelector(".acpmux-artifact-doc p")?.textContent).toBe("Historical.");
   act(() => button("Next version")!.click());
   expect(host.querySelector(".acpmux-artifact-doc p")?.textContent).toBe("Updated.");
 });
