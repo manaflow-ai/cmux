@@ -39,6 +39,8 @@ export type ListFilter = {
   isChanged?(key: string): boolean;
   /** The host is a DEV build: DEV-only categories are searched too. */
   devBuild?: boolean;
+  /** Keys the host leaves out on this Mac now (`availability.hidden_rows`): never a result. */
+  hidden?: ReadonlySet<string>;
 };
 
 /** Matching rows of every category, in navigation order; an empty query with changedOnly lists
@@ -52,10 +54,12 @@ export function filterRows({
   valueOf,
   isChanged,
   devBuild = false,
+  hidden,
 }: ListFilter): SearchGroup[] {
   const terms = queryTerms(query);
   const keep = (row: SchemaRow) =>
     !UNLISTED.has(row.key) &&
+    !hidden?.has(row.key) &&
     (terms.length === 0 ? changedOnly : rowMatches(row, valueOf(row.key), terms)) &&
     (!changedOnly || (isChanged?.(row.key) ?? false));
   return shownCategories(devBuild)

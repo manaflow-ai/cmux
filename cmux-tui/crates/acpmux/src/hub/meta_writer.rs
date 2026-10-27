@@ -16,6 +16,7 @@
 //! (shutdown); `Forget::forget` drops a session's queued save and waits for one being written, so a
 //! purge's delete always comes after the last write of the purged session.
 
+use crate::daemon::hang_watch::{SyncThread, WRITE_ITEM};
 use crate::store::{SessionMeta, Store};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -63,7 +64,7 @@ impl MetaWriter {
         });
         let worker = shared.clone();
         let thread = std::thread::Builder::new()
-            .name("acpmux-meta-writer".into())
+            .name(THREAD.into())
             .spawn(move || run(&worker, &*store))
             .ok();
         if thread.is_none() {
@@ -106,7 +107,8 @@ impl MetaWriter {
     pub(crate) fn flush(&self) {
         let mut state = self.lock();
         while self.running() && (!state.queued.is_empty() || state.writing.is_some()) {
-            state = self.shared.written.wait(state).unwrap_or_else(|e| e.into_inner());
+            state = cmux_blocking::sync::wait(&self.shared.written, state)
+                .unwrap_or_else(|e| e.into_inner());
         }
     }
 
@@ -132,7 +134,12 @@ impl Drop for MetaWriter {
         self.lock().stop = true;
         self.shared.work.notify_one();
         if let Some(thread) = self.thread.get_mut().unwrap_or_else(|e| e.into_inner()).take() {
-            let _ = thread.join();
+            #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+            let _ = cmux_blocking::scoped_blocking_call(
+                "thread::join",
+                cmux_blocking::BlockingKind::Join,
+                || thread.join(),
+            );
         }
     }
 }
@@ -146,12 +153,17 @@ impl Forget {
         state.queued.remove(id);
         state.newest.remove(id);
         while state.writing.as_deref() == Some(id) {
-            state = self.0.written.wait(state).unwrap_or_else(|e| e.into_inner());
+            state = cmux_blocking::sync::wait(&self.0.written, state)
+                .unwrap_or_else(|e| e.into_inner());
         }
     }
 }
 
+/// The writer thread's name, also its name in a hang record.
+const THREAD: &str = "acpmux-meta-writer";
+
 fn run(shared: &Shared, store: &dyn Store) {
+    let watched = SyncThread::register(THREAD, WRITE_ITEM);
     let mut state = shared.state.lock().unwrap_or_else(|e| e.into_inner());
     loop {
         // One session at a time, so `forget` waits for at most one write.
@@ -160,13 +172,17 @@ fn run(shared: &Shared, store: &dyn Store) {
             if state.stop {
                 return;
             }
-            state = shared.work.wait(state).unwrap_or_else(|e| e.into_inner());
+            state =
+                cmux_blocking::sync::wait(&shared.work, state).unwrap_or_else(|e| e.into_inner());
             continue;
         };
         let Some(q) = state.queued.remove(&id) else { continue };
         state.writing = Some(id);
         drop(state);
-        write(store, &q.meta, &q.purged);
+        {
+            let _item = watched.item();
+            write(store, &q.meta, &q.purged);
+        }
         state = shared.state.lock().unwrap_or_else(|e| e.into_inner());
         state.writing = None;
         shared.written.notify_all();

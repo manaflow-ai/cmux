@@ -65,7 +65,7 @@ enum OmnibarPointer {
 
 extension OmnibarPointer {
     /// The cursor at a window point over `row`: the I-beam inside an
-    /// omnibar's text area (the rectangle of its cursor rects), the arrow
+    /// omnibar's text area (the bar's own rule, `AddressBarView.cursorUpdate`), the arrow
     /// everywhere else in the row.
     @MainActor
     static func cursor(atWindowPoint point: NSPoint, in row: NSView) -> Cursor {
