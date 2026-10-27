@@ -40,20 +40,13 @@
                       "type": "string"
                     },
                     "subscriptionPlanId": {
-                      "anyOf": [
-                        {
-                          "enum": [
-                            "free",
-                            "go",
-                            "pro",
-                            "max"
-                          ],
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
+                      "enum": [
+                        "free",
+                        "go",
+                        "pro",
+                        "max"
+                      ],
+                      "type": "string"
                     },
                     "isPro": {
                       "type": "boolean"

@@ -14,7 +14,9 @@ export const accountMeOutputSchema = z.object({
   planId: z.enum(["free", "pro"]),
   // Current servers always return the exact plan. Keep the wire field optional
   // so generated clients can decode older deployments during a rolling update.
-  subscriptionPlanId: z.enum(["free", "go", "pro", "max"]).nullable().optional(),
+  // Not nullable: swift-openapi-generator drops an `anyOf` with `null`, so
+  // CmuxAPIClient would lose the field and stop compiling.
+  subscriptionPlanId: z.enum(["free", "go", "pro", "max"]).optional(),
   isPro: z.boolean(),
   billingManagement: z.enum(["stripe", "external", "none"]),
 });
