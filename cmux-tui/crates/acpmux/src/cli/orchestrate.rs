@@ -496,7 +496,7 @@ pub(crate) async fn rules(
         match rules {
             Some(r) => {
                 let text = if let Some(path) = r.strip_prefix('@') {
-                    std::fs::read_to_string(path)?
+                    tokio::fs::read_to_string(path).await?
                 } else {
                     r
                 };

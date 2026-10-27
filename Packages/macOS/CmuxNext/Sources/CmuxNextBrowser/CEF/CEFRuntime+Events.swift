@@ -87,6 +87,7 @@ extension CEFRuntime {
             widgetHost?.ownerClosed(browser)
             hostStart?.popupMenus?.ownerClosed(browser)
             hostStart?.files?.browserClosed(browser)
+            hostStart?.choosers?.ownerClosed(browser)
             browserClosed(browser)
         case .beforeUnloadDialog(let browser, let token, let isReload):
             // A page with no tab to ask in never keeps its unload waiting: it leaves.
@@ -110,6 +111,8 @@ extension CEFRuntime {
             popupMenuOpened(browser: browser, token: token, popup: popup)
         case .popupMenuHidden(let browser, let token):
             hostStart?.popupMenus?.hide(browser: browser, token: token)
+        case .subframeRenderer(let browser, let frame, let client, let attached):
+            childMonitor?.subframe(frame, browser: browser, client: client, attached: attached)
         case .pageDragEnter(let browser, let pathsJSON):
             if let tab = tabsByBrowser[browser], let entered = tab.pageFilesDragged { entered(CEFTab.dragPaths(pathsJSON)) }
         case .fileDialog(let browser, let dialogID, let mode, let acceptTypes, let defaultPath):
@@ -123,7 +126,8 @@ extension CEFRuntime {
             }
         case .reply(_, let id, let value, let json):
             let reply = CEFSiteReply(value: value, json: json)
-            if !builtInLoader.answer(reply: id, value: value), !siteReplies.resolve(id, with: .success(reply)), siteReplyBrowsers[id] != nil {
+            if !surfaceCopies.answer(reply: id, value: value, json: json), !builtInLoader.answer(reply: id, value: value),
+               !siteReplies.resolve(id, with: .success(reply)), siteReplyBrowsers[id] != nil {
                 earlySiteReplies[id] = reply
             }
         case .tab(let kind, let browser, let window, let value):
@@ -284,6 +288,7 @@ extension CEFRuntime {
         devToolsCalls.failAll(where: { $0.browser == browser }, with: BrowserTabError.closed)
         siteReplies.failAll(where: { siteReplyBrowsers[$0] == browser }, with: BrowserTabError.closed)
         failEvaluations(of: browser)
+        surfaceCopies.browserClosed(browser)
         // The fork counts a browser's window until its destructor, after this close.
         if let shim { shutdownSequence?.windowsOpen(Int(shim.windowCount())) }
         shutdownSequence?.browserClosed(remaining: tabsByBrowser.count + pendingWindows.count)

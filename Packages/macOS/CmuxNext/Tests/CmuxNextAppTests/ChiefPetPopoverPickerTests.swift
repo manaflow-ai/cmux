@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextChiefPetWiring
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextWakeups
 @testable import CmuxNextHomeEngine
 @testable import CmuxNextSettings
 import Foundation
@@ -60,7 +61,7 @@ import Testing
         view.subviews + view.subviews.flatMap(descendants)
     }
 
-    func make(_ json: String) async throws -> Harness {
+    func make(_ json: String, node: VisibilityNode = shownNode()) async throws -> Harness {
         _ = NSApplication.shared
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-chief-pet-picker-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -73,7 +74,8 @@ import Testing
         let popover = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))
         let rows = ChiefPetSettingsRows(settings: { settings }, homes: ChiefPetHomes(),
                                         picks: ChiefMascotPicks(defaults: nil, defaultChief: HomeChiefAvatars.defaultChief))
-        rows.install(in: popover, addRow: { popover.addAppearanceRow($0, control: $1) }, open: { false })
+        rows.install(in: popover, node: node, mainWork: linklessMainWork(), addRow: { popover.addAppearanceRow($0, control: $1) },
+                     open: { false })
         return Harness(popover: popover, rows: rows, settings: settings, url: url)
     }
 
@@ -104,5 +106,51 @@ import Testing
         // Choosing a character never turns the pet on.
         #expect(h.savedHome()?["chiefPetEnabled"] == nil)
         #expect(!h.settings.snapshot.homeChiefPetEnabled)
+    }
+
+    /// p06 sweep (group 333): the rows follow the settings with a VisibleObservation on the Home view's
+    /// node, not a main-inherited observation task: a hidden Home shows what was current when the rows
+    /// were made and reads nothing while hidden; shown again, it reads once and shows the new character.
+    @Test func aHiddenHomeShowsTheNewCharacterOnceShown() async throws {
+        let node = VisibilityNode(root: "test.hiddenHome", own: .hidden)
+        let h = try await make("{}", node: node)
+        defer { h.tearDown() }
+        let orb = try #require(Self.name(of: "orb"))
+        let fox = try #require(Self.name(of: "fox"))
+        #expect(h.checked() == [orb], "the rows show the current character when made, hidden or not")
+        try await h.settings.setSetting(at: HomeChiefPetSetting.mascotPath, to: .string("fox"), by: .user)
+        await h.until { h.settings.snapshot.homeChiefPetMascot == "fox" }
+        #expect(h.settings.snapshot.homeChiefPetMascot == "fox")
+        #expect(h.checked() == [orb], "a hidden Home reads nothing")
+        node.set(.visible)
+        await h.until { h.checked() == [fox] }
+        #expect(h.checked() == [fox], "shown, it reads once and shows the new character")
+    }
+
+    /// Chief Pet Settings… never opens a Home whose window is ordered out: its node reads occluded (no
+    /// notice marks an ordered-out window hidden), and the raise would bring that window back.
+    @Test func anOrderedOutWindowsHomeIsNotOpened() async throws {
+        _ = NSApplication.shared
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-chief-pet-ordered-out-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let home = directory.appending(path: "brain")
+        let popover = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView = popover
+        let homes = ChiefPetHomes()
+        let rows = ChiefPetSettingsRows(settings: { nil }, homes: homes,
+                                        picks: ChiefMascotPicks(defaults: nil, defaultChief: HomeChiefAvatars.defaultChief))
+        var opened = 0
+        rows.install(in: popover, node: shownNode(), mainWork: linklessMainWork(), addRow: { popover.addAppearanceRow($0, control: $1) },
+                     open: { opened += 1; return true })
+        #expect(!window.isVisible)
+        // The rows stay installed (ChiefPetHomes holds them weakly) through the open.
+        withExtendedLifetime(rows) {
+            #expect(!homes.open(noActivate: true))
+        }
+        #expect(opened == 0, "an ordered-out window's popover is never opened")
+        #expect(!window.isVisible, "the window stays ordered out")
     }
 }

@@ -2,7 +2,7 @@
   "$schema": "../features.schema.json",
   "name": "cefHelperHost",
   "owner": "PL-cef-helper",
-  "description": "debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; in Debug builds every Chromium tab of the launch runs in that one host (ChromiumHostSupervisor).",
+  "description": "debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; Chromium tabs move to that one host only with chromiumHostTabs on too.",
   "defaults": { "dev": false, "nightly": false, "release": false },
   "kind": "perfPath",
   "expires": "2026-12-20",

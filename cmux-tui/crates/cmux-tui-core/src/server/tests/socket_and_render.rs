@@ -70,6 +70,7 @@ fn socket_start_lock_rejects_a_fifo_without_blocking() {
     let socket = dir.path().join("mux.sock");
     let lock = dir.path().join("mux.sock.spawn-lock");
     let lock_path = CString::new(lock.as_os_str().as_bytes()).unwrap();
+    // SAFETY: `lock_path` is a NUL-terminated CString that outlives the call.
     let result = unsafe { libc::mkfifo(lock_path.as_ptr(), 0o600) };
     assert_eq!(result, 0, "mkfifo failed: {}", std::io::Error::last_os_error());
 
@@ -114,7 +115,7 @@ fn socket_start_lock_migrates_existing_lock_to_owner_only_mode() {
 
     let _guard = SocketStartLock::acquire(&socket, Instant::now()).unwrap();
     let metadata = std::fs::metadata(&lock).unwrap();
-    assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+    assert_eq!(metadata.uid(), platform::effective_uid());
     assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
 }
 

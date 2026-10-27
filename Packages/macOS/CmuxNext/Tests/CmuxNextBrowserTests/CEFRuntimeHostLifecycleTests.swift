@@ -230,6 +230,8 @@ import Testing
 
     func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
 
+    func hostSaidHello() {}
+
     func endHost(within limit: Duration) async {
         endLimits.append(limit)
     }

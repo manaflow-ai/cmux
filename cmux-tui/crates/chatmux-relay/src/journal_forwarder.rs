@@ -458,7 +458,7 @@ async fn discover_session_candidates(socket_dirs: &[PathBuf]) -> Vec<SessionCand
             // to arbitrary files masquerading as sockets.
             if metadata.file_type().is_symlink()
                 || !metadata.file_type().is_socket()
-                || metadata.uid() != unsafe { libc::getuid() }
+                || metadata.uid() != current_uid()
             {
                 continue;
             }
@@ -530,7 +530,7 @@ async fn safe_socket_directory(path: &Path) -> bool {
     let Ok(metadata) = tokio::fs::symlink_metadata(path).await else { return false };
     !metadata.file_type().is_symlink()
         && metadata.is_dir()
-        && metadata.uid() == unsafe { libc::getuid() }
+        && metadata.uid() == current_uid()
         && metadata.permissions().mode() & 0o077 == 0
 }
 
@@ -542,7 +542,7 @@ async fn insecure_socket_root_mode(path: &Path) -> Option<u32> {
     let mode = metadata.permissions().mode();
     (!metadata.file_type().is_symlink()
         && metadata.is_dir()
-        && metadata.uid() == unsafe { libc::getuid() }
+        && metadata.uid() == current_uid()
         && mode & 0o077 != 0)
         .then_some(mode)
 }
@@ -574,7 +574,7 @@ async fn safe_socket_entry(path: &Path) -> bool {
     let Ok(metadata) = tokio::fs::symlink_metadata(path).await else { return false };
     !metadata.file_type().is_symlink()
         && metadata.file_type().is_socket()
-        && metadata.uid() == unsafe { libc::getuid() }
+        && metadata.uid() == current_uid()
 }
 
 #[cfg(unix)]
@@ -677,7 +677,14 @@ fn socket_directories() -> Vec<PathBuf> {
     let runtime = absolute_env_path("XDG_RUNTIME_DIR")
         .or_else(|| absolute_env_path("TMPDIR"))
         .unwrap_or_else(|| PathBuf::from("/tmp"));
-    socket_directories_for(&runtime, unsafe { libc::getuid() })
+    socket_directories_for(&runtime, current_uid())
+}
+
+/// The real user id of this process, the owner every socket root and entry must have.
+#[cfg(unix)]
+fn current_uid() -> libc::uid_t {
+    // SAFETY: getuid takes no arguments, cannot fail, and touches no memory.
+    unsafe { libc::getuid() }
 }
 
 #[cfg(unix)]
@@ -1334,7 +1341,7 @@ async fn prepare_cursor_directory(dir: &Path) -> bool {
         Err(_) => return false,
     }
     let Ok(metadata) = tokio::fs::symlink_metadata(dir).await else { return false };
-    if !metadata.is_dir() || metadata.uid() != unsafe { libc::getuid() } {
+    if !metadata.is_dir() || metadata.uid() != current_uid() {
         return false;
     }
     metadata.permissions().mode() & 0o077 == 0
@@ -1372,7 +1379,7 @@ async fn persist_cursors(shared: &Shared) {
 #[cfg(unix)]
 fn cursor_file_metadata_ok(metadata: &std::fs::Metadata) -> bool {
     metadata.is_file()
-        && metadata.uid() == unsafe { libc::getuid() }
+        && metadata.uid() == current_uid()
         // Cursor revisions are not credentials, but sharing this file allows
         // another user to influence replay and delivery. Keep it private.
         && metadata.permissions().mode() & 0o077 == 0
@@ -1397,7 +1404,7 @@ async fn cursor_path_is_replaceable(path: &Path) -> bool {
         // broad umask. It is safe to replace it because it is our regular
         // file; the new atomic file is always 0600. We still reject links,
         // directories, and files owned by another user.
-        Ok(metadata) => metadata.is_file() && metadata.uid() == unsafe { libc::getuid() },
+        Ok(metadata) => metadata.is_file() && metadata.uid() == current_uid(),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
         Err(_) => false,
     }
@@ -1444,7 +1451,7 @@ async fn persist_cursor_file(path: &Path, cursors: &HashMap<String, JournalCurso
         // after checking its owner, then install the private replacement.
         match tokio::fs::symlink_metadata(path).await {
             Ok(metadata) if cursor_file_metadata_ok(&metadata) => {}
-            Ok(metadata) if metadata.is_file() && metadata.uid() == unsafe { libc::getuid() } => {
+            Ok(metadata) if metadata.is_file() && metadata.uid() == current_uid() => {
                 if tokio::fs::remove_file(path).await.is_err() {
                     let _ = tokio::fs::remove_file(&temp_path).await;
                     return false;

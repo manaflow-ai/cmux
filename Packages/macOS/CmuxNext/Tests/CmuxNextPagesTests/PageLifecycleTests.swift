@@ -386,7 +386,7 @@ struct PageLifecycleTests {
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
         let host = WebUIHost(chromium: nil, openPanel: nil,
                              memory: QuietMemoryRegistry(),
-                             clock: PageTestClock.never)
+                             deadlines: LifecycleDeadlineRig.never)
         host.lifecycle = lifecycle
         let descriptor = PageDescriptor(id: "test.page-lifecycle", resource: "page-lifecycle", processGroup: .viewer, namespaces: [])
         let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
@@ -651,7 +651,7 @@ struct PageLifecycleTests {
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
         let host = WebUIHost(chromium: nil, openPanel: nil,
                              memory: QuietMemoryRegistry(),
-                             clock: PageTestClock.never)
+                             deadlines: LifecycleDeadlineRig.never)
         host.lifecycle = lifecycle
         let descriptor = PageDescriptor(id: "test.page-keep-alive", resource: "page-keep-alive", processGroup: .viewer, namespaces: [])
         let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))

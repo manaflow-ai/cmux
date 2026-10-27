@@ -11,7 +11,9 @@ public import Foundation
 /// maps it with `ChromiumHostExit.pageExit`.
 public protocol ChromiumHostExitReporting: ChromiumHostSupervising {
     /// Runs on the main thread each time a host that said hello ends while cmux is not quitting,
-    /// with the crash state its pages show. A clean exit (status 0) reports nothing.
+    /// with the crash state its pages show. A clean exit (status 0) reports nothing. It may run before
+    /// or after the ``ChromiumHostSupervising/observeHostEnds(_:)`` observers of the same end: the
+    /// runtime detaches the dead wire on whichever comes first (task 091).
     var onHostEnded: (@MainActor (BrowserProcessExit) -> Void)? { get set }
     /// Whether the pages of the last host that ended come back on a new host at once (task 083 of
     /// plans/cmux-next/chrome-parity/p01-process.md): its restart budget, Chrome's GPU crash budget
@@ -20,6 +22,11 @@ public protocol ChromiumHostExitReporting: ChromiumHostSupervising {
     var lastEndRestoresPages: Bool { get }
     /// Reads a tab's saved navigation for its page on the next host; nil brings each page back at its address.
     var savedNavigation: ChromiumHostSavedNavigation? { get }
+
+    /// The host whose wire ``ChromiumHostSupervising/attachment()`` handed out said hello (`CEFHostStart`, on the main
+    /// thread): from now on its end reaches ``onHostEnded``. A host that ends before this never does: it did not
+    /// start, and no host starts again (the restart policy's cannot-start, task 081).
+    func hostSaidHello()
 }
 
 extension ChromiumHostExitReporting {

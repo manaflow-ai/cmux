@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// Where the wallpaper still lies in a page (`rect` of the `cmuxTheme.backdrop` payload,
 /// plans/cmux-next/glass-lens-DESIGN.md): the art's aspect-filled rect in the page's CSS px,

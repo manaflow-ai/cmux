@@ -142,7 +142,8 @@ public actor PushRegistrationService: PushRegistering {
             Double.random(in: $0)
         },
         retrySleep: @escaping @Sendable (Duration) async throws -> Void = {
-            try await ContinuousClock().sleep(for: $0)
+            // wakeup-allow: backoff the retryDelays step after a failed registration request
+            try await ContinuousClock().sleep(for: $0, tolerance: $0.authWakeLeeway)
         },
         sessionSnapshotTimeout: Duration = .seconds(15),
         sessionSnapshotClock: any Clock<Duration> = ContinuousClock()
@@ -1172,7 +1173,9 @@ public actor PushRegistrationService: PushRegistering {
             do {
                 // AuthPhaseTimeoutRegistry holds a timed-out phase for 30s.
                 // Wait past that lease before asking the worker to retry.
-                try await clock.sleep(for: .seconds(31))
+                let lease: Duration = .seconds(31)
+                // wakeup-allow: deadline one wait past the timed-out phase's lease; armed once per pending unregister
+                try await clock.sleep(for: lease, tolerance: lease.authWakeLeeway)
             } catch {
                 return
             }
