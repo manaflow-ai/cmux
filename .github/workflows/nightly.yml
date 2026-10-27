@@ -2185,6 +2185,11 @@ jobs:
       - name: Start Release DerivedData empty
         id: release-derived-data
         if: inputs.nightly_next_unsigned_run == ''
+        # The build's settings key the kept DerivedData (nightly_build_state.py BUILD_SETTINGS).
+        env:
+          IMPORT_VARIANT: ${{ needs.decide.outputs.import_variant }}
+          SWIFT_IMPORT_FLAGS: ${{ needs.decide.outputs.swift_import_flags }}
+          EMPTY_BROWSER_SOURCES: ${{ needs.decide.outputs.empty_browser_sources }}
         run: |
           set -euo pipefail
           # Every runner but one starts from an empty tree. An incremental
@@ -2196,9 +2201,9 @@ jobs:
           # The exception is the dedicated nightly-next builder, which runs only
           # this build: nightly_build_state.py keeps its DerivedData and builds
           # each tip on it, starting clean when the last build did not finish,
-          # the toolchain, a lockfile or a submodule changed, a module- or
-          # link-shaping file (Package.swift, *.pbxproj, *.xcconfig, ...)
-          # changed, or every 10th build. Output `mode`: clean or incremental.
+          # the toolchain, a build setting, a lockfile or a submodule changed, a
+          # module- or link-shaping file (Package.swift, *.pbxproj, ...), an import
+          # or an #if changed, or every 10th build. Output `mode`: clean or incremental.
           scripts/ci/clear-dirs.sh build-universal
           mkdir -p build-universal
           if [ "${{ needs.decide.outputs.track }}" = nightly-next ]; then

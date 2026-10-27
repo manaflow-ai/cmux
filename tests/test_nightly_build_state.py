@@ -80,6 +80,9 @@ class NightlyBuildState(unittest.TestCase):
 
 class DedicatedBuilder(unittest.TestCase):
     RUNNER = 'cmux7s-mac-mini-glaeda-nightly-next'
+    WORKFLOW = ('jobs:\n  build-nightly-app:\n    steps:\n      - name: Start\n        run: echo\n'
+                '      - name: Build nightly app (Release)\n        run: xcodebuild OTHER_SWIFT_FLAGS={flags}\n'
+                '      - name: Bundle\n        run: echo {{other}}\n')
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -89,7 +92,10 @@ class DedicatedBuilder(unittest.TestCase):
         self.home = self.root / 'home'
         self.workspace.mkdir()
         self.git('init', '-q')
-        self.commit({'Sources/a.swift': 'let a = 1\n', 'Package.resolved': '{}\n'})
+        self.commit({'Sources/a.swift': 'let a = 1\n', 'Package.resolved': '{}\n',
+                     state.BUILD_WORKFLOW: self.WORKFLOW.format(flags='-DCMUX_A')})
+        saved = {name: os.environ.pop(name) for name in state.BUILD_SETTINGS if name in os.environ}
+        self.addCleanup(os.environ.update, saved)
         self.outputs = self.root / 'out'
         os.environ['GITHUB_OUTPUT'] = str(self.outputs)
         self.addCleanup(os.environ.pop, 'GITHUB_OUTPUT', None)
@@ -213,6 +219,24 @@ class DedicatedBuilder(unittest.TestCase):
                 self.build()
                 self.commit({name: text})
                 self.assertEqual(self.build()[0], 'mode=clean')
+
+    def test_a_build_setting_or_build_step_change_makes_it_clean(self):
+        self.build()
+        self.assertEqual(self.build()[0], 'mode=incremental')
+        for name, value in (('SWIFT_IMPORT_FLAGS', '-DCMUX_NO_BROWSER_IMPORT'), ('NIGHTLY_COMPILE_ARCHS', 'arm64'),
+                            ('EMPTY_BROWSER_SOURCES', 'true'), ('IMPORT_VARIANT', 'compiled-out')):
+            with self.subTest(name=name):
+                with mock.patch.dict(os.environ, {name: value}):
+                    self.assertEqual(self.build()[0], 'mode=clean')
+                    self.assertEqual(self.build()[0], 'mode=incremental')
+                self.assertEqual(self.build()[0], 'mode=clean')
+        self.commit({state.BUILD_WORKFLOW: self.WORKFLOW.format(flags='-DCMUX_B')})
+        self.assertEqual(self.build()[0], 'mode=clean')
+        self.commit({'scripts/cmux-next/lib/nightly-swift-defines.sh': 'CMUX_NIGHTLY_NEXT_SWIFT_DEFINES=-DX\n'})
+        self.assertEqual(self.build()[0], 'mode=clean')
+        # Another step of the workflow is not the build's settings.
+        self.commit({state.BUILD_WORKFLOW: self.WORKFLOW.format(flags='-DCMUX_B').replace('Bundle', 'Pack')})
+        self.assertEqual(self.build()[0], 'mode=incremental')
 
     def test_a_failed_checkpoint_write_never_fails_the_job_and_the_next_build_is_clean(self):
         self.build(finish=False)

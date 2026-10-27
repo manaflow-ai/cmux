@@ -49,6 +49,7 @@ import shutil
 import subprocess
 import sys
 import time
+from typing import Mapping
 
 STATE_ROOT = 'Library/Caches/cmux-nightly-next'
 # Measured over 199 consecutive nightly-next promotions (2026-10-24..27): 84 changed no
@@ -58,7 +59,16 @@ STATE_ROOT = 'Library/Caches/cmux-nightly-next'
 CLEAN_EVERY = 10
 INCREMENTAL_STATE = 'incremental.json'
 KEY_PATHS = re.compile(r'(^|/)(Package\.resolved|Cargo\.lock|build\.zig\.zon|rust-toolchain(\.toml)?|\.xcode-version'
-                       r'|cef-manifest\.json|ensure-cef\.sh|ensure-remote-browser-host\.sh|download-prebuilt-ghosttykit\.sh)$')
+                       r'|cef-manifest\.json|ensure-cef\.sh|ensure-remote-browser-host\.sh|download-prebuilt-ghosttykit\.sh'
+                       r'|nightly-swift-defines\.sh|run-xcodebuild-with-diagnostics\.sh)$')
+# The build's own settings: the Release build step's text (its xcodebuild settings and how it forms
+# OTHER_SWIFT_FLAGS) and the decide outputs it reads (BUILD_SETTINGS in the environment of the
+# prepare step). A change to either is a clean build: objects compiled under other -D flags,
+# architectures or settings are never reused.
+BUILD_WORKFLOW = '.github/workflows/nightly.yml'
+BUILD_STEP = '      - name: Build nightly app (Release)\n'
+BUILD_SETTINGS = ('SWIFT_IMPORT_FLAGS', 'IMPORT_VARIANT', 'EMPTY_BROWSER_SOURCES', 'NIGHTLY_COMPILE_ARCHS',
+                  'CHANNEL_ICON_NAME', 'NIGHTLY_FAST_BUILD')
 # An import or include line added or removed in a source file: the import set changes, the audited
 # case for stale autolink and force-load data in objects that were not recompiled. A changed
 # conditional-compilation line (#if, #elseif, #else, #endif, #ifdef, #ifndef, #elif) counts too: it can
@@ -92,9 +102,23 @@ def git(workspace: Path, *args: str) -> str:
     return subprocess.run(['git', '-C', str(workspace), *args], check=True, capture_output=True, text=True).stdout
 
 
-def input_key(workspace: Path, toolchain: str) -> str:
-    """The toolchain plus every lockfile, toolchain pin and submodule commit at HEAD."""
-    pins = []
+def build_step(workspace: Path) -> str:
+    """The Release build step's text in the workflow at HEAD, or the whole workflow when the step
+    cannot be found (so a renamed step is a clean build, never a missed change)."""
+    text = git(workspace, 'show', f'HEAD:{BUILD_WORKFLOW}')
+    start = text.find(BUILD_STEP)
+    if start < 0 or text.find(BUILD_STEP, start + 1) >= 0:
+        return text
+    end = text.find('\n      - name: ', start + len(BUILD_STEP))
+    return text[start:] if end < 0 else text[start:end]
+
+
+def input_key(workspace: Path, toolchain: str, env: Mapping[str, str] | None = None) -> str:
+    """The toolchain, the build's settings (build_step and BUILD_SETTINGS) and every lockfile,
+    toolchain pin and submodule commit at HEAD."""
+    env = os.environ if env is None else env
+    settings = [f'{name}={env.get(name, "")}' for name in BUILD_SETTINGS]
+    pins = [hashlib.sha256(build_step(workspace).encode()).hexdigest(), *settings]
     for line in git(workspace, 'ls-tree', '-r', 'HEAD').splitlines():
         meta, _, path = line.partition('\t')
         mode, kind, obj = meta.split()
