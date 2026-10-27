@@ -132,7 +132,7 @@ extension CEFTab {
             }
         case .takeFocus(_, let forward):
             emit(.takeFocus(forward: forward))
-        case .renderTerminated(_, let status, let code, _, _):
+        case .renderTerminated(_, let status, let code, _, _, _):
             rendererHang.ended()
             rendererTerminated(.cef(status: status, code: code))
         // In this tab only, with Chrome's visibility rules (CEFRendererHang.swift).
