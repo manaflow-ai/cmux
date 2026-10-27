@@ -16,12 +16,21 @@ import CmuxNextWakeups
 /// The two names are white, the rest of the line secondary.
 /// It never takes focus, so System Settings stays the active app. It waits
 /// at the bottom center of the screen until the System Settings window is
-/// on screen (a few reads while System Settings opens), then docks to it.
+/// on screen (a few reads while System Settings opens), then docks to it as
+/// the next row of its list: the helper's row spans the list's rows and its
+/// icon stands in the list's icon column. Then it follows that window
+/// (``SystemSettingsFollower``): it moves with it, hides while it is off
+/// screen, and goes back to the bottom center to look again when it closes.
 final class HelperDragPanel: NSPanel {
-    static let width: CGFloat = 540
     private static let padding: CGFloat = 12
     /// Room between the back button and the row, and between the text and the row.
     private static let gap: CGFloat = 8
+    /// The helper row's leading edge from the panel's: the padding, the back button, the gap.
+    static let rowLeading: CGFloat = padding + HelperPanelBackButton.side + gap
+    /// The helper row is as wide as the rows of System Settings' list.
+    static let width: CGFloat = rowLeading + SystemSettingsWindow.listWidth + padding
+    /// The helper icon's center from the panel's leading edge: docked, it is in the list's icon column.
+    static let iconCenter: CGFloat = rowLeading + HelperAppTile.iconCenter
     /// The helper row's corner; the panel's corner is concentric around it.
     static let rowRadius: CGFloat = 8
     private let onBack: () -> Void
@@ -35,12 +44,27 @@ final class HelperDragPanel: NSPanel {
         field.isSelectable = false
         return field
     }()
-    private var locating: Task<Void, Never>?
+    /// The lookup of a System Settings window to dock to.
+    private(set) var locating: Task<Void, Never>?
     private var fallbackScreen: NSScreen?
+    /// Keeps the panel on the window it docked to.
+    let follower: SystemSettingsFollower
+    /// Between ``beginDocking(on:)`` and ``orderOut(_:)``.
+    private var shown = false
+    /// Ordered out while the System Settings window is off screen (minimized, hidden, another Space).
+    private(set) var isAway = false
+    /// Frames set to follow the window (tests).
+    private(set) var followMoves = 0
 
-    init(appURL: URL, grant: String, onBack: @escaping () -> Void, onDrop: @escaping () -> Void) {
+    /// `follower` stands in for the window list and the display frames (tests).
+    init(appURL: URL, grant: String, onBack: @escaping () -> Void, onDrop: @escaping () -> Void,
+         follower: SystemSettingsFollower? = nil) {
         self.onBack = onBack
+        let pace = LiveSettingsFollowPace()
+        self.follower = follower ?? SystemSettingsFollower(reader: LiveSettingsWindowReader(), pace: pace)
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+        pace.window = self
+        self.follower.onEvent = { [weak self] in self?.followed($0) }
         isOpaque = false
         backgroundColor = .clear
         hasShadow = true
@@ -130,14 +154,18 @@ final class HelperDragPanel: NSPanel {
     /// Shows the panel docked to System Settings (or at the bottom center of
     /// `screen` until a System Settings window is on screen).
     func show(on screen: NSScreen?) {
-        fallbackScreen = screen ?? NSScreen.main
-        if let visible = fallbackScreen?.visibleFrame {
-            setFrame(SystemSettingsWindow.fallbackFrame(panel: frame.size, visible: visible), display: false)
-        }
         alphaValue = 0
+        beginDocking(on: screen)
         orderFrontRegardless()
         Motion.overlays.animate(.fadeIn, in: contentView) { animator().alphaValue = 1 }
         arrow.bounce(true)
+    }
+
+    /// Places the panel at the bottom center of `screen` and looks for the System Settings window.
+    func beginDocking(on screen: NSScreen?) {
+        fallbackScreen = screen ?? NSScreen.main
+        shown = true
+        moveToFallback()
         dock()
     }
 
@@ -145,18 +173,26 @@ final class HelperDragPanel: NSPanel {
     /// may still be opening when Allow shows the panel.
     static let dockReads = 6
 
-    /// Moves the panel over the bottom of the System Settings window.
+    /// Moves the panel over the bottom of the System Settings window, then follows it.
     private func dock() {
         locating?.cancel()
+        let reader = follower.reader
         // task-owner: a few window list reads while System Settings opens; orderOut cancels them.
         locating = Task { [weak self] in
             var backoff = Backoff(initial: .milliseconds(150), maximum: .seconds(1), jitter: 0)
             for _ in 0..<Self.dockReads {
-                if let settings = await SystemSettingsWindow.frontFrame() {
-                    guard let self, !Task.isCancelled, isVisible else { return }
-                    let screen = NSScreen.screens.first { $0.frame.intersects(settings) } ?? fallbackScreen
-                    let target = SystemSettingsWindow.dockedFrame(panel: frame.size, settings: settings, visible: screen?.visibleFrame)
-                    if target != frame { Motion.overlays.animateTimed(.panel, in: contentView) { animator().setFrame(target, display: true) } }
+                if let found = await reader.find() {
+                    guard let self, !Task.isCancelled, shown else { return }
+                    locating = nil
+                    if let target = dockedFrame(for: found.bounds), target != frame {
+                        // The panel glides from its waiting place when on screen; it never animates hidden.
+                        if isVisible {
+                            Motion.overlays.animateTimed(.panel, in: contentView) { animator().setFrame(target, display: true) }
+                        } else {
+                            Motion.overlays.withoutAnimation { animator().setFrame(target, display: true) }
+                        }
+                    }
+                    follower.follow(found)
                     return
                 }
                 // concurrency-allow: Backoff.wait spaces a few reads after one found no window, not a poll period.
@@ -165,9 +201,57 @@ final class HelperDragPanel: NSPanel {
         }
     }
 
+    /// The panel's frame docked to a System Settings window at window-list `bounds`.
+    func dockedFrame(for bounds: CGRect) -> NSRect? {
+        guard let primary = NSScreen.screens.first else { return nil }
+        let settings = SystemSettingsWindow.appKitFrame(bounds, primaryHeight: primary.frame.height)
+        let screen = NSScreen.screens.first { $0.frame.intersects(settings) } ?? fallbackScreen
+        return SystemSettingsWindow.dockedFrame(panel: frame.size, iconCenter: Self.iconCenter, settings: settings,
+                                                visible: screen?.visibleFrame)
+    }
+
+    private func moveToFallback() {
+        guard let visible = fallbackScreen?.visibleFrame else { return }
+        let target = SystemSettingsWindow.fallbackFrame(panel: frame.size, visible: visible)
+        if target != frame { Motion.overlays.withoutAnimation { animator().setFrame(target, display: isVisible) } }
+    }
+
+    private func followed(_ event: SystemSettingsFollower.Event) {
+        guard shown else { return }
+        switch event {
+        case .dock(let bounds):
+            if let target = dockedFrame(for: bounds), target != frame {
+                // Not an animation: the panel tracks the window's own move, frame for frame. The
+                // zero-length group also ends a dock glide still running, so the two never fight.
+                Motion.overlays.withoutAnimation { animator().setFrame(target, display: true) }
+                followMoves += 1
+            }
+            comeBack()
+        case .hide:
+            isAway = true
+            arrow.bounce(false)
+            super.orderOut(nil)
+        case .lost:
+            moveToFallback()
+            comeBack()
+            dock()
+        }
+    }
+
+    /// Shows the panel again after the window it follows was off screen.
+    private func comeBack() {
+        guard isAway else { return }
+        isAway = false
+        orderFrontRegardless()
+        arrow.bounce(true)
+    }
+
     override func orderOut(_ sender: Any?) {
+        shown = false
+        isAway = false
         locating?.cancel()
         locating = nil
+        follower.stop()
         arrow.bounce(false)
         super.orderOut(sender)
     }

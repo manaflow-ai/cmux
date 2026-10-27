@@ -17,22 +17,28 @@ final class HelperAppTile: NSView, NSDraggingSource {
     private static let spacing: CGFloat = 8
     /// Where the name starts, from the row's leading edge.
     static let nameInset: CGFloat = inset + iconSide + spacing
+    /// The icon's center from the row's leading edge (20 pt, as in System Settings' lists).
+    static let iconCenter: CGFloat = inset + iconSide / 2
     private(set) lazy var hover = ChromeHover(self, cornerRadius: HelperDragPanel.rowRadius)
     /// Called when a drag of the app ended in another app (System Settings' list).
     var onDrop: (() -> Void)?
     /// The app's icon and name: the panel lines its arrow up over the icon and its text with the name.
     let icon: NSImageView
     let name: ChromeLabel
+    /// The icon and the name together: the drag lifts them out of the row, which stays empty
+    /// until the drag ends.
+    private let content: NSStackView
 
     init(appURL: URL) {
         self.appURL = appURL
         icon = NSImageView(image: NSWorkspace.shared.icon(forFile: appURL.path))
         name = OnboardingLabel.make(Self.displayName(appURL), font: Typography.system(size: TypeScale.body))
+        content = NSStackView(views: [icon, name])
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         icon.imageScaling = .scaleProportionallyUpOrDown
         name.textColor = Palette.textPrimary
-        let stack = NSStackView(views: [icon, name])
+        let stack = content
         stack.spacing = Self.spacing
         stack.alignment = .centerY
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -81,10 +87,19 @@ final class HelperAppTile: NSView, NSDraggingSource {
     override func mouseDragged(with event: NSEvent) {
         hover.state.pressed = false
         let item = NSDraggingItem(pasteboardWriter: appURL as NSURL)
-        let icon = NSWorkspace.shared.icon(forFile: appURL.path)
-        let side = Self.iconSide
-        item.setDraggingFrame(NSRect(x: Self.inset, y: (bounds.height - side) / 2, width: side, height: side), contents: icon)
+        // The whole row's content (icon and name) follows the pointer, as a row picked out of a list.
+        item.setDraggingFrame(content.frame, contents: snapshot(of: content) ?? NSWorkspace.shared.icon(forFile: appURL.path))
         beginDraggingSession(with: [item], event: event, source: self)
+        content.alphaValue = 0
+    }
+
+    /// The view as an image, at the screen's scale.
+    private func snapshot(of view: NSView) -> NSImage? {
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        let image = NSImage(size: view.bounds.size)
+        image.addRepresentation(rep)
+        return image
     }
 
     override func mouseUp(with event: NSEvent) { hover.state.pressed = false }
@@ -94,6 +109,7 @@ final class HelperAppTile: NSView, NSDraggingSource {
     }
 
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        content.alphaValue = 1
         if !operation.isEmpty { onDrop?() }
     }
 

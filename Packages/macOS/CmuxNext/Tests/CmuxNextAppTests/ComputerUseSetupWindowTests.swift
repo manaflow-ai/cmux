@@ -10,8 +10,8 @@ import Testing
 /// The Computer Use window: one primary Allow on the next missing row, the
 /// row waits gray while its drag panel shows, the window comes back when the
 /// grant lands, a done state, Return as the primary action, the entry points
-/// that open it, the drag panel (where it docks, its back button, its line and
-/// its arrow), and the rows' icons.
+/// that open it, the drag panel (where it docks, how it follows System Settings,
+/// its back button, its line and its arrow), and the rows' icons.
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct ComputerUseSetupWindowTests {
@@ -190,37 +190,58 @@ struct ComputerUseSetupWindowTests {
 
     // MARK: The drag panel
 
-    @Test func thePanelDocksOverTheBottomOfSystemSettings() {
+    @Test func thePanelDocksAsTheNextRowOfTheList() {
         let size = NSSize(width: HelperDragPanel.width, height: 100)
-        let settings = NSRect(x: 100, y: 200, width: 900, height: 600)
-        let docked = SystemSettingsWindow.dockedFrame(panel: size, settings: settings, visible: nil)
-        #expect(docked.maxX == settings.maxX - SystemSettingsWindow.inset)
+        let settings = NSRect(x: 100, y: 200, width: 723, height: 625)
+        let docked = SystemSettingsWindow.dockedFrame(panel: size, iconCenter: HelperDragPanel.iconCenter, settings: settings, visible: nil)
+        #expect(docked.minX + HelperDragPanel.iconCenter == settings.minX + SystemSettingsWindow.listIconCenter,
+                "the helper's icon stands in the list's icon column")
+        #expect(docked.minX + HelperDragPanel.rowLeading == settings.minX + SystemSettingsWindow.listLeading, "the row starts with the list's rows")
+        #expect(docked.minX + HelperDragPanel.rowLeading + SystemSettingsWindow.listWidth == settings.minX + SystemSettingsWindow.listTrailing,
+                "the row ends with the list's rows")
         #expect(docked.minY == settings.minY + SystemSettingsWindow.inset)
-        // Too narrow to clear the sidebar: centered instead.
-        let narrow = NSRect(x: 100, y: 200, width: 500, height: 600)
-        #expect(SystemSettingsWindow.dockedFrame(panel: size, settings: narrow, visible: nil).midX == narrow.midX)
         // Kept on screen.
         let visible = NSRect(x: 0, y: 40, width: 1440, height: 860)
-        let low = NSRect(x: 1000, y: 0, width: 700, height: 500)
-        let kept = SystemSettingsWindow.dockedFrame(panel: size, settings: low, visible: visible)
+        let low = NSRect(x: 1000, y: 0, width: 723, height: 625)
+        let kept = SystemSettingsWindow.dockedFrame(panel: size, iconCenter: HelperDragPanel.iconCenter, settings: low, visible: visible)
         #expect(visible.contains(kept))
+    }
+
+    @Test func thePanelsIconAndRowSitWhereTheDockingPutsThem() {
+        let panel = makePanel()
+        defer { panel.orderOut(nil) }
+        panel.contentView?.layoutSubtreeIfNeeded()
+        // The arrow stands over the helper's icon (its frame rounds to whole pixels: half a point at 1x).
+        #expect(abs(panel.arrow.frame.midX - HelperDragPanel.iconCenter) <= 0.5, "icon center \(panel.arrow.frame.midX)")
+        #expect(HelperDragPanel.iconCenter - HelperDragPanel.rowLeading
+            == SystemSettingsWindow.listIconCenter - SystemSettingsWindow.listLeading, "the icon sits in its row as in the list")
     }
 
     @Test func theWindowListPicksTheFrontmostSettingsWindow() {
         let list: [[String: Any]] = [
-            [kCGWindowOwnerName as String: "System Settings", kCGWindowLayer as String: 0,
+            [kCGWindowOwnerName as String: "System Settings", kCGWindowLayer as String: 0, kCGWindowNumber as String: 1,
              kCGWindowBounds as String: CGRect(x: 0, y: 0, width: 40, height: 40).dictionaryRepresentation],
-            [kCGWindowOwnerName as String: "Finder", kCGWindowLayer as String: 0,
+            [kCGWindowOwnerName as String: "Finder", kCGWindowLayer as String: 0, kCGWindowNumber as String: 2,
              kCGWindowBounds as String: CGRect(x: 10, y: 10, width: 800, height: 600).dictionaryRepresentation],
-            [kCGWindowOwnerName as String: "System Settings", kCGWindowLayer as String: 25,
+            [kCGWindowOwnerName as String: "System Settings", kCGWindowLayer as String: 25, kCGWindowNumber as String: 3,
              kCGWindowBounds as String: CGRect(x: 0, y: 0, width: 800, height: 600).dictionaryRepresentation],
-            [kCGWindowOwnerName as String: "System Settings", kCGWindowLayer as String: 0,
+            [kCGWindowOwnerName as String: "System Settings", kCGWindowLayer as String: 0, kCGWindowNumber as String: 4,
              kCGWindowBounds as String: CGRect(x: 50, y: 60, width: 800, height: 600).dictionaryRepresentation],
         ]
-        let bounds = SystemSettingsWindow.pick(list, owners: SystemSettingsWindow.ownerNames())
-        #expect(bounds == CGRect(x: 50, y: 60, width: 800, height: 600))
+        let found = SystemSettingsWindow.pick(list, owners: SystemSettingsWindow.ownerNames())
+        #expect(found == SettingsWindowMatch(id: 4, bounds: CGRect(x: 50, y: 60, width: 800, height: 600)))
         let frame = SystemSettingsWindow.appKitFrame(CGRect(x: 50, y: 60, width: 800, height: 600), primaryHeight: 1000)
         #expect(frame == NSRect(x: 50, y: 340, width: 800, height: 600))
+    }
+
+    @Test func oneWindowsEntrySaysWhereItIs() {
+        let bounds = CGRect(x: 50, y: 60, width: 723, height: 625)
+        #expect(SystemSettingsWindow.state(from: []) == .gone, "no entry: closed or quit")
+        let away: [String: Any] = [kCGWindowNumber as String: 4, kCGWindowBounds as String: bounds.dictionaryRepresentation]
+        #expect(SystemSettingsWindow.state(from: [away]) == .offScreen, "no on-screen mark: minimized, hidden or another Space")
+        var shown = away
+        shown[kCGWindowIsOnscreen as String] = true
+        #expect(SystemSettingsWindow.state(from: [shown]) == .onScreen(bounds))
     }
 
     @Test func theDragLineBoldsTheHelperAndTheGrant() {
@@ -291,6 +312,195 @@ struct ComputerUseSetupWindowTests {
         #expect(arrow.isBouncing == Motion.indicators.animatesLoops, "the bob follows the indicators gate")
         arrow.bounce(false)
         #expect(!arrow.isBouncing)
+    }
+
+    // MARK: Following the System Settings window
+
+    /// The window list, answered by the test. A held read or lookup waits for ``release()``.
+    @MainActor private final class FakeSettingsReader: SettingsWindowReading {
+        var match: SettingsWindowMatch?
+        var state: SettingsWindowState = .gone
+        var holdReads = false
+        var holdFinds = false
+        private var waiting: [CheckedContinuation<Void, Never>] = []
+
+        func find() async -> SettingsWindowMatch? {
+            if holdFinds { await withCheckedContinuation { waiting.append($0) } }
+            return match
+        }
+
+        func read(_ id: CGWindowID) async -> SettingsWindowState {
+            if holdReads { await withCheckedContinuation { waiting.append($0) } }
+            return state
+        }
+
+        func release() {
+            holdReads = false
+            holdFinds = false
+            let resumed = waiting
+            waiting = []
+            for continuation in resumed { continuation.resume() }
+        }
+    }
+
+    /// Ticks only when the test calls ``onTick``; keeps the rate asked for.
+    @MainActor private final class FakeFollowPace: SettingsFollowPace {
+        var onTick: (() -> Void)?
+        var rate: SettingsFollowRate?
+        func run(_ rate: SettingsFollowRate) { self.rate = rate }
+        func stop() { rate = nil }
+    }
+
+    @MainActor private final class TestTime {
+        var now: TimeInterval = 100
+    }
+
+    @MainActor private final class Events {
+        var items: [SystemSettingsFollower.Event] = []
+    }
+
+    private let settingsBounds = CGRect(x: 100, y: 100, width: 723, height: 625)
+
+    /// One paced tick and the read it starts.
+    private func tick(_ follower: SystemSettingsFollower, _ pace: FakeFollowPace) async {
+        pace.onTick?()
+        await follower.reading?.value
+    }
+
+    /// A panel docked to window 7 at ``settingsBounds`` (never shown, so the dock lands at once).
+    private func dockedPanel() async -> (HelperDragPanel, FakeSettingsReader, FakeFollowPace, NSScreen?) {
+        let reader = FakeSettingsReader(), pace = FakeFollowPace()
+        let follower = SystemSettingsFollower(reader: reader, pace: pace)
+        let panel = HelperDragPanel(appURL: URL(fileURLWithPath: "/Applications/cmux Computer Use.app"),
+                                    grant: OnboardingStrings.computerUseName(.screenRecording), onBack: {}, onDrop: {},
+                                    follower: follower)
+        reader.match = SettingsWindowMatch(id: 7, bounds: settingsBounds)
+        reader.state = .onScreen(settingsBounds)
+        let screen = NSScreen.screens.first
+        panel.beginDocking(on: screen)
+        await panel.locating?.value
+        return (panel, reader, pace, screen)
+    }
+
+    @Test func aMovedWindowMovesThePanelAndAStillOneSetsNoFrame() async {
+        let (panel, reader, pace, _) = await dockedPanel()
+        defer { panel.orderOut(nil) }
+        #expect(panel.follower.windowID == 7)
+        #expect(panel.frame == panel.dockedFrame(for: settingsBounds))
+        #expect(pace.rate == .display)
+
+        await tick(panel.follower, pace)
+        #expect(panel.followMoves == 0, "a still window sets no frame")
+
+        let moved = settingsBounds.offsetBy(dx: 60, dy: 40)
+        reader.state = .onScreen(moved)
+        await tick(panel.follower, pace)
+        #expect(panel.followMoves == 1)
+        #expect(panel.frame == panel.dockedFrame(for: moved), "the panel stays docked to the moved window")
+        await tick(panel.follower, pace)
+        #expect(panel.followMoves == 1, "no frame set while the window holds still")
+    }
+
+    @Test func anOffScreenWindowHidesThePanelUntilItIsBack() async {
+        let (panel, reader, pace, _) = await dockedPanel()
+        defer { panel.orderOut(nil) }
+        reader.state = .offScreen
+        await tick(panel.follower, pace)
+        #expect(panel.isAway)
+        #expect(!panel.isVisible)
+        #expect(pace.rate == .still, "slow reads until the window is back")
+        await tick(panel.follower, pace)
+        #expect(panel.isAway)
+
+        let back = settingsBounds.offsetBy(dx: 30, dy: 0)
+        reader.state = .onScreen(back)
+        await tick(panel.follower, pace)
+        #expect(!panel.isAway)
+        #expect(panel.isVisible, "the panel comes back with the window")
+        #expect(panel.frame == panel.dockedFrame(for: back))
+        #expect(pace.rate == .display)
+    }
+
+    @Test func aClosedWindowSendsThePanelToItsFallbackAndTheLookupResumes() async {
+        let (panel, reader, pace, screen) = await dockedPanel()
+        defer { panel.orderOut(nil) }
+        reader.state = .gone
+        reader.match = nil
+        reader.holdFinds = true
+        await tick(panel.follower, pace)
+        #expect(panel.follower.windowID == nil)
+        #expect(pace.rate == nil, "no reads of a closed window")
+        if let visible = screen?.visibleFrame {
+            #expect(panel.frame == SystemSettingsWindow.fallbackFrame(panel: panel.frame.size, visible: visible))
+        }
+        let lookup = panel.locating
+        #expect(lookup != nil, "the panel looks for a new System Settings window")
+
+        let next = CGRect(x: 200, y: 120, width: 723, height: 625)
+        reader.match = SettingsWindowMatch(id: 9, bounds: next)
+        reader.release()
+        await lookup?.value
+        #expect(panel.follower.windowID == 9)
+        #expect(panel.frame == panel.dockedFrame(for: next))
+        #expect(pace.rate == .display)
+    }
+
+    @Test func onlyOneReadIsInFlight() async {
+        let reader = FakeSettingsReader(), pace = FakeFollowPace()
+        let follower = SystemSettingsFollower(reader: reader, pace: pace)
+        follower.follow(SettingsWindowMatch(id: 3, bounds: settingsBounds))
+        reader.state = .onScreen(settingsBounds)
+        reader.holdReads = true
+        pace.onTick?()
+        pace.onTick?()
+        pace.onTick?()
+        #expect(follower.reads == 1, "ticks while a read runs are skipped")
+        let read = follower.reading
+        reader.release()
+        await read?.value
+        #expect(follower.reading == nil)
+        await tick(follower, pace)
+        #expect(follower.reads == 2)
+    }
+
+    @Test func theReadsSlowDownWhenTheWindowIsStillAndSpeedUpWhenItMoves() async {
+        let reader = FakeSettingsReader(), pace = FakeFollowPace(), time = TestTime(), events = Events()
+        let follower = SystemSettingsFollower(reader: reader, pace: pace, now: { time.now })
+        follower.onEvent = { events.items.append($0) }
+        follower.follow(SettingsWindowMatch(id: 3, bounds: settingsBounds))
+        #expect(pace.rate == .display)
+        reader.state = .onScreen(settingsBounds)
+        time.now += SystemSettingsFollower.stillAfter / 2
+        await tick(follower, pace)
+        #expect(pace.rate == .display, "still for less than a second: display frames")
+        time.now += SystemSettingsFollower.stillAfter
+        await tick(follower, pace)
+        #expect(pace.rate == .still, "still for a second: the slow reads")
+        #expect(SystemSettingsFollower.stillInterval == .milliseconds(100))
+        #expect(events.items.isEmpty, "a still window reports nothing")
+
+        let moved = settingsBounds.offsetBy(dx: 5, dy: 0)
+        reader.state = .onScreen(moved)
+        await tick(follower, pace)
+        #expect(pace.rate == .display, "a move goes back to display frames")
+        #expect(events.items == [.dock(moved)])
+    }
+
+    @Test func followingStopsWhenThePanelCloses() async {
+        let (panel, reader, pace, _) = await dockedPanel()
+        reader.holdReads = true
+        pace.onTick?()
+        let read = panel.follower.reading
+        panel.orderOut(nil)
+        #expect(pace.rate == nil, "no frames or deadlines once the panel closes")
+        #expect(panel.follower.windowID == nil)
+        #expect(panel.follower.reading == nil)
+        reader.state = .onScreen(settingsBounds.offsetBy(dx: 80, dy: 0))
+        reader.release()
+        await read?.value
+        #expect(panel.followMoves == 0, "a read that lands after the close moves nothing")
+        pace.onTick?()
+        #expect(panel.follower.reads == 1, "no read after the close")
     }
 
     // MARK: The rows' icons
