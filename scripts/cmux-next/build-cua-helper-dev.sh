@@ -9,7 +9,9 @@
 #   build-cua-helper-dev.sh [--out DIR]   (default $NX_ARTIFACTS or ./out)
 #
 # CMUX_CUA_SDK_TARBALL=<path> uses a local SDK tarball instead of R2 (it is
-# still checked against the pin sha256).
+# still checked against the pin sha256). CMUX_CUA_SDK_PIN=<pin.json> checks it
+# against another pin, for an SDK built on this Mac (build-cua-driver-sdk.sh):
+# a local build is not byte-identical to the published one.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -25,7 +27,9 @@ BUNDLE_ID="com.cmuxterm.cua.dev"
 EXECUTABLE="cmux-cua-helper"
 package="$repo_root/Packages/macOS/CmuxComputerUseHelper"
 
-sdk_tar="$(CMUX_CUA_ASSET_FILE="${CMUX_CUA_SDK_TARBALL:-}" "$SCRIPT_DIR/ensure-cua-pinned-asset.sh" "$SCRIPT_DIR/cua-driver-sdk.pin.json")"
+sdk_pin="${CMUX_CUA_SDK_PIN:-$SCRIPT_DIR/cua-driver-sdk.pin.json}"
+[[ -z "${CMUX_CUA_SDK_PIN:-}" ]] || echo "note: SDK pin override $sdk_pin (not the published cua-driver-sdk.pin.json)" >&2
+sdk_tar="$(CMUX_CUA_ASSET_FILE="${CMUX_CUA_SDK_TARBALL:-}" "$SCRIPT_DIR/ensure-cua-pinned-asset.sh" "$sdk_pin")"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 tar -xzf "$sdk_tar" -C "$work"
