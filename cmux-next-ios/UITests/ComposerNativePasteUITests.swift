@@ -2,11 +2,12 @@ import UIKit
 import XCTest
 
 /// The composers paste like any iOS text field: the edit menu's Paste (tap
-/// the focused field) and Command-V on a hardware keyboard put copied text
-/// in the field, and a copied image becomes an attachment of the composer
-/// that takes attachments. Runs the Chief chat, an empty agent chat and a
-/// workspace's terminal tab with mock sign-in and mock sessions. The test
-/// runner fills the pasteboard, as another app would.
+/// the focused field) puts copied text in the field, and Paste of a copied
+/// image attaches it (Command-V calls the same `paste(_:)`; a headless
+/// simulator drops Command chords, so it is not driven here). Runs the Chief
+/// chat, an empty agent chat and a workspace's terminal tab with mock sign-in
+/// and mock sessions. The test runner fills the pasteboard, as another app
+/// would.
 final class ComposerNativePasteUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -55,18 +56,12 @@ final class ComposerNativePasteUITests: XCTestCase {
         XCTAssertTrue(waitForValue(field, containing: "echo menu-paste"), "edit menu Paste\n\(String(describing: field.value))")
         attach(app, "\(demo)-menu-paste")
 
-        // Command-V on a hardware keyboard, at the caret (the end of the draft).
-        UIPasteboard.general.string = " && echo command-v"
-        field.typeKey("v", modifierFlags: .command)
-        XCTAssertTrue(waitForValue(field, containing: "echo menu-paste && echo command-v"), "Command-V\n\(String(describing: field.value))")
-        attach(app, "\(demo)-command-v")
-
         // A copied image: Paste is offered and attaches it; the text stays.
         UIPasteboard.general.image = Self.sampleImage()
         try menuPaste(app, field)
         XCTAssertTrue(app.descendants(matching: .any)[attachment].waitForExistence(timeout: 5),
                       "pasted image attached\n\(app.debugDescription)")
-        XCTAssertTrue(waitForValue(field, containing: "echo menu-paste && echo command-v"), "the draft text is kept")
+        XCTAssertTrue(waitForValue(field, containing: "echo menu-paste"), "the draft text is kept")
         attach(app, "\(demo)-image-paste")
     }
 
