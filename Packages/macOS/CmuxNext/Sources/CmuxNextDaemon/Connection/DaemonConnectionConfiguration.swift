@@ -11,11 +11,18 @@ public struct DaemonConnectionConfiguration: Sendable {
     public var retry: RetryPolicy
     /// A connection that stays up this long resets the reconnect backoff.
     public var healthyAfter: Duration
-    /// The connection asks the daemon this often whether it still answers;
-    /// `heartbeatMisses` unanswered asks in a row close it (`.disconnected`,
-    /// then reconnect). A bridged connection always asks (a lost server: the
-    /// link itself waits 10 min); a local one only with `localHeartbeat`.
+    /// After this long with nothing from the daemon, while a window shows or a
+    /// request waits, the connection asks it whether it still answers (and
+    /// waits this long for the answer); `heartbeatMisses` unanswered asks in a
+    /// row close it (`.disconnected`, then reconnect). A bridged connection
+    /// always asks (a lost server: the link itself waits 10 min); a local one
+    /// only with `localHeartbeat` (``ConnectionHeartbeat``).
     public var heartbeat: Duration = .seconds(15)
+    /// The silence that asks while no window shows and no request waits, for a
+    /// connection that carries a notification stream (a bridge: a server lost
+    /// over a closed lid must still be found); nil asks nothing then. Other
+    /// connections ask nothing while hidden and once when a window shows.
+    public var hiddenHeartbeat: Duration? = .seconds(60)
     public var heartbeatMisses = 2
     /// Heartbeat a local daemon too: an owner stopped (SIGSTOP) or wedged
     /// keeps its socket open, so no EOF ends the connection (cx-jniyz.4).

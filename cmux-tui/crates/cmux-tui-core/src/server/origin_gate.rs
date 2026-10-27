@@ -413,6 +413,11 @@ pub(super) fn set_peer_identity_at_accept(
         record.origin.mobile_host = mobile_host;
         record.origin.peer_process = peer_process;
     }
+    drop(state);
+    // The peer is known now: a connection of the daemon's own journal plugin
+    // no longer counts as a client (orphan_shutdown.rs `client_count`), so the
+    // exit watchers look again.
+    mux.control_clients.notify_client_presence();
 }
 
 /// cmux's own executables beside the daemon's that splice a far client's

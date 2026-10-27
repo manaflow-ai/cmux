@@ -92,7 +92,12 @@ mod tests {
     /// there panics in debug and counts as stalled).
     #[test]
     fn the_short_path_folder_is_checked_off_the_runtime_thread() {
-        let runtime = cmux_blocking::runtime::current_thread().build().unwrap();
+        let runtime = cmux_blocking::runtime::current_thread(
+            "cmux-coderouter-test",
+            cmux_threads::ThreadQos::Utility,
+        )
+        .build()
+        .unwrap();
         let home = Path::new("/nonexistent-coderouter-home").join("h".repeat(120));
         let stalled = cmux_blocking::counts().stalled;
 

@@ -9,22 +9,6 @@ import GhosttyNextKit
 // scrolls reach Ghostty at most twice per frame (``TerminalPointerFrames``);
 // every other event delivers what is pending first.
 extension TerminalSurfaceView {
-    /// Enter, exit and moves in any window state. The I-beam has its own area (``addCursorUpdateArea(_:)``
-    /// in init): NSTrackingArea.h does not support `.activeAlways` with `.cursorUpdate`.
-    public override func updateTrackingAreas() {
-        if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(
-            rect: .zero,
-            // wakeup-allow: bounded mouse reporting and hover links follow the pointer over a terminal behind another app,
-            // as in Ghostty; moves arrive only while the pointer is over this surface's visible rect
-            options: [.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, .activeAlways],
-            owner: self
-        )
-        addTrackingArea(area)
-        trackingArea = area
-        super.updateTrackingAreas()
-    }
-
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     public override func mouseDown(with event: NSEvent) {

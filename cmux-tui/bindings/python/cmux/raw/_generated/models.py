@@ -2076,6 +2076,21 @@ class ServerStatsConnections:
 
 
 @dataclass(frozen=True)
+class ServerStatsHangRecord:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsHangRecord'
+    duration_ms: int
+    sequence: int
+    span: str
+
+
+@dataclass(frozen=True)
+class ServerStatsHangs:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsHangs'
+    over_250ms: int
+    records: List[ServerStatsHangRecord]
+
+
+@dataclass(frozen=True)
 class ServerStatsHistogram:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsHistogram'
     count: int
@@ -2328,6 +2343,7 @@ class ServerStatsResult:
     schema: int
     uptime_ms: int
     dispatch_queue_us: Union[ServerStatsHistogram, MissingType] = field(default=MISSING)
+    hangs: Union[ServerStatsHangs, MissingType] = field(default=MISSING)
     ipc: Union[ServerStatsIpc, MissingType] = field(default=MISSING)
     ipc_methods: Union[List[ServerStatsMethodLatency], MissingType] = field(default=MISSING)
     lock_classes: Union[ServerStatsLockClasses, MissingType] = field(default=MISSING)
@@ -4810,20 +4826,20 @@ class ForgetSessionRequest:
 
 
 @dataclass(frozen=True)
-class Fs.deleteRequest:
+class FsDeleteRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.delete/request'
     paths: List[str]
     permanent: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
-class Fs.deleteResult:
+class FsDeleteResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.delete/result'
     pass
 
 
 @dataclass(frozen=True)
-class Fs.listRequest:
+class FsListRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.list/request'
     cursor: Union[str, None, MissingType] = field(default=MISSING)
     filter: Union[FsFilter, MissingType] = field(default=MISSING)
@@ -4834,14 +4850,14 @@ class Fs.listRequest:
 
 
 @dataclass(frozen=True)
-class Fs.mkdirRequest:
+class FsMkdirRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.mkdir/request'
     name: str
     path: str
 
 
 @dataclass(frozen=True)
-class Fs.readRequest:
+class FsReadRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.read/request'
     max_bytes: int
     path: str
@@ -4849,20 +4865,20 @@ class Fs.readRequest:
 
 
 @dataclass(frozen=True)
-class Fs.renameRequest:
+class FsRenameRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.rename/request'
     name: str
     path: str
 
 
 @dataclass(frozen=True)
-class Fs.statRequest:
+class FsStatRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.stat/request'
     path: str
 
 
 @dataclass(frozen=True)
-class Fs.writeRequest:
+class FsWriteRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.write/request'
     mode: str
     path: str
@@ -7914,6 +7930,8 @@ __all__ = [
     'Screen',
     'SendExpectAgent',
     'ServerStatsConnections',
+    'ServerStatsHangRecord',
+    'ServerStatsHangs',
     'ServerStatsHistogram',
     'ServerStatsIpc',
     'ServerStatsIpcKind',
@@ -8230,14 +8248,14 @@ __all__ = [
     'FocusDirectionRequest',
     'FocusPaneRequest',
     'ForgetSessionRequest',
-    'Fs.deleteRequest',
-    'Fs.deleteResult',
-    'Fs.listRequest',
-    'Fs.mkdirRequest',
-    'Fs.readRequest',
-    'Fs.renameRequest',
-    'Fs.statRequest',
-    'Fs.writeRequest',
+    'FsDeleteRequest',
+    'FsDeleteResult',
+    'FsListRequest',
+    'FsMkdirRequest',
+    'FsReadRequest',
+    'FsRenameRequest',
+    'FsStatRequest',
+    'FsWriteRequest',
     'GetBlobRequest',
     'GetBrowserProviderRequest',
     'GetCellPixelsRequest',
