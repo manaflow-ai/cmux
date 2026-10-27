@@ -300,4 +300,24 @@ import Testing
         #expect(TerminalWrappedLink.find(rows: emoji, firstRow: 0, columns: 31, column: 1, row: 1)?.text
             == "https://example.com/aaaaaaaabbb/c")
     }
+
+    @Test func aBareFileNameIsReadAsAPathInTheTerminalsFolder() {
+        let row = "  see index.js:57:1. or (main.c:3), README.md, app.py:12 and src/x.ts v1.2 e.g. https://a.io"
+        func word(at needle: String, _ offset: Int = 1) -> String? {
+            guard let range = row.range(of: needle) else { return nil }
+            let column = row.distance(from: row.startIndex, to: range.lowerBound) + offset
+            return TerminalWrappedLink.pathWord(in: row, columns: 120, column: column, row: 4)?.text
+        }
+        #expect(word(at: "index.js") == "./index.js:57:1")
+        #expect(word(at: "main.c") == "./main.c:3")
+        #expect(word(at: "README") == "./README.md")
+        #expect(word(at: "app.py") == "./app.py:12")
+        // A folder part, a version number and a scheme are Ghostty's, or no file name at all.
+        #expect(word(at: "src/x.ts") == nil)
+        #expect(word(at: "src/x.ts", 5) == nil)
+        #expect(word(at: "v1.2") == nil)
+        #expect(word(at: "https") == nil)
+        let segment = TerminalWrappedLink.pathWord(in: row, columns: 120, column: 7, row: 4)?.segments.first
+        #expect(segment == TerminalWrappedLink.Segment(row: 4, start: 6, end: 18, text: "index.js:57:1"))
+    }
 }

@@ -257,7 +257,7 @@ public final class TerminalSession {
     /// The link cmux found under the pointer (one Ghostty does not find whole), the viewport rows
     /// cmux underlines for it (Ghostty underlines the rest), and whether the pointer is the hand.
     public var linkPointerStateForTesting: (wrapped: String?, underlinedRows: [Int], pointingHand: Bool) {
-        (surfaceView.linkPointer.wrapped?.text, surfaceView.linkPointer.wrapped?.segments.map(\.row) ?? [], surfaceView.cursor == .pointingHand)
+        (surfaceView.linkPointer.wrapped?.text, surfaceView.linkPointer.underlinedRows, surfaceView.cursor == .pointingHand)
     }
     #endif
 
