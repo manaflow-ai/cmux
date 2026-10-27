@@ -569,7 +569,8 @@ struct HangReportWireFormatTests {
 
     /// The privacy rule: a site leaves the Mac as its hash, kind and counts; no path, module or file name.
     @Test func schemaThreeSendsTheMainThreadsBlockingSitesByHashedIDWithNoPath() throws {
-        let report = Self.report(.v3, blockingSites: BlockingSiteLedger(sites: { Self.detectorSites }).take().sites)
+        let ledger = BlockingSiteLedger(sites: { BlockingDetector.MainThreadRead(sites: Self.detectorSites) })
+        let report = Self.report(.v3, blockingSites: ledger.take().sites)
         let body = try HangReport.encoder.encode(report)
         let text = String(decoding: body, as: UTF8.self)
         #expect(text.contains(Self.blockingSitesJSON))

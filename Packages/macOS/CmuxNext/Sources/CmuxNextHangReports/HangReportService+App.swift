@@ -23,8 +23,9 @@ extension HangReportService {
     ///   - rings: Where the daemon, the holders and the hosts keep their black boxes.
     ///   - features: The features the app runs with (hash and overrides), read at each report and sent where the
     ///     wire schema carries them.
-    ///   - blockingSites: Reads the blocking detector's main-thread sites (`BlockingDetector.mainThreadSites`; empty
-    ///     where the detector is compiled out), counted into a ``BlockingSiteLedger`` where the wire schema carries them.
+    ///   - blockingSites: Reads the blocking detector's main-thread sites and reset count
+    ///     (`BlockingDetector.mainThreadRead`; empty where the detector is compiled out), counted into a
+    ///     ``BlockingSiteLedger`` where the wire schema carries them.
     public static func forThisApp(folder: URL, endpoint: String, channel: String,
                                   personalTerms: @autoclosure @escaping @Sendable () -> [String],
                                   counts: @escaping @Sendable () async -> CoarseCounts, stillAllowed: @escaping @Sendable () -> Bool,
@@ -33,7 +34,7 @@ extension HangReportService {
                                   metricsDirectory: URL = HangReportFieldSources.appMetricsDirectory(bundleID: Bundle.main.bundleIdentifier),
                                   rings: HangReportFieldSources.RingFolders = .app(bundleID: Bundle.main.bundleIdentifier, flowsDirectory: nil),
                                   features: @escaping @Sendable () -> HangReport.FeatureState? = { nil },
-                                  blockingSites: @escaping @Sendable () -> [BlockingSite] = { [] })
+                                  blockingSites: @escaping @Sendable () -> BlockingDetector.MainThreadRead = { .init() })
         -> HangReportService {
         let builder = HangReportBuilder(classifier: ImageClassifier(appBundlePath: Bundle.main.bundlePath, forbiddenTerms: personalTerms()),
                                         resolver: DyldImageResolver(), wireSchema: wireSchema)
