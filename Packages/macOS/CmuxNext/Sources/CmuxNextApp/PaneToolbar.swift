@@ -25,6 +25,10 @@ final class PaneToolbar {
     struct State: Equatable, Sendable {
         var target: String?
         var kind: Kind?
+        /// The selected tab is an agent chat (as opposed to another custom tab whose kind is nil).
+        /// Agent chats own their compact tool group in the web header, so the native creation copies
+        /// stay out of this toolbar while every other pane keeps the native terminal/browser buttons.
+        var agentChat = false
         var zoomed = false
         var pinned: [String] = []
         /// What every tab of the pane that offers "…" is: the bar keeps their room whichever is
@@ -94,7 +98,8 @@ final class PaneToolbar {
             for await state in ObservationStream({ [weak pane] in pane.map(Self.state) }) {
                 guard let self, let state else { return }
                 if state.behind { continue }
-                update(target: state.target, kind: state.kind, zoomed: state.zoomed, pinned: state.pinned, paneKinds: state.paneKinds)
+                update(target: state.target, kind: state.kind, agentChat: state.agentChat, zoomed: state.zoomed,
+                       pinned: state.pinned, paneKinds: state.paneKinds)
             }
         }
     }
@@ -112,7 +117,9 @@ final class PaneToolbar {
             let local = key.hasPrefix(LocalPageTab.prefix) || key.hasPrefix(LocalBrowserTab.prefix)
             return State(zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, behind: !local)
         }
-        return State(target: key, kind: kind(tab, isNewTabPage: resolver.isNewTabPage(tab)), zoomed: zoomed, pinned: pinned, paneKinds: paneKinds)
+        let isAgentChat = tab.agentSession != nil && !resolver.isNewTabPage(tab)
+        return State(target: key, kind: kind(tab, isNewTabPage: resolver.isNewTabPage(tab)), agentChat: isAgentChat,
+                     zoomed: zoomed, pinned: pinned, paneKinds: paneKinds)
     }
 
     static func kind(_ tab: TabModel, isNewTabPage: Bool) -> Kind? {
@@ -141,7 +148,7 @@ final class PaneToolbar {
     /// Shows the `pinned` actions tab `target` of `kind` can run and "…" (nil kind: none); lit, with the
     /// zoom button, while the pane is zoomed.
     /// `paneKinds`: the kinds of every tab in the pane that offers "…", whichever is selected.
-    func update(target: String?, kind: Kind?, zoomed: Bool = false, pinned: [String] = [], paneKinds: Set<Kind> = []) {
+    func update(target: String?, kind: Kind?, agentChat: Bool = false, zoomed: Bool = false, pinned: [String] = [], paneKinds: Set<Kind> = []) {
         self.target = target
         self.kind = kind
         self.zoomed = zoomed
@@ -155,7 +162,7 @@ final class PaneToolbar {
         // A zoomed pane keeps the zoom button's room whichever tab is selected (a chat shows none).
         let zoomRoom = zoomed && !pinned.contains(Self.zoom.rawValue) ? 1 : 0
         let buttons = shownButtons()
-        let creation = paneTarget == nil ? [] : Self.creationActions.compactMap(item)
+        let creation = paneTarget == nil || agentChat ? [] : Self.creationActions.compactMap(item)
         view.show(creation + buttons.compactMap(item), more: shown, lit: zoomed && shown,
                   reserving: creation.count + (kinds.isEmpty ? 0 : max(reservedPins + zoomRoom, buttons.count) + 1))
     }

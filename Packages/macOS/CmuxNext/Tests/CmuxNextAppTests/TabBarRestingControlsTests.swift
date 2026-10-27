@@ -91,6 +91,23 @@ import Testing
         #expect(toolbar.view.reservedCount == 0)
     }
 
+    /// Agent chats own their compact tool group in the web header. Their native pane toolbar leaves
+    /// the creation actions in commands and the tab menu; every non-chat kind, including a custom
+    /// nil kind, retains the native terminal and browser buttons.
+    @Test func agentChatLeavesCreationActionsToItsHeader() {
+        let registry = ActionRegistry.standard()
+        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil },
+                                   paneTarget: ActionTargetRef(kind: .pane, id: "pane"))
+        toolbar.update(target: "chat", kind: nil, agentChat: true)
+        #expect(toolbar.view.items.map(\.id) == [])
+
+        let nonChatKinds: [PaneToolbar.Kind?] = [.newTab, .terminal, .browser, .other, nil]
+        for (index, kind) in nonChatKinds.enumerated() {
+            toolbar.update(target: "non-chat-\(index)", kind: kind, agentChat: false)
+            #expect(toolbar.view.items.map(\.id) == PaneToolbar.creationActions.map(\.rawValue))
+        }
+    }
+
     /// New Tab and the chat pane share this toolbar. Revealing it changes opacity alone,
     /// including the exit and Reduce Motion.
     @Test(arguments: [PaneToolbar.Kind.newTab, .terminal], [false, true])

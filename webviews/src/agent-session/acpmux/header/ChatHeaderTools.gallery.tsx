@@ -117,9 +117,24 @@ const groupedControls: Play = async (ctx) => {
   const lefts = tools.map((button) => button.getBoundingClientRect().left);
   if (lefts.slice(1).some((left, index) => Math.round(left - lefts[index]!) !== 26))
     throw new Error("header buttons are not on one 26px pitch");
-  const glyphs = new Set(tools.map((button) => button.querySelector("svg")?.getAttribute("width")));
+  const glyphs = new Set(tools.map((button) => button.querySelector("[data-icon]")?.getBoundingClientRect().width));
   if (glyphs.size !== 1) throw new Error(`header glyphs come in several sizes: ${[...glyphs].join(", ")}`);
 };
+
+// Three complete treatments, kept in the gallery. Only the compact treatment ships; alternatives
+// change fixture geometry rather than adding another product preference or toolbar row.
+const groupTreatment =
+  (size: number, gap: number): Play =>
+  async (ctx) => {
+    const tools = ctx.document.querySelector<HTMLElement>(".acpmux-header-tools")!;
+    tools.style.gap = `${gap}px`;
+    for (const group of tools.querySelectorAll<HTMLElement>(".acpmux-header-tool-group")) group.style.gap = `${gap}px`;
+    for (const button of tools.querySelectorAll<HTMLElement>(".acpmux-header-tool")) {
+      button.style.width = `${size}px`;
+      button.style.height = `${size}px`;
+    }
+    await ctx.hover({ role: "button", name: "Terminal" });
+  };
 
 // Plain icons (Leo 2026-10-25: "why do the icons have their own background border situation instead of
 // just being, you know, good"): with the right-side panel and Terminal's split open, Terminal hovered
@@ -324,6 +339,7 @@ export default componentEntry<HeaderToolsProps>({
   anchors: [{ selector: ".acpmux-header-tools" }],
   covers: [
     "agent-session/acpmux/header/ChatHeaderTools.tsx#ChatHeaderTools",
+    "agent-session/acpmux/header/HeaderIcon.tsx#HeaderIcon",
     "agent-session/acpmux/header/PullRequestChip.tsx#PullRequestChip",
     "agent-session/acpmux/header/PullRequestMerge.tsx#PullRequestMerge",
     "agent-session/acpmux/header/WorktreePill.tsx#WorktreePill",
@@ -351,6 +367,21 @@ export default componentEntry<HeaderToolsProps>({
     },
   },
   variants: {
+    "unified-compact": {
+      note: "Chosen: one 24px target on a 26px pitch, 16px SF Symbols in the app, overflow last. Fits the shared 28px tab row without a second band; only the hovered button changes ink.",
+      props: { ...base, hasChanges: true, onChanges: () => undefined, summary: panelToggle(true) },
+      play: groupTreatment(24, 2),
+    },
+    "unified-roomy": {
+      note: "Alternative: 28px targets on a 32px pitch. Easier to acquire, but consumes more tab-strip room and pushes narrow panes into a separate header sooner.",
+      props: { ...base, hasChanges: true, onChanges: () => undefined, summary: panelToggle(true) },
+      play: groupTreatment(28, 4),
+    },
+    "unified-tight": {
+      note: "Alternative: 22px targets on a 23px pitch. Saves width, but leaves less separation for adjacent terminal and browser actions.",
+      props: { ...base, hasChanges: true, onChanges: () => undefined, summary: panelToggle(true) },
+      play: groupTreatment(22, 1),
+    },
     idle: {
       note: "The complete tab header: Terminal, Browser, summary, and chat actions (New tab, Files and Split Down are in it).",
       props: base,

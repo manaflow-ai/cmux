@@ -103,11 +103,13 @@ test("the header strip has no separators and every icon button draws the same gl
 });
 
 test("the compact chat tools use host SF Symbols, with overflow last and no duplicate terminal", async () => {
+  const { createRoot } = await import("react-dom/client");
   const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
   const { PanelToggle } = await import("../src/agent-session/acpmux/header/PanelToggle");
   const { setHarnessSymbolHost } = await import("../src/agent-session/shared/harnessIcons");
   const requested: string[] = [];
   const template = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB";
+  root ??= createRoot(host);
   await act(async () => {
     setHarnessSymbolHost(async (symbol) => {
       requested.push(symbol);
@@ -127,7 +129,11 @@ test("the compact chat tools use host SF Symbols, with overflow last and no dupl
   expect(requested.sort()).toEqual(["ellipsis", "globe", "list.bullet", "plusminus", "terminal"]);
   const buttons = [...host.querySelectorAll(".acpmux-header-tool")];
   expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
-    "Session Info", "Changes", "Terminal", "Browser", "Chat actions",
+    "Session Info",
+    "Changes",
+    "Terminal",
+    "Browser",
+    "Chat actions",
   ]);
   for (const button of buttons) {
     const glyph = button.querySelector<HTMLElement>("[data-symbol]")!;
