@@ -215,6 +215,7 @@ open class HomeDockSwitchView: NSView {
     public func switchTo(_ target: HomeDockMode?, selection given: HomeDockSelection? = nil) {
         let previous = switching
         // task-owner: one switch; a page answer is bounded by the subclass's selection deadline.
+        // main-hop-allow: the person's switch runs in order behind the one before it; `selection(in:)` is the shown view's main-actor async page answer, and the switch shows in its resume
         switching = Task { [weak self] in
             await previous?.value
             guard let self else { return }
@@ -249,6 +250,13 @@ open class HomeDockSwitchView: NSView {
 
     /// The shown view's primary input takes the keyboard (the message box, or the page).
     public func focusPrimaryInput() { focusContent(mode) }
+
+    /// Shows `target` on a view made again after a discard: no selection handed over, and the
+    /// keyboard stays where it is (showing a tab again is not the person choosing a view).
+    public func restore(_ target: HomeDockMode) {
+        guard target.isEnabled, target != mode else { return }
+        show(target)
+    }
 
     private func show(_ target: HomeDockMode) {
         mode = target

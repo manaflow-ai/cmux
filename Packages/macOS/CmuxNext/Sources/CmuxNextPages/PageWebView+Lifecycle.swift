@@ -145,12 +145,12 @@ extension PageWebView {
     }
 
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        crash.webKitContentEnded()
         contentProcessTerminated()
     }
 
-    /// The page's web content process ended (either engine): ``PageCrashRecovery`` reloads it now,
-    /// when it shows, or not at all once it keeps crashing. A closed page waiting for its engine close
-    /// (``WebUIHost/close(_:)``) never reloads.
+    /// The page's web content process ended (either engine): ``PageCrashRecovery`` reloads it now, when it shows, or not
+    /// at all once it keeps crashing. A closed page waiting for its engine close (``WebUIHost/close(_:)``) never reloads.
     func contentProcessTerminated() {
         guard !router.isEnded else { return }
         crash.crashed(self)

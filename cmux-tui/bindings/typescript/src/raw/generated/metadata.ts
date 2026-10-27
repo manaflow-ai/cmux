@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0099f55a8d73eeccd65a50020e3ff0c8be1ac82f5723a1d6b384ce58b5e9108c. */
+/* cmux-tui mux protocol 12, IR 5739101a2a1f12a08327e6d4e67314a7c13e6f450f88de4362e39eec5338716c. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "0099f55a8d73eeccd65a50020e3ff0c8be1ac82f5723a1d6b384ce58b5e9108c" as const;
+export const SDK_IR_SHA256 = "5739101a2a1f12a08327e6d4e67314a7c13e6f450f88de4362e39eec5338716c" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3636,7 +3636,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
-      "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc, lock_classes, ipc_methods); unknown names are ignored."
+      "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc, lock_classes, ipc_methods, hangs); unknown names are ignored."
     ]
   },
   "server-threads": {
@@ -10720,6 +10720,20 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "value": 1
         }
       },
+      "framed_methods": {
+        "constraints": [
+          "The method ids this daemon answers on REQUEST frames, in id order; a client sends every other command as a line. Only with identify {revisions: true} on a connection offered ipc-frames-v2."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "uint16"
+          },
+          "kind": "array"
+        }
+      },
       "generation": {
         "nullable": false,
         "presence": "required",
@@ -10839,6 +10853,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "nullable": false,
         "presence": "required",
         "since": 7,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "sdk_schema_digest": {
+        "constraints": [
+          "FNV-1a 64 of the sdk-schema.json bytes this daemon's method tables came from, as 16 lowercase hex digits. A client sends REQUEST frames only when its own table has the same digest. Only with identify {revisions: true} on a connection offered ipc-frames-v2."
+        ],
+        "nullable": true,
+        "presence": "optional",
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -13716,6 +13741,70 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsHangRecord": {
+    "additional_properties": false,
+    "constraints": [
+      "sequence is the hang's ordinal since daemon start, 1 for the first.",
+      "span is <scope>:<method>, catalog names only.",
+      "duration_ms is the final duration once the scope ended, else how long it had run when it was seen."
+    ],
+    "fields": {
+      "duration_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "sequence": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "span": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsHangs": {
+    "additional_properties": false,
+    "constraints": [
+      "over_250ms counts watched scopes busy 250 ms or more since daemon start, each once; it is never reset.",
+      "records keeps the newest 64, oldest first."
+    ],
+    "fields": {
+      "over_250ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "records": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsHangRecord"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsHistogram": {
     "additional_properties": false,
     "constraints": [
@@ -15004,7 +15093,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start.",
       "lock_classes is present only when the request names it in include.",
       "ipc is present only when the request names it in include.",
-      "ipc_methods is present only when the request names it in include; its rows are ordered by id, the rows without one last."
+      "ipc_methods is present only when the request names it in include; its rows are ordered by id, the rows without one last.",
+      "hangs is present only when the request names it in include."
     ],
     "fields": {
       "connections": {
@@ -15021,6 +15111,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ServerStatsHistogram"
+        }
+      },
+      "hangs": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHangs"
         }
       },
       "ipc": {

@@ -51,7 +51,7 @@ pub(super) fn read_only() -> RpcError {
 /// [`MAX_BYTES`], after a line break. A line longer than [`MAX_READ`] is skipped: its rest fails
 /// to parse and is dropped.
 pub(super) fn read_lines(file: &Path, offset: u64) -> std::io::Result<(Vec<String>, u64)> {
-    let mut f = std::fs::File::open(file)?;
+    let mut f = cmux_blocking::fs::open(file)?;
     let len = f.metadata()?.len();
     let mut start = if offset > len { len } else { offset };
     let skip_partial = start == 0 && len > MAX_BYTES;
