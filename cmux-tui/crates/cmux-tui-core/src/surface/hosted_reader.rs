@@ -98,7 +98,17 @@ impl HostedReader {
         loop {
             let pty = surface.as_pty().expect("host reader owns a PTY surface");
             rehost::request_custody(&surface);
-            let Some(end) = self.stream(&surface, pty, reader) else { return };
+            // Streaming a host connection is the echo path: every output byte
+            // the person sees crosses it, so blocking is disallowed here
+            // (p02-threads 210). What follows a connection's end (the exit
+            // commit, the lost connection's commit, the reconnect's backoff,
+            // record reads and handshake) is the host's lifecycle: no echo
+            // crosses this thread then, because the terminal has no live host
+            // connection, so it may block, as terminal-host-client's handshake
+            // may before its output loop (`echo_thread::with_own_host_stream`).
+            let streamed =
+                cmux_threads::with_blocking_disallowed(|| self.stream(&surface, pty, reader));
+            let Some(end) = streamed else { return };
             let Some(next) = self.after_stream(&surface, end.received_exit, end.resync_requested)
             else {
                 return;
