@@ -40,6 +40,9 @@ SIGNING_JOBS = {
     "verify-nightly-identity-legacy": "needs.legacy-identity-target.outputs.sign_runner",
     # Signs the Sparkle deltas (the release environment), after the feed is published.
     "generate-nightly-deltas": "needs.pick-nightly-sign-runner.outputs.runner",
+    # The release-pool path's Mac jobs: the DMG image and Apple's checks, no secrets.
+    "signer-dmg-image": "needs.pick-nightly-sign-runner.outputs.runner",
+    "signer-verify": "needs.pick-nightly-sign-runner.outputs.runner",
 }
 # Each picker's re-run label, the other Blacksmith macOS 26 size.
 ALTERNATES = {
@@ -194,7 +197,7 @@ class OwnedVerify(unittest.TestCase):
     (Leo, 2026-10-24); the signing jobs, which hold the keys, stay on Blacksmith.
     """
 
-    OWNED_JOBS = ("verify-signed-nightly", "verify-final-dmg-nightly")
+    OWNED_JOBS = ("verify-signed-nightly", "verify-final-dmg-nightly", "signer-dmg-image", "signer-verify")
     OWNED = "needs.pick-nightly-sign-runner.outputs.owned"
 
     def test_verify_jobs_read_the_owned_pick_on_attempt_one_only(self) -> None:

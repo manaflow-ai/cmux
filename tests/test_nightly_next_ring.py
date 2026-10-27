@@ -297,8 +297,9 @@ class WorkflowTests(unittest.TestCase):
         tags = re.findall(r"^\s+SPARKLE_CHANNEL: (.*)$", text, re.MULTILINE)
         # First publication, its deltas and a recovered build follow the switch;
         # the old cmux NIGHTLY-identity feed's item starts on cmux-next and is
-        # retagged from its verdict (nightly_next_ring.py legacy).
-        self.assertEqual(sum(ring_expr in tag for tag in tags), 3, tags)
+        # retagged from its verdict (nightly_next_ring.py legacy). The release-pool
+        # path's appcast (signer-dmg) follows the switch too.
+        self.assertEqual(sum(ring_expr in tag for tag in tags), 4, tags)
         self.assertEqual(tags.count("cmux-next"), 1, tags)
 
     def test_the_delta_feed_is_retagged_from_verdicts_before_it_is_published(self):
