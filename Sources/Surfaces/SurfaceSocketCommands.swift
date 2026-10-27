@@ -129,7 +129,7 @@ extension TerminalController {
                 do {
                     return try await Self.surfaceNewDisplay(options, destination: destination)
                 } catch is SurfaceDisplayCreationBusy {
-                    return self.surfaceNewDisplayBusyError(id: id)
+                    return Self.surfaceNewDisplayBusyError(id: id)
                 }
             }
 
@@ -168,7 +168,7 @@ extension TerminalController {
                 id: request.id, method: request.method, isV2: true, error: timeout
             )
         } catch is SurfaceDisplayCreationBusy {
-            return surfaceNewDisplayBusyError(id: id)
+            return Self.surfaceNewDisplayBusyError(id: id)
         } catch is CancellationError {
             return v2Error(
                 id: id,
@@ -256,9 +256,12 @@ extension TerminalController {
         )
     }
 
-    private nonisolated func surfaceNewDisplayBusyError(id: Any?) -> String {
-        v2Error(
-            id: id,
+    private nonisolated static func surfaceNewDisplayBusyError(id: Any?) -> String {
+        guard let idValue = JSONValue(foundationObject: id) else {
+            return ControlResponseEncoder.encodeFailureResponse
+        }
+        return Self.v2Encoder.error(
+            id: idValue,
             code: "busy",
             message: String(
                 localized: "socket.surface.newDisplay.busy",
