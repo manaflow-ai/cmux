@@ -123,6 +123,22 @@ fn pause_writer(mux: &Mux) -> std::sync::mpsc::SyncSender<()> {
     release
 }
 
+/// The in-memory base after admitting `key` on `base` (p05-ipc-132/133).
+fn after_workspace(base: &RegistrySnapshot, key: &str) -> RegistrySnapshot {
+    let mut next = base.clone();
+    next.revision += 1;
+    next.workspaces.push(RegistryWorkspace {
+        id: next.revision,
+        public_id: WorkspacePublicId::parse(format!("ws_{:032x}", next.revision)).unwrap(),
+        key: key.into(),
+        name: key.into(),
+        name_source: Default::default(),
+        name_revision: 0,
+        group_key: "default".into(),
+    });
+    next
+}
+
 fn workspace_revision(admission: Admission) -> u64 {
     admission.into_receipt().into_workspace().expect("a workspace receipt").commit.revision
 }
@@ -238,19 +254,7 @@ fn back_to_back_admissions_do_not_wait_for_each_other() {
                 workspace_intent(&registry, &base, "first", revision, base.revision + 1);
             let first = registry.admit_registry_intent(intent, prepared, || {}, None).unwrap();
             admitted.send(first.sequence()).unwrap();
-            // The in-memory base after the first admission (p05-ipc-132/133).
-            let mut next = base.clone();
-            next.revision += 1;
-            next.workspaces.push(RegistryWorkspace {
-                id: base.revision + 1,
-                public_id: WorkspacePublicId::parse(format!("ws_{:032x}", base.revision + 1))
-                    .unwrap(),
-                key: "first".into(),
-                name: "first".into(),
-                name_source: Default::default(),
-                name_revision: 0,
-                group_key: "default".into(),
-            });
+            let next = after_workspace(&base, "first");
             let revision = Some(next.revision);
             let (intent, prepared) =
                 workspace_intent(&registry, &next, "second", revision, next.revision + 1);
@@ -328,6 +332,59 @@ fn a_receipt_that_differs_from_the_reply_is_journal_degraded() {
     assert_eq!(notes.len(), 1);
     assert!(notes[0].contains("its reply said"), "{notes:?}");
     drop(registry);
+    drop(mux);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// The writer is apply-only for admitted intents (p05-ipc.md 3.6): their
+/// replies are out and memory holds them, so a batch deadline that expires
+/// under contention retries them instead of answering with the timeout.
+/// Red before: both were dropped from the journal (two journal-degraded
+/// notes, the journal stayed at `base`).
+#[test]
+fn admitted_intents_behind_a_writer_held_past_the_deadline_still_commit() {
+    let (mux, root) = persistent_mux("held-past-deadline");
+    let base = base_snapshot(&mux);
+    let release = pause_writer(&mux);
+
+    let request = std::thread::spawn({
+        let (mux, base) = (mux.clone(), base.clone());
+        move || {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            let revision = Some(base.revision);
+            let (intent, prepared) =
+                workspace_intent(&registry, &base, "first", revision, base.revision + 1);
+            let first = registry.admit_registry_intent(intent, prepared, || {}, None).unwrap();
+            let next = after_workspace(&base, "first");
+            let revision = Some(next.revision);
+            let (intent, prepared) =
+                workspace_intent(&registry, &next, "second", revision, next.revision + 1);
+            let second = registry.admit_registry_intent(intent, prepared, || {}, None).unwrap();
+            (first.sequence(), second.sequence())
+        }
+    });
+    assert_eq!(request.join().unwrap(), (Some(1), Some(2)), "both admitted");
+    std::thread::sleep(crate::journal_ingress::JOURNAL_DURABLE_WAIT + Duration::from_millis(500));
+    release.send(()).unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(20);
+    // Each read waits, bounded, for the admitted answers (the read barrier).
+    while {
+        base_snapshot(&mux);
+        admit_stats(&mux).unresolved != 0
+    } {
+        assert!(Instant::now() < deadline, "the writer never answered: {:?}", admit_stats(&mux));
+    }
+    let stats = admit_stats(&mux);
+    assert_eq!((stats.admitted, stats.journal_degraded), (2, 0), "{stats:?}");
+    let events = mux.workspace_registry.lock().unwrap().events_after(base.revision).unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| (event.revision, event.workspace_key.as_str()))
+            .collect::<Vec<_>>(),
+        [(base.revision + 1, "first"), (base.revision + 2, "second")]
+    );
     drop(mux);
     fs::remove_dir_all(root).unwrap();
 }

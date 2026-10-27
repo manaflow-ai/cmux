@@ -109,6 +109,29 @@ mod tests {
         assert_eq!(sent.load(Ordering::SeqCst), 1, "sent once, after both delivered");
     }
 
+    /// A later event with the same coalesce key folds into the request's own
+    /// event: the merged event keeps its place before the reply.
+    #[test]
+    fn a_coalesced_event_merged_after_the_park_still_goes_out_before_the_reply() {
+        let bus = MuxEventBroadcaster::default();
+        let receiver = bus.subscribe();
+        bus.emit(MuxEvent::ConfigReloadRequested);
+        let sent = Arc::new(AtomicUsize::new(0));
+        park_reply(&[receiver.reply_fence_target()], counting_send(&sent));
+        bus.emit(MuxEvent::ConfigReloadRequested);
+        bus.emit(MuxEvent::TreeChanged);
+
+        let interrupt = StreamInterrupt::new();
+        assert!(matches!(
+            receiver.recv_until_interrupted(&interrupt),
+            Ok(MuxEvent::ConfigReloadRequested)
+        ));
+        assert_eq!(sent.load(Ordering::SeqCst), 0, "the reply waits for its merged event");
+        assert!(matches!(receiver.recv_until_interrupted(&interrupt), Ok(MuxEvent::TreeChanged)));
+        assert_eq!(sent.load(Ordering::SeqCst), 1, "sent after the merged event");
+        assert!(receiver.try_recv().is_err(), "the two reloads were one event");
+    }
+
     #[test]
     fn a_closed_or_dropped_subscription_never_strands_a_reply() {
         let bus = MuxEventBroadcaster::default();

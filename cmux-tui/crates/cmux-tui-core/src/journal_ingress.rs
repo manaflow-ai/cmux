@@ -44,7 +44,7 @@ const JOURNAL_TERMINAL_FAILURE_RETRY_ATTEMPTS: usize = 6;
 /// terminal. Keep the test timeout short so deadline tests stay fast; the
 /// production default is deliberately long and can be tuned for a host.
 #[cfg(test)]
-const JOURNAL_DURABLE_WAIT: Duration = Duration::from_secs(2);
+pub(crate) const JOURNAL_DURABLE_WAIT: Duration = Duration::from_secs(2);
 #[cfg(not(test))]
 const JOURNAL_DURABLE_WAIT: Duration = Duration::from_secs(30);
 #[cfg(not(test))]
