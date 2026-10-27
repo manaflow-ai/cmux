@@ -79,6 +79,33 @@ import Testing
         #expect(SingleInstanceGuard.isFree(at: url), "nobody holds it: its owner ended")
     }
 
+    /// A retry never repeats an open the owner already answered (each open makes a tab).
+    @Test func aRetrySendsOnlyWhatWasNotAnswered() throws {
+        let a = try #require(URL(string: "https://a.example/")), b = try #require(URL(string: "https://b.example/"))
+        var queue = SingleInstanceHandoffQueue()
+        #expect(queue.pending == [.reopen], "a bare launch brings the owner forward")
+        queue.add([a, b])
+        #expect(queue.pending == [.getURL(a), .getURL(b)], "URLs replace the bare launch's reopen")
+        var sent: [SingleInstanceHandoffEvents.Event] = []
+        queue.drain { sent.append($0); return $0 == .getURL(a) }  // a answered, b not
+        #expect(sent == [.getURL(a), .getURL(b)])
+        #expect(queue.pending == [.getURL(b)])
+        #expect(queue.unansweredURLs == [b], "a reopen through LaunchServices carries only b")
+        sent = []
+        queue.drain { sent.append($0); return true }
+        #expect(sent == [.getURL(b)], "the retry sends only b")
+        #expect(queue.isDone)
+    }
+
+    @Test func aFailedFirstEventStopsThePass() {
+        var queue = SingleInstanceHandoffQueue()
+        var calls = 0
+        queue.drain { _ in calls += 1; return false }
+        #expect(calls == 1)
+        #expect(queue.pending == [.reopen])
+        #expect(queue.unansweredURLs.isEmpty)
+    }
+
     @Test func theGetURLEventTargetsTheOwnersPid() throws {
         let web = try #require(URL(string: "https://github.com/settings"))
         let event = SingleInstanceHandoffEvents.descriptor(.getURL(web), to: 4242)

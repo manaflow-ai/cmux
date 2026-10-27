@@ -20,23 +20,28 @@ import os
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "launch")
     static let settle: Duration = .milliseconds(300)
     static let retry: Duration = .milliseconds(250)
-    static let deadline: Duration = .seconds(4)
+    /// From the start of the hand-off (before AppKit starts): when unanswered work is given up (or reopened).
+    static let deadline: TimeInterval = 4
+    /// From the same start: the process ends, whatever happens. Leaves the recovery after ``deadline`` its time.
     static let hardDeadline: TimeInterval = 6
+    /// The longest one event waits for its reply.
+    static let replyWait: TimeInterval = 1
 
     private let lock: URL
-    /// URLs not yet answered by the owner.
-    private var pending: [URL] = []
-    /// A bare launch's `rapp` still to send.
-    private var reopenPending = true
+    /// When the hand-off started (`run`), the base of both deadlines.
+    private let start: Date
+    private var queue = SingleInstanceHandoffQueue()
     private var launched = false
     private var finishing: Task<Void, Never>?
 
-    private init(lock: URL) {
+    private init(lock: URL, start: Date) {
         self.lock = lock
+        self.start = start
     }
 
     /// Runs the hand-off to the owner of `lock`; never returns.
     static func run(lock: URL, activates: Bool) -> Never {
+        let start = Date()
         logger.notice("launch: another copy of this app holds \(lock.path, privacy: .public); handing off and exiting before Chromium or the session start")
         guard activates else {
             logger.notice("launch: an agent launch of a second copy forwards nothing (the running copy would come forward); exiting")
@@ -48,62 +53,61 @@ import os
         let app = NSApplication.shared
         // No Dock icon; an accessory may still be active, so it can hand activation to the owner.
         app.setActivationPolicy(.accessory)
-        let handoff = SingleInstanceHandoff(lock: lock)
+        let handoff = SingleInstanceHandoff(lock: lock, start: start)
         app.delegate = handoff
         withExtendedLifetime(handoff) { app.run() }
         exit(0)
     }
 
+    private var remaining: TimeInterval { Self.deadline - Date().timeIntervalSince(start) }
+
     /// This launch's documents and URLs (AppKit routes both `odoc` and `GURL` here).
     func application(_ application: NSApplication, open urls: [URL]) {
-        pending += urls
-        reopenPending = false
+        queue.add(urls)
         if launched { attempt() }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         launched = true
+        let wait = max(0, remaining)
         Task { [weak self] in
-            try? await Task.sleep(for: Self.deadline)
+            try? await Task.sleep(for: .seconds(wait))
             self?.giveUp()
         }
         attempt()
     }
 
-    /// Sends what is pending; then exits after the settle time, or tries again shortly.
+    /// Sends what is pending, each event dropped once answered; then exits after the settle time, or tries again.
     private func attempt() {
         finishing?.cancel()
         let owner = SingleInstanceGuard.owner(at: lock)
         if let owner {
-            if !pending.isEmpty {
-                let urls = pending
-                if send(SingleInstanceHandoffEvents.events(for: urls), to: owner) {
-                    pending.removeAll { urls.contains($0) }
-                    Self.logger.notice("launch: handed \(urls.count, privacy: .public) URL(s) to pid \(owner, privacy: .public)")
-                }
-            } else if reopenPending, send([.reopen], to: owner) {
-                reopenPending = false
+            let before = queue.pending.count
+            queue.drain { [self] event in
+                let wait = min(Self.replyWait, remaining)
+                guard wait > 0.05 else { return false }
+                return send(event, to: owner, timeout: wait)
+            }
+            if queue.pending.count < before {
+                Self.logger.notice("launch: \(before - self.queue.pending.count, privacy: .public) event(s) answered by pid \(owner, privacy: .public)")
             }
         }
-        let done = pending.isEmpty && !reopenPending
+        let done = queue.isDone
         finishing = Task { [weak self] in
             try? await Task.sleep(for: done ? Self.settle : Self.retry)
             guard !Task.isCancelled, let self else { return }
-            if done { self.finish(owner: owner) } else { self.attempt() }
+            if done { self.finish(owner: owner) } else if self.remaining > 0 { self.attempt() }
         }
     }
 
-    /// Sends `events` to `owner`, each waiting for its reply; false when one was not answered.
-    private func send(_ events: [SingleInstanceHandoffEvents.Event], to owner: pid_t) -> Bool {
-        for event in events {
-            do {
-                _ = try SingleInstanceHandoffEvents.descriptor(event, to: owner).sendEvent(options: [.waitForReply], timeout: 1)
-            } catch {
-                Self.logger.error("launch: hand-off event to pid \(owner, privacy: .public) not answered: \(String(describing: error), privacy: .public)")
-                return false
-            }
+    private func send(_ event: SingleInstanceHandoffEvents.Event, to owner: pid_t, timeout: TimeInterval) -> Bool {
+        do {
+            _ = try SingleInstanceHandoffEvents.descriptor(event, to: owner).sendEvent(options: [.waitForReply], timeout: timeout)
+            return true
+        } catch {
+            Self.logger.error("launch: hand-off event to pid \(owner, privacy: .public) not answered: \(String(describing: error), privacy: .public)")
+            return false
         }
-        return true
     }
 
     private func finish(owner: pid_t?) {
@@ -114,21 +118,23 @@ import os
         exit(0)
     }
 
-    /// The deadline with events still pending. The owner ended (the claim is free): the launch reopens through
+    /// The deadline with events still unanswered. The owner ended (the claim is free): the launch reopens through
     /// LaunchServices. The claim is held but its recorded owner is gone (a leaked descriptor, not a copy of the
     /// app): the launch reopens past the guard (`CMUX_NEXT_ALLOW_SECOND_INSTANCE=1`), so cmux never becomes
-    /// unlaunchable. The owner is alive but never answered: the launch is dropped, logged.
+    /// unlaunchable. The owner is alive but never answered: the rest is dropped, logged.
     private func giveUp() {
-        guard !pending.isEmpty || reopenPending else { return }
+        guard !queue.isDone else { return }
+        finishing?.cancel()
+        let urls = queue.unansweredURLs
         let owner = SingleInstanceGuard.owner(at: lock)
         if SingleInstanceGuard.isFree(at: lock) {
             Self.logger.notice("launch: the running copy exited during the hand-off; reopening this launch")
-            Self.reopenAfterExit(bundle: Bundle.main.bundleURL, urls: pending, pastGuard: false)
+            Self.reopenAfterExit(bundle: Bundle.main.bundleURL, urls: urls, pastGuard: false)
         } else if let owner, kill(owner, 0) != 0, errno == ESRCH {
             Self.logger.error("launch: the claim is held but its owner pid \(owner, privacy: .public) is gone; reopening past the guard")
-            Self.reopenAfterExit(bundle: Bundle.main.bundleURL, urls: pending, pastGuard: true)
+            Self.reopenAfterExit(bundle: Bundle.main.bundleURL, urls: urls, pastGuard: true)
         } else {
-            Self.logger.error("launch: the running copy never answered; \(self.pending.count, privacy: .public) URL(s) not handed off")
+            Self.logger.error("launch: the running copy never answered; \(urls.count, privacy: .public) URL(s) not handed off")
         }
         exit(0)
     }
@@ -151,6 +157,36 @@ public extension SingleInstanceGuard {
     /// Hands this launch to the copy that owns `lock` and exits (``SingleInstanceHandoff``); never returns.
     @MainActor static func handOff(lock: URL, activates: Bool) -> Never {
         SingleInstanceHandoff.run(lock: lock, activates: activates)
+    }
+}
+
+/// What a hand-off still has to send, in order. An event leaves the queue once the owner answered it, so a retry
+/// never repeats an open the owner already did (each open makes a tab). A bare launch is one `rapp`, replaced by
+/// the launch's URLs when any arrive before it was answered.
+nonisolated struct SingleInstanceHandoffQueue: Equatable {
+    private(set) var pending: [SingleInstanceHandoffEvents.Event] = [.reopen]
+
+    var isDone: Bool { pending.isEmpty }
+
+    mutating func add(_ urls: [URL]) {
+        pending.removeAll { $0 == .reopen }
+        pending += SingleInstanceHandoffEvents.events(for: urls)
+    }
+
+    /// Sends pending events in order; each answered one leaves; the first unanswered one stops the pass.
+    mutating func drain(_ send: (SingleInstanceHandoffEvents.Event) -> Bool) {
+        while let event = pending.first, send(event) { pending.removeFirst() }
+    }
+
+    /// The URLs not answered yet (for a reopen through LaunchServices).
+    var unansweredURLs: [URL] {
+        pending.flatMap { event -> [URL] in
+            switch event {
+            case .openDocuments(let files): files
+            case .getURL(let url): [url]
+            case .reopen: []
+            }
+        }
     }
 }
 
