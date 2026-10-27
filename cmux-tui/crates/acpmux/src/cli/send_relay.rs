@@ -119,13 +119,19 @@ pub(crate) fn relay(
     let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("the send relay has no stdin"))?;
     // Written beside the wait, so a relay that answers before reading it all never blocks us.
     let body = text.as_bytes().to_owned();
-    let writer = std::thread::spawn(move || {
-        let _ = stdin.write_all(&body);
-    });
+    let writer = std::thread::spawn(move || stdin.write_all(&body));
     let out = child.wait_with_output().context("the send relay")?;
-    let _ = writer.join();
+    let written = writer.join().unwrap_or_else(|_| Err(std::io::Error::other("writer panicked")));
+    let status = out.status.code().unwrap_or(1);
+    // A relay that stopped reading and still said yes was not handed the whole message; its own
+    // refusal stays its status.
+    if status == 0
+        && let Err(e) = written
+    {
+        return Err(anyhow!("the send relay {program:?} did not read the whole message: {e}"));
+    }
     Ok(Relayed {
-        status: out.status.code().unwrap_or(1),
+        status,
         output: capture.then(|| String::from_utf8_lossy(&out.stdout).trim_end().to_owned()),
     })
 }
@@ -250,6 +256,15 @@ mod tests {
         let done = relay(&config, "refuse", "x", None, true).unwrap();
         assert_eq!(done.status, 7);
         assert_eq!(std::fs::read_to_string(&seen).unwrap(), "send|refuse|-|unset|x");
+
+        // One that stops reading early and exits 0 did not take the message.
+        let early = dir.join("early");
+        std::fs::write(&early, "#!/bin/sh\nexec 0<&-\nsleep 1\necho delivery-0\n").unwrap();
+        std::fs::set_permissions(&early, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let early = SendRelay { argv: vec![early.display().to_string()] };
+        let big = "x".repeat(1 << 20);
+        let e = relay(&early, "lane-b", &big, None, true).unwrap_err();
+        assert!(e.to_string().contains("did not read the whole message"), "{e}");
 
         let missing = SendRelay { argv: vec![dir.join("absent").display().to_string()] };
         assert!(relay(&missing, "lane-b", "x", None, true).is_err());
