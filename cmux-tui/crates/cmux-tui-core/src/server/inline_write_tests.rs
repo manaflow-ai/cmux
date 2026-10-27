@@ -119,6 +119,9 @@ fn message_writer_idle_echo_frames_and_replies_take_no_writer_turn() {
 
     assert_eq!(reader.join().unwrap(), expected);
     assert_eq!(turns.load(Ordering::Relaxed), 0, "an idle connection woke its writer thread");
+    // The task's metric: 0 mux-line-out wakeups, counted at the condvar, so a
+    // wake with nothing to write (a notify after an inline write) fails too.
+    assert_eq!(outbound.writer_wakeups(), 0, "an inline write woke the writer thread");
     outbound.close();
     writer_thread.join().unwrap();
 }

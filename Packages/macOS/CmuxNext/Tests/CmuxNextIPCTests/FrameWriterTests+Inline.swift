@@ -156,6 +156,60 @@ nonisolated extension FrameWriterTests {
         #expect(sink.trySendFds == [1])
         #expect(sink.sendFds == [1], "the descriptors did not ride the queued message's first byte")
     }
+
+    /// A message's descriptors cost the socket room too (`SCM_RIGHTS` control data, which XNU's `sosend` takes
+    /// out of the room before the bytes): a message at the low-water mark with a descriptor never goes inline,
+    /// where `sendmsg` would send part of it and wait for room for the rest under the writer's lock.
+    @Test func aMessageAtTheLimitWithADescriptorNeverGoesInline() throws {
+        var pair: [Int32] = [-1, -1]
+        try #require(socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0)
+        defer { pair.forEach { Darwin.close($0) } }
+        for fd in pair {
+            for option in [SO_SNDBUF, SO_RCVBUF] {
+                var bytes: Int32 = 512 << 10
+                try #require(setsockopt(fd, SOL_SOCKET, option, &bytes, socklen_t(MemoryLayout<Int32>.size)) == 0)
+            }
+        }
+        var timeout = timeval(tv_sec: 2, tv_usec: 0)
+        try #require(setsockopt(pair[1], SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0)
+        let sink = SocketFrameSink(fd: pair[0])
+        let limit = sink.inlineLimit
+        try #require(limit >= 1024, "the socket refused a send low-water mark")
+        let control = SocketFrameSink.controlSpace(fdCount: 1)
+        #expect(control > MemoryLayout<Int32>.size)
+        #expect(sink.takesInline(byteCount: limit, fdCount: 0))
+        #expect(!sink.takesInline(byteCount: limit, fdCount: 1))
+        #expect(!sink.takesInline(byteCount: limit - control + 1, fdCount: 1))
+        #expect(sink.takesInline(byteCount: limit - control, fdCount: 1))
+
+        var ends: [Int32] = [-1, -1]
+        try #require(pipe(&ends) == 0)
+        defer { Darwin.close(ends[0]) }
+        let message = Data(repeating: 0x61, count: limit)
+        // The sink itself refuses it: nothing leaves, so nothing can wait.
+        let tried = message.withUnsafeBytes { sink.trySend($0, fds: [ends[1]]) }
+        #expect(tried == .success(0))
+        var ready = pollfd(fd: pair[1], events: Int16(POLLIN), revents: 0)
+        #expect(poll(&ready, 1, 0) == 0, "trySend sent part of a message whose descriptors did not fit")
+
+        // The writer queues it for its drain queue, which sends it whole with its descriptor.
+        let writer = FrameWriter(sink: sink, label: "com.cmuxterm.next.daemon.write", qos: .userInitiated,
+                                 isMainThread: { false })
+        defer { writer.close() }
+        // The writer owns the pipe's write end from here and closes it once sent.
+        #expect(writer.enqueue(message, priority: .control, fds: [ends[1]]) == nil)
+        #expect(writer.queueHops == 1, "a message at the limit with a descriptor went inline")
+        var received = [UInt8](repeating: 0, count: limit)
+        var offset = 0
+        while offset < received.count {
+            let read = received.withUnsafeMutableBytes { buffer in
+                Darwin.read(pair[1], buffer.baseAddress?.advanced(by: offset), buffer.count - offset)
+            }
+            try #require(read > 0, "the socket gave \(offset) of \(received.count) bytes within 2 s")
+            offset += read
+        }
+        #expect(Data(received) == message)
+    }
 }
 
 /// A ``FrameSink`` with an inline path: ``trySend(_:fds:)`` takes the byte count `trySendTakes` lists for its

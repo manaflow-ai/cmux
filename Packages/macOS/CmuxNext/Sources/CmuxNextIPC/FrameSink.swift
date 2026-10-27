@@ -11,8 +11,12 @@ public protocol FrameSink: Sendable {
     /// The largest message ``trySend(_:fds:)`` takes; 0 when the sink has no inline path.
     var inlineLimit: Int { get }
 
-    /// One send of a prefix of `bytes` (at most ``inlineLimit``) that never waits for room, with `fds` on its
-    /// first byte when it sends any.
+    /// Whether ``trySend(_:fds:)`` takes a message of `byteCount` bytes carrying `fdCount` descriptors: what the
+    /// message costs the socket (its bytes and its descriptors' control data) fits in ``inlineLimit``.
+    func takesInline(byteCount: Int, fdCount: Int) -> Bool
+
+    /// One send of a prefix of `bytes` that never waits for room, with `fds` on its first byte when it sends
+    /// any; a message that ``takesInline(byteCount:fdCount:)`` refuses sends nothing.
     /// - Returns: The bytes sent, 0 when there was no room, or why the send failed.
     func trySend(_ bytes: UnsafeRawBufferPointer, fds: [Int32]) -> Result<Int, FrameWriter.Failure>
 }
@@ -20,6 +24,8 @@ public protocol FrameSink: Sendable {
 extension FrameSink {
     /// No inline path: every message goes through the drain queue.
     public var inlineLimit: Int { 0 }
+
+    public func takesInline(byteCount: Int, fdCount: Int) -> Bool { byteCount <= inlineLimit }
 
     public func trySend(_ bytes: UnsafeRawBufferPointer, fds: [Int32]) -> Result<Int, FrameWriter.Failure> {
         .success(0)
@@ -36,13 +42,16 @@ extension FrameSink {
 /// ``trySend(_:fds:)`` sends only when `poll` reports room: XNU's `sosend` does not wait when the room
 /// (`sbspace`, at least the send low-water mark that makes the socket writable, `sowriteable`) holds the whole
 /// message, so a message of at most ``inlineLimit`` (that mark, raised to ``inlineLowWater``) leaves in one pass.
+/// The room a message needs is its bytes plus its `SCM_RIGHTS` control data: `sosend` takes the control length
+/// out of the room before it copies the data, and waits for the rest when the two do not fit.
 public struct SocketFrameSink: FrameSink {
     /// The send low-water mark the inline path asks for: room for a key, a resize or a request.
     public static let inlineLowWater = 64 << 10
 
     /// The socket; the owner closes it after closing the writer.
     public let fd: Int32
-    /// The socket's send low-water mark: the largest message ``trySend(_:fds:)`` sends.
+    /// The socket's send low-water mark: the most room (bytes and control data) a message ``trySend(_:fds:)``
+    /// sends may need.
     public let inlineLimit: Int
 
     public init(fd: Int32) {
@@ -59,8 +68,13 @@ public struct SocketFrameSink: FrameSink {
         sendMessage(bytes, fds: fds, flags: MSG_NOSIGNAL)
     }
 
+    /// The bytes plus the control data of its descriptors fit in the low-water mark that `poll` guarantees.
+    public func takesInline(byteCount: Int, fdCount: Int) -> Bool {
+        byteCount + Self.controlSpace(fdCount: fdCount) <= inlineLimit
+    }
+
     public func trySend(_ bytes: UnsafeRawBufferPointer, fds: [Int32]) -> Result<Int, FrameWriter.Failure> {
-        guard bytes.count <= inlineLimit else { return .success(0) }
+        guard takesInline(byteCount: bytes.count, fdCount: fds.count) else { return .success(0) }
         var ready = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
         // SAFETY: poll reads and writes the one pollfd it is given, a local live for the call; timeout 0 never waits.
         let polled = unsafe poll(&ready, 1, 0)
@@ -112,11 +126,16 @@ public struct SocketFrameSink: FrameSink {
     private static func align(_ length: Int) -> Int { (length + 3) & ~3 }
     private static let headerSpace = align(MemoryLayout<cmsghdr>.size)
 
+    /// The length of the `SCM_RIGHTS` control message of `fdCount` descriptors (`CMSG_SPACE`), 0 for none.
+    public static func controlSpace(fdCount: Int) -> Int {
+        fdCount > 0 ? headerSpace + align(MemoryLayout<Int32>.size * fdCount) : 0
+    }
+
     /// One `SCM_RIGHTS` control message holding `fds`, or no bytes when there are none.
     private static func controlMessage(_ fds: [Int32]) -> [UInt8] {
         guard !fds.isEmpty else { return [] }
         let dataLength = MemoryLayout<Int32>.size * fds.count
-        var control = [UInt8](repeating: 0, count: headerSpace + align(dataLength))
+        var control = [UInt8](repeating: 0, count: controlSpace(fdCount: fds.count))
         control.withUnsafeMutableBytes { bytes in
             let header = cmsghdr(cmsg_len: socklen_t(headerSpace + dataLength), cmsg_level: SOL_SOCKET,
                                  cmsg_type: SCM_RIGHTS)

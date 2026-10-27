@@ -73,6 +73,10 @@ impl InlineSocket {
 pub(super) struct WriterState {
     busy: bool,
     rest: Option<Vec<u8>>,
+    /// Times the writer thread woke from its idle wait (tests: an inline
+    /// write must wake nobody).
+    #[cfg(test)]
+    wakeups: usize,
 }
 
 /// What the writer thread writes next.
@@ -152,7 +156,17 @@ impl BoundedOutbound {
             // The writer thread waits for its own next item: an idle wait,
             // allowed on a thread that may not block.
             state = self.changed.idle().wait(state).recover_poison();
+            #[cfg(test)]
+            {
+                state.writer.wakeups += 1;
+            }
         }
+    }
+
+    /// Times the writer thread woke from its idle wait in `recv_turn`.
+    #[cfg(test)]
+    pub(in crate::server) fn writer_wakeups(&self) -> usize {
+        self.state.lock().recover_poison().writer.wakeups
     }
 }
 

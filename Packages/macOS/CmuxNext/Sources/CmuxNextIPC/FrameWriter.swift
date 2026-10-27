@@ -24,7 +24,8 @@ public import Foundation
 /// Only the drain queue's thread waits on the socket. Past ``limit`` queued bytes ``enqueue(_:priority:fds:)``
 /// fails with ``Failure/backlog(queued:)`` instead of buffering without bound.
 ///
-/// Inline fast path (task 140): a caller off the main thread whose message has nothing of its own or a higher
+/// Inline fast path (task 140): a caller off the main thread whose message the sink takes inline
+/// (``FrameSink/takesInline(byteCount:fdCount:)``, its bytes and descriptors) and has nothing of its own or a higher
 /// priority waiting, while no drain step is sending and no message is half sent, sends it itself with the sink's
 /// ``FrameSink/trySend(_:fds:)``, under the writer's lock, and the drain queue is never woken. What the socket did
 /// not take is the next drain step: none of it queues like any message, a tail goes before everything. This is
@@ -120,7 +121,7 @@ public final class FrameWriter: Sendable {
             return nil
         }
         let limit = limit
-        let inline = !isMainThread() && bytes.count <= sink.inlineLimit
+        let inline = !isMainThread() && sink.takesInline(byteCount: bytes.count, fdCount: fds.count)
         let outcome = state.withLock { state -> Outcome in
             if let failure = state.failure { return .refused(failure) }
             guard !state.closed else { return .refused(.closed) }
