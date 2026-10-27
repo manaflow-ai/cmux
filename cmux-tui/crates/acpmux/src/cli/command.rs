@@ -1346,6 +1346,19 @@ mod help_contract_tests {
         assert!(missing.is_empty(), "documented acpmux surface drifted:\n{}", missing.join("\n"));
     }
 
+    /// `host vm-host [NAME] [on|off]`: the state is on or off only.
+    #[test]
+    fn host_vm_host_takes_a_machine_and_on_or_off() {
+        for argv in [
+            &["acpmux", "host", "vm-host"][..],
+            &["acpmux", "host", "vm-host", "on"][..],
+            &["acpmux", "host", "vm-host", "cloud-a", "off"][..],
+        ] {
+            assert!(Cli::try_parse_from(argv).is_ok(), "{argv:?} did not parse");
+        }
+        assert!(Cli::try_parse_from(["acpmux", "host", "vm-host", "cloud-a", "maybe"]).is_err());
+    }
+
     /// `host hold` changes a hold only for a named machine: a flag alone is refused, not
     /// taken as the listing (review of #25602).
     #[test]

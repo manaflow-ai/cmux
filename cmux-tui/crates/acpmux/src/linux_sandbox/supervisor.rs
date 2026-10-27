@@ -544,10 +544,77 @@ fn emulate(fd: RawFd, request: &seccomp_notif, policy: &WritePolicy, stop: RawFd
     delivery
 }
 
-/// E1b owns the notification loop. E1a keeps the resolver callable and
-/// uncalled so this boundary can land independently.
-pub(crate) fn run(_notify_fd: OwnedFd, _policy: WritePolicy, _stop: OwnedFd) -> io::Result<()> {
-    Err(io::Error::other("user-notify supervisor not implemented"))
+/// Dedicated thread and sole listener receiver: unshares CLONE_FS before
+/// clearing its own umask.
+/// Stops on listener POLLHUP (all filtered processes exited), readable stop
+/// eventfd, or a fatal I/O error. Every checked operation is emulated; response
+/// flags are always zero, never CONTINUE. Policy/internal failures use EACCES.
+/// Dropping the last listener (including acpmux death) fails pending and later
+/// notified syscalls with ENOSYS: fail closed. All inner loops consume bounded
+/// paths/collections; poll/RECV retries end on stop, HUP, or fatal I/O error.
+pub(crate) fn run(notify_fd: OwnedFd, policy: WritePolicy, stop: OwnedFd) -> io::Result<()> {
+    checked(unsafe { unshare(CLONE_FS) }).map_err(io::Error::from_raw_os_error)?;
+    unsafe {
+        umask(0);
+    }
+    let lock = locking::open(&policy).map_err(io::Error::from_raw_os_error)?;
+    let mut sizes: seccomp_notif_sizes = unsafe { std::mem::zeroed() };
+    checked(unsafe { syscall(SYS_seccomp, SECCOMP_GET_NOTIF_SIZES, 0, &mut sizes) } as i32)
+        .map_err(io::Error::from_raw_os_error)?;
+    if (sizes.seccomp_notif as usize) < size_of::<seccomp_notif>()
+        || (sizes.seccomp_notif_resp as usize) < size_of::<seccomp_notif_resp>()
+        || (sizes.seccomp_data as usize) < size_of::<seccomp_data>()
+    {
+        return Err(io::Error::from_raw_os_error(EACCES));
+    }
+    let mut receive = vec![0u64; (sizes.seccomp_notif as usize).div_ceil(8)];
+    let mut response = vec![0u64; (sizes.seccomp_notif_resp as usize).div_ceil(8)];
+    let fd = notify_fd.as_raw_fd();
+    let mut polls = [
+        pollfd { fd, events: POLLIN, revents: 0 },
+        pollfd { fd: stop.as_raw_fd(), events: POLLIN, revents: 0 },
+    ];
+    loop {
+        if unsafe { poll(polls.as_mut_ptr(), 2, -1) } < 0 {
+            if error() == EINTR {
+                continue;
+            }
+            return Err(io::Error::last_os_error());
+        }
+        if polls[0].revents & POLLHUP != 0 || polls[1].revents & POLLIN != 0 {
+            return Ok(());
+        }
+        if polls.iter().any(|p| p.revents & (POLLERR | POLLNVAL | POLLHUP) != 0) {
+            return Err(io::Error::from_raw_os_error(EACCES));
+        }
+        if polls[0].revents & POLLIN == 0 {
+            continue;
+        }
+        receive.fill(0);
+        if unsafe { ioctl(fd, SECCOMP_IOCTL_NOTIF_RECV, receive.as_mut_ptr()) } < 0 {
+            if matches!(error(), EINTR | ENOENT | EAGAIN) {
+                continue;
+            }
+            return Err(io::Error::last_os_error());
+        }
+        let request = unsafe { receive.as_ptr().cast::<seccomp_notif>().read() };
+        let _transaction = match locking::acquire(&lock, stop.as_raw_fd(), fd) {
+            Ok(guard) => guard,
+            Err(ECANCELED) => return Ok(()),
+            Err(errno) => return Err(io::Error::from_raw_os_error(errno)),
+        };
+        if let Err(errno) = emulate(fd, &request, &policy, stop.as_raw_fd()) {
+            let reply = seccomp_notif_resp { id: request.id, val: 0, error: -errno, flags: 0 };
+            unsafe {
+                response.as_mut_ptr().cast::<seccomp_notif_resp>().write(reply);
+            }
+            if unsafe { ioctl(fd, SECCOMP_IOCTL_NOTIF_SEND, response.as_ptr()) } < 0
+                && error() != ENOENT
+            {
+                return Err(io::Error::last_os_error());
+            }
+        }
+    }
 }
 
 /// Resolver regression loops terminate at the end of their fixed input tables.
@@ -1035,5 +1102,527 @@ mod tests {
         )
         .expect("resolved policy path");
         assert!(policy.check(Path::new(&resolved.logical)).is_err());
+    }
+}
+
+#[cfg(test)]
+mod notification_tests {
+    use super::*;
+    use crate::{
+        hub::remote_sandbox::PROFILE,
+        linux_sandbox::{rules::Params, seccomp},
+    };
+    use std::{
+        ffi::CString,
+        fs,
+        os::{
+            fd::{AsRawFd, FromRawFd, RawFd},
+            unix::fs::{PermissionsExt, symlink},
+        },
+        path::PathBuf,
+        sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
+        time::Duration,
+    };
+
+    struct Fixture(PathBuf);
+    impl Fixture {
+        fn new() -> Self {
+            static NEXT: AtomicUsize = AtomicUsize::new(0);
+            let p = std::env::temp_dir().join(format!(
+                "acpmux-notify-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&p).unwrap();
+            for dir in [".git/hooks", "sub", "a", "good", "tmp", "home", "scratch", "transcript"] {
+                fs::create_dir_all(p.join(dir)).unwrap();
+            }
+            fs::write(p.join(".git/config"), b"protected").unwrap();
+            fs::write(p.join("existing"), b"existing-content").unwrap();
+            symlink(".git/config", p.join("link")).unwrap();
+            Self(fs::canonicalize(p).unwrap())
+        }
+        fn policy(&self) -> WritePolicy {
+            let params: Params = [
+                ("CWD", ""),
+                ("TMPDIR", "tmp"),
+                ("HOME", "home"),
+                ("CLAUDE_TMP_PROJECT", "scratch"),
+                ("CLAUDE_PROJECT", "transcript"),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.into(), if v.is_empty() { self.0.clone() } else { self.0.join(v) }))
+            .collect();
+            WritePolicy::from_profile(PROFILE, &params).unwrap()
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    // Aligned control storage; send/recv each transfer exactly one fd.
+    unsafe fn transfer(socket: RawFd, fd: RawFd, send: bool) -> RawFd {
+        unsafe {
+            let mut byte = 0u8;
+            let mut iov = iovec { iov_base: (&mut byte as *mut u8).cast(), iov_len: 1 };
+            let mut control = [0usize; 8];
+            let mut msg: msghdr = std::mem::zeroed();
+            msg.msg_iov = &mut iov;
+            msg.msg_iovlen = 1;
+            msg.msg_control = control.as_mut_ptr().cast();
+            msg.msg_controllen = CMSG_SPACE(std::mem::size_of::<RawFd>() as _) as _;
+            if send {
+                let c = CMSG_FIRSTHDR(&msg);
+                (*c).cmsg_level = SOL_SOCKET;
+                (*c).cmsg_type = SCM_RIGHTS;
+                (*c).cmsg_len = CMSG_LEN(std::mem::size_of::<RawFd>() as _) as _;
+                CMSG_DATA(c).cast::<RawFd>().write(fd);
+                return if sendmsg(socket, &msg, MSG_NOSIGNAL) == 1 { 0 } else { -1 };
+            }
+            if recvmsg(socket, &mut msg, MSG_CMSG_CLOEXEC) != 1 || msg.msg_flags & MSG_CTRUNC != 0 {
+                return -1;
+            }
+            let c = CMSG_FIRSTHDR(&msg);
+            if c.is_null() {
+                return -1;
+            }
+            let len: usize = (*c).cmsg_len as _;
+            let expected_len: usize = CMSG_LEN(std::mem::size_of::<RawFd>() as _) as _;
+            if (*c).cmsg_level != SOL_SOCKET || (*c).cmsg_type != SCM_RIGHTS || len != expected_len
+            {
+                return -1;
+            }
+            CMSG_DATA(c).cast::<RawFd>().read()
+        }
+    }
+
+    /// Child lifetime is bounded by SIGALRM; every post-fork call is raw libc.
+    /// Parent loops end at child exit/error; recv and supervisor joins have deadlines.
+    fn exercise(case: u8, paths: &[CString]) -> Option<(Fixture, i32)> {
+        // Serialize forks so another case cannot inherit and keep our listener alive.
+        static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let fixture = Fixture::new();
+        if case == 200 {
+            let fifo = CString::new(fixture.0.join("fifo").to_str().unwrap()).unwrap();
+            assert_eq!(unsafe { mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        }
+        let mut paths = paths.to_vec();
+        paths.push(
+            CString::new(fixture.0.join(".git/config").as_os_str().as_encoded_bytes()).unwrap(),
+        );
+        let cwd = CString::new(fixture.0.as_os_str().as_encoded_bytes()).unwrap();
+        let program = seccomp::filter(true).unwrap();
+        unsafe {
+            let mut action = SECCOMP_RET_USER_NOTIF;
+            if syscall(SYS_seccomp, SECCOMP_GET_ACTION_AVAIL, 0, &mut action) < 0 {
+                let e = io::Error::last_os_error();
+                if matches!(e.raw_os_error(), Some(EINVAL | ENOSYS | EOPNOTSUPP)) {
+                    eprintln!("skipped: kernel lacks USER_NOTIF: {e}");
+                    return None;
+                }
+                panic!("USER_NOTIF probe: {e}");
+            }
+            let mut sockets = [-1; 2];
+            assert_eq!(
+                socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, sockets.as_mut_ptr()),
+                0
+            );
+            let parent = OwnedFd::from_raw_fd(sockets[0]);
+            let child = OwnedFd::from_raw_fd(sockets[1]);
+            let stop = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+            assert!(stop >= 0);
+            let stop = OwnedFd::from_raw_fd(stop);
+            let thread_stop = stop.try_clone().unwrap();
+            let pid = fork();
+            assert!(pid >= 0);
+            if pid == 0 {
+                let mut mask: sigset_t = std::mem::zeroed();
+                sigemptyset(&mut mask);
+                sigprocmask(SIG_SETMASK, &mask, std::ptr::null_mut());
+                signal(SIGALRM, SIG_DFL);
+                alarm(15);
+                close(parent.as_raw_fd());
+                close(stop.as_raw_fd());
+                close(thread_stop.as_raw_fd());
+                if chdir(cwd.as_ptr()) != 0 {
+                    _exit(90);
+                }
+                // A real policy-allowed stdout; no dependence on the CI log sink.
+                let output = open(c"stdout".as_ptr(), O_CREAT | O_WRONLY, 0o600);
+                if output < 0 || dup2(output, 1) < 0 {
+                    _exit(91);
+                }
+                close(output);
+                if prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
+                    _exit(92);
+                }
+                let prog =
+                    sock_fprog { len: program.len() as u16, filter: program.as_ptr().cast_mut() };
+                // UAPI TSYNC_ESRCH = 1 << 4: required with TSYNC + NEW_LISTENER.
+                let listener = syscall(
+                    SYS_seccomp,
+                    SECCOMP_SET_MODE_FILTER,
+                    SECCOMP_FILTER_FLAG_NEW_LISTENER | SECCOMP_FILTER_FLAG_TSYNC | (1 << 4),
+                    &prog,
+                ) as i32;
+                if listener < 0 {
+                    if *__errno_location() != EINVAL {
+                        _exit(93);
+                    }
+                    // Distinguish an invalid generated BPF program from absent kernel flags.
+                    let mut allow = sock_filter {
+                        code: (BPF_RET | BPF_K) as u16,
+                        jt: 0,
+                        jf: 0,
+                        k: SECCOMP_RET_ALLOW,
+                    };
+                    let probe = sock_fprog { len: 1, filter: &mut allow };
+                    let rc = syscall(
+                        SYS_seccomp,
+                        SECCOMP_SET_MODE_FILTER,
+                        SECCOMP_FILTER_FLAG_NEW_LISTENER | SECCOMP_FILTER_FLAG_TSYNC | (1 << 4),
+                        &probe,
+                    );
+                    _exit(if rc < 0 && *__errno_location() == EINVAL { 77 } else { 93 });
+                }
+                if transfer(child.as_raw_fd(), listener, true) < 0 {
+                    _exit(94);
+                }
+                close(listener);
+                let mut ack = 0u8;
+                if read(child.as_raw_fd(), (&mut ack as *mut u8).cast(), 1) != 1 {
+                    _exit(95);
+                }
+                if ack == 77 {
+                    _exit(77);
+                }
+                close(child.as_raw_fd());
+                _exit(child_case(case, &paths));
+            }
+            drop(child);
+            let mut ready = pollfd { fd: parent.as_raw_fd(), events: POLLIN, revents: 0 };
+            assert_eq!(poll(&mut ready, 1, 20_000), 1, "listener handoff timed out");
+            let fd = transfer(parent.as_raw_fd(), -1, false);
+            if fd < 0 {
+                let mut status = 0;
+                assert_eq!(waitpid(pid, &mut status, 0), pid);
+                if WIFEXITED(status) && WEXITSTATUS(status) == 77 {
+                    eprintln!("skipped: kernel lacks NEW_LISTENER with TSYNC_ESRCH");
+                    return None;
+                }
+                panic!("listener handoff failed: child status {status:#x}");
+            }
+            let listener = OwnedFd::from_raw_fd(fd);
+            // ADDFD UAPI ioctl; an invalid notification must yield ENOENT on a supporting kernel.
+            let addfd = [0u64, (fd as u64) << 32, 0];
+            assert_eq!(ioctl(fd, SECCOMP_IOCTL_NOTIF_ADDFD, addfd.as_ptr()), -1);
+            let missing = *__errno_location() == ENOTTY;
+            assert!(
+                missing || *__errno_location() == ENOENT,
+                "ADDFD probe: {}",
+                io::Error::last_os_error()
+            );
+            let (tx, rx) = std::sync::mpsc::channel();
+            let handle = if case == 2 || missing {
+                drop(listener);
+                None
+            } else {
+                let policy = fixture.policy();
+                Some(std::thread::spawn(move || {
+                    let _ = tx.send(run(listener, policy, thread_stop));
+                }))
+            };
+            let ack = if missing { 77u8 } else { 1 };
+            let early_result = if case == 1 && !missing {
+                assert_eq!(write(stop.as_raw_fd(), (&1u64 as *const u64).cast(), 8), 8);
+                // Child remains alive, blocked on ack: HUP cannot satisfy this case.
+                Some(rx.recv_timeout(Duration::from_secs(3)))
+            } else {
+                None
+            };
+            assert_eq!(write(parent.as_raw_fd(), (&ack as *const u8).cast(), 1), 1);
+            let mut status = 0;
+            loop {
+                if waitpid(pid, &mut status, 0) == pid {
+                    break;
+                }
+                assert_eq!(*__errno_location(), EINTR);
+            }
+            if let Some(handle) = handle {
+                let result =
+                    early_result.unwrap_or_else(|| rx.recv_timeout(Duration::from_secs(3)));
+                if result.is_err() {
+                    let _ = write(stop.as_raw_fd(), (&1u64 as *const u64).cast(), 8);
+                }
+                assert!(result.is_ok(), "supervisor failed to stop on child exit/eventfd");
+                handle.join().unwrap();
+                result.unwrap().expect("supervisor returned an internal error");
+            }
+            assert!(WIFEXITED(status), "child status {status:#x}");
+            if missing {
+                eprintln!("skipped: kernel lacks SECCOMP_IOCTL_NOTIF_ADDFD");
+                return None;
+            }
+            Some((fixture, WEXITSTATUS(status)))
+        }
+    }
+
+    /// Finite syscall cases; SIGALRM bounds blocking opens and the race worker.
+    unsafe fn child_case(case: u8, paths: &[CString]) -> i32 {
+        unsafe {
+            if case == 1 {
+                return 0;
+            }
+            if case == 2 {
+                let fd = open(c"gone".as_ptr(), O_CREAT | O_WRONLY, 0o600);
+                return if fd == -1 && *__errno_location() == ENOSYS { 0 } else { 1 };
+            }
+            if case == 3 {
+                return race();
+            }
+            if case == 200 {
+                if open(c"fifo".as_ptr(), O_WRONLY) != -1 || *__errno_location() != ENXIO {
+                    return 78;
+                }
+                let fd = open(c"existing".as_ptr(), O_WRONLY);
+                if fd < 0 {
+                    return 79;
+                }
+                close(fd);
+                return 0;
+            }
+            if case == 4 {
+                let limit = rlimit { rlim_cur: 32, rlim_max: 32 };
+                if setrlimit(RLIMIT_NOFILE, &limit) != 0 {
+                    return 70;
+                }
+                for fd in 3..1024 {
+                    close(fd);
+                }
+                // Exactly 29 available slots; filling uses no post-fork allocation.
+                for expected in 3..32 {
+                    if dup(1) != expected {
+                        return 73;
+                    }
+                }
+                let fd = open(c"existing".as_ptr(), O_WRONLY | O_TRUNC);
+                if fd >= 0 || *__errno_location() != EMFILE {
+                    return 71;
+                }
+                let fd = open(c"new".as_ptr(), O_WRONLY | O_CREAT, 0o600);
+                if fd >= 0 || *__errno_location() != EMFILE {
+                    return 72;
+                }
+                for fd in 3..32 {
+                    close(fd);
+                }
+                // Failed opens with room must not leave placeholder descriptors.
+                for _ in 0..3 {
+                    if open(c"absent/file".as_ptr(), O_CREAT | O_WRONLY, 0o600) != -1 {
+                        return 74;
+                    }
+                    if open(c"a".as_ptr(), O_CREAT | O_WRONLY, 0o600) != -1 {
+                        return 75;
+                    }
+                }
+                for fd in 3..32 {
+                    if fcntl(fd, F_GETFD) != -1 || *__errno_location() != EBADF {
+                        return 76;
+                    }
+                }
+                return 0;
+            }
+            for (i, path) in paths.iter().enumerate() {
+                let fd = open(path.as_ptr(), O_CREAT | O_WRONLY | O_TRUNC, 0o666);
+                if fd >= 0 {
+                    close(fd);
+                    return 10 + i as i32;
+                }
+                if !matches!(*__errno_location(), EACCES | EPERM) {
+                    return 30 + i as i32;
+                }
+            }
+            let dir = open(c".git".as_ptr(), O_RDONLY | O_DIRECTORY);
+            let fd = openat(dir, c"config".as_ptr(), O_WRONLY);
+            close(dir);
+            if fd >= 0 || !matches!(*__errno_location(), EACCES | EPERM) {
+                return 50;
+            }
+            if chdir(c".git".as_ptr()) != 0 {
+                return 51;
+            }
+            let fd = open(c"config".as_ptr(), O_WRONLY);
+            if fd >= 0 || !matches!(*__errno_location(), EACCES | EPERM) {
+                return 52;
+            }
+            if chdir(c"..".as_ptr()) != 0 {
+                return 53;
+            }
+            let original = open(c".git/config".as_ptr(), O_RDONLY);
+            if original < 0 || dup2(original, 200) != 200 {
+                return 54;
+            }
+            close(original);
+            let fd = open(c"/proc/self/fd/200".as_ptr(), O_WRONLY);
+            close(200);
+            if fd >= 0 || !matches!(*__errno_location(), EACCES | EPERM) {
+                return 55;
+            }
+            for path in [c"/dev/stdout", c"/proc/self/fd/1", c"/proc/thread-self/fd/1", c"ok"] {
+                let fd = open(path.as_ptr(), O_WRONLY | O_CREAT | O_CLOEXEC, 0o600);
+                if fd < 0
+                    || fcntl(fd, F_GETFD) & FD_CLOEXEC == 0
+                    || write(fd, c"x".as_ptr().cast(), 1) != 1
+                {
+                    return 56;
+                }
+                close(fd);
+            }
+            umask(0o027);
+            let fd = open(c"mode".as_ptr(), O_CREAT | O_WRONLY, 0o666);
+            if fd < 0 {
+                return 57;
+            }
+            close(fd);
+            umask(0);
+            let fd = open(c"mode-unmasked".as_ptr(), O_CREAT | O_WRONLY, 0o666);
+            if fd < 0 {
+                return 62;
+            }
+            close(fd);
+            #[cfg(target_arch = "x86_64")]
+            {
+                let fd = syscall(SYS_creat, c"created".as_ptr(), 0o600) as i32;
+                if fd < 0 {
+                    return 58;
+                }
+                close(fd);
+                let fd = syscall(SYS_open, c".git/config".as_ptr(), O_WRONLY) as i32;
+                if fd >= 0 || !matches!(*__errno_location(), EACCES | EPERM) {
+                    return 59;
+                }
+            }
+            0
+        }
+    }
+
+    #[test]
+    fn write_opens_resolve_paths_and_child_exit_stops_supervisor() {
+        let paths: Vec<_> = [
+            ".git/hooks/pre-commit",
+            "sub/CLAUDE.md",
+            "link",
+            "/proc/self/mem",
+            "a/../.git/config",
+        ]
+        .into_iter()
+        .map(|p| CString::new(p).unwrap())
+        .collect();
+        if let Some((fixture, status)) = exercise(0, &paths) {
+            assert_eq!(status, 0, "child case failed");
+            assert_eq!(fs::read(fixture.0.join(".git/config")).unwrap(), b"protected");
+            assert!(!fixture.0.join("sub/CLAUDE.md").exists());
+            assert_eq!(fs::read(fixture.0.join("ok")).unwrap(), b"x");
+            assert_eq!(
+                fs::metadata(fixture.0.join("mode")).unwrap().permissions().mode() & 0o777,
+                0o640
+            );
+            assert_eq!(
+                fs::metadata(fixture.0.join("mode-unmasked")).unwrap().permissions().mode() & 0o777,
+                0o666
+            );
+        }
+    }
+
+    #[test]
+    fn target_fd_exhaustion_rolls_back_creation_without_fd_leaks() {
+        if let Some((fixture, status)) = exercise(4, &[]) {
+            assert_eq!(status, 0, "child case failed");
+            // Policy-permitted O_TRUNC can precede EMFILE; contents are not restored.
+            assert!(!fixture.0.join("new").exists());
+        }
+    }
+
+    #[test]
+    fn fifo_without_reader_returns_enxio_and_supervisor_keeps_serving() {
+        if let Some((_, status)) = exercise(200, &[]) {
+            assert_eq!(status, 0, "FIFO open blocked or next request failed");
+        }
+    }
+
+    #[test]
+    fn stop_eventfd_ends_supervisor() {
+        if let Some((_, status)) = exercise(1, &[]) {
+            assert_eq!(status, 0);
+        }
+    }
+
+    #[test]
+    fn supervisor_gone_fails_closed() {
+        if let Some((fixture, status)) = exercise(2, &[]) {
+            assert_eq!(status, 0);
+            assert!(!fixture.0.join("gone").exists());
+        }
+    }
+
+    #[repr(C)]
+    struct RacingPath {
+        prefix: AtomicU32,
+        tail: [u8; 8],
+        stop: AtomicBool,
+    }
+
+    /// Worker stops when the finite 10k-open loop sets stop; child alarm bounds both.
+    extern "C" fn flip(data: *mut c_void) -> *mut c_void {
+        let path = unsafe { &*data.cast::<RacingPath>() };
+        while !path.stop.load(Ordering::Relaxed) {
+            path.prefix.store(u32::from_ne_bytes(*b".git"), Ordering::Relaxed);
+            path.prefix.store(u32::from_ne_bytes(*b"good"), Ordering::Relaxed);
+        }
+        std::ptr::null_mut()
+    }
+
+    /// Exactly 10k write-open attempts; worker is joined before its path is dropped.
+    unsafe fn race() -> i32 {
+        unsafe {
+            let mut path = RacingPath {
+                prefix: AtomicU32::new(u32::from_ne_bytes(*b"good")),
+                tail: *b"/config\0",
+                stop: AtomicBool::new(false),
+            };
+            let mut thread = std::mem::zeroed();
+            if pthread_create(
+                &mut thread,
+                std::ptr::null(),
+                flip,
+                (&mut path as *mut RacingPath).cast(),
+            ) != 0
+            {
+                return 60;
+            }
+            let pointer = (&path as *const RacingPath).cast::<c_char>();
+            for _ in 0..10_000 {
+                let fd = open(pointer, O_CREAT | O_WRONLY | O_TRUNC, 0o600);
+                if fd >= 0 {
+                    close(fd);
+                }
+            }
+            path.stop.store(true, Ordering::Relaxed);
+            if pthread_join(thread, std::ptr::null_mut()) != 0 {
+                return 61;
+            }
+            0
+        }
+    }
+
+    #[test]
+    fn copied_path_is_not_changed_by_a_sibling_thread() {
+        if let Some((fixture, status)) = exercise(3, &[]) {
+            assert_eq!(status, 0);
+            assert_eq!(fs::read(fixture.0.join(".git/config")).unwrap(), b"protected");
+        }
     }
 }

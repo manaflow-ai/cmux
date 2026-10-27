@@ -3,7 +3,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-WORKFLOW_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
+# nightly.yml with its scripts/ci/nightly-steps/ step scripts inline (tests/nightly_workflow_text.py).
+WORKFLOW_FILE="$(mktemp "${TMPDIR:-/tmp}/nightly-expanded.XXXXXX")"
+python3 "$ROOT_DIR/tests/nightly_workflow_text.py" > "$WORKFLOW_FILE"
+trap 'rm -f "$WORKFLOW_FILE"' EXIT
 
 if ! awk '
   /^      - name: Build nightly app \(Release\)/ { in_build=1; next }
@@ -146,13 +149,13 @@ if ! awk '
   in_prepare && /runs-on: \$\{\{ github\.repository_owner/ { saw_matrix_runner=1 }
   in_prepare && /strategy:/ { saw_serial_fallback=1 }
   in_prepare && /PREPARE_FALLBACK/ { saw_runner_matrix=1; saw_primary_tolerated=1 }
-  in_prepare && /blacksmith-6vcpu-macos-26/ { saw_blacksmith=1 }
+  in_prepare && /blacksmith-4vcpu-ubuntu-2404/ { saw_blacksmith=1 }
   in_prepare && /env\.PREPARE_FALLBACK == '\''true'\''/ { saw_fallback=1 }
   in_prepare && /actions\/runs\/\$GITHUB_RUN_ID\/artifacts\?name=/ { saw_artifact_probe=1 }
   in_prepare && /steps\.reuse\.outputs\.exists != '\''true'\''/ { saw_reuse_gate=1 }
   END { exit !(saw_matrix_runner && saw_runner_matrix && saw_serial_fallback && saw_blacksmith && saw_fallback && saw_primary_tolerated && saw_artifact_probe && saw_reuse_gate) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly preparation must keep the disk floor, route through an owned Mac with a Blacksmith fallback, and reuse a successful artifact"
+  echo "FAIL: nightly preparation must run on Blacksmith Linux, keep its fallback, and reuse a successful artifact"
   exit 1
 fi
 if ! awk '
@@ -161,7 +164,7 @@ if ! awk '
   in_fallback && /result == '\''failure'\''/ { saw_failure_gate=1 }
   END { exit !(saw_dependency && saw_failure_gate) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly Blacksmith preparation must depend on a failed owned-Mac preparation"
+  echo "FAIL: the nightly fallback preparation must depend on a failed primary preparation"
   exit 1
 fi
 
@@ -175,7 +178,7 @@ if grep -Fq 'github.rest.repos.getBranch' "$WORKFLOW_FILE"; then
   exit 1
 fi
 
-if ! awk -v refresh_runner="runs-on: macos-26" '
+if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}" '
   /^  refresh-compilation-cache:/ { in_refresh=1; next }
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
   in_refresh && /timeout-minutes: 90/ { saw_cold_build_timeout=1 }
@@ -263,15 +266,15 @@ if ! awk '
   exit 1
 fi
 
-if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || 'macos-15' }}" \
+if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || needs.resolve-nightly-ghostty-cli-helper.outputs.hit == 'true' && (vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') || vars.CI_NIGHTLY_NEXT_HELPER_RUNNER || 'blacksmith-6vcpu-macos-15' }}" \
        '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
   /^  prepare-nightly-variant-primary:/ { job="publish"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
-  # Every nightly helper build takes the hosted macOS 15 image (its SDK 15
-  # Xcode); nightlies never use Blacksmith. Match the whole expression.
+  # A reused helper leaves this job on Linux; a fresh one builds on macOS 15
+  # (its SDK 15 Xcode), never a GitHub-hosted Mac. Match the whole expression.
   job == "helper" && index($0, helper_runner) { saw_helper_runner=1 }
   job == "helper" && /build-ghostty-cli-helper\.sh --universal/ { saw_build=1 }
   job == "helper" && /lipo .* -verify_arch arm64 x86_64/ { saw_arch_assert=1 }
@@ -287,7 +290,7 @@ if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai
   job == "publish" && /select-ci-xcode\.sh/ { saw_publish_selection=1 }
   job == "publish" && /name: cmux-nightly-unsigned-app/ { saw_app_download=1 }
   job == "publish" && /path: nightly-inputs\/app/ { saw_app_download_path=1 }
-  job == "publish" && /tar -C "\$products" -xzf nightly-inputs\/app\/cmux-nightly-unsigned\.tar\.gz/ { saw_app_restore=1 }
+  job == "publish" && /tar (--warning=no-unknown-keyword )?-C "\$products" -xzf nightly-inputs\/app\/cmux-nightly-unsigned\.tar\.gz/ { saw_app_restore=1 }
   job == "publish" && /^      - name: Upload dSYMs to Sentry/ { saw_publish_dsym_upload=1 }
   END { exit !(saw_helper_runner && saw_build && saw_arch_assert && saw_helper_artifact && saw_app_xcode && saw_app_selection && saw_app_artifact && saw_app_only_archive && saw_app_dsym_upload && saw_publish_needs_helper && saw_publish_needs_app && saw_publish_xcode && saw_publish_selection && saw_app_download && saw_app_download_path && saw_app_restore && !saw_publish_dsym_upload) }
 ' "$WORKFLOW_FILE"; then
@@ -591,8 +594,8 @@ done
 
 # The commit is resolved in its own job BEFORE the Xcode compile (the app builds
 # at the resolved commit: tests/test_nightly_cmux_tui_resolve.py), never in
-# build-nightly-app, and every sign variant installs that one commit before
-# thinning.
+# build-nightly-app; build-nightly-app installs that one commit before it
+# archives the app, and every sign variant requires it before thinning.
 if ! awk '
   /^  prepare-nightly-variant-primary:/ { job="prepare-nightly-variant-primary:" }
   /^  [a-zA-Z0-9_-]+:$/ { job=$1 }
@@ -600,13 +603,16 @@ if ! awk '
   job == "resolve-nightly-cmux-tui-client:" && /^    needs: decide$/ { resolver_needs=1 }
   job == "resolve-nightly-cmux-tui-client:" && /scripts\/cmux-next\/pin-cmux-tui\.sh resolve-newest-published/ { resolver=1 }
   job == "prepare-nightly-variant-primary:" && /^    needs: .*resolve-nightly-cmux-tui-client/ { sign_needs=1 }
-  job == "prepare-nightly-variant-primary:" && /^      - name: Bundle the cmux-tui client$/ { install_line=NR }
+  job == "build-nightly-app:" && /^      - name: Bundle the cmux-tui client$/ { install_line=NR }
+  job == "build-nightly-app:" && /^      - name: Archive unsigned nightly app$/ { archive_line=NR }
+  job == "build-nightly-app:" && /CMUX_TUI_CLIENT_COMMIT: \$\{\{ needs\.resolve-nightly-cmux-tui-client\.outputs\.commit \}\}/ { app_commit=1 }
+  job == "prepare-nightly-variant-primary:" && /name: Require the cmux-tui client build-nightly-app bundled$/ { require_line=NR }
   job == "prepare-nightly-variant-primary:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
   job == "prepare-nightly-variant-primary:" && /CMUX_TUI_CLIENT_COMMIT: \$\{\{ needs\.resolve-nightly-cmux-tui-client\.outputs\.commit \}\}/ { sign_commit=1 }
   job == "report-nightly-failure:" && /^    needs: .*resolve-nightly-cmux-tui-client/ { reported=1 }
-  END { exit !(!in_app && resolver_needs && resolver && sign_needs && sign_commit && install_line && thin_line && install_line < thin_line && reported) }
+  END { exit !(!in_app && resolver_needs && resolver && sign_needs && sign_commit && app_commit && install_line && archive_line && install_line < archive_line && require_line && thin_line && require_line < thin_line && reported) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly must resolve the cmux-tui commit before the compile and install it in every sign variant before thinning"
+  echo "FAIL: nightly must resolve the cmux-tui commit before the compile, install it in build-nightly-app before archiving, and require it in every sign variant before thinning"
   exit 1
 fi
 
@@ -617,17 +623,17 @@ for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
   fi
 done
 
-# The sign job installs the cmux-tui client and its SSH payloads after the build
-# job's strip, so it must run strip-release-bundle.sh again after that install.
+# build-nightly-app installs the cmux-tui client and its SSH payloads after its
+# own strip, so it must run strip-release-bundle.sh again after that install,
+# before it archives the app.
 if ! awk '
-  /^  prepare-nightly-variant-primary:/ { job="prepare-nightly-variant-primary:" }
   /^  [a-zA-Z0-9_-]+:$/ { job=$1 }
-  job == "prepare-nightly-variant-primary:" && /\.\/scripts\/install-cmux-tui-client\.sh/ && !install_line { install_line=NR }
-  job == "prepare-nightly-variant-primary:" && /\.\/scripts\/strip-release-bundle\.sh "\$app"/ { strip_line=NR }
-  job == "prepare-nightly-variant-primary:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
-  END { exit !(install_line && strip_line && thin_line && install_line < strip_line && strip_line < thin_line) }
+  job == "build-nightly-app:" && /\.\/scripts\/install-cmux-tui-client\.sh/ && !install_line { install_line=NR }
+  job == "build-nightly-app:" && install_line && /\.\/scripts\/strip-release-bundle\.sh "\$app"/ && !strip_line { strip_line=NR }
+  job == "build-nightly-app:" && /^      - name: Archive unsigned nightly app$/ { archive_line=NR }
+  END { exit !(install_line && strip_line && archive_line && install_line < strip_line && strip_line < archive_line) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly sign job must run strip-release-bundle.sh after installing the cmux-tui client and before thinning"
+  echo "FAIL: build-nightly-app must run strip-release-bundle.sh after installing the cmux-tui client and before archiving"
   exit 1
 fi
 
@@ -994,7 +1000,7 @@ done
 # already has. A cmux NIGHTLY-identity submission still in Apple's queue is
 # continued (never resubmitted) until it is resolved or 6 hours old.
 legacy_dir="$(mktemp -d)"
-trap 'rm -rf "$legacy_dir"' EXIT
+trap 'rm -rf "$legacy_dir" "$WORKFLOW_FILE"' EXIT
 legacy_feed() {  # <file> <build>...
   local file="$1"; shift
   {

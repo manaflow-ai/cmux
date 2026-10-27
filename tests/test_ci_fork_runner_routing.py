@@ -188,6 +188,14 @@ OWNED_RUNNER_SELECTOR = re.compile(
 )
 # (workflow, stripped line) -> why a runner variable read there picks no runner.
 FORK_GATE_EXEMPT = {
+    ("cmux-next-guards.yml", "LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}"): (
+        "signing-runner-variables reads the value to check it is ephemeral; the job runs on a "
+        "literal label and selects no runner"
+    ),
+    ("cmux-next-guards.yml", "MACOS_RUNNER_26: ${{ vars.MACOS_RUNNER_26 }}"): (
+        "signing-runner-variables reads the value to check it is ephemeral; the job runs on a "
+        "literal label and selects no runner"
+    ),
     ("cmux-next.yml", "FAST_LABEL: ${{ vars.CI_FAST_LANE_RUNNER }}"): (
         "side_lane_placement.py's input: the placement step is gated to glaeda routes "
         "(never a fork) and selects no runner; fast_route() writes it to fast_runner "
