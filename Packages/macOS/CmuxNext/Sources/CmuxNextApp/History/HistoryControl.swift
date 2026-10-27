@@ -19,7 +19,8 @@ enum HistoryControl {
         ] + debugMethods(services: services)
     }
 
-    /// `debug.closed_ids` (DEBUG builds only): every closed group the local
+    /// `debug.closed_ids` (Debug and bench builds; read-only, so the perf
+    /// lab's bench sweep can read it): every closed group the local
     /// daemon records, newest first, as `closed_id`s `history.reopen` takes.
     /// Unlike `history.list` it hides nothing (a blank New Tab page, a chat
     /// with no session yet, a page closed again), so each close the daemon
@@ -43,7 +44,11 @@ enum HistoryControl {
     /// confirmation, so in a DEV build an agent with the debug socket could
     /// delete backups; a Release build has no such path.
     static func debugMethods(services: AppServices) -> [ControlMethod] {
-        #if DEBUG
+        readOnlyDebugMethods(services: services) + debugOnlyMethods(services: services)
+    }
+
+    static func readOnlyDebugMethods(services: AppServices) -> [ControlMethod] {
+        #if DEBUG || CMUX_BENCH_HOOKS
         return [
             .mainActor("debug.closed_ids") { [weak services] _ in
                 guard let services else { throw ControlError.invalidParams("the app is closing") }
@@ -53,6 +58,15 @@ enum HistoryControl {
                 }
                 return .followUp { try await closedIDs(daemon) }
             },
+        ]
+        #else
+        return []
+        #endif
+    }
+
+    static func debugOnlyMethods(services: AppServices) -> [ControlMethod] {
+        #if DEBUG
+        return [
             .mainActor("debug.closed_forget") { [weak services] call in
                 guard let services else { throw ControlError.invalidParams("the app is closing") }
                 guard let ids = call.params["ids"]?.arrayValue?.compactMap(\.stringValue) else {
@@ -92,7 +106,7 @@ enum HistoryControl {
         #endif
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.closed_ids`' answer: the daemon's sync barrier, then the store's closed items
     /// (`session.events`), unfiltered.
     @MainActor

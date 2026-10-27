@@ -1,0 +1,3 @@
+{// note
+"sidebar":{"workspaceRow":{"browser":{"secondLineOrder":"notification"}}},"agentPane":{// note
+"display":{/* block */ "code":{"family":null}}},"appearance":{"statusIndicator":{"showAgentWorkingOnTabs":"true"},"background":"el-greco-view-of-toledo"},/* // inside */ "ui":{/* // inside */ "animations":{"newWorkspace":"true"}}}

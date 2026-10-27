@@ -1,0 +1,12 @@
+{
+  "file": "{\n  \"history\": {\n    \"terminalCommands\": true\n  }\n}\n",
+  "forced": {},
+  "recommended": {},
+  "team": {
+    "name": "Oracle Team",
+    "defaults": {},
+    "enforced": {
+      "history.terminalCommands": false
+    }
+  }
+}

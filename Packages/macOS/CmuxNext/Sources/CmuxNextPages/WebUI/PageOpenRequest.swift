@@ -29,11 +29,14 @@ public struct PageOpenRequest {
     /// The pane window a Chromium page joins (``PageWebView/chromiumWindow``); nil gives it one of its
     /// own. The pane that shows a page tab sets it when it shows the tab, so an opener may leave it nil.
     public var chromiumWindow: PageChromiumWindow?
+    /// Who asks for the page: a person (the default) or automation start its Chromium page at once; the launch's
+    /// restore (``PageOpenOrigin/launchRestore``) follows the launch order (p08-startup-041).
+    public var origin: PageOpenOrigin
 
     public init(descriptor: PageDescriptor, root: URL? = nil, routes: [PageRoute], route: String? = nil,
                 documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
                 surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
-                chatOpen: ChatOpenStages? = nil, chromiumWindow: PageChromiumWindow? = nil) {
+                chatOpen: ChatOpenStages? = nil, chromiumWindow: PageChromiumWindow? = nil, origin: PageOpenOrigin = .user) {
         self.descriptor = descriptor
         self.root = root
         self.routes = routes
@@ -44,6 +47,7 @@ public struct PageOpenRequest {
         self.dynamicResources = dynamicResources
         self.chatOpen = chatOpen
         self.chromiumWindow = chromiumWindow
+        self.origin = origin
     }
 }
 
@@ -88,10 +92,10 @@ extension PageWebView {
                   pooled: false, load: true, openRequested: requested, chromium: chromium,
                   openPanel: openPanel, registry: registry, processGroup: group, startsAtFirstShow: startsAtFirstShow,
                   deadlines: deadlines,
-                  chatOpen: request.chatOpen)
+                  chatOpen: request.chatOpen, origin: request.origin)
         // Its crashes count against its group's budget: the group's pages die together (PageCrashRecovery).
         crash.sharesWebKitProcess = group != nil
-        // Before the page's Chromium start reads it: that start runs in a later turn (``startChromium(hosting:)``).
+        // Before the page's Chromium start reads it: that start runs in a later turn (``startChromium(hosting:origin:)``).
         chromiumWindow = request.chromiumWindow
     }
 }

@@ -219,6 +219,12 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ScriptLogEvent, "request");
     try expectExplicitNullRejected(protocol.ScriptLogEvent, "session");
     try expectExplicitNullRejected(protocol.ScrollChangedEvent, "cause");
+    try expectExplicitNullRejected(protocol.ServerDiagnosticSiteEvent, "cause");
+    try expectExplicitNullRejected(protocol.ServerDiagnosticSiteEvent, "crate");
+    try expectExplicitNullRejected(protocol.ServerDiagnosticSiteEvent, "file_hash");
+    try expectExplicitNullRejected(protocol.ServerDiagnosticSiteEvent, "lane_sync");
+    try expectExplicitNullRejected(protocol.ServerDiagnosticSiteEvent, "line");
+    try expectExplicitNullRejected(protocol.ServerDiagnosticSiteEvent, "method");
     try expectExplicitNullRejected(protocol.SettingsChangedEvent, "cause");
     try expectExplicitNullRejected(protocol.SizeStateEvent, "cause");
     try expectExplicitNullRejected(protocol.SizeStateEvent, "self_participant");

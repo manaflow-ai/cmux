@@ -51,8 +51,11 @@
 //! process's hang log (cmux-panic-log `hang`, `owner-hangs-<session>.jsonl`
 //! in the headless owner) with its method and its thread's stack, taken
 //! when the tier is reached. A request's first tier is the threshold above;
-//! the other kinds have only the hang tier. The holder link has no `Mux` at
-//! hand, so the owner makes its Mux's watchdog the process's
+//! the other kinds have only the hang tier. Each slow request and each
+//! hang of another kind also goes to the first-sighting feed, whose
+//! consumer keeps the first of each scope and method
+//! (`server-diagnostic-site`, p02-threads-233). The holder link has no
+//! `Mux` at hand, so the owner makes its Mux's watchdog the process's
 //! ([`RequestWatchdog::watch_for_process`]).
 //!
 //! Every kind of scope busy past [`HANG_THRESHOLD_US`] (250 ms) is also counted
@@ -96,6 +99,9 @@ const SLOT_COUNT: usize = 256;
 const SLOW_REQUEST_RING: usize = 128;
 
 const THREAD_NAME: &str = "mux-request-watchdog";
+
+/// The `kind` of a slow request's `server-diagnostic-site` event.
+const REQUEST_SITE_SCOPE: &str = "request";
 
 /// A busy word: the start in microseconds since the watchdog's epoch plus
 /// one, above four flags. A free slot is 0. `RECORDED`: in
@@ -259,7 +265,7 @@ impl Slot {
 }
 
 /// Where hang records go; the process's hang log outside tests.
-type HangSink = Box<dyn Fn(serde_json::Value) + Send + Sync>;
+pub(crate) type HangSink = Box<dyn Fn(serde_json::Value) + Send + Sync>;
 
 /// Starts the watchdog thread with `body`; a seam so tests can fail it.
 type SpawnWatchdog = fn(Box<dyn FnOnce() + Send>) -> std::io::Result<Thread>;
@@ -610,6 +616,13 @@ impl Shared {
         });
         if run.kind.records_slow() {
             record["client"] = run.client.into();
+        } else {
+            // A request's site was noted at the threshold (`record`); the
+            // other kinds have only this tier (`server-diagnostic-site`).
+            cmux_threads::blocking::note_hang_site(
+                run.kind.name(),
+                run.kind.method_name(run.method),
+            );
         }
         (self.hang_sink)(record);
     }
@@ -702,6 +715,9 @@ impl Shared {
 
     fn record(&self, slot: usize, word: u64, request: SlowRequest) {
         self.total.fetch_add(1, Ordering::Relaxed);
+        // The daemon's first slow run of each method goes to the app's hang
+        // reports (`server-diagnostic-site`; the forwarder keeps the first).
+        cmux_threads::blocking::note_hang_site(REQUEST_SITE_SCOPE, request.method);
         let started = self.epoch + Duration::from_millis(request.started_ms);
         if let Some(trace) = crate::debug_spans::Trace::start("slow-request", started) {
             crate::debug_spans::install(Some(trace));
@@ -779,7 +795,7 @@ impl RequestWatchdog {
 
     /// Tests: every kind's hang tier is `hang`, and records go to `sink`.
     #[cfg(test)]
-    fn for_hang_test(threshold: Duration, hang: Duration, sink: HangSink) -> Self {
+    pub(crate) fn for_hang_test(threshold: Duration, hang: Duration, sink: HangSink) -> Self {
         let capture = Box::new(thread_backtrace::capture);
         let mut watchdog = Self::build(threshold, spawn_watchdog_thread, capture, sink);
         if let Some(shared) = Arc::get_mut(&mut watchdog.shared) {

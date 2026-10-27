@@ -6,7 +6,7 @@
           "index": 0,
           "seconds": {
             "T1": 26380,
-            "T2": 44580
+            "T2": 48780
           },
           "stories": {
             "T1": [
@@ -104,6 +104,7 @@
               "browser-engine-chromium",
               "browser-engine-webkit",
               "browser-idle-cost",
+              "browser-macro",
               "burst-stress",
               "cef-resize-sync",
               "cef-resize-sync-stress",
@@ -155,7 +156,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 44580
+            "T2": 48780
           },
           "stories": {
             "T2": [
@@ -182,6 +183,7 @@
               "browser-engine-chromium",
               "browser-engine-webkit",
               "browser-idle-cost",
+              "browser-macro",
               "burst-stress",
               "cef-resize-sync",
               "cef-resize-sync-stress",
