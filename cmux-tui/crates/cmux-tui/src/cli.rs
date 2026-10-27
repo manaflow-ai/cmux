@@ -24,6 +24,7 @@ mod app_focus;
 mod apps_run;
 #[cfg(unix)]
 mod billing;
+mod caller_env;
 mod capability_cache;
 #[cfg(unix)]
 mod chief;

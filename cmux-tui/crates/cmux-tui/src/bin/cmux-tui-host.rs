@@ -33,12 +33,24 @@
 //! last argument. `--version` prints `cmux-tui-host <build identity>`: a macOS
 //! daemon runs this sibling only when it is the daemon's own build.
 
+#[cfg(unix)]
+#[path = "cmux-tui-host/mcp_relay.rs"]
+mod mcp_relay;
+
 fn main() -> std::process::ExitCode {
     let mut args = std::env::args().skip(1).collect::<Vec<_>>();
     #[cfg(unix)]
     if args.first().map(String::as_str) == Some("--version") {
         println!("cmux-tui-host {}", cmux_build_identity::BUILD_IDENTITY);
         return std::process::ExitCode::SUCCESS;
+    }
+    // An agent's MCP relay (`cmux mcp serve` with `mcpCatalogHost`): before
+    // the task role, it carries automation, not the person's keystrokes.
+    #[cfg(unix)]
+    if let [verb, fd] = args.as_slice()
+        && verb == mcp_relay::VERB
+    {
+        return std::process::ExitCode::from(mcp_relay::run(fd));
     }
     // Chromium's SetCurrentTaskDefaultRole: the holder and every terminal
     // host carry the person's keystrokes and echo. A refusal is not fatal.

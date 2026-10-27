@@ -25,10 +25,59 @@ pub struct Client {
     notifications: Mutex<Option<mpsc::Receiver<Message>>>,
     notif_tx: Arc<Mutex<mpsc::Sender<Message>>>,
     closed: Arc<std::sync::atomic::AtomicBool>,
+    /// The acpmux session this client runs inside (`ACPMUX_SESSION_ID`): a
+    /// `session/new` it sends is tagged as that session's sub-session.
+    parent_session: Option<String>,
+}
+
+/// Who a client speaks for: the acpmux session it runs inside and the caller
+/// token the daemon put in that session's env (`hub/person.rs` (a)), with the
+/// socket of the daemon that issued the token. A process that runs requests
+/// for several sessions (the `cmux mcp` catalog host) names the caller of
+/// each connection instead of its own environment.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ClientCaller {
+    pub session_id: Option<String>,
+    pub token: Option<String>,
+    pub issuer_socket: Option<String>,
+}
+
+impl ClientCaller {
+    /// The caller an environment names (`env` reads one variable).
+    pub fn from_env(env: impl Fn(&str) -> Option<String>) -> Self {
+        let set = |key: &str| env(key).filter(|value| !value.is_empty());
+        Self {
+            session_id: set("ACPMUX_SESSION_ID"),
+            token: set(crate::hub::person::CALLER_TOKEN_ENV),
+            issuer_socket: set(crate::hub::person::CALLER_SOCKET_ENV),
+        }
+    }
+
+    /// The caller of this process's own environment.
+    pub fn of_process() -> Self {
+        Self::from_env(|key| std::env::var(key).ok())
+    }
+
+    /// The `{sessionId, token}` hello field for the daemon at `path`: only
+    /// to the socket of the daemon that issued the token (never to another
+    /// daemon, or whatever listens on a path the agent pointed the CLI at).
+    fn hello_field(&self, path: &Path) -> Option<Value> {
+        let (Some(id), Some(token), Some(issuer)) =
+            (&self.session_id, &self.token, &self.issuer_socket)
+        else {
+            return None;
+        };
+        (Path::new(issuer) == path).then(|| json!({"sessionId": id, "token": token}))
+    }
 }
 
 impl Client {
     pub async fn connect(path: &Path) -> Result<Arc<Self>> {
+        Self::connect_as(path, ClientCaller::of_process()).await
+    }
+
+    /// [`Client::connect`] for `caller` instead of this process's own session.
+    pub async fn connect_as(path: &Path, caller: ClientCaller) -> Result<Arc<Self>> {
         let stream = crate::local_stream::connect(path)
             .await
             .with_context(|| format!("connect {}", path.display()))?;
@@ -96,24 +145,13 @@ impl Client {
             notifications: Mutex::new(Some(notif_rx)),
             notif_tx,
             closed,
+            parent_session: caller.session_id.clone(),
         });
         let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux-cli", "version": crate::hub::VERSION}});
-        // Inside an acpmux session: say which, with the caller token the
-        // daemon put in that session's env (`hub/person.rs` (a)), only to
-        // the socket of the daemon that issued it (never to another daemon,
-        // or whatever listens on a path the agent pointed the CLI at).
-        let caller = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
-        let issuer = caller(crate::hub::person::CALLER_SOCKET_ENV);
-        if let (Some(id), Some(token), true) = (
-            caller("ACPMUX_SESSION_ID"),
-            caller(crate::hub::person::CALLER_TOKEN_ENV),
-            issuer.is_some_and(|socket| Path::new(&socket) == path),
-        ) {
+        // Inside an acpmux session: say which, with its caller token.
+        if let Some(field) = caller.hello_field(path) {
             let mut meta = serde_json::Map::new();
-            meta.insert(
-                crate::hub::person::CALLER_FIELD.to_owned(),
-                json!({"sessionId": id, "token": token}),
-            );
+            meta.insert(crate::hub::person::CALLER_FIELD.to_owned(), field);
             hello.set("_meta", json!({"acpmux": meta}));
         }
         let init = client.request(method::INITIALIZE, hello).await?;
@@ -189,10 +227,7 @@ impl Client {
     /// lists fold it under its parent. The session exists either way; a failed tag only lists
     /// it on its own.
     async fn tag_spawned_by(&self, reply: &Value) {
-        let Some(parent) = std::env::var("ACPMUX_SESSION_ID").ok().filter(|id| !id.is_empty())
-        else {
-            return;
-        };
+        let Some(parent) = &self.parent_session else { return };
         let Some(id) = reply.get("sessionId").and_then(Value::as_str) else { return };
         let set = json!({ crate::hub::views::SPAWNED_BY_TAG: parent });
         let _ = self.send_request(method::MUX_TAG, json!({"sessionId": id, "set": set})).await;

@@ -871,14 +871,22 @@ pub async fn wait_for_exit() -> bool {
 
 /// Connect to the daemon, starting one if needed.
 pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
+    connect_as(autostart, crate::client::ClientCaller::of_process()).await
+}
+
+/// [`connect`] for `caller` instead of this process's own session.
+pub async fn connect_as(
+    autostart: bool,
+    caller: crate::client::ClientCaller,
+) -> Result<Arc<Client>> {
     let path = socket_path();
-    if let Ok(c) = Client::connect(&path).await {
+    if let Ok(c) = Client::connect_as(&path, caller.clone()).await {
         return Ok(c);
     }
     if !autostart {
         return Err(anyhow!("no acpmux daemon at {} (run `acpmux daemon`)", path.display()));
     }
-    start_and_connect(&path, || Client::connect(&path)).await
+    start_and_connect(&path, || Client::connect_as(&path, caller.clone())).await
 }
 
 /// A connected socket to the daemon, starting one if needed, for a client

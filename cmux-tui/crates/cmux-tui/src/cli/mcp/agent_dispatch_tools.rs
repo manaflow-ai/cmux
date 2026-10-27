@@ -480,7 +480,8 @@ pub(super) fn acpmux_request(
             },
         )?;
         let result = runtime.block_on(async {
-            let client = acpmux::deliver::connect().await.map_err(|error| {
+            let caller = super::super::caller_env::acpmux_caller();
+            let client = acpmux::deliver::connect_as(caller).await.map_err(|error| {
                 RequestError::Transport { message: error.to_string(), sent: false }
             })?;
             let answer = tokio::time::timeout(timeout, client.request(method, params))

@@ -224,7 +224,16 @@ impl Upstream {
 
     fn try_start(&mut self) -> Result<(), String> {
         self.conn = None;
-        let mut child = Command::new(&self.spec.command)
+        let mut command = Command::new(&self.spec.command);
+        // In the shared host the server is the client's: its environment and
+        // folder, not the host's.
+        if let Some(caller) = super::super::caller_env::current() {
+            command.env_clear().envs(caller.vars());
+            if let Some(cwd) = caller.cwd() {
+                command.current_dir(cwd);
+            }
+        }
+        let mut child = command
             .args(&self.spec.args)
             // This server's own folding and allowlist stay with it.
             .env_remove(ENV)

@@ -50,7 +50,7 @@ pub(in crate::cli) fn resolve_socket_or_report(
 pub(in crate::cli) fn resolve_socket_with_origin(
     global: &GlobalArgs,
 ) -> anyhow::Result<(PathBuf, bool)> {
-    resolve_socket_with_env(global, |name| std::env::var_os(name))
+    resolve_socket_with_env(global, super::super::caller_env::var_os)
 }
 
 pub(in crate::cli) fn resolve_socket_with_env(

@@ -32,8 +32,8 @@ pub(super) fn for_connection(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
     socket: &Path,
 ) -> Option<String> {
-    let own_socket = std::env::var_os("CMUX_TUI_SOCKET").map(PathBuf::from);
-    let credential = for_socket(crate::startup_env::launch_credential(), own_socket, socket)?;
+    let own_socket = super::caller_env::var_os("CMUX_TUI_SOCKET").map(PathBuf::from);
+    let credential = for_socket(super::caller_env::launch_credential(), own_socket, socket)?;
     advertises(reader, socket, LAUNCH_CREDENTIAL_CAPABILITY).then_some(credential)
 }
 
