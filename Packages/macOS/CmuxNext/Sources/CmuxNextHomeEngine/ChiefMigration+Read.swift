@@ -21,8 +21,8 @@ extension ChiefMigration {
             let exported = scratch.appendingPathComponent("export-\(old.tag)", isDirectory: true)
             do { try await tool.exportText(muxHome: old.muxHome, to: exported) } catch { return nil }
             textDir = exported
-            let state = Dictionary(uniqueKeysWithValues: (readStoreRows(database, "SELECT key, value FROM state WHERE key LIKE 'host/%'") ?? [])
-                .compactMap { row in row.count == 2 ? (row[0], row[1]) : nil })
+            let state = Dictionary((readStoreRows(database, "SELECT key, value FROM state WHERE key LIKE 'host/%'") ?? [])
+                .compactMap { row in row.count == 2 ? (row[0], row[1]) : nil }, uniquingKeysWith: { first, _ in first })
             hostConversation = state["host/conversation"].flatMap { try? JSONSerialization.blockingJSONObject(with: Data($0.utf8), options: .fragmentsAllowed) as? String }
             loggedSeq = state["host/logged_seq"].flatMap { UInt64($0) } ?? 0
         } else if let data = try? Data(contentsOf: optchat.appendingPathComponent("host.json")), // concurrency-allow: only ChiefMigration.run (@concurrent) reads sources, off the main actor

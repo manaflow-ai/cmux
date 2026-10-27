@@ -271,7 +271,7 @@ struct AppSleepsOnWakeLeewayTests {
     /// so each pass also runs the main run loop, where that post arrives.
     private static func settleRound(_ asks: CloudAccessAsks?, _ rig: MainDeadlineRig, passes: Int = 400) async {
         for _ in 0..<passes where asks?.isTriaging == true {
-            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
+            runMainLoopPass(for: 0.001)
             rig.frame()
             await Task.yield()
         }

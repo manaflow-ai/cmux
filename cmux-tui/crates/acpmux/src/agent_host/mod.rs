@@ -41,6 +41,7 @@ pub use wait::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
+use cmux_blocking::{BlockingKind, scoped_blocking_call};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -315,12 +316,12 @@ pub fn random_hex(bytes: usize) -> Result<String> {
 pub fn load_records(dir: &Path) -> Result<(Vec<(PathBuf, HostRecord)>, Vec<UnreadableRecord>)> {
     let mut good = Vec::new();
     let mut bad = Vec::new();
-    match std::fs::symlink_metadata(dir) {
+    match cmux_blocking::fs::symlink_metadata(dir) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((good, bad)),
         Err(e) => return Err(e.into()),
         Ok(_) => crate::config::private_state_dir(dir)?,
     }
-    let entries = match std::fs::read_dir(dir) {
+    let entries = match cmux_blocking::fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((good, bad)),
         Err(e) => return Err(e.into()),
@@ -354,7 +355,7 @@ pub fn load_records(dir: &Path) -> Result<(Vec<(PathBuf, HostRecord)>, Vec<Unrea
                 continue;
             }
         }
-        let bytes = match std::fs::read(&path) {
+        let bytes = match cmux_blocking::fs::read(&path) {
             Ok(b) => b,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
             Err(e) => {
@@ -449,7 +450,11 @@ pub enum Liveness {
 pub fn liveness(dir: &Path, session_id: &str, start_nonce: &str) -> Liveness {
     use std::os::fd::AsRawFd;
     let path = live_path(dir, session_id, start_nonce);
-    let file = match std::fs::OpenOptions::new().read(true).write(true).open(&path) {
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    let opened = scoped_blocking_call("fs::open_with", BlockingKind::Fs, || {
+        std::fs::OpenOptions::new().read(true).write(true).open(&path)
+    });
+    let file = match opened {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Liveness::Dead,
         Err(_) => return Liveness::Unknown,
@@ -541,16 +546,16 @@ pub fn terminate_unadoptable(
 
 /// Remove a dead host's record, lock and socket.
 pub fn remove_artifacts(dir: &Path, record: &HostRecord) {
-    let _ = std::fs::remove_file(record_path(dir, &record.session_id));
-    let _ = std::fs::remove_file(live_path(dir, &record.session_id, &record.start_nonce));
-    let _ = std::fs::remove_file(&record.socket);
+    let _ = cmux_blocking::fs::remove_file(record_path(dir, &record.session_id));
+    let _ = cmux_blocking::fs::remove_file(live_path(dir, &record.session_id, &record.start_nonce));
+    let _ = cmux_blocking::fs::remove_file(&record.socket);
 }
 
 /// Whether the record file at `path` names the host incarnation `nonce`. A
 /// record that exists but cannot be read counts as this host's (never end
 /// or delete on a doubt); a missing one does not.
 pub fn names_this_host(path: &Path, nonce: &str) -> bool {
-    match std::fs::read(path) {
+    match cmux_blocking::fs::read(path) {
         Ok(bytes) => serde_json::from_slice::<HostRecord>(&bytes)
             .ok()
             .is_none_or(|record| record.start_nonce == nonce),
@@ -565,11 +570,13 @@ pub fn names_this_host(path: &Path, nonce: &str) -> bool {
 /// session id at once: by then this host touches none of its files.
 pub fn remove_own_artifacts(dir: &Path, record: &HostRecord) {
     let path = record_path(dir, &record.session_id);
-    if names_this_host(&path, &record.start_nonce) && path.exists() {
-        let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_file(&record.socket);
+    if names_this_host(&path, &record.start_nonce)
+        && cmux_blocking::fs::exists(&path).unwrap_or(false)
+    {
+        let _ = cmux_blocking::fs::remove_file(&path);
+        let _ = cmux_blocking::fs::remove_file(&record.socket);
     }
-    let _ = std::fs::remove_file(live_path(dir, &record.session_id, &record.start_nonce));
+    let _ = cmux_blocking::fs::remove_file(live_path(dir, &record.session_id, &record.start_nonce));
 }
 
 /// Hosts of pooled sessions (hidden sessions nobody took yet,
@@ -590,12 +597,12 @@ pub fn pool_dir(hosts: &Path) -> PathBuf {
 pub fn promote(from: &Path, to: &Path, record: &HostRecord) -> Result<()> {
     ensure_private_dir(to)?;
     let id = &record.session_id;
-    std::fs::rename(
+    cmux_blocking::fs::rename(
         live_path(from, id, &record.start_nonce),
         live_path(to, id, &record.start_nonce),
     )
     .context("move the pooled host's lock")?;
-    std::fs::rename(record_path(from, id), record_path(to, id))
+    cmux_blocking::fs::rename(record_path(from, id), record_path(to, id))
         .context("move the pooled host's record")?;
     Ok(())
 }
@@ -609,14 +616,15 @@ pub fn remove_promoted(dir: &Path, record: &HostRecord) {
     }
     let Some(hosts) = dir.parent() else { return };
     let path = record_path(hosts, &record.session_id);
-    let ours = std::fs::read(&path)
+    let ours = cmux_blocking::fs::read(&path)
         .ok()
         .and_then(|b| serde_json::from_slice::<HostRecord>(&b).ok())
         .is_some_and(|r| r.start_nonce == record.start_nonce);
     if ours {
-        let _ = std::fs::remove_file(&path);
+        let _ = cmux_blocking::fs::remove_file(&path);
     }
-    let _ = std::fs::remove_file(live_path(hosts, &record.session_id, &record.start_nonce));
+    let _ =
+        cmux_blocking::fs::remove_file(live_path(hosts, &record.session_id, &record.start_nonce));
 }
 
 /// Write `value` to `path` through a temporary file and a rename.
@@ -625,20 +633,20 @@ pub fn write_record_atomic(path: &Path, record: &HostRecord) -> Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
     let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&tmp)
-        .with_context(|| format!("create {}", tmp.display()))?;
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    let mut f = scoped_blocking_call("fs::open_with", BlockingKind::Fs, || {
+        std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)
+    })
+    .with_context(|| format!("create {}", tmp.display()))?;
     let written = (|| -> Result<()> {
         f.write_all(&serde_json::to_vec(record)?)?;
-        f.sync_all()?;
-        std::fs::rename(&tmp, path)?;
+        #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+        scoped_blocking_call("fs::sync_all", BlockingKind::Fs, || f.sync_all())?;
+        cmux_blocking::fs::rename(&tmp, path)?;
         Ok(())
     })();
     if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = cmux_blocking::fs::remove_file(&tmp);
     }
     written
 }
