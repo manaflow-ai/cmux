@@ -177,8 +177,7 @@ public final class AgentPaneView: NSView {
             // The shared web theme (`window.cmuxTheme`, `--cmux-*`): the page
             // background is the one surface token, or clear over a see-through
             // window (plans/cmux-next/windows.md).
-            configuration.userContentController.addUserScript(
-                WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            WebTheme.installUserScripts(on: configuration.userContentController)
             if let script = AgentPaneTunables.documentScript {
                 configuration.userContentController.addUserScript(
                     WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))

@@ -193,7 +193,7 @@ body {
 
 /* Monaco reads its fonts from options (settings.ts); its widgets follow the page's UI font. */
 .ed-host .monaco-editor {
-  --vscode-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --vscode-font-family: var(--font-ui);
 }
 
 /* Monaco's find and replace fields mark focus with a class (`synthetic-focus`), not :focus, and draw

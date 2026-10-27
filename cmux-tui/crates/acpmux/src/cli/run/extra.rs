@@ -4,6 +4,31 @@ use super::*;
 
 pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> Result<()> {
     match cmd {
+        Command::Retention(args) => {
+            let client = connect(true).await?;
+            let archive = args.archive.map(std::path::absolute).transpose()?;
+            let v = client
+                .request(
+                    method::MUX_RETENTION,
+                    json!({"dryRun": args.dry_run, "archive": archive, "olderThanDays": args.older_than_days, "only": args.only}),
+                )
+                .await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                let mb = |key: &str| v[key].as_u64().unwrap_or(0) as f64 / 1_048_576.0;
+                println!(
+                    "{} closed chats older than {} days: {:.1} MB of {:.1} MB {}",
+                    v["chats"],
+                    v["olderThanDays"],
+                    mb("freedBytes"),
+                    mb("bytesBefore"),
+                    if args.dry_run { "would be freed (dry run)" } else { "freed" }
+                );
+                println!("skipped: {}", v["skipped"]);
+            }
+            Ok(())
+        }
         Command::Cancel { session } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
@@ -557,6 +582,24 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     }
                     return Ok(());
                 }
+                PeerCmd::VmHost { name, state } => {
+                    // `vm-host on` names no peer: the state alone.
+                    let (name, state) = match (name, state) {
+                        (Some(n), None) if n == "on" || n == "off" => (None, Some(n)),
+                        other => other,
+                    };
+                    let mut p = json!({"on": state.as_deref().map(|s| s == "on")});
+                    if let Some(name) = &name {
+                        p["name"] = json!(name);
+                    }
+                    let v = client.request("_acpmux/vm_host", p).await?;
+                    if json_out {
+                        print_json(&v);
+                    } else {
+                        println!("{}", crate::cli::peer_status::vm_host_line(name.as_deref(), &v));
+                    }
+                    return Ok(());
+                }
                 PeerCmd::Rm { name } => {
                     client.request("_acpmux/peer_remove", json!({"name": name})).await?
                 }
@@ -639,7 +682,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             for p in peers {
                 let state = crate::peer_link::state_label(&p, crate::store::now_ms());
                 let build = p.get("remoteBuild").and_then(Value::as_str).unwrap_or("");
-                let outdated = p.get("outdated").and_then(Value::as_bool).unwrap_or(false);
                 println!(
                     "{:<16} {:<10} {:>3} sessions  {}  {:<24} {}{}{}{}",
                     p.get("name").and_then(Value::as_str).unwrap_or(""),
@@ -648,11 +690,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     crate::cli::peer_status::resources(&p),
                     p.get("url").and_then(Value::as_str).unwrap_or(""),
                     if build.is_empty() { String::new() } else { format!("build {build}") },
-                    if outdated {
-                        "  (differs from this build: acpmux host update NAME)"
-                    } else {
-                        ""
-                    },
+                    crate::cli::peer_status::outdated_hint(
+                        p.get("name").and_then(Value::as_str).unwrap_or(""),
+                        &p,
+                    )
+                    .unwrap_or_default(),
                     p.get("error")
                         .and_then(Value::as_str)
                         .map(|e| format!("  ({e})"))

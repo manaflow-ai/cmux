@@ -90,9 +90,7 @@ impl Hub {
                 None => wake.notified().await,
             }
             let Some(hub) = weak.upgrade() else { return };
-            if hub.full_access_managed_off() {
-                hub.end_every_managed_full_access().await;
-            }
+            hub.end_every_managed_full_access(hub.full_access_managed_off()).await;
             if let Some(stalled) = hub.config.read().await.stalled_turn_end() {
                 hub.settle_stalled_turns(stalled);
             }
