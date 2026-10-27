@@ -66,9 +66,9 @@ final class BrowserHibernation {
     var pendingWakes: [String: HibernatedBrowserTab.Wake] = [:]
     /// Pages a discard probe is asking now.
     private(set) var probing: Set<String> = []
-    /// Hidden pages whose `beforeunload` asked, once, right before a discard: they stay until shown, and their
-    /// handlers do not run again on every replan (each run is the page's own unload logic on a page that lives on).
-    var askedBeforeUnload: Set<String> = []
+    /// Pages whose discard was tried and did not finish (a refused freeze, a `beforeunload` that asked, no restore state,
+    /// nothing prepared at release): kept until shown or the person's Hibernate Tab (`DiscardRule.discardAttempted`).
+    var discardAttempts = ContentDiscardPlanner.AttemptMarkers()
     /// The next page to come due: one background deadline (nobody sees a discard happen).
     private let deadline: MainDeadline
     /// Hidden pages frozen now (`browser.freezeHiddenTabs`); they thaw when shown or driven.
@@ -373,7 +373,7 @@ final class BrowserHibernation {
         prepared[key] = nil
         exemptions[key] = nil
         probeKeptAt[key] = nil
-        askedBeforeUnload.remove(key)
+        discardAttempts.clear(key)
         activity.forget(key)
         focusHistory.note(key, at: now())
     }
@@ -411,7 +411,7 @@ final class BrowserHibernation {
         agentUsedAt[key] = nil
         prepared[key] = nil
         probing.remove(key)
-        askedBeforeUnload.remove(key)
+        discardAttempts.clear(key)
         exemptions[key] = nil
         frozen.remove(key)
         tabVisibility.forget(key)
@@ -684,6 +684,7 @@ final class BrowserHibernation {
         // after `freezeSeconds` (a hidden page's visibility reaches the engine within a frame).
         guard page.setFrozen(true) else {
             freezeKeptAt[key] = now()
+            discardAttempts.mark(key)
             cache?.trace(key, "freeze refused")
             replan()
             return
@@ -712,6 +713,7 @@ final class BrowserHibernation {
     /// unless a disallowed rule keeps it (`HibernationPlanner.hibernateTabRefusal`). Returns why not, or nil when it started.
     func hibernateNow(_ key: String) -> HibernationPlanner.Exemption? {
         guard let cache, let entry = cache.browsers[key], cache.lifecycle.phase(key) == .mountedHidden else { return .disabled }
+        discardAttempts.clear(key) // the person asks again: the mark only stops cmux's own retries
         if let refusal = HibernationPlanner.hibernateTabRefusal(candidate(key, entry: entry, hiddenFor: 0), setting: setting) {
             exemptions[key] = refusal
             return refusal
@@ -770,13 +772,13 @@ final class BrowserHibernation {
             case .keep, .go:
                 break
             }
-            if let exemption {
+            if let exemption, exemption != .beforeUnload {
                 self.exemptions[key] = exemption
                 self.probeKeptAt[key] = self.now()
                 return
             }
-            guard let state = viewState.map(BrowserRestoreState.appPage) ?? source.hibernationState() else {
-                self.exemptions[key] = .unsupported
+            guard exemption == nil, let state = viewState.map(BrowserRestoreState.appPage) ?? source.hibernationState() else {
+                self.discardFailed(key, exemption ?? .unsupported)
                 return
             }
             self.prepared[key] = (state, snapshot)
@@ -800,6 +802,7 @@ final class BrowserHibernation {
     func release(_ key: String, token: ContentLifecycle<String>.Token) {
         guard let cache, let entry = cache.browsers[key], let saved = prepared.removeValue(forKey: key) else {
             logger.error("hibernate \(key, privacy: .public): nothing prepared")
+            discardAttempts.mark(key)
             return
         }
         let page = entry.tab
