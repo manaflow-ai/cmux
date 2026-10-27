@@ -128,11 +128,15 @@ RUN_SCHEMA = "cmux-oracle-run-v1"
 COMPARISON_SCHEMA = "cmux-oracle-comparison-v2"
 RESULTS = ("Pass", "Failure", "Crash", "Timeout")
 SLOW_MULTIPLIER = 5
-CAPABILITIES = frozenset({"resource_api", "actions", "keys", "gui", "chromium", "restart", "mcp", "tui", "git_repo"})
+CAPABILITIES = frozenset(
+    {"resource_api", "actions", "keys", "gui", "chromium", "restart", "mcp", "tui", "git_repo", "state_root"}
+)
 # WPT runs one suite against several products; a case runs on a product only when the
 # product has every capability the case `requires`. git_repo (a case with fixture.repo): the
 # driver builds the repository with make_repo.build_for_case first; no driver does yet
-# (p15-oracle-243), so no product has it.
+# (p15-oracle-243), so no product has it. state_root (a case with fixture.stateRoot) runs a tag's
+# build and head's on one state root: gen_upgrades.py run is its runner (p15-oracle-208), so no
+# product has it either.
 PRODUCTS: Dict[str, frozenset] = {
     "daemon": frozenset({"resource_api", "restart"}),
     "cli": frozenset({"resource_api", "restart"}),
@@ -457,11 +461,28 @@ class ExpectationStore:
         return rules
 
 
-def load_expectations(root: Path, *, platform: str, arm: Optional[str], product: str, build: str) -> Optional[ExpectationStore]:
+def expectation_arm(arm: Optional[str], registry: Mapping[str, Mapping[str, Any]]) -> Optional[str]:
+    """The run's value in the expectations' arm tag group. A --switch run is on its arm. A run that sets no arm
+    (None or default) runs every switch at its registry `default`: switches land at default old and flip to new
+    only before their old path is deleted (refactor-switches/README.md), so that run is [ old ] while no default
+    is new, [ new ] once every default is, and on no arm while they differ. launch-config mixes planned arms."""
+    if arm in ARMS:
+        return arm
+    if arm not in (None, "default"):
+        return None
+    defaults = {entry.get("default", "old") for entry in registry.values()}
+    if not defaults:
+        return "old"
+    return defaults.pop() if len(defaults) == 1 and defaults <= set(ARMS) else None
+
+
+def load_expectations(root: Path, *, platform: str, arm: Optional[str], product: str, build: str,
+                      registry: Optional[Mapping[str, Mapping[str, Any]]] = None) -> Optional[ExpectationStore]:
     module = load_sibling("expectations")
     if module is None:
         return None
-    return ExpectationStore.load(module, root, platform=platform, arm=arm, product=product, build=build)
+    run_arm = expectation_arm(arm, load_switch_registry() if registry is None else registry)
+    return ExpectationStore.load(module, root, platform=platform, arm=run_arm, product=product, build=build)
 
 
 # ---------------------------------------------------------------------------------------

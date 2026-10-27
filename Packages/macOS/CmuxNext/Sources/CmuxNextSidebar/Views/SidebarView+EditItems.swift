@@ -99,7 +99,7 @@ final class SidebarEditBar: NSView {
         }
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: only invalidates: AppKit draws a hidden view when it shows
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
     }

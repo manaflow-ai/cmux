@@ -290,6 +290,17 @@ public nonisolated struct Signposter: Sendable {
         trace.event(name, arg0: arg0, arg1: arg1)
     }
 
+    /// Records one input wait for Ghostty's terminal lock (``SignpostName/ghosttyLockWait``), formatted by the log
+    /// system only when something reads it (`wait_us=<wait>`), so the key handler that waited builds no `String`.
+    /// The ring record is an instant with the wait in ns in `arg0`.
+    ///
+    /// - Parameter nanos: The wait.
+    public func ghosttyLockWait(nanos: UInt64) {
+        assert(SignpostName.ghosttyLockWait.category == category, "ghostty.lock_wait is not in category \(category)")
+        signposter.emitEvent(SignpostName.ghosttyLockWait.staticName, "wait_us=\(nanos / 1_000, privacy: .public)")
+        trace.event(.ghosttyLockWait, arg0: nanos)
+    }
+
     /// Now on the clock ``SignpostInterval/beginUptimeNanos`` reads, so an end measures its interval with one read.
     public func nowNanos() -> UInt64 { clock.nowNanos() }
 

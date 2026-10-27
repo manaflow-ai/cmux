@@ -39,8 +39,9 @@ struct DiffColorsSettingTests {
         await settings.reload()
 
         let pages = AgentPanePageSettings()
-        pages.follow(settings) {}
-        let prefs = SettingsDiffPrefs(mainWork: MainWorkScheduler(budget: MainFrameBudget())) { settings }
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget())
+        pages.follow(settings, on: mainWork) {}
+        let prefs = SettingsDiffPrefs(mainWork: mainWork) { settings }
         var streamed: [JSONValue] = []
         let stop = prefs.listen { streamed.append($0["colors"] ?? .null) }
         defer { stop() }

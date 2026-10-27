@@ -30,8 +30,9 @@ public final class AgentPaneLoadingView: NSView {
     var paintCheckInterval: Duration = .seconds(4) {
         didSet { if onGiveUp != nil { schedulePaintCheck() } }
     }
-    private let markTimer = DemandTimer(owner: "agentPane.loadingMark")
-    private let paintTimer = DemandTimer(owner: "agentPane.paintCheck")
+    /// Both deadlines are `visible`: the mark and the paint check are what the person sees of a page that loads.
+    private let markTimer: MainDeadline
+    private let paintTimer: MainDeadline
     private var onGiveUp: (@MainActor () -> Void)?
     /// The last check saw the pane, still unpainted.
     private var seenUnpainted = false
@@ -46,8 +47,11 @@ public final class AgentPaneLoadingView: NSView {
     /// the only way a test on a headless host can tell them apart.
     private(set) var leftFading: Bool?
 
-    override init(frame: NSRect) {
-        super.init(frame: frame)
+    /// - Parameter deadlines: The app's one deadline placer (the pane model's), for the mark's delay and the paint checks.
+    init(deadlines: MainDeadlineScheduler) {
+        markTimer = MainDeadline(owner: "agentPane.loadingMark", workClass: .visible, scheduler: deadlines)
+        paintTimer = MainDeadline(owner: "agentPane.paintCheck", workClass: .visible, scheduler: deadlines)
+        super.init(frame: .zero)
         wantsLayer = true
         autoresizingMask = [.width, .height]
         indicator.configure(.busy(progress: nil))
@@ -78,7 +82,7 @@ public final class AgentPaneLoadingView: NSView {
     /// Shows the mark after ``markDelay``, unless the page paints first. Out of the view until then:
     /// the indicator sets its own `isHidden` from its config whenever it refreshes.
     func showMarkLater() {
-        markTimer.scheduleOnMain(after: Self.markDelay) { [weak self] in
+        markTimer.schedule(after: Self.markDelay) { [weak self] in
             guard let self else { return }
             addSubview(indicator)
         }
@@ -93,7 +97,7 @@ public final class AgentPaneLoadingView: NSView {
     }
 
     private func schedulePaintCheck() {
-        paintTimer.scheduleOnMain(after: paintCheckInterval) { [weak self] in self?.checkPaint() }
+        paintTimer.schedule(after: paintCheckInterval) { [weak self] in self?.checkPaint() }
     }
 
     private func checkPaint() {
@@ -112,8 +116,9 @@ public final class AgentPaneLoadingView: NSView {
     /// outside the window's content (a parked New Tab spare). Not the window's occlusion state:
     /// WebKit's own view of it is what holds the paint.
     private var paneIsSeen: Bool {
-        guard let pane = superview, let window, window.isVisible, let content = window.contentView,
-              !pane.isHiddenOrHasHiddenAncestor else { return false }
+        guard let pane = superview, let window, window.isVisible, let content = window.contentView else { return false }
+        // visibility-walk-allow: WebKit holds the paint by the view tree the page is in, so the check reads that same AppKit state; once per paint check (4 s) while unpainted
+        guard !pane.isHiddenOrHasHiddenAncestor else { return false }
         // Window coordinates: `visibleRect` does not clip to views that do not clip to bounds.
         return pane.convert(pane.bounds, to: nil).intersects(content.convert(content.bounds, to: nil))
     }
@@ -252,6 +257,7 @@ extension AgentPaneView {
     /// What this pane shows now, for ``ChatOpenTrace``: a hold keeping the content it replaces, its
     /// loading cover, the launch image, or the page before or after its first contentful paint.
     var traceSurface: ChatOpenTrace.Surface {
+        // visibility-walk-allow: the trace reports what AppKit shows of the pane (a DEBUG and bench probe), its own view state
         guard window != nil, !isHiddenOrHasHiddenAncestor else { return .gone }
         if alphaValue == 0 { return .held }
         if loadingView.superview != nil {

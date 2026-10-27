@@ -217,14 +217,19 @@ pub struct KeyEncoder {
     event: sys::GhosttyKeyEvent,
 }
 
+// SAFETY: the encoder and event have no thread affinity (as MouseEncoder's);
+// this value owns both and every use takes &mut self.
 unsafe impl Send for KeyEncoder {}
 
 impl KeyEncoder {
     pub fn new() -> Result<Self> {
         let mut encoder: sys::GhosttyKeyEncoder = ptr::null_mut();
+        // SAFETY: `encoder` is a writable local; a null allocator selects the default.
         check(unsafe { sys::ghostty_key_encoder_new(ptr::null(), &mut encoder) })?;
         let mut event: sys::GhosttyKeyEvent = ptr::null_mut();
+        // SAFETY: `event` is a writable local; a null allocator selects the default.
         if let Err(e) = check(unsafe { sys::ghostty_key_event_new(ptr::null(), &mut event) }) {
+            // SAFETY: `encoder` came from key_encoder_new above and nothing else owns it.
             unsafe { sys::ghostty_key_encoder_free(encoder) };
             return Err(e);
         }
@@ -233,6 +238,8 @@ impl KeyEncoder {
 
     /// Sync encoder options (DECCKM, kitty flags, ...) from a terminal.
     pub fn sync_from_terminal(&mut self, terminal: &Terminal) {
+        // SAFETY: `self.encoder` is this value's live encoder and `terminal.raw()`
+        // the live terminal `&Terminal` borrows; the call reads only its modes.
         unsafe {
             sys::ghostty_key_encoder_setopt_from_terminal(self.encoder, terminal.raw());
         }
@@ -245,6 +252,10 @@ impl KeyEncoder {
             KeyAction::Release => sys::GHOSTTY_KEY_ACTION_RELEASE,
             KeyAction::Repeat => sys::GHOSTTY_KEY_ACTION_REPEAT,
         };
+        // SAFETY: `self.encoder` and `self.event` are this value's live handles;
+        // MACOS_OPTION_AS_ALT reads a GhosttyOptionAsAlt from the live local, and the
+        // utf8 pointer is null with length 0 or `input.utf8`, which outlives the encode
+        // below (the next encode replaces it before any read).
         unsafe {
             let option_as_alt = if input.macos_option_as_alt {
                 sys::GHOSTTY_OPTION_AS_ALT_TRUE
@@ -277,6 +288,8 @@ impl KeyEncoder {
 
         let mut buf = [0u8; 256];
         let mut written: usize = 0;
+        // SAFETY: both handles are live; `buf` is writable for `buf.len()` bytes and
+        // `written` is a writable local.
         let result = unsafe {
             sys::ghostty_key_encoder_encode(
                 self.encoder,
@@ -289,6 +302,8 @@ impl KeyEncoder {
         if result == sys::GHOSTTY_OUT_OF_SPACE {
             let mut big = vec![0u8; written.max(buf.len() * 2)];
             let mut written2: usize = 0;
+            // SAFETY: both handles are live; `big` is writable for `big.len()` bytes and
+            // `written2` is a writable local.
             check(unsafe {
                 sys::ghostty_key_encoder_encode(
                     self.encoder,
@@ -382,6 +397,8 @@ fn decimal_u32(mut value: u32, buffer: &mut [u8; 10]) -> &[u8] {
 
 impl Drop for KeyEncoder {
     fn drop(&mut self) {
+        // SAFETY: Drop runs once; both handles came from their _new calls in `new`
+        // and are owned only by this value.
         unsafe {
             sys::ghostty_key_event_free(self.event);
             sys::ghostty_key_encoder_free(self.encoder);
