@@ -49,7 +49,7 @@ impl Edit {
     fn parse(params: &Value) -> Result<Self, RpcError> {
         if let Some(blocks) = params.get("prompt").and_then(Value::as_array) {
             // Files come with a message (`attach.rs`), never with an edit of one.
-            if crate::attach::any(blocks) {
+            if crate::attach::any(blocks) || crate::prompt_uploads::any(blocks) {
                 return Err(RpcError::invalid_params(
                     "an edit cannot attach files: send them with a message (acpmux send --attach)",
                 )
