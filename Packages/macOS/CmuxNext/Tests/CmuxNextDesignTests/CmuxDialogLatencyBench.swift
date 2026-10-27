@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import WebKit
@@ -10,7 +11,7 @@ import WebKit
 /// with CMUX_DIALOG_BENCH=1 (on cmux-lawrence-2), prints medians and p95.
 /// Windows are never ordered on screen; the web numbers stop at layout
 /// (`offsetHeight`), which is earlier than a painted frame, so they favor
-/// the web path.
+/// the web path. With CMUX_PERF_RESULT_DIR every run is result-v1 (lab story swift-dialog-latency).
 @MainActor
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["CMUX_DIALOG_BENCH"] == "1"))
 struct CmuxDialogLatencyBench {
@@ -93,6 +94,11 @@ struct CmuxDialogLatencyBench {
             warm.append(clock.now - start)
         }
 
+        if let results = try PerfResultWriter() {
+            try results.record("swift.dialog_latency.native", unit: .ms, samples: native.map(PerfResultWriter.milliseconds))
+            try results.record("swift.dialog_latency.web_cold", unit: .ms, samples: cold.map(PerfResultWriter.milliseconds))
+            try results.record("swift.dialog_latency.web_warm", unit: .ms, samples: warm.map(PerfResultWriter.milliseconds))
+        }
         let lines = [Self.report("native", native), Self.report("web-cold", cold), Self.report("web-warm", warm)]
         if let path = ProcessInfo.processInfo.environment["NX_ARTIFACTS"] {
             try lines.joined(separator: "\n").write(toFile: path + "/dialog-latency.txt", atomically: true, encoding: .utf8)

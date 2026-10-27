@@ -32,22 +32,22 @@ public struct VNCEndpoint: Sendable, Equatable, Hashable {
     public static func parse(_ raw: String) -> Parsed? {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.lowercased().hasPrefix("vnc://") { text = String(text.dropFirst(6)) }
-        if let slash = text.firstIndex(where: { $0 == "/" || $0 == "?" }) { text = String(text[..<slash]) }
+        if let slash = text.firstIndex(where: { $0 == "/" || $0 == "?" }) { text = String(text.prefix(upTo: slash)) }
         var credentials = VNCCredentials()
         if let at = text.lastIndex(of: "@") {
-            let info = text[..<at]
-            text = String(text[text.index(after: at)...])
+            let info = text.prefix(upTo: at)
+            text = String(text.suffix(from: at).dropFirst())
             if let colon = info.firstIndex(of: ":") {
-                credentials = VNCCredentials(username: String(info[..<colon]).removingPercentEncoding,
-                                             password: String(info[info.index(after: colon)...]).removingPercentEncoding)
+                credentials = VNCCredentials(username: String(info.prefix(upTo: colon)).removingPercentEncoding,
+                                             password: String(info.suffix(from: colon).dropFirst()).removingPercentEncoding)
             } else {
                 credentials = VNCCredentials(username: String(info).removingPercentEncoding)
             }
         }
         guard !text.isEmpty else { return nil }
         if text.hasPrefix("["), let close = text.firstIndex(of: "]") {
-            let host = String(text[text.index(after: text.startIndex) ..< close])
-            let rest = text[text.index(after: close)...]
+            let host = String(text.prefix(upTo: close).dropFirst())
+            let rest = text.suffix(from: close).dropFirst()
             var port: UInt16 = 5900
             if rest.hasPrefix(":") {
                 guard let value = UInt16(rest.dropFirst()) else { return nil }
@@ -57,13 +57,13 @@ public struct VNCEndpoint: Sendable, Equatable, Hashable {
             return Parsed(endpoint: VNCEndpoint(host: host, port: port), credentials: credentials)
         }
         if let range = text.range(of: "::") {
-            guard let port = UInt16(text[range.upperBound...]), range.lowerBound > text.startIndex else { return nil }
-            return Parsed(endpoint: VNCEndpoint(host: String(text[..<range.lowerBound]), port: port), credentials: credentials)
+            guard let port = UInt16(text.suffix(from: range.upperBound)), range.lowerBound > text.startIndex else { return nil }
+            return Parsed(endpoint: VNCEndpoint(host: String(text.prefix(upTo: range.lowerBound)), port: port), credentials: credentials)
         }
         if let colon = text.lastIndex(of: ":") {
-            let host = String(text[..<colon])
-            guard !host.isEmpty, let value = Int(text[text.index(after: colon)...]), value >= 0, value <= 65535 else { return nil }
-            let port = value < 100 ? UInt16(5900 + value) : UInt16(value)
+            let host = String(text.prefix(upTo: colon))
+            guard !host.isEmpty, let value = Int(text.suffix(from: colon).dropFirst()), value >= 0,
+                  let port = UInt16(exactly: value < 100 ? 5900 + value : value) else { return nil }
             return Parsed(endpoint: VNCEndpoint(host: host, port: port), credentials: credentials)
         }
         return Parsed(endpoint: VNCEndpoint(host: text), credentials: credentials)

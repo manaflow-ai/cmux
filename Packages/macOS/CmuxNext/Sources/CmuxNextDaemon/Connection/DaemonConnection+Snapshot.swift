@@ -43,17 +43,22 @@ extension DaemonConnection {
         if savedGroups { lines.append(PipelinedLine(ListSavedTabGroupsRequest())) }
         if personal { lines.append(PipelinedLine(ListPersonalRequest())) }
         var replies = await ready.transport.pipeline(lines, timeout: configuration.snapshotTimeout)[...]
-        let response = try replies.removeFirst().get()
+        // The pipeline answers each line; a short answer is a broken reply, not a crash.
+        let missing = DaemonError.malformedResponse("snapshot: fewer replies than requests")
+        guard let treeReply = replies.popFirst() else { throw missing }
+        let response = try treeReply.get()
         var tree = try WireCoding.decodeResponse(DaemonTree.self, from: response)
         if savedGroups {
-            let saved = try WireCoding.decodeResponse(ListSavedTabGroupsRequest.Response.self, from: replies.removeFirst().get())
+            guard let savedReply = replies.popFirst() else { throw missing }
+            let saved = try WireCoding.decodeResponse(ListSavedTabGroupsRequest.Response.self, from: savedReply.get())
             if tree.savedTabGroups.isEmpty {
                 tree.savedTabGroups = saved.savedGroups
                 tree.linkSavedTabGroups()
             }
         }
         if personal {
-            tree.personal = try WireCoding.decodeResponse(ListPersonalRequest.Response.self, from: replies.removeFirst().get())
+            guard let personalReply = replies.popFirst() else { throw missing }
+            tree.personal = try WireCoding.decodeResponse(ListPersonalRequest.Response.self, from: personalReply.get())
         }
         return (tree, DaemonEventEnvelope.sequence(serial: ready.serial, index: response.eventBarrier))
     }

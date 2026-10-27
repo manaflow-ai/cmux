@@ -3,7 +3,9 @@ import CmuxNextBrowser
 import CmuxNextChromiumWarmup
 import CmuxNextCompat
 import CmuxNextCrashReporting
+import CmuxNextDesign
 import CmuxNextFeatures
+import CmuxNextMemory
 import CmuxNextSettings
 import CmuxNextWakeups
 import Observation
@@ -94,8 +96,34 @@ extension AppServices {
 // The cache's Chromium engine (p08-startup-024): built at its first read, a Chromium tab or page or the warm-up
 // above, never by launch wiring, and wired as it is built.
 extension AppServices {
+    /// The one Chromium Host's supervisor when Chromium tabs run in it (`cefHelperHost` with its Debug Settings
+    /// override, and `chromiumHostTabs`; Debug builds only: ``BrowserHostTunables/backend(hostEnabled:)``); nil keeps
+    /// Chromium tabs in this process, beside the `debug.chromium_host` prototype.
+    static func chromiumHostSupervisor(work: BackgroundWork, mainWork: MainWorkScheduler,
+                                       features: FeatureList) -> (any ChromiumHostSupervising)? {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let hostSwitch = AppControl.chromiumHostSwitch(in: features, tunables: TunableStore.shared)
+        let hostTabs = hostSwitch.isEnabled && features.isEnabled(.chromiumHostTabs)
+        guard BrowserHostTunables.backend(hostEnabled: hostTabs) == .host else { return nil }
+        return ChromiumHostSupervisor(work: work, mainWork: mainWork, fencesResizes: features.isEnabled(.chromiumHostResizeFence),
+                                      restoresPages: features.isEnabled(.chromiumHostRestoreTabs))
+        #else
+        return nil
+        #endif
+    }
+
     /// The slot `cache` holds.
     func makeChromiumSlot() -> ChromiumEngineSlot {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // A host that ends while cmux quits reports nothing (quit ends it).
+        let supervisor = chromiumRuntime.source.hostSupervisor as? ChromiumHostSupervisor
+        supervisor?.isQuitting = { [weak self] in self?.quit.isQuitting == true }
+        // A crashed host's tabs come back with the history their daemon records keep (p01-process-083).
+        supervisor?.savedNavigation = { [weak self] tab, url in
+            guard let tabs = self?.cache.browserTabs else { return nil }
+            return await tabs.historyStarts.hostRestart(tab.rawValue, at: url, service: tabs)
+        }
+        #endif
         let pumpInput = features.isEnabled(.cefPumpInputPolicy) ? CEFPumpInputSeams(mainWork: mainWork) : nil
         // The lanes whose startup fence holds a predicted start's framework read (p08-startup-045).
         let prefetchWork = features.isEnabled(.cefPrefetchBehindFence) ? work : nil
@@ -108,6 +136,7 @@ extension AppServices {
         // Host mode only: <select> popups as cmux menus (p01-process-060).
         chromiumRuntime.source.drawsHostPopupMenus = features.isEnabled(.chromiumHostPopupMenus)
         chromiumRuntime.source.drawsHostSuggestions = features.isEnabled(.chromiumHostSuggestions) // p01-process-061
+        chromiumRuntime.source.drawsHostChoosers = features.isEnabled(.chromiumHostChoosers) // p01-process-228
         // Host mode only: page file choosers in cmux's picker, the files sent as paths (p01-process-064).
         chromiumRuntime.source.hostFileDialogs = features.isEnabled(.chromiumHostFileDialogs) ? ChromiumFileDialogPanels(openPanel: openPanel) : nil
         // Restored pages start Chromium by their origin, the visible one after the first frame (p08-startup-040).
@@ -117,7 +146,8 @@ extension AppServices {
                                            chromiumFeatures = features.enabledChromiumFeatures,
                                            disabledChromiumFeatures = features.disabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting),
                                            attachedPages = features.isEnabled(.cefAttachedPages), memoryCoordinator,
-                                           everyPage = Self.hostsEveryPage(features)] stores, deadlines, source in
+                                           everyPage = Self.hostsEveryPage(features),
+                                           rendererCaps = Self.sharedRendererMemoryCaps(.forThisMac(gpuResidentAvailable: false))] stores, deadlines, source in
                                       // Chromium's start as launch marks (p08-startup-044); its first page paint counts until startup_complete.
                                       let launchMarks = CEFLaunchMarkHooks(receive: { DebugTimings.markLaunch($0) },
                                                                            isStarting: { launchStartup.map { $0.completion == nil } ?? false })
@@ -128,10 +158,18 @@ extension AppServices {
                                                        prefetchWork: prefetchWork,
                                                        launch: launchOrder).usingLayerHostingByDefault(layerHosting).usingAttachedPages(attachedPages)
                                           .hostingEveryPage(everyPage).votingMemoryPressure(of: memoryCoordinator).mergingEvents(on: mergeWork)
+                                          .cappingSharedRendererMemory(rendererCaps)
                                   },
                                   engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
                                                                                   routes: { [weak self] in self?.routeChromiumRequests($0) }),
                                   stop: { await $0.shutdown() })
+    }
+
+    /// Chromium's shared-renderer memory caps from the app's memory budget (p07-memory 111): Chrome's
+    /// `kProcessPerSiteMainFrameTotalMemoryLimit` and subframe reuse threshold, read by the fork.
+    nonisolated static func sharedRendererMemoryCaps(_ budget: SubsystemBudget) -> CEFSharedRendererMemoryCaps {
+        CEFSharedRendererMemoryCaps(mainFrameBytes: budget.sharedRendererMemoryCapBytes,
+                                    subframeBytes: budget.sharedRendererSubframeMemoryCapBytes)
     }
 
     /// Bench-only feature `cefLayerHostingEveryPage`, the layer hosting benches' on arm: compiled out of shipped builds.

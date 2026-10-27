@@ -230,11 +230,16 @@ impl SshBootstrapper {
         if !self.config.package_installable {
             return self.install_local_binary().await;
         }
-        let pinned = match self.config.local_binary.as_deref() {
-            Some(executable) => crate::ssh_artifacts::PinnedArtifacts::load(
-                executable,
-                &self.config.build_identity,
-            )?,
+        let pinned = match self.config.local_binary.clone() {
+            Some(executable) => {
+                let identity = self.config.build_identity.clone();
+                // Reads the manifest beside the executable.
+                cmux_blocking::spawn_blocking(move || {
+                    crate::ssh_artifacts::PinnedArtifacts::load(&executable, &identity)
+                })
+                .await
+                .map_err(crate::ssh_artifacts::blocking_task_failed)??
+            }
             None => None,
         };
         if let Some(pinned) = pinned {
@@ -350,29 +355,30 @@ impl SshBootstrapper {
         })?;
         let remote = self.remote_platform().await?;
         let local = Platform::local();
-        let artifact = match crate::ssh_artifacts::payload(
-            source,
-            &self.config.build_identity,
-            &remote.os,
-            &remote.arch,
-            &crate::ssh_artifacts::PayloadSource {
-                base_url: &self.config.payload_base_url,
-                cache: self.config.payload_cache.as_deref(),
-                proxy_pac: self.config.payload_proxy_pac.as_deref(),
-            },
-        )? {
-            Some(
-                crate::ssh_artifacts::Payload::Bundled(path)
-                | crate::ssh_artifacts::Payload::Client(path),
-            ) => Some(path),
-            Some(crate::ssh_artifacts::Payload::ClientSlice(slice)) => {
-                Some(crate::ssh_artifacts::extract_client_slice(&slice).await?)
-            }
-            Some(crate::ssh_artifacts::Payload::Published(published)) => {
-                Some(crate::ssh_artifacts::fetch_published(&published).await?)
-            }
-            None => None,
-        };
+        let artifact =
+            match crate::ssh_artifacts::resolve_payload(crate::ssh_artifacts::PayloadRequest {
+                executable: source.to_path_buf(),
+                build_identity: self.config.build_identity.clone(),
+                os: remote.os.clone(),
+                arch: remote.arch.clone(),
+                base_url: self.config.payload_base_url.clone(),
+                cache: self.config.payload_cache.clone(),
+                proxy_pac: self.config.payload_proxy_pac.clone(),
+            })
+            .await?
+            {
+                Some(
+                    crate::ssh_artifacts::Payload::Bundled(path)
+                    | crate::ssh_artifacts::Payload::Client(path),
+                ) => Some(path),
+                Some(crate::ssh_artifacts::Payload::ClientSlice(slice)) => {
+                    Some(crate::ssh_artifacts::extract_client_slice(&slice).await?)
+                }
+                Some(crate::ssh_artifacts::Payload::Published(published)) => {
+                    Some(crate::ssh_artifacts::fetch_published(&published).await?)
+                }
+                None => None,
+            };
         if artifact.is_none() && !local.compatible_with(&remote) {
             return Err(BootstrapError::LocalBinaryIncompatible {
                 local: local.display(),
@@ -794,7 +800,11 @@ impl SshBootstrapper {
         command.arg(posix_shell_command(remote_command));
         match encoding {
             UploadEncoding::Raw => {
-                let source = std::fs::File::open(source).map_err(BootstrapError::Io)?;
+                let source = tokio::fs::File::open(source)
+                    .await
+                    .map_err(BootstrapError::Io)?
+                    .into_std()
+                    .await;
                 command.stdin(Stdio::from(source));
                 self.run_child_with_timeout(command, self.config.timeout, None).await
             }
@@ -896,10 +906,10 @@ type UploadChunks = mpsc::Receiver<std::io::Result<Vec<u8>>>;
 fn compress_upload(source: &Path) -> UploadChunks {
     let (sender, receiver) = mpsc::channel(4);
     let source = source.to_path_buf();
-    tokio::task::spawn_blocking(move || {
+    cmux_blocking::spawn_blocking(move || {
         use std::io::Read;
 
-        let file = match std::fs::File::open(&source) {
+        let file = match cmux_blocking::fs::open(&source) {
             Ok(file) => file,
             Err(error) => {
                 let _ = sender.blocking_send(Err(error));
