@@ -205,3 +205,89 @@ async fn a_peers_chat_gets_the_frames_written_on_the_peer() {
     assert!(path.contains(&remote), "the peer's own chat folder: {path}");
     assert_eq!(sha(&std::fs::read(path).unwrap()), sha(&file));
 }
+
+/// A finish sent right behind the last frames, without waiting for their answers, sees every byte:
+/// a text message is read only after the frames before it are written.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_finish_right_behind_its_frames_sees_every_byte() {
+    let hub = hub();
+    let l = app_ws::listen(&hub).await;
+    let session = new_session(&hub, "order").await;
+    let mut c = AppWs::open(&l, true).await;
+    for round in 0..3u8 {
+        let file = bytes(4 * MIB + 5, 10 + round);
+        let name = format!("o{round}.bin");
+        let begun = begin(&mut c, &session, &name, file.len() as u64).await;
+        let upload = begun["result"]["uploadId"].as_str().unwrap_or_else(|| panic!("{begun}"));
+        let upload = upload.to_owned();
+        let mut ids = Vec::new();
+        for (n, f) in file.chunks(MIB).enumerate() {
+            ids.push(c.frame(&session, &upload, (n * MIB) as u64, f).await);
+        }
+        let finish = json!({"sessionId": session, "uploadId": upload, "fileName": name,
+            "size": file.len(), "sha256": sha(&file)});
+        let done = c.post(method::MUX_FILE_PUT_FINISH, finish).await;
+        let done = c.answer(done).await;
+        let path = done["result"]["path"].as_str().unwrap_or_else(|| panic!("{round}: {done}"));
+        assert_eq!(sha(&std::fs::read(path).unwrap()), sha(&file));
+        for id in ids {
+            let a = c.answer(id).await;
+            assert!(a.get("error").is_none(), "{a}");
+        }
+    }
+}
+
+/// A peer that takes only the one-shot `file_put` (no `filePutChunks`): an upload to its chat is
+/// refused at its begin and at its frames, before anything reaches it.
+#[tokio::test]
+async fn a_peer_without_chunked_uploads_is_refused_before_anything_is_sent() {
+    use futures_util::{SinkExt, StreamExt};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio_tungstenite::tungstenite::Message as Ws;
+    let uploads = Arc::new(AtomicUsize::new(0));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let counted = uploads.clone();
+    tokio::spawn(async move {
+        while let Ok((tcp, _)) = listener.accept().await {
+            let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
+            let counted = counted.clone();
+            tokio::spawn(async move {
+                while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                    let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
+                        continue;
+                    };
+                    let result = match m.as_str() {
+                        method::INITIALIZE => json!({"protocolVersion": 1, "_meta": {"acpmux": {
+                            "version": "0", "build": "older", "origin": "peer",
+                            "features": ["trustGate", "filePut"]}}}),
+                        method::MUX_WATCH => {
+                            json!({"sessions": [{"sessionId": "old-1", "name": "old"}]})
+                        }
+                        m if m.starts_with("_acpmux/file_put") => {
+                            counted.fetch_add(1, Ordering::SeqCst);
+                            json!({})
+                        }
+                        _ => json!({}),
+                    };
+                    let reply = Message::ok(id, result).to_line();
+                    if ws.send(Ws::Text(reply.trim_end().to_owned().into())).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    let a = hub();
+    a.add_peer("old", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let l = app_ws::listen(&a).await;
+    let mut c = AppWs::open(&l, true).await;
+    let begun = begin(&mut c, "old-1", "a.bin", 3).await;
+    assert_eq!(reason(&begun), "filePut.unsupported", "{begun}");
+    let id = c.frame("old-1", &uuid::Uuid::now_v7().to_string(), 0, b"abc").await;
+    let framed = c.answer(id).await;
+    assert_eq!(reason(&framed), "filePut.unsupported", "{framed}");
+    assert_eq!(uploads.load(Ordering::SeqCst), 0);
+}
