@@ -339,6 +339,9 @@ pub(crate) struct ClientRegistry {
     pub(super) origin_clock: crate::request_origin::OriginClock,
     pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
     pub(super) app_trust: app_trust::AppTrust,
+    /// The daemon's features, reconciled with each app's client hello
+    /// (client_hello.rs, `install_daemon_features`).
+    pub(super) features: std::sync::OnceLock<cmux_features::Live>,
     /// The binary's page listener opener (`ws-listen-v1`).
     pub(super) page_listener: Mutex<Option<super::PageListenerOpener>>,
     pub(super) next_id: AtomicU64,
@@ -407,6 +410,7 @@ impl ClientRegistry {
             origin_clock: Default::default(),
             browser_host: Default::default(),
             app_trust: app_trust::AppTrust::default(),
+            features: std::sync::OnceLock::new(),
             page_listener: Mutex::new(None),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,

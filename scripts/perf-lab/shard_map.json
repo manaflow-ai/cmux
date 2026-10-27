@@ -5,7 +5,7 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 25480,
+            "T1": 26380,
             "T2": 44580
           },
           "stories": {
@@ -59,6 +59,7 @@
               "palette-open-webkit",
               "pane-stress",
               "perf-gate",
+              "qos-inversions",
               "relaunch-e2e",
               "remote-browser-media",
               "renderer-sharing",
@@ -278,7 +279,7 @@
           "index": 1,
           "seconds": {
             "T0": 150,
-            "T1": 12690
+            "T1": 13590
           },
           "stories": {
             "T0": [
@@ -312,6 +313,7 @@
               "omnibar-click-webkit",
               "palette-open",
               "perf-gate",
+              "qos-inversions",
               "relaunch-e2e",
               "remote-browser-media",
               "renderer-sharing",

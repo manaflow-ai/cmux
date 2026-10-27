@@ -43,8 +43,8 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
     /// (missing ones are 0, extra ones are dropped), so ``histogram`` and ``merge(_:)`` stay in range.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let saved = try container.decode([Int].self, forKey: .counts)
-        counts = Self.bucketEdgesMs.indices.map { $0 < saved.count ? max(0, saved[$0]) : 0 }
+        var saved = try container.decode([Int].self, forKey: .counts).makeIterator()
+        counts = Self.bucketEdgesMs.map { _ in max(0, saved.next() ?? 0) }
         stalls = try container.decode([HangSample].self, forKey: .stalls)
         hangs = try container.decode([HangSample].self, forKey: .hangs)
         threadHangs = try container.decodeIfPresent([HangSample].self, forKey: .threadHangs) ?? []
@@ -67,6 +67,8 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
     /// Counts a finished stall of `durationMs`.
     public mutating func count(durationMs: Int) {
         guard let index = Self.bucketIndex(durationMs) else { return }
+        // decode-trap-allow: bucketIndex is an index of bucketEdgesMs, and counts has one entry per edge (both
+        // initializers build it so).
         counts[index] = counts[index].saturatingAdding(1)
     }
 
@@ -98,9 +100,8 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
 
     /// Adds another aggregate (the one saved by the previous launch).
     public mutating func merge(_ other: StallAggregate) {
-        for (index, count) in other.counts.enumerated() where index < counts.count {
-            counts[index] = counts[index].saturatingAdding(max(0, count))
-        }
+        var theirs = other.counts.makeIterator()
+        counts = counts.map { $0.saturatingAdding(max(0, theirs.next() ?? 0)) }
         other.stalls.forEach { Self.insert($0, into: &stalls) }
         other.hangs.forEach { keep($0) }
         other.threadHangs.forEach { keep($0) }
