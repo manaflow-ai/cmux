@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "fatalHangReports",
+  "owner": "PL-telemetry",
+  "description": "While the main thread hangs past 2 s, the watchdog thread keeps the hang's stack in a small file next to the run marker; a run that is killed while it hangs is sent as one fatal app hang crash report at the next launch.",
+  "defaults": { "dev": true, "nightly": true, "release": false },
+  "kind": "killSwitch",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

@@ -1585,6 +1585,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCrashReporting",
                 // InvariantSinkTests binds the blocking detector's scoped table.
                 "CmuxNextCompat",
+                "CmuxNextTrace",
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
                 .product(name: "Sentry-Dynamic", package: "sentry-cocoa"),
                 // CrashReporterOptionsTests checks the options against CLISentryRuntimePolicy.
