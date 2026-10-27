@@ -174,8 +174,10 @@ MAX_PER_RUN = 2
 # label: on 2026-10-26 the route token read 403 and the queue snapshot was stale, so every DEV compile from
 # 20:15Z on queued behind ~260 jobs on glaeda-side/std and the DEV feed fell 100 minutes behind (Leo,
 # 2026-10-24: a feed is never more than 30 minutes behind its branch).
-# The rescue's re-runs (owned_pool_rescue.py RESCUE_ACTOR) use GITHUB_TOKEN, so this actor triggers them.
+# The rescue's re-runs (owned_pool_rescue.py) come from GITHUB_TOKEN's actor or, with the cmux-bot App's
+# token, from cmux-bot[bot] (pr_runner_pool.RESCUE_ACTORS).
 RESCUE_ACTOR = "github-actions[bot]"
+RESCUE_ACTORS = frozenset({RESCUE_ACTOR, "cmux-bot[bot]"})
 # The step has two minutes, and the placement's own reads come first.
 READ_BUDGET_SECONDS = 45
 QUEUE_SNAPSHOT_MINUTES = 15
@@ -405,9 +407,9 @@ def retry_label(live: Mapping[str, int], waiting: Mapping[str, int], stall: Sequ
 
 
 def bot_rerun(env: Mapping[str, str]) -> bool:
-    """The rescue's full re-run: attempt 2 that RESCUE_ACTOR triggered, placed afresh like attempt 1."""
+    """The rescue's full re-run: attempt 2 that a RESCUE_ACTORS bot triggered, placed afresh like attempt 1."""
     return ((env.get("GITHUB_RUN_ATTEMPT") or "").strip() == "2"
-            and (env.get("GITHUB_TRIGGERING_ACTOR") or "").strip() == RESCUE_ACTOR)
+            and (env.get("GITHUB_TRIGGERING_ACTOR") or "").strip() in RESCUE_ACTORS)
 
 
 def skipped(env: Mapping[str, str]) -> str:

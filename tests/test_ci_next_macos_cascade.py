@@ -860,7 +860,7 @@ class Rerun(unittest.TestCase):
                 if (attempt, actor) != ("2", BOT):
                     self.assertEqual(evaluate(own, context), evaluate(shared, context))
                 # The job itself runs on attempt 1 and the bot's attempt 2.
-                self.assertIn("github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]'",
+                self.assertIn("github.run_attempt == 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)",
                               job["if"])
         place = next(step for step in job["steps"] if step.get("id") == "place")
         self.assertEqual(place["env"]["SIDE_LABEL"], "${{ env.CMUX_NEXT_SIDE_ROUTE }}")

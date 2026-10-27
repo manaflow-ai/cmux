@@ -833,6 +833,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_side_lane_placement.py
 
+      - name: Validate the rescue's re-runs route alike for both bot identities
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rescue_actors.py
+
       - name: Validate session jobs keep the gui label until runners carry the session label
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_session_label_routing.py
