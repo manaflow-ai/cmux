@@ -36,7 +36,7 @@ extension PageWebView {
     }
 
     /// ``engineDecision(for:options:hosting:)`` with no side effect (it arms no web-override watch): for a
-    /// caller that only asks where a page would show (``PageHostPool/servesOpens(hosting:)``).
+    /// caller that only asks where a page would show.
     ///
     /// - Parameters:
     ///   - descriptor: The page.
@@ -108,8 +108,9 @@ extension PageWebView {
     /// Starts the Chromium page and loads the document at ``route`` in it (as it stands once the page
     /// exists, so an ``open(route:)`` meanwhile wins); falls back to WebKit when that fails or the
     /// page does not reach the host in time. A browser that ends with its Chromium Host while the page
-    /// is made or set up waits for the supervisor instead (``PageChromiumRecovery``).
-    func startChromium(hosting: any PageChromiumHosting) {
+    /// is made or set up waits for the supervisor instead (``PageChromiumRecovery``). `origin` goes to the host as
+    /// the engine's tab origin, whose launch order is the only wait for a restored page.
+    func startChromium(hosting: any PageChromiumHosting, origin: PageChromiumOrigin) {
         traceMark(.chromiumStart)
         webKitPieces?.view.isHidden = true
         let scripts = PageChromiumDocumentScripts(controller: userContent)
@@ -127,7 +128,7 @@ extension PageWebView {
                 #if DEBUG || CMUX_BENCH_HOOKS
                 ChatOpenTrace.shared.makingTracedPage = traced
                 #endif
-                page = try await hosting.makePage(descriptor, chatOpen: chatOpen, window: window)
+                page = try await hosting.makePage(descriptor, chatOpen: chatOpen, window: window, origin: origin)
             } catch {
                 // Cancelled: the page closed, was discarded, fell back or its browser ended meanwhile.
                 guard let self, !Task.isCancelled else { return }

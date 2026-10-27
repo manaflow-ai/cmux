@@ -45,10 +45,14 @@ public final class MobileHostService {
 
     /// The app's lanes, for the listener's key files (``MobileIrxHost``).
     private let work: BackgroundWork
+    /// The app's main-thread scheduler: the listener's phase and usable phones apply as visible tasks, the
+    /// settings follow is a `ServiceObservation` on it.
+    let mainWork: MainWorkScheduler
 
-    public init(displayName: @escaping @Sendable () async -> String, work: BackgroundWork) {
+    public init(displayName: @escaping @Sendable () async -> String, work: BackgroundWork, mainWork: MainWorkScheduler) {
         self.displayName = displayName
         self.work = work
+        self.mainWork = mainWork
     }
 
     /// The account to serve phones for (sign-in, or a user or team switch). The
@@ -102,6 +106,8 @@ public final class MobileHostService {
         status.reset()
         let access = access
         let status = status
+        let mainWork = mainWork
+        // main-hop-allow: the start awaits the old listener's stop and the Mac's name; the listener is made and kept in its resumes
         starting = Task { [weak self, logger] in
             await previous?.stop()
             let displayName = await self?.displayName() ?? "Mac"
@@ -117,15 +123,19 @@ public final class MobileHostService {
             }, access: access, onUsable: { session in
                 readiness.report(session)
                 let now = Date()
-                // task-owner: one main-actor hop per usable phone connection; ends at once
-                Task { @MainActor in status.phoneBecameUsable(at: now) }
+                // The Mobile Pairing page shows it: one visible task per usable phone connection.
+                mainWork.postFromAnyThread(.visible, owner: "MobileHost.usable") { status.phoneBecameUsable(at: now) }
             })
             self.host = host
             // task-owner: lives as long as this listener; stopHost/startHost cancel it
-            self.phaseFollower = Task { @MainActor [status] in
+            // R-hop: the phases are read off main; each applies as one visible task while this listener is current.
+            self.phaseFollower = Task { @concurrent [weak self] in
                 for await phase in await host.phaseUpdates() {
                     guard !Task.isCancelled else { return }
-                    status.phase = phase
+                    mainWork.postFromAnyThread(.visible, owner: "MobileHost.phase") { [weak self] in
+                        guard self?.generation == current else { return }
+                        status.phase = phase
+                    }
                 }
             }
             await host.start()
@@ -144,7 +154,7 @@ public final class MobileHostService {
         let host = host
         self.host = nil
         // task-owner: teardown hop; MobileIrxHost.stop() is idempotent and bumps its lifetime
-        Task { await host?.stop() }
+        Task { @concurrent in await host?.stop() }
     }
 
     static func configuration(launch: LaunchIdentity, daemon: DaemonService, displayName: String,

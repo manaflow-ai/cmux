@@ -93,10 +93,7 @@ extension TabStripView {
             let direct = groups.isDragged(id)
             var moved = false
             if let move, frame != chip.frame || alpha != chip.layer.opacity || abs(scroll) > 0.01 {
-                let before = TabStripMove.snapshot(chip.layer)
-                chip.frame = frame
-                chip.layer.opacity = alpha
-                moved = move.animate(from: before, scroll: scroll)
+                moved = chip.move(to: frame, alpha: alpha, with: move, scroll: scroll)
             } else {
                 chip.frame = frame
                 chip.layer.opacity = alpha
@@ -189,16 +186,14 @@ extension TabStripView {
         menuTracking.end()
     }
 
-    /// Click-and-hold on a chip opens the editor.
+    /// Click-and-hold on a chip opens the editor: a `userBlocking` deadline (the person waits on it) that mouse-up, a
+    /// drag or the next hold cancels.
     func startChipHold(_ group: TabGroupID) {
-        groups.holdTask?.cancel()
-        let sleep = groups.sleep
-        groups.holdTask = Task { [weak self] in
-            do { try await sleep(.milliseconds(450)) } catch { return } // wakeup-allow: deadline of the 450 ms click-and-hold; mouse-up, a drag or the next hold cancels it; main actor, see TabStripGroupState.sleep
-            guard let self, !Task.isCancelled, self.groups.press?.groupID == group, self.groups.drag == nil else { return }
-            self.groups.press?.openedEditor = true
-            self.groups.chips[group]?.isPressed = false
-            self.showGroupEditor(for: group)
+        chipHold.schedule(after: .milliseconds(450)) { [weak self] in
+            guard let self, groups.press?.groupID == group, groups.drag == nil else { return }
+            groups.press?.openedEditor = true
+            groups.chips[group]?.isPressed = false
+            showGroupEditor(for: group)
         }
     }
 }
