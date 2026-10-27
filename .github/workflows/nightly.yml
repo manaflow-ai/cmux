@@ -2315,10 +2315,9 @@ jobs:
         if: (inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next') && steps.nightly-product.outputs.hit != 'true'
         run: |
           set -euo pipefail
-          if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then archs=arm64; else archs=arm64,x86_64; fi
           hostd_bin="$RUNNER_TEMP/cmux-next-mobile-host/cmux-mobile-host"
           python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" mobile-host -- \
-            nice -n 10 env CMUX_NEXT_MOBILE_HOST_ARCHS="$archs" scripts/cmux-next/build-mobile-host.sh --output "$hostd_bin"
+            nice -n 10 env CMUX_NEXT_MOBILE_HOST_ARCHS="$NIGHTLY_COMPILE_ARCHS" scripts/cmux-next/build-mobile-host.sh --output "$hostd_bin"
           echo "CMUX_NEXT_MOBILE_HOST_PENDING_BIN=$hostd_bin" >> "$GITHUB_ENV"
 
       # A fast branch dogfood build only needs the arm64 client that is bundled
