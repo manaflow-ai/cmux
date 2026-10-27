@@ -290,7 +290,11 @@ public actor DaemonUpdatePolicy {
             guard retry || now != known.build else {
                 // Still the build that could not update in place: its line again, no attempt.
                 settled[target.id] = local.hash
-                await deps.report(DaemonUpdateEvent(target, .cannotUpdate(reason: known.reason), build: local.hash))
+                // Unless the person clicked Update meanwhile: the next turn answers that click,
+                // and this one's report would end the click's "updating" line.
+                if !retried.contains(target.id) {
+                    await deps.report(DaemonUpdateEvent(target, .cannotUpdate(reason: known.reason), build: local.hash))
+                }
                 return nil
             }
             // It runs another build now (reinstalled), or the app refuses its daemon: ask it

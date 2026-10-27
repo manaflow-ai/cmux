@@ -89,13 +89,22 @@ struct CloudMachineUpdateButtonTests {
 
         // The offer reads the machine once (`urgent`); its turn's first read waits at the gate.
         let gate = DaemonReadGate(holding: 2)
+        // The update the click asks for waits here, so its line can be read while it runs.
+        let updating = DaemonReadGate(holding: 1)
         var source = machine.source
         let read = source.daemon
+        let update = source.update
         source.daemon = { await gate.pass(); return await read() }
+        source.update = { await updating.pass(); return try await update() }
         await policy.offer(CloudMachineUpdateTarget(machineID: "vm-1", displayName: "Leo VM", source: source, enabled: { true }))
         await gate.entered()
         #expect(await fixture.board.update(Self.id) { await policy.retry($0) })
         gate.release()
+        await updating.entered()
+        #expect(fixture.board.otherMachines?.machines
+            == [DaemonUpdateBoard.OtherMachine(id: Self.id, line: DaemonUpdateBoard.updatingLine("Leo VM"), canUpdate: false)],
+            "the clicked machine says it is updating while its update runs")
+        updating.release()
         await policy.drained()
 
         #expect(machine.updates == 2)
