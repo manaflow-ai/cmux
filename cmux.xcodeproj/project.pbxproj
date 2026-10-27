@@ -3437,6 +3437,7 @@
 		E741D7F9F6A2DD3CF57F5040 /* SessionPriorityPaletteCommandsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6ED94B0B3059A2FC126830B /* SessionPriorityPaletteCommandsTests.swift */; };
 		88BE878953C5E88F54022E78 /* SessionPriorityPaneDecision.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40B49FFC7540803DB1D2193E /* SessionPriorityPaneDecision.swift */; };
 		496EFB2472D7B295B0FD9206 /* SessionPriorityPaneDecisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E300CA745156AD76CEF14B /* SessionPriorityPaneDecisionTests.swift */; };
+		1476947FA35BF240520413F1 /* SessionPriorityPaneTrackingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9FD84923E5DC420DC9F4EF3 /* SessionPriorityPaneTrackingTests.swift */; };
 		150BCE042D3E9923118EE980 /* SessionPriorityPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ED59F9F92CC6FA4735491B5 /* SessionPriorityPlan.swift */; };
 		E6CF0F6241DCD6B8CFF67CB1 /* SessionPriorityPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6CADB82C5A33C4808950352 /* SessionPriorityPlanTests.swift */; };
 		90350094933FCC8335BA1D79 /* SessionPriorityRank.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35FF62DE7C3A4F50BCF1041A /* SessionPriorityRank.swift */; };
@@ -8188,6 +8189,7 @@
 		B6ED94B0B3059A2FC126830B /* SessionPriorityPaletteCommandsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityPaletteCommandsTests.swift"; sourceTree = "<group>"; };
 		40B49FFC7540803DB1D2193E /* SessionPriorityPaneDecision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityPaneDecision.swift; sourceTree = "<group>"; };
 		A9E300CA745156AD76CEF14B /* SessionPriorityPaneDecisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityPaneDecisionTests.swift"; sourceTree = "<group>"; };
+		C9FD84923E5DC420DC9F4EF3 /* SessionPriorityPaneTrackingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityPaneTrackingTests.swift"; sourceTree = "<group>"; };
 		2ED59F9F92CC6FA4735491B5 /* SessionPriorityPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityPlan.swift; sourceTree = "<group>"; };
 		D6CADB82C5A33C4808950352 /* SessionPriorityPlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityPlanTests.swift"; sourceTree = "<group>"; };
 		35FF62DE7C3A4F50BCF1041A /* SessionPriorityRank.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityRank.swift; sourceTree = "<group>"; };
@@ -14548,6 +14550,7 @@
 				B6ED94B0B3059A2FC126830B /* SessionPriorityPaletteCommandsTests.swift */,
 				03943414D18F51A516732007 /* SessionPriorityReconcileTimingTests.swift */,
 				4CA12E953536E7C96D6D80B8 /* SessionPriorityNoticeTests.swift */,
+				C9FD84923E5DC420DC9F4EF3 /* SessionPriorityPaneTrackingTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -19657,6 +19660,7 @@
 				CB99B3D4B0CA0C66BAF2F8BD /* SessionPriorityNoticeTests.swift in Sources */,
 				E741D7F9F6A2DD3CF57F5040 /* SessionPriorityPaletteCommandsTests.swift in Sources */,
 				496EFB2472D7B295B0FD9206 /* SessionPriorityPaneDecisionTests.swift in Sources */,
+				1476947FA35BF240520413F1 /* SessionPriorityPaneTrackingTests.swift in Sources */,
 				E6CF0F6241DCD6B8CFF67CB1 /* SessionPriorityPlanTests.swift in Sources */,
 				835511D53125D8DAF273E18A /* SessionPriorityRankTests.swift in Sources */,
 				BE0592CF8D2CBBEA0A3513D8 /* SessionPriorityReconcileTimingTests.swift in Sources */,
