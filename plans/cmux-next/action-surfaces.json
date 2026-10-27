@@ -21831,6 +21831,34 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-chat-subagent-limit",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentChat.subagentLimit",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Chat Subagent Limit…",
+      "title_key" : "action.agentChat.subagentLimit",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "agent new-chat",
       "context_menu" : "offered",
@@ -43237,10 +43265,24 @@
                 },
                 {
                   "enabled_when" : "can_perform",
+                  "id" : "agentChat.subagentLimit",
+                  "kind" : "action",
+                  "label" : "Subagent Limit…",
+                  "order" : 5,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
                   "id" : "tab.setIcon",
                   "kind" : "action",
                   "label" : "Set Icon…",
-                  "order" : 5,
+                  "order" : 6,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -43319,7 +43361,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "tab.setTint",
                   "kind" : "choices",
-                  "order" : 6,
+                  "order" : 7,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -43333,7 +43375,7 @@
                   "id" : "tab.clearIcon",
                   "kind" : "action",
                   "label" : "Remove Icon",
-                  "order" : 7,
+                  "order" : 8,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -43346,7 +43388,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "tab.muteOtherAudio",
                   "kind" : "action",
-                  "order" : 8,
+                  "order" : 9,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -43359,7 +43401,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "terminal.keep",
                   "kind" : "action",
-                  "order" : 9,
+                  "order" : 10,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -43372,7 +43414,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "tab.pictureInPicture",
                   "kind" : "action",
-                  "order" : 10,
+                  "order" : 11,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -43383,13 +43425,13 @@
                 },
                 {
                   "kind" : "separator",
-                  "order" : 11
+                  "order" : 12
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "palette.toggleFullWidthTab",
                   "kind" : "action",
-                  "order" : 12,
+                  "order" : 13,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -43400,24 +43442,11 @@
                 },
                 {
                   "kind" : "separator",
-                  "order" : 13
+                  "order" : 14
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "hibernateTab",
-                  "kind" : "action",
-                  "order" : 14,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "wakeTab",
                   "kind" : "action",
                   "order" : 15,
                   "visible_when" : {
@@ -43430,9 +43459,22 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "disconnectRemoteTab",
+                  "id" : "wakeTab",
                   "kind" : "action",
                   "order" : 16,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "disconnectRemoteTab",
+                  "kind" : "action",
+                  "order" : 17,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : "remoteHosts",
@@ -43445,7 +43487,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "neverHibernateSite",
                   "kind" : "action",
-                  "order" : 17,
+                  "order" : 18,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -43456,13 +43498,13 @@
                 },
                 {
                   "kind" : "separator",
-                  "order" : 18
+                  "order" : 19
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "tab.showResources",
                   "kind" : "action",
-                  "order" : 19,
+                  "order" : 20,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,

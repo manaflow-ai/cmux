@@ -118928,6 +118928,268 @@
         }
       }
     },
+    "settings.agents.subsessions.maxRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running Sub-sessions per Session"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الجلسات الفرعية العاملة لكل جلسة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokrenute podsesije po sesiji"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kørende undersessioner pr. session"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laufende Untersitzungen pro Sitzung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subsesiones en ejecución por sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-sessions en cours par session"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sottosessioni in esecuzione per sessione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションごとの実行中のサブセッション"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វគ្គរងដែលកំពុងដំណើរការក្នុងមួយវគ្គ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션당 실행 중인 하위 세션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kjørende underøkter per økt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Działające podsesje na sesję"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subsessões em execução por sessão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Работающих вложенных сеансов на сеанс"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เซสชันย่อยที่ทำงานอยู่ต่อเซสชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum başına çalışan alt oturum"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запущених вкладених сеансів на сеанс"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số phiên con chạy cùng lúc mỗi phiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个会话同时运行的子会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個工作階段同時執行的子工作階段"
+          }
+        }
+      }
+    },
+    "settings.agents.subsessions.maxRunning.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أقصى عدد من الجلسات الفرعية التي تشغّلها جلسة واحدة في الوقت نفسه. تنتظر الجلسات الأخرى دورها وتبدأ عندما تنتهي الجلسات العاملة. لا تتوقف الجلسات العاملة أبدًا عند خفض هذا العدد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najveći broj podsesija koje jedna sesija pokreće u isto vrijeme. Ostale čekaju na red i pokreću se kad pokrenute završe. Pokrenute se nikad ne zaustavljaju kad smanjite broj."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det største antal undersessioner, én session kører på samme tid. Flere venter på tur og starter, når kørende afslutter. Kørende stoppes aldrig, når du sænker tallet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die höchste Zahl an Untersitzungen, die eine Sitzung gleichzeitig ausführt. Weitere warten und starten, sobald laufende fertig sind. Laufende werden nie gestoppt, wenn du den Wert senkst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El número máximo de subsesiones que una sesión ejecuta a la vez. Las demás esperan su turno y empiezan cuando terminan las que están en ejecución. Al bajarlo, las que están en ejecución nunca se detienen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le nombre maximal de sous-sessions qu’une session exécute en même temps. Les autres attendent leur tour et démarrent quand celles en cours se terminent. Baisser ce nombre n’arrête jamais celles en cours."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il numero massimo di sottosessioni che una sessione esegue contemporaneamente. Le altre aspettano il loro turno e partono quando quelle in esecuzione finiscono. Abbassarlo non ferma mai quelle in esecuzione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 つのセッションが同時に実行するサブセッションの最大数です。それ以上は順番を待ち、実行中のものが終わると開始します。値を下げても実行中のものは停止しません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំនួនវគ្គរងច្រើនបំផុតដែលវគ្គមួយដំណើរការក្នុងពេលតែមួយ។ វគ្គផ្សេងទៀតរង់ចាំវេន ហើយចាប់ផ្ដើមនៅពេលវគ្គដែលកំពុងដំណើរការបញ្ចប់។ វគ្គដែលកំពុងដំណើរការមិនដែលត្រូវបានបញ្ឈប់ទេ នៅពេលអ្នកបន្ថយវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 세션이 동시에 실행하는 하위 세션의 최대 개수입니다. 나머지는 차례를 기다렸다가 실행 중인 세션이 끝나면 시작됩니다. 값을 낮춰도 실행 중인 세션은 멈추지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det største antallet underøkter én økt kjører samtidig. Flere venter på tur og starter når kjørende blir ferdige. Kjørende stoppes aldri når du senker tallet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Największa liczba podsesji, które jedna sesja uruchamia jednocześnie. Kolejne czekają na swoją kolej i startują, gdy działające się skończą. Zmniejszenie wartości nigdy nie zatrzymuje działających."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O número máximo de subsessões que uma sessão executa ao mesmo tempo. As demais aguardam a vez e começam quando as em execução terminam. Reduzir o valor nunca interrompe as que estão em execução."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наибольшее число вложенных сеансов, которые один сеанс выполняет одновременно. Остальные ждут своей очереди и запускаются, когда работающие завершатся. При уменьшении значения работающие сеансы не останавливаются."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำนวนเซสชันย่อยสูงสุดที่เซสชันหนึ่งทำงานพร้อมกัน ส่วนที่เกินจะรอคิวและเริ่มเมื่อเซสชันที่ทำงานอยู่เสร็จ การลดค่านี้จะไม่หยุดเซสชันที่ทำงานอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir oturumun aynı anda çalıştırdığı en fazla alt oturum sayısı. Fazlası sırasını bekler ve çalışanlar bittikçe başlar. Değeri düşürdüğünüzde çalışanlar asla durdurulmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Найбільша кількість вкладених сеансів, які один сеанс виконує одночасно. Решта чекають своєї черги й запускаються, коли запущені завершаться. Якщо зменшити значення, запущені сеанси не зупиняються."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số phiên con tối đa mà một phiên chạy cùng lúc. Các phiên khác chờ đến lượt và bắt đầu khi phiên đang chạy kết thúc. Giảm giá trị này không bao giờ dừng các phiên đang chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一个会话同时运行的子会话数量上限。超出的子会话排队等待，在运行中的子会话结束后开始。调低此值不会停止正在运行的子会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一個工作階段同時執行的子工作階段數量上限。超出的子工作階段排隊等候，在執行中的子工作階段結束後開始。調低此值不會停止正在執行的子工作階段。"
+          }
+        }
+      }
+    },
     "settings.agents.subsessions.maxDepth": {
       "extractionState": "manual",
       "localizations": {
