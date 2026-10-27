@@ -23,10 +23,10 @@ final class SidebarAvatarView: NSView {
     /// glyph layer, so a hover's strength change or a theme change draws no pixels.
     let disc = ChromeFillLayer()
     let picture = ChromeFillLayer()
-    private let glaze = CAGradientLayer()
+    let glaze = CAGradientLayer()
     let initial = ChromeTextLayer()
     /// The avatar's picture, decoded once per image (nil: the initial shows).
-    private var pictureImage: CGImage?
+    private(set) var pictureImage: CGImage?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -122,6 +122,14 @@ final class SidebarAvatarView: NSView {
         // The layer puts the baseline `ascender` below its top, as draw(at:) does from `origin`.
         initial.frame = NSRect(x: origin.x, y: origin.y, width: ceil(initial.textWidth) + 2,
                                height: ceil(font.ascender - font.descender) + 1)
+    }
+
+    /// The same avatar for an image of the view (`cacheDisplay`, snapshots): AppKit draws a
+    /// layer-updating view this way outside its layer; on screen it is ``updateLayer()``.
+    // draw: the cacheDisplay fallback, as ChromeLabel's; the window shows the layers.
+    override func draw(_ dirtyRect: NSRect) {
+        guard let avatar else { return }
+        performWithTheme { Self.draw(avatar, in: circleFrame, strong: isStrong) }
     }
 
     override func setFrameSize(_ newSize: NSSize) {

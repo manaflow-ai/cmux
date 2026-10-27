@@ -29,7 +29,7 @@ final class CEFDevToolsDivider: NSView {
 
     /// The line: a layer color, placed for the dock side, never a drawn backing store (the grab area
     /// around it stays clear).
-    private let line = ChromeFillLayer()
+    let line = ChromeFillLayer()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)

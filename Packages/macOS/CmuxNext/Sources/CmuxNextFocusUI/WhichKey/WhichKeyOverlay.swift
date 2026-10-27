@@ -94,7 +94,7 @@ final class WhichKeyView: NSView {
     }
     private var prefixLayers: [Cap] = []
     private var rowLayers: [(cap: Cap, title: ChromeTextLayer)] = []
-    private let hintLayer = ChromeTextLayer()
+    let hintLayer = ChromeTextLayer()
     private var keyColumnWidth: CGFloat = 0
     private var columnWidth: CGFloat = 0
     /// Longest a title draws before it truncates.
@@ -180,6 +180,8 @@ final class WhichKeyView: NSView {
         for (cap, layers) in zip(prefixCaps, prefixLayers) {
             x += place(layers, cap, at: NSPoint(x: x, y: inset), fill: fill, ink: primary, scale: scale) + Metrics.space1
         }
+        // The glyphs take the current type scale (Interface Size, the chrome font size), as the frames do.
+        hintLayer.font = Typography.caption
         let hintWidth = width(WhichKeyStrings.cancelHint, Typography.caption)
         place(hintLayer, in: NSRect(x: bounds.maxX - inset - hintWidth, y: inset, width: hintWidth, height: lineHeight),
               ink: dimmed, scale: scale)
@@ -188,6 +190,7 @@ final class WhichKeyView: NSView {
             let column = CGFloat(index / rowsPerColumn), line = CGFloat(index % rowsPerColumn)
             let origin = NSPoint(x: inset + column * (columnWidth + columnGap), y: top + line * (lineHeight + Metrics.space1))
             let ink = row.isEnabled ? primary : dimmed
+            layers.title.font = Typography.body
             place(layers.cap, row.key, at: origin, fill: fill, ink: ink, scale: scale)
             let titleX = origin.x + keyColumnWidth + Metrics.space2
             place(layers.title, in: NSRect(x: titleX, y: origin.y, width: max(0, min(columnWidth - keyColumnWidth - Metrics.space2,
@@ -233,6 +236,7 @@ final class WhichKeyView: NSView {
         let size = NSSize(width: capWidth(cap), height: capHeight)
         layers.fill.frame = NSRect(origin: NSPoint(x: origin.x, y: origin.y + (lineHeight - size.height) / 2), size: size)
         layers.fill.backgroundColor = fill
+        layers.text.font = Typography.shortcut
         place(layers.text, in: NSRect(origin: .zero, size: size), ink: ink, scale: scale)
         return size.width
     }

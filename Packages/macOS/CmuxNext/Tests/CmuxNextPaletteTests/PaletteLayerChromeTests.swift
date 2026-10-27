@@ -35,6 +35,29 @@ import Testing
         #expect(caps.layer?.contents == nil, "the view draws no backing store")
     }
 
+    /// A type-scale change (Interface Size, the chrome font size) reaches the same caps' glyphs: the next
+    /// layout and update put them in the font `layout()` measures with, not the font they were made in.
+    @Test func theSameKeycapsTakeANewFontSize() throws {
+        let saved = DesignSettings.shared.overrides[.chromeFontSize]
+        defer { DesignSettings.shared.setOverride(.chromeFontSize, saved) }
+        DesignSettings.shared.setOverride(.chromeFontSize, nil)
+        let caps = PaletteKeycapsView()
+        caps.keycaps = ["⌘", "K"]
+        caps.frame = NSRect(origin: .zero, size: caps.intrinsicContentSize)
+        caps.layout()
+        caps.updateLayer()
+        let before = Typography.shortcut
+        DesignSettings.shared.setOverride(.chromeFontSize, 16)
+        let after = Typography.shortcut
+        try #require(after.pointSize != before.pointSize, "the override changes the shortcut size")
+        caps.frame = NSRect(origin: .zero, size: caps.intrinsicContentSize)
+        caps.layout()
+        caps.updateLayer()
+        let texts = Self.fills(caps).compactMap { $0.sublayers?.first as? ChromeTextLayer }
+        #expect(texts.count == 2)
+        #expect(texts.allSatisfy { $0.font == after }, "the glyphs draw in the font the frames measure with")
+    }
+
     /// The same caps again keep their layers; new caps replace them.
     @Test func theSameKeycapsKeepTheirLayers() {
         let caps = PaletteKeycapsView()

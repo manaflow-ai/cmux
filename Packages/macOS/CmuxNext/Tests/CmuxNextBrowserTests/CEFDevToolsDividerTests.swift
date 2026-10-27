@@ -78,6 +78,44 @@ import Testing
         #expect(harness.moves.count == 2)
     }
 
+    /// The line is a layer strip, never a backing store: hidden with no DevTools, a vertical strip for a
+    /// side dock and a horizontal one for the bottom dock, centered in the grab area, and placed
+    /// again when the divider is resized.
+    @Test func theLineIsALayerStripForTheDockSide() {
+        _ = NSApplication.shared
+        let thickness = CEFDevToolsLayout.lineThickness
+        let divider = CEFDevToolsDivider(frame: NSRect(x: 0, y: 0, width: 7, height: 400))
+        #expect(divider.wantsUpdateLayer)
+        divider.updateLayer()
+        #expect(divider.line.isHidden, "no DevTools, no line")
+
+        let side = CEFDevToolsController(layout: CEFDevToolsLayout())
+        side.layout.dock = .right
+        withExtendedLifetime(side) {
+            divider.devTools = side
+            divider.updateLayer()
+            #expect(!divider.line.isHidden)
+            #expect(divider.line.backgroundColor != nil)
+            #expect(divider.line.frame == NSRect(x: 3.5 - thickness / 2, y: 0, width: thickness, height: 400))
+            divider.setFrameSize(NSSize(width: 7, height: 520))
+            #expect(divider.line.frame == NSRect(x: 3.5 - thickness / 2, y: 0, width: thickness, height: 520),
+                    "the line follows the new height")
+        }
+
+        let bottom = CEFDevToolsController(layout: CEFDevToolsLayout())
+        bottom.layout.dock = .bottom
+        withExtendedLifetime(bottom) {
+            divider.devTools = bottom
+            divider.setFrameSize(NSSize(width: 800, height: 7))
+            divider.updateLayer()
+            #expect(divider.line.frame == NSRect(x: 0, y: 3.5 - thickness / 2, width: 800, height: thickness))
+            divider.setFrameSize(NSSize(width: 900, height: 7))
+            #expect(divider.line.frame == NSRect(x: 0, y: 3.5 - thickness / 2, width: 900, height: thickness),
+                    "the line follows the new width")
+        }
+        #expect(divider.layer?.contents == nil, "the divider draws no backing store")
+    }
+
     /// With no frame-aligned input (the feature off), every drag event moves the line at once.
     @Test func withoutFrameInputEveryEventMovesTheLine() {
         let harness = Harness(coalesced: false)

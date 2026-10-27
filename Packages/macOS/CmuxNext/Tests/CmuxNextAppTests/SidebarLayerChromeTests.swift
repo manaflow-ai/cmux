@@ -105,6 +105,56 @@ import Testing
         #expect(strong.alpha > rest.alpha, "glass is more opaque under the pointer")
     }
 
+    /// With a picture the disc shows the picture, decoded once per image: no glaze and no initial, and
+    /// the same picture in a changed avatar keeps its decoded image.
+    @Test func theAvatarPictureIsDecodedOnceAndShown() throws {
+        let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 4, pixelsHigh: 4, bitsPerSample: 8,
+                                                samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        let png = try #require(rep.representation(using: .png, properties: [:]))
+        let view = SidebarAvatarView()
+        view.frame = NSRect(x: 0, y: 0, width: 32, height: 32)
+        view.avatar = .account(name: "Leo", email: "leo@cmux.com", imageData: png)
+        view.updateLayer()
+        let decoded = try #require(view.pictureImage, "the picture decodes")
+        #expect(!view.disc.isHidden)
+        #expect(!view.picture.isHidden)
+        #expect(view.picture.contents != nil)
+        #expect(view.picture.frame.size == view.circleFrame.size)
+        #expect(view.glaze.isHidden, "a picture has no glaze")
+        #expect(view.initial.isHidden, "a picture hides the initial")
+        #expect(view.disc.backgroundColor == nil, "the picture fills the disc")
+        view.avatar = .account(name: "Leo", email: "leo@manaflow.com", imageData: png)
+        view.updateLayer()
+        #expect(view.pictureImage === decoded, "the same picture is not decoded again")
+        view.avatar = SidebarAvatar(name: "Leo")
+        view.updateLayer()
+        #expect(view.pictureImage == nil)
+        #expect(view.picture.isHidden)
+        #expect(!view.glaze.isHidden)
+        #expect(!view.initial.isHidden)
+    }
+
+    /// A type-scale change reaches the cancel hint, made once in `init`: its glyphs take the font its
+    /// frame is measured with.
+    @Test func theWhichKeyHintTakesANewFontSize() throws {
+        let saved = DesignSettings.shared.overrides[.chromeFontSize]
+        defer { DesignSettings.shared.setOverride(.chromeFontSize, saved) }
+        DesignSettings.shared.setOverride(.chromeFontSize, nil)
+        let body = WhichKeyView()
+        body.update(prefix: ["Space"], rows: [WhichKeyRow(key: "w", title: "Window", isEnabled: true)])
+        body.frame = NSRect(origin: .zero, size: body.size(fitting: 600))
+        body.updateLayer()
+        let before = Typography.caption
+        #expect(body.hintLayer.font == before)
+        DesignSettings.shared.setOverride(.chromeFontSize, 16)
+        let after = Typography.caption
+        try #require(after.pointSize != before.pointSize, "the override changes the caption size")
+        body.updateLayer()
+        #expect(body.hintLayer.font == after, "the hint draws in the font its frame is measured with")
+        #expect(body.hintLayer.frame.height == ceil(after.ascender - after.descender))
+    }
+
     /// The which-key body is a layer per cap, hint and title, rebuilt on an update.
     @Test func theWhichKeyBodyIsLayers() {
         let body = WhichKeyView()

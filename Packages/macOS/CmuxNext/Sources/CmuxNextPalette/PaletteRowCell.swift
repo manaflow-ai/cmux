@@ -91,11 +91,15 @@ final class PaletteKeycapsView: NSView {
 
     nonisolated override var wantsUpdateLayer: Bool { true }
 
+    /// Colors the caps and sets their glyphs' font again: `layout()` measures with the current
+    /// ``Typography/shortcut``, which follows Interface Size and the chrome font size.
     override func updateLayer() {
         let (fill, ink) = performWithTheme { (Palette.hoverFill.cgColor, Palette.textSecondary.cgColor) }
+        let font = Typography.shortcut
         for layers in caps {
             layers.fill.backgroundColor = fill
             layers.text.foregroundColor = ink
+            layers.text.font = font
         }
     }
 
