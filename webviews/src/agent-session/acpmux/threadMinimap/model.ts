@@ -3,6 +3,7 @@
 import type { AcpmuxRow } from "../model";
 import { opensTurn } from "../turnStart";
 import { MOTION_MS } from "../../../motion/scale.generated";
+import type { SenderReference } from "../senderIdentity";
 
 export type ReplySpan = { text: string; bold: boolean; code?: true };
 export type ReplyBlock = { kind: "paragraph" | "item"; spans: ReplySpan[] };
@@ -14,6 +15,8 @@ export type MinimapTurnMetadata = {
   links: string[];
   failed?: boolean;
   failure?: string;
+  /** A received agent message keeps its identity; it is not labelled as the person's prompt. */
+  sender?: SenderReference;
 };
 export type MinimapTurn = {
   /// The user row's index in the transcript rows (and in the layout's tops).
@@ -246,7 +249,20 @@ function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardS
   const shape = `${row.kind}:${row.ended ?? ""}:${row.foldRun ?? ""}:${row.settled ?? ""}`;
   const cached = previous?.version === row.version && previous.shape === shape ? previous : undefined;
   if (cached && cached.before === before) return cached.state;
-  let state = before ?? { metadata: { at: row.at, links: [] }, files: noFiles };
+  let state = before ?? {
+    metadata: {
+      at: row.at,
+      links: [],
+      ...(prompt.incoming?.kind === "message" && {
+        sender: {
+          name: prompt.incoming.message.name,
+          sessionId: prompt.incoming.message.sessionId,
+          relation: prompt.incoming.message.relation,
+        },
+      }),
+    },
+    files: noFiles,
+  };
   let metadata = state.metadata;
   let files = state.files;
   // A link discovered in a still-streaming reply is not stable yet. Read only its bounded prefix

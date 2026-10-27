@@ -15,6 +15,8 @@ import { Icon } from "../icons/Icon";
 import { forwardWheel } from "../wheelPassThrough";
 import { BookmarkIcon } from "./BookmarkIcon";
 import type { MinimapTurnMetadata, ReplyBlock } from "./model";
+import { useSenderIdentity } from "../subagents/subsessions";
+import { SenderIdentityLabel } from "../SenderIdentityLabel";
 
 const middleEllipsis = (value: string, max = 36) => {
   if (value.length <= max) return value;
@@ -202,7 +204,10 @@ export const PreviewCard = React.forwardRef<
     >
       {prompt !== undefined && (
         <div className="acpmux-minimap__title">
-          <span className="acpmux-minimap__prompt">{prompt}</span>
+          <span className="acpmux-minimap__prompt">
+            {metadata?.sender && <PreviewSender sender={metadata.sender} />}
+            {prompt}
+          </span>
           {bookmark && (
             <button
               type="button"
@@ -292,6 +297,7 @@ export const PreviewCard = React.forwardRef<
       )}
     </div>
   );
+
   if (!layer) return card;
   return (
     <>
@@ -300,3 +306,13 @@ export const PreviewCard = React.forwardRef<
     </>
   );
 });
+
+function PreviewSender({ sender }: { sender: NonNullable<MinimapTurnMetadata["sender"]> }) {
+  const identity = useSenderIdentity(sender);
+  return (
+    <>
+      <SenderIdentityLabel identity={identity} />
+      {" · "}
+    </>
+  );
+}
