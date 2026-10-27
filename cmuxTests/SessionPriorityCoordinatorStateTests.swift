@@ -362,6 +362,21 @@ struct SessionPriorityCoordinatorStateTests {
         #expect(usersEffortSeen)
     }
 
+    /// The gate's look before a restart: it sees the user's `/effort`, respects a dismissal,
+    /// and leaves the dismissed count for the next screen read.
+    @Test
+    func gateLookSeesAUserChangeWithoutLoweringTheDismissedCount() {
+        var state = SessionPriorityCoordinatorState()
+        state.follow(panelId: pane, sessionId: "s1")
+        #expect(state.showsUndismissedManualMarker(panelId: pane, markerCount: 1))
+
+        state.clearStickyManual(panelIds: [pane])
+        #expect(!state.showsUndismissedManualMarker(panelId: pane, markerCount: 1))
+        #expect(!state.showsUndismissedManualMarker(panelId: pane, markerCount: 0))
+        // Still dismissed after the look: the screen read, not the gate, lowers the count.
+        #expect(state.records[pane]?.dismissedScreenMarkers == .max)
+    }
+
     @Test
     func resumeNotTypedRedrawIsNotAManualChange() {
         var state = SessionPriorityCoordinatorState()

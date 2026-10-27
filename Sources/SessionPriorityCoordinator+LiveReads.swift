@@ -73,6 +73,10 @@ extension SessionPriorityCoordinator {
         } else {
             screen = ClaudeAccountAutoSwitchContinueGate.Screen(state: .unknown, showsInterruptHint: false)
         }
+        // A `/effort` typed while the pane waited in the queue, longer ago than the quiet window.
+        let markers = SessionPriorityCoordinatorState.screenMarkerCount(in: terminal.surface.visibleText() ?? "")
+        let screenShowsManualChange = state.records[panelId]?.stickyManual != nil
+            || state.showsUndismissedManualMarker(panelId: panelId, markerCount: markers)
         return SessionPriorityApplyGate.evaluate(SessionPriorityApplyGate.Facts(
             responseRunning: workspace.isClaudeResponseRunning(panelId: panelId),
             receivedInputRecently: ClaudeAccountAutoSwitchCoordinator.shared.receivedInput(
@@ -86,7 +90,8 @@ extension SessionPriorityCoordinator {
                 paneTTYDevice: terminal.surface.controllingTTYDeviceIdentifier,
                 facts: ClaudeAccountAutoSwitchForegroundCheck.liveFacts(pid:)
             ),
-            accountSwitchInFlight: Workspace.isClaudeAccountSwitchInFlight(panelId: panelId)
+            accountSwitchInFlight: Workspace.isClaudeAccountSwitchInFlight(panelId: panelId),
+            screenShowsManualChange: screenShowsManualChange
         ))
     }
 
@@ -107,8 +112,8 @@ extension SessionPriorityCoordinator {
         workspace.removeStatusEntry(forKey: SessionPriorityStatusRow.key)
     }
 
-    /// Removes the row from every workspace that shows it: those in `shown`, and any restored
-    /// from the last session.
+    /// Removes the row from every workspace that shows it: those in `shown`, and any other one
+    /// that still does.
     func removeRows(also shown: Set<UUID>) {
         for tabManager in Self.tabManagers() {
             for workspace in tabManager.tabs

@@ -101,9 +101,9 @@ final class SessionPriorityCoordinator {
         defaultsObserver = NotificationCenter.default.addUserDefaultsObserver { [weak self] in
             self?.settingsDidChange()
         }
-        // Once the restored windows settle: rows saved by the last session are rewritten, or
-        // removed while the setting is off.
-        scheduleDebouncedReconcile()
+        // Restore drops every status row, so while on the rows are built once the restored
+        // windows settle; while off there is nothing to show or remove.
+        if lastSettings?.enabled == true { scheduleDebouncedReconcile() }
     }
 
     // MARK: - Triggers
@@ -228,7 +228,7 @@ final class SessionPriorityCoordinator {
     // MARK: - Reconcile
 
     /// Brings every window's rows and queued restarts in line with the settings and the panes.
-    /// Off, it only removes rows left from the last session.
+    /// Off (turned off while a pass was pending), it only removes rows.
     private func reconcile() {
         guard isEnabled else {
             removeRows(also: [])

@@ -96,19 +96,19 @@ struct SessionPriorityCoordinatorState: Equatable {
     }
 
     /// A restart for `target` starts. Until its result the pane counts as restarting, so the
-    /// replaced Claude's own session end does not drop it. The resumed Claude redraws the
-    /// conversation, so the `/effort` and `/model` results it shows are not new.
+    /// replaced Claude's own session end does not drop it.
     mutating func noteRestartStarted(panelId: UUID, sessionId: String, target: SessionPriorityTarget, nowMs: Int64) {
         var record = records[panelId] ?? PaneRecord()
         record.sessionId = sessionId
         record.state = .applying
         record.awaitingSessionStartUntilMs = nowMs + Self.sessionStartTimeoutMs
         record.lastAttempt = Attempt(sessionId: sessionId, target: target)
-        record.dismissedScreenMarkers = .max
         records[panelId] = record
     }
 
-    /// How a restart ended. Only a restart that replaced the pane's Claude spends the attempt.
+    /// How a restart ended. Only a restart that replaced the pane's Claude spends the attempt,
+    /// and only then are the `/effort` and `/model` results on screen not new: the resumed
+    /// Claude redraws the conversation. One the user typed before a hold or refusal still counts.
     mutating func noteResult(panelId: UUID, _ result: SessionPriorityApplyResult, nowMs: Int64) -> RetryPolicy {
         var record = records[panelId] ?? PaneRecord()
         defer { records[panelId] = record }
@@ -120,6 +120,7 @@ struct SessionPriorityCoordinatorState: Equatable {
             record.lastAttempt?.sessionId = sessionId
             record.state = .applying
             record.awaitingSessionStartUntilMs = nowMs + Self.sessionStartTimeoutMs
+            record.dismissedScreenMarkers = .max
             return .none
         case .held(let reason):
             record.park()
@@ -136,6 +137,7 @@ struct SessionPriorityCoordinatorState: Equatable {
         case .resumeNotTyped:
             // The pane was restarted and holds a bare shell; the user resumes it by hand.
             record.awaitingSessionStartUntilMs = nil
+            record.dismissedScreenMarkers = .max
             record.state = .notApplied(nil)
             return .none
         }
@@ -197,9 +199,17 @@ struct SessionPriorityCoordinatorState: Equatable {
     /// Whether the pane's screen, showing `markerCount` `/effort` or `/model` results, shows one
     /// the user did not dismiss. Results scrolling away lower the dismissed count.
     mutating func screenShowsManualMarker(panelId: UUID, markerCount: Int) -> Bool {
-        let dismissed = records[panelId]?.dismissedScreenMarkers ?? 0
-        if markerCount < dismissed { records[panelId]?.dismissedScreenMarkers = markerCount }
-        return markerCount > dismissed
+        let shows = showsUndismissedManualMarker(panelId: panelId, markerCount: markerCount)
+        if let dismissed = records[panelId]?.dismissedScreenMarkers, markerCount < dismissed {
+            records[panelId]?.dismissedScreenMarkers = markerCount
+        }
+        return shows
+    }
+
+    /// ``screenShowsManualMarker(panelId:markerCount:)`` without lowering the dismissed count,
+    /// for the restart gate's last look at a queued pane.
+    func showsUndismissedManualMarker(panelId: UUID, markerCount: Int) -> Bool {
+        markerCount > (records[panelId]?.dismissedScreenMarkers ?? 0)
     }
 
     /// Records what a reconcile decided for the pane and returns the pane's state. A restart

@@ -16,6 +16,9 @@ struct SessionPriorityApplyGate {
         var claudeInForeground: Bool
         /// A Claude account switch of the pane is in progress.
         var accountSwitchInFlight: Bool
+        /// The screen shows a `/effort` or `/model` result the user has not dismissed: they chose
+        /// the effort themselves while the pane waited for its restart.
+        var screenShowsManualChange = false
     }
 
     /// Why the restart waits.
@@ -30,6 +33,8 @@ struct SessionPriorityApplyGate {
         case accountSwitchInFlight
         /// Session priority was turned off while the restart was being prepared.
         case disabled
+        /// The user changed the effort or model in the pane while it waited for its restart.
+        case manualChange
     }
 
     /// The gate's answer.
@@ -41,10 +46,12 @@ struct SessionPriorityApplyGate {
     /// How long the pane must go without input before it may be restarted.
     static let quietInputWindow: Duration = .seconds(10)
 
-    /// Checks, in order: account switch, running turn, recent input, the running-turn hint, the
-    /// screen (only Claude's empty prompt passes), and the foreground.
+    /// Checks, in order: account switch, a manual change on screen, running turn, recent input,
+    /// the running-turn hint, the screen (only Claude's empty prompt passes), and the foreground.
     static func evaluate(_ facts: Facts) -> Verdict {
         if facts.accountSwitchInFlight { return .hold(.accountSwitchInFlight) }
+        // Restarting now would replace the user's own effort with the target's.
+        if facts.screenShowsManualChange { return .hold(.manualChange) }
         if facts.responseRunning { return .hold(.responding) }
         if facts.receivedInputRecently { return .hold(.recentInput) }
         // Claude keeps its input box empty while it works, so this outranks the screen.

@@ -23,6 +23,16 @@ struct SessionPriorityApplyGateTests {
         #expect(SessionPriorityApplyGate.evaluate(facts) == .hold(.accountSwitchInFlight))
     }
 
+    /// A `/effort` the user typed while the pane waited in the queue, longer ago than the quiet
+    /// window, still keeps the restart from replacing their effort.
+    @Test
+    func holdsWhenTheUserChangedTheEffortOnScreen() {
+        var facts = clearFacts()
+        facts.screenShowsManualChange = true
+
+        #expect(SessionPriorityApplyGate.evaluate(facts) == .hold(.manualChange))
+    }
+
     @Test
     func holdsWhileResponding() {
         var facts = clearFacts()

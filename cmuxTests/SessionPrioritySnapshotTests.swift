@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxSidebar
 import Foundation
 import Testing
 
@@ -125,5 +126,31 @@ struct SessionPrioritySnapshotTests {
         workspace.setSessionPriorityManual(true)
         workspace.setSessionPriorityManual(true)
         #expect(notified == 3)
+    }
+
+    /// The priority row is derived state the coordinator rebuilds while the setting is on, so a
+    /// saved one never comes back with the workspace, on or off. The autosave keeps it, and
+    /// restore drops it with every other status row.
+    @MainActor
+    @Test
+    func restoredWorkspaceCarriesNoPriorityRow() {
+        let workspace = Workspace()
+        workspace.setStatusEntry(
+            SidebarStatusEntry(
+                key: SessionPriorityStatusRow.key,
+                value: "Urgent · Normal · high · applied",
+                icon: "bolt.fill",
+                priority: SessionPriorityStatusRow.priority
+            ),
+            key: SessionPriorityStatusRow.key,
+            panelId: nil
+        )
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        #expect(snapshot.statusEntries.contains { $0.key == SessionPriorityStatusRow.key })
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        #expect(restored.statusEntries[SessionPriorityStatusRow.key] == nil)
     }
 }
