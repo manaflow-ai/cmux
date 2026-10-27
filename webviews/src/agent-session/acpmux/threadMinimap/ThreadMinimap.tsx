@@ -309,8 +309,15 @@ export function ThreadMinimap({
     const node = scroller.current;
     const turn = live.current.turns[index];
     if (!node || !turn) return undefined;
-    const target = () =>
-      Math.min(turnScrollTop(turn, live.current.tops), Math.max(0, live.current.total - node.clientHeight));
+    const targetRef: TickRef = { key: turn.key, id: turn.id };
+    const target = () => {
+      const currentIndex = tickIndex(live.current.ticks, targetRef);
+      const currentTurn = (currentIndex >= 0 ? live.current.turns[currentIndex] : undefined) ?? turn;
+      return Math.min(
+        turnScrollTop(currentTurn, live.current.tops),
+        Math.max(0, live.current.total - node.clientHeight),
+      );
+    };
     const row = mountedRow(node, turn.id);
     const to = target();
     // The layout's tops are estimates for rows never drawn, so a long jump can land off its mark

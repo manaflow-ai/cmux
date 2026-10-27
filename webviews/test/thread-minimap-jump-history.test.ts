@@ -143,6 +143,7 @@ await requireBrowserLane("thread-minimap-jump-history.test.ts", async () => {
       const settledAt = postClick.findIndex((frame) => Math.abs(frame.target! - LANDING_OFFSET) <= 2);
       expect(settledAt).toBeGreaterThanOrEqual(0);
       const targetRange = postClick.slice(settledAt).map((frame) => frame.target!);
+      const postReleaseScroll = captured.slice(pageReleasedAt).map((frame) => frame.scrollTop);
       console.log(
         JSON.stringify({
           historyPages: pageCount,
@@ -152,12 +153,15 @@ await requireBrowserLane("thread-minimap-jump-history.test.ts", async () => {
           settledAt,
           postTargetRange: [Math.min(...targetRange), Math.max(...targetRange)],
           postScrollRange: [postClick[0]?.scrollTop, postClick.at(-1)?.scrollTop],
+          postReleaseScrollRange: [Math.min(...postReleaseScroll), Math.max(...postReleaseScroll)],
+          postReleaseScrollHead: postReleaseScroll.slice(0, 8),
           targetRemounts,
         }),
       );
       expect(Math.max(...targetRange) - Math.min(...targetRange)).toBeLessThanOrEqual(4);
       expect(pageCount).toBe(1);
       expect(pageReleasedAt).toBeGreaterThanOrEqual(clickedAt);
+      expect(postReleaseScroll.slice(1).every((top) => top > 100)).toBe(true);
       expect(targetRemounts).toBe(0);
     });
   });
