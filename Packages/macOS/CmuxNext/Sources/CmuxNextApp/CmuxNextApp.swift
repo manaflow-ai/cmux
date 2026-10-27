@@ -83,10 +83,6 @@ public struct CmuxNextApp {
         // The incognito workspaces a crashed run left, then the settings read, in one sequence: the launch window
         // (made after the settings read lands) knows whether it may list every workspace (p08-startup 038).
         let ledgerThenSettings = work.sequence("launch.ledger-then-settings")
-        // First in it: the run marker reads the last run's files and writes this run's (p08-startup-075). The services,
-        // made after the settings read, take its result with no file call on main.
-        environment.runMarker = AppRunMarker.startLaunchRead(directory: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID),
-                                                             in: ledgerThenSettings)
         environment.incognitoLeftovers = IncognitoWorkspaceLedger.startLaunchRead(
             at: IncognitoWorkspaceLedger.standardURL(bundleIdentifier: Bundle.main.bundleIdentifier), in: ledgerThenSettings)
         // The Labs page's local feature choices (DEV and NIGHTLY), first in that sequence: the launch's features take
@@ -103,6 +99,11 @@ public struct CmuxNextApp {
                 environment.featureTunableOverrides = LaunchRead(in: ledgerThenSettings, dropped: [:]) { TunableFile.boolValues(tunables, keys: keys) }
             }
         }
+        // The run marker reads the last run's files and opens this run's (p08-startup-075), after the Labs and tunables
+        // reads (the launch's features take those without waiting) and before the settings read: the services, made
+        // after the settings read lands, take its result with no file call on main.
+        environment.runMarker = AppRunMarker.startLaunchRead(directory: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID),
+                                                             in: ledgerThenSettings)
         // The saved sidebars, before the settings read: the launch window's first frame draws them (p08-startup-075).
         environment.sidebarSnapshot = environment.sidebarSnapshotFile?.startLaunchRead(in: ledgerThenSettings)
         // cmux-next.json (made on first launch) read and merged with the managed layers on the files lane, next:

@@ -48,15 +48,16 @@ final class CrashRecoveryService {
         writer = CrashReportWriter.standard(bundleID: bundleID)
         self.work = work
         self.mainWork = mainWork
-        if let previous = marker?.recovery.previous, let keysFile = marker?.previousCrashKeysFile {
+        if let previous = marker?.recovery.previous {
             logger.error("previous run ended unexpectedly signal=\(previous.signal ?? 0) exception=\(previous.exception?.name ?? "none", privacy: .public) safe=\(self.recovery.skipsBrowserPages)")
-            // The DiagnosticReports listing and the crash keys' read run on the files lane; nobody waits on them, so
-            // the reply is background work (Chrome's PostTaskAndReply, base/task/task_runner.h).
-            let launched = previous.launched
+            // The DiagnosticReports listing runs on the files lane (the crash keys came with the marker's launch
+            // read); nobody waits on it, so the reply is background work (Chrome's PostTaskAndReply,
+            // base/task/task_runner.h).
+            let launched = previous.launched, keys = marker?.previousCrashKeys
             work.run(.bestEffort, mayBlock: .files) {
-                (CrashRecoveryService.systemCrashLog(after: launched), AppRunMarker.readCrashKeys(keysFile))
-            }.reply(on: mainWork, class: .background, owner: "CrashRecovery.previousRun") { [weak self] read in
-                self?.previousRunRead(previous, systemLog: read.0, crashKeys: read.1)
+                CrashRecoveryService.systemCrashLog(after: launched)
+            }.reply(on: mainWork, class: .background, owner: "CrashRecovery.previousRun") { [weak self] systemLog in
+                self?.previousRunRead(previous, systemLog: systemLog, crashKeys: keys)
             }
         }
     }
