@@ -21,7 +21,7 @@ import CmuxNextWebUpdates
 /// that type's line budget is frozen).
 @MainActor
 struct PageFactory {
-    unowned let services: AppServices
+    let services: AppServices
 
     /// The React History page when Debug Settings `history.surface` is `web`, else nil (the
     /// Swift page). The tunable goes when the React page becomes the default (react-pages.md H3).
@@ -238,7 +238,7 @@ struct PageFactory {
                           pair: { [weak services] in services?.registry.perform("server.showPanel") }))]
             + (images.map { [PageRoute(prefix: BackdropImagesPageProvider.prefix, provider: $0)] } ?? [])
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
-        let catalog = services.settingsWindow.backdropCatalog
+        let catalog = SettingsWindowService.backdropCatalog(of: services)
         let dynamicResources = SettingsBackdropThumbnails(choices: catalog.catalog.choices,
                                                           currentChoices: { catalog.catalog.choices },
                                                           userImages: SettingsWindowService.userImages, museum: museumArt,

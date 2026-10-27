@@ -132,7 +132,7 @@ extension CEFTab {
             }
         case .takeFocus(_, let forward):
             emit(.takeFocus(forward: forward))
-        case .renderTerminated(_, let status, let code, _, _):
+        case .renderTerminated(_, let status, let code, _, _, _):
             rendererTerminated(.cef(status: status, code: code))
         case .frameRenderers: if runtime.hostStart == nil { onRenderersMayChange?() } // an iframe's renderer came or went
         case .renderUnresponsive: machine.apply(.unresponsiveChanged(true))

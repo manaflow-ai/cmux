@@ -18,7 +18,6 @@ final class ProxyConnection: Sendable {
     private let proxy: RemoteLocalhostProxy
     private let localPort: UInt16
     private let machineListener: Bool
-    private let deadline = DemandTimer(owner: "RemoteLocalhostProxy.head")
 
     init(client: NWConnection, proxy: RemoteLocalhostProxy, localPort: UInt16, machineListener: Bool) {
         self.client = client
@@ -51,12 +50,10 @@ final class ProxyConnection: Sendable {
             proxy.connectionEnded()
         }
         let client = client
-        deadline.schedule(after: Self.headDeadline) { client.cancel() }
-        guard let (head, rest) = await readHead() else {
-            deadline.cancel()
-            return
-        }
-        deadline.cancel()
+        // The head's limit is a Deadline race: when it wins, the client is cancelled, which also ends its read.
+        guard let (head, rest) = try? await Deadline(Self.headDeadline).run("RemoteLocalhostProxy.head", onTimeout: { client.cancel() }, {
+            await self.readHead()
+        }) else { return }
         guard let route = trustedRoute() ?? proxy.route(forAuthorization: head.proxyAuthorization) else {
             proxy.count(\.unauthorized)
             proxy.note("407 \(head.kind == .connect ? "CONNECT" : head.method) \(head.host):\(head.port) credential=\(head.proxyAuthorization == nil ? "none" : "wrong")")
