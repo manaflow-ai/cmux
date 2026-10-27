@@ -7,3 +7,8 @@
 export const HIDDEN_ATTRIBUTE = "data-cmux-hidden";
 /** Fired on the document after the mark comes or goes. */
 export const HIDDEN_EVENT = "cmux-visibility";
+
+/** Whether no one can see `doc`: its engine hides it (`visibilityState`) or the host marked it. */
+export function documentHidden(doc: Pick<Document, "visibilityState" | "documentElement">): boolean {
+  return doc.visibilityState === "hidden" || doc.documentElement?.hasAttribute(HIDDEN_ATTRIBUTE) === true;
+}

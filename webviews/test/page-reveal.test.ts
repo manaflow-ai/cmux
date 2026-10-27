@@ -5,6 +5,7 @@
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { entranceAllowed, finishPageAnimations, installRevealSettle } from "../src/agent-session/shared/pageReveal";
+import { HIDDEN_ATTRIBUTE, HIDDEN_EVENT } from "../src/ui/pageHidden";
 
 type Fake = { playState: AnimationPlayState; finished: number; effect: { getComputedTiming(): { endTime: number } } };
 
@@ -34,7 +35,13 @@ function page() {
     window.document.dispatchEvent(new window.Event("visibilitychange"));
   };
   const frame = () => frames.splice(0).forEach((run) => run());
-  return { doc: window.document, add, set, frame };
+  // The host's mark (WebTheme `cmuxTheme.visibility`): an occluded window, while `visibilityState`
+  // stays visible.
+  const mark = (hidden: boolean) => {
+    window.document.documentElement.toggleAttribute(HIDDEN_ATTRIBUTE, hidden);
+    window.document.dispatchEvent(new window.Event(HIDDEN_EVENT));
+  };
+  return { doc: window.document, add, set, frame, mark };
 }
 
 test("an entrance waits while hidden and until the first frame back has passed", () => {
@@ -105,4 +112,26 @@ test("motion off is not away: a paced view keeps its pace and catches up only on
   frame();
   expect(pageAway(doc)).toBe(false);
   expect(entranceAllowed(doc)).toBe(false);
+});
+
+test("the host's occluded mark counts as hidden: no entrance, and nothing started under it replays", () => {
+  const { doc, add, frame, mark } = page();
+  installRevealSettle(doc);
+  const entrance = add(180);
+  const spinner = add(Number.POSITIVE_INFINITY);
+  mark(true);
+  expect(doc.visibilityState).toBe("visible");
+  expect(entranceAllowed(doc)).toBe(false);
+  expect(entrance.finished).toBe(1);
+  expect(spinner.finished).toBe(0);
+  // Started under the mark (the bootstrap holds it paused): finished as the page shows, not replayed.
+  const late = add(180);
+  late.playState = "paused";
+  mark(false);
+  expect(late.finished).toBe(1);
+  expect(entranceAllowed(doc)).toBe(false);
+  frame();
+  frame();
+  expect(entranceAllowed(doc)).toBe(true);
+  expect(spinner.playState).toBe("running");
 });

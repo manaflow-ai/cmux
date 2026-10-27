@@ -32,13 +32,17 @@ export function spinnerStartTime(timelineNow: number, timeOrigin: number, period
 /** The bits of a CSS animation the clock reads and sets (a test passes a plain object). */
 export type SpinnerAnimation = {
   animationName?: string;
+  playState?: string;
   startTime: CSSNumberish | null;
   effect: { getTiming(): { duration?: number | string | CSSNumericValue } } | null;
 };
 
-/** Moves `animation` onto the shared phase when it runs shared loop keyframes; true if it did. */
+/** Moves `animation` onto the shared phase when it runs shared loop keyframes; true if it did. A
+ * paused one is left alone: setting its start time would play it and take it out of
+ * `animation-play-state` for good (Chromium css_animation.cc, PlayStateTransitionScope). */
 export function alignSpinner(animation: SpinnerAnimation, timelineNow: number, timeOrigin: number): boolean {
   if (!animation.animationName || !SHARED_LOOP_KEYFRAMES.has(animation.animationName)) return false;
+  if (animation.playState === "paused") return false;
   const duration = animation.effect?.getTiming().duration;
   if (typeof duration !== "number" || !(duration > 0)) return false;
   animation.startTime = spinnerStartTime(timelineNow, timeOrigin, duration);
@@ -74,6 +78,9 @@ export function installSpinnerClock(doc: Document = document): void {
     "animationstart",
     (event) => {
       if (!SHARED_LOOP_KEYFRAMES.has(event.animationName) || !(event.target instanceof Element)) return;
+      // A loop that starts while hidden stays paused (see `alignSpinner`); the show's realign puts it
+      // in phase.
+      if (doc.documentElement.hasAttribute(HIDDEN_ATTRIBUTE)) return;
       const now = doc.timeline?.currentTime;
       const origin = doc.defaultView?.performance.timeOrigin;
       if (typeof now !== "number" || typeof origin !== "number") return;

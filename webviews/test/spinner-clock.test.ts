@@ -41,3 +41,15 @@ test("only the shared keyframes are aligned, with their own duration", () => {
   expect(other.startTime).toBeNull();
   expect(phaseAt(spinner.startTime as number, 2_000)).toBeCloseTo((1_760_000_000_050 + 2_000) % period, 6);
 });
+
+test("a paused loop is left alone: a start time would play it past its animation-play-state", () => {
+  const timing = { getTiming: () => ({ duration: period }) };
+  const paused: SpinnerAnimation = {
+    animationName: SPINNER_KEYFRAMES,
+    playState: "paused",
+    startTime: null,
+    effect: timing,
+  };
+  expect(alignSpinner(paused, 2_000, 1_760_000_000_050)).toBe(false);
+  expect(paused.startTime).toBeNull();
+});

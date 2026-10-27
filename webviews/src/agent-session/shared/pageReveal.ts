@@ -9,7 +9,11 @@
 // This module is the one owner of "may an entrance run now": no while hidden, no until the first
 // frame after the page shows has passed. Views decide an entrance from their data diff and also
 // ask `entranceAllowed`. `installRevealSettle` finishes the page's finite animations when it hides
-// and when it shows, so nothing started while hidden plays on return.
+// and when it shows, so nothing started while hidden plays on return. Hidden is the engine's
+// `visibilityState` or the host's mark (`HIDDEN_ATTRIBUTE`, a window under another cmux window),
+// under which the WebTheme bootstrap holds every animation until the show, as WebKit does.
+
+import { documentHidden, HIDDEN_EVENT } from "../../ui/pageHidden";
 
 type RevealState = {
   /// Set from the page showing again until its first frame has passed.
@@ -58,10 +62,10 @@ function watch(doc: Document): RevealState {
   const created: RevealState = { settling: false, generation: 0 };
   state = created;
   states.set(doc, created);
-  doc.addEventListener("visibilitychange", () => {
+  const changed = () => {
     created.generation += 1;
     finishPageAnimations(doc);
-    if (doc.visibilityState === "hidden") {
+    if (documentHidden(doc)) {
       created.settling = false;
       return;
     }
@@ -74,7 +78,9 @@ function watch(doc: Document): RevealState {
         if (created.generation === generation) created.settling = false;
       }),
     );
-  });
+  };
+  doc.addEventListener("visibilitychange", changed);
+  doc.addEventListener(HIDDEN_EVENT, changed);
   return created;
 }
 
@@ -98,5 +104,5 @@ export function entranceAllowed(doc: Document | undefined = defaultDocument()): 
 export function pageAway(doc: Document | undefined = defaultDocument()): boolean {
   if (!doc) return false;
   const state = watch(doc);
-  return doc.visibilityState === "hidden" || state.settling;
+  return documentHidden(doc) || state.settling;
 }

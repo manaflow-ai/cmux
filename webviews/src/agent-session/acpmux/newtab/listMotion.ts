@@ -9,6 +9,7 @@
 // its move token is 0.
 import { type RefObject, useLayoutEffect, useRef } from "react";
 import { isAgentMotionOff } from "../../shared/motion";
+import { documentHidden, HIDDEN_EVENT } from "../../../ui/pageHidden";
 import { entranceAllowed } from "../../shared/pageReveal";
 
 type Places = Map<string, { x: number; y: number }>;
@@ -104,15 +105,18 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
   // itself; the observer then reports the size just read, which leaves the places current.
   const measuredSize = useRef<Size | null>(null);
   useLayoutEffect(() => {
-    // A page hidden mid-motion (another New Tab opened over it) ends its motion there: WebKit
-    // suspends a hidden page's animations, and this one would finish when the page shows again.
+    // A page hidden or occluded mid-motion (another New Tab opened over it) ends its motion there:
+    // WebKit, and the WebTheme bootstrap under `HIDDEN_ATTRIBUTE`, hold a hidden page's animations,
+    // and this one would finish when the page shows again.
     const doc = list.current?.ownerDocument ?? (typeof document === "undefined" ? undefined : document);
     const hid = () => {
-      if (doc?.visibilityState === "hidden") cancelRunning(running);
+      if (doc && documentHidden(doc)) cancelRunning(running);
     };
     doc?.addEventListener("visibilitychange", hid);
+    doc?.addEventListener(HIDDEN_EVENT, hid);
     return () => {
       doc?.removeEventListener("visibilitychange", hid);
+      doc?.removeEventListener(HIDDEN_EVENT, hid);
       observed.current?.observer.disconnect();
       observed.current?.settle();
       observed.current = null;

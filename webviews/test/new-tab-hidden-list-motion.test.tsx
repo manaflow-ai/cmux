@@ -183,6 +183,30 @@ test("a motion in flight when the page hides ends there, instead of finishing wh
   expect([...running]).toEqual([]);
 });
 
+test("the host's occluded mark ends a motion in flight and moves nothing while it is set", async () => {
+  const { HIDDEN_ATTRIBUTE, HIDDEN_EVENT } = await import("../src/ui/pageHidden");
+  const mark = (hidden: boolean) =>
+    act(async () => {
+      window.document.documentElement.toggleAttribute(HIDDEN_ATTRIBUTE, hidden);
+      window.document.dispatchEvent(new window.Event(HIDDEN_EVENT));
+    });
+  await render(chats);
+  await render([card("n", "A new chat"), ...chats.slice(0, 2)]);
+  expect(running.size).toBeGreaterThan(0);
+  // A window over this one: `visibilityState` stays visible, only the mark says hidden.
+  await mark(true);
+  expect([...running]).toEqual([]);
+  started.length = 0;
+  await render([card("o", "Another chat"), card("n", "A new chat"), chats[0]]);
+  expect(started).toEqual([]);
+  await mark(false);
+  expect(started).toEqual([]);
+  // Its first frame back passes, so the next test starts on a settled page.
+  await act(async () => {
+    for (let frame = 0; frame < 2; frame += 1) await new Promise((resolve) => window.requestAnimationFrame(resolve));
+  });
+});
+
 test("on a page that shows, a new chat appears at once and the chats under it slide", async () => {
   await render(chats);
   await render([card("n", "A new chat"), ...chats.slice(0, 2)]);

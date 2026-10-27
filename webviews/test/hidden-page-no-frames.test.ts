@@ -162,6 +162,45 @@ await requireBrowserLane("hidden-page-no-frames.test.ts", async () => {
     await p.close();
   });
 
+  test("a spinner mounted while hidden stays paused, shows in phase, and pauses again on the next hide", async () => {
+    const p = await page();
+    await visibility(p, true);
+    await visibility(p, false);
+    await p.evaluate(() => {
+      const late = document.createElement("div");
+      late.id = "late";
+      late.className = "spinner";
+      document.body.append(late);
+    });
+    // The animation starts (and `animationstart` fires) while the mark is set; frames are held, so
+    // the page's own time is the clock here.
+    const hidden = await p.evaluate(
+      () =>
+        new Promise<number>((resolve) => {
+          // fixed-wait: a hidden page draws no frame to wait on; this is the page's time while hidden
+          setTimeout(
+            () => resolve(document.getAnimations().filter((animation) => animation.playState === "running").length),
+            300,
+          );
+        }),
+    );
+    expect(hidden).toBe(0);
+
+    await visibility(p, true);
+    await frames(p, 2);
+    const late = await p.evaluate(() => {
+      const animation = document.getElementById("late")!.getAnimations()[0];
+      return { start: Number(animation.startTime), origin: performance.timeOrigin, state: animation.playState };
+    });
+    expect(late.state).toBe("running");
+    const phase = (((late.start + late.origin) % PERIOD) + PERIOD) % PERIOD;
+    expect(Math.min(phase, PERIOD - phase)).toBeLessThan(0.01);
+
+    await visibility(p, false);
+    expect(await running(p)).toBe(0);
+    await p.close();
+  });
+
   test("a frame cancelled while held never runs, and one asked for before the gate still cancels", async () => {
     const p = await browser!.newPage();
     await p.setContent("<div></div>");
