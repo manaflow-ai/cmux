@@ -690,6 +690,11 @@ button.cv-subagent > :last-child {
   transform-origin: bottom center;
   animation: var(--acpmux-tray-leave);
 }
+/* Inside the leaving copy nothing else animates: a line rising in or a tick holds where it was drawn
+   (trayMotion.tsx copies those values), and spinners stop. */
+.acpmux-running-tray--ghost * {
+  animation: none !important;
+}
 @keyframes acpmux-tray-leave {
   to {
     opacity: 0;

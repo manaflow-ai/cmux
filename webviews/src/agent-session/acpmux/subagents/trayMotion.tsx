@@ -71,6 +71,19 @@ export function playTrayExit(card: HTMLElement): void {
     if (drawn.scale && drawn.scale !== "none") ghost.style.scale = drawn.scale;
   }
   ghost.removeAttribute(TRAY_ENTER_ATTR);
+  // Only the copy's own exit runs: a line still rising in, or words still ticking, hold where they are
+  // drawn (the stylesheet stops every animation inside the copy). A handful at most: what animates.
+  const moving = "[data-enter], .acpmux-tick__in, .acpmux-tick__out";
+  const view = card.ownerDocument.defaultView;
+  const live = card.querySelectorAll<HTMLElement>(moving);
+  const copies = ghost.querySelectorAll<HTMLElement>(moving);
+  live.forEach((node, index) => {
+    const copy = copies[index];
+    const style = view?.getComputedStyle(node);
+    if (!copy || !style) return;
+    copy.style.opacity = style.opacity;
+    if (style.translate && style.translate !== "none") copy.style.translate = style.translate;
+  });
   ghost.classList.add(TRAY_GHOST);
   ghost.setAttribute("aria-hidden", "true");
   ghost.setAttribute("inert", "");
