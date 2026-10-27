@@ -55,6 +55,11 @@ RESERVED = re.compile(r"(?:release|nightly)", re.IGNORECASE)
 # STALL_MINUTES by now, or IDLE_STALL_MINUTES with nothing running, gets no new run.
 STALL_MINUTES = 25
 IDLE_STALL_MINUTES = 5
+# A pick that may wait on the fleet (State.wait_on_owned) counts a Blacksmith label as having no
+# room once its oldest queued job has waited this long, sooner than STALL_MINUTES, as
+# next_macos_cascade.FRESH_STALL_MINUTES does for a feed's compile: DEV publish 40445038889's
+# tip-dmg-build queued 25 min on blacksmith-6vcpu-macos-26 for 3 min of work.
+FRESH_STALL_MINUTES = 15
 # Owned classes in preference order, as pr_runner_pool.RUN_CLASSES.
 RUN_CLASSES = ("std", "light", "xl")
 # glaeda-[root-|side-|gui-]<class>-xcode-<version>: one family of labels on the same machines.
@@ -134,6 +139,8 @@ class Pool:
     xcode_app: str = ""
     # A Blacksmith label whose queue is not moving (stalled()): it has no free slot.
     stalled: bool = False
+    # Minutes its oldest queued job has waited by now (the snapshot's figure plus its age).
+    waited: float = 0.0
 
     @property
     def available(self) -> int:
@@ -271,10 +278,14 @@ def _retry_label(state: State, owned: Pool) -> str:
 
 
 def _free_blacksmith(state: State) -> Pool | None:
-    """The first Blacksmith label, in BLACKSMITH order, with a free, moving slot for every job of the run."""
+    """The first Blacksmith label, in BLACKSMITH order, with a free, moving slot for every job of the run.
+
+    A label whose oldest queued job has waited FRESH_STALL_MINUTES is not moving fast enough to
+    count (this only decides whether a wait_on_owned pick waits on the fleet)."""
     pools = {pool.label: pool for pool in state.blacksmith}
     return next((pools[label] for label in BLACKSMITH
-                 if label in pools and pools[label].unreserved_available >= state.jobs), None)
+                 if label in pools and pools[label].unreserved_available >= state.jobs
+                 and not (pools[label].queued > 0 and pools[label].waited >= FRESH_STALL_MINUTES)), None)
 
 
 def _pick_blacksmith(state: State) -> Choice:
@@ -317,6 +328,16 @@ class LiveState:
             return json.load(response)
 
     def runners(self) -> list[Mapping[str, Any]]:
+        """The repository's runners and the org's glaeda-minis group, as pr_runner_pool reads them.
+
+        The org-wide listing below is only the fallback: with 2,862 org runners on 2026-10-27 its
+        MAX_RUNNER_PAGES pages held none of the minis, so every owned pool read as offline and an
+        owned-first pick (DEV publish 40454509260) went to a stalled Blacksmith queue.
+        """
+        try:
+            return self._group_runners()
+        except Exception as error:  # noqa: BLE001 - the org-wide pages below may still hold them
+            print(f"::warning title=live runner state::{error}; reading the org-wide runner list", file=sys.stderr)
         owner = self.repository.split("/", 1)[0]
         # The routing runners can sit behind several pages, so read all pages
         # that can contain the current fleet while keeping the API usage bounded.
@@ -327,6 +348,12 @@ class LiveState:
             if len(batch) < 100:
                 break
         return runners
+
+    def _group_runners(self) -> list[Mapping[str, Any]]:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import pr_runner_pool
+
+        return pr_runner_pool.GitHub(self.token, self.repository).runners()
 
     def snapshot(self) -> Mapping[str, Any] | None:
         """The queue janitor's newest trusted pool snapshot, or None when missing or stale (two API calls)."""
@@ -424,10 +451,12 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
             free = max(0, idle - queued)
             owned.append(Pool(label, len(online), len(online) - idle, queued, free=free,
                                xcode_app=owned_xcode_app(label, env.get("CMUX_CI_XCODE_APP_PR", ""))))
+    age = snapshot_age(snapshot)
     counts = {label: {"running": count(label, "running"), "queued": count(label, "queued"),
                       "reserved": count(label, "reserved_queued"),
                       "stalled": stalled(count(label, "queued"), count(label, "running"),
-                                         count(label, "oldest_queued_minutes"), snapshot_age(snapshot))}
+                                         count(label, "oldest_queued_minutes"), age),
+                      "waited": count(label, "oldest_queued_minutes") + age if count(label, "queued") else 0.0}
               for label in BLACKSMITH}
     blacksmith = tuple(Pool(label, CAPACITY[label], **counts[label],
                             xcode_app=env.get("CMUX_CI_XCODE_APP_MACOS_15", "") if label == BLACKSMITH[2] else "")

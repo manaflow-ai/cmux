@@ -8,6 +8,7 @@ import importlib.util
 import json
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -147,6 +148,29 @@ class NeverQueueBehindBlacksmithTests(unittest.TestCase):
         state = self.state((self.FULL[0], pool(picker.BLACKSMITH[1], 10, 2), self.FULL[2]),
                            owned=(pool("glaeda-std-xcode-26.6", 8, free=4),))
         self.assertEqual(picker.pick(state).retry_label, picker.BLACKSMITH[1])
+
+    def test_an_old_queued_macos_26_job_with_nothing_starting_waits_on_the_fleet(self):
+        """DEV publish 40454509260: the oldest macOS 26 job had waited past FRESH_STALL_MINUTES with
+        runners busy, so the label is no room for a wait_on_owned pick; it waits on the fleet."""
+        snapshot = {"generated_at": "2000-01-01T00:00:00Z", "pools": {
+            picker.BLACKSMITH[1]: {"queued": 4, "running": 3, "oldest_queued_minutes": 16}}}
+        with mock.patch.object(picker, "snapshot_age", return_value=0.0):
+            base = picker.state_from(jobs=2, env={}, fork=False, runners=None, snapshot=snapshot,
+                                     fallback=picker.BLACKSMITH[1], owned_enabled=True)
+        mac26 = next(p for p in base.blacksmith if p.label == picker.BLACKSMITH[1])
+        # Not yet STALL_MINUTES, so the label itself still reads as free: only the fresh rule catches it.
+        self.assertFalse(mac26.stalled)
+        self.assertGreater(mac26.unreserved_available, 2)
+        self.assertGreaterEqual(mac26.waited, picker.FRESH_STALL_MINUTES)
+        state = self.state((mac26,))
+        choice = picker.pick(state)
+        self.assertEqual(choice.label, "glaeda-std-xcode-26.6")
+        self.assertTrue(choice.owned)
+        # A pick that may not wait on the fleet keeps the old rule.
+        self.assertEqual(picker.pick(dataclasses.replace(state, wait_on_owned=False)).label, picker.BLACKSMITH[1])
+        # A young queue on a label with room still takes Blacksmith.
+        young = dataclasses.replace(mac26, waited=picker.FRESH_STALL_MINUTES - 1)
+        self.assertEqual(picker.pick(self.state((young,))).label, picker.BLACKSMITH[1])
 
     def test_a_stalled_blacksmith_label_has_no_free_slot(self):
         stalled = dataclasses.replace(pool(picker.BLACKSMITH[1], 10, 0, 3), stalled=True)
@@ -297,6 +321,9 @@ class LiveRunnerReadTests(unittest.TestCase):
         asked = []
 
         class Paged(picker.LiveState):
+            def _group_runners(self):
+                raise RuntimeError("group unread")
+
             def _get(self, path):
                 asked.append(path)
                 page = int(path.rsplit("page=", 1)[1]) if "&page=" in path else 1
@@ -449,11 +476,29 @@ class OwnedQueueTests(unittest.TestCase):
 
 
 class LiveReaderTests(unittest.TestCase):
+    def test_the_minis_come_from_their_runner_group_not_the_org_pages(self):
+        """2,862 org runners on 2026-10-27: the org pages held no mini, so every owned pool read offline."""
+        minis = [{"id": index, "status": "online", "busy": False,
+                  "labels": [{"name": "glaeda-std-xcode-26.6"}]} for index in range(3)]
+
+        class Grouped(picker.LiveState):
+            def _group_runners(self):
+                return minis
+
+            def _get(self, path):
+                raise AssertionError(f"read the org-wide pages: {path}")
+
+        self.assertEqual(Grouped("token", "manaflow-ai/cmux").runners(), minis)
+        self.assertIn("runner-groups", (ROOT / "scripts/ci/pr_runner_pool.py").read_text())
+
     def test_live_reader_reads_the_org_runners_once(self):
         class Fake(picker.LiveState):
             def __init__(self):
                 super().__init__("token", "manaflow-ai/cmux")
                 self.paths = []
+
+            def _group_runners(self):
+                raise RuntimeError("group unread")
 
             def _get(self, path):
                 self.paths.append(path)
