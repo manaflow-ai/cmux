@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 
 /// Off-main event buffer. The pump appends; the main actor takes whole
