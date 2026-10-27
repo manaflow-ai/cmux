@@ -325,6 +325,24 @@ mod tests {
     }
 
     #[test]
+    fn writable_root_subtree_views_are_refused() {
+        let root = PathBuf::from("/home/u/work");
+        let cases = [
+            ("2 1 8:1 /home/u/work/cache /home/u/victim/.git/hooks rw - ext4 root rw\n", true),
+            ("2 1 8:1 /home/u/work /mnt/other rw - ext4 root rw\n", true),
+            ("2 1 8:1 /home/u/work/a/b /mnt/x rw - ext4 root rw\n", true),
+            ("2 1 8:1 /home/u rw - ext4 root rw\n", true),
+            ("2 1 8:1 /home/u/other /mnt/o rw - ext4 root rw\n", false),
+            ("2 1 8:1 /home/u/work/sub /home/u/work/sub rw - ext4 root rw\n", false),
+        ];
+        for (entry, refused) in cases {
+            let info = format!("1 0 8:1 / / rw - ext4 root rw\n{entry}");
+            let reasons = writable_mount_aliases(&[&root], &info);
+            assert_eq!(!reasons.is_empty(), refused, "{entry}: {reasons:?}");
+        }
+    }
+
+    #[test]
     fn writable_mounts_require_an_unaliased_whole_filesystem() {
         let root = PathBuf::from("/work");
         let base = "1 0 8:1 / / rw - ext4 root rw\n";
