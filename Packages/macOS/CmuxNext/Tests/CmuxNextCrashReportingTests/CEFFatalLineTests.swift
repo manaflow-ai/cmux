@@ -37,15 +37,36 @@ import Testing
             "www.example.org/path",
             "(url=\"https://quoted.example.net/q\")",
             "about:blank#secret",
+            // An apostrophe in a path, and spaces in opaque URLs, stay inside the URL.
+            "https://x.test/o'neil/secret",
+            "https://bank.example.com/o'neil/statement-2026",
+            "data:text/html,<p>account 12345 for alice</p>",
+            "javascript:void(0); window.location='evil'",
+            "javascript:'secret cookie'",
+            "view-source:https://example.com/a b",
         ]
         for url in planted {
             let line = try #require(CEFFatalLine(log: Self.line("Check failed: navigation to \(url) committed")))
             #expect(line.message.contains("<url>"), "\(url)")
-            for secret in ["example", "corp.test", "abcdefghij", "alice", "secret", "cookie", "://"] {
+            for secret in ["example", "corp.test", "abcdefghij", "alice", "secret", "cookie", "://", "neil", "statement", "12345",
+                           "window", "evil", "x.test"] {
                 #expect(!line.tagValue.contains(secret), "\(url) left \(secret) in \(line.tagValue)")
             }
             #expect(line.tagValue.hasPrefix("FATAL:content/browser/a.cc:42] Check failed: navigation to "))
         }
+    }
+
+    /// A `scheme://` URL ends at whitespace or at the quote that opened it, so the message after it stays; an opaque
+    /// URL takes the rest of the message with it.
+    @Test func keepsTheMessageAroundAURL() throws {
+        let quoted = try #require(CEFFatalLine(log: Self.line("load 'https://q.example.net/a?x=1' failed")))
+        #expect(quoted.message == "load '<url>' failed")
+        let bare = try #require(CEFFatalLine(log: Self.line("load https://x.test/o'neil failed")))
+        #expect(bare.message == "load <url> failed")
+        let opaque = try #require(CEFFatalLine(log: Self.line("load data:text/plain,a b failed")))
+        #expect(opaque.message == "load <url>")
+        let notAURL = try #require(CEFFatalLine(log: Self.line("bad file: missing")))
+        #expect(notAURL.message == "bad file: missing")
     }
 
     /// The URL goes before the message is cut, so a URL that crosses character 120 leaves no part of itself.

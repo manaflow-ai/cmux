@@ -94,8 +94,10 @@ public struct CEFFatalLine: Sendable, Equatable {
     /// The URL schemes that name a resource without `//` (`data:`, `javascript:` and the like).
     private static let opaqueSchemes: Set<String> = ["about", "blob", "data", "file", "filesystem", "javascript", "mailto", "view-source"]
 
-    /// `text` with every URL as `<url>`: a `scheme://` token, an opaque-scheme token (``opaqueSchemes``) and a
-    /// `www.` host, each up to the next space or quote. Stops once `limit` characters are written.
+    /// `text` with every URL as `<url>`. A `scheme://` URL or a `www.` host runs to the next whitespace, or to the
+    /// quote that opened it when a quote stands just before it, so an apostrophe in its path stays inside it. An
+    /// opaque-scheme URL (``opaqueSchemes``: `data:`, `javascript:` and the like) can hold spaces and page content,
+    /// so it and everything after it become one `<url>`. Stops once `limit` characters are written.
     static func withoutURLs(_ text: Substring, limit: Int = maxMessageCharacters) -> String {
         var output = ""
         var index = text.startIndex
@@ -107,17 +109,29 @@ public struct CEFFatalLine: Sendable, Equatable {
                 continue
             }
             let token = text[index ..< tokenEnd]
-            if let start = urlStart(in: token) {
-                output += token[..<start]
-                output += "<url>"
-            } else {
+            let quoteFollows = tokenEnd < text.endIndex && !text[tokenEnd].isWhitespace
+            guard let url = urlStart(in: token, quoteFollows: quoteFollows) else {
                 output += token
+                index = tokenEnd
+                continue
             }
-            index = tokenEnd
+            output += token[..<url.start]
+            output += "<url>"
+            if url.isOpaque { break }
+            index = urlEnd(in: text, from: url.start)
         }
         return output
     }
 
+    /// Where the hierarchical URL that starts at `start` ends: the next whitespace, or the next quote that matches a
+    /// quote just before `start`.
+    private static func urlEnd(in text: Substring, from start: Substring.Index) -> Substring.Index {
+        let before: Character? = start > text.startIndex ? text[text.index(before: start)] : nil
+        let closingQuote: Character? = before == "\"" || before == "'" ? before : nil
+        return text[start...].firstIndex { $0.isWhitespace || $0 == closingQuote } ?? text.endIndex
+    }
+
+    /// Whitespace and quotes split the message into the tokens that ``urlStart(in:quoteFollows:)`` looks at.
     private static func isTokenEnd(_ character: Character) -> Bool {
         character.isWhitespace || character == "\"" || character == "'"
     }
@@ -126,9 +140,10 @@ public struct CEFFatalLine: Sendable, Equatable {
         character.isASCII && (character.isLetter || character.isNumber || character == "+" || character == "-" || character == ".")
     }
 
-    /// Where a URL starts in one space-free token (after any leading punctuation such as `(` or `=`), or nil.
-    /// One pass: each run of scheme characters is looked at once.
-    private static func urlStart(in token: Substring) -> Substring.Index? {
+    /// Where a URL starts in one space-free token (after any leading punctuation such as `(` or `=`) and whether its
+    /// scheme is opaque, or nil. An opaque scheme with nothing after its `:` in the token counts only when a quote
+    /// follows (`javascript:'...'`). One pass: each run of scheme characters is looked at once.
+    private static func urlStart(in token: Substring, quoteFollows: Bool) -> (start: Substring.Index, isOpaque: Bool)? {
         var index = token.startIndex
         while index < token.endIndex {
             guard token[index].isASCII, token[index].isLetter else {
@@ -137,10 +152,11 @@ public struct CEFFatalLine: Sendable, Equatable {
             }
             let runEnd = token[index...].firstIndex { !isSchemeCharacter($0) } ?? token.endIndex
             let run = token[index ..< runEnd].lowercased()
-            if run.hasPrefix("www.") { return index }
+            if run.hasPrefix("www.") { return (index, false) }
             if runEnd < token.endIndex, token[runEnd] == ":" {
                 let after = token[token.index(after: runEnd)...]
-                if after.hasPrefix("//") || (!after.isEmpty && opaqueSchemes.contains(run)) { return index }
+                if after.hasPrefix("//") { return (index, false) }
+                if opaqueSchemes.contains(run), !after.isEmpty || quoteFollows { return (index, true) }
             }
             index = runEnd
         }
