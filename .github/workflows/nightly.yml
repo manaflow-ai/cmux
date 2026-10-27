@@ -2039,7 +2039,11 @@ jobs:
             || rm -f "$fetch_retry"
           retry() {
             if [ -s "$fetch_retry" ]; then python3 "$fetch_retry" --tries 3 --timeout 600 --repo "$GITHUB_WORKSPACE" -- "$@"
-            else echo "::warning title=warm checkout::git_fetch_retry.py unavailable; running git once, unbounded"; "$@"; fi
+            else
+              # No helper: one try, with git's own low-speed abort, so a stall still ends in about a minute.
+              echo "::warning title=warm checkout::git_fetch_retry.py unavailable; running git once with the low-speed abort"
+              "$1" -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 "${@:2}"
+            fi
           }
           started=$SECONDS
           retry git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"

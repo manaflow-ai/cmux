@@ -96,6 +96,41 @@ class Run(unittest.TestCase):
         # A lock older than the try is not ours.
         self.assertTrue(old_lock.exists())
 
+    def test_a_failed_try_removes_the_submodule_it_half_made(self) -> None:
+        git = self.repo / ".git"
+        kept = git / "modules" / "ghostty"
+        (kept / "objects").mkdir(parents=True)
+        (kept / "HEAD").write_text("ref: refs/heads/main\n")
+        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+        (self.repo / ".gitmodules").write_text('[submodule "ghostty"]\n\tpath = ghostty\n'
+                                               '[submodule "ghostty-next"]\n\tpath = ghostty-next\n')
+        (self.repo / "ghostty").mkdir()
+        (self.repo / "ghostty" / ".git").write_text("gitdir: ../.git/modules/ghostty\n")
+        half = git / "modules" / "ghostty-next"
+
+        def leave() -> None:
+            (half / "objects" / "pack").mkdir(parents=True, exist_ok=True)
+            (half / "config.lock").write_text("")
+            (self.repo / "ghostty-next").mkdir(exist_ok=True)
+            (self.repo / "ghostty-next" / ".git").write_text("gitdir: ../.git/modules/ghostty-next\n")
+
+        self.run_with([128], tries=1, leave=leave)
+        self.assertFalse(half.exists())
+        self.assertFalse((self.repo / "ghostty-next").exists())
+        # What existed before the try stays.
+        self.assertTrue((kept / "HEAD").exists())
+        self.assertTrue((self.repo / "ghostty" / ".git").exists())
+
+    def test_a_fresh_config_lock_is_removed(self) -> None:
+        git = self.repo / ".git"
+        git.mkdir()
+
+        def leave() -> None:
+            (git / "config.lock").write_text("")
+
+        self.run_with([128], tries=1, leave=leave)
+        self.assertFalse((git / "config.lock").exists())
+
     def test_only_git_commands(self) -> None:
         with self.assertRaises(ValueError):
             retry.low_speed_command(["curl", "x"])
@@ -181,7 +216,7 @@ class Workflow(unittest.TestCase):
                    "GITHUB_REPOSITORY": "o/r", "WORKFLOW_SHA": "0" * 40}
             result = subprocess.run(["bash", "-c", body], cwd=workspace, env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("unavailable; running git once", result.stdout)
+            self.assertIn("unavailable; running git once with the low-speed abort", result.stdout)
             self.assertTrue(result.stdout.strip().endswith("done"))
             # With the helper in the workflow commit's objects, it is used.
             (workspace / "scripts/ci").mkdir(parents=True)

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -70,7 +71,8 @@ def clean_partial(repo: Path, since: float, log: Callable[[str], None] = print) 
     for git_dir in git_dirs(repo):
         candidates = list((git_dir / "objects" / "pack").glob("tmp_*"))
         candidates += list((git_dir / "objects").glob("incoming-*"))
-        for name in ("shallow.lock", "index.lock", "HEAD.lock", "FETCH_HEAD.lock", "packed-refs.lock"):
+        for name in ("shallow.lock", "index.lock", "HEAD.lock", "FETCH_HEAD.lock", "packed-refs.lock",
+                     "config.lock", "config.worktree.lock"):
             candidates.append(git_dir / name)
         candidates += list((git_dir / "refs").rglob("*.lock")) if (git_dir / "refs").is_dir() else []
         for path in candidates:
@@ -94,6 +96,91 @@ def clean_partial(repo: Path, since: float, log: Callable[[str], None] = print) 
                 log(f"git_fetch_retry: could not remove {path}: {error}")
     for path in removed:
         log(f"git_fetch_retry: removed {path}")
+    return removed
+
+
+def module_dirs(repo: Path) -> set[Path]:
+    """Every directory under .git/modules that is a submodule git dir or a half-made one.
+
+    A git dir's own subdirectories (objects, refs, ...) are not listed; a nested submodule's git dir
+    is (.git/modules/<a>/modules/<b>).
+    """
+    found: set[Path] = set()
+
+    def walk(modules: Path) -> None:
+        if not modules.is_dir():
+            return
+        for entry in sorted(modules.iterdir()):
+            if not entry.is_dir() or entry.is_symlink():
+                continue
+            found.add(entry)
+            if (entry / "HEAD").exists() or (entry / "objects").is_dir():
+                walk(entry / "modules")
+            else:
+                # A name with a slash (a submodule at a/b) nests plain directories.
+                walk(entry)
+
+    walk(repo / ".git" / "modules")
+    return found
+
+
+def gitmodules_paths(gitmodules: Path) -> list[str]:
+    """The `path` of every submodule a .gitmodules file declares."""
+    try:
+        listing = subprocess.run(["git", "config", "-f", str(gitmodules), "--get-regexp", r"^submodule\..*\.path$"],
+                                 capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [path for _, _, path in (line.partition(" ") for line in listing.splitlines()) if path]
+
+
+def submodule_worktrees(repo: Path) -> list[Path]:
+    """Submodule worktrees from .gitmodules, at the top level and one level down."""
+    paths: list[Path] = []
+    for path in gitmodules_paths(repo / ".gitmodules"):
+        top = repo / path
+        paths.append(top)
+        paths.extend(top / nested for nested in gitmodules_paths(top / ".gitmodules"))
+    return paths
+
+
+def remove_tree(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
+
+
+def clean_new_modules(repo: Path, before: set[Path], log: Callable[[str], None] = print) -> list[Path]:
+    """Remove submodule git dirs a failed try created, and the worktrees that point at them.
+
+    A killed clone leaves a half-made .git/modules/<name> (often with no HEAD) and a worktree whose
+    .git file points at it; `submodule update --init --force` does not repair either, so the next
+    try would fail. Only what did not exist before the try is removed.
+    """
+    new = sorted(module_dirs(repo) - before, key=lambda path: len(path.parts))
+    removed: list[Path] = []
+    for git_dir in new:
+        if any(parent in removed for parent in git_dir.parents):
+            continue
+        resolved = git_dir.resolve()
+        for worktree in submodule_worktrees(repo):
+            marker = worktree / ".git"
+            if marker.is_file():
+                target = marker.read_text(errors="replace").strip().removeprefix("gitdir:").strip()
+                if (worktree / target).resolve() == resolved or Path(target).resolve() == resolved:
+                    try:
+                        remove_tree(worktree)
+                        removed.append(worktree)
+                    except OSError as error:
+                        log(f"git_fetch_retry: could not remove {worktree}: {error}")
+        try:
+            remove_tree(git_dir)
+            removed.append(git_dir)
+        except OSError as error:
+            log(f"git_fetch_retry: could not remove {git_dir}: {error}")
+    for path in removed:
+        log(f"git_fetch_retry: removed {path} (made by the failed try)")
     return removed
 
 
@@ -145,6 +232,7 @@ def run(command: Sequence[str], *, tries: int, timeout: float, repo: Path,
     status = 1
     for attempt in range(1, tries + 1):
         started = clock()
+        modules_before = module_dirs(repo)
         status = runner(command, timeout)
         if status == 0:
             if attempt > 1:
@@ -153,6 +241,7 @@ def run(command: Sequence[str], *, tries: int, timeout: float, repo: Path,
         reason = f"timed out after {round(timeout)} s" if status == TIMEOUT_EXIT else f"exited {status}"
         log(f"::warning title=git fetch retry::try {attempt} of {tries} {reason}: {' '.join(command)}")
         clean_partial(repo, started - 1, log)
+        clean_new_modules(repo, modules_before, log)
         if attempt < tries:
             sleep(BACKOFF_SECONDS[min(attempt - 1, len(BACKOFF_SECONDS) - 1)])
     return status
