@@ -64,7 +64,8 @@ Inputs (paths relative to --root, the repository by default):
          local the remote answers the same way); --check-return-use and --check-pre-attach accept
          a listed site's calls of its exports. --swift-sites drops a site that is done: one listed
          with needs after_attach, host_exit or kept (a finished pending_tab site becomes kept), an
-         async call in the token form, inside a closure handed to CEFRuntime's sendAsync, siteCall
+         async call (or a preinit whose verdict is a wire:REPLY) in the token form, inside a closure
+         handed to CEFRuntime's sendAsync, siteCall
          or profileWrite (CEFRuntime+HostReplies.swift), which await the answer the same way in
          both backends, and a mint_returns id call in the mint form (its id keys a `.reply(for:`
          wait for its reply_event).
@@ -145,9 +146,20 @@ Commands:
                                             (STARTUP_ROOTS and the functions they pass the shim to)
                                             that no host_mode_rewrites entry (after_attach) lists
   ... --check-view-parity [--list-unmapped] every method of the vendored remote_cocoa mojoms
-                                            (plans/cmux-next/remote_cocoa_mojom/) maps to an op,
-                                            an event, a wire message or a not-needed reason in
-                                            plans/cmux-next/chromium-host-view-parity.json
+      [--list-pending]                      (plans/cmux-next/remote_cocoa_mojom/) maps to one of:
+                                            op (a header or optional export), event (a header or
+                                            optional event kind), wire (a Kind of chromium_host_wire.h)
+                                            or not_needed (the reason) in
+                                            plans/cmux-next/chromium-host-view-parity.json. A pending
+                                            row (the design task that builds its carrier, with a note
+                                            naming it) is not a mapping: it stays unmapped, so the
+                                            check fails and --list-unmapped lists it until the row
+                                            names the carrier; --list-pending prints those rows and
+                                            their tasks. Each mojom is listed with its Chromium path,
+                                            version and commit (the version
+                                            scripts/cmux-next/cef-manifest.json pins) and sha256;
+                                            prints the method and [Sync] counts it parsed from the
+                                            files, by interface and target
   ... --dump-header                         the parsed header as JSON (counts, exports, events)
 
 No CI job runs this (p01-process section 4, rule 4); scripts/cmux-next/tests/
@@ -178,11 +190,14 @@ SHIM_LIBRARY_BIND = CEFS + "/CEFShimLibrary+Bind.swift"
 OPS = "plans/cmux-next/chromium-host-ops.json"
 PARITY = "plans/cmux-next/chromium-host-view-parity.json"
 MOJOM_DIR = "plans/cmux-next/remote_cocoa_mojom"
+DESIGN_RESULT = "plans/cmux-next/chrome-parity/design-result.json"
+CEF_MANIFEST = "scripts/cmux-next/cef-manifest.json"  # "chromium": the fork's Chromium version
 HOST_INC = HOST + "/src/generated/host_dispatch.inc"
 CLIENT_INC = HOST + "/client/generated/remote_shim.inc"
 SWIFT_OUT = CEFS + "/ChromiumHost/Generated/ChromiumHostOps.swift"
 HOST_SRC = HOST + "/src"
 CLIENT_SRC = HOST + "/client"
+HOST_WIRE = HOST_SRC + "/chromium_host_wire.h"  # the page view's input and push frames (enum Kind)
 
 CLASSES = ("post", "mirror", "async", "mint", "policy", "view", "local", "preinit")
 GENERATED_CLIENT = {"post", "mirror", "async", "mint", "policy", "view", "preinit"}
@@ -206,10 +221,13 @@ REWRITE_NEEDS = ("after_attach", "reply", "pending_tab", "host_exit", "kept")
 SETTLED_NEEDS = ("after_attach", "host_exit", "kept")
 # CEFRuntime functions that send an async op and await its answer the same way in both backends
 # (CEFRuntime+HostReplies.swift, task p01-process-021): an async call in a closure handed to one is in
-# the token form, and --swift-sites no longer lists it. A mint call there is no reply's call (sendAsync
-# returns nothing sent for it), so it stays listed.
+# the token form, and --swift-sites no longer lists it. So is a preinit call whose verdict is a
+# wire:REPLY (task p01-process-070: the remote shim returns its own check and the host's verdict comes
+# as that REPLY). A mint call there is no reply's call (sendAsync returns nothing sent for it), so it
+# stays listed.
 TOKEN_FORM_CALLS = ("sendAsync", "siteCall", "profileWrite")
 TOKEN_FORM_CLASSES = ("async",)
+TOKEN_FORM_VERDICT_CLASSES = ("preinit",)  # with reply_event wire:REPLY
 MINT_RETURNS = ("id", "sent")  # the minted id at once, or 1 when sent (the id arrives in reply_event)
 REPLY_WIRE = "wire:REPLY"  # the control channel's REPLY frame answers the call
 ARG_PREFIX = "arg_"  # every C argument in generated code; generator locals never start with it
@@ -2216,10 +2234,12 @@ def first_argument(text: str, begin: int, close: int) -> str:
 
 
 def site_settled(model: Model, site: Site, op: Op) -> bool:
-    """Whether a call site already meets host mode, so --swift-sites no longer lists it: an async call in
-    the token form, a mint_returns id call in the mint form, or a site a host_mode_rewrites entry
-    settles (SETTLED_NEEDS)."""
+    """Whether a call site already meets host mode, so --swift-sites no longer lists it: an async call, or
+    a preinit answered by a wire:REPLY verdict, in the token form, a mint_returns id call in the mint
+    form, or a site a host_mode_rewrites entry settles (SETTLED_NEEDS)."""
     if site.token_form and op.cls in TOKEN_FORM_CLASSES:
+        return True
+    if site.token_form and op.cls in TOKEN_FORM_VERDICT_CLASSES and op.reply_event == REPLY_WIRE:
         return True
     if site.mint_form and op.cls == "mint" and op.mint_returns == "id" and op.reply_event:
         return True
@@ -2325,7 +2345,14 @@ def startup_bodies(root: Path) -> tuple[dict[str, list[tuple[int, int]]], list[s
 # View parity
 
 
-def mojom_methods(text: str) -> list[tuple[str, str]]:
+@dataclass(frozen=True)
+class MojomMethod:
+    interface: str
+    name: str
+    sync: bool  # [Sync]: the caller waits for the reply
+
+
+def mojom_methods(text: str) -> list[MojomMethod]:
     code = re.sub(r"//[^\n]*", "", re.sub(r"/\*.*?\*/", "", text, flags=re.S))
     out = []
     for m in re.finditer(r"\binterface\s+(\w+)\s*\{", code):
@@ -2341,64 +2368,194 @@ def mojom_methods(text: str) -> list[tuple[str, str]]:
             else:
                 cur.append(ch)
         for statement in statements:
-            s = re.sub(r"^\s*(\[[^\]]*\]\s*)*", "", statement)
+            attributes = re.match(r"\s*((?:\[[^\]]*\]\s*)*)", statement)
+            s = statement[attributes.end():]
             if re.match(r"(enum|struct|const|union)\b", s):
                 continue
             mm = re.match(r"(\w+)\s*@?\d*\s*\(", s)
             if mm:
-                out.append((m.group(1), mm.group(1)))
+                sync = re.search(r"[\[,]\s*Sync\s*[\],=]", attributes.group(1)) is not None
+                out.append(MojomMethod(m.group(1), mm.group(1), sync))
     return out
 
 
-def view_parity(root: Path, header: Header) -> tuple[list[str], list[str]]:
-    """(problems, unmapped methods)."""
-    parity_path, mojom_dir = root / PARITY, root / MOJOM_DIR
+PARITY_TARGETS = ("op", "event", "wire", "not_needed", "pending")
+PARITY_ROW_FIELDS = {"mojom", "interface", "method", "note", *PARITY_TARGETS}
+TASK_ID = re.compile(r"p\d{2}-[a-z][a-z0-9-]*-\d{3}[a-z]?")
+
+
+class ParityCarriers:
+    """What a parity row may name: exports and event kinds of the header and the ops JSON's
+    optional lists, the Kinds of chromium_host_wire.h, and the design's task ids (for pending)."""
+
+    def __init__(self, root: Path, header: Header) -> None:
+        self.exports = {e.name for e in header.exports}
+        self.events = {k for k, _ in header.events}
+        ops = root / OPS
+        if ops.exists():
+            data = json.loads(ops.read_text(encoding="utf-8"))
+            self.exports |= {e.get("name") for e in data.get("optional_exports", [])}
+            self.events |= {e.get("kind") for e in data.get("optional_events", [])}
+        self.wire: set[str] | None = None
+        wire = root / HOST_WIRE
+        if wire.exists():
+            code = blank_out(wire.read_text(encoding="utf-8"))
+            m = re.search(r"\benum\s+Kind\b[^{;]*\{", code)
+            body = code[m.end():matching_close(code, m.end() - 1, "{", "}")] if m else ""
+            self.wire = set(re.findall(r"\b(k\w+)\s*=", body))
+        self.tasks: set[str] | None = None
+        design = root / DESIGN_RESULT
+        if design.exists():
+            programs = json.loads(design.read_text(encoding="utf-8")).get("programs", {})
+            self.tasks = {t["id"] for p in programs.values() for t in p.get("tasks", []) if "id" in t}
+
+    def row_problem(self, row: dict, label: str) -> str | None:
+        unknown = sorted(set(row) - PARITY_ROW_FIELDS)
+        if unknown:
+            return f"{label}: unknown field(s) {', '.join(unknown)}"
+        targets = [t for t in PARITY_TARGETS if t in row]
+        if len(targets) != 1:
+            return f"{label}: needs exactly one of {', '.join(PARITY_TARGETS)}"
+        target, value = targets[0], row[targets[0]]
+        if not isinstance(value, str) or not value.strip():
+            return f"{label}: {target} must be a non-empty string"
+        if target == "op" and value not in self.exports:
+            return f"{label}: op {value!r} is neither a header export nor an optional export"
+        if target == "event" and value not in self.events:
+            return f"{label}: event {value!r} is neither a header event kind nor an optional event"
+        if target == "wire" and self.wire is None:
+            return f"{label}: wire {value!r}, but {HOST_WIRE} is missing"
+        if target == "wire" and value not in self.wire:
+            return f"{label}: wire {value!r} is not a Kind of {HOST_WIRE}"
+        if target == "pending":
+            if not TASK_ID.fullmatch(value):
+                return f"{label}: pending {value!r} is not a task id (pNN-program-NNN)"
+            if self.tasks is not None and value not in self.tasks:
+                return f"{label}: pending task {value} is not in {DESIGN_RESULT}"
+            if not str(row.get("note", "")).strip():
+                return f"{label}: a pending row needs a note naming the carrier its task builds"
+        return None
+
+
+MOJOM_FIELDS = {"file", "source", "chromium", "commit", "sha256", "role"}
+HEX40, HEX64 = re.compile(r"[0-9a-f]{40}"), re.compile(r"[0-9a-f]{64}")
+
+
+@dataclass
+class ViewParity:
+    problems: list[str] = field(default_factory=list)
+    unmapped: list[str] = field(default_factory=list)
+    pending: list[str] = field(default_factory=list)  # "label\ttask"
+    counts: list[str] = field(default_factory=list)  # parsed from the vendored texts, never constants
+
+
+def mojom_provenance(root: Path, mojoms: list) -> tuple[list[str], str | None]:
+    """(problems, "version (commit)") for the parity JSON's mojoms list: every file names its Chromium
+    path, version, commit and sha256, all at one revision, the one cef-manifest.json pins."""
     problems: list[str] = []
+    revisions = set()
+    for entry in mojoms:
+        name = entry.get("file", "?")
+        unknown = sorted(set(entry) - MOJOM_FIELDS)
+        if unknown:
+            problems.append(f"{name}: unknown mojoms field(s) {', '.join(unknown)}")
+        source = str(entry.get("source", ""))
+        if source.rsplit("/", 1)[-1] != name:
+            problems.append(f"{name}: source {source!r} is not the Chromium path of this file")
+        if not HEX40.fullmatch(str(entry.get("commit", ""))):
+            problems.append(f"{name}: commit must be the 40-hex Chromium commit it was copied at")
+        if not HEX64.fullmatch(str(entry.get("sha256", ""))):
+            problems.append(f"{name}: sha256 must be the file's 64-hex sha256")
+        if not str(entry.get("chromium", "")).strip():
+            problems.append(f"{name}: chromium must be the Chromium version it was copied at")
+        revisions.add((str(entry.get("chromium", "")), str(entry.get("commit", ""))))
+    if len(revisions) > 1:
+        problems.append("the mojoms come from more than one Chromium revision: "
+                        + ", ".join(f"{v} ({c[:12]})" for v, c in sorted(revisions)))
+    if len(revisions) != 1:
+        return problems, None
+    version, commit = next(iter(revisions))
+    manifest = root / CEF_MANIFEST
+    if manifest.exists():
+        pinned = json.loads(manifest.read_text(encoding="utf-8")).get("chromium")
+        if pinned != version:
+            problems.append(f"the mojoms are Chromium {version} but {CEF_MANIFEST} pins {pinned}: vendor them "
+                            f"again at the pinned revision and re-check their rows")
+    return problems, f"{version} ({commit[:12]})"
+
+
+def view_parity(root: Path, header: Header) -> ViewParity:
+    out = ViewParity()
+    parity_path, mojom_dir = root / PARITY, root / MOJOM_DIR
     if not parity_path.exists():
-        problems.append(f"{PARITY} is missing (task p01-process-055)")
+        out.problems.append(f"{PARITY} is missing (task p01-process-055)")
     if not mojom_dir.is_dir():
-        problems.append(f"{MOJOM_DIR}/ is missing: vendor the remote_cocoa mojoms (task p01-process-059)")
-    if problems:
-        return problems, []
+        out.problems.append(f"{MOJOM_DIR}/ is missing: vendor the remote_cocoa mojoms (task p01-process-059)")
+    if out.problems:
+        return out
     data = json.loads(parity_path.read_text(encoding="utf-8"))
-    listed = {m["file"]: m for m in data.get("mojoms", [])}
+    listed = {m.get("file"): m for m in data.get("mojoms", [])}
+    provenance_problems, revision = mojom_provenance(root, data.get("mojoms", []))
+    out.problems += provenance_problems
     on_disk = sorted(p.name for p in mojom_dir.glob("*.mojom"))
     for name in on_disk:
         if name not in listed:
-            problems.append(f"{MOJOM_DIR}/{name} is not listed in {PARITY}")
-    methods: dict[tuple[str, str, str], bool] = {}
-    for name, entry in listed.items():
+            out.problems.append(f"{MOJOM_DIR}/{name} is not listed in {PARITY}")
+    methods: dict[tuple[str, str, str], str | None] = {}  # -> the target that maps it
+    sync: set[tuple[str, str, str]] = set()
+    for name in sorted({str(n) for n in listed} | set(on_disk)):
         path = mojom_dir / name
         if not path.exists():
-            problems.append(f"{PARITY} lists {name}, which is not in {MOJOM_DIR}/")
+            out.problems.append(f"{PARITY} lists {name}, which is not in {MOJOM_DIR}/")
             continue
         raw = path.read_bytes()
-        sha = entry.get("sha256")
-        if sha and sha != hashlib.sha256(raw).hexdigest():
-            problems.append(f"{name} changed since it was mapped (sha256 differs): re-check its rows")
-        for interface, method in mojom_methods(raw.decode("utf-8")):
-            methods[(name, interface, method)] = False
-    exports = {e.name for e in header.exports}
-    events = {k for k, _ in header.events}
+        if name in listed and listed[name].get("sha256") != hashlib.sha256(raw).hexdigest():
+            out.problems.append(f"{name} changed since it was mapped (sha256 differs): re-check its rows")
+        for m in mojom_methods(raw.decode("utf-8")):
+            methods[(name, m.interface, m.name)] = None
+            if m.sync:
+                sync.add((name, m.interface, m.name))
+    carriers = ParityCarriers(root, header)
+    seen: set[tuple[str, str, str]] = set()
+    pending: dict[tuple[str, str, str], str] = {}
     for row in data.get("methods", []):
         key = (row.get("mojom"), row.get("interface"), row.get("method"))
         label = f"{key[0]} {key[1]}.{key[2]}"
         if key not in methods:
-            problems.append(f"{label}: mapped, but the mojom has no such method (stale row)")
+            out.problems.append(f"{label}: mapped, but the mojom has no such method (stale row)")
             continue
-        if methods[key]:
-            problems.append(f"{label}: mapped twice")
-        targets = [t for t in ("op", "event", "wire", "not_needed") if row.get(t)]
-        if len(targets) != 1:
-            problems.append(f"{label}: needs exactly one of op, event, wire, not_needed")
-        elif targets[0] == "op" and row["op"] not in exports:
-            problems.append(f"{label}: op {row['op']!r} is not a header export")
-        elif targets[0] == "event" and row["event"] not in events:
-            problems.append(f"{label}: event {row['event']!r} is not a header event kind")
-        methods[key] = True
-    unmapped = [f"{m} {i}.{n}" for (m, i, n), done in sorted(methods.items()) if not done]
-    problems += [f"{u}: unmapped" for u in unmapped]
-    return problems, unmapped
+        if key in seen:
+            out.problems.append(f"{label}: mapped twice")
+        seen.add(key)
+        problem = carriers.row_problem(row, label)
+        if problem:
+            out.problems.append(problem)
+        elif "pending" in row:
+            pending[key] = row["pending"]
+            continue  # no carrier yet: the method stays unmapped
+        methods[key] = next((t for t in PARITY_TARGETS if t in row), "?")
+    unmapped = [key for key, target in sorted(methods.items()) if not target]
+    out.unmapped = [f"{m} {i}.{n}" for m, i, n in unmapped]
+    for key in unmapped:
+        label = f"{key[0]} {key[1]}.{key[2]}"
+        task = pending.get(key)
+        out.problems.append(f"{label}: unmapped, pending on {task}" if task else f"{label}: unmapped")
+    out.pending = [f"{m} {i}.{n}\t{task}" for (m, i, n), task in sorted(pending.items())]
+
+    def tally(keys: list[tuple[str, str, str]]) -> str:
+        targets = [methods[k] for k in keys]
+        mapped = ", ".join(f"{t} {targets.count(t)}" for t in PARITY_TARGETS if t in targets)
+        waiting = sum(k in pending for k in keys)
+        return (f"{len(keys)} methods, {sum(k in sync for k in keys)} [Sync]; "
+                f"{len(keys) - targets.count(None)} mapped" + (f" ({mapped})" if mapped else "")
+                + (f", {waiting} pending" if waiting else ""))
+
+    keys = sorted(methods)
+    out.counts.append(f"view parity: {len(on_disk)} vendored mojoms at Chromium {revision or '?'}: {tally(keys)}")
+    for mojom, interface in sorted({(k[0], k[1]) for k in keys}):
+        out.counts.append(f"  {mojom} {interface}: "
+                          + tally([k for k in keys if k[0] == mojom and k[1] == interface]))
+    return out
 
 
 # ---------------------------------------------------------------------------------------------
@@ -2421,6 +2578,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--check-pre-attach", action="store_true")
     parser.add_argument("--check-view-parity", action="store_true")
     parser.add_argument("--list-unmapped", action="store_true")
+    parser.add_argument("--list-pending", action="store_true")
     parser.add_argument("--dump-header", action="store_true")
     args = parser.parse_args(argv)
     root = args.root.resolve()
@@ -2434,13 +2592,17 @@ def main(argv: list[str]) -> int:
                        "events": [{"kind": k, "value": v} for k, v in header.events]}, sys.stdout, indent=1)
             print()
             return 0
-        if args.check_view_parity or args.list_unmapped:
-            problems, unmapped = view_parity(root, header)
+        if args.check_view_parity or args.list_unmapped or args.list_pending:
+            parity = view_parity(root, header)
             if args.list_unmapped:
-                print("\n".join(unmapped))
-            for p in problems:
+                print("\n".join(parity.unmapped))
+            if args.list_pending:
+                print("\n".join(parity.pending))
+            if args.check_view_parity and parity.counts:
+                print("\n".join(parity.counts))
+            for p in parity.problems:
                 print(f"view parity: {p}", file=sys.stderr)
-            return 1 if problems and args.check_view_parity else 0
+            return 1 if parity.problems and args.check_view_parity else 0
         model, problems, per_export = load_ops(header, root)
         if args.swift_sites or args.check_return_use or args.check_pre_attach:
             if model is None:

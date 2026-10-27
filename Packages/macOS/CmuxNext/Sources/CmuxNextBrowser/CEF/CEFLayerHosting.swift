@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextSignposts
 import CmuxNextWakeups
 import IOSurface
@@ -9,10 +10,9 @@ import IOSurface
 ///
 /// Whether it hosts (``hosting(override:fork:widget:)``): the default-off
 /// feature `cefLayerHosting`, which reaches each page window as its fork's
-/// Track A calls (``Fork/trackA``, nil while the feature is off), hosts a
-/// pane's page only where the app makes every one of them (``TrackA``);
-/// DevTools and popup windows keep drawing in their own window (``Widget``)
-/// until task p03-rendering-056 hosts them. The Debug tunable
+/// Track A calls (``Fork/trackA``, nil while the feature is off), hosts a page
+/// window of a kind the fork hosts (``Widget``, ``Fork/hostedWidgets``) only
+/// where the app makes every one of them (``TrackA``). The Debug tunable
 /// `browserResize.layerHosting` is only that feature's local override,
 /// resolved at launch, never read here. The benches' arm, feature
 /// `cefLayerHostingEveryPage` (DEBUG and bench builds, ``Fork/hostsEveryPage``),
@@ -182,7 +182,11 @@ final class CEFLayerHosting {
         // The window may be in a live resize already.
         syncDeadline()
         guard let fork else { return }
-        if Self.attaches(fork: fork, widget: widget) { return scheduleAttach(browser) }
+        if Self.attaches(fork: fork, widget: widget) {
+            // No present shows a DevTools or popup window's one browser: its view shows once attached.
+            if widget.showsOneBrowser { attachedPages.show(browser) }
+            return scheduleAttach(browser)
+        }
         let hosting = decide(fork)
         CEFHostView.trackerStats.count(hosting)
         guard hosting == .hosted else { return }
@@ -389,6 +393,7 @@ final class CEFLayerHosting {
 
     private func addPage(to view: NSView) -> ChromiumHostPageView {
         let page = makePage(view.bounds)
+        page.hostedWidget = widget.name
         // Below the tracker's probe and every other subview.
         view.addSubview(page, positioned: .below, relativeTo: nil)
         self.page = page
@@ -407,11 +412,6 @@ final class CEFLayerHosting {
     /// Runs `block` on the main run loop at the end of this turn, after the
     /// caller's stack (Chromium's creation stack) returned.
     nonisolated static func atEndOfTurn(_ block: @escaping @MainActor @Sendable () -> Void) {
-        let main = CFRunLoopGetMain()
-        CFRunLoopPerformBlock(main, CFRunLoopMode.commonModes.rawValue) {
-            // main-proof: a CFRunLoopGetMain() block runs on the main thread
-            MainActor.assumeIsolated { block() }
-        }
-        CFRunLoopWakeUp(main)
+        MainRunLoopBlock.perform(block)
     }
 }

@@ -52,6 +52,13 @@ import Foundation
 /// extension's `chrome.tabs.create` targets its last window) waits there
 /// (`park`) and is adopted by the first tab that takes that spare.
 ///
+/// With the Chromium Host the spare stays (`ChromiumWarmup.Placement.host`, p01-process-086): content
+/// makes its spare RenderProcessHost only after a navigation took a process
+/// (`SpareRenderProcessHostManagerImpl::PrepareForFutureRequests`; `IsSpareProcessKeptAtAllTimes`
+/// only refills a taken one), so after a warm start only the spare's window, and its placeholder's
+/// renderer without `rendererlessSpareWindow`, are warm for the first tab.
+/// The bench-only `chromiumHostNoSpareWindow` drops it, the arm that measures the host without it.
+///
 /// The runtime owns the one instance (`CEFRuntime.spareWindow`).
 final class CEFSpareWindow {
     static let panePrefix = "spare-"
@@ -294,7 +301,8 @@ extension CEFEngine {
     }
 
     /// Critical memory pressure closes Chromium's untaken spare windows (`ChromiumWarmup`'s memory
-    /// consumer); a tab parked in one moves to a shown pane.
+    /// consumer), and so does `debug.cef drop_spare` (what the spares cost); a tab parked in one moves
+    /// to a shown pane.
     public func closeUntakenSpareWindows() {
         CEFRuntime.shared.spareWindow.drop(runtime: .shared)
     }

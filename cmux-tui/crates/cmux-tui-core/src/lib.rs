@@ -52,6 +52,9 @@ pub mod history_search;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
 #[cfg(unix)]
 use cmux_tui_image_paste::image_paste;
+/// The test binary's one process hang watch (server/request_hang_watch.rs).
+#[cfg(test)]
+mod hang_watch_test_support;
 mod journal_checkpoint;
 mod journal_hooks;
 mod journal_ingress;
@@ -110,6 +113,9 @@ pub mod store_schemas;
 use cmux_tui_util::stream_interrupt;
 #[cfg(unix)]
 mod holder_runtime;
+/// The daemon fixes the holder model from its features before it builds the mux.
+#[cfg(unix)]
+pub use holder_runtime::install as install_terminal_holder;
 mod surface;
 mod terminal_activity;
 #[cfg(unix)]
@@ -121,7 +127,7 @@ mod terminal_loss_cause;
 mod terminal_loss_log;
 mod terminal_metadata;
 pub use cmux_tui_util::terminal_respawn_text;
-pub mod wake;
+pub use cmux_wake as wake;
 mod work_reply;
 mod workspace_registry;
 

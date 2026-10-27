@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextFloating
+import CmuxNextWakeups
 import Foundation
 import Observation
 import Testing
@@ -304,28 +305,61 @@ import Testing
         #expect(bubble.isVisible)
     }
 
-    @Test func controllerShowsThePetOnlyWhileItIsOn() async {
+    /// Runs the main run loop, where the scheduler's posted flushes run, until `done` or 5 s.
+    static func spin(until done: () -> Bool) {
+        let end = Date(timeIntervalSinceNow: 5)
+        while !done(), Date() < end {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+    }
+
+    @Test func controllerShowsThePetOnlyWhileItIsOn() {
         let flag = Flag(false)
         let defaults = Self.defaults()
         let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
                                             actions: ChiefPetActions(open: { _ in }, send: { _, _ in true }))
-        controller.start(enabled: { flag.on })
-        for _ in 0..<100 { await Task.yield() }
+        controller.start(on: MainWorkScheduler(budget: MainFrameBudget()), enabled: { flag.on })
         #expect(controller.panel == nil, "off: no panel is made")
         flag.on = true
-        for _ in 0..<1000 where !controller.isShown { await Task.yield() }
+        Self.spin { controller.isShown }
         #expect(controller.isShown, "the setting turning on shows it")
         controller.panel?.onClick?()
         #expect(controller.replyPanel?.isVisible == true, "a click opens the reply box")
         let made = controller.panel
         flag.on = false
-        for _ in 0..<1000 where controller.isShown { await Task.yield() }
+        Self.spin { !controller.isShown }
         #expect(!controller.isShown)
         #expect(controller.replyPanel?.isVisible == false)
         flag.on = true
-        for _ in 0..<1000 where !controller.isShown { await Task.yield() }
+        Self.spin { controller.isShown }
         // Made once: its spot and state are kept while it is hidden.
         #expect(controller.panel === made)
         controller.sync(false)
+    }
+
+    /// The follow is a `ServiceObservation` (p06-scheduler-337, rule 3): the current setting applies
+    /// in `start`'s own turn, with no window or node, and a burst of changes applies once, the last.
+    @Test func startAppliesTheSettingAtOnceAndABurstOnce() {
+        let flag = Flag(true)
+        let mascot = Mascot(ChiefPetMascot.initial.rawValue)
+        let defaults = Self.defaults()
+        let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
+                                            actions: ChiefPetActions(open: { _ in }, send: { _, _ in true }))
+        defer { controller.sync(false) }
+        controller.start(on: MainWorkScheduler(budget: MainFrameBudget()), enabled: { flag.on }, mascot: { mascot.id })
+        #expect(controller.isShown, "the setting on at start did not show the pet in start's turn")
+        let other = ChiefPetMascot.allCases.first { $0 != .initial } ?? .initial
+        flag.on = false
+        flag.on = true
+        mascot.id = other.rawValue
+        #expect(controller.mascot == .initial, "a change applied inside its own write")
+        Self.spin { controller.mascot == other }
+        #expect(controller.mascot == other)
+        #expect(controller.isShown, "off then on in one burst applies the last value: on")
+    }
+
+    @Observable final class Mascot {
+        var id: String
+        init(_ id: String) { self.id = id }
     }
 }

@@ -82,9 +82,9 @@
  "waived": {
   "rust": {
    "exit": {
-    "acpmux": 1,
+    "acpmux": 2,
     "cmux-browser-host": 4,
-    "cmux-tui-core": 4
+    "cmux-tui-core": 5
    },
    "expect": {
     "acpmux": 14,
@@ -96,7 +96,7 @@
     "cmux-unix-socket": 1
    },
    "panic_macro": {
-    "acpmux": 2,
+    "acpmux": 3,
     "cmux-blocking": 1,
     "cmux-pane-protocol": 1,
     "cmux-server": 1,
@@ -159,7 +159,7 @@
     "CmuxNextTerminal": 3,
     "CmuxNextVSCodeServer": 2,
     "CmuxNextWakeups": 1,
-    "CmuxSafeConcurrency": 1,
+    "CmuxSafeConcurrency": 2,
     "CmuxVNC": 2,
     "CmuxVNCDemoServer": 3,
     "CmuxVNCWebRTC": 7,

@@ -42,7 +42,7 @@ struct AgentPageHibernationTests {
             turns.localHost = AgentPageHibernationTests.thisMac
             turns.watching = true
             let tree = DaemonStore()
-            hibernation = AgentPageHibernation(tabs: { [tabs] in tabs })
+            hibernation = AgentPageHibernation(tabs: { [tabs] in tabs }, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
             tabs.lookup = { [unowned self] key in self.records[key].map { ($0, tree) } }
             hibernation.turnState = { [unowned self] key in self.records[key].flatMap(self.turns.state(for:)) }
             hibernation.turnsWatched = { [unowned self] in self.turns.watching }

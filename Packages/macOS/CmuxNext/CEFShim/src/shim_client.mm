@@ -5,6 +5,7 @@
 
 #include "include/cef_devtools_message_observer.h"
 #include "include/cef_drag_handler.h"
+#include "include/cef_frame_handler.h"
 #include "include/cef_image.h"
 #include "include/cef_jsdialog_handler.h"
 #include "include/cef_parser.h"
@@ -77,6 +78,15 @@
     case CMUX_SHIM_PAGE_DRAG_ENTER:
     case CMUX_SHIM_FILE_DIALOG:
     case CMUX_SHIM_CURSOR:
+    case CMUX_SHIM_DRAG_OPERATION:
+    case CMUX_SHIM_TOOLTIP:
+    case CMUX_SHIM_POPUP_MENU:
+    case CMUX_SHIM_POPUP_MENU_HIDE:
+    case CMUX_SHIM_SUGGESTIONS:
+    case CMUX_SHIM_COLOR_CHOOSER:
+    case CMUX_SHIM_DEVICE_CHOOSER:
+    case CMUX_SHIM_DESKTOP_MEDIA:
+    case CMUX_SHIM_SUBFRAME_RENDERER:
       return true;
   }
   return false;
@@ -193,7 +203,7 @@ std::string RequestDocumentURL(CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> 
   return std::string();
 }
 
-// cmux_shim_set_cursor_events: page cursors go to the host (UI thread only).
+// cmux_shim_set_cursor_events: page cursors and tooltips go to the host (UI thread only).
 bool cursor_events = false;
 
 // A custom cursor's image as base64 PNG, "" when it cannot go on the wire.
@@ -258,6 +268,15 @@ int ReportRendererEnd(CefRefPtr<CefBrowser> browser) {
   return report;
 }
 
+// SUBFRAME_RENDERER for `frame` of `browser` gaining (1) or losing (0) its renderer; the main frame's
+// renderer end is RENDER_TERMINATED.
+void EmitSubframeRenderer(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, int attached) {
+  if (!browser || !frame || frame->IsMain()) return;
+  const std::string identifier = frame->GetIdentifier().ToString();
+  const int client = RendererClientIdOf(identifier);
+  if (client > 0) Emit(CMUX_SHIM_SUBFRAME_RENDERER, browser->GetIdentifier(), client, attached, 0, identifier);
+}
+
 class Client : public CefClient,
                public CefDisplayHandler,
                public CefLoadHandler,
@@ -270,6 +289,7 @@ class Client : public CefClient,
                public CefFocusHandler,
                public CefJSDialogHandler,
                public CefDragHandler,
+               public CefFrameHandler,
                public CefDevToolsMessageObserver {
  public:
   explicit Client(int request) : request_(request) {}
@@ -286,6 +306,7 @@ class Client : public CefClient,
   // beforeunload only; alert, confirm and prompt keep Chromium's dialogs.
   CefRefPtr<CefJSDialogHandler> GetJSDialogHandler() override { return this; }
   CefRefPtr<CefDragHandler> GetDragHandler() override { return this; }
+  CefRefPtr<CefFrameHandler> GetFrameHandler() override { return this; }
   // File choosers go to the host app (shim_file_dialog.mm).
   CefRefPtr<CefDialogHandler> GetDialogHandler() override { return FileDialogHandlerInstance(); }
   // Every download waits for the host's path (shim_downloads.mm).
@@ -306,6 +327,18 @@ class Client : public CefClient,
   // focus to its omnibar.
   void OnTakeFocus(CefRefPtr<CefBrowser> browser, bool next) override {
     Emit(CMUX_SHIM_TAKE_FOCUS, browser->GetIdentifier(), 0, next ? 1 : 0);
+  }
+
+  // MARK: Frames
+
+  // Which renderer hosts each frame but the main one (SUBFRAME_RENDERER), so the app knows the pages a
+  // renderer's crash leaves a sad frame in. A frame back from the back-forward cache attaches again.
+  void OnFrameAttached(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, bool) override {
+    EmitSubframeRenderer(browser, frame, 1);
+  }
+
+  void OnFrameDetached(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame) override {
+    EmitSubframeRenderer(browser, frame, 0);
   }
 
   // MARK: Drags
@@ -566,12 +599,14 @@ class Client : public CefClient,
     int id = browser->GetIdentifier();
     browsers()[id] = browser;
     registrations_[id] = browser->GetHost()->AddDevToolsMessageObserver(this);
+    InstallSuggestionHandler(id);
     int request = request_;
     request_ = 0;
     int window = fork_api().tab_window_id ? fork_api().tab_window_id(id) : 0;
     std::string features;
     std::string popup_url;
     int64_t popup = request == 0 ? TakePopup(browser, &features, &popup_url) : 0;
+    ApplyPopupMenus(id);
     Emit(CMUX_SHIM_AFTER_CREATED, id, request, window, popup, features, popup_url);
   }
 
@@ -668,6 +703,15 @@ class Client : public CefClient,
                       const CefCursorInfo& custom) override {
     if (!cursor_events) return false;
     EmitCursor(browser->GetIdentifier(), type, custom);
+    return true;
+  }
+
+  // The same for the page's tooltip: TOOLTIP, and Chromium shows none of its
+  // own (true: handled), as Chrome's browser process sends the text to the app
+  // shim's view (RenderWidgetHostNSView::SetTooltipText).
+  bool OnTooltip(CefRefPtr<CefBrowser> browser, CefString& text) override {
+    if (!cursor_events) return false;
+    Emit(CMUX_SHIM_TOOLTIP, browser->GetIdentifier(), 0, 0, 0, text.ToString());
     return true;
   }
 

@@ -30,7 +30,7 @@ final class PaletteScopeChipsView: NSView {
         }
         isHidden = visible.isEmpty
         invalidateIntrinsicContentSize()
-        needsLayout = true
+        needsLayout = true // invalidate: new chips (the guard above), new widths
     }
 
     /// Width the chips need at `height`.
@@ -154,7 +154,7 @@ final class PaletteScopeChipView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        needsLayout = true
+        needsLayout = true // invalidate: layout() paints the chip's ink for the new appearance
     }
 }
 
@@ -164,10 +164,14 @@ final class PaletteKeywordHintView: NSView {
     var onClick: (() -> Void)?
     private let label = PaletteText.label(Typography.caption, tone: .secondary)
     private let keys = PaletteKeycapsView()
+    /// The scope named now; nil while hidden.
+    private var title: String?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         keys.keycaps = ["⇥"]
+        // Hidden until a query is a scope's keyword, as `update(title: nil)` shows it.
+        isHidden = true
         [label, keys].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
@@ -179,11 +183,13 @@ final class PaletteKeywordHintView: NSView {
     nonisolated override var isFlipped: Bool { true }
 
     func update(title: String?) {
+        guard title != self.title else { return }
+        self.title = title
         isHidden = title == nil
         let text = title.map(PaletteStrings.keywordHint) ?? ""
         label.stringValue = text
         setAccessibilityLabel(text)
-        needsLayout = true
+        needsLayout = true // invalidate: another scope's name (the guard above), another width
     }
 
     var fittingWidth: CGFloat { PaletteText.fittingWidth(label) + Metrics.space2 + keys.intrinsicContentSize.width }

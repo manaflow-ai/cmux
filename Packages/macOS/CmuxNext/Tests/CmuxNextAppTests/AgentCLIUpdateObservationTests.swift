@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Observation
 import Testing
@@ -102,7 +103,7 @@ struct AgentCLIUpdateObservationTests {
         let stamp = try #require(store.sideEvents.controlStamp)
         let admission = Admission()
         let changes = AgentCLIUpdateActions.terminalChanges(sideEvents: store.sideEvents, stamp: stamp,
-            current: { admission.current })
+            on: MainWorkScheduler(budget: MainFrameBudget()), current: { admission.current })
         _ = store.apply(batch: [
             .init(sequence: DaemonEventEnvelope.sequence(serial: 4, index: 10), event: .terminalRegistryChanged(revision: 7), sourceID: UUID()),
             .init(sequence: DaemonEventEnvelope.sequence(serial: 3, index: 10), event: .terminalRegistryChanged(revision: 8), sourceID: source),
@@ -116,6 +117,25 @@ struct AgentCLIUpdateObservationTests {
         var count = 0
         for await _ in changes { count += 1 }
         #expect(count == (acceptCurrent ? 1 : 0))
+    }
+
+    /// A stream made while its route is not admitted ends at once and leaves no envelope observer behind: its end
+    /// runs before any termination handler could be set, so nothing would ever remove one.
+    @Test func aStreamMadeWhileNotAdmittedEndsWithNoObserver() async throws {
+        let store = DaemonStore()
+        _ = store.apply(batch: [.init(sequence: DaemonEventEnvelope.sequence(serial: 4, index: 0),
+            event: .connected(DaemonIdentity(generation: "owner"), generationChanged: true), sourceID: UUID())])
+        let stamp = try #require(store.sideEvents.controlStamp)
+        let admission = Admission()
+        admission.current = false
+        let before = store.sideEvents.subscriberCount
+        let changes = AgentCLIUpdateActions.terminalChanges(sideEvents: store.sideEvents, stamp: stamp,
+            on: MainWorkScheduler(budget: MainFrameBudget()), current: { admission.current })
+        #expect(store.sideEvents.subscriberCount == before, "a stream that was never admitted subscribed to the envelopes")
+        var count = 0
+        for await _ in changes { count += 1 }
+        #expect(count == 0)
+        #expect(store.sideEvents.subscriberCount == before)
     }
 
     /// A live follow whose kept tab the person closes settles instead of blocking the CLI.

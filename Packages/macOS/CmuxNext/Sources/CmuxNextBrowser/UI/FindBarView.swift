@@ -28,14 +28,13 @@ final class FindBarView: NSView {
                                     close: Strings.findDone, matchCase: Strings.findMatchCase)
         pill = FindPillView(labels: labels, icons: icons, accessibilityPrefix: "cmux.browser.find")
         super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
+        // The pill fills this container by its autoresizing mask: its own
+        // constraints (FindPillView) size it, and through the mask this
+        // container, wherever the chrome places it.
+        pill.translatesAutoresizingMaskIntoConstraints = true
+        pill.autoresizingMask = [.width, .height]
+        pill.frame = bounds
         addSubview(pill)
-        NSLayoutConstraint.activate([
-            pill.leadingAnchor.constraint(equalTo: leadingAnchor),
-            pill.trailingAnchor.constraint(equalTo: trailingAnchor),
-            pill.topAnchor.constraint(equalTo: topAnchor),
-            pill.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
         // This container fades in and out (BrowserChromeView); the pill stays shown inside it.
         pill.setPresented(true)
         pill.onQueryChange = { [weak self] _ in self?.run(.forward) }
@@ -74,6 +73,7 @@ final class FindBarView: NSView {
         let text = pill.query
         let caseSensitive = pill.matchCase
         model.setQuery(text)
+        // main-hop-allow: the person's find keystroke; find is BrowserTab's main-actor async engine call (the search runs in the page's process); this task only starts it and shows its answer
         findTask = Task { [weak self] in
             let result: BrowserFindResult
             if let updating = tab as? any BrowserFindUpdating {

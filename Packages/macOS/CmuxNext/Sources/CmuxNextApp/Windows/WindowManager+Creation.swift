@@ -58,9 +58,12 @@ extension WindowManager {
     }
 
     /// Dock click, Show cmux: the last closed window comes back with its
-    /// workspaces; with none registered, a new window with a new workspace.
-    func reopenOrCreateWindow() {
-        if !reopenClosedWindow() { newWindow() }
+    /// workspaces; with none registered, a new window with a new workspace, whose id this returns.
+    /// Before the launch window opened (`restoreWhenLoaded`), nothing: it is the window that comes back.
+    @discardableResult
+    func reopenOrCreateWindow() -> String? {
+        if launchWindowWaiting || reopenClosedWindow() { return nil }
+        return newWindow()
     }
 
     /// `preferred` when that window is open, else a new window id.

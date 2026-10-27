@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+public import CmuxNextDesign
 public import CmuxNextWakeups
 import ImageIO
 import UniformTypeIdentifiers
@@ -108,15 +109,20 @@ public final class WindowPictureStore {
     let directory: URL?
     private let work: BackgroundWork
     private let encode: @Sendable (CGImage) -> Data?
+    /// The launch's read of the front window's picture (WindowPictureStore+LaunchRead.swift, p08-startup-058).
+    let launch: FrontRead
 
     /// - Parameters:
     ///   - directory: The saved pictures' folder; nil keeps none.
     ///   - work: The app's blocking-work lanes: composing, the encode and the writes run on its files lane.
     ///   - encode: Encodes a composed picture; default HEIC (tests record where it runs).
-    public init(directory: URL?, work: BackgroundWork, encode: @escaping @Sendable (CGImage) -> Data? = { WindowPictureStore.heic($0) }) {
+    ///   - reader: Reads the launch's files; default from disk (tests record where it runs, or hold it).
+    public init(directory: URL?, work: BackgroundWork, encode: @escaping @Sendable (CGImage) -> Data? = { WindowPictureStore.heic($0) },
+                reader: LaunchFileReader = LaunchFileReader()) {
         self.directory = directory
         self.work = work
         self.encode = encode
+        launch = FrontRead(directory: directory, work: work, reader: reader)
     }
 
     /// The pictures in `state`, the tag's state directory (beside its launch snapshot).
@@ -149,6 +155,46 @@ public final class WindowPictureStore {
     /// Deletes every saved picture (the feature off, Clear Browsing Data, a profile deleted).
     public func removeAll() async {
         await save([])
+    }
+
+    /// Follows `launch.savedPicture` (p08-startup 3C: the pictures are deleted with it off): each time `savedPicture`
+    /// reads off, every saved picture is deleted on the files lane at once, not at the next quit, so a crash or a
+    /// force quit after the change leaves no terminal text or page on disk. A launch that loads it off deletes any
+    /// the last run left. The quit's save stays the backstop (``saveAtQuit(featureOn:savedPicture:_:)``).
+    ///
+    /// - Parameters:
+    ///   - savedPicture: Reads the setting; nil until the settings first load (the person's choice is not known).
+    ///   - mainWork: The app's main-thread scheduler.
+    /// - Returns: The follower; the caller keeps it for as long as the setting is followed (the app's life).
+    public func followSavedPicture(_ savedPicture: @escaping @MainActor () -> Bool?, on mainWork: MainWorkScheduler) -> ServiceObservation<Bool?> {
+        // `background`: nothing on screen waits for the delete.
+        ServiceObservation(.background, owner: "WindowPictureStore.savedPicture", on: mainWork, read: savedPicture) { [weak self] on in
+            if on == false { self?.removeAllSoon() }
+        }
+    }
+
+    /// ``removeAll()`` queued on the files lane, returning at once.
+    private func removeAllSoon() {
+        guard let directory else { return }
+        work.post(.userVisible, mayBlock: .files, shutdown: .blockShutdown) { Self.write([], to: directory, encode: { _ in nil }) }
+    }
+
+    /// The quit's save (p08-startup 3C): `shots` is asked and its pictures saved only with the `savedWindowPicture`
+    /// feature on and `launch.savedPicture` on; otherwise every saved picture is deleted and `shots` is not asked
+    /// (no window is drawn for a picture nobody may keep).
+    ///
+    /// - Parameters:
+    ///   - featureOn: The `savedWindowPicture` feature.
+    ///   - savedPicture: `launch.savedPicture`; nil when the settings have not loaded, so the person's choice is not
+    ///     known and nothing is kept.
+    ///   - shots: The windows' shots, taken on main.
+    public func saveAtQuit(featureOn: Bool, savedPicture: Bool?, _ shots: () -> [Shot]) async {
+        await save(Self.keepsPicturesAtQuit(featureOn: featureOn, savedPicture: savedPicture) ? shots() : [])
+    }
+
+    /// Whether a quit keeps window pictures (``saveAtQuit(featureOn:savedPicture:_:)``).
+    nonisolated static func keepsPicturesAtQuit(featureOn: Bool, savedPicture: Bool?) -> Bool {
+        featureOn && savedPicture == true
     }
 
     /// Composes, encodes and writes `shots` by profile, replacing whatever the folder held.

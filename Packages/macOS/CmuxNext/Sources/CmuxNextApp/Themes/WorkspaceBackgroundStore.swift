@@ -1,5 +1,6 @@
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Observation
 import os
@@ -57,11 +58,24 @@ final class WorkspaceBackgroundStore {
         return BackdropSelection(id: background).map(BackdropPin.selection) ?? .inherit
     }
 
-    /// Reads the file once at launch, off the main thread.
+    /// Reads the file once at launch on `work`'s files lane; its entries land as one `visible` task on
+    /// `mainWork` (the window shows them), Chrome's PostTaskAndReply (base/task/thread_pool.h).
+    func load(on work: BackgroundWork, replyingOn mainWork: MainWorkScheduler) {
+        guard let url else { return }
+        let logger = logger
+        work.run(.userBlocking, mayBlock: .files) { TerminalThemeStore.read(url, logger: logger) }
+            .reply(on: mainWork, class: .visible, owner: "WorkspaceBackgroundStore.load") { [weak self] loaded in self?.merge(loaded) }
+    }
+
+    /// Reads the file off the main thread and returns once its entries merged (a caller that awaits the read: tests).
     func load() async {
         guard let url else { return }
         let logger = logger
-        let loaded = await Task.detached(priority: .userInitiated) { TerminalThemeStore.read(url, logger: logger) }.value
+        merge(await Task.detached(priority: .userInitiated) { TerminalThemeStore.read(url, logger: logger) }.value)
+    }
+
+    private func merge(_ loaded: (themes: [String: String], complete: Bool)) {
+        guard let url else { return }
         // A background set before the file loaded wins.
         backgrounds = loaded.themes.merging(backgrounds) { _, current in current }
         keepsFile = !loaded.complete

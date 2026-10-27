@@ -53,11 +53,11 @@ enum SidebarDocWiring {
         DaemonSidebarDocRemote.follow(local.store.session, into: store)
         // Link rows draw the favicon at their item's icon address; an open tab's favicon address is stored on the item.
         SidebarModel.itemFavicon = { [weak services] in services?.favicons.image(for: $0, profile: .default).map { SidebarFavicon($0.cgImage) } }
-        SidebarDocMachines.followFavicons(store, revision: { [weak services] in services?.favicons.revision },
-                                          byOrigin: { [weak services] in services?.openTabFaviconsByOrigin() ?? [:] }, faviconKey: BookmarkURL.faviconKey(for:))
-        docMachines(machines).follow(store, connected: { local.connection != nil }, serves: serves, connectedRemotes: {
+        services.lifetimeFollowers.append(SidebarDocMachines.followFavicons(store, revision: { [weak services] in services?.favicons.revision },
+            byOrigin: { [weak services] in services?.openTabFaviconsByOrigin() ?? [:] }, faviconKey: BookmarkURL.faviconKey(for:), on: services.mainWork))
+        services.lifetimeFollowers += docMachines(machines).follow(store, connected: { local.connection != nil }, serves: serves, connectedRemotes: {
             Set(machines.remoteDaemons.filter { $0.connection != nil }.compactMap(\.store.registryID))
-        }, shown: { if layout.docLayout != $0 { layout.docLayout = $0 } })
+        }, shown: { if layout.docLayout != $0 { layout.docLayout = $0 } }, on: services.mainWork)
     }
 
     /// The document over `machines`' daemon stores (`SidebarDocMachines`).

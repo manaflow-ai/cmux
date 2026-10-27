@@ -16,7 +16,7 @@ extension IconPickerService {
         }
         // A menu item chosen by mouse: the pointer is on the menu, beside the row it opened on.
         let clicks: [NSEvent.EventType] = [.leftMouseUp, .rightMouseUp, .otherMouseUp, .leftMouseDown, .rightMouseDown]
-        if let event = NSApp.currentEvent, clicks.contains(event.type) {
+        if let event = services?.inputTap.actionEvent, clicks.contains(event.type) {
             let pointer = content.convert(window.mouseLocationOutsideOfEventStream, from: nil)
             if content.bounds.contains(pointer) {
                 return Anchor(view: content, rect: NSRect(x: pointer.x - 1, y: pointer.y - 1, width: 2, height: 2))

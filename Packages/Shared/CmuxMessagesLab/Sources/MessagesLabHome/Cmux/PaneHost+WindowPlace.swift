@@ -4,14 +4,16 @@ import AppKit
 // place (RowCell.windowPlace). MessagesWindowView refreshes it on its own layout and scroll, and MessagesLab's
 // host on each host layout and window change; Home also moves the transcript with no layout of it (a pane,
 // split or sidebar container that moves without resizing it, a window's own later layout after a tab moved to
-// it). So the host reads the place again after each pass of the window's event loop
-// (NSWindow.didUpdateNotification) and refreshes the rows only when it moved.
+// it). Those moves happen in the window's layout pass: the app's host calls
+// MessagesLabHomeView.windowDidLayout after each pass, and the rows refresh only when the place moved. Events
+// with no layout (each key typed in the field) read nothing.
 extension HostView {
     /// Every host layout (as MessagesLab's host): the rows read their place.
     /// `placeVideo`: the host's video layers follow the rows' snapped content (not on attach to a window,
     /// before the collection's layout: a playing row missing from the visible cells there would stop).
     func refreshWindowPlace(placeVideo: Bool = true) {
         guard let demo else { return }
+        windowPlaceRefreshes += 1
         let p = demo.windowPlace
         lastWindowPlace = (p.origin, p.axis)
         demo.refreshWindowPlace()
@@ -26,15 +28,19 @@ extension HostView {
         refreshWindowPlace()
     }
 
-    /// Follows this host's window (viewDidMoveToWindow): after each update of that window, the place is
-    /// read again. Block form on queue .main (the crash program's objc_observer rule; MainQueueObservation).
-    func observeWindowPlace() {
-        windowPlaceObservation = nil
+    /// This host moved to another window (viewDidMoveToWindow): another window, another place.
+    func windowPlaceDidChangeWindow() {
         lastWindowPlace = nil
-        guard let window else { return }
-        windowPlaceObservation = MainQueueObservation(NSWindow.didUpdateNotification, object: window) { [weak self] _ in
-            self?.refreshWindowPlaceIfMoved()
-        }
+        guard window != nil else { return }
         refreshWindowPlace(placeVideo: false)
+    }
+}
+
+extension MessagesLabHomeView {
+    /// The window finished a layout pass (CmuxNext: its `WindowLayoutPasses`): an ancestor may have
+    /// moved the transcript without laying it out, so the rows read their place again if it moved.
+    public func windowDidLayout() {
+        guard window != nil else { return }
+        controller.host.refreshWindowPlaceIfMoved()
     }
 }

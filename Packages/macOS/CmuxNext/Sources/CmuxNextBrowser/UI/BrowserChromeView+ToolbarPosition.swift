@@ -9,6 +9,7 @@ public import CmuxNextDesign
 extension BrowserChromeView: ToolbarEdgeHosting {
     func applyToolbarPosition() {
         toolbarEdge.activate(toolbarPosition)
+        toolbar.position = toolbarPosition
         needsLayout = true
     }
 }

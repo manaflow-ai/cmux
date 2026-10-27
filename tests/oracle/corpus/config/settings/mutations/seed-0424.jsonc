@@ -1,0 +1,10 @@
+{
+  "editor": "shadowed",
+  "editor": {
+    "fontFamily": 1
+  },
+  "updates": {
+    "installOnQuit": "shadowed",
+    "installOnQuit": "true"
+  }
+}

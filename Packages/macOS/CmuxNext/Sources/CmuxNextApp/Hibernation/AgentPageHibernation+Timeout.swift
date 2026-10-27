@@ -15,19 +15,24 @@ extension AgentPageHibernation {
         guard lifecycle == nil, let tabs = store() else { return }
         hiddenAt = hiddenAt.filter { tabs.existingView($0.key) != nil }
         shown = shown.filter { tabs.existingView($0) != nil }
+        let current = now()
         guard let threshold = HibernationPlanner.threshold(setting, pressure: pressure).map({ max($0, Self.minimumHidden) }) else {
+            for (key, at) in hiddenAt { noteDiscard(.planned(key, .agentPage, hiddenFor: (current - at).seconds, DiscardEligibility(keptFor: .disabled))) }
             deadlineDelay = nil
             deadline.cancel()
             return
         }
-        let current = now()
         var next: Double?
         // The hidden pages still live: not on their way out.
         var live = hiddenAt.filter { !releasing.contains($0.key) }
         // Left to the urgent pass at critical pressure: one chat per urgent pace interval, oldest first.
         let paced = leavesCriticalEventToUrgentPass && pressure == .critical
         if let hold = noReleaseBefore, current >= hold { noReleaseBefore = nil }
-        for (key, at) in live.sorted(by: { ($0.value, $0.key) < ($1.value, $1.key) }) where keepsPage(key, onScreen: false) == nil {
+        for (key, at) in live.sorted(by: { ($0.value, $0.key) < ($1.value, $1.key) }) {
+            // Each hidden page's verdict, as the owner decides it (`debug.discards`).
+            let kept = keepsPage(key, onScreen: false)
+            noteDiscard(.planned(key, .agentPage, hiddenFor: (current - at).seconds, kept.map { DiscardEligibility(keptFor: $0) } ?? DiscardEligibility()))
+            guard kept == nil else { continue }
             let remaining = threshold - (current - at).seconds
             if remaining > 0 {
                 next = min(next ?? remaining, remaining)
@@ -49,7 +54,7 @@ extension AgentPageHibernation {
         if let again = releaseOverLimit(live, at: current) { next = min(next ?? again, again) }
         deadlineDelay = next
         if let next {
-            deadline.scheduleOnMain(after: .milliseconds(Int64(next * 1000) + 50)) { [weak self] in self?.replan() }
+            deadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { [weak self] in self?.replan() }
         } else {
             deadline.cancel()
         }
@@ -108,6 +113,7 @@ extension AgentPageHibernation {
     }
 
     private static func isOnScreen(_ view: AgentPaneView) -> Bool {
+        // visibility-walk-allow: the last check before a page is let go must see what still draws; a pane parks a hidden page in its window (isHidden), so the view tree says it, as a hit test reads it
         view.window != nil && !view.isHiddenOrHasHiddenAncestor
     }
 

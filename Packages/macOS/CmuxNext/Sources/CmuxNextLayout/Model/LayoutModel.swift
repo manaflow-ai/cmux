@@ -91,7 +91,7 @@ public final class LayoutModel {
             design = baseStyle.applyingDesignMetrics()
         } else {
             styleTrackingArmed = true
-            design = withObservationTracking {
+            design = withObservationTracking { // view-observation-allow: a memo of the design settings `style` reads, dropped at their will-set; no apply runs, the views follow designStyleGeneration
                 baseStyle.applyingDesignMetrics()
             } onChange: { [weak self] in
                 // A will-set: the new value is not stored yet. Drop the cache
@@ -99,7 +99,7 @@ public final class LayoutModel {
                 // more after the write, with the bump that wakes the views (a
                 // read between the will-set and the write cached the old value).
                 if Thread.isMainThread { MainActor.assumeIsolated { self?.cachedStyle = nil } } // main-proof: checked on this line
-                Task { @MainActor in self?.designStyleDidChange() }
+                Task { @MainActor in self?.designStyleDidChange() } // main-hop-allow: the bump must follow the settings write the will-set reports; one generation bump, no view work
             }
         }
         let value = key.resolved(design: design)

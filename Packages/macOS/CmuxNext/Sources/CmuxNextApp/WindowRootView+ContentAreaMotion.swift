@@ -32,6 +32,7 @@ extension WindowRootView {
             // workspace sizes its layout in `layout()` (an empty autoresizing mask), so the subtree is
             // laid out now, or a terminal would settle at the held width and report a stale grid.
             contentHost.contentHold = nil
+            // sync-layout: notifyPaneMotionSettled reads the landed sizes (the comment above).
             layoutSubtreeIfNeeded()
             notifyPaneMotionSettled()
         }

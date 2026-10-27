@@ -425,6 +425,7 @@ public final class HomeSidebarView: NSView {
         }
         if let unread { unreadOnly = unread }
         if let search { debugSearch(search) }
+        // sync-layout: automation: the frames returned below are the laid-out ones.
         (split?.superview ?? self).layoutSubtreeIfNeeded()
         func frame(_ r: CGRect?) -> Any { r.map { [$0.minX, $0.minY, $0.width, $0.height].map(Double.init) } ?? NSNull() }
         let h = header
@@ -448,6 +449,7 @@ public final class HomeSidebarView: NSView {
         window?.makeFirstResponder(list.searchField)
     }
 
+    // visibility-walk-allow: color stores and the two header glyphs in the theme scope (applyColors), no layout or text measure; cheaper than a deferral
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

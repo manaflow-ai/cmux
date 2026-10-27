@@ -71,9 +71,12 @@ final class AppOnboardingServices: OnboardingServices {
         let summary: ImportSummary
         let endAccess = folderAccess.access(plan)
         defer { endAccess() }
+        let mainWork = services.mainWork
         do {
+            // Each step reaches the window as one `visible` task, in order (Chrome kUserVisible: shown, not the
+            // immediate answer to an input).
             summary = try await importer.run(plan, into: destination) { step in
-                Task { @MainActor in progress(step) }
+                mainWork.postFromAnyThread(.visible, owner: "Onboarding.importProgress") { progress(step) }
             }
         } catch {
             hold?.release()
@@ -128,6 +131,6 @@ final class AppOnboardingServices: OnboardingServices {
             return MockComputerUsePermissionSource(helperAppURL: URL(fileURLWithPath: "/Applications/cmux Computer Use.app"))
         }
         #endif
-        return AppComputerUsePermissionSource(setup: services.onboarding.computerUseSetup)
+        return AppComputerUsePermissionSource(setup: services.onboarding.computerUseSetup, mainWork: services.mainWork)
     }()
 }

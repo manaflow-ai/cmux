@@ -248,6 +248,21 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(retry(["--filter", "daemon-ops/*"]), 0)
         self.assertEqual(retry(["--suite", "daemon-ops", "--retry-limit", "2"]), 2)
 
+    def test_the_mcp_product_on_a_tagged_app_launches_as_the_app(self):
+        parser = oracle.build_parser()
+
+        def options(product, binary):
+            args = parser.parse_args(["run", "--product", product])
+            return oracle.options_from_args(args, retry_default=None, out=Path("/tmp/x"), run_id="r", switch=None,
+                                            arm=None, switches={}, ref=None, binary=binary)
+
+        fleet = options("mcp", "/Applications/x/cmux DEV tag.app")
+        self.assertEqual((fleet.jobs, fleet.batch_limit, fleet.build), (1, 10, "bench"))
+        vm = options("mcp", "/tmp/o/cmux-tui")
+        self.assertEqual((vm.jobs, vm.batch_limit, vm.build), (oracle.VM_JOBS, 1, "debug"))
+        self.assertEqual(options("daemon", "/x/cmux DEV tag.app").jobs, oracle.VM_JOBS)
+        self.assertLessEqual({"resource_api", "actions", "mcp", "restart"}, oracle.PRODUCTS["mcp"])
+
 
 class ClassifyTests(unittest.TestCase):
     def test_unexpected_failures_with_different_hashes_are_flaky(self):
@@ -713,6 +728,31 @@ class ExpectationTests(unittest.TestCase):
         # A pointer line never sets the case result; the rest of the snapshot stays strict.
         self.assertEqual(linux.expected(cases["journeys/case-004"]).results, frozenset({"Pass"}))
         self.assertEqual([r["pointer"] for r in linux.pointer_rules()], ["/value"])
+
+    def test_a_run_without_an_arm_takes_the_registry_defaults_arm(self):
+        """A one-arm case (p15-oracle-224's terminal holder crash journeys) is skipped by a NeverFix line of the
+        other arm: a default run is [ old ] while every switch defaults to old, so the holder-arm case does not
+        run on the per-terminal host arm the daemon runs by default."""
+        old, new = {"terminal-holder": {"default": "old"}}, {"terminal-holder": {"default": "new"}}
+        self.assertEqual([oracle.expectation_arm(arm, old) for arm in (None, "default", "old", "new", "launch-config")],
+                         ["old", "old", "old", "new", None])
+        self.assertEqual(oracle.expectation_arm(None, {}), "old", "no switch: every path is the old one")
+        self.assertEqual(oracle.expectation_arm(None, new), "new")
+        self.assertIsNone(oracle.expectation_arm(None, {**old, "layer-hosting": {"default": "new"}}))
+        (self.tmp / "expectations" / "NeverFix.d" / "journeys.txt").write_text(
+            "p15-oracle-224 [ old ] journeys/case-001 [ Skip ]\np15-oracle-224 [ new ] journeys/case-002 [ Skip ]\n")
+        cases = {c.id: c for c in oracle.load_corpus(self.tmp / "corpus")[0]}
+
+        def skips(arm, registry):
+            store = oracle.load_expectations(self.tmp / "expectations", platform="linux", arm=arm, product="daemon",
+                                             build="debug", registry=registry)
+            return [store.expected(cases[f"journeys/case-00{i}"]).skip for i in (1, 2)]
+
+        self.assertEqual(skips(None, old), [True, False])
+        self.assertEqual(skips("default", old), [True, False])
+        self.assertEqual(skips("new", old), [False, True])
+        self.assertEqual(skips(None, new), [False, True])
+        self.assertEqual(skips("launch-config", old), [False, False], "planned arms mix: no arm tag matches")
 
     def test_pointer_scoped_line_excuses_only_its_value(self):
         tmp = self.tmp

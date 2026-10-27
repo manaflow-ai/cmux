@@ -69,6 +69,7 @@ public nonisolated final class MainActorLineBatch<Value: Sendable>: Sendable {
 
     private func scheduleDrain() {
         // task-owner: the batch; at most one pending (the `scheduled` flag), it ends after one drain.
+        // main-hop-allow: Compat sits below CmuxNextWakeups and has no class to post in; one hop per batch of lines, never per line
         Task { @MainActor in self.flush() }
     }
 

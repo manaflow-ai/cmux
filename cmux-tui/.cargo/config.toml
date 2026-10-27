@@ -1,0 +1,8 @@
+# The hang watch's macOS sampler (crates/cmux-hang-watch/src/sample_macos.rs) walks frame pointers,
+# so the shipped x86_64 macOS binaries keep them in every frame (p09-observability task 072).
+# aarch64-apple-darwin keeps them by its target spec (non-leaf; the sampler takes the leaf from lr).
+# Cargo reads this only for builds run under cmux-tui/, and a RUSTFLAGS or CARGO_ENCODED_RUSTFLAGS in
+# the environment replaces it. rustc's x86_64-apple-darwin spec already says frame-pointer=always;
+# the flag keeps that if the spec ever changes.
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "force-frame-pointers=yes"]

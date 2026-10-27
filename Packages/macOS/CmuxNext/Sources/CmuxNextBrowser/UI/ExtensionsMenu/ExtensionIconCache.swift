@@ -21,6 +21,9 @@ final class ExtensionIconCache {
         self.side = side
     }
 
+    /// Drops every decoded icon (the bubble's rows went); the next render decodes them again.
+    func removeAll() { images.removeAll() }
+
     /// The bundled icon of `info` (its largest up to 128 pixels), else the toolbar icon `png`,
     /// else Chrome's puzzle piece named for VoiceOver.
     func image(for info: BrowserExtensionInfo, png: Data?) -> NSImage {

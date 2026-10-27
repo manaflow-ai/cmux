@@ -5,6 +5,9 @@ import CmuxNextPages
 import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextDaemon
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Target resolution for workspace, group, window, and sidebar handlers.
 /// Each throws an `ActionFailure` instead of silently doing nothing.
@@ -53,7 +56,7 @@ extension AppActionContext {
             guard let active = activeWindow else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }
             return active
         }
-        guard let controller = services.windows.controllers.first(where: { $0.state.id == ref.id }) else {
+        guard let controller = services.windows.controllerBuildingIfWaiting(for: ref.id) else { // a named target acts in it
             throw ActionFailure.notFound(RefusalStrings.noWindow(ref.id))
         }
         return controller
@@ -97,9 +100,10 @@ extension AppActionContext {
             let failure = ActionWorkFailure(RefusalStrings.couldNotOpen(url.absoluteString))
             let app = (try? await queries.value(WorkspaceQuery<URL?>.defaultApplication(toOpen: url), priority: .userBlocking)) ?? nil
             guard app != nil else { return failure }
-            let opened = await withCheckedContinuation { continuation in
+            // A reply that never comes did not open.
+            let opened = (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
                 NSWorkspace.shared.openInBackground(url) { continuation.resume(returning: $0) }
-            }
+            }) ?? false
             return opened ? nil : failure
         }
     }

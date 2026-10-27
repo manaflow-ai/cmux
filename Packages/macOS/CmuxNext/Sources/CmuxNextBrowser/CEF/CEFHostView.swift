@@ -70,7 +70,7 @@ final class CEFHostView: NSView {
         layerHosting.view = self
         // The page window ordered in or out for a widget: the fork places it over this view now.
         pageWindowWidgets.changed = { [weak self] in self?.childWindowPage.pagesNeedUpdate(force: true) }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         Self.registerMotionSampler()
         #endif
     }
@@ -323,6 +323,6 @@ final class CEFTabContentView: NSView, PaneMotionSettling {
         } else if tab?.deviceEmulation?.fit == nil, let current {
             current.removeFromSuperview()
         }
-        needsLayout = true
+        needsLayout = true // invalidate: a new emulation (`applyEmulation`'s change check) moves the page to its fit
     }
 }

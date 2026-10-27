@@ -82,4 +82,20 @@ struct PrivacyLeakScannerTests {
         let body = Data(#"{"alice@example.com": 1, "ok": "fine"}"#.utf8)
         #expect(scanner.findings(in: body).map(\.kind) == [.unsafeCharacter])
     }
+
+    /// A blocking site id is a hash: a person whose name is hex digits (Abbe) inside one must not refuse every
+    /// report, as the id stays pending and is sent again (p12-perf-process-226). The name is still refused
+    /// anywhere else, and in the site field when the value is not a site id.
+    @Test func aHexOnlyNameInsideABlockingSiteIDDoesNotRefuseTheReport() throws {
+        let scanner = PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms + ["Abbe"])
+        let site = HangReport.BlockingSiteCount(site: "0abbe12f3c4d5e6f", kind: "file-io", count: 3, totalMs: 1)
+        let report = HangReportWireFormatTests.report(.v3, blockingSites: [site])
+        #expect(report.blockingSites == [site])
+        #expect(scanner.findings(in: try HangReport.encoder.encode(report)).isEmpty)
+
+        let elsewhere = Data(#"{"blocking_sites":[{"site":"0abbe12f3c4d5e6f"}],"note":"abbe"}"#.utf8)
+        #expect(scanner.findings(in: elsewhere).map(\.path) == ["$.note"])
+        let notAnID = Data(#"{"blocking_sites":[{"site":"abbe"},{"site":"0ABBE12F3C4D5E6F"}]}"#.utf8)
+        #expect(scanner.findings(in: notAnID).map(\.path) == ["$.blocking_sites[0].site", "$.blocking_sites[1].site"])
+    }
 }

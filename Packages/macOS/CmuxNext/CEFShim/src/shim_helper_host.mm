@@ -8,6 +8,7 @@
 
 #include <vector>
 
+#include "include/cef_drag_data.h"
 #include "shim_internal.h"
 
 using namespace cmux_shim;
@@ -19,7 +20,7 @@ namespace {
 using ColorFn = void (*)(void* context, int event, int browser_id, int64_t token, unsigned int color,
                          const void* data);
 using ChooserFn = void (*)(void* context, int event, int browser_id, int64_t token, const void* data);
-using LockFn = void (*)(void* context, int event, int browser_id, int escape_locked);
+using LockFn = void (*)(void* context, int event, int browser_id, int detail);
 
 struct AppHandlers {
   AppHandler<ColorFn> color;
@@ -64,9 +65,9 @@ void MediaClose(void*, int64_t token) {
   if (app.fn) app.fn(app.context, CMUX_SHIM_DESKTOP_MEDIA_CLOSE, 0, token, nullptr);
 }
 
-void Lock(int event, int browser_id, int escape_locked) {
+void Lock(int event, int browser_id, int detail) {
   const auto& app = app_handlers().lock;
-  if (app.fn) app.fn(app.context, event, browser_id, escape_locked);
+  if (app.fn) app.fn(app.context, event, browser_id, detail);
 }
 void PointerLockRequested(void*, int browser_id) {
   Lock(CMUX_SHIM_POINTER_LOCK_REQUESTED, browser_id, 0);
@@ -79,6 +80,29 @@ void KeyboardLockRequested(void*, int browser_id, int escape_locked) {
 }
 void KeyboardUnlocked(void*, int browser_id) {
   Lock(CMUX_SHIM_KEYBOARD_UNLOCKED, browser_id, 0);
+}
+
+// Fork API 31 (task 172): the renderer's answer to a DragTarget* enter or
+// over, which the app's drag destination returns from -draggingUpdated:.
+void DragAnswered(void*, int browser_id, int operation, int document_is_handling_drag) {
+  Emit(CMUX_SHIM_DRAG_OPERATION, browser_id, 0, operation, document_is_handling_drag);
+}
+
+// The detached page a drop goes to: none without fork API 31, whose
+// DragTarget* reach a detached page (task 172; before it CEF's windowed
+// path DCHECKs).
+CefRefPtr<CefBrowserHost> DropTarget(int browser_id) {
+  if (!fork_api().browser_drag_target_watch) return nullptr;
+  CefRefPtr<CefBrowser> browser = BrowserById(browser_id);
+  return browser ? browser->GetHost() : nullptr;
+}
+
+CefMouseEvent DragEvent(int x, int y, int modifiers) {
+  CefMouseEvent event;
+  event.x = x;
+  event.y = y;
+  event.modifiers = static_cast<uint32_t>(modifiers);
+  return event;
 }
 
 }  // namespace
@@ -137,6 +161,50 @@ int cmux_shim_browser_drag_source_ended(int browser_id, double x, double y, doub
 int cmux_shim_browser_drag_target_enter_source(int browser_id, int x, int y, int allowed_operations, int modifiers) {
   if (!fork_api().browser_drag_target_enter_source) return 0;
   return fork_api().browser_drag_target_enter_source(browser_id, x, y, allowed_operations, modifiers);
+}
+
+// Drops into a detached page (task 050): Chrome's WebDragDest makes the same
+// four calls (content/browser/web_contents/web_drag_dest_mac.mm), with drop
+// data from PopulateDropDataFromPasteboard.
+int cmux_shim_browser_drag_target_enter(int browser_id, const char* const* files, int file_count, const char* text,
+                                        const char* url, const char* url_title, int x, int y, int allowed_operations,
+                                        int modifiers) {
+  CefRefPtr<CefBrowserHost> host = DropTarget(browser_id);
+  if (!host) return 0;
+  CefRefPtr<CefDragData> data = CefDragData::Create();
+  for (int i = 0; files && i < file_count; ++i) {
+    if (files[i] && *files[i]) data->AddFile(files[i], CefString());
+  }
+  if (text && *text) data->SetFragmentText(text);
+  if (url && *url) {
+    data->SetLinkURL(url);
+    if (url_title && *url_title) data->SetLinkTitle(url_title);
+  }
+  // One watch per browser: this replaces the last enter's.
+  fork_api().browser_drag_target_watch(browser_id, &DragAnswered, nullptr);
+  host->DragTargetDragEnter(data, DragEvent(x, y, modifiers), static_cast<cef_drag_operations_mask_t>(allowed_operations));
+  return 1;
+}
+
+int cmux_shim_browser_drag_target_over(int browser_id, int x, int y, int allowed_operations, int modifiers) {
+  CefRefPtr<CefBrowserHost> host = DropTarget(browser_id);
+  if (!host) return 0;
+  host->DragTargetDragOver(DragEvent(x, y, modifiers), static_cast<cef_drag_operations_mask_t>(allowed_operations));
+  return 1;
+}
+
+int cmux_shim_browser_drag_target_leave(int browser_id) {
+  CefRefPtr<CefBrowserHost> host = DropTarget(browser_id);
+  if (!host) return 0;
+  host->DragTargetDragLeave();
+  return 1;
+}
+
+int cmux_shim_browser_drag_target_drop(int browser_id, int x, int y, int modifiers) {
+  CefRefPtr<CefBrowserHost> host = DropTarget(browser_id);
+  if (!host) return 0;
+  host->DragTargetDrop(DragEvent(x, y, modifiers));
+  return 1;
 }
 
 // Fork API 31 (task 227).

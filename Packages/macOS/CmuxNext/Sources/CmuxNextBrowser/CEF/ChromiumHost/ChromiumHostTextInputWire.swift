@@ -42,19 +42,36 @@ extension ChromiumHostFrame {
             v[0] = 5
             text = command
         }
-        var payload: [UInt8] = []
-        payload.reserveCapacity(text.utf16.count * 2 + clauses.count * 16)
-        func put<T: FixedWidthInteger>(_ value: T) {
-            payload.appendLittleEndian(value)
-        }
-        for unit in text.utf16 { put(unit) }
+        self.init(.ime, v: v, payload: ChromiumHostTextInputBytes.utf16LE(text) + ChromiumHostTextInputBytes.clauses(clauses))
+    }
+}
+
+/// The byte layouts a text op's text and clauses take on both wires: a kIme frame's payload and the
+/// remote shim's IME ops (``CEFShimTextInputOps``).
+nonisolated enum ChromiumHostTextInputBytes {
+    /// `text` as UTF-16LE.
+    static func utf16LE(_ text: String) -> [UInt8] {
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(text.utf16.count * 2)
+        for unit in text.utf16 { put(unit, into: &bytes) }
+        return bytes
+    }
+
+    /// Per clause i32 start, i32 end, u32 color 0xAARRGGBB, u32 thick (0 or 1), little endian.
+    static func clauses(_ clauses: [ChromiumHostCompositionClause]) -> [UInt8] {
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(clauses.count * 16)
         for clause in clauses {
-            put(Int32(clamping: clause.range.lowerBound))
-            put(Int32(clamping: clause.range.upperBound))
-            put(clause.color)
-            put(UInt32(clause.thick ? 1 : 0))
+            put(Int32(clamping: clause.range.lowerBound), into: &bytes)
+            put(Int32(clamping: clause.range.upperBound), into: &bytes)
+            put(clause.color, into: &bytes)
+            put(UInt32(clause.thick ? 1 : 0), into: &bytes)
         }
-        self.init(.ime, v: v, payload: payload)
+        return bytes
+    }
+
+    private static func put<T: FixedWidthInteger>(_ value: T, into bytes: inout [UInt8]) {
+        bytes.appendLittleEndian(value)
     }
 }
 
