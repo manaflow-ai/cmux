@@ -291,7 +291,35 @@ Batch 2 (after batch 1 lands): issues 8, 9, 11, 15-20.
 | 2026-10-26 | p01-process-005 baseline (pending) | - | per-role memory split (light to heavy) | not measured. Earlier estimate, quoted as written (speed-of-sound-DESIGN.md gap 11; its parts are approximate and do not add up to its total): "Each workspace costs 8.2 MB: a terminal host process (2.3 MB) and a shell (2.3 MB) per terminal, ~1.5 MB in the daemon and ~3 MB in the app". No split by role with shared mappings counted once exists yet | - |
 | 2026-10-26 | p04-input-077 (day-1 input hotspots, queue MQ-input-hotspots) | perf/chrome-parity, this push (scripts only) | 5, 26: the main-thread stacks that own a key's or a click's time, light and STRESS | no per-stack view of input windows: trace.py summarizes stalls and key-flow hops, the benches report percentiles only | `scripts/cmux-next/input-hotspots.py run --app APP --out DIR` records typing-frame-bench (terminal, home, omnibar), home-perf, sidebar-churn-typing `--input real` (400 workspaces in light) and an every-action sweep of nextSurface and commandPalette, and its own `clicks` bench (40 tab clicks and 40 sidebar row clicks through `debug.mouse`, light and STRESS) under `trace.py record --bundle` with key-press flows (`BENCH_LAUNCH_TRACE_FLOWS`), then folds the main-thread samples of the app process that emitted each input window (key.flow to the echo commit, key.frame, a switch.tab or switch.workspace that a driven click caused, from the click's send; a person's action.commit) into artifacts/input-hotspots.json (`cmux-input-hotspots/v1`: one row per stack top that is the largest of a window over 4 ms, with surface, session, stack_top, file:line, share_ms_p95) and the click-to-commit gaps (prewarm candidate for p04-input-042 at p95 >= 30 ms over at least 20 clicks). Switches that automation caused (setup, restore) are left out and counted. plan.json keeps each recording's exit after each one; a failed, timed-out or empty recording sets `ok` false and `run` / `fold` exit 3. `--self-test` green (fixtures, Linux). **Not measured yet**: the GUI base run on a mini with the input grant is the next step; each row it prints is one fix task |
 | 2026-10-26 | p13-webui-052 (code cache spike for cmux pages) | perf/chrome-parity, this push (bench arm only); manaflow-ai/cef `cp/p13-webui-052` at `a65b72d6` (code at `c6af944a`; not built, not pinned) | F3: a cmux page's cold open (its renderer is new) | every cmux-page script compiles again in each new renderer: Chromium caches no custom-scheme script and makes no code cache for the off-the-record pages profile | **not measured** (it needs the split build of 049, which is on perf/chrome-parity: inline scripts get no code cache): `bench-webui.py open` with and without `--page-code-cache` on one mini, one build of the fork branch ([webui-DESIGN.md](webui-DESIGN.md) 5.4). No app code lands unless `settings.cold_open_ms` p95 gains beyond the off arm's spread and `settings.open_ms` (warm, the control) gets no worse. Cold open replaces the task's warm open: a live renderer already holds its scripts in V8, so no warm open can show this cache. Entries are keyed by the renderer's lock, so on this fork ref (one lock per page origin) two pages do not share a `cmux-page://cmux.shared/` chunk's entry; that needs 011's group lock and is not claimed |
+| 2026-10-27 | p13-webui-086 (p13 exports in the fork train) | perf/chrome-parity, this push; manaflow-ai/cef `cp/p13-webui-086` at `845d0aab` (not built, not pinned) | D1, D3, D12 "train" rows: the p13 fork exports need one numbered dist | each p13 export kept `CMUX_CEF_API_VERSION` 27 on its own branch (no number), and the app claimed 32 for page sharing, which is p03-rendering-042's resize fence | one train ref on the API 31 line with 017, 018, 077, 020, 055 and 011 merged, one number per export (38-42, 43 reserved; table below); the app's page-sharing gate is 42. Not done: the dist (`cmux-ci build cef` of `845d0aab`, both arches), the release tag, the R2 upload and the pin bump of cef-manifest.json and remote-browser-host.pin.json |
 | | | | | | |
+
+### Fork API numbers of the p13 exports (p13-webui-086)
+
+One number per export, max + 1 of every number a fork branch or the app claimed on 2026-10-27 (24-37: 28 and 29
+cmux.34/35, 30 helper app, 31 the p01-process-178 train, 32 p03-rendering-042, 33 p14-energy-136, 34
+p03-rendering-058, 35 p03-rendering-056, 36 p03-rendering-044, 37 p06-scheduler-212). The train ref is
+manaflow-ai/cef `cp/p13-webui-086` at `845d0aab`: `cp/p01-process-178` (`2b65db9f`, API 31) with each p13 branch
+merged and numbered in `include/cef_cmux.h`. It lacks 28, 29 and 32-37 (other lines), so its pin records
+`missing_api: [28, 29, 32, 33, 34, 35, 36, 37]`. The next number for any other fork change is 44.
+
+| API | Export | Task | Fork commit merged | App gate |
+|---|---|---|---|---|
+| 38 | `CMUX_EXTRA_INFO_NO_RENDERER`, `cmux_tab_renderer_state` (renderer-less placeholder) | p13-webui-017 | `dfdbea5a` | dlsym of `cmux_tab_renderer_state` (019) |
+| 39 | `cmux_tab_discard`, `cmux_tab_was_discarded` (in-place discard) | p13-webui-018 | `f844f729` | `cmux_shim_tab_discard`, ops `fork_api` 39 (031) |
+| 40 | `cmux_browser_capture`, `cmux_tab_devtools_state` (page pictures without DevTools) | p13-webui-077 | `d110ee57` | `cmux_shim_tab_copy_surface`, `fork_api` 40 (078) |
+| 41 | `cmux_ext_load_command_line_async` (built-in extensions at a profile's first tab) | p13-webui-055 | `cbe3c745` | dlsym (055) |
+| 42 | `cmux_page_scheme_set_group`, reader of `--cmux-page-scheme-process-per-site` (page process groups) | p13-webui-011 | `17a7f8ff` | `CEFForkFeatures.pageSiteSharingForkAPI` 42, ops `fork_api` 42 (012) |
+| 43 | page push channel (reserved, no fork change yet) | p13-webui-079 | - | - |
+| - | `--cmux-spare-renderer-after-first-tab` (a switch: no number) | p13-webui-020 | `5d16aa91` | `chromiumSpareAfterFirstTab` feature |
+
+Status: merged and numbered, header checked with `-std=c99` and `-std=c++17 -Wall -Wextra -Werror`; nothing built or
+run. Remaining for "one dist, one pin bump": `cmux-ci build cef` of `845d0aab` (arm64 and x86_64), `ceftests
+--gtest_filter=CmuxPlaceholderTest.*:CmuxDiscardTest.*:CmuxTabSurfaceTest.*:CmuxPageProcessTest.*`,
+`scripts/test-cmux-embedder.sh <cef> placeholder placeholder-shared`, the release tag, the R2 upload (the fork
+owner's write key), then `cef_release_pin.py pin <tag> --accept-missing-api 28,29,32,33,34,35,36,37` (p01-process-178's
+tool, not on perf/chrome-parity yet), the matching
+remote-browser-host pin, `ensure-cef.sh fetch` and `compile-check --app` at the new pin.
 
 ### Process-model baseline and per-role budgets (p01-process-005)
 

@@ -163,7 +163,7 @@ struct ForkApi {
   // as data, drawn by the app (shim_password_core.mm; suggestion_rows.h).
   int (*browser_set_suggestion_handler)(int, const ForkSuggestionHandler*) = nullptr;
   int (*browser_suggestion_action)(int, int64_t, int, int) = nullptr;
-  // No API number yet (p13-webui-017; the fork train numbers it): its
+  // API 38 (p13-webui-017, numbered by the fork train p13-webui-086): its
   // presence says the fork honors CMUX_EXTRA_INFO_NO_RENDERER.
   int (*tab_renderer_state)(int) = nullptr;
   // No API number yet (p14-energy-046; the fork bundle p14-energy-136 numbers

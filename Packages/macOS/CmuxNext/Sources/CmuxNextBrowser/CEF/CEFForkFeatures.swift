@@ -9,11 +9,10 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// (``CEFLayerHosting/resizeFenceForkAPI``), which the fork bundle p14-energy-136 sets with its pin.
     static let energySaverForkAPI: Int32 = 33
 
-    /// The first fork API that reads PL-memory's `cmux-page-scheme-process-per-site` (manaflow-ai/cef
-    /// `cp/p13-webui-011` at 17a7f8ff, `libcef/browser/cmux/cmux_page_groups.cc`). That commit has no
-    /// number of its own: the fork train ledger (`scripts/cmux-next/cef-fork-train.json`, p07-memory 074)
-    /// gives each unnumbered export the train's API, 32. This gate moves with the train's number.
-    static let pageSiteSharingForkAPI: Int32 = 32
+    /// The first fork API that reads PL-memory's `cmux-page-scheme-process-per-site` and has
+    /// `cmux_page_scheme_set_group` (p13-webui-011, `libcef/browser/cmux/cmux_page_groups.cc`). The fork
+    /// train (p13-webui-086, manaflow-ai/cef `cp/p13-webui-086`) numbers it 42; 32 is the resize fence's.
+    static let pageSiteSharingForkAPI: Int32 = 42
 
     /// The first fork API with `cmux_tab_set_visibility` (p06-scheduler-212): the tab's visibility tree node caps
     /// its WebContents' visibility, and a capture keeps a hidden tab painting (`IncrementCapturerCount`). Max + 1 of

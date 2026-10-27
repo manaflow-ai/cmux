@@ -5011,7 +5011,7 @@
       "pending_keys": [],
       "reply_event": "wire:REPLY",
       "reason": "A first-party page's renderer group (p13-webui-011) is set before initialize, after its page_scheme_add_first_party; the client returns its own check when it queues the op, and the host's refusal is the reply.",
-      "fork_api": 29
+      "fork_api": 42
     },
     {
       "name": "cmux_shim_tab_discard",
@@ -5031,7 +5031,7 @@
       "pending_keys": [],
       "reply_event": "wire:REPLY",
       "reason": "WebContents::Discard refuses a page Chromium counts visible, which only the host knows. In process CEFTab.discard() reads the answer and the page host closes the page on a refusal; in host mode the return only says the op was sent, so CEFShimLibrary binds no tabDiscard there and the page host closes the page until CEFTab.discard() awaits the reply (host_mode_rewrites, p13-webui-031).",
-      "fork_api": 29
+      "fork_api": 39
     },
     {
       "name": "cmux_shim_widget_set_geometry",
