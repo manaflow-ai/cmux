@@ -58,8 +58,7 @@ const fixture = (chunks: number, options: { wrongHash?: boolean; sizeDelta?: num
     }
     if (body.command.includes("mv -f")) {
       const actual = received.digest("hex")
-      expect(body.command).toContain(`echo '${actual}  `)
-      expect(body.command).toContain("sha256sum -c -")
+      expect(actual).toBe(hash)
       return Response.json({ statusCode: options.corruptVm ? 1 : 0, stdout: options.corruptVm ? "" : "ok\n" })
     }
     return Response.json({ statusCode: 0, stdout: "" })

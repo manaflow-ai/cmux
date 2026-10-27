@@ -74,7 +74,7 @@ const fetchFile = async (env: Env, access: Access, conversation: string, actor: 
   return { body: obj.body, size, hash }
 }
 
-/** Stream into a private temporary file. Publish only after length and both transfer hashes match. */
+/** Stream into a private temporary file. Publish only after the streamed length and hash match the record. */
 const writeFile = async (env: Env, vm: string, path: string, file: FileStream): Promise<string | null> => {
   const name = path.slice(ATTACHMENT_DIR.length + 1)
   const reader = file.body.getReader()
@@ -107,8 +107,7 @@ const writeFile = async (env: Env, vm: string, path: string, file: FileStream): 
     if (count !== file.size || !started) return "the stored file does not match its size"
     const digest = hash.digest("hex")
     if (digest !== file.hash) return "the stored file does not match its hash"
-    const verify = `echo '${digest}  ${part}' | sha256sum -c - >/dev/null`
-    const done = await execRoot(env, vm, `${verify} && chown chief:chief ${part} && chmod 600 ${part} && mv -f ${part} ${path} && echo ok`, null, 30_000)
+    const done = await execRoot(env, vm, `chown chief:chief ${part} && chmod 600 ${part} && mv -f ${part} ${path} && echo ok`, null, 30_000)
     published = done.exit === 0 && done.stdout.includes("ok")
     return published ? null : "the write to the machine failed"
   } catch {
