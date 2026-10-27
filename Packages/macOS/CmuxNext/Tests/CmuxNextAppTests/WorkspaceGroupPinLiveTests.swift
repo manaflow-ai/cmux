@@ -150,6 +150,33 @@ struct WorkspaceGroupPinLiveTests {
         }
     }
 
+    /// Move to Group puts a workspace that is not pinned into a pinned group: it joins the group in Pinned, in the
+    /// document and in the personal store, and the group stays pinned.
+    @Test func aWorkspaceMovesIntoAPinnedGroup() async throws {
+        try await Self.withLaunched { launched in
+            let services = launched.services
+            let group = try await Self.makeGroup("join-pinned", empty: true, launched)
+            let target = ActionInvocation(target: ActionTargetRef(kind: .workspaceGroup, id: group.shown.rawValue), origin: .user)
+            #expect(services.registry.perform("workspaceGroup.togglePin", invocation: target), "\(launched.refusals.reasons)")
+            await Self.expectPinned(true, group, launched, "Pin Group")
+            let workspace = try #require(services.daemon.store.workspaces.first, "no launch workspace")
+            let item = try #require(SidebarDocWiring.item(workspace: workspace.id, services.machines), "the launch workspace has no document item")
+            #expect(SidebarDocStore.current?.records.items[item]?.parent == nil, "the launch workspace starts loose")
+            #expect(services.registry.perform("moveWorkspaceToGroup", invocation: ActionInvocation(
+                target: ActionTargetRef(kind: .workspace, id: workspace.id),
+                arguments: ["group": .target(ActionTargetRef(kind: .workspaceGroup, id: group.personal.rawValue))], origin: .user)),
+                "\(launched.refusals.reasons)")
+            @MainActor func joined() -> Bool {
+                guard let qualified = WindowProfiles.qualified(workspace.id, machines: services.machines) else { return false }
+                return SidebarDocStore.current?.records.items[item]?.parent == group.shown.rawValue
+                    && services.machines.local.store.personal.workspace(session: qualified.session, key: qualified.key)?.group == group.personal
+            }
+            await Self.wait(within: .seconds(20)) { joined() }
+            #expect(joined(), "the workspace did not join the pinned group: \(launched.refusals.reasons)")
+            await Self.expectPinned(true, group, launched, "after the move")
+        }
+    }
+
     /// `cmux workspace group <g> update --pinned true|false` writes the personal group; the document follows it.
     @Test func cliPinnedUpdateMovesTheGroup() async throws {
         try await Self.withLaunched { launched in
