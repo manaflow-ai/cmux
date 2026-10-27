@@ -210,9 +210,12 @@ public final class SidebarDocSections {
         }
         flush()
         if !leading.isEmpty {
-            // Newest first, each above the one before it.
-            let before = sections.count
-            Self.insertFirst(Array(leading.reversed()), into: &sections, machineSections: own)
+            // Newest first, each above the one before it. With no placed row, the unplaced run (Home among
+            // them) is the machine's first: below its leading Home row, not above it.
+            let before = sections.count, start = own == 0 && !first && !unanchored.isEmpty ? sections.count - 1 : 0
+            var rest = Array(sections[start...])
+            Self.insertFirst(Array(leading.reversed()), into: &rest, machineSections: start == 0 ? own : 1)
+            sections.replaceSubrange(start..., with: rest)
             own += sections.count - before
         }
         // The trailing loose run of unplaced rows is the machine's own too (band groups sit before it).
@@ -261,7 +264,7 @@ public final class SidebarDocSections {
             case .lastInGroupOf:
                 guard section.group != nil else { return false }
                 workspaces.append(workspace)
-            case .first: return true // listed above
+            case .first: return true // inserted before the loop
             }
             sections[index] = CmuxNextDaemon.SidebarSection(group: section.group, workspaces: workspaces)
             return true

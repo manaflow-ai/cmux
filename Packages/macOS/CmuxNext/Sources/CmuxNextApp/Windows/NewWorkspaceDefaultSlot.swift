@@ -174,17 +174,20 @@ enum NewWorkspacePlacements {
 
         /// The neighbour each new workspace lists beside until the sidebar document places it
         /// (`SidebarDocSections.unplacedAnchor`), where the daemon's create puts it. Dropped once the
-        /// document places the workspace (`unplacedAnchor(of:machines:)`); a create still on its way keeps its own.
+        /// document places the workspace or it is gone (`unplacedAnchor(of:machines:)`); a create still on its way
+        /// (sent, its workspace not listed yet: ``placedByDaemon``) keeps its own.
         var anchors: [String: SidebarDocSections.UnplacedAnchor] = [:]
         /// `top` / `bottom` group anchors, armed into `anchors` once the create sends the rule (`sending`).
         var groupAnchors: [String: SidebarDocSections.UnplacedAnchor] = [:]
 
-        /// The neighbour `workspace` lists beside while the document does not place it; prunes the ones placed. A workspace
-        /// not listed yet keeps its anchor: its create may still be on the way (a terminal, command or agent workspace).
+        /// The neighbour `workspace` lists beside while the document does not place it; prunes the ones placed or gone. A
+        /// create still on its way (a terminal, command or agent workspace the daemon has not listed yet) keeps its anchor.
         func unplacedAnchor(of workspace: WorkspaceModel, machines: MachineRegistry) -> SidebarDocSections.UnplacedAnchor? {
             guard !anchors.isEmpty else { return nil }
             if anchors.count > 16 {
-                anchors = anchors.filter { id, _ in SidebarDocWiring.item(workspace: id, machines) == nil }
+                anchors = anchors.filter { id, _ in
+                    SidebarDocWiring.item(workspace: id, machines) == nil && (machines.workspace(id: id) != nil || placedByDaemon.contains(id))
+                }
             }
             return anchors[workspace.id]
         }

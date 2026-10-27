@@ -88,6 +88,18 @@ import Testing
             == ["ws-home", "ws-a", "ws-b", "ws-1", "ws-2", "ws-3"])
     }
 
+    /// The same before the document places any row (a fresh session): first below Home, not above it.
+    @Test func aNewRowWithNoCurrentWorkspaceListsBelowAnUnplacedHome() {
+        let empty = SidebarDocProjection(rows: [], records: SidebarDocRecords(sections: [
+            Self.machine: SidebarDocSection(id: Self.machine, kind: .machine(session: Self.session)),
+        ], items: [:]), revision: 1)
+        let doc = SidebarDocSections()
+        doc.placesNewRowsFirst = { false }
+        doc.unplacedAnchor = { $0.resourceID?.rawValue == "ws-a" ? .first : nil }
+        #expect(Self.order(doc.sections(empty, session: Self.session, workspaces: Self.store(fresh: ["ws-a"]).workspaces))
+            == ["ws-home", "ws-a", "ws-1", "ws-2", "ws-3"])
+    }
+
     @Test func aLiveWorkspaceTheDocumentDoesNotPlaceYetListsFirstBelowHome() {
         let store = Self.store(fresh: ["ws-new"])
         let sections = SidebarDocSections().sections(Self.projection(), session: Self.session, workspaces: store.workspaces)
