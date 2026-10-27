@@ -13,6 +13,7 @@ extension LAContext {
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Returns: Whether the policy can be evaluated.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingCanEvaluatePolicy(_ policy: LAPolicy, error: NSErrorPointer = nil,
                                           fileID: StaticString = #fileID, line: UInt = #line) -> Bool {

@@ -18,6 +18,10 @@ extension WindowController {
             let strips = self?.content?.panes.values.map { $0.view.stripView.windowControlsSlide() } ?? []
             return { strips.flatMap { $0() } }
         }
+        // A band reveal springs the tab rows it moved from where they showed.
+        root.collapsedBand.stripLayers = { [weak self] in
+            (self?.content?.panes.values.map({ $0 }) ?? []).flatMap { $0.view.stripView.windowControlsLayers }
+        }
         // The host pressure indicator joins the top row after the band and badge (cmuxterm-hq#2995).
         root.hostPressureIndicator = HostPressureIndicatorView(services: services) { [weak self] in
             // The top row places it (layoutTitlebarAccessories), then strips avoid it.
