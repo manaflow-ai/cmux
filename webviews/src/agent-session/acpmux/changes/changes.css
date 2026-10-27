@@ -29,7 +29,7 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
 .acpmux-file-menu-item[aria-disabled="true"]{color:var(--agent-muted);background:none}
 /* Under the header: the Branch scope's branch and base, and the tracked-only banner. */
 .acpmux-diff-notes{flex:none;display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:8px;border-bottom:1px solid var(--agent-border)}
-.acpmux-turn-note{color:var(--agent-muted);font-size:12px;line-height:16px}
+.acpmux-turn-note,.acpmux-diff-no-tests{color:var(--agent-muted);font-size:12px;line-height:16px}
 .acpmux-branch-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;max-width:100%}
 .acpmux-pull-request-create{height:29px;padding:0 12px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;white-space:nowrap;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-pull-request-create:hover:enabled{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
