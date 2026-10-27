@@ -62,12 +62,21 @@ mkdir -p "$target_dir"
 stage="$(mktemp -d "$repo_root/cmux-tui/target/.client-local.XXXXXX")"
 trap 'rm -rf "$stage"' EXIT
 
+# Line tables in a packed .dSYM beside each binary, as the nightly builds
+# cmux-tui: the bundle strips the binaries (strip-release-bundle.sh), so a
+# crash symbolicates only from these. They go to <out>/dSYMs/, which the
+# bundle scripts do not install.
+export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed
+keep_dsym() { "$repo_root/scripts/cmux-next/lipo-dsym.sh" "$stage/dSYMs/$1.dSYM" "$target_dir/release/$1.dSYM"; }
+
 say "==> building cmux-tui for tree $key ($commit)"
 (cd "$repo_root/cmux-tui" && CMUX_TUI_BUILD_COMMIT="$commit" CMUX_TUI_GHOSTTY_COMMIT="$ghostty_commit" \
   CARGO_TARGET_DIR="$target_dir" cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-host --release --locked >&2)
 install -m 755 "$target_dir/release/cmux-tui" "$stage/cmux-tui"
 # The slim terminal host of the same build (one cargo invocation, one identity).
 install -m 755 "$target_dir/release/cmux-tui-host" "$stage/cmux-tui-host"
+keep_dsym cmux-tui
+keep_dsym cmux-tui-host
 
 # The companions this source bundles beside cmux-tui: the ones its bundle
 # scripts name (the fleet recipe decides the same way).
@@ -94,6 +103,7 @@ for name in cmux-app-host cmux-cloud cmux-browser-host cmux-holder cmux-agent-sc
       cargo build -p "$name" --bin "$name" --release --locked >&2)
   fi
   install -m 755 "$target_dir/release/$name" "$stage/$name"
+  keep_dsym "$name"
 done
 
 rm -rf "$out"

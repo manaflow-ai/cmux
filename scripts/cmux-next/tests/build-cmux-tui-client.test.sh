@@ -15,7 +15,8 @@ src="$TMP/src"
 git_q init "$src"
 detector="cmux-tui/bindings/examples/rust-agent-screen-detection"
 mkdir -p "$src/cmux-tui/crates/cmux-app-host" "$src/cmux-tui/crates/cmux-holder" "$src/$detector" "$src/scripts/cmux-next" "$src/scripts/ci" "$TMP/bin"
-cp "$ROOT/scripts/cmux-next/pin-cmux-tui.sh" "$ROOT/scripts/cmux-next/build-cmux-tui-client.sh" "$src/scripts/cmux-next/"
+cp "$ROOT/scripts/cmux-next/pin-cmux-tui.sh" "$ROOT/scripts/cmux-next/build-cmux-tui-client.sh" \
+  "$ROOT/scripts/cmux-next/lipo-dsym.sh" "$src/scripts/cmux-next/"
 cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$src/scripts/ci/"
 cp "$ROOT/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$src/scripts/cmux-next/"
 echo reducer > "$src/scripts/cmux-next/build-layout-reducer-ffi.sh"
@@ -30,7 +31,8 @@ git_q -C "$src" commit -m one
 
 # cargo build -p P --bin B [--bin B2...]: writes $CARGO_TARGET_DIR/release/B for
 # each --bin, each reporting CMUX_TUI_BUILD_COMMIT the way the real binary's
-# --version does, and logs one line per invocation under its first --bin.
+# --version does, and logs one line per invocation under its first --bin. With
+# packed split debuginfo and line tables it writes B.dSYM beside B, as rustc does on macOS.
 cat > "$TMP/bin/cargo" <<'EOF'
 #!/usr/bin/env bash
 names=()
@@ -39,6 +41,13 @@ mkdir -p "$CARGO_TARGET_DIR/release"
 for name in "${names[@]}"; do
   printf '#!/bin/sh\necho "%s 0.1.0 (%s 2026-10-08)"\n' "$name" "${CMUX_TUI_BUILD_COMMIT:-0000000000000000000000000000000000000000}" > "$CARGO_TARGET_DIR/release/$name"
   chmod 755 "$CARGO_TARGET_DIR/release/$name"
+  rm -rf "$CARGO_TARGET_DIR/release/$name.dSYM" "$CARGO_TARGET_DIR/release/deps/$name-abc123.dSYM"
+  if [[ "${CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO:-}" == packed && "${CARGO_PROFILE_RELEASE_DEBUG:-}" == line-tables-only ]]; then
+    # rustc writes it in deps/; cargo links it into release/ by a relative symlink.
+    mkdir -p "$CARGO_TARGET_DIR/release/deps/$name-abc123.dSYM/Contents/Resources/DWARF"
+    echo "$name" > "$CARGO_TARGET_DIR/release/deps/$name-abc123.dSYM/Contents/Resources/DWARF/$name"
+    ln -s "deps/$name-abc123.dSYM" "$CARGO_TARGET_DIR/release/$name.dSYM"
+  fi
 done
 echo "${names[0]} $PWD" >> "$FAKE_CARGO_LOG"
 EOF
@@ -52,6 +61,12 @@ grep -q "never runs Cargo" "$TMP/err" || fail "unexpected refusal: $(cat "$TMP/e
 path=$(run NX_JOB_ID=job bash scripts/cmux-next/build-cmux-tui-client.sh --print-path 2>"$TMP/err") || fail "an nx-remote job did not build: $(cat "$TMP/err")"
 [[ -x "$path" && -x "$(dirname "$path")/cmux-tui-host" && -x "$(dirname "$path")/cmux-holder" && -x "$(dirname "$path")/cmux-app-host" && -x "$(dirname "$path")/cmux-agent-screen-detection" ]] || fail "missing client set at $path: $(ls "$(dirname "$path")" 2>&1)"
 (cd "$src" && bash scripts/cmux-next/pin-cmux-tui.sh local-build "$path") || fail "pin-cmux-tui.sh local-build refused the build"
+# Every binary of the set keeps its dSYM, outside the folder the bundle installs from by name.
+for name in cmux-tui cmux-tui-host cmux-holder cmux-app-host cmux-agent-screen-detection; do
+  kept="$(dirname "$path")/dSYMs/$name.dSYM"
+  [[ -d "$kept" && ! -L "$kept" && "$(cat "$kept/Contents/Resources/DWARF/$name" 2>/dev/null)" == "$name" ]] ||
+    fail "no dSYM folder kept for $name: $(ls -lR "$(dirname "$path")" 2>&1)"
+done
 [[ "$(builds)" == 4 ]] || fail "want cmux-tui, cmux-app-host, cmux-holder and the detector built once each: $(cat "$TMP/cargo.log")"
 # The detector is its own Cargo workspace: built from its own directory.
 grep -qx "cmux-agent-screen-detection $src/$detector" "$TMP/cargo.log" \

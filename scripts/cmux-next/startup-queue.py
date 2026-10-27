@@ -16,9 +16,11 @@ Mac and reads what the launch recorded. Each hit names its queue and the task te
   profile     Q6, template 039. From trace.py launch recordings (trace.json.gz, or the directory holding it):
               app symbols with median >= --symbol-ms inclusive on main before --first-frame-mark; main turns
               >= --turn-ms before --until-mark; swift_once initializers and static initializers >= --once-ms.
-  mainjobs    Q11, template 081. From `debug.startup`: each main-job enqueuer with a median >= --job-ms total
+  mainjobs    Q11, template 081. From `debug.startup` and `debug.startup.main_jobs` (task 080; a live run arms
+              the census with CMUX_NEXT_MAIN_JOB_CENSUS=1): each main-job enqueuer with a median >= --job-ms total
               or >= --job-count jobs before --first-frame-mark, and each main turn before --until-mark that ran
-              outside a StartupScheduler task and the allowlist.
+              outside a StartupScheduler task and the allowlist. A run whose census was not armed or whose hook
+              did not install is left out with a warning; a ring that dropped jobs is a warning.
   globaljobs  Q12, template 083. From `debug.startup` and `debug.startup.global_jobs` (task 082; a live run arms
               the census with CMUX_NEXT_GLOBAL_JOB_CENSUS=1): each caller of utility, background or unprioritized
               tasks started on the cooperative pool before --until-mark that is not a BackgroundWork lane job. A
@@ -52,12 +54,17 @@ Input contract. All times are ms since process start (the launch-mark clock, Lau
   debug.startup (tasks 008, 080, 082, 085): {"milestones": {mark: ms}, "interrupted"?: bool,
     "main_jobs": [{"caller", "kind", "priority", "enqueued_ms", "run_ms"}],
     "main_turns": [{"start_ms", "duration_ms", "task": name or null, "allowlisted": bool, "site"}],
+    "main_job_census": {"armed", "hook", "dropped_jobs", "dropped_turns", ...},
     "global_jobs": [{"caller", "priority": name or number or null, "lane": name or null, "via": name or null,
                      "enqueued_ms", "run_ms"}],
     "global_job_census": {"armed", "hook", "dropped_tasks", "untracked_tasks", "pending_tasks", ...},
     "arms": [{"kind", "owner", "site", "armed_ms", "first_fire_ms": ms or null}]}.
     Each census mode needs its arrays in a run (mainjobs: main_jobs and main_turns; globaljobs: global_jobs;
-    arms: arms). A run without them is left out; no run with them exits 2. Task 082's census answers its two keys
+    arms: arms). A run without them is left out; no run with them exits 2. Task 080's census answers its three
+    keys on its own method, `debug.startup.main_jobs` (main_jobs kinds: main_actor, main_delivery,
+    run_loop_block, timer (caller `timer <owner>`), run_loop_sources, run_loop_wake; a caller of `unknown` is a
+    job whose stack held no frame of its enqueuer); a live mainjobs run merges that reply into debug.startup's
+    (which it may lack). Task 082's census answers its two keys
     on its own method, `debug.startup.global_jobs` (one record per task, at its first enqueue on the pool; no `lane`,
     because lane items do not reach the pool; `via` `background_work_task` for a task BackgroundWork.task started,
     which is still a hit; `run_ms` null: the hook sees the enqueue, not the run); a live globaljobs run
@@ -116,9 +123,10 @@ INTERRUPTED = "launch.interrupted"
 # A live launch takes its window as a person's launch does; a noActivate launch is interrupted (task 108).
 LIVE_ENV = {"CMUX_NEXT_NO_ACTIVATE": "0"}
 # What a census mode adds to a live run: the environment that arms its recorder and the method that answers it (task
-# 082's global-job census is off unless armed, so the startup benches measure a launch without it).
-MODE_ENV = {"globaljobs": {"CMUX_NEXT_GLOBAL_JOB_CENSUS": "1"}}
-MODE_METHOD = {"globaljobs": "debug.startup.global_jobs"}
+# 080's main-job census and 082's global-job census are off unless armed, so the startup benches measure a launch
+# without them).
+MODE_ENV = {"mainjobs": {"CMUX_NEXT_MAIN_JOB_CENSUS": "1"}, "globaljobs": {"CMUX_NEXT_GLOBAL_JOB_CENSUS": "1"}}
+MODE_METHOD = {"mainjobs": "debug.startup.main_jobs", "globaljobs": "debug.startup.global_jobs"}
 # Initializer frames (the frame under swift_once names its owner; a C++ or ObjC static initializer).
 STATIC_INIT = ("one-time initialization function for", "static initializer for", "_GLOBAL__sub_I",
                "__cxx_global_var_init", "globalinit_")
@@ -520,8 +528,31 @@ def census_runs(runs, marks_needed, fields):
     return kept, warnings
 
 
+def census_state(runs):
+    """The runs whose main-job census recorded (task 080's `main_job_census`), and why others were left out. A result
+    with no summary (a saved file from before it) is kept; one that says not armed, or a hook that did not install
+    (no main-actor job recorded), is not a census."""
+    kept, warnings = [], []
+    for index, run in enumerate(runs):
+        state = run["result"].get("main_job_census")
+        if not isinstance(state, dict):
+            kept.append(run)
+        elif state.get("armed") is False:
+            warnings.append(f"run {index + 1}: the main-job census was not armed (CMUX_NEXT_MAIN_JOB_CENSUS=1), left out")
+        elif state.get("hook") not in (None, "installed"):
+            warnings.append(f"run {index + 1}: main-actor job hook {state.get('hook')}, left out")
+        else:
+            for field, what in (("dropped_jobs", "jobs"), ("dropped_turns", "turns"), ("dropped_segments", "run-loop stretches")):
+                if number(state.get(field)):
+                    warnings.append(f"run {index + 1}: the census ring was full: {state[field]:g} {what} not recorded")
+            kept.append(run)
+    return kept, warnings
+
+
 def mainjobs_hits(runs, first_frame_mark, until_mark, job_ms, job_count):
-    kept, warnings = census_runs(runs, (first_frame_mark, until_mark), CENSUS_FIELDS["mainjobs"])
+    armed, refused = census_state(runs)
+    kept, warnings = census_runs(armed, (first_frame_mark, until_mark), CENSUS_FIELDS["mainjobs"])
+    warnings = refused + warnings
     totals, counts = collections.defaultdict(list), collections.defaultdict(list)
     turns = collections.defaultdict(lambda: {"runs": 0, "durations": []})
     for run in kept:

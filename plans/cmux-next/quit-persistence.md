@@ -386,3 +386,12 @@ work.
   - `debug.quit` reports `failure` and answers `retry` and `quit-anyway`.
 - `scripts/fleet-quit-persistence.sh` is the 5.2 acceptance test. Its expected-fail list (with
   owners) is at the top of the script. The `end-everything-*` checks must pass.
+- A quit stops the helpers it no longer needs (cmux-ad 2026-10-27; branch `cp/lag-quit-helpers`).
+  Before, the app's acpmux, its router and the cmux-tui daemon's `cmux-browser-host` ran on after
+  every quit. Now acpmux watches its owning app (`ACPMUX_OWNER_APP_PID`, kqueue `NOTE_EXIT`) and, idle
+  (no client, no live agent, no background process), exits 2 s after the app does, whether or not
+  `leftoverDaemonIdleExit` is on (`cmux-tui/crates/acpmux/src/daemon_lifecycle.rs`). An agent that
+  works keeps it, so Keep Sessions Running still keeps agents. The browser host exits when the app's
+  provider leaves and no session uses it (`cmux-browser-host/src/idle_exit.rs`). Kept by design: the
+  cmux-tui daemon with its terminals and screen-detection plugin, and the Chief's host with its own
+  acpmux (`home.md` section 4). P0 journey: `scripts/journeys/quit-leaves-no-helpers/`.
