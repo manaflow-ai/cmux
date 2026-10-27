@@ -5,10 +5,10 @@ Run by the pre-push hook through `prepush-gate.py --pre-push` (and by a plain lo
 never by CI (Lawrence 2026-10-23: no new CI gates). Only Swift lines the push ADDS under
 Packages/macOS/CmuxNext/Sources count (wakeup-ext also reads the app-linked Shared packages, CmuxUpdater,
 the cmux-tui crates' src, webviews/src and the CEF shim with wakeup-audit.py's rules; safety-todo reads every
-package's Sources and Tests), plus unchanged lines that
-become debt because the push changed the line that gives them their context (`struct` -> `class` around a
-static, a view renamed to a `...Row`, an edited or deleted deinit in a generic class's body, or a type made generic
-around the classes in its extensions, read in every Sources and Tests file that extends it:
+package's Sources and Tests; the Rust stability rules read the shipped crates' src with the pinned ast-grep),
+plus unchanged lines that become debt because the push changed the line that gives them their context (`struct` ->
+`class` around a static, a view renamed to a `...Row`, an edited or deleted deinit in a generic class's body, or a
+type made generic around the classes in its extensions, read in every Sources and Tests file that extends it:
 generic_signature_context) or the comment that escaped them (a deleted or reworded `// <rule>-allow:` line).
 Per file and rule it is a count ratchet: an added match is new only when the same file does not remove as
 much debt (judged on the base text with the same context and escape rules, so editing a line that already
@@ -65,8 +65,9 @@ one move pool per push with the new-file rule (move_pools).
   scripts/cmux-next/guardrails.py                    # what HEAD adds over origin/feat-cmux-next
   scripts/cmux-next/guardrails.py --base A --head B   # exactly what B adds over A
   scripts/cmux-next/guardrails.py --list
-  scripts/cmux-next/guardrails.py --self-test        # the input-monitor, target-settings, safety-todo and
-                                                     # raw-continuation cases
+  scripts/cmux-next/guardrails.py --self-test        # the input-monitor, target-settings, safety-todo,
+                                                     # raw-continuation, trap-api, decode-trap and Rust stability
+                                                     # cases
 """
 from __future__ import annotations
 
@@ -84,6 +85,7 @@ import posixpath
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -238,6 +240,8 @@ class Rule:
     find: Callable[[list[FileChange], collections.Counter], list[Added]]  # (changed files, removed texts) -> hits
     scope: tuple[str, ...] = (SOURCES,)  # path prefixes the rule reads (most rules: Sources only)
     net: bool = False  # a count over the whole push (NetHit buckets), not per added line
+    # The local tier (p10-stability-199): judged only on the person's machine, never under GitHub Actions.
+    local_only: bool = False
 
 
 # (version, 0-based line) -> (the match is debt there, the 1-based opener lines that make it so)
@@ -599,9 +603,10 @@ def lex_cache_dir(repo: Path) -> Path | None:
 
 def in_diff_scope(path: str) -> bool:
     """PATH is one of check()'s diff pathspecs (SWIFT_SOURCES, SWIFT_TESTS, SHIPPED_BUILD_SPECS, WAKEUP_EXT_SPECS,
-    PACKAGE_MANIFEST_SPEC, PACKAGE_SWIFT_SPECS), so its blobs are read while the content diff runs. A path this misses
-    is read after the diff (check()'s late read)."""
-    return in_swift_scope(path) or in_wakeup_ext_specs(path) or is_package_manifest(path) or is_package_swift(path)
+    PACKAGE_MANIFEST_SPEC, PACKAGE_SWIFT_SPECS, RUST_STABILITY_SPECS), so its blobs are read while the content diff
+    runs. A path this misses is read after the diff (check()'s late read)."""
+    return (in_swift_scope(path) or in_wakeup_ext_specs(path) or is_package_manifest(path) or is_package_swift(path)
+            or in_rust_stability_scope(path))
 
 
 def in_swift_scope(path: str) -> bool:
@@ -2735,6 +2740,323 @@ RAW_CONTINUATION_RULES = (
 )
 RULES += RAW_CONTINUATION_RULES
 # ---------------------------------------------------------------- end of raw-continuation (p10-stability-083, 089)
+
+
+# ---------------------------------------------------------------- trap-api (p10-stability-092, 097, 098)
+# A standard-library call that traps on a bad argument: `uniqueKeysWithValues:` (a repeated key), an unguarded
+# `removeFirst()` / `removeLast()` (an empty collection), `(repeating:count:)` with a count that may be negative,
+# `index(_:offsetBy:)` without `limitedBy:` (past the end). The class and its guard exemptions are crash_ratchet.py's
+# report-only `trap_api` (one definition; `--report trap_api` prints queue Q09). Chromium's base containers check the
+# same arguments and report instead of trapping where input reaches them (base/containers/checked_iterators.h,
+# base/numerics/checked_math.h); here the caller proves the argument. The Shared and iOS packages are at zero, so
+# the class is banned there as crash_ratchet.py bans a class at zero: every hit in a file the push changes is
+# refused, old lines and moved ones too. Elsewhere (CmuxNext, whose queue 097 and later waves empty) a push may not
+# add one: per changed file, a hit at head pairs with a hit of the same text at base (resolve()), and only an extra
+# one is refused. Local only, like every guardrail. The block owns its lines from here to `RULES += TRAP_API_RULES`.
+TRAP_API_BANNED = ("Packages/Shared/", "Packages/iOS/")
+TRAP_API_ALLOW = allow_marker("trap-api")
+
+
+def trap_api_lines(path: str, lines: list[str]) -> list[Added]:
+    """Every line of LINES (a package Sources file at PATH) that starts a trap_api call without a reviewed escape,
+    once per call."""
+    return [Added(path, index + 1, lines[index]) for index in range(len(lines))
+            for _ in range(ratchet.trap_api_hits(lines, index)) if not any(TRAP_API_ALLOW.search(lines[j]) for j in escape_window(lines, index))]
+
+
+def trap_api(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """The trap_api calls of the package Sources files the push changed (added or removed a line in): all of them in
+    a banned package, the ones the file did not have at base elsewhere. Unchanged context files are not judged."""
+    banned, counted = [], []
+    for change in changes:
+        if (not change.path.endswith(".swift") or "/Sources/" not in change.path or change.is_deleted
+                or not (change.added or change.removed)):
+            continue
+        head = trap_api_lines(change.path, change.head_lines)
+        if change.path.startswith(TRAP_API_BANNED):
+            banned += head
+        else:
+            counted.append((head, trap_api_lines(change.path, change.base_lines)))
+    return banned + resolve(counted)
+
+
+TRAP_API_RULES = (
+    Rule("trap-api", "A standard-library call that traps on a bad argument (`uniqueKeysWithValues:`, an unguarded "
+         "`removeFirst()` / `removeLast()`, `(repeating:count:)` with a count that may be negative, "
+         "`index(_:offsetBy:)` without `limitedBy:`): any in a Shared or iOS package Sources file the push changes "
+         "(banned: old lines count too), a new one in other package Sources",
+         "a duplicate key, an empty queue, a negative count or an offset past the end stops the process; where input "
+         "reaches the call, a peer or a file can crash the app (p10-stability.md, SWIFT TRAPS)",
+         "`Dictionary(_:uniquingKeysWith:)` with the rule for a repeated key; `popFirst()` / `popLast()`, "
+         "`guard let x = q.first else { ... }` before `q.removeFirst()`, or `removeSubrange(..<n)`; a count that is "
+         "never negative (`max(0, n)`, a `.count`, a literal, a name validated above, `guard n >= 0`); "
+         "`index(_:offsetBy:limitedBy:)` with the nil case handled. "
+         "`crash_ratchet.py --report trap_api` lists what it counts",
+         "// trap-api-allow: <why the argument is valid here>",
+         trap_api,
+         scope=("Packages/",)),
+)
+RULES += TRAP_API_RULES
+# ---------------------------------------------------------------- end of trap-api (p10-stability-092, 097, 098)
+
+
+# ---------------------------------------------------------------- Rust stability rules (p10-stability-102)
+# Syntax rules on the Rust a push adds in the shipped crates' src, run with the pinned ast-grep (lint-tools.lock;
+# the rules are ast-grep/rules/*.yml beside this file). No cargo build: the person's Mac never builds Rust. They are
+# the local tier's early warning (plans/cmux-next/chrome-parity/p10-stability.md, section E "Queues"); the fleet's
+# syn scanner (async-blocking-scan) is the full check. Like every rule here, a push's matches are a count ratchet:
+# only a match the push adds or un-escapes is new. The block owns its lines from here to `RULES += RUST_RULES`.
+RUST_STABILITY_ROOTS = ("cmux-tui/crates/", "Native/", "cmux-next-ios/rust/crates/")
+RUST_STABILITY_SPECS = tuple(f":(glob){root}**/src/**/*.rs" for root in RUST_STABILITY_ROOTS)
+# Test code may block and spawn freely: test and bench folders, `*_tests.rs` files and `src/tests.rs` modules (the
+# rules skip `#[cfg(test)]` modules and `#[test]` functions inside other files themselves).
+RUST_TEST_PATH = re.compile(r"/(tests|benches|examples|fuzz)/|_tests?\.rs$|/src/(.+/)?tests?\.rs$")
+RUST_RULES_DIR = "ast-grep/rules"  # beside this file
+RUST_RULES_TREE = "scripts/cmux-next/" + RUST_RULES_DIR
+# The rules that judge a push: the reviewed copy beside this file (install-git-hooks.sh installs it with the
+# snapshot). self_test points it at other folders.
+RUST_RULES_HOME = HERE / RUST_RULES_DIR
+RUST_COMMENT_OR_ATTRIBUTE = re.compile(r"^\s*(//|/\*|\*/|\*(\s|$)|#!?\[)")
+RUST_SCAN_TIMEOUT = 20.0  # seconds; a scan of a large push takes well under one
+RUST_MEMO = "rust-stability"
+
+
+class RustScanError(RuntimeError):
+    """The pinned ast-grep could not be found, run or read: the Rust rules fail open for this push."""
+
+
+def in_rust_stability_scope(path: str) -> bool:
+    """PATH is shipped Rust source the Rust stability rules read (RUST_STABILITY_SPECS less test code)."""
+    return (path.startswith(RUST_STABILITY_ROOTS) and "/src/" in path and path.endswith(".rs")
+            and not RUST_TEST_PATH.search(path))
+
+
+def rust_rule_paths() -> list[str]:
+    """The rule files at their repository paths (measure() reads the base's copies)."""
+    return [f"{RUST_RULES_TREE}/{rule.id}.yml" for rule in RUST_RULES]
+
+
+def rust_rule_texts(texts: dict[tuple[str, str], str], base: str) -> str:
+    """The Rust rules as one `--inline-rules` document: the copies in RUST_RULES_HOME, else BASE's (a snapshot
+    installed before the rules were). Never the pushed HEAD's: the commit under check does not pick its rules."""
+    docs = []
+    for path in rust_rule_paths():
+        own = RUST_RULES_HOME / PurePosixPath(path).name
+        text = own.read_text(encoding="utf-8") if own.is_file() else texts.get((base, path))
+        if text is None:
+            raise RustScanError(f"{path} is neither in {RUST_RULES_HOME} nor at the base {base[:11]}: run "
+                                "scripts/install-git-hooks.sh")
+        docs.append(text)
+    return "\n---\n".join(docs)
+
+
+@functools.cache
+def pinned_tools():
+    """prepush-gate.py beside this file: its ensure_tool() downloads and sha256-checks the pinned binaries once."""
+    return load_sibling("cmux_next_prepush_gate_tools", "prepush-gate.py")
+
+
+def ast_grep_binary() -> str:
+    try:
+        return str(pinned_tools().ensure_tool(HERE / "lint-tools.lock", "ast-grep"))
+    except SystemExit as error:  # ensure_tool's refusals: no pinned build for this platform, a wrong sha256
+        raise RustScanError(str(error)) from None
+
+
+def scan_rust(changes: list[FileChange]) -> None:
+    """One ast-grep run of every Rust rule over both sides of CHANGES: each file's memo gets ({rule: head lines},
+    {rule: base lines}) with 0-based match start lines, or the RustScanError that stopped the scan."""
+    todo = [c for c in changes if RUST_MEMO not in c.memo]
+    if not todo:
+        return
+    try:
+        found = _scan_rust(todo)
+    except (RustScanError, OSError, subprocess.SubprocessError) as error:
+        failure = error if isinstance(error, RustScanError) else RustScanError(f"ast-grep: {error}")
+        for change in todo:
+            change.memo[RUST_MEMO] = failure
+        return
+    for change in todo:
+        change.memo[RUST_MEMO] = found.get(change.path, ({}, {}))
+
+
+def _scan_rust(changes: list[FileChange]) -> dict[str, tuple[dict[str, set[int]], dict[str, set[int]]]]:
+    rules = changes[0].memo.get("rust_rules") or rust_rule_texts({}, "")  # measure() sets it for every Rust file
+    if isinstance(rules, RustScanError):
+        raise rules
+    binary = ast_grep_binary()
+    with tempfile.TemporaryDirectory(prefix="cmux-guardrails-rust-") as tmp:
+        files = []
+        for change in changes:
+            for side, lines, present in (("head", change.head_lines, not change.is_deleted),
+                                         ("base", change.base_lines, not change.is_new)):
+                if not present:
+                    continue
+                target = Path(tmp, side, change.path)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("\n".join(lines), encoding="utf-8")
+                files.append(f"{side}/{change.path}")
+        result = subprocess.run([binary, "scan", "--inline-rules", rules, "--json=compact", *files], cwd=tmp,
+                                capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=RUST_SCAN_TIMEOUT)
+    # 0: no match, 1: matches (the rules are severity error). Anything else is a rule ast-grep rejects, a flag it
+    # does not know or a crash: it prints no JSON, and an empty list would pass the push unjudged.
+    failed = RustScanError(f"ast-grep exited {result.returncode}: {result.stderr.strip()[:300]}")
+    if result.returncode not in (0, 1):
+        raise failed
+    try:
+        matches = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        raise failed from None
+    found: dict[str, tuple[dict[str, set[int]], dict[str, set[int]]]] = {}
+    for match in matches:
+        side, _, path = match["file"].partition("/")
+        sides = found.setdefault(path, ({}, {}))
+        sides[0 if side == "head" else 1].setdefault(match["ruleId"], set()).add(match["range"]["start"]["line"])
+    return found
+
+
+def rust_escape_window(lines: list[str], index: int) -> list[int]:
+    """escape_window() for Rust: the line, the comment and `#[attribute]` block directly above it, or (no such
+    block) the previous line, whose trailing comment counts."""
+    window = [index]
+    j = index - 1
+    while j >= 0 and RUST_COMMENT_OR_ATTRIBUTE.match(lines[j]):
+        window.append(j)
+        j -= 1
+    if j >= 0 and j == index - 1:
+        window.append(j)
+    return window
+
+
+def rust_file_debt(change: FileChange, rule_id: str, escape: re.Pattern) -> tuple[list[Added], list[Added]]:
+    """file_debt() for one Rust rule: (head debt, base debt) from the matches that start on changed lines, plus the
+    unchanged matches whose escape window the push touched (a deleted or reworded escape), judged on both sides."""
+    head_hits, base_hits = (side.get(rule_id, set()) for side in change.memo[RUST_MEMO])
+    head, base = change.head, change.base
+
+    def debt(version: Version, index: int) -> bool:
+        return not any(escape.search(version.lines[j]) for j in rust_escape_window(version.lines, index))
+
+    def rejudged(version: Version, hits: set[int]) -> set[int]:
+        return {i for i in hits if i + 1 not in version.changed
+                and any(j + 1 in version.touched for j in rust_escape_window(version.lines, i))}
+
+    head_debt = [Added(change.path, i + 1, head.lines[i]) for i in sorted(head_hits)
+                 if i + 1 in head.changed and debt(head, i)]
+    base_debt = [Added(change.path, i + 1, base.lines[i]) for i in sorted(base_hits)
+                 if i + 1 in base.changed and debt(base, i)]
+    head_lines, base_lines = rejudged(head, head_hits), rejudged(base, base_hits)
+    if head_lines or base_lines:
+        to_base = unchanged_pairs(change)
+        to_head = {b: h for h, b in to_base.items()}
+        pairs = ({(h, to_base[h]) for h in head_lines if h in to_base}
+                 | {(to_head[b], b) for b in base_lines if b in to_head})
+        for h, b in sorted(pairs):
+            if h in head_hits and debt(head, h):
+                head_debt.append(Added(change.path, h + 1, head.lines[h]))
+            if b in base_hits and debt(base, b):
+                base_debt.append(Added(change.path, b + 1, base.lines[b]))
+    return head_debt, base_debt
+
+
+def rust_rule(rule_id: str, escape: str) -> Callable[[list[FileChange], collections.Counter], list[Added]]:
+    marker = re.compile(r"//\s*" + re.escape(escape) + r"\s*\S")
+
+    def find(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+        files = [c for c in changes if in_rust_stability_scope(c.path)]
+        if not files:
+            return []
+        scan_rust(files)
+        for change in files:
+            if isinstance(change.memo[RUST_MEMO], RustScanError):
+                raise change.memo[RUST_MEMO]
+        return resolve([rust_file_debt(c, rule_id, marker) for c in files])
+    return find
+
+
+RUST_RULES = (
+    Rule("rust-async-blocking", "A blocking call in a Rust async body (std sleep, std::fs, a std::net connect, a "
+         "join/wait/recv/output that is not awaited, `blocking_*`, `block_on`)",
+         "a tokio worker runs many tasks: one blocking call stalls every task queued on it (Chrome: "
+         "base/threading/scoped_blocking_call.h; p10-stability.md, cmux-blocking)",
+         "`tokio::task::spawn_blocking`, the async API (`tokio::fs`, `tokio::process`, `tokio::time::sleep`, an "
+         "awaited channel) or a cmux-blocking wrapper",
+         "// blocking-allow: <the thread and the bound>",
+         rust_rule("rust-async-blocking", "blocking-allow:"), scope=RUST_STABILITY_ROOTS, local_only=True),
+    Rule("rust-unsupervised-spawn", "An unsupervised Rust spawn: a dropped tokio JoinHandle (a statement of its own, "
+         "`let _ =` or `drop(...)`) or a raw std thread (`thread::spawn`, `thread::Builder::new()...spawn`)",
+         "its panic and its end go unseen, a live process serving nothing (Chrome posts to owned sequences and the "
+         "thread pool: docs/threading_and_tasks.md)",
+         "keep the JoinHandle (store it, join it, or a JoinSet), or run it under `cmux_panic_log::supervise_task` / "
+         "`supervise_thread` with a policy and a ShutdownBehavior",
+         "// supervise-allow: <who notices when it ends>",
+         rust_rule("rust-unsupervised-spawn", "supervise-allow:"), scope=RUST_STABILITY_ROOTS, local_only=True),
+    Rule("rust-ffi-guard", "An `extern \"C\" fn` whose body is not wrapped in `ffi_boundary`",
+         "cmux builds Rust with panic=unwind: a panic that reaches an extern \"C\" boundary aborts the app "
+         "(Chromium builds Rust with panic=abort: build/config/rust.gni)",
+         "wrap the body: `ffi_boundary(<fallback>, || { ... })`",
+         "// ffi-nopanic: <why the body cannot panic>",
+         rust_rule("rust-ffi-guard", "ffi-nopanic:"), scope=RUST_STABILITY_ROOTS, local_only=True),
+)
+RULES += RUST_RULES
+# ---------------------------------------------------------------- end of Rust stability rules (p10-stability-102)
+
+
+# ---------------------------------------------------------------- decode-trap (p10-stability-093)
+# Outside input never traps (p10-stability.md, section D): a file in decode-paths.json reads a peer's, a device's or
+# a file's bytes, and holds no index subscript and no trapping integer conversion, by the crash ratchet's own
+# definitions (crash_ratchet.py's index_subscript and int_conversion: one definition). Unlike a count ratchet this
+# is a ban: a push that touches a listed file is refused for every unescaped hit in the whole file, so a listed
+# file stays at zero. An operand that is not input (a C constant, a bound the code set itself) carries
+# `// decode-trap-allow: <why>`. Like Chromium's checks.md, input gets validation that returns an error, and only an
+# internal invariant keeps a check. Local only, like every guardrail. The block owns its lines from here to
+# `RULES += DECODE_TRAP_RULES`.
+DECODE_PATHS = HERE / "decode-paths.json"
+DECODE_TRAP_ESCAPE = allow_marker("decode-trap")
+
+
+@functools.lru_cache(maxsize=1)
+def decode_paths() -> tuple[str, ...]:
+    """The listed decode files (repo-relative)."""
+    return tuple(entry["path"] for entry in json.loads(DECODE_PATHS.read_text())["files"])
+
+
+def decode_trap_hits(lines: list[str]) -> list[tuple[int, int]]:
+    """[(0-based line, hits)] of LINES (one decode file): index subscripts and trapping integer conversions outside
+    comments, string contents and lines escaped with `// decode-trap-allow:` (on the line or the comment block above).
+    A subscript on a name the file declares only as a dictionary cannot trap and does not count."""
+    dictionaries = ratchet.file_dictionaries(lines, frozenset(), frozenset())
+    found = []
+    for index, line in enumerate(lines):
+        code = ratchet_code(line)
+        hits = ratchet.index_hits(code, dictionaries) + ratchet.int_conversion_hits(code) if code.strip() else 0
+        if hits and not any(DECODE_TRAP_ESCAPE.search(lines[j]) for j in escape_window(lines, index)):
+            found.append((index, hits))
+    return found
+
+
+def decode_trap(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Every unescaped hit in each listed decode file the push changes and keeps."""
+    listed = set(decode_paths())
+    return [Added(c.path, index + 1, c.head_lines[index])
+            for c in changes if c.path in listed and not c.is_deleted and c.head_lines != [""]
+            for index, _ in decode_trap_hits(c.head_lines)]
+
+
+DECODE_TRAP_RULES = (
+    Rule("decode-trap", "An index subscript (`bytes[i]`, `buffer[a..<b]`) or a trapping integer conversion (`Int(x)`, "
+         "`UInt8(x)`) in a decode file (scripts/cmux-next/decode-paths.json)",
+         "the file reads bytes a peer, a device or a file chose: an index or a value they push out of range ends the "
+         "app instead of the connection (p10-stability.md, section D: outside input never traps)",
+         "read fields from the front of what is left (`prefix`, `dropFirst`, `popFirst`, a reader that throws), "
+         "widen with `truncatingIfNeeded:` from a narrower unsigned type, convert with `Int(exactly:)` and turn nil "
+         "into the file's typed error (RFBError.protocolViolation, SurfaceSourceWireError, ...); never clamp input",
+         "// decode-trap-allow: <why the operand is not input: a C constant, a bound this code set>",
+         decode_trap,
+         scope=("Packages/",)),
+)
+RULES += DECODE_TRAP_RULES
+# ---------------------------------------------------------------- end of decode-trap (p10-stability-093)
 
 
 # ---------------------------------------------------------------- wakeup-ext (p14-energy, PL-energy)
@@ -4915,7 +5237,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse. No
     # inter-hunk context: a user's diff.interHunkContext would join nearby hunks with unchanged lines between them.
     specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SHIPPED_BUILD_SPECS, *WAKEUP_EXT_SPECS, PACKAGE_MANIFEST_SPEC,
-             *PACKAGE_SWIFT_SPECS]
+             *PACKAGE_SWIFT_SPECS, *RUST_STABILITY_SPECS]
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
     # The content diff and the blob read each decompress the same objects: on the slowest real pushes (242 files,
     # load 37) each took 0.7-1 s one after the other. The changed paths come first from a cheap name-only diff, so
@@ -4929,7 +5251,8 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     blob_ids: dict[tuple[str, str], str] = {}
     texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES), (head, OWNERS)]
                   + [(head, MANIFEST), (base, MANIFEST), (head, THREADING_DOC), (head, PACKAGE_MANIFEST),
-                     (head, IDLE_BUDGET), (base, IDLE_BUDGET)], blob_ids)
+                     (head, IDLE_BUDGET), (base, IDLE_BUDGET)]
+                  + [(base, p) for p in rust_rule_paths() if any(map(in_rust_stability_scope, early))], blob_ids)
     diff = diff_proc.communicate()[0].decode("utf-8", "replace")
     changes = parse_diff(diff)
     warnings: list[tuple[str, str]] = []
@@ -4953,6 +5276,14 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
         change.base_lines = texts.get((base, path), "").split("\n")
         change.has_perf_hot = "perf-hot:" in text
         change.memo["blobs"] = (blob_ids.get((head, path)), blob_ids.get((base, path)))
+    rust = [changes[p] for p in paths if in_rust_stability_scope(p)]
+    if rust:
+        try:
+            rust_rules: str | RustScanError = rust_rule_texts(texts, base)
+        except RustScanError as error:  # the Rust rules fail open with it (rust_rule)
+            rust_rules = error
+        for change in rust:
+            change.memo["rust_rules"] = rust_rules
     # wakeup-ext's own files (Shared, crates, webviews, the CEF shim) stay out of the Swift readings below.
     swift = {p: changes[p] for p in paths if in_swift_scope(p)}
     head_types = GenericTypes(repo, head, [texts.get((head, p), "") for p in swift])
@@ -4981,7 +5312,10 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
         BLOCKING_CONTEXT.pop("linked", None)
         warnings.append(("guardrails", check_failure("linked packages", error)))
     found = []
+    in_ci = bool(os.environ.get("GITHUB_ACTIONS"))
     for rule in RULES:
+        if rule.local_only and in_ci:
+            continue
         # The unchanged context files hold no added or removed line: only their touched context can add debt.
         scoped = [f for f in files + context_files if in_rule_scope(f.path, rule.scope)]
         try:
@@ -5574,13 +5908,253 @@ RAW_CONTINUATION_CASES = (
 )
 
 
+SELF_TEST_SHARED_QUEUE = "Packages/Shared/Linked/Sources/Linked/Queue.swift"
+SELF_TEST_APP_QUEUE = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Queue.swift"
+SELF_TEST_GUARD = "    guard let first = items.first else {\n        idle()\n        return nil\n    }\n"
+SELF_TEST_GUARDED = "func next() -> Int? {\n" + SELF_TEST_GUARD + "    items.removeFirst()\n    return first\n}\n"
+SELF_TEST_UNGUARDED = "func drop() {\n    items.removeFirst()\n}\n"
+SELF_TEST_PAD = "let pad = String(repeating: \" \", count: width - used)\n"
+# The base: a Shared file at zero, a Shared file and an app file with an old unguarded removal each.
+SELF_TEST_TRAP_BASE = {SELF_TEST_SHARED_QUEUE: SELF_TEST_GUARDED,
+                       "Packages/Shared/Linked/Sources/Linked/Old.swift": SELF_TEST_UNGUARDED,
+                       SELF_TEST_APP_QUEUE: SELF_TEST_GUARDED + SELF_TEST_UNGUARDED}
+TRAP_API_CASES = (
+    *((f"a new {name} in a Shared package", {SELF_TEST_SHARED_QUEUE: SELF_TEST_GUARDED + code}, True)
+      for name, code in (
+          ("uniqueKeysWithValues", "let byID = Dictionary(uniqueKeysWithValues: pairs)\n"),
+          ("unguarded removeLast", "func pop() {\n    stack.removeLast()\n}\n"),
+          ("repeating count that may be negative", SELF_TEST_PAD),
+          ("offsetBy without limitedBy", "let i = s.index(s.startIndex, offsetBy: n)\n"))),
+    ("a new trap in an iOS package",
+     {"Packages/iOS/Phone/Sources/Phone/P.swift": "let a = Array(repeating: 0, count: n)\n"}, True),
+    ("an old trap in a Shared file the push changes elsewhere (the ban)",
+     {"Packages/Shared/Linked/Sources/Linked/Old.swift": "// notes\n" + SELF_TEST_UNGUARDED}, True),
+    ("a new trap in an app file", {SELF_TEST_APP_QUEUE: SELF_TEST_GUARDED + SELF_TEST_UNGUARDED + SELF_TEST_PAD}, True),
+    ("an app file's old trap with a change elsewhere in it",
+     {SELF_TEST_APP_QUEUE: "// notes\n" + SELF_TEST_GUARDED + SELF_TEST_UNGUARDED}, False),
+    ("a guard removed above an old app removal",
+     {SELF_TEST_APP_QUEUE: SELF_TEST_GUARDED.replace(SELF_TEST_GUARD, "    let first = 0\n") + SELF_TEST_UNGUARDED},
+     True),
+    ("an old trap in a Shared file the push does not change",
+     {SELF_TEST_SHARED_QUEUE: "// notes\n" + SELF_TEST_GUARDED}, False),
+    ("safe forms in a Shared package",
+     {SELF_TEST_SHARED_QUEUE: SELF_TEST_GUARDED
+      + "let byID = Dictionary(pairs, uniquingKeysWith: { first, _ in first })\n"
+      + "let top = stack.popLast()\n"
+      + "let pad = String(repeating: \" \", count: max(0, width - used))\n"
+      + "func cut(_ n: Int) {\n    guard n >= 0 else { return }\n    let a = Array(repeating: 0, count: n)\n}\n"
+      + "let i = s.index(s.startIndex, offsetBy: n, limitedBy: s.endIndex)\n"
+      + "// Dictionary(uniqueKeysWithValues: pairs)\n"}, False),
+    ("a trap in a test", {"Packages/Shared/Linked/Tests/LinkedTests/QueueTests.swift": SELF_TEST_UNGUARDED}, False),
+    ("a reviewed escape",
+     {SELF_TEST_SHARED_QUEUE: SELF_TEST_GUARDED + SELF_TEST_UNGUARDED.replace(
+         "    items.removeFirst()", "    // trap-api-allow: fixture for the escape\n    items.removeFirst()")}, False),
+)
+
+
+SELF_TEST_CRATE = "cmux-tui/crates/demo/src/"
+SELF_TEST_OLD_SLEEP = SELF_TEST_CRATE + "old.rs"
+SELF_TEST_ESCAPED_SLEEP = SELF_TEST_CRATE + "escaped.rs"
+SELF_TEST_SLEEP_ESCAPE = "    // blocking-allow: fixture, a test runtime's own thread\n"
+SELF_TEST_ASYNC_BASE = {
+    SELF_TEST_OLD_SLEEP: "pub async fn old() {\n    std::thread::sleep(PAUSE);\n}\n",
+    SELF_TEST_ESCAPED_SLEEP: "pub async fn escaped() {\n" + SELF_TEST_SLEEP_ESCAPE + "    std::thread::sleep(PAUSE);\n}\n",
+}
+SELF_TEST_NEW_RS = SELF_TEST_CRATE + "new.rs"
+SELF_TEST_RULE = RUST_RULES_TREE + "/rust-async-blocking.yml"
+RUST_ASYNC_BLOCKING_CASES = (
+    ("a std sleep in an async fn", {SELF_TEST_NEW_RS: "async fn f() {\n    std::thread::sleep(PAUSE);\n}\n"}, True),
+    ("a std::fs read in an async block",
+     {SELF_TEST_NEW_RS: "fn f() -> impl Future {\n    async move {\n        std::fs::read(path)\n    }\n}\n"}, True),
+    ("a thread join that is not awaited in an async closure",
+     {SELF_TEST_NEW_RS: "fn f() {\n    let task = async move || {\n        worker.join();\n    };\n}\n"}, True),
+    ("a blocking call in an async fn of a Native crate",
+     {"Native/DiffSidecar/src/new.rs": "async fn f() {\n    rx.recv();\n}\n"}, True),
+    ("an awaited sleep, recv and timeout",
+     {SELF_TEST_NEW_RS: "async fn f() {\n    tokio::time::sleep(PAUSE).await;\n    rx.recv().await;\n"
+                        "    timeout(PAUSE, rx.recv()).await;\n}\n"}, False),
+    ("a blocking call in the closure given to spawn_blocking",
+     {SELF_TEST_NEW_RS: "async fn f() {\n    tokio::task::spawn_blocking(move || std::fs::read(path)).await;\n}\n"},
+     False),
+    ("a blocking call in a plain fn", {SELF_TEST_NEW_RS: "fn f() {\n    std::thread::sleep(PAUSE);\n}\n"}, False),
+    ("a join with an argument (a string join)",
+     {SELF_TEST_NEW_RS: "async fn f() -> String {\n    parts.join(\",\")\n}\n"}, False),
+    ("a blocking call in a #[cfg(test)] module",
+     {SELF_TEST_NEW_RS: "#[cfg(test)]\nmod tests {\n    #[tokio::test]\n    async fn t() {\n"
+                        "        std::thread::sleep(PAUSE);\n    }\n}\n"}, False),
+    ("a blocking call in a crate's tests folder",
+     {"cmux-tui/crates/demo/tests/flow.rs": "async fn t() {\n    std::thread::sleep(PAUSE);\n}\n"}, False),
+    ("a reviewed escape",
+     {SELF_TEST_NEW_RS: "async fn f() {\n" + SELF_TEST_SLEEP_ESCAPE + "    std::thread::sleep(PAUSE);\n}\n"}, False),
+    ("an old blocking call in a file the push changes elsewhere",
+     {SELF_TEST_OLD_SLEEP: "// notes\n" + SELF_TEST_ASYNC_BASE[SELF_TEST_OLD_SLEEP]}, False),
+    ("deleting the escape of an old blocking call",
+     {SELF_TEST_ESCAPED_SLEEP: SELF_TEST_ASYNC_BASE[SELF_TEST_ESCAPED_SLEEP].replace(SELF_TEST_SLEEP_ESCAPE, "")},
+     True),
+    ("a std::fs read handed to an awaited send",
+     {SELF_TEST_NEW_RS: "async fn f() {\n    tx.send(std::fs::read(path)).await;\n}\n"}, True),
+    ("a std::fs read in a map closure",
+     {SELF_TEST_NEW_RS: "async fn f() -> Vec<Vec<u8>> {\n    paths.iter().map(|p| std::fs::read(p).unwrap()).collect()\n"
+                        "}\n"}, True),
+    ("a std::fs read in an unwrap_or_else closure",
+     {SELF_TEST_NEW_RS: "async fn f() -> String {\n    cfg.unwrap_or_else(|| std::fs::read_to_string(path).unwrap())\n"
+                        "}\n"}, True),
+    ("a std process output bound and never awaited",
+     {SELF_TEST_NEW_RS: "async fn f() {\n    let out = std::process::Command::new(x).output();\n    use_it(out);\n}\n"},
+     True),
+    ("a tokio process output bound and awaited under a timeout",
+     {SELF_TEST_NEW_RS: "async fn f() {\n    let fut = tokio::process::Command::new(x).output();\n"
+                        "    timeout(PAUSE, fut).await;\n}\n"}, False),
+    ("a read_to_end bound and awaited under a timeout",
+     {SELF_TEST_NEW_RS: "async fn f() {\n    let read = reader.read_to_end(&mut input);\n"
+                        "    match timeout(PAUSE, read).await {\n        _ => {}\n    }\n}\n"}, False),
+    ("futures from a closure handed to an awaited call",
+     {SELF_TEST_NEW_RS: "async fn f() {\n    timeout(PAUSE, join_all(xs.iter().map(|x| x.wait()))).await;\n}\n"}, False),
+    ("an awaited unqualified connect (tokio::net)",
+     {SELF_TEST_NEW_RS: "async fn f() {\n    TcpStream::connect(addr).await;\n"
+                        "    timeout(PAUSE, TcpStream::connect(addr)).await;\n}\n"}, False),
+    ("a blocking call in a new thread's closure",
+     {SELF_TEST_NEW_RS: "async fn f() {\n    let worker = std::thread::spawn(move || std::fs::read(path));\n}\n"},
+     False),
+    ("a push that weakens the rule it is judged by",
+     {SELF_TEST_RULE: "id: rust-async-blocking\nlanguage: rust\nseverity: error\nrule:\n  pattern: never_called()\n",
+      SELF_TEST_NEW_RS: "async fn f() {\n    std::thread::sleep(PAUSE);\n}\n"}, True),
+    ("a push that deletes the rule it is judged by",
+     {SELF_TEST_RULE: None, SELF_TEST_NEW_RS: "async fn f() {\n    std::thread::sleep(PAUSE);\n}\n"}, True),
+)
+SELF_TEST_TASKS = SELF_TEST_CRATE + "tasks.rs"
+SELF_TEST_SPAWN_BASE = {SELF_TEST_TASKS: "pub fn start() {\n    let handle = tokio::spawn(run());\n    keep(handle);\n}\n"}
+RUST_UNSUPERVISED_SPAWN_CASES = (
+    ("a dropped tokio JoinHandle", {SELF_TEST_NEW_RS: "fn f() {\n    tokio::spawn(run());\n}\n"}, True),
+    ("a JoinHandle bound to `_`", {SELF_TEST_NEW_RS: "fn f() {\n    let _ = tokio::task::spawn(run());\n}\n"}, True),
+    ("a JoinHandle passed to drop", {SELF_TEST_NEW_RS: "fn f() {\n    drop(tokio::spawn(run()));\n}\n"}, True),
+    ("a raw std thread, kept",
+     {SELF_TEST_NEW_RS: "fn f() {\n    let worker = std::thread::spawn(move || run());\n    keep(worker);\n}\n"}, True),
+    ("a named std thread from a Builder",
+     {SELF_TEST_NEW_RS: "fn f() {\n    let worker = std::thread::Builder::new()\n        .name(\"x\".into())\n"
+                        "        .spawn(move || run());\n}\n"}, True),
+    ("a kept JoinHandle", {SELF_TEST_NEW_RS: "fn f() -> JoinHandle<()> {\n    tokio::spawn(run())\n}\n"}, False),
+    ("a JoinSet spawn and an awaited spawn",
+     {SELF_TEST_NEW_RS: "async fn f() {\n    set.spawn(run());\n    tokio::spawn(run()).await;\n}\n"}, False),
+    ("a spawn in a #[test] fn",
+     {SELF_TEST_NEW_RS: "#[test]\nfn t() {\n    std::thread::spawn(move || run());\n}\n"}, False),
+    ("a reviewed escape",
+     {SELF_TEST_NEW_RS: "fn f() {\n    // supervise-allow: fixture, the caller's watchdog sees it end\n"
+                        "    tokio::spawn(run());\n}\n"}, False),
+    ("an edit next to an old kept spawn",
+     {SELF_TEST_TASKS: SELF_TEST_SPAWN_BASE[SELF_TEST_TASKS].replace("keep(handle)", "keep_until_quit(handle)")},
+     False),
+)
+SELF_TEST_FFI = SELF_TEST_CRATE + "ffi.rs"
+SELF_TEST_FFI_BASE = {SELF_TEST_FFI: "#[no_mangle]\npub extern \"C\" fn cmux_old(x: i32) -> i32 {\n    x\n}\n"}
+RUST_FFI_GUARD_CASES = (
+    ("a new extern \"C\" fn",
+     {SELF_TEST_NEW_RS: "#[no_mangle]\npub extern \"C\" fn cmux_new(p: *const Cfg) -> i32 {\n    parse(p)\n}\n"},
+     True),
+    ("a new unsafe extern \"C\" fn",
+     {SELF_TEST_NEW_RS: "#[no_mangle]\npub unsafe extern \"C\" fn cmux_new(p: *const u8) -> u8 {\n    *p\n}\n"}, True),
+    ("a body wrapped in ffi_boundary",
+     {SELF_TEST_NEW_RS: "#[no_mangle]\npub extern \"C\" fn cmux_new(p: *const Cfg) -> i32 {\n"
+                        "    ffi_boundary(-1, || parse(p))\n}\n"}, False),
+    ("a reviewed escape above the attribute",
+     {SELF_TEST_NEW_RS: "// ffi-nopanic: fixture, integer identity cannot panic\n#[no_mangle]\n"
+                        "pub extern \"C\" fn cmux_new(x: i32) -> i32 {\n    x\n}\n"}, False),
+    ("a foreign declaration", {SELF_TEST_NEW_RS: "extern \"C\" {\n    fn host_log(x: i32);\n}\n"}, False),
+    ("an edit inside an old export's body",
+     {SELF_TEST_FFI: SELF_TEST_FFI_BASE[SELF_TEST_FFI].replace("    x\n", "    x + 0\n")}, False),
+)
+
+
+SELF_TEST_DECODE = "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Transport/RFBReader.swift"
+SELF_TEST_DECODE_BASE = {SELF_TEST_DECODE: ("func length(_ bytes: [UInt8]) throws -> Int {\n"
+                                            "    let word = bytes.prefix(4).reduce(UInt32(0)) { $0 << 8 | UInt32(truncatingIfNeeded: $1) }\n"
+                                            "    guard let length = Int(exactly: word) else { throw Failure.tooLong }\n"
+                                            "    return length\n}\n"),
+                         # A listed file that already has a hit (before its wave): any push that touches it fixes it.
+                         "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Client/VNCEndpoint.swift":
+                             "func port(_ b: [UInt8], _ i: Int) -> UInt8 { b[i] }\n"}
+
+
+def _decode_edit(body: str, path: str = SELF_TEST_DECODE) -> dict[str, str]:
+    """The base decode file with BODY added at its end (at PATH)."""
+    return {path: SELF_TEST_DECODE_BASE[SELF_TEST_DECODE] + body}
+
+
+DECODE_TRAP_CASES = (
+    ("an index subscript in a decode file", _decode_edit("func first(_ b: [UInt8], _ i: Int) -> UInt8 { b[i] }\n"), True),
+    ("a range subscript in a decode file", _decode_edit("func head(_ b: [UInt8], _ n: Int) -> ArraySlice<UInt8> { b[0..<n] }\n"),
+     True),
+    ("a trapping conversion in a decode file", _decode_edit("func count(_ w: UInt32) -> UInt16 { UInt16(w) }\n"), True),
+    ("an old hit on a line the push did not change, in a decode file it touches",
+     {"Packages/Shared/CmuxVNC/Sources/CmuxVNC/Client/VNCEndpoint.swift":
+      "// The port byte.\nfunc port(_ b: [UInt8], _ i: Int) -> UInt8 { b[i] }\n"}, True),
+    ("front reads and checked conversions", _decode_edit("func pair(_ b: [UInt8]) -> UInt16? {\n"
+                                                         "    UInt16(exactly: b.dropFirst(1).prefix(2).count)\n}\n"), False),
+    ("a dictionary subscript", _decode_edit("func kind(_ k: String) -> Int? {\n"
+                                            "    let kinds: [String: Int] = [:]\n    return kinds[k]\n}\n"), False),
+    ("an escaped C constant", _decode_edit("// decode-trap-allow: a C macro, not input\n"
+                                           "let maxBytes = Int(CMUX_MAX_BYTES)\n"), False),
+    ("a subscript named only in a comment or a string", _decode_edit("// bytes[i] traps\nlet note = \"bytes[i]\"\n"),
+     False),
+    ("a subscript in a file that is not listed",
+     _decode_edit("func first(_ b: [UInt8], _ i: Int) -> UInt8 { b[i] }\n",
+                  "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Client/Other.swift"), False),
+)
+
+
 # (rule, base files, cases): each case is one commit over its suite's base.
 SELF_TEST_SUITES = (
     ("input-monitor", SELF_TEST_BASE, SELF_TEST_CASES),
     ("target-settings", SELF_TEST_MANIFEST_BASE, TARGET_SETTINGS_CASES),
     ("safety-todo", SELF_TEST_SAFETY_BASE, SAFETY_TODO_CASES),
     ("raw-continuation", SELF_TEST_CONTINUATION_BASE, RAW_CONTINUATION_CASES),
+    ("trap-api", SELF_TEST_TRAP_BASE, TRAP_API_CASES),
+    ("rust-async-blocking", SELF_TEST_ASYNC_BASE, RUST_ASYNC_BLOCKING_CASES),
+    ("rust-unsupervised-spawn", SELF_TEST_SPAWN_BASE, RUST_UNSUPERVISED_SPAWN_CASES),
+    ("rust-ffi-guard", SELF_TEST_FFI_BASE, RUST_FFI_GUARD_CASES),
+    ("decode-trap", SELF_TEST_DECODE_BASE, DECODE_TRAP_CASES),
 )
+
+
+def edits_rust_rules(files: dict[str, str | None]) -> bool:
+    return any(path.startswith(RUST_RULES_TREE + "/") for path in files)
+
+
+def self_test_rust_rules(root: Path, rule_id: str, refusing: tuple, cases: tuple,
+                         judge: Callable[[dict[str, str | None], str], tuple[list[Added], list[str]]]) -> list[str]:
+    """The Rust rules' sources, judged with RUST_RULES_HOME swapped: a snapshot without the rules (installed before
+    them) judges the cases that edit or delete a rule with the base's copy, and a rule ast-grep rejects fails open
+    with a warning instead of passing the push unjudged. The failures."""
+    global RUST_RULES_HOME
+    failures = []
+    installed = RUST_RULES_HOME
+    broken = root / f"{rule_id}-broken-rules"
+    broken.mkdir()
+    for path in rust_rule_paths():
+        name = PurePosixPath(path).name
+        text = (installed / name).read_text(encoding="utf-8")
+        if name == f"{rule_id}.yml":
+            text = f"id: {rule_id}\nlanguage: rust\nseverity: error\nrule:\n  kind: no_such_kind\n"
+        (broken / name).write_text(text, encoding="utf-8")
+    try:
+        RUST_RULES_HOME = root / "a-snapshot-without-rules"
+        for name, files, refused in (case for case in cases if edits_rust_rules(case[1])):
+            hits, raised = judge(files, name)
+            ok = bool(hits) == refused and not raised
+            print(f"  {'ok  ' if ok else 'FAIL'} {name}, from a snapshot without the rules: "
+                  f"{'refused' if hits else 'passes'}" + "".join(f"\n         {text}" for text in raised))
+            if not ok:
+                failures.append(f"{rule_id}: {name} from a snapshot without the rules")
+        RUST_RULES_HOME = broken
+        hits, raised = judge(refusing[1], refusing[0])
+        ok = bool(raised) and not hits
+        print(f"  {'ok  ' if ok else 'FAIL'} {refusing[0]}, with a rule ast-grep rejects: "
+              f"{'fails open with a warning' if raised else 'refused' if hits else 'passes unjudged'}")
+        if not ok:
+            failures.append(f"{rule_id}: {refusing[0]} with a rule ast-grep rejects")
+    finally:
+        RUST_RULES_HOME = installed
+    return failures
 
 
 def self_test() -> int:
@@ -5616,23 +6190,54 @@ def self_test() -> int:
                     run("commit", "--quiet", "--no-verify", "--allow-empty", "-m", message)
                     return run("rev-parse", "HEAD")
 
+                def judge(files: dict[str, str | None], message: str) -> tuple[list[Added], list[str]]:
+                    """(this rule's hits, its fail-open warnings) for one commit of FILES over the suite's base."""
+                    run("checkout", "--quiet", "--detach", base)
+                    refusals, warnings = check(repo, base, commit(files, message))
+                    return ([h for rule, found in refusals if rule.id == rule_id for h in found],
+                            [text for kind, text in warnings if kind == "guardrails" and f"rule {rule_id} " in text])
+
                 run("init", "--quiet", "--initial-branch=self-test")
-                base = commit(base_files, "base")
+                rust_suite = any(r.id == rule_id for r in RUST_RULES)
+                # The Rust suites' base holds the reviewed rules, which a snapshot without them falls back to.
+                rule_files = {path: (RUST_RULES_HOME / PurePosixPath(path).name).read_text(encoding="utf-8")
+                              for path in rust_rule_paths()} if rust_suite else {}
+                base = commit({**base_files, **rule_files}, "base")
                 print(f"{rule_id}:")
                 for name, files, refused in cases:
                     total += 1
-                    run("checkout", "--quiet", "--detach", base)
-                    head = commit(files, name)
-                    refusals, warnings = check(repo, base, head)
-                    hits = [h for rule, found in refusals if rule.id == rule_id for h in found]
+                    hits, raised = judge(files, name)
                     # A rule that raised is skipped (fail open) and would pass every case that expects no refusal.
-                    raised = [text for kind, text in warnings if kind == "guardrails" and f"rule {rule_id} " in text]
                     ok = bool(hits) == refused and not raised
                     print(f"  {'ok  ' if ok else 'FAIL'} {name}: {'refused' if hits else 'passes'}"
                           + "".join(f"\n         {h.path}:{h.number}: {h.text.strip()}" for h in hits)
                           + "".join(f"\n         {text}" for text in raised))
                     if not ok:
                         failures.append(f"{rule_id}: {name}")
+                rule = next(r for r in RULES if r.id == rule_id)
+                refusing = next((case for case in cases if case[2]), None)
+                if rule.local_only and refusing is not None:
+                    # The local tier: the same refusing commit under GitHub Actions runs no local-only rule.
+                    total += 1
+                    run("checkout", "--quiet", "--detach", base)
+                    head = commit(refusing[1], refusing[0])
+                    saved_ci = os.environ.get("GITHUB_ACTIONS")
+                    os.environ["GITHUB_ACTIONS"] = "true"
+                    try:
+                        refusals, _ = check(repo, base, head)
+                    finally:
+                        if saved_ci is None:
+                            os.environ.pop("GITHUB_ACTIONS")
+                        else:
+                            os.environ["GITHUB_ACTIONS"] = saved_ci
+                    ok = not any(r.id == rule_id for r, _ in refusals)
+                    print(f"  {'ok  ' if ok else 'FAIL'} {refusing[0]}, under GitHub Actions: "
+                          f"{'passes' if ok else 'refused'}")
+                    if not ok:
+                        failures.append(f"{rule_id}: {refusing[0]} under GitHub Actions")
+                if rust_suite and refusing is not None:
+                    failures += self_test_rust_rules(root, rule_id, refusing, cases, judge)
+                    total += 1 + sum(1 for case in cases if edits_rust_rules(case[1]))
         finally:
             os.environ.update(saved)
     rules = ", ".join(rule_id for rule_id, _, _ in SELF_TEST_SUITES)
@@ -5648,8 +6253,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--list", action="store_true", help="print the rules")
     parser.add_argument("--self-test", action="store_true",
-                        help="judge the input-monitor, target-settings, safety-todo and raw-continuation rules' "
-                             "refuse and escape cases in a scratch repository")
+                        help="judge the input-monitor, target-settings, safety-todo, raw-continuation, trap-api, "
+                             "decode-trap and Rust stability rules' refuse and escape cases in a scratch repository")
     parser.add_argument("--list-perf-hot", nargs="*", metavar="PATH_ID",
                         help=f"print the `// perf-hot:` markers per path id of {BENCHES} as this hook resolves them "
                              "(only the ids given, if any); exit 1 when an id has no marker or a marker marks no "

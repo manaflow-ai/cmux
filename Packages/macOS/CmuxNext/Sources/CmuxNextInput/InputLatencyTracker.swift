@@ -315,7 +315,7 @@ public final class InputLatencyTracker {
                 kept += 1
             }
         }
-        waiting.removeLast(waiting.count - kept)
+        if kept < waiting.count { waiting.removeLast(waiting.count - kept) }
     }
 
     /// Asks the presentation clock when content committed at `nanos` in `window` reaches the glass; the slot closes

@@ -15,11 +15,13 @@ struct HangReportServerRules {
     ]
     /// Schema 3's top-level additions: the launches, the input latency fields, the field data
     /// (p09-observability-063; the decoder of p09-observability-064 lists them) and the launch's features
-    /// (p12-perf-process-151).
+    /// (p12-perf-process-151) and the main thread's blocking site counts (p12-perf-process-226).
     static let schema3TopLevelKeys: Set<String> = [
         "launches", "input_latency_bucket_edges_ms", "input_latency", "scroll_jank",
-        "histograms", "stability", "blackbox", "launch_sections", "features_hash", "features",
+        "histograms", "stability", "blackbox", "launch_sections", "features_hash", "features", "blocking_sites",
     ]
+    /// Schema 3's `blocking_sites[]` entry (wireSchema3.ts `BlockingSiteCount`).
+    static let blockingSiteKeys: Set<String> = ["site", "kind", "count", "total_ms"]
     static let hangKeys: Set<String> = ["source", "kind", "durationMs", "cpuMs", "frames"]
     static let frameKeys: Set<String> = ["image", "uuid", "offset"]
 
@@ -62,6 +64,12 @@ struct HangReportServerRules {
                               at: "report")
         for (index, hang) in ((report["hangs"] as? [[String: Any]]) ?? []).enumerated() {
             found += hangViolations(hang, rules: rules, at: "hangs[\(index)]")
+        }
+        for (index, site) in ((report["blocking_sites"] as? [[String: Any]]) ?? []).enumerated() {
+            found += extraKeys(site, allowed: blockingSiteKeys, at: "blocking_sites[\(index)]")
+            if (site["site"] as? String)?.range(of: #"^[0-9a-f]{16}$"#, options: .regularExpression) == nil {
+                found.append("blocking_sites[\(index)].site")
+            }
         }
         return found
     }

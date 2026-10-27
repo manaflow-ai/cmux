@@ -20,6 +20,9 @@ public final class PageRelayDedicatedStreams: PageRelayStreamOpening {
             clientName: clientName, requiredCapabilities: [], retryWake: retryWake,
             terminalEnvironment: nil, role: .pageRelay, relayIdentity: relayIdentity)
         let connection = DaemonConnection(configuration: configuration, endpointProvider: endpointProvider)
+        // A dedicated stream sends requests only: its page's events are dropped as they come, so they
+        // neither buffer nor fill the event stream's byte bound, past which the reader would wait.
+        connection.discardEvents()
         let reached: DaemonIdentity
         do {
             reached = try await connection.start()

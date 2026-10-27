@@ -1,0 +1,17 @@
+{
+  "id": "swift-page-claim-ready",
+  "tier": "builder",
+  "description": "PageHostPoolClaimReadyBenchmark: claim-to-ready of a Settings page from the parked spare page host, eight claims.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-page-claim-ready", "--filter", "PageHostPoolClaimReadyBenchmark", "--env", "CMUX_PAGE_CLAIM_BENCH=8"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.page_claim\\.claim_to_ready", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 1200,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextPagesTests/PageHostPoolClaimReadyBenchmark.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "PL-webui",
+  "component": "Pages>Pool"
+}

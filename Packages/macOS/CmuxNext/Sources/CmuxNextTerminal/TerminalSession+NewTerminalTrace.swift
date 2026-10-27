@@ -46,14 +46,5 @@ extension TerminalSession {
         NewTerminalTrace.shared.surfaceSwapped(session: ObjectIdentifier(self), lane: fresh.lane.map { ObjectIdentifier($0) },
                                                layer: Self.traceFrameTarget(of: fresh))
     }
-
-    /// `event` reached this session on the main actor; content marks `first_output_main`.
-    func traceEvent(_ event: TerminalIOEvent) {
-        switch event {
-        case .replay(let data) where data.isEmpty: return
-        case .replay, .kittyReplay, .snapshot, .output: NewTerminalTrace.shared.contentOnMain(session: ObjectIdentifier(self))
-        default: return
-        }
-    }
 }
 #endif

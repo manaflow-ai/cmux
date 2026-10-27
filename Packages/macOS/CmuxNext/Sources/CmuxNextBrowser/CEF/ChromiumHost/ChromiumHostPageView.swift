@@ -87,7 +87,7 @@ public final class ChromiumHostPageView: NSView {
         get { surface.fill }
         set { surface.fill = newValue }
     }
-    /// The view over the page that fills it (the crash page, p01-process-082); nil shows the page.
+    /// A view over the page that fills it; nil shows the page (a pane's crash page is its chrome's sad tab).
     private(set) var crashOverlay: NSView?
     /// The page's last picture while no host shows it; only ``showStandIn(_:)``, ``coverWithSnapshot(_:)``
     /// (a hosted page past its hidden grace) and ``removeStandIn()`` set it.
@@ -131,7 +131,7 @@ public final class ChromiumHostPageView: NSView {
     /// Drags from outside into the page (ChromiumHostPageView+Drag.swift); none until ``takeDrags(through:)``.
     let dragDestination = ChromiumHostDragDestination()
     /// The page's autofill, password and `<datalist>` suggestions, drawn by cmux (task 061).
-    private(set) lazy var suggestions = ChromiumHostSuggestionList(view: self)
+    lazy var suggestions = ChromiumHostSuggestionList(view: self)
     /// The window's part of the page's visibility (ChromiumHostPageView+Visibility.swift): hidden
     /// out of a window, in a minimized window or a hidden app; occluded in a covered window.
     let windowNode: VisibilityNode

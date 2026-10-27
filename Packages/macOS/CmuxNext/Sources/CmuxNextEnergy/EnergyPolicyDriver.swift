@@ -18,6 +18,8 @@ public final class EnergyPolicyDriver {
     /// The policy every consumer reads.
     public let source: EnergyPolicySource
     private var resolver: EnergyPolicyResolver
+    /// The `energySaver` value is known (``resolveFeature(isEnabled:)``); nothing publishes before.
+    private var isFeatureKnown: Bool
     private var setting: EnergySaverMode?
     private var inputs: EnergyInputs?
 
@@ -25,14 +27,27 @@ public final class EnergyPolicyDriver {
     ///
     /// - Parameters:
     ///   - source: The app's one policy source (``MainWorkScheduler/energy``).
-    ///   - isEnabled: The `energySaver` feature is on; off, the saver never turns on.
-    public init(source: EnergyPolicySource, isEnabled: Bool) {
+    ///   - isEnabled: The `energySaver` feature is on; off, the saver never turns on. Nil while the session's
+    ///     value is not known yet (the local daemon's answer decides it, p12-perf-process-150): the driver then
+    ///     publishes nothing until ``resolveFeature(isEnabled:)``, so the feature is read with one value only.
+    public init(source: EnergyPolicySource, isEnabled: Bool?) {
         self.source = source
-        resolver = EnergyPolicyResolver(isEnabled: isEnabled)
+        resolver = EnergyPolicyResolver(isEnabled: isEnabled ?? false)
+        isFeatureKnown = isEnabled != nil
     }
 
     /// The `energySaver` feature is on (``EnergyPolicyResolver/isEnabled``); off, the saver never turns on.
+    /// False while the session's value is not known.
     public var isEnabled: Bool { resolver.isEnabled }
+
+    /// The session's `energySaver` value, for a driver made with none; the first policy publishes now when
+    /// the setting and the inputs are known. Later calls change nothing: the feature never flips in a session.
+    public func resolveFeature(isEnabled: Bool) {
+        guard !isFeatureKnown else { return }
+        isFeatureKnown = true
+        resolver = EnergyPolicyResolver(isEnabled: isEnabled)
+        publish()
+    }
 
     /// "Turn Off Energy Saver for Now" holds (``EnergyPolicyResolver/isOffForSession``).
     public var isOffForSession: Bool { resolver.isOffForSession }
@@ -74,7 +89,7 @@ public final class EnergyPolicyDriver {
     }
 
     private func publish() {
-        guard let inputs else { return }
+        guard isFeatureKnown, let inputs else { return }
         guard resolver.isEnabled else {
             source.update(EnergyPolicy(suspended: inputs.suspended, screensAsleep: inputs.screensAsleep, networkResumes: inputs.networkResumes,
                                        onBattery: inputs.onBattery, lowPowerFallback: inputs.lowPowerMode))

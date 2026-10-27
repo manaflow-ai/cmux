@@ -92,11 +92,12 @@ import func CmuxSafeConcurrency.withOnceContinuation
         loop?.cancel()
         let relay = relay
         guard userID != nil else {
-            // task-owner: one clear_upstream; ends with the reply
-            loop = Task { try? await relay.clearUpstream() }
+            // task-owner: one clear_upstream; ends with the reply. Off main: only the relay's client.
+            loop = Task { @concurrent in try? await relay.clearUpstream() }
             return
         }
         // task-owner: lives while this account is signed in; each pass is one token read and one set_upstream, then a clock wait
+        // main-hop-allow: the lease loop reads the main-actor account (CloudLeaseTokens, the app's CloudAuth) between its awaits; the relay call and the renewal wait run off main
         loop = Task { [weak self] in await self?.run() }
     }
 
@@ -154,9 +155,10 @@ import func CmuxSafeConcurrency.withOnceContinuation
         let relay = relay
         let pid = routerPID
         let woken = RenewalWake()
+        // timer-class-allow: off-main: its action only resumes the wait under the wake's lock (a nonisolated closure sleeps on the injected clock); it posts no main-thread job
         let timer = DemandTimer(owner: wake.owner, policy: wake.policy, clock: clock)
-        // task-owner: this wait; cancelled when it ends, ends when the relay exits
-        let watch = Task { if await relay.waitUntilGone(pid) { woken.wake() } }
+        // task-owner: this wait; cancelled when it ends, ends when the relay exits. Off main: only the relay's client.
+        let watch = Task { @concurrent in if await relay.waitUntilGone(pid) { woken.wake() } }
         await withTaskCancellationHandler {
             try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                 woken.begin(continuation)
