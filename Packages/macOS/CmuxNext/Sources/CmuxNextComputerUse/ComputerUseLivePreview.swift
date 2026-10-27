@@ -216,7 +216,7 @@ public final class ComputerUseLivePreview {
     }
 
     /// The agent cursor moved in `session`'s streamed window, or left it (nil).
-    private func liveCursor(_ cursor: CGPoint?, session: String) {
+    private func liveCursor(_ cursor: ComputerUseAgentCursor?, session: String) {
         guard source != nil, board.entries[session] != nil else { return }
         board.apply(cursor: cursor, session: session)
         if let chat = board.entries[session]?.chat { push(chat) }

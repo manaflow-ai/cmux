@@ -83,8 +83,8 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
         var window: ComputerUsePreviewWindow?
         /// Where the session's agent clicked last, for a pixel click (an accessibility click has no point).
         var pointer: ComputerUsePreviewPointer?
-        /// The agent cursor in the streamed window, as a fraction of it (``ComputerUseLiveCapture``).
-        var cursor: CGPoint?
+        /// The agent cursor in the streamed window (``ComputerUseLiveCapture``).
+        var cursor: ComputerUseAgentCursor?
         /// The session's newest click event, of any kind.
         var lastClick: UInt64?
         /// The person closed the card.
@@ -165,7 +165,7 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
     }
 
     /// `session`'s agent cursor is at `cursor` in its streamed window; nil: it does not show there.
-    mutating func apply(cursor: CGPoint?, session: String) {
+    mutating func apply(cursor: ComputerUseAgentCursor?, session: String) {
         entries[session]?.cursor = cursor
     }
 
@@ -315,7 +315,10 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
     static func pointer(_ entry: Entry) -> ComputerUsePreviewPointer? {
         guard let window = entry.window else { return nil }
         let click = max(entry.lastClick ?? 0, entry.pointer?.click ?? 0)
-        if let cursor = entry.cursor { return ComputerUsePreviewPointer(window: window, x: cursor.x, y: cursor.y, click: click) }
+        if let cursor = entry.cursor {
+            return ComputerUsePreviewPointer(window: window, x: cursor.point.x, y: cursor.point.y, click: click,
+                                             windowWidth: cursor.windowWidth)
+        }
         guard let last = entry.pointer, last.window == window else { return nil }
         return ComputerUsePreviewPointer(window: window, x: last.x, y: last.y, click: click)
     }

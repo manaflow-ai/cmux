@@ -57,12 +57,15 @@ public nonisolated struct ComputerUsePreviewPointer: Equatable, Sendable {
     public var y: Double
     /// The click's event in the session's log: a new one plays the click again.
     public var click: UInt64
+    /// The window's width in points, when known: the card draws the cursor at the window's scale.
+    public var windowWidth: Double?
 
-    public init(window: ComputerUsePreviewWindow, x: Double, y: Double, click: UInt64) {
+    public init(window: ComputerUsePreviewWindow, x: Double, y: Double, click: UInt64, windowWidth: Double? = nil) {
         self.window = window
         self.x = min(max(x, 0), 1)
         self.y = min(max(y, 0), 1)
         self.click = click
+        self.windowWidth = windowWidth
     }
 }
 

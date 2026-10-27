@@ -45,6 +45,24 @@ describe("computerUsePreview", () => {
       pointer,
     );
     expect(readComputerUsePreview({ session: "cua_1", app: "", done: true, frame, pointer })?.pointer).toBeUndefined();
+    expect(
+      readComputerUsePreview({
+        session: "cua_1",
+        app: "",
+        done: false,
+        frame,
+        pointer: { ...pointer, windowWidth: 230 },
+      })?.pointer?.windowWidth,
+    ).toBe(230);
+    expect(
+      readComputerUsePreview({
+        session: "cua_1",
+        app: "",
+        done: false,
+        frame,
+        pointer: { ...pointer, windowWidth: -1 },
+      })?.pointer,
+    ).toEqual(pointer);
     for (const bad of [{ x: 1.5, y: 0, click: 1 }, { x: 0, y: "0", click: 1 }, { x: 0, y: 0 }, null, "0,0"]) {
       expect(
         readComputerUsePreview({ session: "cua_1", app: "", done: false, frame, pointer: bad })?.pointer,

@@ -47,7 +47,7 @@ extension AgentTabStore {
         guard let view = views[chat] else { return }
         let preview = card.map {
             AgentPaneComputerUsePreview(session: $0.session, app: $0.app, done: $0.done, frame: $0.frame, icon: $0.icon,
-                                        pointer: $0.pointer.map { .init(x: $0.x, y: $0.y, click: $0.click) })
+                                        pointer: $0.pointer.map { .init(x: $0.x, y: $0.y, click: $0.click, windowWidth: $0.windowWidth) })
         }
         AgentPaneComputerUsePreview.show(preview, on: view) { session, action in
             if let click = ComputerUsePreviewClick(rawValue: action.rawValue) { respond(session, click) }

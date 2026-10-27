@@ -91,41 +91,37 @@
   opacity: 0.4;
 }
 
-/* The agent's cursor at its last click (the frame's fractions: the frame box is the image's box). The
-   cmux agent cursor's arrow (CmuxNextAgentCursor AgentCursorLayer.arrowPath): a mid gray with a white
-   rim and a dark hairline, so it reads over a light or a dark window; its tip is the point. Each new
-   click plays one ripple (keyed by the click). */
-.acpmux-cu-preview__pointer {
+/* The agent's cursor where the helper draws it (the frame's fractions: the frame box is the image's
+   box), the helper's own dart (cursorArt.tsx) at the window's scale: --cu-pointer-width is a share of
+   the frame's width. The tip is the point: the viewBox puts it 1 point in, 1/19 of the width. Each new
+   click plays one ripple (keyed by the click), in the cursor's blue. */
+.acpmux-cu-preview__arrow {
   position: absolute;
   left: calc(var(--cu-pointer-x) * 100%);
   top: calc(var(--cu-pointer-y) * 100%);
-  width: 0;
-  height: 0;
+  width: var(--cu-pointer-width, 12px);
+  aspect-ratio: 1;
+  overflow: visible;
+  transform: translate(-5.263%, -5.263%);
   pointer-events: none;
 }
-.acpmux-cu-preview__arrow {
-  position: absolute;
-  top: -1px;
-  left: -1px;
-  overflow: visible;
-  filter: drop-shadow(0 0 0.5px color-mix(in srgb, black 55%, transparent))
-    drop-shadow(0 1px 1.5px color-mix(in srgb, black 25%, transparent));
-}
 .acpmux-cu-preview__arrow > path {
-  fill: #8e8e93;
   stroke: white;
-  stroke-width: 1.5px;
+  stroke-width: 2px;
   stroke-linejoin: round;
+  paint-order: stroke;
 }
 .acpmux-cu-preview__ripple {
   position: absolute;
-  top: -7px;
-  left: -7px;
+  left: calc(var(--cu-pointer-x) * 100%);
+  top: calc(var(--cu-pointer-y) * 100%);
   width: 14px;
   aspect-ratio: 1;
+  margin: -7px 0 0 -7px;
   border-radius: 50%;
-  border: 1.5px solid #8e8e93;
+  border: 1.5px solid #2d8cff;
   opacity: 0;
+  pointer-events: none;
 }
 
 /* Done: the app's icon (40px) centered over the dimmed window, a 16px green check on the icon's lower
@@ -234,7 +230,8 @@
   }
   /* The cursor glides to each new point as the helper's own cursor does (cmux-cua --glide-ms 150),
      and each click's ripple grows and fades. */
-  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__pointer {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__arrow,
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__ripple {
     transition:
       left 150ms var(--agent-ease-out, ease-out),
       top 150ms var(--agent-ease-out, ease-out);

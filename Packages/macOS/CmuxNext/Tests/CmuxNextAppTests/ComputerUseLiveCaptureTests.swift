@@ -116,12 +116,13 @@ struct ComputerUseLiveCaptureTests {
     func theAgentCursorFollowsTheHelpersCursorWindow() async throws {
         let rig = Rig()
         try await rig.streaming()
-        rig.cursors.point = CGPoint(x: 0.3, y: 0.4)
+        rig.cursors.point = ComputerUseAgentCursor(point: CGPoint(x: 0.3, y: 0.4), windowWidth: 230)
         try await rig.nextTick()
         _ = await rig.frames.next()
         let shown = try #require(await rig.host.next { $0?.pointer?.x == 0.3 })
         #expect(shown?.pointer?.y == 0.4)
-        rig.cursors.point = CGPoint(x: 0.6, y: 0.4)
+        #expect(shown?.pointer?.windowWidth == 230)
+        rig.cursors.point = ComputerUseAgentCursor(point: CGPoint(x: 0.6, y: 0.4), windowWidth: 230)
         try await rig.nextTick()
         _ = await rig.frames.next()
         _ = try #require(await rig.host.next { $0?.pointer?.x == 0.6 })
@@ -373,13 +374,13 @@ struct ComputerUseLiveCaptureTests {
 /// The helper's agent cursor in the streamed window: `point`, read on each tick.
 final class FakeCursors: ComputerUseAgentCursorReading, @unchecked Sendable {
     private let lock = NSLock()
-    private var _point: CGPoint?
-    var point: CGPoint? {
+    private var _point: ComputerUseAgentCursor?
+    var point: ComputerUseAgentCursor? {
         get { lock.withLock { _point } }
         set { lock.withLock { _point = newValue } }
     }
 
-    func cursor(in window: ComputerUsePreviewWindow, helper: pid_t) async -> CGPoint? { point }
+    func cursor(in window: ComputerUsePreviewWindow, helper: pid_t) async -> ComputerUseAgentCursor? { point }
 }
 
 /// The helper's window stream: each call goes to `next()`; reads answer frames 1, 2, 3...

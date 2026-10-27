@@ -30,12 +30,13 @@ export type ComputerUsePreview = {
   frame: string;
   /// The app's icon, a `data:image/png` URL, sent with the done state when the host found one.
   icon?: string;
-  /// Where the agent clicked last in the frame (0...1 from the top left) and that click's id: the
-  /// card draws its cursor there and plays a click when the id changes. Running cards only.
+  /// The agent's cursor in the frame (0...1 from the top left), the newest click's id and the
+  /// window's width in points: the card draws the helper's own cursor there, at the window's scale,
+  /// and plays a click when the id changes. Running cards only.
   pointer?: ComputerUsePreviewPointer;
 };
 
-export type ComputerUsePreviewPointer = { x: number; y: number; click: number };
+export type ComputerUsePreviewPointer = { x: number; y: number; click: number; windowWidth?: number };
 
 const isFraction = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
@@ -45,11 +46,13 @@ function readPointer(value: unknown): ComputerUsePreviewPointer | undefined {
   const raw = value as Partial<ComputerUsePreviewPointer> | null | undefined;
   if (!raw || typeof raw !== "object" || !isFraction(raw.x) || !isFraction(raw.y)) return undefined;
   if (typeof raw.click !== "number" || !Number.isFinite(raw.click)) return undefined;
-  return { x: raw.x, y: raw.y, click: raw.click };
+  const width = raw.windowWidth;
+  const windowWidth = typeof width === "number" && Number.isFinite(width) && width > 0 ? width : undefined;
+  return { x: raw.x, y: raw.y, click: raw.click, ...(windowWidth ? { windowWidth } : {}) };
 }
 
 const samePointer = (a?: ComputerUsePreviewPointer, b?: ComputerUsePreviewPointer) =>
-  a?.x === b?.x && a?.y === b?.y && a?.click === b?.click;
+  a?.x === b?.x && a?.y === b?.y && a?.click === b?.click && a?.windowWidth === b?.windowWidth;
 
 let current: ComputerUsePreview | null = null;
 /// The session the person closed here: hidden at once, before the host's push that takes it away.

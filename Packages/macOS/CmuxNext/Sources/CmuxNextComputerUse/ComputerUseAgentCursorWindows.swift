@@ -1,11 +1,22 @@
 import CoreGraphics
 public import Foundation
 
+/// The helper's agent cursor in a window: its tip as a fraction of the window (0...1 from the top
+/// left), and the window's width in points (the card draws the cursor at the window's scale).
+public nonisolated struct ComputerUseAgentCursor: Equatable, Sendable {
+    public var point: CGPoint
+    public var windowWidth: Double
+
+    public init(point: CGPoint, windowWidth: Double) {
+        self.point = point
+        self.windowWidth = windowWidth
+    }
+}
+
 /// Where the helper's agent cursor is in a window (``ComputerUseLiveCapture``); tests pass a fake.
 public nonisolated protocol ComputerUseAgentCursorReading: Sendable {
-    /// The agent cursor of helper `helper` in `window`, as a fraction of the window (0...1 from the
-    /// top left); nil when none of its cursors shows in the window.
-    @concurrent func cursor(in window: ComputerUsePreviewWindow, helper: pid_t) async -> CGPoint?
+    /// The agent cursor of helper `helper` in `window`; nil when none of its cursors shows in it.
+    @concurrent func cursor(in window: ComputerUsePreviewWindow, helper: pid_t) async -> ComputerUseAgentCursor?
 }
 
 /// ``ComputerUseAgentCursorReading`` from the WindowServer's window list. The legacy helper draws
@@ -20,7 +31,7 @@ public nonisolated struct ComputerUseAgentCursorWindows: ComputerUseAgentCursorR
 
     public init() {}
 
-    @concurrent public func cursor(in window: ComputerUsePreviewWindow, helper: pid_t) async -> CGPoint? {
+    @concurrent public func cursor(in window: ComputerUsePreviewWindow, helper: pid_t) async -> ComputerUseAgentCursor? {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
             return nil
         }
@@ -36,7 +47,8 @@ public nonisolated struct ComputerUseAgentCursorWindows: ComputerUseAgentCursorR
                 tips.append(CGPoint(x: bounds.midX, y: bounds.midY))
             }
         }
-        return Self.fraction(tips, in: target)
+        guard let target, let point = Self.fraction(tips, in: target) else { return nil }
+        return ComputerUseAgentCursor(point: point, windowWidth: target.width)
     }
 
     /// The first tip inside `window`, as a fraction of it.

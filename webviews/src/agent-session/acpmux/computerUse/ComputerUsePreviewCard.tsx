@@ -10,14 +10,15 @@
 // (cardMotion.ts); a new frame shows once it has decoded, so the stream never blanks.
 // With the Inspector open, the card sits directly under it (inspector/underInspector.ts) and keeps
 // its own room there.
-// While it runs, the agent's cursor shows where it clicked last (the helper's window stream has no
-// cursor of its own): the cmux agent cursor's arrow, gliding to each new point, with a ripple on
-// each click.
+// While it runs, the agent's cursor shows where the helper draws it on screen (the window stream
+// has no cursor of its own): the helper's own cursor, drawn the same (cursorArt.tsx) and at the
+// window's scale, gliding as it does, with a ripple on each click.
 import { useState, type CSSProperties } from "react";
 import { useT } from "../i18n";
 import { Check, Close } from "../conversation/icons";
 import { useUnderInspectorRoom } from "../inspector/underInspector";
 import { useLeavingCard, useLoadedFrame } from "./cardMotion";
+import { AgentCursorArt, cursorStyle } from "./cursorArt";
 import { closeComputerUsePreview, computerUsePreviewTitle, type ComputerUsePreview } from "./computerUsePreview";
 import "./computerUsePreview.css";
 
@@ -56,19 +57,16 @@ export function ComputerUsePreviewCard({
         aria-label={label}
         onClick={() => onOpen(shown.session)}
       >
-        <span className="acpmux-cu-preview__frame">
+        <span
+          className="acpmux-cu-preview__frame"
+          style={shown.pointer ? (cursorStyle(shown.pointer) as CSSProperties) : undefined}
+        >
           <img src={frame} alt="" draggable={false} />
           {shown.pointer && (
-            <span
-              className="acpmux-cu-preview__pointer"
-              style={{ "--cu-pointer-x": shown.pointer.x, "--cu-pointer-y": shown.pointer.y } as CSSProperties}
-              aria-hidden="true"
-            >
-              <span key={shown.pointer.click} className="acpmux-cu-preview__ripple" />
-              <svg className="acpmux-cu-preview__arrow" viewBox="-1 -1 16.5 23" width="9" height="12.5">
-                <path d="M0 0 L14.5 15 L4.5 11.25 L0 21 Z" />
-              </svg>
-            </span>
+            <>
+              <span key={shown.pointer.click} className="acpmux-cu-preview__ripple" aria-hidden="true" />
+              <AgentCursorArt />
+            </>
           )}
           {shown.done && (
             <span className="acpmux-cu-preview__badge" aria-hidden="true">

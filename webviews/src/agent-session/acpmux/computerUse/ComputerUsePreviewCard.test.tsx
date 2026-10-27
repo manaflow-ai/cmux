@@ -53,15 +53,23 @@ test("done with no icon shows the check alone", () => {
   expect(html).toContain('<span class="acpmux-cu-preview__mark"><span class="acpmux-cu-preview__check">');
 });
 
-test("a running card draws the agent's cursor at its last click, as fractions of the frame", () => {
-  const html = markup({ ...running, pointer: { x: 0.25, y: 0.75, click: 4 } });
+test("a running card draws the helper's cursor at the window's scale", () => {
+  const html = markup({ ...running, pointer: { x: 0.25, y: 0.75, click: 4, windowWidth: 190 } });
+  // 19 points of a 190-point window: 10% of the frame, at least 8px.
   expect(html).toContain(
-    'class="acpmux-cu-preview__pointer" style="--cu-pointer-x:0.25;--cu-pointer-y:0.75" aria-hidden="true"',
+    'class="acpmux-cu-preview__frame" style="--cu-pointer-x:0.25;--cu-pointer-y:0.75;--cu-pointer-width:max(8px, 10.000%)"',
   );
   expect(html).toContain("acpmux-cu-preview__ripple");
-  expect(html).toContain("acpmux-cu-preview__arrow");
+  expect(html).toContain('<stop offset="0" stop-color="#12c7f5"></stop>');
 });
 
-test("a card with no click draws no cursor", () => {
-  expect(markup(running)).not.toContain("acpmux-cu-preview__pointer");
+test("with no window width the cursor keeps a fixed size", () => {
+  const html = markup({ ...running, pointer: { x: 0.5, y: 0.5, click: 1 } });
+  expect(html).toContain("--cu-pointer-width:12px");
+});
+
+test("a card with no cursor draws none", () => {
+  const html = markup(running);
+  expect(html).not.toContain("acpmux-cu-preview__arrow");
+  expect(html).toMatch(/class="acpmux-cu-preview__frame"><img /);
 });

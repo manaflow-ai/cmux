@@ -84,7 +84,7 @@ public final class ComputerUseLiveCapture {
     var onFrame: @MainActor (Target, ComputerUsePreviewBoard.Frame) -> Void = { _, _ in }
     /// Where the agent cursor goes when it moves in the streamed window, or leaves it (nil): the
     /// session and the cursor as a fraction of the window.
-    var onCursor: @MainActor (String, CGPoint?) -> Void = { _, _ in }
+    var onCursor: @MainActor (String, ComputerUseAgentCursor?) -> Void = { _, _ in }
     /// Whether the person still sees the target's chat, checked on each frame: a window covered or
     /// minimized stops the stream (``ComputerUsePreviewSight``).
     var sees: @MainActor (Target) -> Bool = { _ in true }
@@ -103,7 +103,7 @@ public final class ComputerUseLiveCapture {
     private var generation = 0
     private var lastSequence: UInt64 = 0
     /// The cursor last sent, and its session.
-    private var lastCursor: (session: String, point: CGPoint)?
+    private var lastCursor: (session: String, cursor: ComputerUseAgentCursor)?
     /// Windows whose stream the helper refused or that failed: they get the per-action frames. Kept
     /// for one helper launch: a restarted helper (say, after a Screen Recording grant) is asked again.
     private(set) var refused: Set<ComputerUsePreviewWindow> = []
@@ -214,7 +214,7 @@ public final class ComputerUseLiveCapture {
             var frame: ComputerUseLiveFrame?
             var failed = false
             do { frame = try await frames.newestFrame(of: stream.id, after: after) } catch { failed = true }
-            var cursor: CGPoint?
+            var cursor: ComputerUseAgentCursor?
             if let helper { cursor = await cursors.cursor(in: stream.window, helper: helper) }
             guard let self else { return }
             inFlight = nil
@@ -230,12 +230,12 @@ public final class ComputerUseLiveCapture {
     }
 
     /// Sends the cursor when it moved, appeared or left.
-    private func sendCursor(_ point: CGPoint?, session: String) {
-        if let point {
-            guard lastCursor?.session != session || lastCursor?.point != point else { return }
+    private func sendCursor(_ cursor: ComputerUseAgentCursor?, session: String) {
+        if let cursor {
+            guard lastCursor?.session != session || lastCursor?.cursor != cursor else { return }
             if let last = lastCursor, last.session != session { onCursor(last.session, nil) }
-            lastCursor = (session, point)
-            onCursor(session, point)
+            lastCursor = (session, cursor)
+            onCursor(session, cursor)
         } else if let last = lastCursor {
             lastCursor = nil
             onCursor(last.session, nil)

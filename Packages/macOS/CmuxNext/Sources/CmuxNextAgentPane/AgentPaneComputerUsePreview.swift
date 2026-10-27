@@ -36,11 +36,14 @@ public nonisolated struct AgentPaneComputerUsePreview: Hashable, Sendable {
         public var x: Double
         public var y: Double
         public var click: UInt64
+        /// The window's width in points, when known: the page draws the cursor at the window's scale.
+        public var windowWidth: Double?
 
-        public init(x: Double, y: Double, click: UInt64) {
+        public init(x: Double, y: Double, click: UInt64, windowWidth: Double? = nil) {
             self.x = x
             self.y = y
             self.click = click
+            self.windowWidth = windowWidth
         }
     }
 
@@ -57,7 +60,9 @@ public nonisolated struct AgentPaneComputerUsePreview: Hashable, Sendable {
         if let frame { object["frame"] = .string(frame) }
         if let icon { object["icon"] = .string(icon) }
         if let pointer {
-            object["pointer"] = .object(["x": .number(pointer.x), "y": .number(pointer.y), "click": .number(Double(pointer.click))])
+            var value: [String: JSONValue] = ["x": .number(pointer.x), "y": .number(pointer.y), "click": .number(Double(pointer.click))]
+            if let width = pointer.windowWidth { value["windowWidth"] = .number(width) }
+            object["pointer"] = .object(value)
         }
         return .object(object)
     }
