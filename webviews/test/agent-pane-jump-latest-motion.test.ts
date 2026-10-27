@@ -462,9 +462,7 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
     // An unrelated render must not revive the cancelled bottom-follow owner.
     send(record("mux", "turn_started", {}));
     send(record("in", "agent_message_chunk", chunk("A reply arriving after native turn navigation.")));
-    await page
-      .getByText("A reply arriving after native turn navigation.", { exact: false })
-      .waitFor({ state: "attached" });
+    await page.getByRole("button", { name: "Jump to latest, still replying", exact: true }).waitFor();
     await untilStill(page);
     expect((await measure(page)).fromEnd).toBeGreaterThan(80);
     await page.close();
