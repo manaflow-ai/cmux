@@ -41,7 +41,7 @@ impl Remote for Host {
     fn exec(&self, script: &str, _stdin: Option<&[u8]>) -> Result<RemoteOut> {
         if let Some(inner) = crate::cli::hosts::unfence(script) {
             self.fenced.borrow_mut().push(inner.to_owned());
-            assert_eq!(inner, crate::cli::hosts::install_script());
+            assert_eq!(inner, guarded_install_script());
             self.installed.set(true);
             return Ok(RemoteOut {
                 ok: true,
@@ -163,6 +163,21 @@ fn a_unit_someone_else_wrote_is_left_alone_and_said() {
     );
 }
 
+/// A drop-in that shows up between the probe and the install: the probe
+/// run again under the lock finds it, and nothing is written.
+#[test]
+fn a_drop_in_found_under_the_lock_stops_the_install() {
+    let mut host = Host::new(&["os=Linux", "systemd"]);
+    host.install_out = "ACPMUX_AU=foreign";
+    let r = update(&host, true, None);
+    assert_eq!(r.state, StepState::Warn, "{r:?}");
+    assert!(r.detail.contains("acpmux did not write"), "{r:?}");
+    assert_eq!(host.fenced.borrow().len(), 1);
+    let script = guarded_install_script();
+    assert!(script.starts_with("au_probe() {"), "{script}");
+    assert!(script.contains(&hosts::install_script()), "{script}");
+}
+
 #[test]
 fn an_enabled_timer_acpmux_did_not_write_is_not_counted_or_replaced() {
     for fix in [false, true] {
@@ -222,9 +237,10 @@ mod probe_in_a_shell {
         frag: &'static str,
         /// The unit that has a drop-in, if one does.
         drop_in: Option<&'static str>,
-        /// The manager lists a drop-in for every unit of the type
-        /// (Fedora's `service.d/10-timeout-abort.conf`) on both units.
-        type_drop_in: bool,
+        /// The manager lists a drop-in for every unit of the type (Fedora's
+        /// `service.d/10-timeout-abort.conf`) on both units, from this
+        /// directory.
+        type_drop_in: Option<&'static str>,
         /// The files in ~/.config/systemd/user: acpmux's text, another's, or none.
         service: Option<&'static str>,
         timer: Option<&'static str>,
@@ -240,7 +256,7 @@ mod probe_in_a_shell {
         loaded: true,
         frag: "own",
         drop_in: None,
-        type_drop_in: false,
+        type_drop_in: None,
         service: Some(hosts::UPDATE_SERVICE),
         timer: Some(hosts::UPDATE_TIMER),
         drop_in_dir: None,
@@ -252,7 +268,7 @@ mod probe_in_a_shell {
         loaded: false,
         frag: "",
         drop_in: None,
-        type_drop_in: false,
+        type_drop_in: None,
         service: None,
         timer: None,
         drop_in_dir: None,
@@ -261,6 +277,12 @@ mod probe_in_a_shell {
     const OTHER_TEXT: &str = "[Service]\nExecStart=/usr/bin/true\n";
 
     fn probe(u: Units) -> Found {
+        parse(&run(u, &probe_script()).0)
+    }
+
+    /// Runs `script` by `sh` on a host with `u`: its output, and whether
+    /// acpmux's units are in ~/.config/systemd/user afterwards.
+    fn run(u: Units, script: &str) -> (String, bool) {
         static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let root = std::env::temp_dir().join(format!("acpmux-probe-{}-{n}", std::process::id()));
@@ -296,7 +318,7 @@ is-active) exit {active} ;;
 show) case "$4" in
   LoadState) echo {load} ;;
   FragmentPath) [ {load} = loaded ] && echo "{frag}/$2" || echo ;;
-  DropInPaths) d=; [ {type_wide} = 1 ] && d="/usr/lib/systemd/user/${{2##*.}}.d/10-timeout-abort.conf"
+  DropInPaths) d=; [ -z "{type_dir}" ] || d="{type_dir}/${{2##*.}}.d/10-timeout-abort.conf"
     [ "$2" = "{drop_in}" ] && d="$d /x/$2.d/o.conf"; echo $d ;;
   esac ;;
 *) exit 2 ;;
@@ -306,7 +328,7 @@ esac
             active = if u.active { 0 } else { 3 },
             load = if u.loaded { "loaded" } else { "not-found" },
             drop_in = u.drop_in.unwrap_or("-"),
-            type_wide = u8::from(u.type_drop_in),
+            type_dir = u.type_drop_in.unwrap_or(""),
         );
         let systemctl = bin.join("systemctl");
         fs::write(&systemctl, fake).unwrap();
@@ -314,14 +336,15 @@ esac
         let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
         let out = Command::new("sh")
             .arg("-c")
-            .arg(probe_script())
+            .arg(script)
             .env("HOME", &home)
             .env("PATH", path)
             .output()
             .unwrap();
+        let written = units.join("acpmux-update.service").exists() && u.service.is_none();
         fs::remove_dir_all(&root).unwrap();
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-        parse(&String::from_utf8_lossy(&out.stdout))
+        (String::from_utf8_lossy(&out.stdout).into_owned(), written)
     }
 
     fn kind(found: &Found) -> &'static str {
@@ -351,17 +374,39 @@ esac
     }
 
     #[test]
-    fn a_drop_in_for_every_service_is_the_systems_not_this_units() {
-        let u =
-            Units { drop_in_dir: Some("service.d"), analyzed_drop_in_dir: Some("timer.d"), ..OWN };
-        assert_eq!(kind(&probe(u)), "timer");
-        // The manager lists it among the unit's DropInPaths: still acpmux's
-        // own, running or stopped (so --fix starts it).
-        assert_eq!(kind(&probe(Units { type_drop_in: true, ..OWN })), "timer");
-        assert_eq!(kind(&probe(Units { type_drop_in: true, active: false, ..OWN })), "stopped");
+    fn a_drop_in_for_every_service_counts_unless_the_system_ships_it() {
+        // The distribution's, as the manager lists it: still acpmux's own,
+        // running or stopped (so --fix starts it).
+        let system = Some("/usr/lib/systemd/user");
+        assert_eq!(kind(&probe(Units { type_drop_in: system, ..OWN })), "timer");
+        assert_eq!(kind(&probe(Units { type_drop_in: system, active: false, ..OWN })), "stopped");
+        assert_eq!(kind(&probe(Units { type_drop_in: Some("/etc/systemd/user"), ..OWN })), "timer");
         // Beside one for this unit, that one still makes it foreign.
-        let both = Units { type_drop_in: true, drop_in: Some("acpmux-update.timer"), ..OWN };
+        let both = Units { type_drop_in: system, drop_in: Some("acpmux-update.timer"), ..OWN };
         assert_eq!(kind(&probe(both)), "foreign");
+        // One the user's own paths hold (the person, or anything running as
+        // them, wrote it) would run with acpmux's service: foreign, listed
+        // by the manager or only on disk, with or without the units.
+        for u in [OWN, NONE] {
+            for found in [
+                Units { type_drop_in: Some("/home/leo/.config/systemd/user"), ..u },
+                Units { type_drop_in: Some("/run/user/1000/systemd/user"), ..u },
+                Units { drop_in_dir: Some("service.d"), ..u },
+                Units { analyzed_drop_in_dir: Some("timer.d"), ..u },
+            ] {
+                assert_eq!(kind(&probe(found)), "foreign");
+            }
+        }
+    }
+
+    /// The install runs the probe again under the lock: a drop-in there
+    /// stops it before any unit is written.
+    #[test]
+    fn the_install_writes_nothing_beside_a_drop_in() {
+        let (out, written) =
+            run(Units { drop_in_dir: Some("service.d"), ..NONE }, &guarded_install_script());
+        assert!(parse(&out).foreign, "{out}");
+        assert!(!written, "no unit written");
     }
 
     #[test]

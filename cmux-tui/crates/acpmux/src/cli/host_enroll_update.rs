@@ -22,9 +22,10 @@ const MARK: &str = "ACPMUX_AU=";
 /// exists (one systemd would apply once acpmux writes the unit): what the
 /// manager lists, and a `NAME.d` or `acpmux-.TYPE.d` directory in any user
 /// unit path (`systemd-analyze --user unit-paths`, and the defaults when it
-/// cannot say). A drop-in for every service or timer (`service.d`) is the
-/// system's (distributions ship them), not about this unit: it does not
-/// count, on disk or in the manager's `DropInPaths`. They are
+/// cannot say). A drop-in for every service or timer (`service.d`) counts
+/// too, except from the system's own paths (`/usr`, `/lib`, `/etc`,
+/// `/run/systemd`), where distributions ship them (Fedora's
+/// `10-timeout-abort.conf`), on disk or in the manager's `DropInPaths`. They are
 /// acpmux's own only when each file there holds acpmux's own text, each unit
 /// the manager knows loads from there, and no drop-in exists for either;
 /// any other is someone else's (`foreign`), which runs what it likes. acpmux's own timer is
@@ -65,9 +66,10 @@ if [ -e "$au_d/$au_f" ]; then au_there=1; else au_all=; fi
 case "$au_s" in not-found) ;; *) au_there=1
 [ "$au_s" = loaded ] && [ "$(systemctl --user show "$au_f" -p FragmentPath --value 2>/dev/null)" = "$au_d/$au_f" ] || au_own= ;; esac
 au_x=$(systemctl --user show "$au_f" -p DropInPaths --value 2>/dev/null) || au_x=error
-for au_y in $au_x; do case "$au_y" in */"${{au_f##*.}}".d/*) ;; *) au_there=1; au_own= ;; esac; done
+for au_y in $au_x; do case "$au_y" in /usr/*/"${{au_f##*.}}".d/*|/lib/*/"${{au_f##*.}}".d/*|/etc/*/"${{au_f##*.}}".d/*|/run/systemd/*/"${{au_f##*.}}".d/*) ;; *) au_there=1; au_own= ;; esac; done
 au_i=$IFS; IFS='
-'; for au_p in $au_paths; do for au_n in "$au_f.d" "acpmux-.${{au_f##*.}}.d"; do
+'; for au_p in $au_paths; do au_w=; case "$au_p" in /usr/*|/lib/*|/etc/*|/run/systemd/*) ;; *) au_w="${{au_f##*.}}.d" ;; esac
+for au_n in "$au_f.d" "acpmux-.${{au_f##*.}}.d" $au_w; do
 [ -z "$au_p" ] || [ ! -d "$au_p/$au_n" ] || {{ au_there=1; au_own=; }}; done; done; IFS=$au_i
 done
 if [ -n "$au_there" ]; then
@@ -80,6 +82,17 @@ elif [ -n "$au_all" ] && [ "$(systemctl --user is-enabled acpmux-update.timer 2>
 else echo {MARK}stopped; fi
 fi
 fi"#
+    )
+}
+
+/// [`hosts::install_script`], run only when [`probe_script`], run again
+/// under the update lock, finds no unit or drop-in acpmux did not write
+/// (else it prints `foreign` and writes nothing).
+pub(super) fn guarded_install_script() -> String {
+    format!(
+        "au_probe() {{\n{probe}\n}}\ncase \"$(au_probe)\" in *{MARK}foreign*) echo {MARK}foreign ;; *)\n{install}\n;; esac",
+        probe = probe_script(),
+        install = hosts::install_script(),
     )
 }
 
@@ -169,13 +182,7 @@ pub(super) fn update(r: &dyn Remote, fix: bool, cmux_own: Option<&str>) -> StepR
         return ok(EVERY);
     }
     if found.foreign {
-        return warn(
-            "an acpmux-update unit or drop-in acpmux did not write is here, so cmux does not know what it runs, and leaves it alone",
-            None,
-        )
-        .with_fix(format!(
-            "Remove the acpmux-update units and drop-ins acpmux did not write on {host}, then check again with --fix."
-        ));
+        return foreign(host);
     }
     if !found.systemd {
         return warn(
@@ -199,11 +206,14 @@ pub(super) fn update(r: &dyn Remote, fix: bool, cmux_own: Option<&str>) -> StepR
 /// whether it runs now.
 fn install(r: &dyn Remote, host: &str) -> StepResult {
     let ran = hosts::lock_to_install(r)
-        .and_then(|lock| hosts::run(&lock.fence(r), &hosts::install_script()));
+        .and_then(|lock| hosts::run(&lock.fence(r), &guarded_install_script()));
     let out = match ran {
         Ok(out) => out,
         Err(e) => return warn(format!("installing acpmux-update.timer failed: {e:#}"), Some(host)),
     };
+    if parse(&out).foreign {
+        return foreign(host);
+    }
     if let Some(why) = hosts::take_auto_update_off(&out).1 {
         return warn(why, None);
     }
@@ -215,6 +225,17 @@ fn install(r: &dyn Remote, host: &str) -> StepResult {
         ),
         _ => warn("acpmux-update.timer was installed but is not running", Some(host)),
     }
+}
+
+/// A unit or drop-in acpmux did not write: nothing is written.
+fn foreign(host: &str) -> StepResult {
+    warn(
+        "an acpmux-update unit or drop-in acpmux did not write is here, so cmux does not know what it runs, and leaves it alone",
+        None,
+    )
+    .with_fix(format!(
+        "Remove the acpmux-update units and drop-ins acpmux did not write on {host}, then check again with --fix."
+    ))
 }
 
 /// A warning: the host works, but does not keep itself current. `again`
