@@ -48,10 +48,19 @@ test("where acpmux cannot retry the turn, Retry sends the prompt again", async (
   const unknown = deps(() => Promise.reject(Object.assign(new Error("Method not found"), { code: -32601 })), undefined);
   expect(await retryFailedTurn(unknown.deps)).toBeUndefined();
   expect(unknown.calls).toEqual([`${RETRY_METHOD} {"sessionId":"chat-1"}`, "resend"]);
-  // acpmux says its last turn did not fail (the pane's failed row is not acpmux's last turn).
+});
+
+test("a turn another retry already ran to the end is not sent again", async () => {
+  // An automatic retry, or another pane's, finished first: acpmux's last turn no longer failed.
   const nothing = deps(() => Promise.reject(refusal("retry.nothing_failed")));
-  expect(await retryFailedTurn(nothing.deps)).toBeUndefined();
-  expect(nothing.calls.at(-1)).toBe("resend");
+  expect(await retryFailedTurn(nothing.deps)).toBe("retry.nothingFailed");
+  expect(nothing.calls.includes("resend")).toBe(false);
+});
+
+test("an old daemon with no prompt to send again says Retry could not run", async () => {
+  const { calls, deps: d } = deps(() => Promise.resolve(), new Set());
+  expect(await retryFailedTurn({ ...d, resend: undefined })).toBe("retry.failed");
+  expect(calls).toEqual([]);
 });
 
 test("a refusal that a second send would double says why, and sends nothing", async () => {
@@ -129,6 +138,7 @@ const failed = {
   error: "agent process closed",
   prompt: "Run the sidebar tests and fix what fails",
   retryRowId: "user-1",
+  retryable: true,
 } as const;
 const card = () => host.querySelector(".cv-turn-error")!;
 const cardRetry = () => [...card().querySelectorAll("button")].find((element) => element.textContent === "Retry")!;
@@ -136,7 +146,7 @@ const footerRetry = () => host.querySelector<HTMLButtonElement>('.cv-turn-action
 
 test("the failed turn's card and footer Retry use the failed turn's retry, never a plain resend", async () => {
   const sent: string[] = [];
-  const asked: string[] = [];
+  const asked: (string | undefined)[] = [];
   await act(async () =>
     root.render(
       <TurnActionsContext.Provider
@@ -183,4 +193,42 @@ test("a refused retry says why on the card, and Retry waits while one is in flig
   await act(async () => settle("retry.busy"));
   expect(cardRetry().hasAttribute("disabled")).toBe(false);
   expect(card().querySelector(".cv-turn-error__note")!.textContent).toBe("Busy, try again shortly");
+});
+
+test("an attempt acpmux sent that failed again still offers Retry, and the turn before it does not", async () => {
+  const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
+  let at = 0;
+  const row = (id: string, kind: string, extra: Record<string, unknown> = {}) =>
+    ({ id, kind, version: 1, at: (at += 1_000), ...extra }) as Parameters<typeof turnView>[0][number];
+  const rows = [
+    row("user-1", "user", { text: "Run the sidebar tests" }),
+    row("turn-2", "turnSummary", { status: "failed", error: "agent process closed", durationMs: 1_000 }),
+    // acpmux's own retry: its prompt row is bookkeeping and draws nothing.
+    row("user-3", "user", { text: "", incoming: { kind: "hidden" } }),
+    row("turn-4", "turnSummary", { status: "failed", error: "agent process closed", durationMs: 1_000 }),
+  ];
+  const summaries = turnView(rows, new Set(), { now: 10_000 }).filter((shaped) => shaped.kind === "turnSummary");
+  expect(summaries.map((summary) => [summary.id, summary.retryable === true])).toEqual([
+    ["turn-2", false],
+    ["turn-4", true],
+  ]);
+  const last = summaries.at(-1)!;
+  const asked: (string | undefined)[] = [];
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider
+        value={{
+          retry: () => undefined,
+          retryFailed: (rowId) => {
+            asked.push(rowId);
+            return Promise.resolve(undefined);
+          },
+        }}
+      >
+        <TurnFooter row={last} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  await act(async () => cardRetry().click());
+  expect(asked).toEqual([last.retryRowId]);
 });
