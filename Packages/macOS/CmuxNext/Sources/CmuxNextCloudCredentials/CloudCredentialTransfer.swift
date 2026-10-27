@@ -1,6 +1,6 @@
-import CmuxNextCloud
+public import CmuxNextCloud
 import CmuxNextDaemon
-import Foundation
+public import Foundation
 
 /// Only a native, target/team-scoped confirmation may call this. A repeat reuses the explicit
 /// transfer cache; Retry after a rejected credential passes refresh:true to mint a replacement.
