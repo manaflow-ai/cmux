@@ -510,6 +510,19 @@ it as a direct peer. The dialing client knows about the bridge, so it echoes
 only `attach-streams-v1` until the bridge can carry frames
 (`bridge-frames-v1`, p05-ipc-161).
 
+The SSH bridge (`cmux-remote`, service `mux-control`) can carry frames. Its
+remote end lists `bridge-frames-v1` in the open features of the mux stream,
+next to `mux-input-v1`. With it, both ends read a message that starts with
+`0xFF` by its 16-byte header, never as a line. A header that fails
+validation, or a payload over the line budget of its direction, ends the
+connection before any payload byte is read. Every item of one attach
+stream uses one lane per direction: frames, lines that name the stream, and
+replies to requests that name it. A `send` that names a stream stays a JSON
+line. The local end of a bridge whose remote end did not list the feature
+refuses a frame and closes the connection. The daemon still sees the bridge
+as a bridge, so it grants frames only when the bridge rule allows them
+(p05-ipc-161).
+
 Each `set-client-info` first removes every grant that the connection's
 current state does not allow, for example after an `api_revision` other
 than the daemon's. To get the grant again, the client must echo the
