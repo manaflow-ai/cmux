@@ -1,6 +1,6 @@
 // Quote in Reply on selected message text (POLISH.md right-click contract): the app's native
 // selection menu sends the page command `quoteSelection`, and the selection lands in the open
-// composer as a Markdown quote, ahead of what was already typed. A thread's composer takes it while
+// composer as a Markdown quote, after what was already typed. A thread's composer takes it while
 // the thread is open; a selection inside a composer is never quoted. In an empty composer the reply
 // is typed below the quote, not inside it.
 import { afterEach, expect, test } from "bun:test";
@@ -110,8 +110,9 @@ function select(node: Node) {
 }
 
 const field = (host: HTMLElement) => host.querySelector<HTMLElement>(".hc-composer-field")!;
+const content = (host: HTMLElement) => field(host).querySelector<HTMLElement>("[contenteditable]")!;
 
-test("Quote in Reply puts the selected lines in the main composer as a quote, before the draft", async () => {
+test("Quote in Reply puts the selected lines in the main composer as a quote, after the draft", async () => {
   const doc = installDom();
   const main = await composer(doc, "lg-main-compose", "my draft");
   select(message(doc, "Ship it\nafter the review"));
@@ -122,7 +123,8 @@ test("Quote in Reply puts the selected lines in the main composer as a quote, be
   const quote = field(main).querySelector("blockquote");
   expect(quote?.textContent).toContain("Ship it");
   expect(quote?.textContent).toContain("after the review");
-  expect(field(main).textContent).toContain("my draft");
+  expect([...content(main).children].map((node) => node.tagName)).toEqual(["P", "BLOCKQUOTE", "P"]);
+  expect(content(main).firstElementChild?.textContent).toBe("my draft");
 });
 
 test("an open thread's composer takes the quote, and text selected in a composer is never quoted", async () => {
@@ -152,4 +154,20 @@ test("in an empty composer the reply is typed below the quote, not inside it", a
   await act(async () => editor!.acpmuxMarkdownField!.insertTyped("Agreed"));
   expect(field(main).querySelector("blockquote")?.textContent).not.toContain("Agreed");
   expect(field(main).textContent).toContain("Agreed");
+});
+
+test("several quotes keep the draft and the order they were picked", async () => {
+  const doc = installDom();
+  const main = await composer(doc, "lg-main-compose", "my draft");
+  for (const text of ["First quote", "Second quote"]) {
+    select(message(doc, text));
+    await act(async () => {
+      expect(quoteSelection(doc)).toBe(true);
+    });
+  }
+  expect(content(main).firstElementChild?.textContent).toBe("my draft");
+  expect([...field(main).querySelectorAll("blockquote")].map((node) => node.textContent)).toEqual([
+    "First quote",
+    "Second quote",
+  ]);
 });
