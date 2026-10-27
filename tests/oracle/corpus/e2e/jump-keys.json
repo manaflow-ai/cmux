@@ -114,13 +114,13 @@
     },
     {
       "id": "new-workspace",
-      "op": "key",
+      "op": "action.run",
       "target": {"window": "current"},
-      "args": {"keys": ["cmd+n"]},
+      "args": {"action": "workspace.newAtBottom"},
       "expect": {"outcome": "ok", "receipt": "action.done"},
       "waitFor": {"pointer": "/topology/topology/focus/workspace", "predicate": "changed", "maxMs": 10000},
       "settleMaxMs": 10000,
-      "note": "a second workspace, shown, below the first"
+      "note": "a second workspace, shown, below the first, as the script makes it: Cmd-N follows workspaces.newPlacement, which defaults to top (schemas/defaults/cmux-next.json), and would put it above the launch workspace"
     },
     {
       "id": "focus-sidebar",

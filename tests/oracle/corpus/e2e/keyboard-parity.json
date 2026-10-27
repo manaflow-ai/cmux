@@ -156,13 +156,21 @@
       "note": "matrix row Cmd-Shift-N: a new window"
     },
     {
+      "id": "window-ids",
+      "op": "cli",
+      "readOnly": true,
+      "args": {"argv": ["--json", "app", "call", "debug.focus"]},
+      "expect": {"outcome": "ok"},
+      "note": "debug.focus lists the window controllers in creation order (WindowManager.controllers), so windows/1/id is the window Cmd-Shift-N made, the id debug.key's window param takes (the script reads the same list)"
+    },
+    {
       "id": "close-window",
       "op": "key",
-      "target": {"window": "current"},
+      "target": {"window": "$step:window-ids#/stdout/windows/1/id"},
       "args": {"keys": ["ctrl+cmd+w"]},
       "expect": {"outcome": "ok", "receipt": "action.done"},
       "waitFor": {"pointer": "/windows/count", "equals": 1, "maxMs": 10000},
-      "note": "the script closes the window it made (closeWindow)"
+      "note": "Close Window sent to the new window: debug.key makes it the key window for the dispatch, so closeWindow closes it, as the script closes the window it made; with no window debug.key would pick the launch window"
     },
     {
       "id": "end",
@@ -177,7 +185,7 @@
     "focus at palette-closed equals focus at new-tab-page: Esc gives the keyboard back to the New Tab page",
     "the tab reopen-page brought back is the New Tab page close-page closed, and history at reopened no longer lists it",
     "focus at settings resolves to the Settings page tab",
-    "windows at end equal those at second-workspace's settled checkpoint: the window Cmd-Shift-N made is gone",
+    "windows at end equal those at second-workspace's settled checkpoint; the window id window-ids read at windows/1 is not in windows at end and the one at windows/0 is: the window Cmd-Shift-N made is gone and the launch window stays",
     "every mutation has one receipt or one typed error (I1)",
     "ids stay stable unless the step created or closed them (I2)"
   ],

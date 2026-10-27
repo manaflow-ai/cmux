@@ -1,5 +1,5 @@
 {
-  "$comment": "p15-oracle-094: e2e scripts 23-33 of MQ-e2e (`ls scripts/cmux-next/*-e2e.py scripts/cmux-next/*-e2e.sh`, sorted). Each script stays and is linked here to its case. `fix` is the commit that made the behavior the script checks, `parent` that commit's parent: the case's acceptance is a Failure on `parent`. `catches` says which case step or invariant shows the bug there; `catches: null` means the case cannot see it, and `gap` says why. oracle.py skips `_` files; one file per batch, so the batches (092-097) never edit the same file.",
+  "$comment": "p15-oracle-094: e2e scripts 23-33 of MQ-e2e (`ls scripts/cmux-next/*-e2e.py scripts/cmux-next/*-e2e.sh`, sorted). Each script stays and is linked here to its case, or excluded with a reason. `fix` is the commit that made the behavior the script checks, `parent` that commit's parent: the case's acceptance is a Failure on `parent`. `catches` says which case step or invariant shows the bug there; `excluded` names a script no case can convert yet, with the reason, and its `gap` names the follow-up and its owner task; such a script is not counted as converted. `gap` on a converted script names what its case leaves out. oracle.py skips `_` files; one file per batch, so the batches (092-097) never edit the same file.",
   "task": "p15-oracle-094",
   "queue": "MQ-e2e",
   "range": [23, 33],
@@ -67,7 +67,7 @@
       "fix": "0bd0f005b59547d2bf97be2930e29214642535c4",
       "parent": "440413c26beda03a74e02031271c56b4bb3841cf",
       "cited": "cx-65br (#19299); cx-p0fz",
-      "catches": "plus and the column invariant: on the parent [+] on a New Tab page's chat leaves the page in the chat's pane about half the time, so a repeat run diverges"
+      "catches": "plus-1 to plus-4: on the parent about half the [+] clicks leave the New Tab page in the chat's pane, so that round's layout tree keeps its one pane and the wait on /layout/screens/0/root times out; with four rounds in fresh workspaces, as the script runs them, a parent run fails about 15 times in 16"
     },
     "scripts/cmux-next/newtab-key-hold-e2e.py": {
       "case": "e2e/newtab-key-hold",
@@ -77,12 +77,8 @@
       "catches": "open-and-leave: on the parent the hold never ends, so the terminal's screen does not change within 1 s"
     },
     "scripts/cmux-next/page-popup-escape-e2e.py": {
-      "case": "e2e/page-popup-escape",
-      "fix": "e17d3c64ac3d918743c43768f92f3feec663c1c7",
-      "parent": "6efb6af004cebd3a18d425ae2a1c0dfc052aa9c1",
-      "cited": "cx-6k6cg (#19819)",
-      "catches": null,
-      "gap": "the bug is the menu panel's geometry (clipped at the window's edge instead of escaping into a native panel); no snapshot facet records a popup's frame, rows or clipping (debug.page_popup), so the case checks only that the menu opens and closes cleanly. Closing the gap needs a popup geometry field in the overlays facet."
+      "excluded": "the bug (cx-6k6cg, #19819; fix e17d3c64ac3d918743c43768f92f3feec663c1c7, parent 6efb6af004cebd3a18d425ae2a1c0dfc052aa9c1) is the composer menu panel's geometry: on the parent it is clipped at the window's edge instead of escaping into a native panel. No snapshot facet records a popup's frame, clipping or native-panel host (the script reads debug.page_popup), so a case could only check that the menu opens and closes, which the parent passes too",
+      "gap": "a popup geometry field in the overlays facet (frame, clipped, native-panel hosted) converts this script; owner p15-oracle-038 (Facet: overlays and palette). Its acceptance is controller state only, so the field must come from the popup controller's own record of its panel, not the view tree"
     }
   }
 }

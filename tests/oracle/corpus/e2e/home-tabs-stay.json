@@ -20,12 +20,6 @@
   "platforms": ["mac"],
   "steps": [
     {
-      "id": "launched",
-      "op": "snapshot",
-      "args": {"facets": ["topology", "sidebar", "tabs"]},
-      "settleMaxMs": 5000
-    },
-    {
       "id": "new-tab",
       "op": "action.run",
       "target": {"window": "current"},
@@ -33,6 +27,13 @@
       "expect": {"outcome": "ok", "receipt": "action.done"},
       "waitFor": {"pointer": "/topology/tab_count", "predicate": "changed", "maxMs": 5000},
       "note": "a second terminal tab in the launch workspace; created/0 is the tab (NewTabRequest names the tab before its terminal)"
+    },
+    {
+      "id": "two-tabs",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "sidebar", "tabs"]},
+      "settleMaxMs": 5000,
+      "note": "the state the move starts from: one workspace, two tabs"
     },
     {
       "id": "move-tab-out",
@@ -109,7 +110,7 @@
   ],
   "invariants": [
     "the workspaces and their tabs in topology at refused equal those at home: the three refused merges move no tab and close no workspace (script: 'Home keeps its tabs; no workspace closes')",
-    "moved has one workspace more than launched and the same tab count: the tab moved, it was not copied",
+    "moved has one workspace more than two-tabs and the same tab count: the tab moved, it was not copied",
     "history at refused is empty: no refused merge closed a workspace into the closed history",
     "every mutation has one receipt or one typed error (I1)",
     "ids stay stable unless the step created or closed them (I2)"

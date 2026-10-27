@@ -77,17 +77,25 @@
       "expect": {"outcome": "ok", "receipt": "action.done"},
       "waitFor": {"pointer": "/windows/count", "equals": 2, "maxMs": 30000},
       "settleMaxMs": 10000,
-      "note": "the script's cross-window leg: a second window, key, whose Cmd-T reparents the one spare"
+      "note": "the script's cross-window leg: a second window, whose Cmd-T reparents the one spare"
+    },
+    {
+      "id": "window-ids",
+      "op": "cli",
+      "readOnly": true,
+      "args": {"argv": ["--json", "app", "call", "debug.focus"]},
+      "expect": {"outcome": "ok"},
+      "note": "debug.focus lists the window controllers in creation order (WindowManager.controllers), so windows/1/id is the second window; the script takes its debug.key window ids from the same list"
     },
     {
       "id": "open-in-second",
       "op": "key",
-      "target": {"window": "current"},
+      "target": {"window": "$step:window-ids#/stdout/windows/1/id"},
       "args": {"keys": ["cmd+t", "h", "e", "l", "l", "o"]},
       "expect": {"outcome": "ok", "receipt": "action.done"},
       "waitFor": {"pointer": "/topology/tab_count", "predicate": "changed", "maxMs": 5000},
       "settleMaxMs": 5000,
-      "note": "the key window's Cmd-T and keys, as in the first window"
+      "note": "Cmd-T and the keys sent to the second window by id: with no window debug.key picks the launch window, and the reparent never runs"
     },
     {
       "id": "typed-in-second",
@@ -97,7 +105,8 @@
     }
   ],
   "invariants": [
-    "focus at typed, typed-again and typed-in-second resolves to the new New Tab page (an agentPage target) in the key window: the field has the keyboard",
+    "focus at typed and typed-again resolves to the new New Tab page (an agentPage target) in the launch window: the field has the keyboard",
+    "focus at typed-in-second resolves to a new New Tab page in the window whose id window-ids read at windows/1, not in the launch window, and the launch window's tabs equal those at typed-again: the cross-window open adopted the spare there",
     "the New Tab page's draft at typed, typed-again and typed-in-second is sha256 of 'hello': no key was lost or reordered (the script's 'no lost key')",
     "the turn checkpoint of open-and-type already lists the new tab: the open lands in the key's own turn (instant create)",
     "every mutation has one receipt or one typed error (I1)",
