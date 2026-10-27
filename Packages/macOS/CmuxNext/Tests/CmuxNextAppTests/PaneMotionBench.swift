@@ -3,6 +3,7 @@ import CmuxNextWakeups
 import Darwin
 import Foundation
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 import QuartzCore
 
@@ -12,7 +13,8 @@ import QuartzCore
 /// frames until the springs rest. Each frame runs what one display frame runs: the model's
 /// observation turn, `advanceFrame`, layout and display. Per frame it records wall time; the
 /// budget is the frame at 120 Hz (8.33 ms). Stub content isolates our layout work from
-/// terminal and page content (the fleet's pane-perf run measures those).
+/// terminal and page content (the fleet's pane-perf run measures those). With CMUX_PERF_RESULT_DIR each case's
+/// frame times are result-v1 `pane_bench.<action>.<panes>.frame` (lab story pane-bench).
 @MainActor
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_PANE_BENCH"] == "1"))
 struct PaneMotionBench {
@@ -128,7 +130,7 @@ struct PaneMotionBench {
     }
 
     @Test(arguments: cases)
-    func paneActionFitsTheFrame(_ bench: Case) async {
+    func paneActionFitsTheFrame(_ bench: Case) async throws {
         let (c, r) = (bench.columns, bench.rows)
         let (before, after): ([LayoutScreen], [LayoutScreen]) = switch bench.name {
         case "split": (Self.grid(c, r), Self.split(c, r, axis: .horizontal))
@@ -149,6 +151,8 @@ struct PaneMotionBench {
         let p50 = Self.percentile(times, 0.5), p95 = Self.percentile(times, 0.95), max = times.max() ?? 0
         let over = times.filter { $0 > Self.frameBudget }.count
         let ms = { (value: Double) in String(format: "%.3f", value * 1000) }
+        try PerfResultWriter()?.record("pane_bench.\(bench.name.lowercased()).\(c * r).frame", unit: .ms,
+                                       samples: times.map { $0 * 1000 })
         print("PANE-BENCH action=\(bench.name) panes=\(c * r) frames=\(times.count) p50_ms=\(ms(p50)) p95_ms=\(ms(p95)) max_ms=\(ms(max)) over_8ms=\(over)")
         #expect(times.count > 3, "\(bench) moved: \(times.count) frames")
         #expect(p95 <= Self.layoutBudget, "\(bench): layout frame p95 \(ms(p95)) ms over \(ms(Self.layoutBudget)) ms")
