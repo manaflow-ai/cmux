@@ -162,4 +162,47 @@ struct PersonTerminalKeyboardClaimTests {
             #expect(!claimed, "a script's nested newTab claimed the person's keyboard")
         }
     }
+
+    /// A run that is not a new press: the later turn of an earlier user run (its task keeps the user scope) performs an
+    /// action. It is no new intent of the person's, so the claim stays (fourth review: willRunObservers ended it).
+    @Test func aNestedUserRunIsNoNewIntent() async throws {
+        try await Self.withWindow { h in
+            let coordinator = h.services.keyRouter.creationInputCoordinator
+            coordinator.holdLimit = .milliseconds(100)
+            let ticket = try #require(coordinator.beginWorkspace(in: h.controller))
+            coordinator.resolve(ticket, workspace: nil, in: h.window)
+            try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: h.window) }, report: { "the hold never ended" })
+            let earlier = ActionRunScope(origin: .user, allowsViewChange: true)
+            _ = ActionRunScope.carrying(earlier) { h.services.registry.perform("toggleSidebar", invocation: ActionInvocation(origin: .user)) }
+            let claimed = h.window.pendingCreationOwnsKeyboard
+            #expect(claimed, "a nested run of an earlier user run ended the person's claim")
+        }
+    }
+
+    /// The window already shows the workspace when its create replies: the claim ends at that reply, not at a later key
+    /// (fourth review: otherwise it could hold again if the window went back without the person).
+    @Test func aClaimEndsWhenItsWorkspaceIsShownAtTheReply() async throws {
+        try await Self.withWindow { h in
+            let coordinator = h.services.keyRouter.creationInputCoordinator
+            let ticket = try #require(coordinator.beginWorkspace(in: h.controller))
+            let shown = try #require(h.controller.focus.currentState().topology.workspace, "the window shows no workspace")
+            coordinator.resolve(ticket, workspace: shown, in: h.window)
+            let recorded = coordinator.hasClaim(in: h.window)
+            #expect(!recorded, "the claim outlived the reply that named the workspace the window shows")
+        }
+    }
+
+    /// Only the create that made a claim names its workspace: the first of two quick presses replying does not touch the
+    /// second press's claim (coverage of a4c01b0b403's ticket check).
+    @Test func anEarlierCreatesReplyLeavesALaterClaimAlone() async throws {
+        try await Self.withWindow { h in
+            let coordinator = h.services.keyRouter.creationInputCoordinator
+            let first = try #require(coordinator.beginWorkspace(in: h.controller))
+            _ = try #require(coordinator.beginWorkspace(in: h.controller))
+            let shown = try #require(h.controller.focus.currentState().topology.workspace)
+            coordinator.resolve(first, workspace: shown, in: h.window)
+            let claimed = h.window.pendingCreationOwnsKeyboard
+            #expect(claimed, "the first create's reply ended the second press's claim")
+        }
+    }
 }

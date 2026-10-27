@@ -145,6 +145,12 @@ final class CreationInputCoordinator {
         return buffer.newestGeneration == generation
     }
 
+    /// Whether `window` has a claim recorded now, ended or not (tests, `debug.focus`).
+    func hasClaim(in window: NSWindow?) -> Bool {
+        guard let window else { return false }
+        return claims[window.windowNumber] != nil
+    }
+
     /// Whether `window`'s keys wait in a creation hold now (tests, `debug.focus`).
     func isHolding(in window: NSWindow?) -> Bool {
         guard let window else { return false }

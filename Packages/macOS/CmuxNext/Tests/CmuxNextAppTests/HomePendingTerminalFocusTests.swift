@@ -203,4 +203,27 @@ struct HomePendingTerminalFocusTests {
             })
         }
     }
+
+    /// A script's run whose handler performs `newTab` with the default (user) invocation and no command: the person's own
+    /// newTab opens the New Tab page and its key hold here (the control), the script's nested one opens neither (fourth
+    /// review: the spawn and the page hold read the handed invocation's origin).
+    @Test func aScriptsNestedNewTabOpensNoNewTabPageHold() async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let (window, _) = try await HomeSplitKeysTests.showHome(services, connection)
+            let shell = try #require(window.window)
+            let input = services.keyRouter.newTabInputCoordinator
+            let control = services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string("persons-page")], origin: .user))
+            #expect(control)
+            let personHolds = input.isHolding(in: shell)
+            try #require(personHolds, "control: the person's own newTab opened no New Tab page hold here")
+            try await PasswordManagerRouteTests.until({ !input.isHolding(in: shell) }, within: .seconds(30), report: { "the person's page hold never ended: \(input.log)" })
+
+            let script = ActionRunScope(origin: .script, allowsViewChange: true)
+            _ = ActionRunScope.carrying(script) {
+                services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string("scripts-page")], origin: .user))
+            }
+            let scriptHolds = input.isHolding(in: shell)
+            #expect(!scriptHolds, "a script's nested newTab opened the New Tab page hold: \(input.log)")
+        }
+    }
 }
