@@ -88,3 +88,33 @@ test("the shared page host delegates terminal upload events", async () => {
     dom.window.close();
   }
 });
+
+test("aborting an upload releases its terminal waiter without a host push", async () => {
+  const controller = new AbortController();
+  const begin = deferred();
+  const result = finishedPromptUpload("abort", 3, () => begin.promise, async () => finished("abort"), controller.signal);
+  let code: unknown;
+  void result.catch((error) => { code = error.code; });
+  controller.abort();
+  await Promise.resolve();
+  expect(code).toBe("upload.cancelled");
+  begin.resolve();
+  receivePromptUploadState(finished("abort"));
+});
+
+test("concurrent host event subscribers await the same readiness", async () => {
+  const { startHostEvents } = await import("./pageHost");
+  const ready = deferred();
+  let calls = 0;
+  const page = {
+    async subscribe() { calls += 1; await ready.promise; return () => {}; },
+  } as unknown as import("../../pages/shared/pageClient").PageClient;
+  let secondReady = false;
+  const first = startHostEvents(page);
+  const second = startHostEvents(page).then(() => { secondReady = true; });
+  await Promise.resolve();
+  expect(secondReady).toBe(false);
+  expect(calls).toBe(1);
+  ready.resolve();
+  await Promise.all([first, second]);
+});
