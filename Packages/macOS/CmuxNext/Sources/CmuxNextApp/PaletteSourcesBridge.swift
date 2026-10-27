@@ -23,7 +23,7 @@ enum PaletteSourcesBridge {
         // cmux.json `palette.scopes.<id>.prefix`, read on every open.
         sources.scopePrefixes = { [weak services] in
             let assigned = services?.settings?.snapshot.paletteScopePrefixes.assigned ?? [:]
-            return Dictionary(uniqueKeysWithValues: assigned.map { (PaletteScopeID($0.key), $0.value) })
+            return Dictionary(assigned.map { (PaletteScopeID($0.key), $0.value) }, uniquingKeysWith: { first, _ in first })
         }
         // cmux.json `palette.aliases` and `palette.pins`, read on every open.
         sources.rankSettings = { [weak services] in
@@ -168,17 +168,24 @@ enum PaletteSourcesBridge {
         /// selects the tab and focuses its pane. Selecting through the pane alone missed a tab in
         /// another workspace: the window swaps that workspace's content in on a later turn, so
         /// its pane was not there yet and the jump landed on the workspace (Leo 2026-10-19).
-        func selectTab(id: String) {
-            _ = services.registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id), origin: .user))
+        func selectTab(id: String) { selectTab(id: id, inputTimestamp: nil) }
+
+        /// ``selectTab(id:)`` answering the input stamped `inputTimestamp` (a page's click, carried with its request).
+        func selectTab(id: String, inputTimestamp: Double?) {
+            var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: id), origin: .user)
+            invocation.inputTimestamp = inputTimestamp
+            _ = services.registry.perform("tab.focus", invocation: invocation)
         }
 
         func renameTab(id: String, to title: String) {
+            // view-observation-allow: locateTab is one MachineTabIndex lookup (R-index's target), not an observation
             guard let (tab, pane) = services.locateTab(id) else { return }
             let surface = tab.surface
             services.daemon(for: pane).send("rename-surface") { connection in try await connection.renameTab(surface, to: title) }
         }
 
         func closeTab(id: String) {
+            // view-observation-allow: locateTab is one MachineTabIndex lookup (R-index's target), not an observation
             guard let (_, pane) = services.locateTab(id), let controller = services.paneController(for: pane) else { return }
             controller.close([StripTabID(id)])
         }

@@ -30,7 +30,11 @@ public final class SSHLocalPortForward: Sendable {
     ) async throws -> SSHLocalPortForward {
         let listener = try await NIOTSListenerBootstrap(group: NIOTSEventLoopGroup.singleton)
             .childChannelInitializer { inbound in
-                let (local, remote) = SSHGlueHandler.matchedPair()
+                // SSH child channels run on their parent connection's loop.
+                let (local, remote) = SSHGlueHandler.matchedPair(
+                    localLoop: inbound.eventLoop,
+                    remoteLoop: connection.eventLoop
+                )
                 return inbound.pipeline.addHandler(local).flatMap {
                     let promise = inbound.eventLoop.makePromise(of: Void.self)
                     promise.completeWithTask {
@@ -69,55 +73,75 @@ public final class SSHLocalPortForward: Sendable {
 /// Joins two channels so bytes read on one are written to the other, and
 /// propagates end-of-stream and close. No cross-loop backpressure yet: a fast
 /// producer can buffer in memory (acceptable for dev-server browsing).
-final class SSHGlueHandler: ChannelDuplexHandler, @unchecked Sendable {
-    typealias InboundIn = NIOAny
-    typealias OutboundIn = NIOAny
-    typealias OutboundOut = NIOAny
+///
+/// Partners live on different event loops (the TCP listener child and the
+/// SSH child). Each side's context is in a `NIOLoopBoundBox` bound to that
+/// side's loop, so a side touches its partner's context only after hopping to
+/// the partner's loop, and the box traps any access that did not.
+final class SSHGlueHandler: ChannelDuplexHandler, Sendable {
+    typealias InboundIn = ByteBuffer
+    typealias OutboundIn = ByteBuffer
+    typealias OutboundOut = ByteBuffer
 
-    private var partner: SSHGlueHandler?
-    private var context: ChannelHandlerContext?
+    /// This side's context while it is in its pipeline.
+    private let ownContext: NIOLoopBoundBox<ChannelHandlerContext?>
+    /// The partner's `ownContext`.
+    private let partnerContext: NIOLoopBoundBox<ChannelHandlerContext?>
 
-    static func matchedPair() -> (SSHGlueHandler, SSHGlueHandler) {
-        let first = SSHGlueHandler()
-        let second = SSHGlueHandler()
-        first.partner = second
-        second.partner = first
-        return (first, second)
+    private init(
+        ownContext: NIOLoopBoundBox<ChannelHandlerContext?>,
+        partnerContext: NIOLoopBoundBox<ChannelHandlerContext?>
+    ) {
+        self.ownContext = ownContext
+        self.partnerContext = partnerContext
     }
 
-    // Partners live on different event loops (TCP listener child vs SSH
-    // child); hop to the partner's loop before touching its context.
-    private func onPartner(_ body: @escaping @Sendable (SSHGlueHandler, ChannelHandlerContext) -> Void) {
-        guard let partner, let context = partner.context else { return }
-        let box = UncheckedBox(partner)
-        let ctx = UncheckedBox(context)
-        if context.eventLoop.inEventLoop {
-            body(partner, context)
+    /// Two glued handlers: `local` goes in a channel on `localLoop`, `remote`
+    /// in one on `remoteLoop`.
+    static func matchedPair(
+        localLoop: any EventLoop,
+        remoteLoop: any EventLoop
+    ) -> (local: SSHGlueHandler, remote: SSHGlueHandler) {
+        let local = NIOLoopBoundBox.makeEmptyBox(valueType: ChannelHandlerContext.self, eventLoop: localLoop)
+        let remote = NIOLoopBoundBox.makeEmptyBox(valueType: ChannelHandlerContext.self, eventLoop: remoteLoop)
+        return (
+            SSHGlueHandler(ownContext: local, partnerContext: remote),
+            SSHGlueHandler(ownContext: remote, partnerContext: local)
+        )
+    }
+
+    /// Runs `body` on the partner's loop with its context, if it is still in
+    /// its pipeline then.
+    private func onPartner(_ body: @escaping @Sendable (ChannelHandlerContext) -> Void) {
+        let partner = partnerContext
+        if partner.eventLoop.inEventLoop {
+            if let context = partner.value { body(context) }
         } else {
-            context.eventLoop.execute { body(box.value, ctx.value) }
+            partner.eventLoop.execute {
+                if let context = partner.value { body(context) }
+            }
         }
     }
 
     func handlerAdded(context: ChannelHandlerContext) {
-        self.context = context
+        ownContext.value = context
     }
 
     func handlerRemoved(context: ChannelHandlerContext) {
-        self.context = nil
-        partner = nil
+        ownContext.value = nil
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        let data = UncheckedBox(data)
-        onPartner { _, partnerContext in partnerContext.write(data.value, promise: nil) }
+        let buffer = unwrapInboundIn(data)
+        onPartner { partnerContext in partnerContext.write(NIOAny(buffer), promise: nil) }
     }
 
     func channelReadComplete(context: ChannelHandlerContext) {
-        onPartner { _, partnerContext in partnerContext.flush() }
+        onPartner { partnerContext in partnerContext.flush() }
     }
 
     func channelInactive(context: ChannelHandlerContext) {
-        onPartner { _, partnerContext in partnerContext.close(promise: nil) }
+        onPartner { partnerContext in partnerContext.close(promise: nil) }
     }
 
     func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
@@ -125,10 +149,13 @@ final class SSHGlueHandler: ChannelDuplexHandler, @unchecked Sendable {
             // Half-closure is not reliable across Network.framework and SSH
             // channels, so drain what is already queued and close fully. Writes
             // are ordered, so the empty write completes after all real data.
-            onPartner { _, partnerContext in
+            onPartner { partnerContext in
                 let drained = partnerContext.eventLoop.makePromise(of: Void.self)
                 partnerContext.writeAndFlush(NIOAny(partnerContext.channel.allocator.buffer(capacity: 0)), promise: drained)
-                drained.futureResult.whenComplete { _ in partnerContext.close(promise: nil) }
+                // The glue is last in both pipelines, so closing the channel
+                // is closing from this handler.
+                let channel = partnerContext.channel
+                drained.futureResult.whenComplete { _ in channel.close(promise: nil) }
             }
         } else {
             context.fireUserInboundEventTriggered(event)
@@ -138,9 +165,4 @@ final class SSHGlueHandler: ChannelDuplexHandler, @unchecked Sendable {
     func errorCaught(context: ChannelHandlerContext, error: any Error) {
         context.close(promise: nil)
     }
-}
-
-struct UncheckedBox<Value>: @unchecked Sendable {
-    let value: Value
-    init(_ value: Value) { self.value = value }
 }

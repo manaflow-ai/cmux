@@ -11,7 +11,7 @@ import Testing
 @MainActor
 struct PageWebViewDebugHoverTests {
     private let root: URL
-    private let descriptor = PageDescriptor(id: "test.hover-page", resource: "hover-page", namespaces: [])
+    private let descriptor = PageDescriptor(id: "test.hover-page", resource: "hover-page", processGroup: .solo, namespaces: [])
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("page-hover-\(UUID().uuidString)", isDirectory: true)
@@ -22,7 +22,7 @@ struct PageWebViewDebugHoverTests {
     private func chromiumPage(center: String?, hoveredAfter: Bool = true) async throws -> (PageWebView, FakeChromiumPage) {
         let hosting = FakeChromiumHosting()
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting))
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
         page.answer = { method, params in

@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// `ui.reducedBackgrounds` in cmux.json: off by default, so windows draw what `appearance.*` asks
 /// for. On, windows draw the plain theme background: no painting, shuffle, desktop or system

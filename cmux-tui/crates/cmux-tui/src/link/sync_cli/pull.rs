@@ -41,9 +41,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use anyhow::{Context as _, bail};
+use cmux_process::{Command, Stdio};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 

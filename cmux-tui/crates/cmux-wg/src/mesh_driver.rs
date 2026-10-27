@@ -37,7 +37,7 @@ const BUFFER_BYTES: usize = 65_535;
 /// once per batch instead of once per datagram keeps the receive loop
 /// ahead of the socket buffer; a socket buffer that overflows drops
 /// segments, and smoltcp then waits a full retransmission timeout.
-const RECEIVE_BATCH: usize = 64;
+pub(crate) const RECEIVE_BATCH: usize = 64;
 /// Handshake initiations the mesh examines per second before it asks
 /// initiators for a cookie (WireGuard's under-load rule). Each costs a
 /// Diffie-Hellman to learn the initiator's key.

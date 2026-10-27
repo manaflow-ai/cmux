@@ -12,6 +12,7 @@ impl Mux {
     /// normally and the registry still names that incarnation live: never
     /// during shutdown, after an exit was committed, or after a close
     /// tombstoned the terminal.
+    #[track_caller]
     pub(crate) fn terminal_accepts_host_replacement(
         &self,
         identity: &TerminalHostIdentity,

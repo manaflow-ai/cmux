@@ -5,6 +5,7 @@
 import type { Plugin } from "vite-plus";
 import base from "./vite.config";
 import { galleryModules } from "./dev-server/galleryHost";
+import { SHARED_REACT_PLUGIN } from "./scripts/shared/shared-react.mjs";
 
 const outDir = process.env.CMUX_GALLERY_OUT_DIR ?? "dist/gallery";
 
@@ -26,7 +27,16 @@ const flattenPages: Plugin = {
 export default {
   ...base,
   base: "./",
-  plugins: [...(base.plugins ?? []), galleryModules(), flattenPages],
+  // Any static server serves the gallery, so it bundles React instead of importing cmux-page://cmux.shared/.
+  plugins: [
+    ...(base.plugins ?? [])
+      .flat()
+      .filter(
+        (plugin) => !(plugin && typeof plugin === "object" && "name" in plugin && plugin.name === SHARED_REACT_PLUGIN),
+      ),
+    galleryModules(),
+    flattenPages,
+  ],
   build: {
     ...base.build,
     outDir,

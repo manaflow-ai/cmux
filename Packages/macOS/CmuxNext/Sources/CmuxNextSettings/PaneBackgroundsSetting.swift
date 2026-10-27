@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// `appearance.paneBackgrounds`: one background behind the whole window (`shared`, the default)
 /// or a copy in each pane (`perPane`); plans/cmux-next/pane-backgrounds-DESIGN.md. A missing key

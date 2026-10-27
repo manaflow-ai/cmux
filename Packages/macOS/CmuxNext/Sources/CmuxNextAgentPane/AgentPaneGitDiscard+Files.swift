@@ -104,7 +104,9 @@ extension AgentPaneGitDiscard {
               AcpmuxPathPolicy.contains(root: repository, path: folder) else { return outsideMessage }
         let item = URL(fileURLWithPath: folder).appending(path: url.lastPathComponent)
         var status = stat()
-        guard lstat(item.path, &status) == 0 else { return nil }
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `status`, a local.
+        guard unsafe lstat(item.path, &status) == 0 else { return nil }
         do {
             try mover(item)
             return nil

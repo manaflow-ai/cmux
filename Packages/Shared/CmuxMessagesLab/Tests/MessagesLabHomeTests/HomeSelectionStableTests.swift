@@ -19,7 +19,7 @@ import Testing
         func cancel() {}
     }
 
-    struct Pane {
+    @MainActor struct Pane {
         let window: NSWindow
         let controller: ChatController
         var demo: MessagesWindowView { controller.demo! }

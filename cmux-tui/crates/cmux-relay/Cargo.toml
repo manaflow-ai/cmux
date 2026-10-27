@@ -14,7 +14,13 @@ workspace = true
 name = "cmux-relay"
 path = "src/main.rs"
 
+[features]
+# The lab's tokio slow-poll detector (cmux-blocking; RUSTFLAGS="--cfg tokio_unstable").
+cmux-stability = ["cmux-blocking/cmux-stability"]
+
 [dependencies]
+cmux-blocking.workspace = true
+cmux-panic-log.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 base64.workspace = true

@@ -18,14 +18,21 @@ build work: no app-side signal says that work has ended. It is marked `first_ope
 row and kept in `first_opens` (the whole run but its frame intervals: times, error, made_ahead_before, prompt_nil,
 missed), and left out of the session's percentiles; each OPEN-PANEL row says how many opens it summarizes (`n`). Later opens can still overlap launch work that lasts longer than one open.
 
+Each OPEN-PANEL row gives p50/p95/p99/max per time (scripts/perf-lab/perf_stats.py, linear interpolation). Every
+series is also written as one cmux-perf-result/v1 file into `--out` through BenchApp.record,
+`open_panel.<session>.<mode>.<time>` (init, begin, sync, visible, frame_max) with its `.missed_runs`
+(new_tab_bench_report.py); the report lists them under `results_v1`. Lab story:
+scripts/perf-lab/stories.d/open-panel.json.
+
 Usage: open-panel-bench.py --app APP --out DIR [--json PATH] [--sessions light,stress] [--rounds 5]
 Fleet: scripts/measure/split-spring.sh --suite=open-panel [--sessions=...] [--rounds=N]
 """
-import argparse, importlib.util, json, os, statistics, sys, threading, time
+import argparse, importlib.util, json, os, sys, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_launch import BenchApp  # noqa: E402
+import new_tab_bench_report as results  # noqa: E402
 
 
 def parse(argv=None):
@@ -37,6 +44,9 @@ def parse(argv=None):
     parser.add_argument("--sessions", default="light,stress")
     parser.add_argument("--rounds", type=int, default=5)
     parser.add_argument("--modes", default="made,fresh,window")
+    parser.add_argument("--story", default=results.OPEN_PANEL_STORY, help="result-v1 story")
+    parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                        help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
     opts, _unknown = parser.parse_known_args(argv)
     return opts
 
@@ -48,19 +58,13 @@ def load_stress():
     return module
 
 
-def pct(values, q):
-    values = sorted(v for v in values if isinstance(v, (int, float)))
-    if not values:
-        return None
-    return round(values[min(len(values) - 1, int(round((len(values) - 1) * q)))], 2)
-
-
 def summary(runs, key):
     values = [r.get(key) for r in runs]
-    return {"p50": pct(values, 0.5), "p95": pct(values, 0.95), "max": pct(values, 1.0)}
+    return {"p50": results.pct(values, 0.5), "p95": results.pct(values, 0.95), "p99": results.pct(values, 0.99),
+            "max": results.pct(values, 1.0)}
 
 
-TIMES = ("init_ms", "begin_ms", "sync_ms", "visible_ms", "frame_max_ms")
+TIMES = results.OPEN_PANEL_TIMES
 
 
 def measure(app, session, report, opts):
@@ -119,7 +123,7 @@ def main(argv=None):
     opts = parse(argv)
     os.makedirs(opts.out, exist_ok=True)
     report = {"runs": [], "summary": [], "first_opens": [], "hangs": []}
-    app = BenchApp(opts.app, out=opts.out, window=(40, 40, 1600, 1000))
+    app = BenchApp(opts.app, out=opts.out, window=(40, 40, 1600, 1000), build_config=opts.build_config)
     try:
         # No settle sleep (it hid launch work behind a fixed 3 s): the first open of each session is reported on its
         # own row and left out of the percentiles (measure).
@@ -132,6 +136,8 @@ def main(argv=None):
     finally:
         quit_probe(app, report)
         app.stop()
+        if app.features is not None:  # a launch that answered features.list; record() may run after stop()
+            report["results_v1"] = results.record_all(app, results.open_panel_series(report["runs"], opts.story))
         if opts.json:
             with open(opts.json, "w") as f:
                 json.dump(report, f, indent=1)

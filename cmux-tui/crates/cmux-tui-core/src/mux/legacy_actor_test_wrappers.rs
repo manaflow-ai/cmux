@@ -9,6 +9,7 @@ use crate::workspace_registry::FrontendBrowserRecord;
 
 #[allow(dead_code, clippy::too_many_arguments, reason = "test conveniences; each test uses some")]
 impl Mux {
+    #[track_caller]
     pub(crate) fn update_frontend_browser_tab_with_owner(
         &self,
         surface: SurfaceId,
@@ -28,10 +29,12 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(crate) fn close_workspace(&self, target: WorkspaceId) -> bool {
         self.close_workspace_as(&Actor::Daemon, target)
     }
 
+    #[track_caller]
     pub(crate) fn close_workspace_at_revision(
         &self,
         target: WorkspaceId,
@@ -40,12 +43,14 @@ impl Mux {
         self.close_workspace_at_revision_as(&Actor::Daemon, target, expected_revision)
     }
 
+    #[track_caller]
     pub(crate) fn rename_workspace(&self, target: WorkspaceId, name: String) -> bool {
         self.rename_workspace_at_revision_as(&Actor::Daemon, target, name, None)
             .map(|revision| revision.is_some())
             .unwrap_or(false)
     }
 
+    #[track_caller]
     pub(crate) fn rename_workspace_at_revision(
         &self,
         target: WorkspaceId,
@@ -55,12 +60,14 @@ impl Mux {
         self.rename_workspace_at_revision_as(&Actor::Daemon, target, name, expected_revision)
     }
 
+    #[track_caller]
     pub(crate) fn move_workspace(&self, workspace: WorkspaceId, index: usize) -> bool {
         self.move_workspace_at_revision_as(&Actor::Daemon, workspace, index, None)
             .map(|result| result.is_some_and(|(_, changed)| changed))
             .unwrap_or(false)
     }
 
+    #[track_caller]
     pub(crate) fn move_workspace_at_revision(
         &self,
         workspace: WorkspaceId,
@@ -70,6 +77,7 @@ impl Mux {
         self.move_workspace_at_revision_as(&Actor::Daemon, workspace, index, expected_revision)
     }
 
+    #[track_caller]
     pub(crate) fn rename_provider_managed_workspace(
         &self,
         id: WorkspaceId,
@@ -79,6 +87,7 @@ impl Mux {
         self.rename_provider_managed_workspace_as(&Actor::Daemon, id, key, name)
     }
 
+    #[track_caller]
     pub(crate) fn close_provider_managed_workspace(
         &self,
         id: WorkspaceId,
@@ -87,6 +96,7 @@ impl Mux {
         self.close_provider_managed_workspace_as(&Actor::Daemon, id, key)
     }
 
+    #[track_caller]
     pub(crate) fn select_tab(
         self: &Arc<Self>,
         pane: Option<PaneId>,
@@ -96,6 +106,7 @@ impl Mux {
         self.select_tab_as(&Actor::Daemon, pane, index, delta);
     }
 
+    #[track_caller]
     pub(crate) fn set_column_dock(
         self: &Arc<Self>,
         pane: PaneId,
@@ -105,6 +116,7 @@ impl Mux {
         self.set_column_dock_as(&Actor::Daemon, pane, dock, transaction)
     }
 
+    #[track_caller]
     pub(crate) fn set_row_heights(
         self: &Arc<Self>,
         column: SplitId,
@@ -115,6 +127,7 @@ impl Mux {
         self.set_row_heights_as(&Actor::Daemon, column, heights, fit, transaction)
     }
 
+    #[track_caller]
     pub(crate) fn apply_layout(
         self: &Arc<Self>,
         workspace: Option<WorkspaceId>,
@@ -125,6 +138,7 @@ impl Mux {
         self.apply_layout_as(&Actor::Daemon, workspace, name, layout, size)
     }
 
+    #[track_caller]
     pub(crate) fn undo_layout(
         self: &Arc<Self>,
         pane: PaneId,
@@ -134,6 +148,7 @@ impl Mux {
         self.undo_layout_as(&Actor::Daemon, pane, expected_revision, confirm_close)
     }
 
+    #[track_caller]
     pub(crate) fn move_tab_to_split(
         self: &Arc<Self>,
         surface: SurfaceId,
@@ -145,6 +160,7 @@ impl Mux {
         self.move_tab_to_split_as(&Actor::Daemon, surface, pane, edge, ratio, false, transaction)
     }
 
+    #[track_caller]
     pub(crate) fn move_tab_to_column(
         self: &Arc<Self>,
         surface: SurfaceId,
@@ -166,6 +182,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(crate) fn set_screen_metadata(
         self: &Arc<Self>,
         screen: ScreenId,
@@ -175,6 +192,7 @@ impl Mux {
         self.set_screen_metadata_as(&Actor::Daemon, screen, color, icon)
     }
 
+    #[track_caller]
     pub(crate) fn set_screen_pinned(
         self: &Arc<Self>,
         screen: ScreenId,
@@ -183,6 +201,7 @@ impl Mux {
         self.set_screen_pinned_as(&Actor::Daemon, screen, pinned)
     }
 
+    #[track_caller]
     pub(crate) fn move_screen(
         self: &Arc<Self>,
         screen: ScreenId,
@@ -191,6 +210,7 @@ impl Mux {
         self.move_screen_as(&Actor::Daemon, screen, destination)
     }
 
+    #[track_caller]
     pub(crate) fn create_screen_group(
         self: &Arc<Self>,
         members: &[ScreenId],
@@ -200,6 +220,7 @@ impl Mux {
         self.create_screen_group_as(&Actor::Daemon, members, name, color)
     }
 
+    #[track_caller]
     pub(crate) fn update_screen_group(
         &self,
         group: &str,
@@ -210,6 +231,7 @@ impl Mux {
         self.update_screen_group_as(&Actor::Daemon, group, name, color, collapsed, None)
     }
 
+    #[track_caller]
     pub(crate) fn add_screens_to_screen_group(
         self: &Arc<Self>,
         group: &str,
@@ -219,6 +241,7 @@ impl Mux {
         self.add_screens_to_screen_group_as(&Actor::Daemon, group, added, index)
     }
 
+    #[track_caller]
     pub(crate) fn remove_screens_from_screen_group(
         self: &Arc<Self>,
         removed: &[ScreenId],
@@ -226,6 +249,7 @@ impl Mux {
         self.remove_screens_from_screen_group_as(&Actor::Daemon, removed)
     }
 
+    #[track_caller]
     pub(crate) fn move_screen_group(
         self: &Arc<Self>,
         group: &str,
@@ -234,14 +258,17 @@ impl Mux {
         self.move_screen_group_as(&Actor::Daemon, group, destination)
     }
 
+    #[track_caller]
     pub(crate) fn ungroup_screen_group(&self, group: &str) -> anyhow::Result<Vec<ScreenId>> {
         self.ungroup_screen_group_as(&Actor::Daemon, group)
     }
 
+    #[track_caller]
     pub(crate) fn save_screen_group(&self, group: &str) -> anyhow::Result<String> {
         self.save_screen_group_as(&Actor::Daemon, group)
     }
 
+    #[track_caller]
     pub(crate) fn create_tab_group(
         self: &Arc<Self>,
         surfaces: &[SurfaceId],
@@ -253,6 +280,7 @@ impl Mux {
         self.create_tab_group_as(&Actor::Daemon, surfaces, name, color, id, transaction)
     }
 
+    #[track_caller]
     pub(crate) fn update_tab_group(
         self: &Arc<Self>,
         group: &str,
@@ -263,6 +291,7 @@ impl Mux {
         self.update_tab_group_as(&Actor::Daemon, group, name, color, collapsed, None)
     }
 
+    #[track_caller]
     pub(crate) fn add_tabs_to_tab_group(
         self: &Arc<Self>,
         group: &str,
@@ -272,6 +301,7 @@ impl Mux {
         self.add_tabs_to_tab_group_as(&Actor::Daemon, group, surfaces, transaction)
     }
 
+    #[track_caller]
     pub(crate) fn remove_tabs_from_tab_group(
         self: &Arc<Self>,
         surfaces: &[SurfaceId],
@@ -280,6 +310,7 @@ impl Mux {
         self.remove_tabs_from_tab_group_as(&Actor::Daemon, surfaces, transaction)
     }
 
+    #[track_caller]
     pub(crate) fn move_tab_group(
         self: &Arc<Self>,
         group: &str,
@@ -289,6 +320,7 @@ impl Mux {
         self.move_tab_group_as(&Actor::Daemon, group, destination, transaction)
     }
 
+    #[track_caller]
     pub(crate) fn ungroup_tab_group(
         self: &Arc<Self>,
         group: &str,
@@ -296,22 +328,27 @@ impl Mux {
         self.ungroup_tab_group_as(&Actor::Daemon, group)
     }
 
+    #[track_caller]
     pub(crate) fn close_tab_group(self: &Arc<Self>, group: &str) -> anyhow::Result<Vec<SurfaceId>> {
         self.close_tab_group_as(&Actor::Daemon, group)
     }
 
+    #[track_caller]
     pub(crate) fn save_tab_group(self: &Arc<Self>, group: &str) -> anyhow::Result<String> {
         self.save_tab_group_as(&Actor::Daemon, group)
     }
 
+    #[track_caller]
     pub(crate) fn unsave_tab_group(&self, group: &str) -> anyhow::Result<bool> {
         self.unsave_tab_group_as(&Actor::Daemon, group)
     }
 
+    #[track_caller]
     pub(crate) fn delete_saved_tab_group(&self, saved_id: &str) -> anyhow::Result<bool> {
         self.delete_saved_tab_group_as(&Actor::Daemon, saved_id)
     }
 
+    #[track_caller]
     pub(crate) fn set_tab_pinned(
         self: &Arc<Self>,
         surface: SurfaceId,

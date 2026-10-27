@@ -100,7 +100,7 @@ pub(crate) async fn handle(hub: &Hub, params: &Value) -> Result<Value, RpcError>
     let (before, after) = (number("before"), number("after"));
     let _turn = READS.acquire().await.map_err(|e| RpcError::internal(e.to_string()))?;
     let (text, truncated) =
-        tokio::task::spawn_blocking(move || read(&home, &session_id, run.as_deref(), &agent))
+        crate::daemon::spawn_blocking(move || read(&home, &session_id, run.as_deref(), &agent))
             .await
             .map_err(|e| RpcError::internal(e.to_string()))??;
     let total = text.lines.len();
@@ -108,7 +108,7 @@ pub(crate) async fn handle(hub: &Hub, params: &Value) -> Result<Value, RpcError>
     let (start, end, from) = text.bounded(start, end, after.is_some());
     // Parsed and replayed off the runtime: a page and the lines before it are CPU work. A line
     // over `PAGE_BYTES` is never parsed: it goes as an `omitted` stub (`fit`).
-    let per_line = tokio::task::spawn_blocking(move || {
+    let per_line = crate::daemon::spawn_blocking(move || {
         let replayed: Vec<Value> = (from..end).map(|at| text.message(at)).collect();
         let huge: Vec<Option<usize>> =
             (start..end).map(|at| Some(text.len_of(at)).filter(|n| *n > PAGE_BYTES)).collect();
@@ -208,7 +208,7 @@ fn read(
     let project = own.parent().ok_or_else(missing)?;
     let mut sessions = vec![session.to_owned()];
     if run.is_some() {
-        let mut others: Vec<String> = std::fs::read_dir(project)
+        let mut others: Vec<String> = cmux_blocking::fs::read_dir(project)
             .into_iter()
             .flatten()
             .flatten()

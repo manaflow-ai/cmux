@@ -76,6 +76,7 @@ impl SpawnedPaneSurface<'_> {
 impl Mux {
     /// Raw `split` (and `new-pane-right` with `viewport_width`) whose new
     /// pane holds a browser at `url`. Same commit path as a terminal split.
+    #[track_caller]
     pub(crate) fn split_browser_pane_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -106,6 +107,7 @@ impl Mux {
     /// (`conversation-tab-split-v1`) adds its reserved `frontend_browser_id`,
     /// the client transaction its one `pane-added` carries and the
     /// caller-minted pane id.
+    #[track_caller]
     pub(crate) fn split_browser_pane_with_fields_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -155,6 +157,7 @@ impl Mux {
     /// Spawn the content of a pane that `effect_add_pane` attaches: a browser
     /// for a browser-pane intent, otherwise a terminal with the intent's
     /// terminal reservation.
+    #[track_caller]
     pub(super) fn effect_spawn_pane_surface(
         self: &Arc<Self>,
         intent: &Value,
@@ -198,6 +201,7 @@ impl Mux {
     }
 
     /// Undo a spawned pane surface whose pane could not be attached.
+    #[track_caller]
     pub(super) fn fail_pane_surface_attachment(
         &self,
         spawned: &SpawnedPaneSurface<'_>,

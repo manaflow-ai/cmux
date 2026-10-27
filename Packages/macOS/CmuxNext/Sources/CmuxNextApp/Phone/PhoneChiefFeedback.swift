@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import CmuxNextPhone
@@ -55,8 +56,7 @@ final class PhoneChiefFeedback: PhoneFeedbackSink {
     }
 
     nonisolated private static func jpeg(from png: URL, next target: URL) -> URL? {
-        guard let source = CGImageSourceCreateWithURL(png as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+        guard let image = CheckedImageSource(blockingContentsOf: png)?.image(),
               let destination = CGImageDestinationCreateWithURL(target as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.8] as CFDictionary)
         return CGImageDestinationFinalize(destination) ? target : nil

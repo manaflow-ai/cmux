@@ -34,7 +34,7 @@ public struct ConversationAttachmentUploadRequest: DaemonRequest {
         public var received: Int?
     }
 
-    public static let command = "conversation-attachment-upload"
+    public static let commandName: DaemonCommandName = "conversation-attachment-upload"
     public var op: String
     public var conversation: String?
     public var sha256: String?
@@ -120,7 +120,7 @@ public struct ConversationAttachmentReadRequest: DaemonRequest {
         }
     }
 
-    public static let command = "conversation-attachment-read"
+    public static let commandName: DaemonCommandName = "conversation-attachment-read"
     public var conversation: String
     public var hash: String
     public var variant: ConversationAttachmentVariant

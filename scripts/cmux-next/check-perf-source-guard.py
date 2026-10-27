@@ -24,7 +24,7 @@ SOURCES = "Packages/macOS/CmuxNext/Sources"
 ALLOW = re.compile(r"//\s*perf-gate-ok:\s*\S")
 # Window capture APIs and the files that may use them.
 CAPTURE = re.compile(r"CGWindowListCreateImage|CGDisplayCreateImage|SCScreenshotManager|\.renderSnapshot\(\)"
-                     r"|\.compositedSnapshot\(|\.childWindowsSnapshot\(|\.floatingWindowsSnapshot\(\)|\.writeSnapshot\(to"
+                     r"|\.compositedImage\(|\.childWindowsImage\(|\.floatingWindows(Image)?\(|\.writeSnapshot\(to"
                      # The screenshot helpers' own entry points (NSWindow+Screenshot.swift).
                      r"|\.screenshotImage\(|\.screenCaptureKitSnapshot\(")
 CAPTURE_FILES = re.compile(

@@ -1,7 +1,7 @@
 public import Security
 
 /// Finds keychain items, like `SecItemCopyMatching`, as a checked blocking call
-/// (``assertBlockingAllowed(_:fileID:line:)``, Chrome's `base::ScopedBlockingCall` in
+/// (``blockingCall(_:fileID:line:_:)``, Chrome's `base::ScopedBlockingCall` in
 /// base/threading/scoped_blocking_call.h): it waits for securityd and can wait for a keychain prompt.
 ///
 /// - Parameters:
@@ -10,11 +10,13 @@ public import Security
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `SecItemCopyMatching` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingSecItemCopyMatching(_ query: CFDictionary, _ result: UnsafeMutablePointer<CFTypeRef?>?,
                                         fileID: StaticString = #fileID, line: UInt = #line) -> OSStatus {
-    assertBlockingAllowed(.systemCall, fileID: fileID, line: line)
-    return SecItemCopyMatching(query, result)
+    // SAFETY: forwards the caller's pointers to SecItemCopyMatching unchanged, only for the call; the caller's own
+    // `unsafe` states why they are valid for it.
+    return blockingCall(.systemCall, fileID: fileID, line: line) { unsafe SecItemCopyMatching(query, result) }
 }
 
 /// Adds a keychain item, like `SecItemAdd`, as a checked blocking call: it waits for securityd.
@@ -25,11 +27,13 @@ public func blockingSecItemCopyMatching(_ query: CFDictionary, _ result: UnsafeM
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `SecItemAdd` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingSecItemAdd(_ attributes: CFDictionary, _ result: UnsafeMutablePointer<CFTypeRef?>?,
                                fileID: StaticString = #fileID, line: UInt = #line) -> OSStatus {
-    assertBlockingAllowed(.systemCall, fileID: fileID, line: line)
-    return SecItemAdd(attributes, result)
+    // SAFETY: forwards the caller's pointers to SecItemAdd unchanged, only for the call; the caller's own `unsafe`
+    // states why they are valid for it.
+    return blockingCall(.systemCall, fileID: fileID, line: line) { unsafe SecItemAdd(attributes, result) }
 }
 
 /// Changes keychain items, like `SecItemUpdate`, as a checked blocking call: it waits for securityd.
@@ -40,11 +44,11 @@ public func blockingSecItemAdd(_ attributes: CFDictionary, _ result: UnsafeMutab
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `SecItemUpdate` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingSecItemUpdate(_ query: CFDictionary, _ attributesToUpdate: CFDictionary,
                                   fileID: StaticString = #fileID, line: UInt = #line) -> OSStatus {
-    assertBlockingAllowed(.systemCall, fileID: fileID, line: line)
-    return SecItemUpdate(query, attributesToUpdate)
+    return blockingCall(.systemCall, fileID: fileID, line: line) { SecItemUpdate(query, attributesToUpdate) }
 }
 
 /// Deletes keychain items, like `SecItemDelete`, as a checked blocking call: it waits for securityd.
@@ -54,10 +58,10 @@ public func blockingSecItemUpdate(_ query: CFDictionary, _ attributesToUpdate: C
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `SecItemDelete` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingSecItemDelete(_ query: CFDictionary, fileID: StaticString = #fileID, line: UInt = #line) -> OSStatus {
-    assertBlockingAllowed(.systemCall, fileID: fileID, line: line)
-    return SecItemDelete(query)
+    return blockingCall(.systemCall, fileID: fileID, line: line) { SecItemDelete(query) }
 }
 
 /// Evaluates a trust, like `SecTrustEvaluateWithError`, as a checked blocking call: it waits for
@@ -69,11 +73,13 @@ public func blockingSecItemDelete(_ query: CFDictionary, fileID: StaticString = 
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: Whether the trust is valid.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingSecTrustEvaluate(_ trust: SecTrust, _ error: UnsafeMutablePointer<CFError?>?,
                                      fileID: StaticString = #fileID, line: UInt = #line) -> Bool {
-    assertBlockingAllowed(.systemCall, fileID: fileID, line: line)
-    return SecTrustEvaluateWithError(trust, error)
+    // SAFETY: forwards the caller's pointers to SecTrustEvaluateWithError unchanged, only for the call; the caller's
+    // own `unsafe` states why they are valid for it.
+    return blockingCall(.systemCall, fileID: fileID, line: line) { unsafe SecTrustEvaluateWithError(trust, error) }
 }
 
 /// Checks a code signature on disk, like `SecStaticCodeCheckValidityWithErrors`, as a checked blocking
@@ -87,12 +93,14 @@ public func blockingSecTrustEvaluate(_ trust: SecTrust, _ error: UnsafeMutablePo
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `SecStaticCodeCheckValidityWithErrors` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingSecStaticCodeCheckValidity(_ code: SecStaticCode, _ flags: SecCSFlags, _ requirement: SecRequirement?,
                                                errors: UnsafeMutablePointer<Unmanaged<CFError>?>? = nil,
                                                fileID: StaticString = #fileID, line: UInt = #line) -> OSStatus {
-    assertBlockingAllowed(.systemCall, fileID: fileID, line: line)
-    return SecStaticCodeCheckValidityWithErrors(code, flags, requirement, errors)
+    // SAFETY: forwards the caller's pointers to SecStaticCodeCheckValidityWithErrors unchanged, only for the call; the
+    // caller's own `unsafe` states why they are valid for it.
+    return blockingCall(.systemCall, fileID: fileID, line: line) { unsafe SecStaticCodeCheckValidityWithErrors(code, flags, requirement, errors) }
 }
 
 /// The running process's code, like `SecCodeCopySelf`, as a checked blocking call: it asks the kernel
@@ -104,11 +112,13 @@ public func blockingSecStaticCodeCheckValidity(_ code: SecStaticCode, _ flags: S
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `SecCodeCopySelf` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingSecCodeCopySelf(_ flags: SecCSFlags, _ code: UnsafeMutablePointer<SecCode?>,
                                     fileID: StaticString = #fileID, line: UInt = #line) -> OSStatus {
-    assertBlockingAllowed(.systemCall, fileID: fileID, line: line)
-    return SecCodeCopySelf(flags, code)
+    // SAFETY: forwards the caller's pointers to SecCodeCopySelf unchanged, only for the call; the caller's own `unsafe`
+    // states why they are valid for it.
+    return blockingCall(.systemCall, fileID: fileID, line: line) { unsafe SecCodeCopySelf(flags, code) }
 }
 
 /// The code on disk of running code, like `SecCodeCopyStaticCode`, as a checked blocking call: it finds
@@ -121,11 +131,13 @@ public func blockingSecCodeCopySelf(_ flags: SecCSFlags, _ code: UnsafeMutablePo
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `SecCodeCopyStaticCode` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingSecCodeCopyStaticCode(_ code: SecCode, _ flags: SecCSFlags, _ staticCode: UnsafeMutablePointer<SecStaticCode?>,
                                           fileID: StaticString = #fileID, line: UInt = #line) -> OSStatus {
-    assertBlockingAllowed(.systemCall, fileID: fileID, line: line)
-    return SecCodeCopyStaticCode(code, flags, staticCode)
+    // SAFETY: forwards the caller's pointers to SecCodeCopyStaticCode unchanged, only for the call; the caller's own
+    // `unsafe` states why they are valid for it.
+    return blockingCall(.systemCall, fileID: fileID, line: line) { unsafe SecCodeCopyStaticCode(code, flags, staticCode) }
 }
 
 /// The signing information of code, like `SecCodeCopySigningInformation`, as a checked blocking call:
@@ -138,12 +150,14 @@ public func blockingSecCodeCopyStaticCode(_ code: SecCode, _ flags: SecCSFlags, 
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `SecCodeCopySigningInformation` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingSecCodeCopySigningInformation(_ code: SecStaticCode, _ flags: SecCSFlags,
                                                   _ information: UnsafeMutablePointer<CFDictionary?>,
                                                   fileID: StaticString = #fileID, line: UInt = #line) -> OSStatus {
-    assertBlockingAllowed(.systemCall, fileID: fileID, line: line)
-    return SecCodeCopySigningInformation(code, flags, information)
+    // SAFETY: forwards the caller's pointers to SecCodeCopySigningInformation unchanged, only for the call; the
+    // caller's own `unsafe` states why they are valid for it.
+    return blockingCall(.systemCall, fileID: fileID, line: line) { unsafe SecCodeCopySigningInformation(code, flags, information) }
 }
 
 /// The guest code a host names by attributes (an audit token or a pid), like
@@ -158,12 +172,14 @@ public func blockingSecCodeCopySigningInformation(_ code: SecStaticCode, _ flags
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `SecCodeCopyGuestWithAttributes` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingSecCodeCopyGuestWithAttributes(_ host: SecCode?, _ attributes: CFDictionary?, _ flags: SecCSFlags,
                                                    _ guest: UnsafeMutablePointer<SecCode?>,
                                                    fileID: StaticString = #fileID, line: UInt = #line) -> OSStatus {
-    assertBlockingAllowed(.systemCall, fileID: fileID, line: line)
-    return SecCodeCopyGuestWithAttributes(host, attributes, flags, guest)
+    // SAFETY: forwards the caller's pointers to SecCodeCopyGuestWithAttributes unchanged, only for the call; the
+    // caller's own `unsafe` states why they are valid for it.
+    return blockingCall(.systemCall, fileID: fileID, line: line) { unsafe SecCodeCopyGuestWithAttributes(host, attributes, flags, guest) }
 }
 
 /// Asks authd for rights, like `AuthorizationCopyRights`, as a checked blocking call: it can wait for the
@@ -178,6 +194,7 @@ public func blockingSecCodeCopyGuestWithAttributes(_ host: SecCode?, _ attribute
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `AuthorizationCopyRights` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingAuthorizationCopyRights(
     _ authorization: AuthorizationRef, _ rights: UnsafePointer<AuthorizationRights>,
@@ -185,6 +202,7 @@ public func blockingAuthorizationCopyRights(
     _ authorizedRights: UnsafeMutablePointer<UnsafeMutablePointer<AuthorizationRights>?>?,
     fileID: StaticString = #fileID, line: UInt = #line
 ) -> OSStatus {
-    assertBlockingAllowed(.systemCall, fileID: fileID, line: line)
-    return AuthorizationCopyRights(authorization, rights, environment, flags, authorizedRights)
+    // SAFETY: forwards the caller's pointers to AuthorizationCopyRights unchanged, only for the call; the caller's own
+    // `unsafe` states why they are valid for it.
+    return blockingCall(.systemCall, fileID: fileID, line: line) { unsafe AuthorizationCopyRights(authorization, rights, environment, flags, authorizedRights) }
 }

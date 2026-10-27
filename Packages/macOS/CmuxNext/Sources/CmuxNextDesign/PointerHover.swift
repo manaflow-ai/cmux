@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextWakeups
 
 /// Hover as a function of where the pointer is now and where the view is
 /// now (cx-ww20, cx-3wu5). A tracking area reports only pointer moves: when
@@ -14,7 +15,8 @@ public import AppKit
 ///   relayout, a strip scrollbar update),
 /// - every key-window change, and every `debug.mouse` pointer (DEBUG).
 ///
-/// The layout's divider hover (`ScreenDividers`) reads the same pointer.
+/// The layout's divider hover (`ScreenDividers`) reads the same pointer: the enter or exit's own
+/// point while one is handled, the window's cursor sample otherwise.
 @MainActor
 public final class PointerHover: NSObject {
     /// Whether the pointer is over the view now (as of the last refresh).
@@ -67,24 +69,25 @@ public final class PointerHover: NSObject {
     // `@objc` exports `mouseEnteredWith:`, and the first enter raised
     // NSInvalidArgumentException in `_dispatchMouseEntered:` (cx-2mp6).
     // The target's own event files it under its window first: a view moved to another window
-    // since the last refresh is found there.
+    // since the last refresh is found there. The window's targets then hover from the event's own
+    // point, as Chromium's `ui/views/widget/root_view.cc` hit-tests a move's `event.location()`.
     @objc(mouseEntered:) public func mouseEntered(with event: NSEvent) {
         Self.index.place(self)
-        Self.refresh(in: view?.window)
+        Self.refresh(in: view?.window, at: event)
     }
     @objc(mouseExited:) public func mouseExited(with event: NSEvent) {
         Self.index.place(self)
-        Self.refresh(in: view?.window)
+        Self.refresh(in: view?.window, at: event)
     }
 
     /// Recomputes this target only (its eligibility changed).
     public func refresh() {
         Self.index.place(self)
-        update()
+        update(at: nil)
     }
 
-    private func update() {
-        let hovering = computeHovering()
+    private func update(at event: NSEvent?) {
+        let hovering = computeHovering(at: event)
         guard hovering != isHovering else { return }
         isHovering = hovering
         Self.index.noteHovering(self, hovering)
@@ -102,13 +105,15 @@ public final class PointerHover: NSObject {
         return window
     }
 
-    private func computeHovering() -> Bool {
+    private func computeHovering(at event: NSEvent?) -> Bool {
+        // visibility-walk-allow: the hover hit test: a view hidden under the pointer must not hover (AppKit's own
+        // hit test skips hidden views the same way)
         guard let view, let window = view.window, !view.isHiddenOrHasHiddenAncestor, isHoverable(),
-              let pointer = Self.pointer(in: window, requireKey: requiresKeyWindow) else { return false }
+              let pointer = Self.pointer(in: window, requireKey: requiresKeyWindow, event: event) else { return false }
         let local = view.convert(pointer, from: nil)
         let rect = (region?(view) ?? view.bounds).intersection(view.visibleRect)
         guard !rect.isNull, rect.contains(local) else { return false }
-        return Self.isTopmost(window, passThrough: passThroughWindows())
+        return Self.isTopmost(window, at: pointer, passThrough: passThroughWindows())
     }
 
     // MARK: The pointer
@@ -129,8 +134,10 @@ public final class PointerHover: NSObject {
     /// DEBUG: sets `window`'s synthesized pointer (nil: outside the window),
     /// then recomputes every target in the window.
     public static func setDebugPointer(_ point: NSPoint?, in window: NSWindow) {
+        // global-input-allow: DEBUG debug.mouse, no event; the real cursor now, to see the user take over later.
         debugPointers[ObjectIdentifier(window)] = DebugPointer(point: point, mouse: NSEvent.mouseLocation)
         installKeyObserversIfNeeded()
+        keyObserver?.forgetPointer(whenClosing: window)
         refresh(in: window)
     }
 
@@ -139,6 +146,7 @@ public final class PointerHover: NSObject {
     static func debugPointer(in window: NSWindow) -> NSPoint?? {
         let key = ObjectIdentifier(window)
         guard let entry = debugPointers[key] else { return nil }
+        // global-input-allow: DEBUG debug.mouse; a real cursor move with no event in this app still hands back the pointer.
         guard entry.mouse == NSEvent.mouseLocation else {
             // The real mouse moved since: the user's pointer counts again.
             debugPointers[key] = nil
@@ -153,10 +161,21 @@ public final class PointerHover: NSObject {
     /// shown (or, with `requireKey`, not key). `debug.mouse`'s synthesized
     /// pointer wins in DEBUG builds.
     public static func pointer(in window: NSWindow, requireKey: Bool = false) -> NSPoint? {
+        pointer(in: window, requireKey: requireKey, event: nil)
+    }
+
+    /// As `pointer(in:requireKey:)`, from `event`'s point while its window is the one asked about:
+    /// the handler of an enter or exit passes its event. Outside an event (a layout pass, a scroll,
+    /// a hide under a still pointer) there is none, and the window's own cursor sample is read, as
+    /// Chromium's `Widget::SynthesizeMouseMoveEvent` replays the last mouse location after a layout
+    /// change.
+    public static func pointer(in window: NSWindow, requireKey: Bool, event: NSEvent?) -> NSPoint? {
         #if DEBUG
         if let synthetic = debugPointer(in: window) { return synthetic }
         #endif
         guard window.isVisible, !requireKey || window.isKeyWindow else { return nil }
+        if let event, event.window === window { return event.locationInWindow }
+        // global-input-allow: no event (a layout, scroll or hide under a still pointer); the window's own cursor sample.
         return window.mouseLocationOutsideOfEventStream
     }
 
@@ -165,10 +184,17 @@ public final class PointerHover: NSObject {
     /// point). A window server round trip: ask only when a view is under the
     /// pointer.
     public static func isTopmost(_ window: NSWindow, passThrough: Set<Int> = []) -> Bool {
+        // global-input-allow: no event at hand; the window's own cursor sample, as `pointer(in:requireKey:)` reads.
+        return isTopmost(window, at: window.mouseLocationOutsideOfEventStream, passThrough: passThrough)
+    }
+
+    /// As `isTopmost(_:passThrough:)` at `point` (`window`'s coordinates), the same sample the
+    /// hover test read, so both answer for one pointer.
+    public static func isTopmost(_ window: NSWindow, at point: NSPoint, passThrough: Set<Int> = []) -> Bool {
         #if DEBUG
         if debugPointer(in: window) != nil { return true }
         #endif
-        let top = NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0)
+        let top = NSWindow.windowNumber(at: window.convertPoint(toScreen: point), belowWindowWithWindowNumber: 0)
         return top == window.windowNumber || passThrough.contains(top)
     }
 
@@ -185,6 +211,11 @@ public final class PointerHover: NSObject {
     /// reflows views under a possibly still pointer. A refresh that an `onChange` starts (a hover
     /// that expands a stack) runs right after the current one.
     public static func refresh(in window: NSWindow?) {
+        refresh(in: window, at: nil)
+    }
+
+    /// As `refresh(in:)`; `event` is the enter or exit that started it, read for its window.
+    private static func refresh(in window: NSWindow?, at event: NSEvent?) {
         guard let window else { return }
         guard !refreshing else {
             if !pending.contains(where: { $0 === window }) { pending.append(window) }
@@ -203,7 +234,7 @@ public final class PointerHover: NSObject {
             // there under a still pointer).
             for other in moved where other !== current && !queue.contains(where: { $0 === other }) { queue.append(other) }
             for target in targets {
-                if target.isHovering || target.viewWindow === current { target.update() }
+                if target.isHovering || target.viewWindow === current { target.update(at: event) }
             }
             queue.append(contentsOf: pending)
             pending.removeAll()
@@ -221,45 +252,7 @@ public final class PointerHover: NSObject {
     /// Becoming or resigning key changes whether key-window targets hover.
     private static func installKeyObserversIfNeeded() {
         guard keyObserver == nil else { return }
-        keyObserver = KeyWindowObserver()
-    }
-}
-
-/// Key-window changes refresh that window's hover (`PointerHover`).
-///
-/// Block observers on `queue: .main`, not selectors: AppKit may post these
-/// off the main thread, and a selector into this main-actor class trapped
-/// there (#18771). `queue: .main` runs the block inline when the post is on
-/// main, so key changes and closes keep their synchronous order.
-@MainActor
-private final class KeyWindowObserver {
-    private var tokens: [any NSObjectProtocol] = []
-
-    init() {
-        let center = NotificationCenter.default
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
-            tokens.append(center.addObserver(forName: name, object: nil, queue: .main) { note in
-                let window = note.object as? NSWindow
-                MainActor.assumeIsolated { PointerHover.keyChanged(window) } // main-proof: observer on queue: .main
-            })
-        }
-        #if DEBUG || CMUX_BENCH_HOOKS
-        // A closed window's synthesized pointer must not pass to a new window
-        // that reuses its address.
-        tokens.append(center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
-            guard let window = note.object as? NSWindow else { return }
-            let key = ObjectIdentifier(window)
-            MainActor.assumeIsolated { PointerHover.debugPointers[key] = nil } // main-proof: observer on queue: .main
-        })
-        #endif
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            for token in tokens { NotificationCenter.default.removeObserver(token) }
-        }
+        keyObserver = KeyWindowObserver(events: AppEvents(center: .default), keyWindow: { NSApp?.keyWindow }) { keyChanged($0) }
     }
 }
 

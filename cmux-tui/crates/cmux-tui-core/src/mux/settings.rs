@@ -4,8 +4,9 @@
 //! every reload runs under the store lock and emits its changes before the
 //! lock is released, so events leave in revision order.
 
+use cmux_threads::sync::Mutex;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::sync::{Arc, OnceLock, Weak};
 
 use cmux_config::{Change, ConfigStore, ManagedReader, Op, Outcome, Refusal, State, Watcher};
 
@@ -13,6 +14,7 @@ use super::terminal_sizing::host_policy::{
     HostSizePolicy, host_policy_from_state, touches_host_policy,
 };
 use super::{Mux, MuxEvent};
+use crate::server::energy_rule::{self, SaverSetting};
 
 /// The daemon serves `settings.*` and emits `settings-changed`.
 pub const SETTINGS_CAPABILITY: &str = "settings-v1";
@@ -90,6 +92,7 @@ impl Mux {
         let mut store = self.settings_store().lock().unwrap_or_else(|poison| poison.into_inner());
         let applied = store.apply(op);
         let host_policy = host_policy_after(&store, &applied.changes);
+        adopt_energy_setting(self, &store, &applied.changes);
         emit_changes(self, applied.changes);
         drop(store);
         if let Some((policy, revision)) = host_policy {
@@ -114,6 +117,22 @@ fn host_policy_after(store: &ConfigStore, changes: &[Change]) -> Option<(HostSiz
         .then(|| (host_policy_from_state(store.state()), store.state().revision()))
 }
 
+/// `energy.saver` in `state`: the daemon's own Energy Saver reading follows
+/// it as the app's does (server/energy_rule.rs).
+fn energy_setting(state: &State) -> SaverSetting {
+    let view = state.get(&cmux_config::Target::Key(energy_rule::SETTING_KEY.to_owned()));
+    SaverSetting::from_value(view.row.and_then(|row| row.value).or(view.value).as_ref())
+}
+
+/// Adopts `energy.saver` when `changes` touched it. Called under the store
+/// lock, so the setting lands in revision order; the store is one atomic
+/// and a mode edge only queues work for its watchers.
+fn adopt_energy_setting(mux: &Mux, store: &ConfigStore, changes: &[Change]) {
+    if changes.iter().any(|change| energy_rule::touches_setting(&change.keys)) {
+        mux.energy.set_setting(energy_setting(store.state()));
+    }
+}
+
 fn emit_changes(mux: &Mux, changes: impl IntoIterator<Item = Change>) {
     for change in changes {
         mux.emit(MuxEvent::SettingsChanged(change));
@@ -129,11 +148,11 @@ fn open_owner(mux: &Arc<Mux>, paths: SettingsPaths) -> SettingsOwner {
         paths.reader,
     )));
     let watcher = watch.then(|| start_watcher(Arc::downgrade(mux), &store)).flatten();
-    // The host sizing policy follows the file from its first read.
-    let host_policy = store
-        .lock()
-        .ok()
-        .map(|store| (host_policy_from_state(store.state()), store.state().revision()));
+    // The host sizing policy and Energy Saver follow the file from its first read.
+    let host_policy = store.lock().ok().map(|store| {
+        mux.energy.set_setting(energy_setting(store.state()));
+        (host_policy_from_state(store.state()), store.state().revision())
+    });
     if let Some((policy, revision)) = host_policy {
         mux.adopt_host_size_policy(policy, revision);
     }
@@ -149,6 +168,7 @@ fn start_watcher(mux: Weak<Mux>, store: &Arc<Mutex<ConfigStore>>) -> Option<Watc
         let mut store = store.lock().unwrap_or_else(|poison| poison.into_inner());
         let change: Vec<Change> = store.reload().into_iter().collect();
         let host_policy = host_policy_after(&store, &change);
+        adopt_energy_setting(&mux, &store, &change);
         emit_changes(&mux, change);
         drop(store);
         if let Some((policy, revision)) = host_policy {
