@@ -142,12 +142,13 @@ impl Hub {
         // while it starts ends it then, an unset after the off too, not at its answer.
         let latch = self.off_latch();
         let reported = Arc::new(tokio::sync::Notify::new());
-        let (hub, notify) = (Arc::downgrade(self), reported.clone());
+        let reported_off = Arc::new(AtomicBool::new(false));
+        let (hub, notify, flag) = (Arc::downgrade(self), reported.clone(), reported_off.clone());
         let id = session_id.clone();
         let (tap, slot) = holding_tap(move || {
             notify.notify_one();
             if let Some(hub) = hub.upgrade() {
-                hub.pool_end_reported(&id);
+                hub.pool_reported(&id, &flag);
             }
         });
         let (inbound, target) = holding_inbound();
@@ -221,6 +222,7 @@ impl Hub {
             parked: false,
             opencode_asks: spec.spawn.env.contains_key(crate::opencode_ask::MARKER),
             preview: Default::default(),
+            reported_off,
         };
         // An off this start began under, or that began while it ran, holds though an unset
         // followed (review 73): an agent that came up in full access then is not kept.

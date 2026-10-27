@@ -290,7 +290,8 @@ pub(super) struct OffLatch {
 }
 
 impl OffLatch {
-    /// Whether MDM's off holds for this start.
+    /// Whether MDM's off holds for this start. Takes no lock of the start-mode state, so it may
+    /// be read under the pool lock (review 76).
     pub(super) fn off(&self) -> bool {
         self.was_off || *self.offs.borrow() != self.seen
     }
