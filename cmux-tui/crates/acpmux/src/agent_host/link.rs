@@ -253,6 +253,8 @@ pub struct Link {
     detach_ack: Mutex<Option<oneshot::Receiver<()>>>,
     /// Set when the host closed the connection or another owner took over.
     pub closed: Arc<std::sync::atomic::AtomicBool>,
+    /// The last entry the host sent on this link (`replay_end_within`).
+    highest: Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// Connect as owner and resume after `resume_after` (the last entry already
@@ -326,6 +328,24 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
     if adopted.incarnation != record.incarnation {
         bail!("agent host incarnation does not match its record");
     }
+    // Debug builds only: when the file `ACPMUX_TEST_BEFORE_RESUME_FILE` names says "arm", it is
+    // renamed to `<file>.fired` here, after the host's hello and before `Resume`, and the connect
+    // waits 1 s, so a harness that waits for that name reports meanwhile: its host numbers an entry
+    // after its hello. The first entry numbered after the hello then reaches this link 1.5 s late,
+    // as from a busy host (review 3 of #26057). Release builds have no seam.
+    #[cfg(debug_assertions)]
+    let mut late = None;
+    #[cfg(debug_assertions)]
+    if let Some(file) = std::env::var_os("ACPMUX_TEST_BEFORE_RESUME_FILE")
+        && std::fs::read_to_string(&file).is_ok_and(|s| s.trim() == "arm")
+    {
+        let mut fired = file.clone();
+        fired.push(".fired");
+        if std::fs::rename(&file, &fired).is_ok() {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            late = Some(adopted.last_h);
+        }
+    }
     let (tx, mut rx) = mpsc::channel::<Outgoing>(1024);
     let (entries_tx, entries_rx) = mpsc::channel::<(u64, Entry)>(4096);
     let (detach_tx, detach_rx) = oneshot::channel();
@@ -375,14 +395,23 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             }
         }
     });
+    let highest = Arc::new(std::sync::atomic::AtomicU64::new(0));
     {
         let closed = closed.clone();
         let queries = queries.clone();
+        let highest = highest.clone();
         tokio::spawn(async move {
             let mut detach_tx = Some(detach_tx);
             loop {
                 match read_frame::<_, HostFrame>(&mut rd).await {
                     Ok(Some(HostFrame::Entry { h, e })) => {
+                        #[cfg(debug_assertions)]
+                        if late.is_some_and(|last_h| h > last_h) {
+                            late = None;
+                            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                        }
+                        // Before a query answer that comes behind it (`replay_end_within`).
+                        highest.fetch_max(h, std::sync::atomic::Ordering::SeqCst);
                         // A line's receipt settles as it arrives: a fact of the host, true
                         // whether or not the entry is logged (review 85). Its harness's end
                         // does not: its host may still write a line to a descendant that kept
@@ -434,6 +463,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             entries: Mutex::new(entries_rx),
             detach_ack: Mutex::new(Some(detach_rx)),
             closed,
+            highest,
         }),
         adopted,
     ))
@@ -527,6 +557,16 @@ impl Link {
                 Err(timeout.into())
             }
         }
+    }
+
+    /// The last entry the host numbered before it answers a query sent now. The host handles this
+    /// link's frames in order, the `Resume` sent at connect before this query, and sends its own in
+    /// order: every entry it numbered before it handled that `Resume` (its hello's `last_h`, and
+    /// any it numbered after the hello) reached this link before the answer. Once a reader logged
+    /// through it, all the host kept as this link resumed is in the log (review 3 of #26057).
+    pub async fn replay_end_within(&self, budget: std::time::Duration) -> Result<u64> {
+        self.query_within(budget).await?;
+        Ok(self.highest.load(std::sync::atomic::Ordering::SeqCst))
     }
 
     pub fn is_closed(&self) -> bool {

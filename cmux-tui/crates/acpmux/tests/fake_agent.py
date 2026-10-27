@@ -756,6 +756,36 @@ def handle_prompt(rid, params):
         threading.Timer(int(ms) / 1000, update, args=(sid, later)).start()
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "set-mode-on-file: PATH X": the turn ends; once PATH exists (at most 60 s), outside any turn,
+    # the harness changes its own mode to X.
+    if text.startswith("set-mode-on-file:"):
+        path, mode = text[17:].strip().split(" ", 1)
+        later = {"sessionUpdate": "current_mode_update", "currentModeId": mode.strip()}
+
+        def when_there():
+            import time as pause  # main() binds `time` locally
+            until = pause.monotonic() + 60
+            while not os.path.exists(path) and pause.monotonic() < until:
+                pause.sleep(0.05)
+            update(sid, later)
+
+        threading.Thread(target=when_there, daemon=True).start()
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "set-mode-hold: MS X": the harness changes its own mode to X at once, then holds the turn
+    # MS before it ends it.
+    if text.startswith("set-mode-hold:"):
+        import time as pause
+        ms, mode = text[14:].strip().split(" ", 1)
+        update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": mode.strip()})
+        pause.sleep(int(ms) / 1000)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "whoami" replies with the harness's pid.
+    if text.startswith("whoami"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"pid={os.getpid()}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "set-mode: X": the harness changes its own mode, as a real one may.
     if text.startswith("set-mode:"):
         update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[9:].strip()})
@@ -1446,8 +1476,20 @@ def main():
         elif m == "session/set_config_option":
             v = params.get("value")
             if os.environ.get("FAKE_MODE_OPTION") == "1":
+                # FAKE_OPTION_REPORT_FIRST=1: the harness reports its options as they were, then
+                # answers.
+                if os.environ.get("FAKE_OPTION_REPORT_FIRST") == "1":
+                    was = mode_options(params.get("sessionId"))
+                    update(params.get("sessionId"), {"sessionUpdate": "config_option_update", "configOptions": was})
                 if params.get("configId") == "mode":
                     MODE_OPTION[params.get("sessionId")] = v
+                # FAKE_BARE_OPTION_ANSWER=1: the answer carries no configOptions; =null: a null.
+                if os.environ.get("FAKE_BARE_OPTION_ANSWER") == "1":
+                    send({"jsonrpc": "2.0", "id": rid, "result": {}})
+                    continue
+                if os.environ.get("FAKE_BARE_OPTION_ANSWER") == "null":
+                    send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": None}})
+                    continue
                 send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": mode_options(params.get("sessionId"))}})
                 continue
             send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": v, "options": []}]}})
