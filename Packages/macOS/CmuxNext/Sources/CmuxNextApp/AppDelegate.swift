@@ -326,12 +326,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// cmux-next.json settings and the tagged control socket (`action.list/describe/run`) over the same registry.
     private func startSettingsAndControl(services: AppServices, launch: SettingsController.LaunchRead) {
-        // Start the web OTA launch check before any restored or prewarmed page can
-        // request its entry document. Otherwise the entry can come from the app
-        // bundle while later chunks come from the kept update tree.
+        // The web OTA launch check (kept update read in `main`) before any page asks for its entry document, else the
+        // entry can come from the bundle and later chunks from the update; the network check waits for startup complete.
         WebUpdates.shared.prepare(
-            launch.snapshot.updates, bundle: .main, files: services.work, energy: services.mainWork.energy,
+            launch.snapshot.updates, launch: environment.webUpdates, files: services.work, energy: services.mainWork.energy,
             shown: services.features.isEnabled(.hiddenPollPause) ? services.appVisibility.shownWindows : nil)
+        order.startup.post(.afterStartup, "WebUpdates.startChecks", on: .main) { WebUpdates.shared.startChecks() }
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
         settings.applyManagedFeaturesNow()

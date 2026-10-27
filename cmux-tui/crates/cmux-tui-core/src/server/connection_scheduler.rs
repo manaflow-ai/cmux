@@ -1,12 +1,32 @@
 //! The per-connection surface scheduler: pending surface requests, the
-//! connection's cancellation token, clear-history barriers, and the
-//! dispatcher thread that runs queued surface operations in order.
+//! connection's cancellation token, clear-history barriers, the stream
+//! barrier, and the connection's control sequence on the daemon-wide
+//! sequenced pool (sequenced_pool.rs, p05-ipc-073) that runs queued surface
+//! operations in order.
 //!
-//! Request threads (this dispatcher, the WebSocket connection thread) start
-//! through [`spawn_request_thread`]: UserInitiated, blocking disallowed
-//! (p02-threads task 211). The dispatcher then rests at its connection's
-//! class (connection_qos.rs, task 224). A clear-history request runs as a
-//! `Mux::work` item at its cause's priority, blocking disallowed (task 230).
+//! A connection holds no thread of its own: its control sequence takes one
+//! request per task on the pool's control workers, as Chrome dispatches each
+//! IPC message as a task on its bound sequence (docs/threading_and_tasks.md).
+//! A control worker disallows blocking, so an ordinary request runs on the
+//! connection's request sequence (`Mux::post_connection_request`, a
+//! System-lane `work` item inside `will_block`), and the control sequence
+//! takes nothing else until it ends.
+//! A request that blocks tells the pool at the blocking site itself (a
+//! request-path note, or `request_path::will_block` around a PTY or host
+//! input write and the wait of `wait-for`), so it starts a temporary worker
+//! instead of holding one of the fixed ones. The streams a connection opens are sequences of their own
+//! (stream_lanes.rs); a control command on a surface with an open stream
+//! waits for the items that stream held when the command arrived.
+//!
+//! Request threads (the WebSocket connection thread) start through
+//! [`spawn_request_thread`]: UserInitiated, blocking disallowed (p02-threads
+//! task 211); the pool's control workers run the same way. A request task
+//! then rests at its connection's class (connection_qos.rs, task 224). A
+//! clear-history request runs as a `Mux::work` item at its cause's
+//! priority, blocking disallowed (task 230).
+//!
+//! Lock order: the scheduler's `state`, then the pool's. A pool task or
+//! fence callback takes `state` with no pool lock held.
 
 use super::MessageWriter;
 use crate::panic_free::RecoverPoison;
@@ -24,6 +44,8 @@ use super::frame_dispatch::FrameCall;
 use super::handle_request_with_cancellation;
 use super::send_request_error;
 use super::send_request_error_with_delivery;
+use super::sequenced_pool::{Fenced, PostError, Sequence, SequencePriority};
+use super::stream_lanes::{StreamLanes, StreamOpenError, StreamPostError, crosses_stream_ok};
 use super::terminal_create;
 use crate::Mux;
 #[path = "connection_qos.rs"]
@@ -37,10 +59,11 @@ use cmux_threads::ThreadQos;
 use cmux_threads::sync::Condvar;
 use cmux_threads::sync::Mutex;
 use cmux_threads::work::{Lane, Shutdown};
-use connection_qos::{ConnectionClassCell, ConnectionThread, RestingClass};
+use connection_qos::{ConnectionClassCell, ConnectionThread};
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::thread::JoinHandle;
@@ -60,12 +83,21 @@ pub(super) const REQUEST_THREAD_QOS: ThreadQos = ThreadType::Interactive.qos();
 /// under it is a `server.blocking` site (recorded by default; panics under
 /// `CMUX_DAEMON_BLOCKING=panic` in Debug), and its work moves to
 /// `cmux_threads::work`.
+///
+/// The thread is registered with the release hang watch for its life; each
+/// request it runs is one scope at its class deadline
+/// (server/request_hang_watch.rs).
 pub(super) fn spawn_request_thread<F, T>(name: &str, f: F) -> std::io::Result<JoinHandle<T>>
 where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
     cmux_threads::spawn(name, REQUEST_THREAD_QOS, move || {
+        let thread = std::thread::current();
+        let _hang_watch = cmux_hang_watch::register_thread(
+            cmux_hang_watch::ThreadKind::Control,
+            thread.name().unwrap_or("mux-request"),
+        );
         cmux_threads::disallow_blocking();
         f()
     })
@@ -76,7 +108,7 @@ pub(super) struct PendingSurfaceRequest {
     /// When its line arrived and parsed: its request span starts there.
     pub(super) arrival: RequestArrival,
     /// The cause of the frame that queued it: its events keep that cause on
-    /// whichever thread runs it (the dispatcher, a clear-history worker or
+    /// whichever thread runs it (a control task, a clear-history worker or
     /// a creation commit on the terminal work pool).
     pub(super) cause: EventCause,
     /// The REQUEST frame it came in, if any: its reply is that frame's
@@ -84,6 +116,17 @@ pub(super) struct PendingSurfaceRequest {
     pub(super) frame_call: Option<Arc<FrameCall>>,
     pub(super) retained_bytes: usize,
     pub(super) _bytes_permit: ServerSurfaceBytesPermit,
+    /// The stream barrier's ticket while it waits for a stream of its
+    /// target surface to run the items queued before it arrived.
+    pub(super) stream_barrier: Option<u64>,
+}
+
+/// What the control sequence runs the connection's requests with: set by
+/// its first request, dropped once the scheduler drained.
+pub(super) struct ControlContext {
+    pub(super) mux: Arc<Mux>,
+    pub(super) client: u64,
+    pub(super) writer: MessageWriter,
 }
 
 #[derive(Default)]
@@ -93,12 +136,21 @@ pub(super) struct ConnectionSurfaceState {
     pub(super) active_clear_surfaces: HashSet<SurfaceId>,
     /// Terminal creates handed to the terminal work pool and not yet answered (`terminal_create`).
     pub(super) active_creations: usize,
-    pub(super) dispatcher_started: bool,
-    pub(super) dispatcher_done: bool,
+    /// The connection's control sequence on the mux's pool.
+    pub(super) control: Option<Sequence>,
+    pub(super) context: Option<ControlContext>,
+    /// A pump task (one request) is posted or running on `control`.
+    pub(super) pump_scheduled: bool,
+    /// The connection's open streams.
+    pub(super) streams: StreamLanes,
+    pub(super) next_barrier: u64,
+    /// Closed, every request run or dropped and no pump left: the
+    /// connection permit is released.
+    pub(super) drained: bool,
     pub(super) closed: bool,
-    /// A dequeued request runs on the connection's request sequence: the
-    /// dispatcher dequeues nothing else until it ends, so the requests keep
-    /// the order and the one-at-a-time of an inline dispatcher.
+    /// A request the control sequence took runs on the connection's request
+    /// sequence: the control sequence takes nothing else until it ends, so
+    /// the requests keep their order and one-at-a-time.
     pub(super) request_in_flight: bool,
 }
 
@@ -158,15 +210,14 @@ pub(super) struct ConnectionSurfaceScheduler {
     pub(super) changed: Condvar,
     pub(super) admission: Arc<ServerSurfaceOperationAdmission>,
     pub(super) cancelled: ConnectionCancellation,
-    pub(super) dispatcher: Mutex<Option<JoinHandle<()>>>,
     pub(super) connection_permit: Mutex<Option<ConnectionPermit>>,
     pub(super) creations: terminal_create::ConnectionCreations,
-    /// The connection's client class, set by its registry record; the
-    /// dispatcher rests at it (connection_qos.rs).
+    /// The connection's client class, set by its registry record; its
+    /// request tasks rest at it (connection_qos.rs).
     pub(super) class: Arc<ConnectionClassCell>,
     /// Where the connection's requests run, one at a time and in order
-    /// (`Mux::post_connection_request`): the dispatcher's and the reader's
-    /// threads disallow blocking, and a request may block.
+    /// (`Mux::post_connection_request`): the reader's thread and the pool's
+    /// control workers disallow blocking, and a request may block.
     pub(super) requests: Arc<crate::mux::mux_work::Sequence>,
 }
 
@@ -198,7 +249,6 @@ impl ConnectionSurfaceScheduler {
             changed: Condvar::new(),
             admission,
             cancelled: ConnectionCancellation::default(),
-            dispatcher: Mutex::new(None),
             connection_permit: Mutex::new(connection_permit),
             creations: terminal_create::ConnectionCreations::default(),
             class: Arc::default(),
@@ -211,10 +261,6 @@ impl ConnectionSurfaceScheduler {
     pub(super) fn classed(mut self, class: Arc<ConnectionClassCell>) -> Self {
         self.class = class;
         self
-    }
-
-    fn resting_class(&self, mux: &Mux) -> RestingClass {
-        RestingClass::new(self.class.clone(), ConnectionThread::Request, mux.request_qos())
     }
 }
 
@@ -232,8 +278,8 @@ impl ConnectionSurfaceScheduler {
         self.dispatch_at(mux, client, request, RequestArrival::now(), retained_bytes, writer)
     }
 
-    /// Queues `request`, whose line arrived and parsed at `arrival`, for the
-    /// connection's dispatcher.
+    /// Queues `request`, whose line arrived and parsed at `arrival`, on the
+    /// connection's control sequence.
     pub(super) fn dispatch_at(
         self: &Arc<Self>,
         mux: Arc<Mux>,
@@ -296,8 +342,19 @@ impl ConnectionSurfaceScheduler {
         let Some(queued) = request.take() else {
             return Some(true);
         };
-        let start_dispatcher = !state.dispatcher_started;
-        state.dispatcher_started = true;
+        if state.control.is_none() {
+            state.control = Some(mux.sequenced_pool.sequence(SequencePriority::Control));
+        }
+        // The control sequence keeps the connection's writer: each request
+        // answers on its own (`frame_call`).
+        if state.context.is_none() {
+            state.context = Some(ControlContext {
+                mux: mux.clone(),
+                client,
+                writer: writer.connection_writer(),
+            });
+        }
+        let stream_barrier = self.stream_barrier_locked(&mut state, &mux, &queued.cmd);
         state.queued_bytes = state.queued_bytes.saturating_add(retained_bytes);
         state.requests.push_back(PendingSurfaceRequest {
             request: queued,
@@ -306,49 +363,185 @@ impl ConnectionSurfaceScheduler {
             frame_call: writer.frame_call().cloned(),
             retained_bytes,
             _bytes_permit: bytes_permit,
+            stream_barrier,
         });
+        let scheduled = self.schedule_locked(&mut state);
         self.changed.notify_all();
         drop(state);
         mux.ipc_stats().sequence_depth(arrival_depth);
 
-        // The dispatcher outlives this request: it gets the connection's
-        // writer, and each request answers on its own (`frame_call`).
-        if start_dispatcher
-            && let Err(error) = self.start_dispatcher(mux, client, writer.connection_writer())
-        {
-            self.finish_dispatcher();
+        if let Err(error) = scheduled {
             self.close();
             return Some(send_request_error_with_delivery(
                 &writer,
                 request_id,
-                &format!("could not start connection request dispatcher: {error}"),
+                &format!("could not queue on the connection's control sequence: {error}"),
                 is_clear_history.then_some(ResponseErrorDelivery::KnownNotDelivered),
             ));
         }
         Some(true)
     }
 
-    pub(super) fn start_dispatcher(
+    /// The stream barrier for `cmd`: a ticket when its target surface has an
+    /// open stream holding items, released by the fence once they ran.
+    fn stream_barrier_locked(
         self: &Arc<Self>,
-        mux: Arc<Mux>,
-        client: u64,
-        writer: MessageWriter,
-    ) -> std::io::Result<()> {
+        state: &mut ConnectionSurfaceState,
+        mux: &Mux,
+        cmd: &super::Command,
+    ) -> Option<u64> {
+        if state.streams.is_empty() {
+            return None;
+        }
+        let surface = cmd.ordering_surface()?;
+        if crosses_stream_ok(cmd.wire_name()) {
+            return None;
+        }
+        let ticket = state.next_barrier;
+        let scheduler: Weak<Self> = Arc::downgrade(self);
+        let release = move || {
+            if let Some(scheduler) = scheduler.upgrade() {
+                scheduler.release_stream_barrier(ticket);
+            }
+        };
+        match state.streams.barrier(&mux.sequenced_pool, surface, release) {
+            Fenced::Waiting => {
+                state.next_barrier += 1;
+                Some(ticket)
+            }
+            Fenced::Drained(_) => None,
+        }
+    }
+
+    /// The fence of `ticket` passed: its request may run.
+    fn release_stream_barrier(self: &Arc<Self>, ticket: u64) {
+        let mut state = self.state.lock().recover_poison();
+        if let Some(pending) =
+            state.requests.iter_mut().find(|pending| pending.stream_barrier == Some(ticket))
+        {
+            pending.stream_barrier = None;
+        }
+        self.reschedule_locked(state);
+    }
+
+    /// Posts a pump for the next runnable request unless one is posted or
+    /// running.
+    fn schedule_locked(
+        self: &Arc<Self>,
+        state: &mut ConnectionSurfaceState,
+    ) -> Result<(), PostError> {
+        if state.pump_scheduled || Self::next_runnable_index(state).is_none() {
+            return Ok(());
+        }
+        let Some(control) = state.control.as_ref() else { return Ok(()) };
         let scheduler = self.clone();
-        let handle = spawn_request_thread("mux-control-dispatch", move || {
-            run_connection_surface_dispatcher(scheduler, mux, client, writer);
-        })?;
-        *self.dispatcher.lock().recover_poison() = Some(handle);
+        control.post(move || scheduler.pump())?;
+        state.pump_scheduled = true;
         Ok(())
     }
 
+    /// [`Self::schedule_locked`] after a change that may let a request run
+    /// (a pump ended, a clear or a stream barrier released), then settles a
+    /// drained scheduler. A pool that shut down ends the connection.
+    fn reschedule_locked(
+        self: &Arc<Self>,
+        mut state: std::sync::MutexGuard<'_, ConnectionSurfaceState>,
+    ) {
+        if self.schedule_locked(&mut state).is_err() {
+            state.closed = true;
+            state.requests.clear();
+            state.queued_bytes = 0;
+        }
+        let drained = self.settle_locked(&mut state);
+        self.changed.notify_all();
+        drop(state);
+        // The control sequence and its context drop outside the lock.
+        drop(drained);
+    }
+
+    /// Marks the scheduler drained once it is closed, holds no request and
+    /// runs no pump. The connection permit is released here, under the
+    /// state lock and before `drained` is set, so no waiter sees a drained
+    /// connection that still counts against the connection limit. The
+    /// control sequence and its context leave with the returned value, for
+    /// the caller to drop outside the lock.
+    fn settle_locked(&self, state: &mut ConnectionSurfaceState) -> Option<Drained> {
+        if state.drained
+            || !state.closed
+            || !state.requests.is_empty()
+            || state.pump_scheduled
+            || state.request_in_flight
+        {
+            return None;
+        }
+        // Lock order: `state`, then the permit's (a leaf).
+        drop(self.connection_permit.lock().recover_poison().take());
+        state.drained = true;
+        Some(Drained { _control: state.control.take(), _context: state.context.take() })
+    }
+
+    /// One task of the control sequence: runs the next runnable request.
+    fn pump(self: Arc<Self>) {
+        let _pump = PumpGuard(self.clone());
+        let Some((pending, mux, client, writer)) = self.take_runnable() else { return };
+        if !writer.is_open() {
+            drop(pending);
+            self.close();
+            return;
+        }
+        // The task runs at its connection's class on the shared worker, and
+        // the class ends with the task (connection_qos.rs, task 224). Not a
+        // `RestingClass`: that asks the worker's registry row to stay there.
+        let _class = mux.request_qos().enter_class(self.class.get().qos(ConnectionThread::Request));
+        if !run_dispatched_request(&self, &mux, client, pending, &writer) {
+            self.close();
+        }
+    }
+
+    /// The pump ended (or unwound): the next runnable request gets its own.
+    pub(super) fn finish_pump(self: &Arc<Self>) {
+        let mut state = self.state.lock().recover_poison();
+        state.pump_scheduled = false;
+        self.reschedule_locked(state);
+    }
+
+    fn take_runnable(&self) -> Option<(PendingSurfaceRequest, Arc<Mux>, u64, MessageWriter)> {
+        let mut state = self.state.lock().recover_poison();
+        let context = state.context.as_ref()?;
+        let (mux, client, writer) = (context.mux.clone(), context.client, context.writer.clone());
+        let index = Self::next_runnable_index(&state)?;
+        let pending = state.requests.remove(index)?;
+        state.queued_bytes = state.queued_bytes.saturating_sub(pending.retained_bytes);
+        // Clear-history is always ordered by a surface; a clear worker
+        // never overlaps another on the same surface.
+        if pending.request.cmd.is_clear_history()
+            && let Some(surface) = pending.request.cmd.ordering_surface()
+            && !state.active_clear_surfaces.insert(surface)
+        {
+            eprintln!("cmux: clear-history worker overlapped surface {surface}");
+        }
+        self.changed.notify_all();
+        Some((pending, mux, client, writer))
+    }
+
+    /// The index of the request the control sequence runs next: the head,
+    /// unless a clear-history barrier lets a later one overtake it or holds
+    /// it. A request waiting on its stream barrier holds every later one:
+    /// priority never reorders the control sequence. Nothing runs while the
+    /// request it took last is still on the request sequence.
     pub(super) fn next_runnable_index(state: &ConnectionSurfaceState) -> Option<usize> {
         if state.request_in_flight {
             return None;
         }
-        if state.active_clear_surfaces.is_empty() {
-            return (!state.requests.is_empty()).then_some(0);
-        }
+        let index = if state.active_clear_surfaces.is_empty() {
+            (!state.requests.is_empty()).then_some(0)?
+        } else {
+            Self::next_past_clear_barrier(state)?
+        };
+        state.requests.get(index)?.stream_barrier.is_none().then_some(index)
+    }
+
+    fn next_past_clear_barrier(state: &ConnectionSurfaceState) -> Option<usize> {
         for (index, pending) in state.requests.iter().enumerate() {
             let surface = pending.request.cmd.ordering_surface()?;
             if state.active_clear_surfaces.contains(&surface) {
@@ -362,87 +555,78 @@ impl ConnectionSurfaceScheduler {
         None
     }
 
-    pub(super) fn next_request(&self) -> Option<PendingSurfaceRequest> {
-        let mut state = self.state.lock().recover_poison();
-        loop {
-            if let Some(index) = Self::next_runnable_index(&state)
-                && let Some(pending) = state.requests.remove(index)
-            {
-                state.queued_bytes = state.queued_bytes.saturating_sub(pending.retained_bytes);
-                // Clear-history is always ordered by a surface; a clear
-                // worker never overlaps another on the same surface.
-                if pending.request.cmd.is_clear_history()
-                    && let Some(surface) = pending.request.cmd.ordering_surface()
-                    && !state.active_clear_surfaces.insert(surface)
-                {
-                    eprintln!("cmux: clear-history worker overlapped surface {surface}");
-                }
-                return Some(pending);
-            }
-            if state.closed && state.requests.is_empty() && !state.request_in_flight {
-                state.dispatcher_done = true;
-                self.changed.notify_all();
-                return None;
-            }
-            // Idle for the connection's next request: not blocking work.
-            state = self.changed.idle().wait(state).recover_poison();
-        }
-    }
-
-    pub(super) fn finish_clear(&self, surface: SurfaceId) {
+    pub(super) fn finish_clear(self: &Arc<Self>, surface: SurfaceId) {
         let mut state = self.state.lock().recover_poison();
         state.active_clear_surfaces.remove(&surface);
-        self.changed.notify_all();
+        self.reschedule_locked(state);
     }
 
-    pub(super) fn finish_dispatcher(&self) {
-        {
-            let mut state = self.state.lock().recover_poison();
-            state.dispatcher_done = true;
-            self.changed.notify_all();
+    /// Opens stream `stream` of this connection for `surface`: its items run
+    /// in order on a sequence of their own at `priority`.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "attach-streams (p05-ipc-074) opens the first stream")
+    )]
+    pub(super) fn open_stream(
+        &self,
+        mux: &Mux,
+        stream: u16,
+        surface: SurfaceId,
+        priority: SequencePriority,
+    ) -> Result<(), StreamOpenError> {
+        let mut state = self.state.lock().recover_poison();
+        state.streams.open(&mux.sequenced_pool, stream, surface, priority)
+    }
+
+    /// Closes stream `stream`; the items it holds still run.
+    #[cfg_attr(not(test), expect(dead_code, reason = "attach-streams (p05-ipc-074) ends streams"))]
+    pub(super) fn close_stream(&self, stream: u16) -> bool {
+        self.state.lock().recover_poison().streams.close(stream)
+    }
+
+    /// Queues `item` on stream `stream`, after its earlier items. A full
+    /// stream refuses it: known not delivered.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "INPUT frames (p05-ipc-078) post the first stream items")
+    )]
+    pub(super) fn post_stream<F>(&self, stream: u16, item: F) -> Result<(), StreamPostError>
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        let state = self.state.lock().recover_poison();
+        if state.closed {
+            return Err(StreamPostError::UnknownStream);
         }
-        self.connection_permit.lock().recover_poison().take();
+        state.streams.post(stream, item)
     }
 
-    pub(super) fn close(&self) {
+    /// Ends the connection's requests: the queued ones are dropped unrun,
+    /// the running one is cancelled.
+    pub(super) fn close(self: &Arc<Self>) {
         self.cancelled.cancel();
         let mut state = self.state.lock().recover_poison();
         state.closed = true;
         state.requests.clear();
         state.queued_bytes = 0;
-        let dispatcher_never_started = !state.dispatcher_started;
-        if dispatcher_never_started {
-            state.dispatcher_done = true;
-        }
-        self.changed.notify_all();
-        drop(state);
-        if dispatcher_never_started {
-            self.connection_permit.lock().recover_poison().take();
-        }
+        self.reschedule_locked(state);
     }
 
-    pub(super) fn finish(&self) {
+    /// No request comes after this one: the queued ones still run.
+    pub(super) fn finish(self: &Arc<Self>) {
         let mut state = self.state.lock().recover_poison();
         state.closed = true;
-        let dispatcher_never_started = !state.dispatcher_started;
-        if dispatcher_never_started {
-            state.dispatcher_done = true;
-        }
-        self.changed.notify_all();
-        drop(state);
-        if dispatcher_never_started {
-            self.connection_permit.lock().recover_poison().take();
-        }
+        self.reschedule_locked(state);
     }
 
     pub(super) fn wait_for_completion(&self, timeout: Option<Duration>) -> bool {
         // A timeout too large to represent waits without a deadline.
         let deadline = timeout.and_then(|timeout| Instant::now().checked_add(timeout));
+        let settled = |state: &ConnectionSurfaceState| {
+            state.drained && state.active_clear_surfaces.is_empty() && state.active_creations == 0
+        };
         let mut state = self.state.lock().recover_poison();
-        while !state.dispatcher_done
-            || !state.active_clear_surfaces.is_empty()
-            || state.active_creations != 0
-        {
+        while !settled(&state) {
             if let Some(deadline) = deadline {
                 if Instant::now() >= deadline {
                     break;
@@ -454,29 +638,34 @@ impl ConnectionSurfaceScheduler {
                 state = self.changed.wait(state).recover_poison();
             }
         }
-        let drained = state.dispatcher_done
-            && state.active_clear_surfaces.is_empty()
-            && state.active_creations == 0;
-        drop(state);
-        if drained {
-            // The dispatcher said it is done as its last act; its handle
-            // only reaps the thread, which ends on its own. The connection's
-            // reader disallows blocking and never joins it (a wait for
-            // another thread).
-            drop(self.dispatcher.lock().recover_poison().take());
-        }
-        drained
+        settled(&state)
     }
 
-    pub(super) fn finish_and_wait(&self) {
+    pub(super) fn finish_and_wait(self: &Arc<Self>) {
         self.finish();
         let drained = self.wait_for_completion(None);
         debug_assert!(drained, "unbounded graceful drain must settle");
     }
 
-    pub(super) fn close_and_wait(&self, timeout: Duration) -> bool {
+    pub(super) fn close_and_wait(self: &Arc<Self>, timeout: Duration) -> bool {
         self.close();
         self.wait_for_completion(Some(timeout))
+    }
+}
+
+/// What a drained scheduler lets go: dropped outside its lock.
+struct Drained {
+    _control: Option<Sequence>,
+    _context: Option<ControlContext>,
+}
+
+/// Ends a pump, unwinding included, so a panicking request never leaves
+/// the connection without one.
+struct PumpGuard(Arc<ConnectionSurfaceScheduler>);
+
+impl Drop for PumpGuard {
+    fn drop(&mut self) {
+        self.0.finish_pump();
     }
 }
 
@@ -515,23 +704,6 @@ impl Drop for ClearWork {
     }
 }
 
-struct ConnectionDispatcherGuard(Arc<ConnectionSurfaceScheduler>, MessageWriter);
-
-impl Drop for ConnectionDispatcherGuard {
-    fn drop(&mut self) {
-        // A request that panicked takes its connection down with it: no
-        // dispatcher is left to answer the requests after it, so the
-        // connection closes and its client reads the end of the stream
-        // instead of waiting for replies forever. Both closes take only
-        // locks that recover from poison.
-        if std::thread::panicking() {
-            self.0.close();
-            self.1.close();
-        }
-        self.0.finish_dispatcher();
-    }
-}
-
 pub(super) fn run_pending_request(
     scheduler: &ConnectionSurfaceScheduler,
     mux: &Arc<Mux>,
@@ -554,8 +726,9 @@ pub(super) fn run_pending_request(
         // Cancelled while queued: answered, never run.
         return send_request_error(writer, request.id, "request cancelled");
     }
-    // The dispatcher, a clear-history worker or a creation commit runs the
-    // request: a request path like the reader's (`crate::request_path`).
+    // The control sequence, a clear-history worker or a creation commit
+    // runs the request: a request path like the reader's
+    // (`crate::request_path`).
     let _request_path = crate::request_path::RequestPathScope::enter(mux.request_path_stats());
     // Its lock acquisitions count under the connection's caller class
     // (`debug-daemon-locks`), as on the reader.
@@ -567,83 +740,77 @@ pub(super) fn run_pending_request(
     handle_request_with_cancellation(mux, client, request, arrival, writer, Some(cancellation))
 }
 
-fn run_connection_surface_dispatcher(
-    scheduler: Arc<ConnectionSurfaceScheduler>,
-    mux: Arc<Mux>,
+/// Runs one request the control sequence took: a clear-history on its own
+/// worker, a create on the terminal work pool, anything else on the
+/// connection's request sequence (a control worker disallows blocking, and
+/// a request may read and commit SQLite). False when the connection must
+/// close.
+fn run_dispatched_request(
+    scheduler: &Arc<ConnectionSurfaceScheduler>,
+    mux: &Arc<Mux>,
     client: u64,
-    writer: MessageWriter,
-) {
-    let _dispatcher = ConnectionDispatcherGuard(scheduler.clone(), writer.clone());
-    let mut resting = scheduler.resting_class(&mux);
-    while writer.is_open() {
-        let Some(pending) = scheduler.next_request() else { return };
-        resting.follow();
-        if pending.request.cmd.is_clear_history()
-            && let Some(surface) = pending.request.cmd.ordering_surface()
-        {
-            let Some(worker_permit) = scheduler.admission.try_reserve_worker() else {
-                let (id, reply) = (pending.request.id.clone(), pending.reply_writer(&writer));
-                drop(pending);
-                scheduler.finish_clear(surface);
-                if !send_request_error_with_delivery(
-                    &reply,
-                    id,
-                    "too many clear-history operations are already in progress",
-                    Some(ResponseErrorDelivery::KnownNotDelivered),
-                ) {
-                    scheduler.close();
-                    return;
-                }
-                continue;
-            };
-            // A work item at the priority of the request it serves (its
-            // cause), as Chrome posts a task at its caller's priority; it runs
-            // the request as a request thread does, blocking disallowed. It
-            // waits on the terminal and its PTY, so it is system-lane work.
-            let priority = pending.cause.work_priority();
-            let mut clear = ClearWork {
-                reply: pending.reply_writer(&writer),
-                pending: Some(pending),
-                active: Some(ActiveClearGuard { scheduler: scheduler.clone(), surface }),
-            };
-            let worker_scheduler = scheduler.clone();
-            let worker_mux = mux.clone();
-            let worker_writer = writer.clone();
-            let posted =
-                mux.work.post(priority, Lane::System, Shutdown::SkipOnShutdown, move || {
-                    // Drop the mux-wide permit before the barrier ends and wakes
-                    // the next request queued behind it.
-                    let _active = clear.active.take();
-                    let _worker_permit = worker_permit;
-                    let Some(pending) = clear.pending.take() else { return };
-                    cmux_threads::blocking::with_blocking_disallowed(|| {
-                        if !run_pending_request(
-                            &worker_scheduler,
-                            &worker_mux,
-                            client,
-                            pending,
-                            &worker_writer,
-                        ) {
-                            worker_scheduler.close();
-                        }
-                    });
-                });
-            // Refused (shutdown began): the dropped item answered the request.
-            if posted.is_err() {
-                scheduler.close();
-                return;
-            }
-        } else if pending.request.cmd.creates_terminal() {
-            if !scheduler.submit_creation(&mux, client, pending, &writer) {
-                scheduler.close();
-                return;
-            }
-        } else if !scheduler.run_on_requests(&mux, client, pending, &writer) {
-            scheduler.close();
-            return;
-        }
+    pending: PendingSurfaceRequest,
+    writer: &MessageWriter,
+) -> bool {
+    if pending.request.cmd.is_clear_history()
+        && let Some(surface) = pending.request.cmd.ordering_surface()
+    {
+        return run_clear_history(scheduler, mux, client, pending, surface, writer);
     }
-    scheduler.close();
+    if pending.request.cmd.creates_terminal() {
+        return scheduler.submit_creation(mux, client, pending, writer);
+    }
+    scheduler.run_on_requests(mux, client, pending, writer)
+}
+
+fn run_clear_history(
+    scheduler: &Arc<ConnectionSurfaceScheduler>,
+    mux: &Arc<Mux>,
+    client: u64,
+    pending: PendingSurfaceRequest,
+    surface: SurfaceId,
+    writer: &MessageWriter,
+) -> bool {
+    let Some(worker_permit) = scheduler.admission.try_reserve_worker() else {
+        let (id, reply) = (pending.request.id.clone(), pending.reply_writer(writer));
+        drop(pending);
+        scheduler.finish_clear(surface);
+        return send_request_error_with_delivery(
+            &reply,
+            id,
+            "too many clear-history operations are already in progress",
+            Some(ResponseErrorDelivery::KnownNotDelivered),
+        );
+    };
+    // A work item at the priority of the request it serves (its cause), as
+    // Chrome posts a task at its caller's priority; it runs the request as a
+    // request thread does, blocking disallowed. It waits on the terminal and
+    // its PTY, so it is system-lane work (task 230).
+    let priority = pending.cause.work_priority();
+    let mut clear = ClearWork {
+        reply: pending.reply_writer(writer),
+        pending: Some(pending),
+        active: Some(ActiveClearGuard { scheduler: scheduler.clone(), surface }),
+    };
+    let worker_scheduler = scheduler.clone();
+    let worker_mux = mux.clone();
+    let worker_writer = writer.clone();
+    let posted = mux.work.post(priority, Lane::System, Shutdown::SkipOnShutdown, move || {
+        // Drop the mux-wide permit before the barrier ends and wakes the next
+        // request queued behind it.
+        let _active = clear.active.take();
+        let _worker_permit = worker_permit;
+        let Some(pending) = clear.pending.take() else { return };
+        cmux_threads::blocking::with_blocking_disallowed(|| {
+            if !run_pending_request(&worker_scheduler, &worker_mux, client, pending, &worker_writer)
+            {
+                worker_scheduler.close();
+            }
+        });
+    });
+    // Refused (shutdown began): the dropped item answered the request, and
+    // the connection closes.
+    posted.is_ok()
 }
 
 impl ConnectionSurfaceScheduler {
@@ -658,14 +825,14 @@ impl ConnectionSurfaceScheduler {
     }
 
     /// Runs `pending` on the connection's request sequence, not on the
-    /// dispatcher: a request's handler may read and commit SQLite, read
-    /// files and wait on a terminal host, which the dispatcher (blocking
-    /// disallowed) may not. The dispatcher dequeues nothing else until the
-    /// request ends ([`ConnectionSurfaceState::request_in_flight`]); its
-    /// wait for that is its idle wait for its next request. A request whose
-    /// handler panics ends its connection, as the dispatcher's own panic
-    /// does. `false` when the request could not be queued (shutdown began):
-    /// it is answered and the connection closes.
+    /// control worker: a request's handler may read and commit SQLite, read
+    /// files and wait on a terminal host, which a control worker (blocking
+    /// disallowed) may not. The control sequence takes nothing else until
+    /// the request ends ([`ConnectionSurfaceState::request_in_flight`]). The
+    /// request runs at its connection's class, as a pump does (task 224). A
+    /// request whose handler panics ends its connection. `false` when the
+    /// request could not be queued (shutdown began): it is answered and the
+    /// connection closes.
     fn run_on_requests(
         self: &Arc<Self>,
         mux: &Arc<Mux>,
@@ -689,6 +856,8 @@ impl ConnectionSurfaceScheduler {
             if queued.scheduler.cancelled.is_cancelled() {
                 return;
             }
+            let class = queued.scheduler.class.get().qos(ConnectionThread::Request);
+            let _class = item_mux.request_qos().enter_class(class);
             if !run_pending_request(&queued.scheduler, &item_mux, client, pending, &queued.writer) {
                 queued.scheduler.close();
             }
@@ -698,8 +867,8 @@ impl ConnectionSurfaceScheduler {
 }
 
 /// A request on the connection's request sequence. However it ends (run,
-/// panicked, or dropped unrun when shutdown refused it) the dispatcher may
-/// dequeue again; dropped unrun it is answered, and a panic ends its
+/// panicked, or dropped unrun when shutdown refused it) the control sequence
+/// may take the next one; dropped unrun it is answered, and a panic ends its
 /// connection so its client is never left waiting. Only locks that recover
 /// from poison are taken here, so it is safe while unwinding.
 struct QueuedRequest {
@@ -714,7 +883,7 @@ impl Drop for QueuedRequest {
             let reply = pending.reply_writer(&self.writer);
             let _ = send_request_error(
                 &reply,
-                pending.request.id.clone(),
+                pending.request.id,
                 "the daemon is shutting down; request was not executed",
             );
             self.scheduler.close();
@@ -725,11 +894,14 @@ impl Drop for QueuedRequest {
         }
         let mut state = self.scheduler.state.lock().recover_poison();
         state.request_in_flight = false;
-        drop(state);
-        self.scheduler.changed.notify_all();
+        self.scheduler.reschedule_locked(state);
     }
 }
 
 #[cfg(test)]
 #[path = "request_threads_tests.rs"]
 mod request_threads_tests;
+
+#[cfg(test)]
+#[path = "connection_sequence_tests.rs"]
+mod connection_sequence_tests;
