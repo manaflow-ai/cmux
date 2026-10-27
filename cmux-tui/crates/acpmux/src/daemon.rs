@@ -43,9 +43,6 @@ pub struct DaemonOptions {
     pub dev_origins: Vec<String>,
     /// `--dev`: a development launch (see `dev_origins_permitted`).
     pub dev: bool,
-    /// `--allow-unstable-path`: start from a runner `_work` or temporary
-    /// folder even for the default home (`exe_path.rs`).
-    pub allow_unstable_path: bool,
 }
 
 /// The daemon's panic log, `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log):
@@ -164,14 +161,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // home folder: nothing the daemon or a child does relative to its cwd may
     // walk the user's folders (LAUNCH-NO-TCC-PROMPTS).
     let _ = std::env::set_current_dir(home());
-    // Before the lock: a refused start leaves the home to the daemon that should own it. The
-    // launcher (a client, the app, the mux host) reads why on the readiness line and shows it.
-    if let Err(e) = exe_path::check_start(opts.allow_unstable_path) {
-        if let Some(fd) = opts.ready_fd {
-            write_ready(fd, &serde_json::json!({"ready": false, "refused": format!("{e:#}")}));
-        }
-        return Err(e);
-    }
+    exe_path::check_run(opts.ready_fd)?;
     let lock = home().join("daemon.lock");
     let _lock_file = match acquire_lock(&lock) {
         Ok(lock) => lock,
@@ -666,7 +656,7 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
     use std::io::Read;
     use std::os::fd::FromRawFd;
     not_dumpable().context("make the launcher not dumpable before it reads the person key")?;
-    exe_path::check_start(false)?;
+    exe_path::check_start()?;
     let path = socket_path();
     if Client::connect(&path).await.is_ok() {
         return Err(anyhow!(
@@ -938,8 +928,7 @@ where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T>>,
 {
-    // The started daemon would refuse the same way; say why here, before spawning it.
-    exe_path::check_start(false)?;
+    exe_path::check_start()?;
     let deadline = tokio::time::Instant::now() + HANDOVER_BUDGET;
     loop {
         let ready = start_daemon().await?;
@@ -963,15 +952,6 @@ where
             return Ok(c);
         }
     }
-}
-
-/// The refusal a started daemon wrote on its readiness line, if it refused to start.
-fn refused_line(ready: &str) -> Option<String> {
-    serde_json::from_str::<Value>(ready.trim())
-        .ok()?
-        .get("refused")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
 }
 
 /// Whether a started daemon's readiness line says another daemon holds the lock.
@@ -1096,9 +1076,7 @@ async fn start_daemon() -> Result<String> {
 }
 
 fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyhow::Error {
-    // A daemon that refused to start says why on its readiness line (`exe_path.rs`): that
-    // text, not "exited before it was ready", is what the person needs to read.
-    if let Some(refused) = refused_line(ready) {
+    if let Some(refused) = exe_path::refused_line(ready) {
         return anyhow!("{refused}");
     }
     let why = if ready.trim().is_empty() {
@@ -1122,43 +1100,8 @@ fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
 }
 
 #[cfg(all(test, unix))]
-mod state_file_tests {
-    use super::*;
-
-    #[test]
-    fn a_refusal_on_the_readiness_line_is_the_error_text() {
-        let line = r#"{"ready":false,"refused":"acpmux: this daemon's executable /tmp/a/acpmux is in a temporary folder"}"#;
-        let err = not_ready(std::path::Path::new("/s"), line, &anyhow!("connect failed"));
-        assert_eq!(
-            err.to_string(),
-            "acpmux: this daemon's executable /tmp/a/acpmux is in a temporary folder"
-        );
-        assert_eq!(refused_line(r#"{"ready":false,"lockHeld":true}"#), None);
-        assert!(
-            not_ready(std::path::Path::new("/s"), "", &anyhow!("x"))
-                .to_string()
-                .contains("exited before")
-        );
-    }
-
-    #[test]
-    fn daemon_log_refuses_a_symlink() {
-        let dir = std::env::temp_dir().join(format!(
-            "acpmux-log-link-{}-{}",
-            std::process::id(),
-            uuid::Uuid::now_v7()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let target = dir.join("outside");
-        let log = dir.join("daemon.log");
-        std::fs::write(&target, "outside").unwrap();
-        std::os::unix::fs::symlink(&target, &log).unwrap();
-
-        assert!(open_daemon_log(&log).is_err(), "the daemon opened a linked log");
-        assert_eq!(std::fs::read_to_string(&target).unwrap(), "outside");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
+#[path = "daemon/state_file_tests.rs"]
+mod state_file_tests;
 
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and
 /// return the read end of its readiness pipe. With `key`, the daemon also

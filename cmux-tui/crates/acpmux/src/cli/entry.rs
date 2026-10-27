@@ -141,7 +141,6 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             person_key_fd,
             allow_dev_origin,
             dev,
-            allow_unstable_path,
         }) => {
             tracing_subscriber::fmt()
                 .with_env_filter(
@@ -157,7 +156,6 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 person_key_fd,
                 dev_origins: allow_dev_origin,
                 dev,
-                allow_unstable_path,
             })
             .await?;
             // The daemon has stopped its agents and synced its store. Exit
