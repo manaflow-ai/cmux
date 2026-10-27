@@ -191,10 +191,13 @@ export default agentPaneEntry({
       },
     },
     "card-prompt-fixed-2": {
-      note: "Fixed-height prompt comparison: a short prompt remains one line, while the two-line prompt keeps its explicit break and the reply stays visible without growing the glass card.",
+      note: "Two-line cap comparison: the same long prompt as the three-line and growing arms uses at most two lines, leaving more room for the reply. The short prompt in this fixture stays on one line.",
       snapshot: chat(promptWrapRows, { title: "Minimap prompt two-line cap" }),
       play: async (ctx) => {
-        await ctx.hover({ selector: '[data-tick="1"]' });
+        const style = ctx.document.createElement("style");
+        style.textContent = ".acpmux-minimap__card[data-prompt] .acpmux-minimap__prompt { -webkit-line-clamp: 2; }";
+        ctx.document.head.append(style);
+        await ctx.hover({ selector: '[data-tick="3"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card .acpmux-minimap__prompt"));
       },
     },
@@ -202,7 +205,7 @@ export default agentPaneEntry({
       note: "Fixed-height prompt comparison: the three-line prompt preserves its line breaks, takes space from the reply preview and keeps the bookmark aligned to the first line.",
       snapshot: chat(promptWrapRows, { title: "Minimap prompt three-line cap" }),
       play: async (ctx) => {
-        await ctx.hover({ selector: '[data-tick="2"]' });
+        await ctx.hover({ selector: '[data-tick="3"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card .acpmux-minimap__prompt"));
       },
     },

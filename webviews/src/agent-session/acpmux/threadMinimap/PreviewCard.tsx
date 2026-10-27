@@ -93,7 +93,21 @@ export const PreviewCard = React.forwardRef<
     onBlur?(event: React.FocusEvent<HTMLDivElement>): void;
   }
 >(function PreviewCard(
-  { id, x, y, scroller, prompt, reply, metadata, railLeft = 0, bookmark, onPointerLeave, onSizeChange, onFocus, onBlur },
+  {
+    id,
+    x,
+    y,
+    scroller,
+    prompt,
+    reply,
+    metadata,
+    railLeft = 0,
+    bookmark,
+    onPointerLeave,
+    onSizeChange,
+    onFocus,
+    onBlur,
+  },
   ref,
 ) {
   const t = useT();
