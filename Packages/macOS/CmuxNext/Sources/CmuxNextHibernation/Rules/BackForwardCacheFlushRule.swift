@@ -7,7 +7,8 @@ package import CmuxNextCompat
 ///
 /// Each cached page keeps a renderer's document alive behind a tab nobody looks at; after a flush,
 /// Back loads the page again. A hidden page flushes once when it freezes, and every hidden page that
-/// is not frozen flushes once when the memory pressure leaves normal. A frozen page runs no
+/// is not frozen flushes once when the memory pressure leaves normal; a page that hides while the
+/// pressure is above normal flushes in its hide's turn. A frozen page runs no
 /// navigation, so its cache stays empty from its freeze until it thaws. A shown page never flushes:
 /// its Back is the person's next step.
 ///
@@ -25,6 +26,12 @@ package nonisolated struct BackForwardCacheFlushRule: Sendable, Equatable {
 
     /// A hidden page that froze flushes in its freeze's turn.
     package var flushesAtFreeze: Bool { isEnabled }
+
+    /// A page that hides at `pressure` flushes in its hide's turn: above normal, Chrome keeps no
+    /// back-forward cache, and no later pressure edge comes until the pressure is normal again.
+    package func flushesAtHide(pressure: MemoryPressureLevel) -> Bool {
+        isEnabled && pressure != .normal
+    }
 
     /// The hidden pages that flush when the pressure goes from `old` to `new`, in `hidden`'s order:
     /// all but the frozen ones when the pressure leaves normal, none on any other change.

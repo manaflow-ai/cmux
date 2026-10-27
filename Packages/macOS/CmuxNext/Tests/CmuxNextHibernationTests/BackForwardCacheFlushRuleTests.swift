@@ -2,8 +2,9 @@ import CmuxNextCompat
 import CmuxNextHibernation
 import Testing
 
-/// ``BackForwardCacheFlushRule`` (p07-memory-101): with the feature, a freeze flushes, and the hidden pages that are
-/// not frozen flush once when the pressure leaves normal; nothing flushes on any other change or with the feature off.
+/// ``BackForwardCacheFlushRule`` (p07-memory-101): with the feature, a freeze flushes, the hidden pages that are not
+/// frozen flush once when the pressure leaves normal, and a hide above normal flushes; nothing flushes on any other
+/// change or with the feature off.
 @Suite struct BackForwardCacheFlushRuleTests {
     let hidden = ["a", "b", "c"]
 
@@ -12,6 +13,13 @@ import Testing
         #expect(rule.flushes(from: .normal, to: .warning, hidden: hidden, frozen: ["b"]) == ["a", "c"])
         #expect(rule.flushes(from: .normal, to: .critical, hidden: hidden, frozen: []) == hidden)
         #expect(rule.flushesAtFreeze)
+    }
+
+    @Test func aHideAboveNormalFlushes() {
+        let rule = BackForwardCacheFlushRule(isEnabled: true)
+        #expect(rule.flushesAtHide(pressure: .warning))
+        #expect(rule.flushesAtHide(pressure: .critical))
+        #expect(!rule.flushesAtHide(pressure: .normal))
     }
 
     @Test func noOtherChangeFlushes() {
@@ -25,5 +33,6 @@ import Testing
         let rule = BackForwardCacheFlushRule()
         #expect(rule.flushes(from: .normal, to: .warning, hidden: hidden, frozen: []).isEmpty)
         #expect(!rule.flushesAtFreeze)
+        #expect(!rule.flushesAtHide(pressure: .critical))
     }
 }

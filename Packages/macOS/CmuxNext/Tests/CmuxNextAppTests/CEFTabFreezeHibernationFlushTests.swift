@@ -7,8 +7,9 @@ import Foundation
 import Testing
 
 /// p07-memory-101: with `memoryBackForwardCacheFlush` a hidden page empties its back-forward cache once when it
-/// freezes, and every hidden page that is not frozen once when the memory pressure leaves normal, as Chrome turns the
-/// cache off on low memory (`BackForwardCacheMemoryControls`, content/browser/renderer_host/back_forward_cache_impl.cc).
+/// freezes, every hidden page that is not frozen once when the memory pressure leaves normal, and a page that hides
+/// above normal once at its hide, as Chrome turns the cache off on low memory (`BackForwardCacheMemoryControls`,
+/// content/browser/renderer_host/back_forward_cache_impl.cc).
 /// A shown page is never flushed. The flushes go through the `backForwardCache` seam's recorder.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2)))
 struct CEFTabFreezeHibernationFlushTests {
@@ -37,6 +38,32 @@ struct CEFTabFreezeHibernationFlushTests {
         rig.hibernation.pressureDidChange(.normal)
         rig.hibernation.pressureDidChange(.warning)
         #expect(rig.flushes["a"] == 2)
+    }
+
+    /// A tab that hides while the pressure is already above normal flushes in its hide's turn: no pressure edge
+    /// comes for it until the pressure is normal again. A hide at normal does not flush.
+    @Test func aTabThatHidesAtWarningFlushesOnceAndTheShownTabNever() {
+        let rig = PressureRig(flushes: true)
+        rig.show("c")
+        rig.hibernation.pressureDidChange(.warning)
+        #expect(rig.flushes == ["c": 0])
+
+        rig.hide("a")
+        #expect(rig.flushes == ["a": 1, "c": 0])
+
+        rig.hibernation.pressureDidChange(.critical)
+        #expect(rig.flushes == ["a": 1, "c": 0], "a rise past warning flushed again")
+
+        rig.hibernation.pressureDidChange(.normal)
+        rig.hide("b")
+        #expect(rig.flushes == ["a": 1, "b": 0, "c": 0], "a hide at normal flushed")
+    }
+
+    @Test func withoutTheFeatureAHideAtWarningDoesNotFlush() {
+        let rig = PressureRig(flushes: false)
+        rig.hibernation.pressureDidChange(.warning)
+        rig.hide("a")
+        #expect(rig.flushes["a"] == 0)
     }
 
     @Test func withoutTheFeatureNothingFlushes() {

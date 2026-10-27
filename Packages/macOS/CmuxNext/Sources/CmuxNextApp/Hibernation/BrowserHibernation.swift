@@ -363,6 +363,7 @@ final class BrowserHibernation {
         guard let tab = cache?.browsers[key]?.tab else { return }
         _ = markOffScreen(key, false)
         hiddenAt[key] = now()
+        if backForwardCacheFlush.flushesAtHide(pressure: pressure) { flushBackForwardCache(key) }
         watchActivity(key, tab)
         replan()
     }
@@ -709,7 +710,8 @@ final class BrowserHibernation {
         cache?.trace(key, prewarm ? "prewarmed (thaw)" : "thawed")
     }
 
-    /// Empties hidden page `key`'s back-forward cache (``backForwardCacheFlush``); a shown page refuses.
+    /// Empties hidden page `key`'s back-forward cache (``backForwardCacheFlush``: at its freeze, when the pressure
+    /// leaves normal, and at its hide above normal); a shown page refuses.
     private func flushBackForwardCache(_ key: String) {
         guard let tab = cache?.browsers[key]?.tab, backForwardCache(tab)?.flushBackForwardCache() == true else { return }
         cache?.trace(key, "back-forward cache flushed")
