@@ -599,13 +599,16 @@ final class BrowserHibernation {
             case .stale:
                 cache.trace(key, "hibernate probe dropped (stale)")
                 return
-            case .keep(let reason) where exemption == nil:
-                self.exemptions[key] = reason
+            case .keep(let reason):
+                // The page's own answer (form input, audio) is the reason it reports, else why the
+                // check kept it.
+                self.exemptions[key] = exemption ?? reason
+                if exemption != nil { self.probeKeptAt[key] = .now }
                 // The probe thawed the page and the replans meanwhile skipped it: plan again so it
-                // freezes (none of these reasons makes it due again).
+                // freezes. No `.keep` reason (neighbor, hover, agent grace, the setting) makes it due.
                 self.replan()
                 return
-            case .keep, .go:
+            case .go:
                 break
             }
             if let exemption {
