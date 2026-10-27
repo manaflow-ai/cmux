@@ -2744,6 +2744,74 @@ RULES += RAW_CONTINUATION_RULES
 # ---------------------------------------------------------------- end of raw-continuation (p10-stability-083, 089)
 
 
+# ---------------------------------------------------------------- invariant-site (p10-stability-099, 199)
+# Invariant.check traps in every build (Chromium's CHECK) and Invariant.dumpWillBeCheck reports for ever
+# (DUMP_WILL_BE_CHECK; base/check.h, docs/checks.md): each site is a reviewed decision, as Chromium reviews each new
+# CHECK. The classes are crash_ratchet.py's report-only invariant_check and dump_will_be_check (one definition); CI's
+# crash ratchet neither counts nor bans them (p10-stability.md rule 1). A package Sources file the push changes may
+# hold a class's sites only up to the count INVARIANT_ALLOWLIST, read at the pushed head, allows for that file and
+# class; over it, every site of the class in the file is refused. Local only, like every guardrail. The block owns
+# its lines from here to `RULES += INVARIANT_SITE_RULES`.
+INVARIANT_ALLOWLIST = "scripts/cmux-next/invariant-allowlist.json"
+INVARIANT_CLASSES = ("invariant_check", "dump_will_be_check")
+INVARIANT_ALLOW_MEMO = "invariant-allow"
+
+
+def invariant_allowance(text: str | None) -> dict[tuple[str, str], int]:
+    """{(path, class): count} of an invariant-allowlist.json TEXT. An entry without a path, one of INVARIANT_CLASSES,
+    a positive whole count, a reason and a reviewer allows nothing; so does a missing or unparsable file."""
+    try:
+        data = json.loads(text) if text else {}
+    except json.JSONDecodeError:
+        return {}
+    entries = data.get("allow") if isinstance(data, dict) else None
+    allowed: dict[tuple[str, str], int] = {}
+    for entry in entries if isinstance(entries, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        path, kind, count = entry.get("path"), entry.get("class"), entry.get("count")
+        if (isinstance(path, str) and kind in INVARIANT_CLASSES and type(count) is int and count > 0
+                and str(entry.get("reason") or "").strip() and str(entry.get("reviewer") or "").strip()):
+            allowed[(path, kind)] = allowed.get((path, kind), 0) + count
+    return allowed
+
+
+def invariant_site(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Every Invariant.check / dumpWillBeCheck site of a class in a package Sources file the push changed (added or
+    removed a line in) whose hits of that class are more than the head's invariant-allowlist.json allows there."""
+    allowed = next((c.memo[INVARIANT_ALLOW_MEMO] for c in changes if INVARIANT_ALLOW_MEMO in c.memo), {})
+    hits = []
+    for change in changes:
+        if (not change.path.endswith(".swift") or "/Sources/" not in change.path or change.is_deleted
+                or not (change.added or change.removed)):
+            continue
+        for kind in INVARIANT_CLASSES:
+            pattern = ratchet.REPORT_SWIFT[kind]
+            counted = [(index, len(pattern.findall(ratchet_code(line)))) for index, line in enumerate(change.head_lines)
+                       if pattern.search(line)]
+            sites = [(index, n) for index, n in counted if n]
+            if sum(n for _, n in sites) > allowed.get((change.path, kind), 0):
+                hits += [Added(change.path, index + 1, change.head_lines[index]) for index, _ in sites]
+    return hits
+
+
+INVARIANT_SITE_RULES = (
+    Rule("invariant-site", "An `Invariant.check` or `Invariant.dumpWillBeCheck` in a package Sources file the push "
+         "changes, beyond what scripts/cmux-next/invariant-allowlist.json allows for that file",
+         "check stops the process in every build and dumpWillBeCheck reports for ever: each site is a reviewed "
+         "decision (Chromium's CHECK and DUMP_WILL_BE_CHECK, base/check.h), and outside input is never one",
+         "outside input gets a typed error; for a true internal invariant add an entry to "
+         "scripts/cmux-next/invariant-allowlist.json: {\"path\", \"class\": \"invariant_check\" or "
+         "\"dump_will_be_check\", \"count\", \"reason\" (check: the shared or persisted state going on would "
+         "corrupt; dumpWillBeCheck: the code that recovers), \"reviewer\"}",
+         None,
+         invariant_site,
+         scope=("Packages/",)),
+)
+RULES += INVARIANT_SITE_RULES
+# ---------------------------------------------------------------- end of invariant-site (p10-stability-099, 199)
+
+
 # ---------------------------------------------------------------- wakeup-ext (p14-energy, PL-energy)
 # Nothing polls (plans/cmux-next/chrome-parity/p14-energy.md, section C) in the code outside CmuxNext Sources: the
 # Shared packages and CmuxUpdater the app links, the cmux-tui crates' src, webviews/src and the CEF shim's C++/ObjC.
@@ -4936,7 +5004,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     blob_ids: dict[tuple[str, str], str] = {}
     texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES), (head, OWNERS)]
                   + [(head, MANIFEST), (base, MANIFEST), (head, THREADING_DOC), (head, PACKAGE_MANIFEST),
-                     (head, IDLE_BUDGET), (base, IDLE_BUDGET)], blob_ids)
+                     (head, IDLE_BUDGET), (base, IDLE_BUDGET), (head, INVARIANT_ALLOWLIST)], blob_ids)
     diff = diff_proc.communicate()[0].decode("utf-8", "replace")
     changes = parse_diff(diff)
     warnings: list[tuple[str, str]] = []
@@ -4979,8 +5047,10 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     files = [changes[p] for p in paths]
     wakeup = WakeupContext(repo, base, head, {rev: texts.get((rev, MANIFEST), "") for rev in (base, head)},
                            {rev: texts.get((rev, IDLE_BUDGET)) for rev in (base, head)})
+    invariant_allow = invariant_allowance(texts.get((head, INVARIANT_ALLOWLIST)))
     for change in files:
         change.memo["wakeup"] = wakeup
+        change.memo[INVARIANT_ALLOW_MEMO] = invariant_allow
     moved = collections.Counter(r.text.strip() for c in swift.values() for r in c.removed if r.text.strip())
     try:
         load_push_linked_packages(repo, head, texts.get((head, PACKAGE_MANIFEST)), files)
@@ -5584,12 +5654,61 @@ RAW_CONTINUATION_CASES = (
 )
 
 
+SELF_TEST_ORDER = "Packages/Shared/Linked/Sources/Linked/Order.swift"
+SELF_TEST_CACHE = "Packages/Shared/Linked/Sources/Linked/Cache.swift"
+SELF_TEST_ROWS = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Rows.swift"
+SELF_TEST_CHECK = "    Invariant.check(rows.count == order.count, \"order-matches-rows\")\n"
+SELF_TEST_DUMP = "    Invariant.dumpWillBeCheck(cache.isCoherent, \"cache-coherent\")\n"
+
+
+def _self_test_invariant_allowlist(*entries: tuple[str, str, int]) -> str:
+    return json.dumps({"allow": [{"path": path, "class": kind, "count": count, "reason": "fixture",
+                                  "reviewer": "self-test"} for path, kind, count in entries]})
+
+
+# The base: Order.swift holds one allowlisted check; Cache.swift one dumpWillBeCheck with no entry.
+SELF_TEST_INVARIANT_BASE = {
+    SELF_TEST_ORDER: "func save() {\n" + SELF_TEST_CHECK + "}\n",
+    SELF_TEST_CACHE: "func load() {\n" + SELF_TEST_DUMP + "}\n",
+    INVARIANT_ALLOWLIST: _self_test_invariant_allowlist((SELF_TEST_ORDER, "invariant_check", 1)),
+}
+INVARIANT_SITE_CASES = (
+    ("a new check site with no allowlist entry", {SELF_TEST_ROWS: "func f() {\n" + SELF_TEST_CHECK + "}\n"}, True),
+    ("a new dumpWillBeCheck site with no allowlist entry",
+     {"Packages/Shared/Linked/Sources/Linked/Other.swift": "func f() {\n" + SELF_TEST_DUMP + "}\n"}, True),
+    ("a second check in a file allowed one", {SELF_TEST_ORDER: "func save() {\n" + SELF_TEST_CHECK * 2 + "}\n"}, True),
+    ("an edit in a file whose old site has no entry",
+     {SELF_TEST_CACHE: "// notes\nfunc load() {\n" + SELF_TEST_DUMP + "}\n"}, True),
+    ("an allowlist entry of the other class does not allow a site",
+     {SELF_TEST_CACHE: "// notes\nfunc load() {\n" + SELF_TEST_DUMP + "}\n",
+      INVARIANT_ALLOWLIST: _self_test_invariant_allowlist((SELF_TEST_ORDER, "invariant_check", 1),
+                                                          (SELF_TEST_CACHE, "invariant_check", 1))}, True),
+    ("an edit in a file within its allowance",
+     {SELF_TEST_ORDER: "// notes\nfunc save() {\n" + SELF_TEST_CHECK + "}\n"}, False),
+    ("a new site with its allowlist entry in the same push",
+     {SELF_TEST_ROWS: "func f() {\n" + SELF_TEST_CHECK + "}\n",
+      INVARIANT_ALLOWLIST: _self_test_invariant_allowlist((SELF_TEST_ORDER, "invariant_check", 1),
+                                                          (SELF_TEST_ROWS, "invariant_check", 1))}, False),
+    ("an old unlisted site in a file the push does not change",
+     {SELF_TEST_ORDER: "// notes\nfunc save() {\n" + SELF_TEST_CHECK + "}\n"}, False),
+    ("a site in a test",
+     {"Packages/Shared/Linked/Tests/LinkedTests/OrderTests.swift": "func t() {\n" + SELF_TEST_CHECK + "}\n"}, False),
+    ("a site named only in a comment or a string",
+     {"Packages/Shared/Linked/Sources/Linked/Other.swift": "/// Invariant.check(a, \"doc\")\n"
+                                                          "let note = \"Invariant.dumpWillBeCheck(\"\n"}, False),
+    ("notFatalUntil is not a class",
+     {"Packages/Shared/Linked/Sources/Linked/Other.swift":
+      "func f() {\n    Invariant.notFatalUntil(ok, \"tab-in-workspace\", build: 100)\n}\n"}, False),
+)
+
+
 # (rule, base files, cases): each case is one commit over its suite's base.
 SELF_TEST_SUITES = (
     ("input-monitor", SELF_TEST_BASE, SELF_TEST_CASES),
     ("target-settings", SELF_TEST_MANIFEST_BASE, TARGET_SETTINGS_CASES),
     ("safety-todo", SELF_TEST_SAFETY_BASE, SAFETY_TODO_CASES),
     ("raw-continuation", SELF_TEST_CONTINUATION_BASE, RAW_CONTINUATION_CASES),
+    ("invariant-site", SELF_TEST_INVARIANT_BASE, INVARIANT_SITE_CASES),
 )
 
 

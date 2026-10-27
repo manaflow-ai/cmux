@@ -1,0 +1,4 @@
+{
+ "_comment": "Reviewed Invariant API sites (p10-stability-099, -199). guardrails.py's invariant-site rule (local only: the pre-push hook and plain runs, never CI) refuses an Invariant.check or Invariant.dumpWillBeCheck in a package Sources file a push changes unless an entry here allows that many hits of its class in that file. Entry: {path, class (invariant_check | dump_will_be_check), count, reason, reviewer}. invariant_check's reason says what shared or persisted state going on would corrupt; dump_will_be_check's names the code that recovers. Nothing in CI reads this file.",
+ "allow": []
+}

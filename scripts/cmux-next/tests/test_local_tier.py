@@ -35,6 +35,10 @@ REPO = SCRIPTS.parents[1]
 # The functions LOCAL_TIER's rules call (and start_guardrails, which starts the guardrails' arch ratchet early).
 LOCAL_FUNCTIONS = ("start_guardrails", "guardrails", "perf_cron_tests", "stale_baseline_paths", "compile_trailer",
                    "stability_settings")
+# p10's new crash classes (p10-stability.md implementer rule 1), named here rather than read from crash_ratchet.py, so
+# moving one into the CI compare or crash-allowlist.json's "banned" fails a test instead of redefining the CI tier.
+# objc_raises is task 166's class and is not written yet; it is held to the same rule from its first commit.
+P10_CLASSES = ("trap_api", "raw_continuation", "objc_raises", "invariant_check", "dump_will_be_check")
 
 
 def load(name: str, filename: str):
@@ -176,15 +180,19 @@ class GuardrailsLocalTierTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}), contextlib.redirect_stdout(io.StringIO()) as out:
             self.assertEqual(self.guardrails.main(["--list"]), 0)
         self.assertIn("raw-continuation", out.getvalue())
+        self.assertIn("invariant-site", out.getvalue())
 
 
 CRASH_FIXTURE = {
     "Packages/macOS/CmuxNext/Package.swift": "// swift-tools-version: 6.2\nimport PackageDescription\n"
                                              'let package = Package(name: "CmuxNext")\n',
-    # A report-only class hit of each kind (trap_api, raw_continuation) next to nothing the CI classes count.
+    # A report-only class hit of each kind (trap_api, raw_continuation, invariant_check, dump_will_be_check) next to
+    # nothing the CI classes count; none has a crash-allowlist entry.
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift":
         "func f(pairs: [(Int, Int)]) async {\n    let d = Dictionary(uniqueKeysWithValues: pairs)\n"
-        "    await withCheckedContinuation { $0.resume() }\n    _ = d\n}\n",
+        "    await withCheckedContinuation { $0.resume() }\n    _ = d\n"
+        "    Invariant.check(d.count == pairs.count, \"unique-keys\")\n"
+        "    Invariant.dumpWillBeCheck(!d.isEmpty, \"non-empty\")\n}\n",
     "cmux-tui/crates/x/src/lib.rs": "pub fn f() {}\n",
 }
 
@@ -203,6 +211,9 @@ class CrashRatchetReportBaselineTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text)
         (here / "crash-safety-baseline.json").write_text('{"rust": {}, "swift": {}, "waived": {"rust": {}, "swift": {}}}\n')
+        # The checked-in bans, with no allow entry: a class CI bans would fail the compare on the fixture's sites.
+        banned = json.loads((SCRIPTS / "crash-allowlist.json").read_text())["banned"]
+        (here / "crash-allowlist.json").write_text(json.dumps({"banned": banned, "allow": []}))
         # Corrupt on purpose: any read of it raises.
         (here / "crash-safety-report-baseline.json").write_text("{ not json\n")
         git(self.repo, "init", "--quiet")
@@ -227,6 +238,13 @@ class CrashRatchetReportBaselineTests(unittest.TestCase):
         written = {kind for section in (data, data.get("waived", {})) for lang in ("swift", "rust")
                    for kind in section.get(lang, {})}
         self.assertEqual(written, set())
+
+    def test_report_counts_the_invariant_sites(self):
+        (self.repo / "scripts/cmux-next/crash-safety-report-baseline.json").unlink()
+        report = self.ratchet("--report", "invariant_check,dump_will_be_check")
+        self.assertEqual(report.returncode, 0, report.stdout + report.stderr)
+        data = json.loads(report.stdout)
+        self.assertEqual({kind: data[kind]["total"] for kind in data}, {"invariant_check": 1, "dump_will_be_check": 1})
 
     def test_report_reads_the_report_baseline(self):
         report = self.ratchet("--report", "trap_api")
@@ -323,6 +341,22 @@ class CheckedInBaselineTests(unittest.TestCase):
                    for kind in section.get(lang, {})}
         self.assertFalse(written & report_only)
         self.assertLessEqual(written, set(crash.SWIFT_KINDS) | set(crash.RUST))
+
+    def test_no_p10_class_is_a_ci_class(self):
+        crash = load("cmux_next_crash_ratchet_p10_classes", "crash_ratchet.py")
+        allowlist = json.loads((SCRIPTS / "crash-allowlist.json").read_text())
+        banned = {entry.split(".", 1)[1].split("@", 1)[0] for entry in allowlist["banned"]}
+        allowed = {entry["class"].split(".", 1)[1] for entry in allowlist["allow"]}
+        for kind in P10_CLASSES:
+            with self.subTest(kind=kind):
+                self.assertNotIn(kind, crash.SWIFT, "the CI compare counts it")
+                self.assertNotIn(kind, crash.SWIFT_KINDS, "the CI compare counts it")
+                self.assertNotIn(kind, banned, "crash-allowlist.json bans it, so CI fails on a new site")
+                self.assertNotIn(kind, allowed, "a crash-allowlist.json entry for a class CI does not judge")
+
+    def test_the_written_p10_classes_are_report_classes(self):
+        crash = load("cmux_next_crash_ratchet_p10_report", "crash_ratchet.py")
+        self.assertLessEqual(set(P10_CLASSES) - {"objc_raises"}, set(crash.REPORT_CLASSES))
 
     def test_rust_panic_baseline_holds_workspace_crates_and_ci_lints_only(self):
         rust = load("cmux_next_rust_panic_checked_in", "rust_panic_ratchet.py")

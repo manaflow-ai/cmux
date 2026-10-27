@@ -49,6 +49,7 @@ REGISTRY = (
     "scripts/cmux-next/state-roots-baseline.tsv",
     "scripts/cmux-next/process-scan-baseline.tsv",
     "scripts/cmux-next/env-write-allowlist.json",
+    "scripts/cmux-next/invariant-allowlist.json",
     "scripts/cmux-next/godfile-baseline.tsv",
     "scripts/cmux-next/perf-hot-benches.json",
     "scripts/ci/generated-files.json",

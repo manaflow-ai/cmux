@@ -83,13 +83,6 @@ fails, a waived row above it is printed as a recorded waiver.
                       or an overload without the parameter
     dynamic_dispatch  NSSelectorFromString, Selector("..."), KVC value/setValue by key
                       (an unknown selector or key raises an Objective-C exception)
-    invariant_check   Invariant.check( (CmuxSafeConcurrency, p10-stability-099): traps in every
-                      build. Banned: each site needs an allowlist entry whose reason says what
-                      shared or persisted state going on would corrupt
-    dump_will_be_check  Invariant.dumpWillBeCheck( (p10-stability-099): reports and never traps.
-                      Banned: each site needs an allowlist entry whose reason names the code
-                      that recovers. Invariant.notFatalUntil is not a class: it traps from its
-                      named build on
     env_write         setenv( / unsetenv( / putenv( / an assignment to environ. Not in
                       the baseline and not waived by crash-allow: only the call sites in
                       env-write-allowlist.json (path, call, count, reason) pass. libghostty
@@ -128,6 +121,13 @@ compared, never in crash-safety-baseline.json, and never read by the CI compare 
                       `hasSuffix` or `starts` is read on the same line before it or on one of the 3 lines above
                       (`guard !queue.isEmpty`, `while let x = queue.first`, `if s.hasPrefix("-") { s.removeFirst() }`);
                       `popFirst()` / `popLast()` never count
+    invariant_check   Invariant.check( (CmuxSafeConcurrency, p10-stability-099): traps in every build
+    dump_will_be_check  Invariant.dumpWillBeCheck( (p10-stability-099): reports and never traps.
+                      Invariant.notFatalUntil is not a class: it traps from its named build on.
+                      guardrails.py's invariant-site rule (local only) refuses a site in a file the push
+                      changes unless invariant-allowlist.json (read by nothing in CI) has an entry for its
+                      file and class: for check, a reason that says what shared or persisted state going on
+                      would corrupt; for dumpWillBeCheck, one that names the code that recovers
   The ratchet classes index_subscript and int_conversion are also report classes: by default over INDEX_MODULES
   (the CI rows, counted and waived together), with --all-modules over every module of every package.
 
@@ -180,13 +180,13 @@ SWIFT = {
     "unchecked": re.compile(r"nonisolated\(unsafe\)|@unchecked\s+Sendable"),
     "dynamic_dispatch": re.compile(
         r"\bNSSelectorFromString\(|\bSelector\(\"|\b(?:setValue|value)\((?:[^()]|\([^()]*\))*\bforKey(?:Path)?:"),
-    "invariant_check": re.compile(r"\bInvariant\.check\("),
-    "dump_will_be_check": re.compile(r"\bInvariant\.dumpWillBeCheck\("),
 }
 # Report-only classes (--report): counted for the report, never in the baseline or the CI compare. Each class's
 # scope is every package's Sources less REPORT_OWNERS[class], the package that implements its safe replacement.
 REPORT_SWIFT = {
     "raw_continuation": re.compile(r"\bwith(?:Checked|Unsafe)(?:Throwing)?Continuation\b"),
+    "invariant_check": re.compile(r"\bInvariant\.check\("),
+    "dump_will_be_check": re.compile(r"\bInvariant\.dumpWillBeCheck\("),
 }
 REPORT_OWNERS = {
     "raw_continuation": ("Packages/Shared/CmuxSafeConcurrency/",),
