@@ -299,6 +299,7 @@ describe("sandboxed Run lifecycle in the repository", () => {
 
   dbTest("with no live VM row left, the reaper asks the provider about the attempt's own VM and only then lets the handle go", async () => {
     const userId = `sandbox-${randomUUID()}`;
+    const foreignUser = `other-${userId}`;
     const destroyed: string[] = [];
     const { mock } = await import("bun:test");
     const drivers = await import("../services/vms/drivers");
@@ -348,10 +349,33 @@ describe("sandboxed Run lifecycle in the repository", () => {
       await finishAttempt(forged);
       expect(await reapExpiredCloudVmAttempts({ runId: forged.runId })).toMatchObject({ claimed: 1, cleaned: 0, errors: 0 });
       expect((await repo().getRun(forged.runId, userId)).attempts[0]?.providerVmId).toBeNull();
+      // The same for an id naming another user's marked sandbox VM: no destroy, and its row is not
+      // marked as a confirmed destroy, so its own orphan sweep still finds it.
+      const foreignVm = `vm-foreign-${randomUUID()}`;
+      await insertSandboxVm(foreignUser, `sandbox-run:${randomUUID()}:attempt:${randomUUID()}`, foreignVm);
+      await sql!`update cloud_vms set status = 'destroyed', destroyed_at = now() where provider_vm_id = ${foreignVm}`;
+      const pointed = await startedAttempt(userId);
+      await sql!`update run_attempts set provider_vm_id = ${foreignVm} where id = ${pointed.attemptId}`;
+      await finishAttempt(pointed);
+      expect(await reapExpiredCloudVmAttempts({ runId: pointed.runId })).toMatchObject({ claimed: 1, cleaned: 0, errors: 0 });
+      const [foreignRow] = await sql!`select provider_metadata from cloud_vms where provider_vm_id = ${foreignVm}`;
+      expect(foreignRow?.provider_metadata?.cmuxSandboxDestroyConfirmed).toBeUndefined();
+      // An ownership lookup that fails is no answer: no provider call, and the obligation waits.
+      const repositoryModule = await import("../services/runs/repository");
+      const realRepository = { ...repositoryModule };
+      mock.module("../services/runs/repository", () => ({ ...realRepository, sandboxVmOwnedByAttempt: async () => { throw new Error("db unavailable"); } }));
+      try {
+        const unknown = await startedAttempt(userId);
+        await finishAttempt(unknown);
+        expect(await reapExpiredCloudVmAttempts({ runId: unknown.runId })).toMatchObject({ claimed: 1, cleaned: 0, errors: 1 });
+        expect((await repo().getRun(unknown.runId, userId)).attempts[0]?.providerVmId).toBe(`vm-${unknown.attemptId}`);
+      } finally {
+        mock.module("../services/runs/repository", () => realRepository);
+      }
       expect(destroyed).toEqual([`vm-${gone.attemptId}`, `vm-${down.attemptId}-down`, `vm-${route.attemptId}-route`]);
     } finally {
       mock.module("../services/vms/drivers", () => original);
-      await sql!`delete from cloud_vms where user_id = ${userId}`;
+      await sql!`delete from cloud_vms where user_id in ${sql!([userId, foreignUser])}`;
       await removeRuns(userId);
     }
   });
