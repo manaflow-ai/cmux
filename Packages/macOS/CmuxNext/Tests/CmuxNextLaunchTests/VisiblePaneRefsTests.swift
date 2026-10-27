@@ -234,9 +234,6 @@ import Testing
         f.refs.restoreFinished { [screen = f.screen] in screen.windows }
         #expect(f.recorder.releases == [["restoreFinished"], []], "content showing is not loaded-idle")
         try await f.quietClock.waitForSleeper()
-        f.quietClock.advance(by: VisiblePaneRefs.quietPeriod)
-        try await f.quietClock.waitForSleeper()
-        #expect(f.refs.pendingPanes == ["t"], "the first quiet read only notes the output")
         f.quietClock.advance(by: VisiblePaneRefs.quietPeriod - .milliseconds(1))
         #expect(f.refs.pendingPanes == ["t"])
         f.quietClock.advance(by: .milliseconds(1))
@@ -246,19 +243,18 @@ import Testing
         #expect(!f.bound.isScheduled)
     }
 
-    /// Output during the quiet period starts it again: the pane waits for a period with none.
-    @Test func outputDuringTheQuietPeriodKeepsThePaneLoading() async throws {
+    /// Output during the quiet period starts it again: the pane waits for a whole period with none.
+    @Test func outputDuringTheQuietPeriodStartsItAgain() async throws {
         let f = PaneRefsFixture()
         f.screen.show([Pane(key: "t", state: .shown(output: 1))])
         f.refs.restoreFinished { [screen = f.screen] in screen.windows }
         try await f.quietClock.waitForSleeper()
-        f.quietClock.advance(by: VisiblePaneRefs.quietPeriod)
-        try await f.quietClock.waitForSleeper()
+        f.quietClock.advance(by: .milliseconds(60))
         f.screen.show([Pane(key: "t", state: .shown(output: 2))])  // output came
-        f.quietClock.advance(by: VisiblePaneRefs.quietPeriod)
-        try await f.quietClock.waitForSleeper()
-        #expect(f.refs.pendingPanes == ["t"], "output since the last read: not quiet")
-        f.quietClock.advance(by: VisiblePaneRefs.quietPeriod)
+        await f.sleepRequests(f.quietClock, count: 2)
+        f.quietClock.advance(by: .milliseconds(60))
+        #expect(f.refs.pendingPanes == ["t"], "the first period's end passed: output started it again")
+        f.quietClock.advance(by: .milliseconds(40))
         await f.recorder.released(count: 2)
         #expect(f.recorder.lastReason == "visiblePaneLoadedIdle")
     }

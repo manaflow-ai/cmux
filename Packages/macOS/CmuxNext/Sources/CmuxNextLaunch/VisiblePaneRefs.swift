@@ -145,7 +145,7 @@ public final class VisiblePaneRefs {
     private struct Held {
         let key: String
         let release: Release
-        /// The pane's ``PaneState/shown(output:)`` count at the last quiet read; nil while it loads.
+        /// The pane's ``PaneState/shown(output:)`` count when its quiet period started; nil while it loads.
         var quietOutput: UInt64?
     }
 
@@ -264,8 +264,8 @@ public final class VisiblePaneRefs {
     ///
     /// - Parameters:
     ///   - panes: The visible panes now.
-    ///   - quietRead: A ``quietPeriod`` passed since the last quiet read: a shown pane whose output is
-    ///     the same as at that read is loaded-idle.
+    ///   - quietRead: A ``quietPeriod`` passed with no new output seen: a shown pane whose output is still
+    ///     the one it had when the period started is loaded-idle.
     @discardableResult
     private func update(_ panes: [Pane], quietRead: Bool = false) -> Bool {
         guard !pending.isEmpty else {
@@ -287,7 +287,7 @@ public final class VisiblePaneRefs {
         take(panes)
         let states = Dictionary(panes.map { ($0.key, $0.state) }, uniquingKeysWith: { first, _ in first })
         var left: [Release] = [], loaded: [Release] = [], kept: [Held] = []
-        var waitsForQuiet = false
+        var waitsForQuiet = false, outputCame = false
         for var held in pending {
             switch states[held.key] {
             case nil:
@@ -297,7 +297,8 @@ public final class VisiblePaneRefs {
             case .shown(let output)? where quietRead && held.quietOutput == output:
                 loaded.append(held.release)
             case .shown(let output)?:
-                if quietRead { held.quietOutput = output }
+                // New output (or the first seen): the quiet period starts again from now.
+                if held.quietOutput != output { (held.quietOutput, outputCame) = (output, true) }
                 waitsForQuiet = true
                 kept.append(held)
             case .loading?:
@@ -310,14 +311,14 @@ public final class VisiblePaneRefs {
         for release in left { release(.noVisiblePane) }
         for release in loaded { release(.visiblePaneLoadedIdle) }
         finishIfDone()
-        if waitsForQuiet, !pending.isEmpty {
-            quiet.scheduleOnMainIfIdle(after: Self.quietPeriod) { [weak self] in self?.quietReadDue() }
+        if waitsForQuiet, !pending.isEmpty, outputCame || !quiet.isScheduled {
+            quiet.scheduleOnMain(after: Self.quietPeriod) { [weak self] in self?.quietReadDue() }
         }
         return !pending.isEmpty
     }
 
-    /// A ``quietPeriod`` passed: the panes are read now, and a shown pane whose output is the same as at
-    /// the last quiet read is loaded-idle.
+    /// A ``quietPeriod`` passed since the last new output seen: the panes are read now, and a shown pane
+    /// whose output did not change is loaded-idle.
     private func quietReadDue() {
         guard let windows else { return }
         update(windows().flatMap(\.panes), quietRead: true)
