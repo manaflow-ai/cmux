@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError, sync_channel};
+use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
@@ -18,6 +18,7 @@ use crate::surface::{Surface, SurfaceMeta, SurfaceOptions};
 use crate::{Mux, MuxEvent, SurfaceId};
 
 mod cdp_events;
+mod lanes;
 mod navigation_hold;
 mod navigation_hold_tests;
 mod surface_input;
@@ -37,16 +38,21 @@ mod surface_reconfigure;
 mod surface_state;
 mod surface_transitions;
 mod worker;
+use lanes::LaneSender;
+pub(crate) use lanes::{BrowserLanes, LaneHandle, LanePool, LaneTask, LaneTurn};
 #[cfg(test)]
 use runtime::runtime_endpoint;
 use runtime::{browser_geometry_locked, capture_scale_for, scaled_pixels};
 pub(crate) use runtime::{new_surface, new_surface_with_resource_identity};
+use worker::{BrowserCommandLane, is_cdp_timeout_error, start_surface_events};
 #[cfg(test)]
 use worker::{
     clear_attention_if_page_changed, next_pointer_lifecycle_deadline, record_browser_worker_result,
     release_abandoned_pointer_presses, take_latest_worker_commands,
 };
-use worker::{is_cdp_timeout_error, start_browser_worker, start_surface_thread};
+
+/// The sender of a surface's command lane: each send wakes the lane.
+type BrowserCommandSender = LaneSender<SequencedBrowserCommand>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowserSource {
@@ -109,7 +115,7 @@ impl Drop for BrowserFrameStream {
 /// a natively hosted page wakes the worker, which stops its screencast.
 struct FrameViewer {
     viewers: Arc<AtomicUsize>,
-    command_tx: Arc<Mutex<Option<SyncSender<SequencedBrowserCommand>>>>,
+    command_tx: Arc<Mutex<Option<BrowserCommandSender>>>,
     command_order: Arc<Mutex<BrowserCommandOrder>>,
 }
 
@@ -676,6 +682,8 @@ struct SurfaceRouteState {
     events: VecDeque<QueuedSurfaceEvent>,
     retained_bytes: usize,
     closed: bool,
+    /// The surface's event lane, woken for each delivered event.
+    lane: Option<LaneHandle>,
 }
 
 struct QueuedSurfaceEvent {
@@ -688,11 +696,33 @@ impl SurfaceRoute {
         Self { state: Mutex::new(SurfaceRouteState::default()), ready: Condvar::new() }
     }
 
+    /// Binds the surface's event lane: it runs for each event delivered
+    /// from now on, and at once for any already queued.
+    fn bind(&self, lane: LaneHandle) {
+        let mut state = self.state.lock().unwrap();
+        let pending = !state.events.is_empty();
+        state.lane = Some(lane.clone());
+        drop(state);
+        if pending {
+            lane.wake();
+        }
+    }
+
     /// Returns true when the route must be removed from the runtime maps.
     fn deliver(&self, event: CdpEvent) -> bool {
+        let (remove, lane) = self.queue(event);
+        if let Some(lane) = lane {
+            lane.wake();
+        }
+        remove
+    }
+
+    /// Queues `event`; returns what [`Self::deliver`] returns and the lane
+    /// to wake once the route's lock is released.
+    fn queue(&self, event: CdpEvent) -> (bool, Option<LaneHandle>) {
         let mut state = self.state.lock().unwrap();
         if state.closed {
-            return true;
+            return (true, None);
         }
 
         let replacement = match &event {
@@ -724,14 +754,15 @@ impl SurfaceRoute {
         {
             fail_surface_route(&mut state, "CDP surface event queue overflow");
             self.ready.notify_one();
-            return true;
+            return (true, state.lane.clone());
         }
         state.events.push_back(QueuedSurfaceEvent { event, retained_bytes: event_bytes });
         state.retained_bytes += event_bytes;
         self.ready.notify_one();
-        false
+        (false, state.lane.clone())
     }
 
+    #[cfg(test)]
     fn recv(&self) -> Option<CdpEvent> {
         let mut state = self.state.lock().unwrap();
         loop {
@@ -753,6 +784,11 @@ impl SurfaceRoute {
         }
         fail_surface_route(&mut state, &reason);
         self.ready.notify_one();
+        let lane = state.lane.clone();
+        drop(state);
+        if let Some(lane) = lane {
+            lane.wake();
+        }
     }
 
     #[cfg(test)]
@@ -760,7 +796,6 @@ impl SurfaceRoute {
         self.state.lock().unwrap().closed
     }
 
-    #[cfg(test)]
     fn try_recv(&self) -> Option<CdpEvent> {
         let mut state = self.state.lock().unwrap();
         let queued = state.events.pop_front()?;
@@ -792,13 +827,18 @@ pub struct BrowserSurface {
     provider_waiters: Option<Arc<BrowserProviderRegistry>>,
     cell_pixels: Mutex<(u16, u16)>,
     capture_options: BrowserCaptureOptions,
-    command_tx: Arc<Mutex<Option<SyncSender<SequencedBrowserCommand>>>>,
+    command_tx: Arc<Mutex<Option<BrowserCommandSender>>>,
     /// Live [`BrowserFrameStream`]s (attached viewers) of this surface.
     frame_viewers: Arc<AtomicUsize>,
     command_order: Arc<Mutex<BrowserCommandOrder>>,
     latest_nav: Arc<Mutex<Option<SequencedBrowserCommand>>>,
     latest_authority: Arc<Mutex<Option<SequencedBrowserCommand>>>,
     navigation_hold: Mutex<navigation_hold::NavigationHold>,
+    /// The pool this surface's event and command lanes run on.
+    lanes: LanePool,
+    /// A pool of the surface's own, when it was made with no mux (tests):
+    /// dropped with the surface.
+    _own_lanes: Option<BrowserLanes>,
     #[cfg(test)]
     worker_done: Mutex<Option<Receiver<()>>>,
     /// Navigation commit waits that ran out their deadline: a test observes

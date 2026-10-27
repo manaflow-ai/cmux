@@ -622,6 +622,9 @@ pub struct Mux {
     #[cfg(test)]
     resource_close_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_providers: Arc<BrowserProviderRegistry>,
+    /// The pool every browser surface's event and command lanes, and every
+    /// provider bootstrap, run on: no thread per surface (p01-process-206).
+    browser_lanes: browser::BrowserLanes,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     active_render_attachments: Arc<AtomicUsize>,
     deadline_fanout_pool: DeadlineFanoutPool,

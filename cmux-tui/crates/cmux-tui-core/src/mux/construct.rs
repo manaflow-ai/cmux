@@ -350,6 +350,7 @@ impl Mux {
             #[cfg(test)]
             resource_close_cleanup: Mutex::new(None),
             browser_providers: Arc::new(BrowserProviderRegistry::default()),
+            browser_lanes: browser::BrowserLanes::new(),
             browser_runtime: Mutex::new(None),
             active_render_attachments: Arc::new(AtomicUsize::new(0)),
             deadline_fanout_pool: DeadlineFanoutPool::new(),

@@ -460,7 +460,7 @@ fn lifecycle_paint_authorizes_loader_bracketed_capture_end_to_end() {
         target_id: "target-1".to_string(),
         session_id: "session-1".to_string(),
     });
-    start_surface_thread(
+    start_surface_events(
         surface.clone(),
         route,
         Weak::new(),
@@ -773,7 +773,7 @@ fn rejected_streamed_frames_do_not_emit_surface_output() {
 
     let events = mux.subscribe();
     let route = Arc::new(crate::browser::SurfaceRoute::new());
-    start_surface_thread(
+    start_surface_events(
         surface.clone(),
         route.clone(),
         Arc::downgrade(&mux),

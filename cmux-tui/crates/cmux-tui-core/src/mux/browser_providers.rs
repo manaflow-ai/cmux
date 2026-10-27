@@ -1,6 +1,8 @@
-//! Browser providers: the browser runtime, provider registration, provider surface reconciliation, browser bootstrap and provider surface restart.
+//! Browser providers: the browser runtime, provider registration, provider surface reconciliation, browser bootstrap (a provider tab's as a lane of the browser pool) and provider surface restart.
 
 use super::*;
+use crate::browser::{LaneHandle, LaneTask, LaneTurn};
+use crate::browser_provider::ProviderWatch;
 use crate::panic_free::RecoverPoison;
 
 impl Mux {
@@ -41,6 +43,11 @@ impl Mux {
     /// [`BrowserProviderRegistry::wake_waiters`]).
     pub(crate) fn browser_provider_registry(&self) -> Arc<BrowserProviderRegistry> {
         self.browser_providers.clone()
+    }
+
+    /// The pool browser surface lanes run on.
+    pub(crate) fn browser_lanes(&self) -> browser::LanePool {
+        self.browser_lanes.pool().clone()
     }
 
     pub(crate) fn browser_provider_snapshot(&self) -> Option<BrowserProviderSnapshot> {
@@ -131,138 +138,58 @@ impl Mux {
         bootstrap: BrowserBootstrap,
         runtime: Option<Arc<BrowserRuntime>>,
     ) {
-        let provider_bootstrap = matches!(&bootstrap, BrowserBootstrap::Provider { .. });
-        // The frontend renders this page itself; the daemon never waits for
-        // or attaches a CDP target for it, so it is live now.
-        if provider_bootstrap && self.is_frontend_browser_surface(&surface) {
-            surface.mark_browser_frontend_rendered();
+        if let BrowserBootstrap::Provider { tab_id, url } = bootstrap {
+            // The frontend renders this page itself; the daemon never waits
+            // for or attaches a CDP target for it, so it is live now.
+            if self.is_frontend_browser_surface(&surface) {
+                surface.mark_browser_frontend_rendered();
+                return;
+            }
+            // A provider bootstrap's CDP runtime is the provider's own.
+            if runtime.is_some() {
+                return;
+            }
+            // It waits, with no bound, for the provider to publish the
+            // tab's target and retries until the surface dies: a lane on the
+            // browser pool that parks in the registry between tries, never a
+            // thread of its own (p01-process-206).
+            let lane = self.browser_lanes().reserve();
+            lane.start(ProviderBootstrap {
+                surface,
+                mux: Arc::downgrade(self),
+                providers: self.browser_providers.clone(),
+                key: self.browser_providers.watcher_key(),
+                tab_id,
+                url,
+                lane: lane.clone(),
+                retry_delay: PROVIDER_RETRY_INITIAL,
+                backoff: None,
+            });
+            lane.wake();
             return;
         }
         let weak_mux = Arc::downgrade(self);
-        let providers = self.browser_providers.clone();
         let id = surface.id;
         let thread_surface = surface.clone();
+        // Any other bootstrap is one CDP attach: a request wait
+        // (`server/request_wait.rs`).
         let run = move || {
             let result = (|| -> anyhow::Result<()> {
-                match bootstrap {
-                    BrowserBootstrap::Provider { tab_id, url } => {
-                        anyhow::ensure!(
-                            runtime.is_none(),
-                            "provider bootstrap cannot override its CDP runtime"
-                        );
-                        let mut retry_delay = Duration::from_millis(250);
-                        loop {
-                            let canceled = || {
-                                thread_surface.is_dead()
-                                    || weak_mux
-                                        .upgrade()
-                                        .is_none_or(|mux| mux.shutting_down.load(Ordering::Acquire))
-                            };
-                            let lease =
-                                providers.wait_for_target(&tab_id, canceled).ok_or_else(|| {
-                                    anyhow::anyhow!("browser provider wait was canceled")
-                                })?;
-                            let attempt = (|| -> anyhow::Result<()> {
-                                let mux = weak_mux
-                                    .upgrade()
-                                    .ok_or_else(|| anyhow::anyhow!("browser mux was dropped"))?;
-                                let runtime = mux.browser_runtime_for_provider(&lease)?;
-                                let Surface::Browser(browser) = thread_surface.as_ref() else {
-                                    anyhow::bail!("browser bootstrap got a non-browser surface");
-                                };
-                                anyhow::ensure!(
-                                    browser.prepare_provider_bootstrap_attempt(),
-                                    "browser provider wait was canceled"
-                                );
-                                runtime.bootstrap_surface_sync(
-                                    thread_surface.clone(),
-                                    BrowserBootstrap::ExistingTarget {
-                                        target_id: lease.target_id.clone(),
-                                        url: url.clone(),
-                                    },
-                                    weak_mux.clone(),
-                                )
-                            })();
-                            match attempt {
-                                Ok(()) => {
-                                    let current_lease = providers.target(&tab_id);
-                                    let Surface::Browser(browser) = thread_surface.as_ref() else {
-                                        anyhow::bail!(
-                                            "browser bootstrap got a non-browser surface"
-                                        );
-                                    };
-                                    // Registration can change while CDP
-                                    // setup is in flight. Never publish a
-                                    // now-stale target merely because its
-                                    // attach finished after the provider
-                                    // revision advanced.
-                                    if browser
-                                        .prepare_provider_lease_replacement(current_lease.as_ref())
-                                    {
-                                        retry_delay = Duration::from_millis(250);
-                                        continue;
-                                    }
-                                    return Ok(());
-                                }
-                                Err(error) if !canceled() => {
-                                    let message = error.to_string();
-                                    let Surface::Browser(browser) = thread_surface.as_ref() else {
-                                        return Err(error);
-                                    };
-                                    let changed = browser.status()
-                                        != crate::BrowserStatus::Failed(message.clone());
-                                    if changed {
-                                        browser.mark_failed(message.clone());
-                                        if let Some(mux) = weak_mux.upgrade() {
-                                            mux.emit(MuxEvent::Status(format!(
-                                                "cmux-browser provider unavailable: {message}"
-                                            )));
-                                            mux.emit(MuxEvent::TitleChanged {
-                                                surface: id,
-                                                title: thread_surface.title().into(),
-                                            });
-                                            mux.emit(MuxEvent::SurfaceOutput(id));
-                                        }
-                                    }
-                                    if !providers.wait_for_revision_change(
-                                        lease.revision,
-                                        canceled,
-                                        retry_delay,
-                                    ) {
-                                        anyhow::bail!("browser provider wait was canceled");
-                                    }
-                                    retry_delay =
-                                        retry_delay.saturating_mul(2).min(Duration::from_secs(2));
-                                }
-                                Err(error) => return Err(error),
-                            }
-                        }
-                    }
-                    bootstrap => {
-                        let mux = weak_mux
-                            .upgrade()
-                            .ok_or_else(|| anyhow::anyhow!("browser mux was dropped"))?;
-                        let runtime = match runtime {
-                            Some(runtime) => runtime,
-                            None => mux.browser_runtime()?,
-                        };
-                        runtime.bootstrap_surface_sync(
-                            thread_surface.clone(),
-                            bootstrap,
-                            weak_mux.clone(),
-                        )
-                    }
-                }
+                let mux =
+                    weak_mux.upgrade().ok_or_else(|| anyhow::anyhow!("browser mux was dropped"))?;
+                let runtime = match runtime {
+                    Some(runtime) => runtime,
+                    None => mux.browser_runtime()?,
+                };
+                runtime.bootstrap_surface_sync(thread_surface.clone(), bootstrap, weak_mux.clone())
             })();
             if let Err(err) = result {
                 if !thread_surface.is_dead()
-                    && !provider_bootstrap
                     && let Surface::Browser(browser) = thread_surface.as_ref()
                 {
                     browser.abandon_attach(err.to_string());
                 }
-                if !provider_bootstrap
-                    && let Some(mux) = weak_mux.upgrade()
+                if let Some(mux) = weak_mux.upgrade()
                     && !thread_surface.is_dead()
                 {
                     mux.emit(MuxEvent::Status(format!("browser failed: {err}")));
@@ -274,27 +201,11 @@ impl Mux {
                 }
             }
         };
-        // A provider bootstrap waits, with no bound, for the provider to
-        // register its target and retries until the surface dies: a loop,
-        // so it keeps a thread (threading-model.md, "Per-terminal threads").
-        // Any other bootstrap is one CDP attach: a request wait
-        // (`server/request_wait.rs`).
-        let started = if provider_bootstrap {
-            let name = format!("browser-surface-{id}-bootstrap");
-            std::thread::Builder::new()
-                .name(name)
-                .spawn(run)
-                .map(drop)
-                .map_err(|error| format!("could not start browser bootstrap: {error}"))
-        } else {
-            self.post_request_wait(run)
-                .map_err(|_| "could not start browser bootstrap: shutting down".to_owned())
-        };
-        if let Err(message) = started
+        if self.post_request_wait(run).is_err()
             && !surface.is_dead()
             && let Surface::Browser(browser) = surface.as_ref()
         {
-            browser.abandon_attach(message);
+            browser.abandon_attach("could not start browser bootstrap: shutting down".to_owned());
         }
     }
 
@@ -307,5 +218,128 @@ impl Mux {
         let tab_id = identity.tab_id.clone();
         let url = surface.browser_url().unwrap_or_else(|| "about:blank".to_string());
         self.start_browser_bootstrap(surface, BrowserBootstrap::Provider { tab_id, url }, None);
+    }
+}
+
+const PROVIDER_RETRY_INITIAL: Duration = Duration::from_millis(250);
+const PROVIDER_RETRY_MAX: Duration = Duration::from_secs(2);
+
+/// A provider tab's bootstrap, as a lane: each turn attaches the tab once
+/// its target is published, or parks (in the provider registry, or until a
+/// retry deadline) and returns. It ends once the tab is attached to the
+/// current target, or the surface or the mux is gone.
+struct ProviderBootstrap {
+    surface: Arc<Surface>,
+    mux: Weak<Mux>,
+    providers: Arc<BrowserProviderRegistry>,
+    /// Its watcher's key in `providers`.
+    key: u64,
+    tab_id: TabPublicId,
+    url: String,
+    lane: LaneHandle,
+    retry_delay: Duration,
+    /// After a failed attach: the revision it used, and when to try again
+    /// if the registrations do not change first.
+    backoff: Option<(u64, Instant)>,
+}
+
+impl LaneTask for ProviderBootstrap {
+    fn run(&mut self) -> LaneTurn {
+        loop {
+            // Read before the cancel check: a wake raised after it (the
+            // check may drop the last `Arc<Mux>`) moves it, so the watch
+            // below reports it instead of parking past it.
+            let seen = self.providers.generation();
+            if self.canceled() {
+                return self.finish();
+            }
+            if let Some((revision, retry_at)) = self.backoff {
+                if seen.0 != revision || Instant::now() >= retry_at {
+                    self.backoff = None;
+                    continue;
+                }
+                let lane = self.lane.clone();
+                match self.providers.watch(None, seen, self.key, move || lane.wake()) {
+                    ProviderWatch::Parked => return LaneTurn::WakeAt(retry_at),
+                    ProviderWatch::Target(_) | ProviderWatch::Moved => continue,
+                }
+            }
+            let lane = self.lane.clone();
+            let lease =
+                match self.providers.watch(Some(&self.tab_id), seen, self.key, move || lane.wake())
+                {
+                    ProviderWatch::Target(lease) => lease,
+                    ProviderWatch::Moved => continue,
+                    ProviderWatch::Parked => return LaneTurn::Idle,
+                };
+            let Surface::Browser(browser) = self.surface.as_ref() else {
+                return self.finish();
+            };
+            match self.attempt(&lease) {
+                Ok(()) => {
+                    // Registration can change while CDP setup is in flight.
+                    // Never publish a now-stale target merely because its
+                    // attach finished after the provider revision advanced.
+                    let current_lease = self.providers.target(&self.tab_id);
+                    if browser.prepare_provider_lease_replacement(current_lease.as_ref()) {
+                        self.retry_delay = PROVIDER_RETRY_INITIAL;
+                        continue;
+                    }
+                    return self.finish();
+                }
+                Err(error) if !self.canceled() => {
+                    let message = error.to_string();
+                    if browser.status() != crate::BrowserStatus::Failed(message.clone()) {
+                        browser.mark_failed(message.clone());
+                        if let Some(mux) = self.mux.upgrade() {
+                            let id = self.surface.id;
+                            mux.emit(MuxEvent::Status(format!(
+                                "cmux-browser provider unavailable: {message}"
+                            )));
+                            mux.emit(MuxEvent::TitleChanged {
+                                surface: id,
+                                title: self.surface.title().into(),
+                            });
+                            mux.emit(MuxEvent::SurfaceOutput(id));
+                        }
+                    }
+                    self.backoff = Some((lease.revision, Instant::now() + self.retry_delay));
+                    self.retry_delay = self.retry_delay.saturating_mul(2).min(PROVIDER_RETRY_MAX);
+                }
+                Err(_) => return self.finish(),
+            }
+        }
+    }
+}
+
+impl ProviderBootstrap {
+    fn canceled(&self) -> bool {
+        self.surface.is_dead()
+            || self.mux.upgrade().is_none_or(|mux| mux.shutting_down.load(Ordering::Acquire))
+    }
+
+    fn attempt(&self, lease: &BrowserProviderTargetLease) -> anyhow::Result<()> {
+        let mux = self.mux.upgrade().ok_or_else(|| anyhow::anyhow!("browser mux was dropped"))?;
+        let runtime = mux.browser_runtime_for_provider(lease)?;
+        let Surface::Browser(browser) = self.surface.as_ref() else {
+            anyhow::bail!("browser bootstrap got a non-browser surface");
+        };
+        anyhow::ensure!(
+            browser.prepare_provider_bootstrap_attempt(),
+            "browser provider wait was canceled"
+        );
+        runtime.bootstrap_surface_sync(
+            self.surface.clone(),
+            BrowserBootstrap::ExistingTarget {
+                target_id: lease.target_id.clone(),
+                url: self.url.clone(),
+            },
+            self.mux.clone(),
+        )
+    }
+
+    fn finish(&self) -> LaneTurn {
+        self.providers.unwatch(self.key);
+        LaneTurn::Done
     }
 }

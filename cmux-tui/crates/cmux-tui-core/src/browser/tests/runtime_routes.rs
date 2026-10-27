@@ -709,7 +709,7 @@ fn closed_surface_route_closes_its_cdp_target() {
         target_id: "target-1".to_string(),
         session_id: "session-1".to_string(),
     });
-    start_surface_thread(
+    start_surface_events(
         surface.clone(),
         route.clone(),
         Weak::new(),

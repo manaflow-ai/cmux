@@ -320,7 +320,7 @@ fn latest_navigation_supersedes_an_uncommitted_reload_epoch() {
         target_id: "target-1".to_string(),
         session_id: "session-1".to_string(),
     });
-    start_surface_thread(
+    start_surface_events(
         surface.clone(),
         route,
         Weak::new(),

@@ -1,5 +1,6 @@
 //! Shared CDP runtime: endpoint connection, surface creation, the event
-//! router that feeds per-surface routes, and runtime shutdown.
+//! router that demultiplexes CDP events into per-surface routes (each drained
+//! by the surface's event lane, `lanes.rs`), and runtime shutdown.
 
 use super::*;
 
@@ -125,7 +126,7 @@ impl BrowserRuntime {
             return Err(err);
         }
 
-        start_surface_thread(surface, events, mux, Arc::downgrade(self), session_id)?;
+        start_surface_events(surface, events, mux, Arc::downgrade(self), session_id)?;
         Ok(())
     }
 
@@ -279,7 +280,18 @@ pub(crate) fn new_surface_with_resource_identity(
     let capture_options = BrowserCaptureOptions::from_options(opts);
     let capture_scale = capture_scale_for(pixel_w, pixel_h, capture_options);
     let capture_pixels = scaled_pixels(pixel_w, pixel_h, capture_scale);
+    // The surface's lanes run on the mux's browser pool. A surface made with
+    // no mux (tests) gets a pool of its own, dropped with it.
+    let (lanes, own_lanes) = match mux.upgrade() {
+        Some(mux) => (mux.browser_lanes(), None),
+        None => {
+            let own = BrowserLanes::new();
+            (own.pool().clone(), Some(own))
+        }
+    };
+    let command_lane = lanes.reserve();
     let (command_tx, command_rx) = sync_channel(BROWSER_COMMAND_QUEUE_CAPACITY);
+    let command_tx = LaneSender::new(command_tx, command_lane.clone());
     let command_order = Arc::new(Mutex::new(BrowserCommandOrder::default()));
     let latest_nav = Arc::new(Mutex::new(None));
     let latest_authority = Arc::new(Mutex::new(None));
@@ -356,20 +368,23 @@ pub(crate) fn new_surface_with_resource_identity(
         latest_nav: latest_nav.clone(),
         latest_authority: latest_authority.clone(),
         navigation_hold: Mutex::default(),
+        lanes,
+        _own_lanes: own_lanes,
         #[cfg(test)]
         worker_done: Mutex::new(Some(worker_done_rx)),
         #[cfg(test)]
         navigation_commit_wait_timeouts: AtomicUsize::new(0),
     }));
-    start_browser_worker(
-        surface.clone(),
-        command_rx,
+    command_lane.start(BrowserCommandLane {
+        surface: surface.clone(),
+        rx: command_rx,
         command_order,
         latest_nav,
         latest_authority,
         mux,
-        worker_done_tx,
-    );
+        done_tx: worker_done_tx,
+        failures: BrowserWorkerErrorState::default(),
+    });
     Ok(surface)
 }
 
