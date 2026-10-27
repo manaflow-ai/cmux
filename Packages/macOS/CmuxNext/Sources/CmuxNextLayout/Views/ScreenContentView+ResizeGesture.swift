@@ -77,6 +77,11 @@ extension ScreenContentView {
     /// screen's layout lands (with its own drag, when one is under way).
     func adoptResizeGestureListeners(_ listeners: [PaneResizeGestureListener]) {
         guard !listeners.isEmpty else { return }
+        // A hidden screen steps no frames and lands nothing: they lay out now.
+        guard !isHiddenOrHasHiddenAncestor else {
+            for listener in listeners { listener.view?.paneResizeGestureDidChange(active: false) }
+            return
+        }
         resizeGestureListeners += listeners
         if resizeGesture == .idle { resizeGesture = .landing }
         context.requestFrames()
