@@ -30,6 +30,11 @@ final class ProfileBarView: NSView {
     private(set) lazy var frameInputHover = PointerFrameHover(owner: "ProfileBarView.hover", view: self) { [weak self] point in
         self?.hover(atWindowPoint: point)
     }
+    /// A pressed dot's drag (`ProfileBarView+DotDrag`), once per frame on the window's drag frames.
+    private(set) lazy var dotMoves = PointerFrameDrag(owner: "ProfileBarView.dotDrag", view: self) { [weak self] point in
+        guard let self else { return }
+        dragDot(to: convert(point, from: nil))
+    }
 
     /// The current space's chip; it slides on a switch.
     let indicator = ProfileBarLayerView()
@@ -270,7 +275,7 @@ final class ProfileBarView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
 
     // Enter and exit are discrete: the pending moves land first (Chromium's `ShouldFlushQueue`).
@@ -314,18 +319,19 @@ final class ProfileBarView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         frameInputHover.flush() // the frame's pending hover lands before the press
+        dotMoves.began()
         let point = convert(event.locationInWindow, from: nil)
         pressPoint = point
         setPressed(index(at: point))
     }
 
     /// A press on a space that moves drags its dot to reorder the spaces (`ProfileBarView+DotDrag`).
-    // local-monitor-allow: a drag is delivered unbuffered until its mouse-up (p06-scheduler.md section E, FrameInputCoalescer); each move only moves the dragged dot
     override func mouseDragged(with event: NSEvent) {
-        dragDot(to: convert(event.locationInWindow, from: nil))
+        dotMoves.dragged(event)
     }
 
     override func mouseUp(with event: NSEvent) {
+        dotMoves.ended() // the frame's pending dot position lands before the drop
         defer {
             pressed = nil
             pressPoint = nil
@@ -341,6 +347,7 @@ final class ProfileBarView: NSView {
     /// list, and a mouse wheel pages on either axis (nothing here scrolls).
     /// The paging hears the input tap (`SidebarSwipeFeed`); an event it took
     /// goes no further.
+    // local-monitor-allow: the tap feeds the paging; this override only keeps a paged event from going further, as the responder AppKit routes it to
     override func scrollWheel(with event: NSEvent) {
         if swipes.takes(event) { return }
         super.scrollWheel(with: event)

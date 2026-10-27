@@ -35,9 +35,12 @@ final class SidebarScrollView: NSScrollView {
         swipes.follow(tap: inputTap, window: window)
     }
 
-    /// Scrolls the list unless the paging took the event (a horizontal gesture, or a sideways wheel roll).
-    override func scrollWheel(with event: NSEvent) {
+    /// Scrolls the list unless the paging took the event (a horizontal gesture, or a sideways wheel roll). When the
+    /// event moves the list up or down, a programmatic scroll's spring stops where it shows first; a sideways
+    /// swipe's end or momentum leaves it running.
+    override func scrollWheel(with event: NSEvent) { // local-monitor-allow: the tap feeds the paging; this override only keeps a paged event from the list and stops the spring, as the responder AppKit routes it to
         if swipes.takes(event) { return }
+        if event.scrollingDeltaY != 0 { stopContentSpring() }
         super.scrollWheel(with: event)
     }
 }

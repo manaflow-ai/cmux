@@ -953,12 +953,14 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private static let decorateSteps = ["configure", "connector", "ledger"]
     private static var decorateStepAllocs = [0, 0, 0], decorateStepMs = [0.0, 0.0, 0.0]
     /// Per step, for the bench report (empty when profiling is off); assigning resets.
+    /// cmux: the step names are distinct literals; no trapping init (p10-stability-096).
     static var decorateAllocs: [String: Int] {
-        get { profileDecorate ? Dictionary(uniqueKeysWithValues: zip(decorateSteps, decorateStepAllocs)) : [:] }
+        get { profileDecorate ? Dictionary(zip(decorateSteps, decorateStepAllocs), uniquingKeysWith: { first, _ in first }) : [:] }
         set { decorateStepAllocs = [0, 0, 0] }
     }
+    /// cmux: built like `decorateAllocs` (p10-stability-096).
     static var decorateMs: [String: Double] {
-        get { profileDecorate ? Dictionary(uniqueKeysWithValues: zip(decorateSteps, decorateStepMs)) : [:] }
+        get { profileDecorate ? Dictionary(zip(decorateSteps, decorateStepMs), uniquingKeysWith: { first, _ in first }) : [:] }
         set { decorateStepMs = [0, 0, 0] }
     }
     static var decorateCalls = 0

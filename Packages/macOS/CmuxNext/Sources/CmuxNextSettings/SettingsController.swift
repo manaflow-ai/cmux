@@ -113,14 +113,28 @@ public final class SettingsController {
         self.managedWatchFiles = managedWatchFiles
     }
 
+    /// Applies the launch's read as the first load, on the calling thread, with no file call and no
+    /// watch, so the first window draws in the file's appearance while ``start(announcingDiagnostics:)``
+    /// waits until after the first frame (p08-startup-079; Chrome applies the profile's read
+    /// preferences before the first window and arms the file watchers later). Nothing without a
+    /// launch read or after the first load.
+    public func adoptLaunchRead() {
+        guard loadCount == 0, let launch = launchRead else { return }
+        launchRead = nil
+        adopt(launch.loaded)
+    }
+
     /// Loads the file now (the launch's read when the controller was made with one: no file call
     /// on this thread) and starts watching it; the watches are armed off this thread, then reload
-    /// once. `announcingDiagnostics`: the app also tells the person about a value it ignores
-    /// (`SettingsDiagnosticToasts`); tests leave it off.
-    public func start(announcingDiagnostics: Bool = false) {
+    /// once. After ``adoptLaunchRead()`` it only arms the watches and reloads once off this
+    /// thread, so an edit made since the launch read applies. `announcingDiagnostics`: the app
+    /// also tells the person about a value it ignores (`SettingsDiagnosticToasts`), sending them
+    /// to its Settings row only while `availability` says the page draws it; tests leave it off.
+    public func start(announcingDiagnostics: Bool = false,
+                      availability: @escaping @MainActor () -> SettingsAvailability = { SettingsAvailability() }) {
         guard watcher == nil else { return }
         if announcingDiagnostics, diagnosticToasts == nil {
-            let toasts = SettingsDiagnosticToasts(registry: applier.registry)
+            let toasts = SettingsDiagnosticToasts(registry: applier.registry, availability: availability)
             diagnosticToasts = toasts
             toasts.follow(self)
         }

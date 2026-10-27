@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// A pane's hosted view whose content area (the terminal surface or the web
 /// page) sits below a header (the tab strip, a browser toolbar). The layout

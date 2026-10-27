@@ -31,7 +31,7 @@ struct AgentPageProviderFrozenDeliveryTests {
     }
 
     @Test func hostEventsWhileHiddenAllArriveInSeqOrder() async throws {
-        let provider = AgentPageProvider { _ in nil }
+        let provider = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         let page = try await Self.livePage(provider)
         page.router.holdDelivery()
         for name in ["turn-1", "tool-1", "turn-2"] {
@@ -52,7 +52,7 @@ struct AgentPageProviderFrozenDeliveryTests {
     /// More than half the provider's buffer while hidden: the page thaws once, before the batch it
     /// takes, stays hidden, and at release has every event in order.
     @Test func aBusyHiddenPageThawsAtHalfFullAndLosesNothing() async throws {
-        let provider = AgentPageProvider { _ in nil }
+        let provider = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         let page = try await Self.livePage(provider)
         let half = PageFrozenDelivery.orderedHalfFull
         let total = half + 10

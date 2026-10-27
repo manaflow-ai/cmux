@@ -65,7 +65,7 @@
          ctx.fillPath()
      }
  
-@@ -156,23 +155,23 @@
+@@ -156,23 +155,25 @@
              switch b.kind {
              case .codeBlock:
                  ctx.setFillColor(pal.inset.cgColor)
@@ -85,16 +85,19 @@
              case .quoteBar:
                  ctx.setFillColor(pal.bar.cgColor)
 -                ctx.addPath(CGPath(roundedRect: b.rect, cornerWidth: 1.5, cornerHeight: 1.5, transform: nil)); ctx.fillPath()
+-            case let .image(img):
 +                ctx.addPath(CGPath.roundedRect(b.rect, cornerWidth: 1.5, cornerHeight: 1.5)); ctx.fillPath()
-             case let .image(img):
++            case let .image(source, alt):
                  // Host-provided only (MarkdownImageProvider). The context is y-down: flip locally.
++                // cmux: asked at draw time (p07-memory-115): the layout keeps the source, not the pixels.
++                guard let img = MarkdownImages.provider?.markdownImage(source: source, alt: alt) else { break }
                  ctx.saveGState()
 -                ctx.addPath(CGPath(roundedRect: b.rect, cornerWidth: 6, cornerHeight: 6, transform: nil)); ctx.clip()
 +                ctx.addPath(CGPath.roundedRect(b.rect, cornerWidth: 6, cornerHeight: 6)); ctx.clip()
                  ctx.translateBy(x: b.rect.minX, y: b.rect.maxY); ctx.scaleBy(x: 1, y: -1)
                  ctx.interpolationQuality = .high
                  ctx.draw(img, in: CGRect(origin: .zero, size: b.rect.size))
-@@ -195,9 +194,9 @@
+@@ -195,9 +196,9 @@
                  ctx.setFillColor(pal.text.cgColor); ctx.fill(b.rect)
              case .tableBorder:
                  ctx.setStrokeColor(pal.line.cgColor); ctx.setLineWidth(0.5)
@@ -106,7 +109,7 @@
                  if checked {
                      ctx.setFillColor(pal.check.cgColor); ctx.addPath(path); ctx.fillPath()
                      ctx.setStrokeColor(pal.checkMark.cgColor); ctx.setLineWidth(1.6); ctx.setLineCap(.round); ctx.setLineJoin(.round)
-@@ -208,7 +207,7 @@
+@@ -208,7 +209,7 @@
                      ctx.strokePath()
                  } else {
                      ctx.setStrokeColor(pal.marker.cgColor); ctx.setLineWidth(1)

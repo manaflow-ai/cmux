@@ -118,7 +118,7 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
             switch SocksParse.greeting(pending) {
             case .needMoreData:
                 return
-            case .greeting(let acceptsNoAuth, let consumed):
+            case .greeting(let acceptsNoAuth, let consumed) where consumed <= pending.count:
                 pending.removeFirst(consumed)
                 var reply = context.channel.allocator.buffer(capacity: 2)
                 // 0xFF: no acceptable method (only no-auth is offered).
@@ -140,7 +140,7 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
             switch SocksParse.request(pending) {
             case .needMoreData:
                 return
-            case .connect(let host, let port, let consumed):
+            case .connect(let host, let port, let consumed) where consumed <= pending.count:
                 pending.removeFirst(consumed)
                 state = .connecting
                 open(host: host, port: port, context: context)
