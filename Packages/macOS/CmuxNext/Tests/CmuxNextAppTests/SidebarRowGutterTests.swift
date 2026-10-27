@@ -12,7 +12,10 @@ import Testing
 /// selected or not, and the badge is as tall as the glyph, with tabular digits.
 /// Since Leo 2026-10-20 (#22733) the pill also stops `SidebarStyle.rowTrailingTrim`
 /// short of the right inset, so its right edge never runs to the sidebar's edge;
-/// the content's insets inside the pill stay equal.
+/// the content's insets inside the pill stay equal. Since 10990df76a738 (Lawrence 2026-10-23, msg 11914: "trailing dots
+/// and spinners must line up horizontally across sections") a row's last mark centers on the trailing column
+/// (`SidebarStyle+TrailingColumn`, the group header chevron's x), so it ends half the column slot less half the
+/// glyph further in than the leading inset.
 @MainActor @Suite(.serialized) struct SidebarRowGutterTests {
     private static let pinnedID = WorkspaceID("ws-pinned")
     private static let unreadID = WorkspaceID("ws-unread")
@@ -51,12 +54,12 @@ import Testing
         try #require(row.subviews.lazy.compactMap { $0 as? StatusIndicatorView }.first)
     }
 
-    /// Where the row's content starts (its leading icon slot, empty when the row has no icon)
-    /// and where its last trailing mark ends.
-    private static func insets(_ row: WorkspaceRowView) throws -> (leading: CGFloat, trailing: CGFloat) {
+    /// Where the row's content starts (its leading icon slot, empty when the row has no icon),
+    /// where its last trailing mark ends, and where that mark is centered.
+    private static func insets(_ row: WorkspaceRowView) throws -> (leading: CGFloat, trailing: CGFloat, lastMidX: CGFloat) {
         let marks = [try badge(row), try glyph(row), row.mutedMark, row.presenceDots, row.disclosureButton] as [NSView]
-        let end = marks.filter { !$0.isHidden && $0.frame.width > 0 }.map(\.frame.maxX).max() ?? row.title.frame.maxX
-        return (row.icon.frame.minX, row.bounds.width - end)
+        let last = try #require(marks.filter { !$0.isHidden && $0.frame.width > 0 }.max { $0.frame.maxX < $1.frame.maxX })
+        return (row.icon.frame.minX, row.bounds.width - last.frame.maxX, last.frame.midX)
     }
 
     @Test func selectedAndUnselectedRowsHaveEqualLeadingAndTrailingInsets() throws {
@@ -64,9 +67,15 @@ import Testing
         let unread = try Self.row(sidebar, Self.unreadID), selected = try Self.row(sidebar, Self.selectedID)
         #expect(selected.isSelected && !unread.isSelected)
         let gutter = SidebarStyle.horizontalInset
+        // The status glyph centers on the trailing column (10990df76a738), whose slot ends at the inset.
+        let columnTrailing = gutter + (SidebarStyle.trailingSlotSide - SidebarStyle.statusGlyphSize) / 2
+        var trailings: [CGFloat] = []
         for (name, row) in [("unselected", unread), ("selected", selected)] {
-            let (leading, trailing) = try Self.insets(row)
-            #expect(leading == trailing, "\(name): icon slot \(leading) pt in, marks \(trailing) pt in")
+            let (leading, trailing, lastMidX) = try Self.insets(row)
+            trailings.append(trailing)
+            let column = SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width)
+            #expect(abs(lastMidX - column) < 0.5, "\(name): the last mark centers at \(lastMidX), the trailing column at \(column)")
+            #expect(abs(trailing - columnTrailing) < 0.5, "\(name): icon slot \(leading) pt in, marks \(trailing) pt in, column \(columnTrailing)")
             #expect(row.title.frame.minX == gutter, "\(name): the title at the inset (no empty icon slot)")
             // The pill's own inset from the list's edges is the same token, plus the trim on the right.
             #expect(leading == gutter, "\(name): text \(leading) pt in, pill inset \(gutter)")
@@ -74,6 +83,8 @@ import Testing
             #expect(sidebar.list.bounds.width - row.frame.maxX == gutter + SidebarStyle.rowTrailingTrim,
                     "\(name): pill ends \(sidebar.list.bounds.width - row.frame.maxX) pt in")
         }
+        // Selected or not, the marks end at one x.
+        #expect(trailings.count == 2 && abs(trailings[0] - trailings[1]) < 0.5, "trailing insets \(trailings)")
     }
 
     @Test func thePillAlignsWithTheSectionHeaderAndTheDivider() throws {
