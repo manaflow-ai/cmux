@@ -210,6 +210,21 @@ the connection with `bad_message` and the reason (`bad_magic`, `unknown_kind`,
 `frames_not_negotiated`, `line_too_long`, `invalid_utf8`, `truncated`).
 Nothing after the bad byte is interpreted.
 
+An INPUT frame (p05-ipc-078) is the raw bytes of a `send` to the surface of
+the attach stream it names, with no JSON and no base64. Its aux is the key
+press's flow id (0: none), which joins the daemon's flow hops to the echo, as
+`send`'s `flow` does. It runs on its stream's sequence after that stream's
+earlier items, is never parsed and is never answered. When its bytes do not
+reach the terminal, the stream gets the event `input-failed{stream, reason,
+bytes}` ([events.md](events.md#input-failed)); while the terminal stays ended,
+later INPUT on the same open of the stream sends no second event. INPUT obeys
+a line's gates: after a shutdown acknowledgement or a committed handoff it
+closes the connection, and during a pending handoff it is refused with
+`daemon_handoff`. INPUT sent right behind its stream's `attach-surface` waits
+for that reply ([events.md](events.md#attach-streams)). An INPUT frame on a
+stream the connection never announced is a bad message (`unknown_stream`),
+and so is one from a remote-relay client (`remote_input`).
+
 #### Bulk payloads: SNAPSHOT, SNAPSHOT_MORE, REPLAY
 
 A snapshot viewer's `snapshot` events (READY, local-history READY, history and
