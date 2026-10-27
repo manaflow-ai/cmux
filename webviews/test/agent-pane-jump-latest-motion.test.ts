@@ -149,7 +149,7 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
       const native = Element.prototype.scrollTo;
       const calls: number[] = [];
       (window as unknown as { jumpSmoothCalls: number[] }).jumpSmoothCalls = calls;
-      Element.prototype.scrollTo = function (...args: Parameters<typeof native>) {
+      Element.prototype.scrollTo = function (...args: [ScrollToOptions?] | [number, number]) {
         if (typeof args[0] === "object" && args[0].behavior === "smooth" && this.matches(".acpmux-scroll"))
           calls.push(performance.now());
         return Reflect.apply(native, this, args);
