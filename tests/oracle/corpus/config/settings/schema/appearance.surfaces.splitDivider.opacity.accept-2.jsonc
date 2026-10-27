@@ -1,0 +1,9 @@
+{
+  "appearance": {
+    "surfaces": {
+      "splitDivider": {
+        "opacity": 0.5
+      }
+    }
+  }
+}

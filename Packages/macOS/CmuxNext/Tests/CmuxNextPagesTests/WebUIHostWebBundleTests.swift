@@ -12,7 +12,8 @@ import WebKit
 /// when it is shown (content/browser/renderer_host/navigation_controller_impl.cc). Their show does not
 /// reload them: it hands them to the safe point, which asks them first (``WebBundleSafePoint``), since
 /// their document may hold what a reload loses. Without it every page that holds a document reloads at
-/// the change. The pool's parked spare is never reloaded at the change: its claim loads the new files.
+/// the change. The preload slot's parked page is never reloaded at the change: its claim loads the new files,
+/// or with the feature the slot drops it and its owner makes it again.
 @MainActor @Suite(.serialized)
 struct WebUIHostWebBundleTests {
     /// The safe point: records the pages handed to it as they show stale.
@@ -31,7 +32,7 @@ struct WebUIHostWebBundleTests {
     }
 
     private func makeHost(chromium: FakeChromiumHosting?, reloadsOnShow: Bool) -> WebUIHost {
-        let host = WebUIHost(chromium: chromium, openPanel: nil, memory: QuietMemoryRegistry(), clock: PageTestClock.never)
+        let host = WebUIHost(chromium: chromium, openPanel: nil, memory: QuietMemoryRegistry(), deadlines: LifecycleDeadlineRig.never)
         host.bundleReloadsOnShow = reloadsOnShow
         return host
     }
@@ -196,52 +197,71 @@ struct WebUIHostWebBundleTests {
         withExtendedLifetime(window) {}
     }
 
-    /// The pool's parked spare loaded its document when it parked: the change does not reload it (nobody
-    /// sees it) but marks it, so its claim loads the new files and never keeps the old document.
-    @Test(arguments: [true, false])
-    func theParkedSpareIsMarkedAndItsClaimReloads(reloadsOnShow: Bool) throws {
-        let registry = PageRegistry()
-        let host = WebUIHost(chromium: nil, openPanel: nil, memory: QuietMemoryRegistry(), registry: registry,
-                             clock: PageTestClock.never)
-        host.bundleReloadsOnShow = reloadsOnShow
-        let configuration = WKWebViewConfiguration()
-        let spare = PageWebView(descriptor: descriptor, configuration: configuration,
-                                inputReadiness: PageInputReadiness(configuration: configuration), routes: [], route: nil,
-                                options: .standard, surface: nil, dynamicResources: nil, pooled: true, load: false,
-                                chromium: nil, registry: registry)
+    /// The preload slot's parked page loaded its document when it parked. Without
+    /// `webUpdateReloadOnShow` the change does not reload it (nobody sees it) but marks it, so its claim
+    /// loads the new files and never keeps the old document (``PageWebView/bindClaim(routes:route:documentAttributes:surface:dynamicResources:)``).
+    @Test func theParkedPreloadIsMarkedAndItsClaimReloads() throws {
+        let host = makeHost(chromium: nil, reloadsOnShow: false)
+        let slot = PagePreloadSlot(parkState: .frozenHidden, deadlines: LifecycleDeadlineRig.never)
+        host.preload = slot
+        let key = PagePreloadSlot.Key("page.test")
+        let parking = PagePreloadParkingView(frame: .zero)
+        var made: PageWebView?
+        #expect(slot.preload(key, size: NSSize(width: 400, height: 300), in: parking) { _ in
+            made = host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [], parked: true))
+            return made
+        })
+        let parked = try #require(made)
         defer {
-            spare.close()
+            slot.drop()
+            host.close(parked)
             try? FileManager.default.removeItem(at: root)
         }
-        let parking = PageHostParking()
-        parking.addSubview(spare)
-        spare.loaded = true
-        #expect(spare.isParkedSpare && spare.bundleParked && spare.bundleHasDocument)
-        #expect(spare.claimKeepsDocument)
-        #expect(ids(host.webBundlePages) == ids([spare]))
-        #expect(host.bundleAskedPages.isEmpty, "the swap asked the parked spare")
+        parked.loaded = true
+        #expect(parked.isParkedSpare && parked.bundleParked && parked.bundleHasDocument)
+        #expect(ids(host.webBundlePages) == ids([parked]))
+        #expect(host.bundleAskedPages.isEmpty, "the swap asked the parked preload")
 
-        #expect(host.webBundleDidChange() == 0, "the swap reloaded the parked spare")
-        #expect(spare.bundleStale)
-        #expect(!spare.claimKeepsDocument, "a claim would acknowledge the document of the old files")
+        #expect(host.webBundleDidChange() == 0, "the swap reloaded the parked preload")
+        #expect(parked.bundleStale)
+        #expect(slot.page === parked, "the change dropped the preload with the feature off")
 
-        // Claimed: out of the parking; the claim reloads it (``PageWebView/retarget``), not its show.
-        spare.removeFromSuperview()
-        #expect(spare.bundleStale && !spare.claimKeepsDocument)
+        // Claimed as PagePreloads claims it (the slot hands it over, then the open binds it): the claim
+        // reloads it from the new files, not its show.
+        _ = try #require(slot.claim(key, into: parking, frame: NSRect(x: 0, y: 0, width: 400, height: 300)))
+        parked.bindClaim(routes: [], route: nil)
+        #expect(parked.isClaimed)
+        #expect(!parked.bundleStale, "the claim kept the document of the old files")
+        #expect(!parked.claimState.pending, "the claim acknowledged the document of the old files")
     }
 
-    /// The pool's spares are pages ``WebUIHost/open(_:)`` never makes: a claim the pool may serve arms
-    /// the web-dev.json watch as an open does (``PageHostPool/willServe``), with no page opened.
-    @Test func aPoolClaimWithNoOpenArmsTheDevOverrideWatch() throws {
-        defer { try? FileManager.default.removeItem(at: root) }
-        let memory = PageTestMemory()
-        let pool = PageHostPool(memory: memory.coordinator, activity: { 0 }, isTrackingMenu: { false })
-        defer { pool.dropSpare() }
-        var armed = 0
-        pool.willServe = { armed += 1 }
-        try #require(PageWebView.engineDecision(for: .settings, options: pool.options).engine == .webKit,
-                     "Settings would open in Chromium, which the pool never serves")
-        #expect(pool.claim(.settings, routes: [], window: nil) == nil, "no spare is ready")
-        #expect(armed == 1, "a pool claim made no open and left web-dev.json unread")
+    /// With `webUpdateReloadOnShow` the parked page is not one of the pages the change reaches: the slot
+    /// drops it and its owner makes it again from the new files (``PagePreloadSlot/observeStaleDropped(_:)``).
+    @Test func theParkedPreloadIsDroppedAndMadeAgainWithReloadOnShow() throws {
+        let host = makeHost(chromium: nil, reloadsOnShow: true)
+        let slot = PagePreloadSlot(parkState: .frozenHidden, deadlines: LifecycleDeadlineRig.never)
+        host.preload = slot
+        let key = PagePreloadSlot.Key("page.test")
+        let parking = PagePreloadParkingView(frame: .zero)
+        var made: PageWebView?
+        #expect(slot.preload(key, size: NSSize(width: 400, height: 300), in: parking) { _ in
+            made = host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [], parked: true))
+            return made
+        })
+        let parked = try #require(made)
+        // The change closes it through the slot (``PagePreloadSlot/drop()``).
+        defer {
+            if slot.page != nil { slot.drop() }
+            try? FileManager.default.removeItem(at: root)
+        }
+        parked.loaded = true
+        var remade: [PagePreloadSlot.Key] = []
+        slot.observeStaleDropped { remade.append($0) }
+        #expect(host.webBundlePages.isEmpty, "the change reached the preloaded page")
+
+        #expect(host.webBundleDidChange() == 0)
+        #expect(slot.count == 0, "the preload of the old files stayed in the slot")
+        #expect(!parked.bundleStale)
+        #expect(remade == [key], "its owner was not told to make it again")
     }
 }

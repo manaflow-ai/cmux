@@ -66,9 +66,8 @@ struct WebUpdatesFrozenPagesTests {
 
     /// Web updates whose look finds the app quiet (the person is away), serving through its own overlay.
     private func webUpdates(_ host: Host) -> WebUpdates {
-        let web = WebUpdates()
+        let web = WebUpdates(overlay: WebBundleOverlay(bases: []))
         web.pages = { host }
-        web.overlay = WebBundleOverlay(bases: [])
         web.appGate = { pagesShown in pagesShown ? .askPages : .swap }
         return web
     }

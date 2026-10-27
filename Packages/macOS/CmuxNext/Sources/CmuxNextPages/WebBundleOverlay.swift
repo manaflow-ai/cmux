@@ -1,4 +1,4 @@
-import CmuxNextCompat
+public import CmuxNextCompat
 public import Foundation
 
 /// The verified web update the app serves ahead of the web bundles it shipped with
@@ -51,6 +51,8 @@ public nonisolated final class WebBundleOverlay: Sendable {
         var bases: [Base] = []
         /// The launch check of the kept update; requests wait for it.
         var pending: Task<URL?, Never>?
+        /// The bundled shared chunks in memory (``readBundledShared(on:)``).
+        var shared: PageSharedChunkCache?
         /// How many live documents loaded from each update folder (``Pin``).
         var pins: [URL: Int] = [:]
         /// A document was served (it took a pin), bundled or from an update.
@@ -134,6 +136,29 @@ public nonisolated final class WebBundleOverlay: Sendable {
 
     /// The update folder served now, nil for the bundle (or while the launch check runs).
     public var activeTree: URL? { state.withLock { $0.tree } }
+
+    /// Reads the bundled shared chunks (``PageSharedChunks/bundledRoot``) into memory on `runner`'s
+    /// files lane, once at launch, so the WebKit scheme handler answers them in the turn it is asked
+    /// (``PageSchemeHandler/sharedReplyInTurn(to:origin:mainDocument:pin:)``). The bundle lookup runs on the
+    /// lane too; without a shared folder no table is kept.
+    public func readBundledShared(on runner: any MayBlockRunner) {
+        readShared(on: runner) { PageSharedChunks.bundledRoot }
+    }
+
+    /// Reads the shared chunks at the folder `root` names on `runner`'s files lane and keeps the table;
+    /// no folder, or a missing one, keeps none.
+    func readShared(on runner: any MayBlockRunner, root: @escaping @Sendable () -> URL?) {
+        runner.postFiles(.userVisible, shutdown: .skipOnShutdown) { [self] in
+            let table = root().flatMap { try? PageSharedChunkCache(reading: $0) }
+            state.withLock { $0.shared = table }
+        }
+    }
+
+    /// The shared chunks in memory, only while requests serve the bundle: nil while an update is active
+    /// or the launch check of a kept update runs, so those requests take the scheme handler's async path.
+    var bundledShared: PageSharedChunkCache? {
+        state.withLock { $0.tree == nil && $0.pending == nil ? $0.shared : nil }
+    }
 
     /// The update folders the app serves now: the active one and each one a live document still
     /// loads from (``Pin``). The updater never prunes them.

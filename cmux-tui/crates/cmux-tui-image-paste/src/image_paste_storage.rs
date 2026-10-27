@@ -24,6 +24,7 @@ impl ImagePasteStorage {
         for ancestor in temporary.ancestors() {
             let directory = Self::open_directory(ancestor)?;
             let metadata = directory.metadata()?;
+            // SAFETY: geteuid takes no arguments, cannot fail, and touches no memory.
             let uid = unsafe { libc::geteuid() };
             if (metadata.uid() != uid && metadata.uid() != 0)
                 || (metadata.mode() & 0o022 != 0 && metadata.mode() & 0o1000 == 0)
@@ -34,6 +35,7 @@ impl ImagePasteStorage {
                 ));
             }
         }
+        // SAFETY: geteuid takes no arguments, cannot fail, and touches no memory.
         let root = temporary.join(format!("cmux-image-paste-{}", unsafe { libc::geteuid() }));
         match fs::DirBuilder::new().mode(0o700).create(&root) {
             Ok(()) => (),
@@ -65,10 +67,14 @@ impl ImagePasteStorage {
         let name = CString::new(name).map_err(io::Error::other)?;
         // Generated single components are created and opened relative to the
         // pinned namespace, never by following a caller-supplied destination.
+        // SAFETY: `self.directory` owns the directory descriptor for the call and `name` is a
+        // NUL-terminated CString that lives across it.
         let result = unsafe { libc::mkdirat(self.directory.as_raw_fd(), name.as_ptr(), 0o700) };
         if result != 0 {
             return Err(io::Error::last_os_error());
         }
+        // SAFETY: `self.directory` owns the directory descriptor for the call and `name` is a
+        // NUL-terminated CString that lives across it; openat keeps neither.
         let descriptor = unsafe {
             libc::openat(
                 self.directory.as_raw_fd(),
@@ -79,7 +85,7 @@ impl ImagePasteStorage {
         if descriptor < 0 {
             return Err(io::Error::last_os_error());
         }
-        // openat returned a new owned descriptor.
+        // SAFETY: openat returned a new descriptor owned only by this File.
         let directory = unsafe { File::from_raw_fd(descriptor) };
         Self::require_private(&directory)?;
         Ok((self.root.join(name.to_str().unwrap()), directory))
@@ -94,6 +100,7 @@ impl ImagePasteStorage {
 
     fn require_private(directory: &File) -> io::Result<()> {
         let metadata = directory.metadata()?;
+        // SAFETY: geteuid takes no arguments, cannot fail, and touches no memory.
         if metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o777 != 0o700 {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,

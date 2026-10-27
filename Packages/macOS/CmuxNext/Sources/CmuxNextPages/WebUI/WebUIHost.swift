@@ -23,9 +23,10 @@ public final class WebUIHost {
     public let openPanel: MadeAheadOpenPanel?
     /// The live page views, for the debug verbs and the key dispatcher.
     public let registry: PageRegistry
-    /// The shared web content processes of the WebKit pages that ask for them
-    /// (``PageEngineOptions/sharesWebKitProcess``, the agent pages).
-    public let processGroups: WebProcessGroups
+    /// The shared web content processes of the WebKit pages (``WebProcessGroups/membership(of:options:)``:
+    /// the agent pages, and with `webKitPageProcessGroups` every page of a sharing group). Nil: every
+    /// WebKit page starts a process of its own, as before the groups (a test host that reads no groups).
+    public let processGroups: WebProcessGroups?
     /// The daemon relay channels of the pages (one per daemon page id), kept here instead of a
     /// static (p13-webui-066): each closes its daemon connection when idle.
     public let relayChannels = PageRelayChannels()
@@ -58,8 +59,9 @@ public final class WebUIHost {
     /// `hoverFrameInput`): each page this host opens gets it for its popup's rows
     /// (``PageWebView/popupHoverFrameInput``). Nil: each move hovers at once.
     public let hoverFrameInput: FrameInputCoalescers?
-    /// The clock of each opened page's Chromium deadline (tests pass one that never fires).
-    private let clock: any Clock<Duration>
+    /// The app's one deadline scheduler: each opened page's deadlines (its claim and Chromium fallbacks) and its
+    /// settings pushes run on it (``PageWebView/deadlines``). A test passes one whose wakes it fires by hand.
+    public let deadlines: MainDeadlineScheduler
     /// A page starts its document, and its renderer, at its first show, not when it opens
     /// (feature `pageRendererAtFirstShow`, PageWebView+FirstShow.swift).
     public let startsPagesAtFirstShow: Bool
@@ -70,10 +72,9 @@ public final class WebUIHost {
     /// closing it still deinits (p13-webui-061 makes every tab close call ``close(_:)``).
     private let opened = NSHashTable<PageWebView>.weakObjects()
     /// Follows `web-dev.json` (``WebDevOverride``): a change reaches the pages as a web update does
-    /// (``webBundleDidChange()``). Armed by the first page made, whether ``open(_:)`` makes it or the
-    /// page host pool builds or hands out a spare (the app passes ``WebDevOverrideWatcher/start(configDirectory:)``
-    /// as the pool's ``PageHostPool/willServe``), so a launch that shows no page reads nothing; the
-    /// first page loads bundled and reloads once the file is read.
+    /// (``webBundleDidChange()``). Armed by the first page ``open(_:)`` makes, a preloaded one included
+    /// (``PagePreloads`` opens through it), so a launch that shows no page reads nothing; the first page
+    /// loads bundled and reloads once the file is read.
     public let devOverride = WebDevOverrideWatcher()
     /// A web files change reloads only the shown pages; hidden and frozen ones reload after they show,
     /// once they allow it (feature `webUpdateReloadOnShow`, ``webBundleDidChange()``, ``bundleSafePoint``).
@@ -101,14 +102,17 @@ public final class WebUIHost {
     ///   - memory: The app's memory coordinator: the preload slot registers with it at once.
     ///   - registry: Where opened views are listed (the app passes ``PageRegistry/processWide``
     ///     until p13-webui-010; a test leaves the default, its own registry).
-    ///   - clock: The Chromium deadline's clock.
-    ///   - processGroups: The shared WebKit processes (a test passes its own to read the groups).
+    ///   - deadlines: The app's deadline scheduler (`AppServices.mainDeadlines`); a test leaves the default, its own, or
+    ///     passes one whose wakes it fires by hand.
+    ///   - processGroups: The shared WebKit processes, sized by the composition root
+    ///     (`SubsystemBudget.webProcessPagesPerGroup`); nil: none (``processGroups``).
     ///   - startsPagesAtFirstShow: Pages start their document at their first show (``startsPagesAtFirstShow``).
     ///   - hoverFrameInput: The frame-aligned pointer input of the pages' popups; nil: each move.
     ///   - retirer: Ends closed pages after the close's turn (the app's is on `AppServices.mainDeadlines`).
     public init(chromium: (any PageChromiumHosting)?, openPanel: MadeAheadOpenPanel?,
                 memory: any MemoryConsumerRegistry, registry: PageRegistry = PageRegistry(),
-                clock: any Clock<Duration> = ContinuousClock(), processGroups: WebProcessGroups = WebProcessGroups(),
+                deadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
+                processGroups: WebProcessGroups? = nil,
                 startsPagesAtFirstShow: Bool = false, hoverFrameInput: FrameInputCoalescers? = nil,
                 retirer: PageRetirer = PageRetirer()) {
         self.chromium = chromium
@@ -117,7 +121,7 @@ public final class WebUIHost {
         self.hoverFrameInput = hoverFrameInput
         self.openPanel = openPanel
         self.registry = registry
-        self.clock = clock
+        self.deadlines = deadlines
         self.processGroups = processGroups
         devOverride.onChange = { [weak self] in _ = self?.webBundleDidChange() }
         preloadMemory = SpareMemoryConsumer(
@@ -143,12 +147,9 @@ public final class WebUIHost {
     public func open(_ request: PageOpenRequest) -> PageWebView? {
         devOverride.start() // once; nothing unless the override is available
         guard let view = PageWebView(request: request, chromium: chromium, openPanel: openPanel, registry: registry,
-                                     processGroups: processGroups, startsAtFirstShow: startsPagesAtFirstShow) else { return nil }
-        // Read when the Chromium page reaches the host, after this turn; set before then.
-        view.chromiumClock = clock
+                                     processGroups: processGroups, startsAtFirstShow: startsPagesAtFirstShow,
+                                     deadlines: deadlines) else { return nil }
         if lifecycle != nil { view.crash.groups = crashGroups }
-        // The view joined processGroups (PageWebView(request:...) passes them on these terms).
-        view.crash.sharesWebKitProcess = request.options.sharesWebKitProcess && view.engineDecision.engine == .webKit
         view.popupHoverFrameInput = hoverFrameInput
         view.bundleSafePoint = bundleSafePoint
         if let scriptFrames { view.deliverOnFrames(scriptFrames) }
@@ -188,11 +189,11 @@ public final class WebUIHost {
     /// A configuration in the process pool and data store of the grouped WebKit pages
     /// (``processGroups``), for a page-less WebKit warm-up view: WebKit's first-use setup and the
     /// pool's one-time font listing (R81) then run before the first grouped page opens, and that
-    /// page can use the warm-up's web content process.
+    /// page can use the warm-up's web content process. Without groups the store is the warm-up's own.
     public func groupedWebKitConfiguration() -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
         configuration.processPool = PageProcessPool.forNewView
-        configuration.websiteDataStore = processGroups.dataStore
+        configuration.websiteDataStore = processGroups?.dataStore ?? .nonPersistent()
         return configuration
     }
 
@@ -207,7 +208,7 @@ public final class WebUIHost {
 extension WebUIHost: WebBundleHost {
     /// Every live WebKit page of the host's registry (``PageWebView/bundleServedByOverlay``), which
     /// lists the pages it opened and, in the app, the views made outside it while the static
-    /// forwarders remain (p13-webui-010), the pool's parked spare included. With
+    /// forwarders remain (p13-webui-010), the preload slot's parked page included. With
     /// ``bundleReloadsOnShow``, not the preloaded page, which nobody sees and the swap makes again.
     package var webBundlePages: [any WebBundlePage] {
         let preloaded = bundleReloadsOnShow ? preload?.page?.preloadView : nil
@@ -220,7 +221,7 @@ extension WebUIHost: WebBundleHost {
     /// reload after they show, once they allow it (``PageWebView/bundleStale``, ``bundleSafePoint``),
     /// so a frozen page is never woken, and the
     /// preloaded page is dropped and made again from the new files. Without it, every page that
-    /// holds a document reloads now. The parked spare is marked either way and its claim loads the
+    /// holds a document reloads now, and the parked page is marked: its claim loads the
     /// new files. A document kept meanwhile keeps loading its lazy chunks from the files it started
     /// with (``WebBundleOverlay/Pin``).
     @discardableResult

@@ -1,5 +1,3 @@
-import CmuxNextDesign
-
 /// The agent chat's edited-files card rows (General > Agent Chat, next to AgentPaneSettingsSchema's reply rows).
 nonisolated enum AgentPaneEditedFilesSettingsSchema {
     static var descriptors: [SettingDescriptor] {

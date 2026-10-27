@@ -2,10 +2,17 @@
 //! the shared `from_workspace_registry` bootstrap, and test constructors.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
+    /// An in-memory mux. Startup can fail: adopting terminal hosts reads
+    /// their records from disk, and the journal and output-store workers
+    /// must start. The daemon calls this and reports the error.
     #[track_caller]
-    pub fn new(session: impl Into<String>, surface_options: SurfaceOptions) -> Arc<Self> {
+    pub fn try_new(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+    ) -> anyhow::Result<Arc<Self>> {
         Self::new_with_test_surface_runtime(
             session,
             surface_options,
@@ -14,15 +21,27 @@ impl Mux {
         )
     }
 
+    /// Test fixture form of [`Self::try_new`]; production code calls
+    /// `try_new` and handles the error.
+    #[track_caller]
+    pub fn new(session: impl Into<String>, surface_options: SurfaceOptions) -> Arc<Self> {
+        #[allow(
+            clippy::expect_used,
+            reason = "test fixture constructor: no production caller; the daemon uses try_new"
+        )]
+        let mux = Self::try_new(session, surface_options).expect("test mux must start");
+        mux
+    }
+
     /// Builds a mux whose workspace lifecycle is provider-owned from its
     /// first control connection. The authority must be provisioned by the
     /// provider that owns this mux generation.
     #[track_caller]
-    pub fn new_provider_managed(
+    pub fn try_new_provider_managed(
         session: impl Into<String>,
         surface_options: SurfaceOptions,
         authority: ProviderWorkspaceAuthority,
-    ) -> Arc<Self> {
+    ) -> anyhow::Result<Arc<Self>> {
         Self::new_with_test_surface_runtime(
             session,
             surface_options,
@@ -36,6 +55,23 @@ impl Mux {
         )
     }
 
+    /// Test fixture form of [`Self::try_new_provider_managed`]; production
+    /// code calls `try_new_provider_managed` and handles the error.
+    #[track_caller]
+    pub fn new_provider_managed(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        authority: ProviderWorkspaceAuthority,
+    ) -> Arc<Self> {
+        #[allow(
+            clippy::expect_used,
+            reason = "test fixture constructor: no production caller; the daemon uses try_new_provider_managed"
+        )]
+        let mux = Self::try_new_provider_managed(session, surface_options, authority)
+            .expect("test provider-managed mux must start");
+        mux
+    }
+
     /// Builds a provider-owned mux whose authority will be installed through
     /// the root-only management socket before lifecycle mutations are allowed.
     #[track_caller]
@@ -46,7 +82,7 @@ impl Mux {
     ) -> anyhow::Result<Arc<Self>> {
         let mux_generation = mux_generation.into();
         validate_mux_generation(&mux_generation)?;
-        Ok(Self::new_with_test_surface_runtime(
+        Self::new_with_test_surface_runtime(
             session,
             surface_options,
             ProviderWorkspaceState {
@@ -56,7 +92,7 @@ impl Mux {
                 authority: None,
             },
             false,
-        ))
+        )
     }
 
     #[track_caller]
@@ -65,10 +101,9 @@ impl Mux {
         surface_options: SurfaceOptions,
         provider_workspace: ProviderWorkspaceState,
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
-    ) -> Arc<Self> {
+    ) -> anyhow::Result<Arc<Self>> {
         let session = session.into();
-        let registry = WorkspaceRegistry::in_memory(&session)
-            .expect("in-memory workspace registry must initialize");
+        let registry = WorkspaceRegistry::in_memory(&session)?;
         Self::from_workspace_registry(
             session,
             surface_options,
@@ -76,7 +111,6 @@ impl Mux {
             provider_workspace,
             test_surface_runtime,
         )
-        .expect("in-memory workspace registry must load")
     }
 
     #[track_caller]
@@ -224,10 +258,12 @@ impl Mux {
         );
         // Built here, on the thread that opens the session, so the Linux
         // launcher keeps the process's base nice value (work.rs `Launcher`).
-        let work = cmux_threads::work::Work::new(cmux_threads::work::WorkConfig {
+        let work = Arc::new(cmux_threads::work::Work::new(cmux_threads::work::WorkConfig {
             label: "mux".to_owned(),
             ..cmux_threads::work::WorkConfig::default()
-        })?;
+        })?);
+        #[cfg(unix)]
+        let reaper = Arc::new(cmux_threads::reaper::Reaper::new("mux", Arc::clone(&work))?);
         let mux = Arc::new(Mux {
             launch_identity,
             registry_connection: registry.connection.clone(),
@@ -406,9 +442,9 @@ impl Mux {
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
             terminal_adoption_ended: Condvar::new(),
-            terminal_adoptions_now: Mutex::new(HashSet::new()),
+            startup_adoptions: Mutex::default(),
+            terminal_replays: mux_work::Permits::new(terminal_adoption::ADOPTION_REPLAYS),
             restored_tab_names: Mutex::new(HashMap::new()),
-            startup_adoptions_released: AtomicBool::new(false),
             pending_terminals: Mutex::new(HashMap::new()),
             terminal_ends: Mutex::new(HashMap::new()),
             terminal_loss_causes: Mutex::new(loss_causes::LossCauses::default()),
@@ -456,6 +492,7 @@ impl Mux {
             keybindings: keybindings::KeybindingsSlot::default(),
             terminal_work: terminal_work::TerminalWorkPool::new(&memory),
             memory,
+            sqlite_trim: sqlite_trim::SqliteTrim::default(),
             #[cfg(any(unix, windows))]
             prelaunched_terminals: Mutex::new(HashMap::new()),
             #[cfg(unix)]
@@ -464,8 +501,12 @@ impl Mux {
             surface_operation_admission: Arc::new(
                 crate::server::ServerSurfaceOperationAdmission::default(),
             ),
+            sequenced_pool: crate::server::SequencedPool::default(),
             request_watchdog: crate::server::RequestWatchdog::default(),
+            diagnostic_sites: crate::diagnostics::DiagnosticSites::default(),
             work,
+            #[cfg(unix)]
+            reaper,
             git_sequences: crate::git_ops::Sequences::default(),
             pairing: PairingBroker::new(),
             #[cfg(test)]
@@ -474,11 +515,15 @@ impl Mux {
         });
         mux.exit_settles.bind(Arc::downgrade(&mux));
         // A process with a hang log (the headless owner) watches its holder
-        // links' frames on its first mux's watchdog, from before adoption.
+        // links' frames on its first mux's watchdog, from before adoption,
+        // and pushes its diagnostic sites to the app through that mux.
         if cmux_panic_log::hang::installed() {
             mux.request_watchdog.watch_for_process();
+            crate::server::forward_diagnostic_sites(&mux);
         }
         mux.mux_work.bind(Arc::downgrade(&mux));
+        #[cfg(unix)]
+        mux.control_clients.bind_browser_runtime_owner(Arc::downgrade(&mux));
         mux.register_kitty_pixel_consumer();
         mux.start_command_history_for_persistent_registry();
         let weak_mux = Arc::downgrade(&mux);
@@ -488,6 +533,8 @@ impl Mux {
             // child generation to fence a replacement process.
             mux.record_journal_plugin_exit(plugin_id, generation);
         })));
+        #[cfg(unix)]
+        mux.journal_plugin.set_reaper(Arc::clone(&mux.reaper));
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
         mux.output_store.start(&mux)?;
         mux.materialize_interrupted_resource_workspaces()?;
@@ -500,7 +547,7 @@ impl Mux {
         #[cfg(any(unix, windows))]
         mux.adopt_terminal_hosts()?;
         {
-            let mut state = mux.state.lock().unwrap();
+            let mut state = mux.state.lock().recover_poison();
             state.rebuild_resource_indexes();
             let mut names = mux.restored_tab_names.lock().unwrap_or_else(PoisonError::into_inner);
             for content in &contents {
@@ -521,9 +568,9 @@ impl Mux {
         }
         let recovery_deadline = Instant::now() + Duration::from_secs(15);
         while mux.reconcile_interrupted_resource_creations()? {
-            // Its terminal may be adopting on a thread that waits for ready,
-            // which comes only after this start returns.
-            mux.startup_adoptions_released.store(true, Ordering::Release);
+            // Its terminal's adoption may be held for ready, which comes
+            // only after this start returns.
+            mux.release_startup_adoptions();
             if Instant::now() >= recovery_deadline {
                 mux.shutdown();
                 anyhow::bail!("interrupted resource creation did not settle during startup");
@@ -544,7 +591,7 @@ impl Mux {
     }
 
     pub fn lock_initial_bootstrap(&self) -> MutexGuard<'_, ()> {
-        self.initial_bootstrap.lock().unwrap()
+        self.initial_bootstrap.lock().recover_poison()
     }
 
     /// A persistent mux whose memory registry and scrollback pressure
@@ -604,6 +651,7 @@ impl Mux {
             ProviderWorkspaceState::default(),
             true,
         )
+        .expect("test mux must start")
     }
 
     #[cfg(test)]
@@ -624,6 +672,7 @@ impl Mux {
             },
             true,
         )
+        .expect("test provider-managed mux must start")
     }
 
     #[cfg(test)]
@@ -643,7 +692,8 @@ impl Mux {
                 authority: None,
             },
             true,
-        );
+        )
+        .expect("test pending provider-managed mux must start");
         validate_mux_generation(mux_generation).unwrap();
         mux
     }

@@ -5,12 +5,12 @@ public import Foundation
 @MainActor
 package protocol WebBundlePage: AnyObject, Sendable {
     /// The page shows a running document now: its engine was told it shows, and it is neither
-    /// discarded, waiting for its first show nor the pool's parked spare.
+    /// discarded, waiting for its first show nor the preload slot's parked page.
     var bundleShown: Bool { get }
     /// The page holds a document that loaded files (shown, hidden, frozen or parked; not discarded
     /// and not waiting for its first show): a change reloads it or marks it stale.
     var bundleHasDocument: Bool { get }
-    /// The page is the pool's parked spare: nobody sees it, and its claim loads the files served then
+    /// The page is the preload slot's parked page: nobody sees it, and its claim loads the files served then
     /// when it is stale (``markBundleStale()``), so the swap never reloads it.
     var bundleParked: Bool { get }
     /// The page is loading a document now (it is busy for the safe point).
@@ -69,7 +69,7 @@ package protocol WebBundleHost: AnyObject {
 
 extension WebBundleHost {
     /// The pages the swap reloads now, which the safe point asks: the shown ones with
-    /// ``bundleReloadsOnShow``, else every page that holds a document. Never the parked spare.
+    /// ``bundleReloadsOnShow``, else every page that holds a document. Never the parked page.
     package var bundleAskedPages: [any WebBundlePage] { webBundlePages.filter { reloadsAtSwap($0) } }
 
     /// The pages that show with web files they have not loaded: the safe point asks them and reloads
