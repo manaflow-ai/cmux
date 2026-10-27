@@ -74,7 +74,7 @@ export function EnvironmentCard({
           <span className="nt-stage-text">{t("project.browse")}</span>
         </button>
       )}
-      {!current && !noProject && (
+      {!current && !noProject && local.length === 0 && (
         // A fresh workspace has no recent project row yet. Keep the no-project path visible in
         // the card itself so a first chat can start without first discovering the chooser menu.
         <button type="button" className="nt-stage-row" aria-pressed={false} onClick={onNoProject}>

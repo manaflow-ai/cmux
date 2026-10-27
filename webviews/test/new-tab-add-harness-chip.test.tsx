@@ -147,6 +147,9 @@ test.serial("with no harness installed, the page has no No agent row and the chi
   expect(host.textContent).not.toContain("No agent to ask");
   expect(named("Integrate a harness")).toBeUndefined();
 
+  // Return already exercised the shared opener above. Reset the observation before checking the
+  // chip itself so this assertion covers one chip click, not the two independent entry points.
+  opened.count = 0;
   const chip = named("Add harness", host.querySelector(".nt-composer")!);
   expect(chip).toBeDefined();
   expect(chip!.textContent?.trim()).toBe("Add harness");
