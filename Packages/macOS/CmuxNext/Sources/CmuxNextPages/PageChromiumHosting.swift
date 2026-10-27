@@ -1,7 +1,11 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxNextDesign
 public import CmuxNextSettings
 public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import Foundation
 
 /// Makes Chromium pages for the page host (``PageWebView``). The app implements it with its CEF
@@ -70,8 +74,9 @@ public nonisolated struct PageChromiumWindow: Hashable, Sendable {
 }
 
 /// One Chromium page the page host shows. The page host drives it only through this protocol
-/// (scripts through ``evaluate(_:)``, the rest through the DevTools protocol,
-/// ``devTools(_:params:)``), so a CEF tab or a fake in tests both fit.
+/// (scripts through ``evaluate(_:)``, pictures through ``copySurface(maxPixelSize:done:)``, clicks
+/// and moves through ``sendClick(at:)`` and ``sendMouseMove(at:)``; the DevTools protocol,
+/// ``devTools(_:params:)``, only where the engine has no such path), so a CEF tab or a fake in tests both fit.
 @MainActor
 public protocol PageChromiumPage: AnyObject {
     /// The view to place where the page shows (Chromium's view tracks it).
@@ -117,8 +122,29 @@ public protocol PageChromiumPage: AnyObject {
     /// - Throws: ``PageScriptError/exception(_:)`` when the script throws,
     ///   ``PageScriptError/noResult`` when the answer is not JSON, or the page's error when it is gone.
     func evaluate(_ script: String) async throws -> Any?
+    /// Whether ``copySurface(maxPixelSize:done:)`` can give a picture. False on a fork without the surface
+    /// copy: there a picture someone asks for (a window image, a debug snapshot, a cover) is a DevTools
+    /// `Page.captureScreenshot`, and the hide picture is none.
+    var copiesSurface: Bool { get }
+    /// A left click at `point` (view points from the top-left of ``contentView``) as the person's own,
+    /// with no DevTools agent: the fork's native click (`CefBrowserHost::SendMouseClickEvent`, fork API 29).
+    ///
+    /// - Parameter point: Where to click, in view points.
+    /// - Returns: False when the engine has no native click or the page is gone: the caller then uses
+    ///   DevTools input.
+    func sendClick(at point: CGPoint) -> Bool
+    /// The mouse moves to `point` (view points from the top-left of ``contentView``) with no button held, as the
+    /// person's own, with no DevTools agent: the fork's native move (`CefBrowserHost::SendMouseMoveEvent`).
+    ///
+    /// - Parameter point: Where the pointer goes, in view points.
+    /// - Returns: False when the engine has no native move or the page is gone: the caller then uses DevTools input.
+    func sendMouseMove(at point: CGPoint) -> Bool
+    /// Copies the page's selection to the pasteboard as the person's own Copy (a menu choice backs it):
+    /// `document.execCommand('copy')` with a user gesture, through the fork's `tabEvaluate` on renderer
+    /// paths (fork API 29), so it makes no DevTools call there.
+    func copySelection()
     /// Copies the page as it last drew, fitted inside `maxPixelSize` (never scaled up), with no DevTools
-    /// agent: the fork's surface copy (`cmux_tab_copy_surface`, p13-webui-077), as Chrome copies a tab
+    /// agent: the fork's surface copy (`cmux_browser_capture`, p13-webui-077), as Chrome copies a tab
     /// thumbnail (chrome/browser/ui/thumbnails/thumbnail_tab_helper.cc, `RenderWidgetHostView::CopyFromSurface`).
     /// Chromium encodes the picture on its thread pool. The page lifecycle takes it in the turn the page
     /// hides, before any freeze (``PageWebView/keepHideSnapshot(encoder:)``). Never `Page.captureScreenshot`: one
@@ -126,9 +152,10 @@ public protocol PageChromiumPage: AnyObject {
     ///
     /// - Parameters:
     ///   - maxPixelSize: The largest picture, in pixels.
-    ///   - done: Runs once on the main actor with the picture, or nil when the page has no surface or the
-    ///     fork has no surface copy.
-    func copySurface(maxPixelSize: CGSize, done: @escaping @MainActor (PageEncodedSnapshot?) -> Void)
+    ///   - done: Runs once on the main actor with the picture as the engine answers it (base64, decoded
+    ///     off the main thread by its users), or nil when the page has no surface or the fork has no
+    ///     surface copy.
+    func copySurface(maxPixelSize: CGSize, done: @escaping @MainActor (PageSurfaceCopy?) -> Void)
     /// Loads `url` in the page.
     func load(_ url: URL)
     /// Reloads the document.
@@ -192,6 +219,16 @@ extension PageChromiumPage {
         let reply = try await devTools("Runtime.evaluate", params: ["expression": script, "awaitPromise": true, "returnByValue": true])
         return try await ChromiumPageHostWire.value(devToolsReply: reply)
     }
+
+    /// ``copySurface(maxPixelSize:done:)`` awaited: the request still leaves in the caller's turn.
+    ///
+    /// - Parameter maxPixelSize: The largest picture, in pixels.
+    /// - Returns: The picture, still in base64; nil when there is none.
+    public func copiedSurface(maxPixelSize: CGSize) async -> PageSurfaceCopy? {
+        try? await withOnceContinuation { (done: OnceContinuation<PageSurfaceCopy?, OnceContinuationError>) in
+            copySurface(maxPixelSize: maxPixelSize) { done.resume(returning: $0) }
+        }
+    }
 }
 
 /// A picture of a page, encoded (PNG, alpha kept): what a page keeps of its last frame once it is
@@ -209,6 +246,39 @@ public nonisolated struct PageEncodedSnapshot: Sendable, Equatable {
     public init(data: Data, pixelSize: CGSize) {
         self.data = data
         self.pixelSize = pixelSize
+    }
+}
+
+/// A page's surface copy as the engine answers it (``PageChromiumPage/copySurface(maxPixelSize:done:)``): the PNG,
+/// alpha kept, still in base64 as the fork's reply carries it. A full window is megabytes of text, so the main actor
+/// only passes it on; ``encoded(fileID:line:)`` decodes it on the `.cpu` lane (the hide picture through
+/// ``PageSnapshotEncoder``, the other pictures in ``PageWebView/chromiumPictureData(of:devToolsParams:)``).
+public nonisolated struct PageSurfaceCopy: Sendable, Equatable {
+    /// The encoded image in base64.
+    public var base64: String
+    /// Its size in pixels.
+    public var pixelSize: CGSize
+
+    /// - Parameters:
+    ///   - base64: The encoded image in base64.
+    ///   - pixelSize: Its size in pixels.
+    public init(base64: String, pixelSize: CGSize) {
+        self.base64 = base64
+        self.pixelSize = pixelSize
+    }
+
+    /// The picture's PNG bytes, decoded from base64 as a checked CPU call: on the main thread, more than
+    /// ``BlockingKind/cpuIntensiveJSONBytes`` of text is a cpu-intensive site. Run it on the `.cpu` lane.
+    ///
+    /// - Parameters:
+    ///   - fileID: The calling code's `#fileID` (names the call site).
+    ///   - line: The calling code's `#line`.
+    /// - Returns: The encoded picture; nil when the text holds no bytes.
+    public func encoded(fileID: StaticString = #fileID, line: UInt = #line) -> PageEncodedSnapshot? {
+        let data = cpuIntensiveCall(size: base64.utf8.count, limit: BlockingKind.cpuIntensiveJSONBytes,
+                                    fileID: fileID, line: line) { Data(base64Encoded: base64) }
+        guard let data, !data.isEmpty else { return nil }
+        return PageEncodedSnapshot(data: data, pixelSize: pixelSize)
     }
 }
 

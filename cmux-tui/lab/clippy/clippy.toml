@@ -1,0 +1,93 @@
+# Lab-only clippy configuration (plans/cmux-next/chrome-parity/p10-stability.md,
+# queue Q11, task 206). Clippy reads it only through CLIPPY_CONF_DIR, in the
+# lab run; CI and every other clippy run read cmux-tui/clippy.toml.
+#
+#   cd cmux-tui && CLIPPY_CONF_DIR="$PWD/lab/clippy" cargo clippy --workspace --lib --bins \
+#     --locked --keep-going --message-format=json -- --cap-lints warn -W clippy::disallowed_methods \
+#     > lab-clippy.jsonl
+#   python3 lab/clippy/disallowed_methods.py lab-clippy.jsonl
+#
+# Every package allows clippy::disallowed_methods in its Cargo.toml lints; the
+# `-W` on the command line comes after those flags and turns the lint back on.
+# `--cap-lints warn` keeps the crates that deny it (cmux-mux2, cmux-app-host)
+# from stopping the run on a hit of the longer list below.
+#
+# CLIPPY_CONF_DIR replaces cmux-tui/clippy.toml for the run, so this file
+# repeats its thread and lock rules: an opted-in crate sees the same thread
+# hits in the lab as in CI. Keep the two in step.
+#
+# The blocking rules are Chrome's ScopedBlockingCall: base/files/file_util_posix.cc
+# and base/process/launch_posix.cc open one (base/threading/scoped_blocking_call.h)
+# before each blocking syscall. Each rule names the cmux-blocking wrapper that
+# does the same; where it has none, cmux_blocking::scoped_blocking_call with
+# the BlockingKind. cmux-blocking's wrapper modules allow the lint: they are
+# the only callers of these calls.
+disallowed-methods = [
+    # cmux-tui/clippy.toml: threads start through cmux_threads.
+    { path = "std::thread::spawn", reason = "use cmux_threads::spawn(name, qos, f)" },
+    { path = "std::thread::Builder::spawn", reason = "use cmux_threads::spawn(name, qos, f)" },
+    { path = "std::thread::Builder::spawn_scoped", reason = "use cmux_threads::spawn or a cmux_threads::work lane" },
+    { path = "std::thread::Builder::spawn_unchecked", reason = "use cmux_threads::spawn(name, qos, f)" },
+    { path = "std::thread::scope", reason = "use cmux_threads::spawn or a cmux_threads::work lane" },
+    { path = "std::thread::sleep", reason = "blocks: wait on an event, channel or injected clock; in async code tokio::time::sleep; else cmux_blocking::thread::sleep" },
+
+    # std::fs: blocks on the file system (BlockingKind::Fs).
+    { path = "std::fs::read", reason = "blocks on the file system; use cmux_blocking::fs::read" },
+    { path = "std::fs::read_to_string", reason = "blocks on the file system; use cmux_blocking::fs::read_to_string" },
+    { path = "std::fs::write", reason = "blocks on the file system; use cmux_blocking::fs::write" },
+    { path = "std::fs::metadata", reason = "blocks on the file system; use cmux_blocking::fs::metadata" },
+    { path = "std::fs::symlink_metadata", reason = "blocks on the file system; use cmux_blocking::fs::symlink_metadata" },
+    { path = "std::fs::exists", reason = "blocks on the file system; use cmux_blocking::fs::exists" },
+    { path = "std::fs::canonicalize", reason = "blocks on the file system; use cmux_blocking::fs::canonicalize" },
+    { path = "std::fs::read_dir", reason = "blocks on the file system; use cmux_blocking::fs::read_dir" },
+    { path = "std::fs::create_dir_all", reason = "blocks on the file system; use cmux_blocking::fs::create_dir_all" },
+    { path = "std::fs::remove_file", reason = "blocks on the file system; use cmux_blocking::fs::remove_file" },
+    { path = "std::fs::remove_dir_all", reason = "blocks on the file system; use cmux_blocking::fs::remove_dir_all" },
+    { path = "std::fs::rename", reason = "blocks on the file system; use cmux_blocking::fs::rename" },
+    { path = "std::fs::copy", reason = "blocks on the file system; use cmux_blocking::fs::copy" },
+    { path = "std::fs::File::open", reason = "blocks on the file system; use cmux_blocking::fs::open" },
+    { path = "std::fs::File::create", reason = "blocks on the file system; use cmux_blocking::fs::create" },
+    { path = "std::fs::create_dir", reason = "blocks on the file system; use cmux_blocking::scoped_blocking_call(\"fs::create_dir\", BlockingKind::Fs, ..)" },
+    { path = "std::fs::remove_dir", reason = "blocks on the file system; use cmux_blocking::scoped_blocking_call(\"fs::remove_dir\", BlockingKind::Fs, ..)" },
+    { path = "std::fs::hard_link", reason = "blocks on the file system; use cmux_blocking::scoped_blocking_call(\"fs::hard_link\", BlockingKind::Fs, ..)" },
+    { path = "std::fs::read_link", reason = "blocks on the file system; use cmux_blocking::scoped_blocking_call(\"fs::read_link\", BlockingKind::Fs, ..)" },
+    { path = "std::fs::set_permissions", reason = "blocks on the file system; use cmux_blocking::scoped_blocking_call(\"fs::set_permissions\", BlockingKind::Fs, ..)" },
+    { path = "std::fs::File::create_new", reason = "blocks on the file system; use cmux_blocking::scoped_blocking_call(\"fs::create_new\", BlockingKind::Fs, ..)" },
+    { path = "std::fs::File::sync_all", reason = "blocks until the disk flushes; use cmux_blocking::scoped_blocking_call(\"fs::sync_all\", BlockingKind::Fs, ..)" },
+    { path = "std::fs::File::sync_data", reason = "blocks until the disk flushes; use cmux_blocking::scoped_blocking_call(\"fs::sync_data\", BlockingKind::Fs, ..)" },
+    { path = "std::fs::OpenOptions::open", reason = "blocks on the file system; use cmux_blocking::scoped_blocking_call(\"fs::open_with\", BlockingKind::Fs, ..)" },
+    { path = "std::fs::DirBuilder::create", reason = "blocks on the file system; use cmux_blocking::scoped_blocking_call(\"fs::create_dir_with\", BlockingKind::Fs, ..)" },
+    # std::path::Path methods that are std::fs calls under another name.
+    { path = "std::path::Path::exists", reason = "blocks on the file system; use cmux_blocking::fs::exists" },
+    { path = "std::path::Path::try_exists", reason = "blocks on the file system; use cmux_blocking::fs::exists" },
+    { path = "std::path::Path::metadata", reason = "blocks on the file system; use cmux_blocking::fs::metadata" },
+    { path = "std::path::Path::symlink_metadata", reason = "blocks on the file system; use cmux_blocking::fs::symlink_metadata" },
+    { path = "std::path::Path::canonicalize", reason = "blocks on the file system; use cmux_blocking::fs::canonicalize" },
+    { path = "std::path::Path::read_dir", reason = "blocks on the file system; use cmux_blocking::fs::read_dir" },
+    { path = "std::path::Path::is_file", reason = "blocks on the file system; use cmux_blocking::fs::metadata and Metadata::is_file" },
+    { path = "std::path::Path::is_dir", reason = "blocks on the file system; use cmux_blocking::fs::metadata and Metadata::is_dir" },
+    { path = "std::path::Path::is_symlink", reason = "blocks on the file system; use cmux_blocking::fs::symlink_metadata and Metadata::is_symlink" },
+    { path = "std::path::Path::read_link", reason = "blocks on the file system; use cmux_blocking::scoped_blocking_call(\"fs::read_link\", BlockingKind::Fs, ..)" },
+
+    # std::process: waits for the child to exit (BlockingKind::ProcessWait).
+    { path = "std::process::Command::output", reason = "waits for the child to exit; use cmux_blocking::process::output" },
+    { path = "std::process::Command::status", reason = "waits for the child to exit; use cmux_blocking::process::status" },
+    { path = "std::process::Child::wait", reason = "waits for the child to exit; use cmux_blocking::process::wait" },
+    { path = "std::process::Child::wait_with_output", reason = "waits for the child to exit; use cmux_blocking::process::wait_with_output" },
+
+    # std::sync and std::thread waits: park the thread until another thread acts.
+    { path = "std::sync::mpsc::Receiver::recv", reason = "parks the thread until a sender acts; use cmux_blocking::sync::recv" },
+    { path = "std::sync::mpsc::Receiver::recv_timeout", reason = "parks the thread until a sender acts; use cmux_blocking::scoped_blocking_call(\"sync::recv_timeout\", BlockingKind::Recv, ..)" },
+    { path = "std::sync::Condvar::wait", reason = "parks the thread until a notify; use cmux_blocking::sync::wait" },
+    { path = "std::sync::Condvar::wait_while", reason = "parks the thread until a notify; use cmux_blocking::sync::wait_while" },
+    { path = "std::sync::Condvar::wait_timeout", reason = "parks the thread until a notify; use cmux_blocking::sync::wait_timeout" },
+    { path = "std::sync::Condvar::wait_timeout_while", reason = "parks the thread until a notify; use cmux_blocking::scoped_blocking_call(\"sync::wait_timeout_while\", BlockingKind::CondvarWait, ..)" },
+    { path = "std::thread::JoinHandle::join", reason = "parks the thread until the other one ends; use cmux_blocking::scoped_blocking_call(\"thread::join\", BlockingKind::Join, ..)" },
+]
+
+# cmux-tui/clippy.toml: std locks wait untimed.
+disallowed-types = [
+    { path = "std::sync::Mutex", reason = "use cmux_threads::sync::Mutex (same API, waits timed)" },
+    { path = "std::sync::RwLock", reason = "use cmux_threads::sync::RwLock (same API, waits timed)" },
+    { path = "std::sync::Condvar", reason = "use cmux_threads::sync::Condvar (same API, waits timed)" },
+]

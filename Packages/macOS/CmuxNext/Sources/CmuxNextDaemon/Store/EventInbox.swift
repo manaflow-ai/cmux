@@ -180,12 +180,30 @@ final class EventInbox: Sendable {
             state.live = 0
             defer { state.events.removeAll(keepingCapacity: true) }
             guard let collapseCause else { return state.events.compactMap { $0 } }
-            return state.events.compactMap { (envelope: DaemonEventEnvelope?) -> DaemonEventEnvelope? in
-                guard let envelope, case .overflow(let reason) = envelope.event else { return envelope }
-                let event: DaemonEvent = lost > 0 ? .overflow("\(reason); dropped \(lost) events a resync cannot restore") : envelope.event
-                return DaemonEventEnvelope(sequence: envelope.sequence, event: event, sourceID: envelope.sourceID, cause: collapseCause)
-            }
+            return Self.events(state.events, overflowCause: collapseCause, lost: lost)
         }
+    }
+
+    /// The live `events`, the `.overflow` marker among them carrying `cause` and, when `lost` is
+    /// positive, how many events a resync cannot restore were dropped.
+    private static func events(_ events: [DaemonEventEnvelope?], overflowCause cause: ObservationCause, lost: Int = 0) -> [DaemonEventEnvelope] {
+        events.compactMap { (envelope: DaemonEventEnvelope?) -> DaemonEventEnvelope? in
+            guard let envelope, case .overflow(let reason) = envelope.event else { return envelope }
+            let event: DaemonEvent = lost > 0 ? .overflow("\(reason); dropped \(lost) events a resync cannot restore") : envelope.event
+            return DaemonEventEnvelope(sequence: envelope.sequence, event: event, sourceID: envelope.sourceID, cause: cause)
+        }
+    }
+
+    /// `envelopes` collapsed as the buffer collapses past its limit: one `.overflow` (with the
+    /// highest cause of what it drops, and the newest sequence), then the events that outlive the
+    /// snapshot it asks for, all of them (``Retention/all``). The drain's tail collapses this way
+    /// past its own limit (``DrainTail``).
+    static func collapse(_ envelopes: [DaemonEventEnvelope], reason: String) -> [DaemonEventEnvelope] {
+        guard let newest = envelopes.lazy.map(\.sequence).max() else { return [] }
+        let collapsing = EventInbox(retention: .all)
+        var state = State(events: [DaemonEventEnvelope(sequence: newest, event: .overflow(reason))], live: 1, collapsed: true)
+        for envelope in envelopes { collapsing.keep(envelope, in: &state) }
+        return events(state.events, overflowCause: state.collapseCause)
     }
 
     /// Keeps new events from scheduling frames (during a resync).

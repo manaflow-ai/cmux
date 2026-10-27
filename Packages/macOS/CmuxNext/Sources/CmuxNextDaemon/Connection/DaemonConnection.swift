@@ -57,7 +57,16 @@ public actor DaemonConnection {
     private let endpointProvider: EndpointProvider
     let clock: any Clock<Duration>
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon")
-    private var phase: Phase = .idle
+    private var phase: Phase = .idle {
+        // The request path's snapshot follows every phase change (p05-ipc-091).
+        didSet {
+            let snapshot = ready
+            admitted.withLock { $0 = snapshot }
+        }
+    }
+    /// The ready connection as the request path reads it, with no actor hop: the `Mutex` snapshot of
+    /// `phase`, nil when not ready.
+    private nonisolated let admitted = Mutex<DaemonReadyConnection?>(nil)
     private(set) var serial: UInt64 = 0
     /// The open `session.events` stream id (`DaemonConnection+SessionEvents`).
     var sessionStream: String?
@@ -78,13 +87,9 @@ public actor DaemonConnection {
     /// The ready connection's `client-hello` `user_origin_allowed` (`HandshakeLines.Replies`); false when not ready.
     public var userOriginAllowed: Bool { if case .ready(let ready) = phase { ready.userOriginAllowed } else { false } }
     public private(set) var endpoint: DaemonEndpoint?
-    /// Quiet handoff (`DaemonConnection+QuietHandoff`): requests in flight, the waits for none, and
-    /// the requests held while a handoff runs (nil: none runs).
-    var inFlight = 0
-    var quietWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
-    var handoffHold: [UInt64: OnceContinuation<Void, OnceContinuationError>]?
-    var handoffHoldNext: UInt64 = 0
-    var handoffQueue: [OnceContinuation<Void, OnceContinuationError>] = []
+    /// Quiet handoff (`DaemonConnection+QuietHandoff`): requests in flight and the requests held while
+    /// a handoff runs, counted and parked without the actor; the running hold's limit timer.
+    nonisolated let handoffGate: QuietHandoffGate
     var handoffHoldTimer: DemandTimer?
     /// Waits for a ready connection newer than `after` (`DaemonConnection+ReadyWait`), each with its limit.
     var readyWaits: [UInt64: (after: UInt64, continuation: OnceContinuation<Bool, OnceContinuationError>, timer: DemandTimer)] = [:]
@@ -103,7 +108,9 @@ public actor DaemonConnection {
         pacer = RetryPacer(configuration.retry)
         wake = configuration.retryWake ?? RetryWake(owner: "DaemonConnection.reconnect")
         healthy = DemandTimer(owner: "DaemonConnection.healthy", clock: clock)
-        // The events no consumer took yet wait in the route's bounded EventInbox backlog.
+        handoffGate = QuietHandoffGate(observe: configuration.handoffWaits)
+        // The events no consumer took yet wait in the route's bounded EventInbox backlog; past
+        // DaemonEventRoute.highWater bytes of them, while a stream consumer takes them, the reader stops reading the socket.
         let route = DaemonEventRoute()
         self.route = route
         self.events = DaemonEventStream(route: route)
@@ -157,30 +164,42 @@ public actor DaemonConnection {
     /// Sends one command and decodes its response. Fails with
     /// `DaemonError.timedOut` after `timeout` (default: the configured
     /// `requestTimeout`) instead of waiting forever.
-    public func request<R: DaemonRequest>(_ request: R) async throws -> R.Response {
+    /// Runs on the caller's executor, never the connection's actor (`request(_:timeout:)`).
+    /// A terminal-starting request gets Ghostty's shell-integration arguments when the daemon that
+    /// carries it serves them, decided after the quiet-handoff gate (a request held through a handoff
+    /// goes to the next daemon).
+    public nonisolated func request<R: DaemonRequest>(_ request: R) async throws -> R.Response {
         guard R.self is any TerminalSpawningRequest.Type else {
             return try await self.request(request, timeout: configuration.requestTimeout)
         }
-        var request = request
-        if identity?.supports(DaemonCapability.terminalShellArgs.rawValue) == true,
-           let carrier = request as? any ShellIntegrationArgumentCarrying,
-           let integrated = carrier.addingShellIntegrationArguments() as? R {
-            request = integrated
-        }
         do {
-            return try await self.request(request, timeout: configuration.spawnTimeout)
+            return try await sendAdmitted(request, timeout: configuration.spawnTimeout) { request, identity in
+                guard identity.supports(DaemonCapability.terminalShellArgs.rawValue),
+                      let carrier = request as? any ShellIntegrationArgumentCarrying,
+                      let integrated = carrier.addingShellIntegrationArguments() as? R else { return request }
+                return integrated
+            }
         } catch DaemonError.timedOut(let what) {
             // cmux-tui keeps starting the terminal after the client gave up.
             throw DaemonError.terminalStartTimedOut(what)
         }
     }
 
-    public func request<R: DaemonRequest>(_ request: R, timeout: Duration?) async throws -> R.Response {
-        await waitOutHandoff()
-        guard let ready else { throw DaemonError.notConnected }
-        requestStarted()
-        defer { requestEnded() }
-        try R.requireServed(by: identity)
+    /// Runs on the caller's executor with no actor hop (p05-ipc-091): it reads the ready connection from
+    /// its `Mutex` snapshot and passes the quiet-handoff gate with atomics only.
+    public nonisolated func request<R: DaemonRequest>(_ request: R, timeout: Duration?) async throws -> R.Response {
+        try await sendAdmitted(request, timeout: timeout) { request, _ in request }
+    }
+
+    /// Passes the quiet-handoff gate, then sends `request` as `forDaemon` makes it for the identity of
+    /// the ready connection that carries it.
+    private nonisolated func sendAdmitted<R: DaemonRequest>(_ request: R, timeout: Duration?,
+                                                            forDaemon: (R, DaemonIdentity) -> R) async throws -> R.Response {
+        await handoffGate.enter(passes: Self.passesHandoffHold)
+        defer { handoffGate.leave() }
+        guard let ready = admittedConnection else { throw DaemonError.notConnected }
+        try R.requireServed(by: ready.identity)
+        let request = forDaemon(request, ready.identity)
         // Before the line goes out: the echo can arrive before the reply.
         DaemonCommandScope.recordEchoTransaction(of: request, in: mutationCauses)
         let response = try await Self.perform(request, on: ready.transport, timeout: timeout)
@@ -197,16 +216,16 @@ public actor DaemonConnection {
 
     /// Sends one `cmux.protocol/2` resource request (``DaemonResourceLine``) on the control socket
     /// and decodes its `result`; `timeout` replaces the request deadline.
-    /// `onTransport` runs on the actor with the transport that carries the request, after the
-    /// handoff wait and before the line is sent; it throws to cancel the request.
-    func resourceRequest<Line: DaemonResourceLine, R: Decodable>(_ envelope: @escaping @Sendable (UInt64) -> Line,
-                                                                  as type: R.Type, timeout: Duration? = nil,
-                                                                  onTransport: (LineTransport) throws -> Void = { _ in }) async throws -> R {
-        await waitOutHandoff()
-        guard let ready else { throw DaemonError.notConnected }
+    /// `onTransport` runs on the caller's executor with the transport that carries the request, after
+    /// the handoff wait and before the line is sent; it throws to cancel the request. No actor hop, as
+    /// `request(_:timeout:)`.
+    nonisolated func resourceRequest<Line: DaemonResourceLine, R: Decodable>(_ envelope: @escaping @Sendable (UInt64) -> Line,
+                                                                              as type: R.Type, timeout: Duration? = nil,
+                                                                              onTransport: (LineTransport) throws -> Void = { _ in }) async throws -> R {
+        await handoffGate.enter(passes: Self.passesHandoffHold)
+        defer { handoffGate.leave() }
+        guard let ready = admittedConnection else { throw DaemonError.notConnected }
         try onTransport(ready.transport)
-        requestStarted()
-        defer { requestEnded() }
         let response = try await ready.transport.request(cmd: DaemonCommandName(wire: envelope(0).operation), timeout: timeout ?? configuration.requestTimeout) { id in
             try envelope(id).lineData()
         }
@@ -239,6 +258,9 @@ public actor DaemonConnection {
         guard case .ready(let ready) = phase else { return nil }
         return ready
     }
+
+    /// ``ready`` from any executor: the snapshot `phase` writes on every change.
+    nonisolated var admittedConnection: DaemonReadyConnection? { admitted.withLock { $0 } }
 
     static func perform<R: DaemonRequest>(_ request: R, on transport: LineTransport,
                                           timeout: Duration? = defaultRequestTimeout) async throws -> R.Response {
@@ -275,8 +297,9 @@ public actor DaemonConnection {
                         // task-owner: hop onto the actor; a stale serial is ignored there
                         Task { await self?.sessionStreamEvent(item, serial: serial) }
                     }
-                    gate.deliver(envelope) { route.emit($0) }
+                    gate.deliver(envelope) { route.emit($0, bytes: line.count, parksReader: true) }
                 },
+                waitForConsumer: { route.waitWhileReaderParked() },
                 onClose: { [weak self] reason in
                     // task-owner: hop onto the actor; transportClosed ignores a stale serial
                     Task { await self?.transportClosed(serial: serial, reason: reason) }

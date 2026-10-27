@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// cx-0q7o: an allow went to an agent daemon run on another machine that holds no person key of
 /// this app for that run, so that daemon refuses it. The pane says remote approvals are
@@ -65,15 +66,37 @@ extension AgentPaneView {
     @objc private func restartWithApprovals(_ sender: NSButton) {
         guard let approvals = remoteApprovals, let notice = remoteApprovalsNotice else { return }
         sender.isEnabled = false
-        // task-owner: one keyed restart per click; the notice it updates belongs to this pane
-        Task { @MainActor [weak self, weak notice, weak sender] in
-            let failure = await approvals.restart()
-            guard let self, let notice, self.remoteApprovalsNotice === notice else { return }
-            guard let failure else { return self.hideRemoteApprovalsOff() }
-            sender?.isEnabled = true
-            if let detail = notice.arrangedSubviews.dropFirst().first as? any ShownText {
-                detail.stringValue = Self.remoteApprovalsRestartFailed(approvals.label, failure)
-            }
+        approvals.restartAnswering(on: model.deadlines.work) { [weak self, weak notice, weak sender] failure in
+            self?.restartAnswered(failure, approvals: approvals, notice: notice, sender: sender)
+        }
+    }
+
+    private func restartAnswered(_ failure: AgentPaneRemoteApprovals.Failure?, approvals: AgentPaneRemoteApprovals,
+                                 notice: NSStackView?, sender: NSButton?) {
+        guard let notice, remoteApprovalsNotice === notice else { return }
+        guard let failure else { return hideRemoteApprovalsOff() }
+        sender?.isEnabled = true
+        if let detail = notice.arrangedSubviews.dropFirst().first as? any ShownText {
+            detail.stringValue = Self.remoteApprovalsRestartFailed(approvals.label, failure)
+        }
+    }
+}
+
+extension AgentPaneRemoteApprovals {
+    /// The person's restart click: the restart (ssh or Cloud, then the machine's daemon) runs off main, and its
+    /// answer is the rest of the click, one userBlocking task on `work` (Chrome's PostTaskAndReplyWithResult onto
+    /// the UI thread).
+    ///
+    /// - Parameters:
+    ///   - work: The app's one main-thread scheduler.
+    ///   - answered: Gets the restart's failure (nil on success) on the main actor.
+    @MainActor func restartAnswering(on work: MainWorkScheduler,
+                                     _ answered: @escaping @MainActor @Sendable (Failure?) -> Void) {
+        let restart = restart
+        // task-owner: one keyed restart per click; its answer is posted to the pane that asked
+        Task { @concurrent in
+            let failure = await restart()
+            work.postFromAnyThread(.userBlocking, owner: "agentPane.remoteApprovals.restart") { answered(failure) }
         }
     }
 }

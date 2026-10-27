@@ -24,7 +24,7 @@ pub(super) async fn make_inside_root(
     let mut base = None;
     for ancestor in path.ancestors().skip(1) {
         if let Some(found) = fs_spelling(&ancestor.to_string_lossy()).await
-            && found.is_dir()
+            && tokio::fs::metadata(&found).await.is_ok_and(|m| m.is_dir())
         {
             base = Some((ancestor, found));
             break;

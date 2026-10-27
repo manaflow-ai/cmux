@@ -111,6 +111,7 @@ extension WebKitTab: WKNavigationDelegate {
         restored.navigationCommitted(url: webView.url)
         formResubmissionCommitted()
         pageDidCommit()
+        processSiteCommitted()
         guard let id = navigationID(for: navigation, creating: false) else { return }
         apply(.committed(id, url: webView.url))
         pageInfoActivity.documentCommitted(origin: webView.url.flatMap(PageInfoSite.origin(of:)))
@@ -173,6 +174,7 @@ extension WebKitTab: WKNavigationDelegate {
         setDrawsPageBackground(true)
         removeStandIn()
         apply(.processExited(BrowserProcessExit(reason: .crashed)))
+        processSiteEnded()
         firstContentFrame.contentShown() // the sad tab is what the new tab shows
     }
 

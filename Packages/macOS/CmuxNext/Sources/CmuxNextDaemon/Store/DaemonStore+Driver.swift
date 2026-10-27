@@ -9,12 +9,17 @@ struct StoreDriver {
     let connection: DaemonConnection
     let inbox: EventInbox
     let scheduler: any FrameBatchScheduler
+    /// The transactions the frame drain left for budgeted tasks (``DrainTail``).
+    let tail: DrainTail
     /// The resync's snapshot read: the connection's, or a test's.
     let snapshot: @MainActor @Sendable () async throws -> (tree: DaemonTree, barrier: UInt64)
 
-    init(connection: DaemonConnection, inbox: EventInbox, scheduler: any FrameBatchScheduler,
+    @MainActor
+    init(connection: DaemonConnection, inbox: EventInbox, scheduler: any FrameBatchScheduler, tail: (any DrainTailScheduler)? = nil,
+         tailLimit: Int = EventInbox.defaultLimit,
          snapshot: (@MainActor @Sendable () async throws -> (tree: DaemonTree, barrier: UInt64))? = nil) {
         (self.connection, self.inbox, self.scheduler) = (connection, inbox, scheduler)
+        self.tail = DrainTail(scheduler: tail, limit: tailLimit)
         self.snapshot = snapshot ?? { try await connection.snapshot() }
     }
 
@@ -39,7 +44,7 @@ extension DaemonStore {
     /// the main actor; events it supersedes (by sequence barrier) are
     /// dropped. No polling and no timers.
     public func run(connection: DaemonConnection, scheduler: any FrameBatchScheduler = NextTurnFrameScheduler()) async {
-        await run(driver: StoreDriver(connection: connection, inbox: EventInbox(), scheduler: scheduler))
+        await run(driver: StoreDriver(connection: connection, inbox: EventInbox(), scheduler: scheduler, tail: drainTailScheduler))
     }
 
     /// ``run(connection:scheduler:)`` with its driver made: a test's injects the resync's snapshot read.
@@ -56,8 +61,8 @@ extension DaemonStore {
             }
         }
         let failure = await pump.value
-        // Everything left: a frame asked for after this would find no driver.
-        drain()
+        // Everything left, the tail first: a frame asked for after this would find no driver.
+        drain(flushingTail: true)
         // What a script batch's stage still holds is this connection's, and a commit now could start a resync on
         // it: dropped (held intents show again as pending); the next connection's snapshot is the truth.
         stage?.discard()
@@ -75,32 +80,6 @@ extension DaemonStore {
         resyncPacer.reset()
         personalRefetch = PersonalRefetch()
         self.driver = nil
-    }
-
-    /// Applies everything buffered as one batch, never split across frames: one daemon transaction
-    /// (close twelve panes and the layout change, close other workspaces) never shows half applied,
-    /// and the echo of a person's action with no intent (close other tabs, close a workspace from
-    /// the palette or the CLI) shows in the frame after it arrives, whatever else is queued. The
-    /// batch's cost is what changed since the last frame: whole-value events coalesce in the inbox,
-    /// a snapshot applies only what differs (DaemonStore+SnapshotDiff.swift), the unread sum and the
-    /// workspace-list check cost the workspaces that joined, left or changed their own count, and
-    /// the sidebar is flattened only by a batch that changed the order, the membership or a group.
-    /// Each batch is one sample of ``drainCost``.
-    func drain() {
-        guard let driver, !isResyncing else { return }
-        let batch = driver.inbox.take()
-        guard !batch.isEmpty else { return }
-        let connected = batch.contains { if case .connected = $0.event { true } else { false } }
-        // A snapshot that failed past its retry budget is retried on the
-        // next daemon event (something changed), not on a timer.
-        let (followup, cost) = DrainCost.measured(on: drainClock) { apply(batch: batch) }
-        drainCost.record(cost, events: batch.count)
-        if followup == .resync || needsResync {
-            causes.resync = max(causes.resync, batch.lazy.map(\.cause).max() ?? .program)
-            resync(seedAgents: connected)
-        } else if followup == .personal {
-            refetchPersonal()
-        }
     }
 
     /// Clears ``drainCost`` (`debug.drain_cost` with `reset`).
@@ -193,7 +172,8 @@ extension DaemonStore {
                 // Asked while this snapshot was in flight: fetch one after it.
                 return resync()
             }
-            drain()
+            // The tail held meanwhile applies in this frame too: the snapshot superseded most of it.
+            drain(flushingTail: true)
         }
     }
 

@@ -79,6 +79,12 @@ extension ScreenContentView {
         scrollState.reduce(.gestureBegan)
     }
 
+    /// A pan point that a later one of the same frame delivery supersedes (a coalesced thumb drag): it
+    /// moves the gesture and counts toward the release velocity, and the next ``userScroll`` shows it.
+    func userScrollSample(deltaX: CGFloat, timestamp: TimeInterval) {
+        scrollState.reduce(.gestureChanged(deltaX: deltaX, time: timestamp))
+    }
+
     func userScroll(deltaX: CGFloat, timestamp: TimeInterval) {
         scrollState.reduce(.gestureChanged(deltaX: deltaX, time: timestamp))
         scrollbarFlash = true

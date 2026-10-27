@@ -159,7 +159,7 @@ pub(super) fn read(path: &Path) -> Result<Option<Identity>> {
         use std::os::windows::fs::OpenOptionsExt;
         options.custom_flags(0x0020_0000);
     }
-    let file = match options.open(path) {
+    let file = match cmux_threads::checked::fs::open_with(&options, path) {
         Ok(file) => file,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err(invalid()),
@@ -192,7 +192,7 @@ impl Store {
     pub fn acquire(path: &Path) -> Result<Self> {
         let parent = path.parent().ok_or_else(invalid)?;
         fsx::ensure_dir(parent, 0o700)?;
-        let meta = std::fs::symlink_metadata(parent).map_err(|_| invalid())?;
+        let meta = cmux_blocking::fs::symlink_metadata(parent).map_err(|_| invalid())?;
         check_private(&meta, true)?;
         let mut options = OpenOptions::new();
         options.write(true).create(true).truncate(false);
@@ -206,7 +206,8 @@ impl Store {
             use std::os::windows::fs::OpenOptionsExt;
             options.custom_flags(0x0020_0000);
         }
-        let file = options.open(parent.join(".pair.lock")).map_err(|_| invalid())?;
+        let file = cmux_threads::checked::fs::open_with(&options, parent.join(".pair.lock"))
+            .map_err(|_| invalid())?;
         check_private(&file.metadata().map_err(|_| invalid())?, false)?;
         match file.try_lock() {
             Ok(()) => Ok(Self { path: path.into(), _lock: file }),

@@ -215,3 +215,77 @@ fn instructions_in_both_modes_tell_the_agent_never_to_ask_for_permission() {
         assert!(skill.contains(phrase), "acpmux skill lacks {phrase}");
     }
 }
+
+/// A stand-in acpmux daemon serving one agent tool set on a unix socket: it
+/// answers only a first `initialize` that names the server and a caller, the
+/// way `server/agent_mcp.rs` does, then lists and calls `whoami`.
+#[cfg(unix)]
+const DAEMON_TOOLS: &str = r#"
+import json, os, socket, sys
+path = sys.argv[1]
+server = socket.socket(socket.AF_UNIX)
+server.bind(path)
+server.listen(1)
+open(path + ".ready", "w").close()
+conn, _ = server.accept()
+reader = conn.makefile("r")
+caller = None
+for line in reader:
+    m = json.loads(line)
+    if "id" not in m:
+        continue
+    meta = m.get("params", {}).get("_meta", {}).get("acpmux", {})
+    if m["method"] == "initialize":
+        caller = meta.get("callerSession", {}).get("sessionId")
+        if meta.get("mcpServer") != "cmux-subsessions" or caller is None:
+            reply = {"error": {"code": -32000, "message": "no caller"}}
+        else:
+            reply = {"result": {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}},
+                                "serverInfo": {"name": "cmux-subsessions"}}}
+    elif m["method"] == "tools/list":
+        reply = {"result": {"tools": [{"name": "whoami", "inputSchema": {"type": "object"}}]}}
+    else:
+        reply = {"result": {"content": [{"type": "text", "text": caller}]}}
+    conn.sendall((json.dumps(dict(reply, jsonrpc="2.0", id=m["id"])) + "\n").encode())
+"#;
+
+/// An upstream with a `socket` (a tool set the acpmux daemon serves itself,
+/// p07-memory-092) is the daemon's own connection: no process starts (its
+/// command does not exist here), its first `initialize` carries the entry's
+/// `initializeMeta`, and its tools list and call like any other server's.
+#[cfg(unix)]
+#[test]
+fn a_socket_upstream_dials_the_daemon_instead_of_starting_a_process() {
+    let dir = std::env::temp_dir().join(format!("cmux-mcp-sock-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let script = dir.join("daemon.py");
+    std::fs::write(&script, DAEMON_TOOLS).unwrap();
+    let socket = dir.join("d.sock");
+    let _ = std::fs::remove_file(&socket);
+    let mut daemon =
+        std::process::Command::new("python3").arg(&script).arg(&socket).spawn().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !dir.join("d.sock.ready").exists() && Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    let meta = json!({"acpmux": {"mcpServer": "cmux-subsessions",
+        "callerSession": {"sessionId": "s-1", "token": "t"}}});
+    let specs = upstream::specs(Some(
+        json!([{"name": "cmux-subsessions", "command": "/nonexistent/relay", "args": [],
+                "env": {}, "socket": socket, "initializeMeta": meta}])
+        .to_string()
+        .into(),
+    ));
+    assert_eq!(specs[0].socket.as_deref(), Some(socket.as_path()));
+    let mut server = code_mode_server(Fake::with_actions());
+    server.code_mode = false;
+    server.upstreams =
+        specs.into_iter().map(|s| upstream::Proxied::new(upstream::Upstream::new(s))).collect();
+    let all = server.list();
+    assert!(all.iter().any(|t| t["name"] == "subsessions_whoami"), "{all:?}");
+    let ran = call(&mut server, "subsessions_whoami", json!({}));
+    assert_eq!(ran["content"][0]["text"], "s-1", "{ran}");
+    let _ = daemon.kill();
+    let _ = daemon.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+}
