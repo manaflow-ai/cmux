@@ -49,6 +49,7 @@ mod feature_flags;
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
 mod host_colors;
+mod json_fields;
 mod keys;
 mod layout_undo;
 // Tests build it everywhere so the upgrade checks run on Linux CI too.
@@ -66,6 +67,7 @@ mod machine_provider_client;
 #[cfg(unix)]
 mod machine_provider_runtime;
 mod machine_runtime;
+mod panic_free;
 mod plugin_manager;
 mod process_diagnostics;
 #[cfg(target_os = "linux")]
@@ -113,6 +115,7 @@ mod version_report;
 
 use headless::run_headless;
 pub(crate) use headless::wake_headless;
+use json_fields::JsonFields;
 #[cfg(unix)]
 use loopback_policy::deny_daemon_listener_ports;
 use loopback_policy::loopback_forward_policy;
@@ -488,7 +491,10 @@ impl CapturedProviderWorkspaceAuthority {
             return Ok(None);
         }
         require_non_dumpable_provider_process()?;
-        let mut bytes = self.0.take().expect("presence checked").into_encoded_bytes();
+        let Some(raw) = self.0.take() else {
+            return Ok(None);
+        };
+        let mut bytes = raw.into_encoded_bytes();
         let value = std::str::from_utf8(&bytes)
             .map(str::to_owned)
             .map_err(|_| anyhow::anyhow!("provider workspace authority is not valid UTF-8"));
@@ -640,8 +646,10 @@ fn parse_owner_host_color(flag: &str, value: &str) -> Result<cmux_tui_core::Rgb,
         return Err(format!("{flag} must be a six-digit hexadecimal color"));
     }
     let parse = |range: std::ops::Range<usize>| {
-        u8::from_str_radix(&value[range], 16)
-            .map_err(|_| format!("{flag} must be a six-digit hexadecimal color"))
+        value
+            .get(range)
+            .and_then(|digits| u8::from_str_radix(digits, 16).ok())
+            .ok_or_else(|| format!("{flag} must be a six-digit hexadecimal color"))
     };
     Ok(cmux_tui_core::Rgb { r: parse(0..2)?, g: parse(2..4)?, b: parse(4..6)? })
 }
@@ -1028,8 +1036,8 @@ fn version_report_json() -> serde_json::Value {
     );
     // The invite wave this tester is in and what its signed flags turn off (#10).
     let (cohort, disabled_features) = feature_flags::report();
-    report["cohort"] = serde_json::json!(cohort);
-    report["disabled_features"] = serde_json::json!(disabled_features);
+    report.insert("cohort", serde_json::json!(cohort));
+    report.insert("disabled_features", serde_json::json!(disabled_features));
     report
 }
 
@@ -1123,27 +1131,33 @@ fn schema_socket_owner(
     let Ok(response) = serde_json::from_str::<serde_json::Value>(&line) else {
         return SchemaSocketOwner::Unverified;
     };
-    let data = &response["data"];
-    if response["id"] != 0 || response["ok"] != true || data["app"] != "cmux-tui" {
+    let data = response.field("data");
+    if *response.field("id") != 0
+        || *response.field("ok") != true
+        || *data.field("app") != "cmux-tui"
+    {
         return SchemaSocketOwner::Unverified;
     }
     let Some(expected_registry_id) = expected_registry_id else {
         return SchemaSocketOwner::Unverified;
     };
-    if data["session"] != expected_session || data["registry_id"] != expected_registry_id {
+    if *data.field("session") != expected_session
+        || *data.field("registry_id") != expected_registry_id
+    {
         return SchemaSocketOwner::Different;
     }
-    if !data["capabilities"].as_array().is_some_and(|capabilities| {
+    if !data.field("capabilities").as_array().is_some_and(|capabilities| {
         capabilities
             .iter()
             .any(|capability| capability == cmux_tui_core::server::DAEMON_HANDOFF_FORCE_CAPABILITY)
     }) {
         return SchemaSocketOwner::ForcedHandoffUnsupported;
     }
-    let Some(pid) = data["pid"].as_u64().and_then(|pid| u32::try_from(pid).ok()) else {
+    let Some(pid) = data.field("pid").as_u64().and_then(|pid| u32::try_from(pid).ok()) else {
         return SchemaSocketOwner::Unverified;
     };
-    let Some(generation) = data["generation"].as_str().filter(|generation| !generation.is_empty())
+    let Some(generation) =
+        data.field("generation").as_str().filter(|generation| !generation.is_empty())
     else {
         return SchemaSocketOwner::Unverified;
     };
@@ -1164,14 +1178,14 @@ fn workspace_schema_startup_error(
     let socket = socket_path.display().to_string();
     let socket_recovery = match schema_socket_owner(socket_path, session, schema.registry_id()) {
         SchemaSocketOwner::Matching { pid, generation } => {
-            let request = serde_json::to_string(&serde_json::json!({
+            let request = serde_json::json!({
                 "cmd": "shutdown-daemon",
                 "force": true,
                 "generation": generation,
                 "id": 1,
                 "pid": pid,
-            }))
-            .expect("daemon shutdown request is serializable");
+            })
+            .to_string();
             let stop_command = format!(
                 "{}cmux --socket {} raw command --request-json {}",
                 shell_prompt(),
@@ -1421,8 +1435,8 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
 fn rewrite_server_start(args: &mut Vec<String>) {
     let mut index = 0;
     let mut output_mode = false;
-    while index < args.len() {
-        match args[index].as_str() {
+    while let Some(arg) = args.get(index) {
+        match arg.as_str() {
             "--socket" | "--session" | "--machine" => {
                 if args.get(index + 1).is_none() {
                     return;
@@ -1438,7 +1452,9 @@ fn rewrite_server_start(args: &mut Vec<String>) {
                 if cli::is_lifecycle_scope(scope)
                     && args.get(index + 1).map(String::as_str) == Some("start") =>
             {
-                let start_args = &args[index + 2..];
+                let Some(start_args) = args.get(index + 2..) else {
+                    return;
+                };
                 if (output_mode && !has_inline_relay_ticket_argument(start_args))
                     || server_start_has_cli_routing_flag(start_args)
                 {
@@ -1500,10 +1516,12 @@ fn startup_option_value_end(args: &[String], index: usize) -> Option<usize> {
         return args.get(index + 1).map(|_| index + 2);
     }
     if option == "--machine-provider-command" {
-        let mut end = index + 1;
-        while end < args.len() && args[end] != "--" {
-            end += 1;
-        }
+        let end = args
+            .iter()
+            .enumerate()
+            .skip(index + 1)
+            .find(|(_, argument)| *argument == "--")
+            .map_or(args.len(), |(end, _)| end);
         return Some(end + 1);
     }
     None
@@ -1515,8 +1533,8 @@ fn is_inline_relay_ticket(value: &str) -> bool {
 
 fn has_inline_relay_ticket_argument(args: &[String]) -> bool {
     let mut index = 0;
-    while index < args.len() {
-        let option = args[index].as_str();
+    while let Some(option) = args.get(index) {
+        let option = option.as_str();
         if is_inline_relay_ticket(option) {
             return true;
         }
@@ -1543,8 +1561,8 @@ fn server_start_has_cli_routing_flag(args: &[String]) -> bool {
         return false;
     }
     let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
+    while let Some(arg) = args.get(index) {
+        match arg.as_str() {
             "-h" | "--help" | "--json" | "--jsonl" | "--quiet" => return true,
             _ => index = startup_option_value_end(args, index).unwrap_or(index + 1),
         }
@@ -1559,8 +1577,8 @@ fn is_cli_invocation(args: &[String]) -> bool {
         return false;
     }
     let mut index = 0;
-    while index < args.len() {
-        let value = args[index].as_str();
+    while let Some(value) = args.get(index) {
+        let value = value.as_str();
         if value == "--machine-provider-command" {
             return false;
         }
@@ -1599,10 +1617,10 @@ fn is_cli_invocation(args: &[String]) -> bool {
 fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), String> {
     let mut index = 0;
     let mut leading = Vec::new();
-    while index < raw_args.len() {
-        match raw_args[index].as_str() {
+    while let Some(arg) = raw_args.get(index) {
+        match arg.as_str() {
             "--socket" | "--session" | "--machine" => {
-                leading.extend(raw_args[index..].iter().take(2).cloned());
+                leading.extend(raw_args.iter().skip(index).take(2).cloned());
                 index += 2;
             }
             value
@@ -1610,11 +1628,11 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
                     || value.starts_with("--session=")
                     || value.starts_with("--machine=") =>
             {
-                leading.push(raw_args[index].clone());
+                leading.push(arg.clone());
                 index += 1;
             }
             "--json" | "--jsonl" | "--quiet" => {
-                leading.push(raw_args[index].clone());
+                leading.push(arg.clone());
                 index += 1;
             }
             _ => break,
@@ -1626,15 +1644,15 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
     if !cli::is_remote_invocation(raw_args) {
         return Ok(());
     }
-    let rest = raw_args[index + 1..].to_vec();
+    let rest = raw_args.iter().skip(index + 1).cloned().collect::<Vec<_>>();
     *raw_args = std::iter::once(command.clone()).chain(leading).chain(rest).collect();
     if command != "remote" {
         return Ok(());
     }
     if command == "remote" {
         let mut action_index = 1;
-        while action_index < raw_args.len() {
-            match raw_args[action_index].as_str() {
+        while let Some(arg) = raw_args.get(action_index) {
+            match arg.as_str() {
                 "--socket" | "--session" | "--machine" => action_index += 2,
                 "--json" | "--jsonl" | "--quiet" => action_index += 1,
                 value
@@ -1668,8 +1686,9 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
         }
         Some("-h" | "--help") | None => {}
         Some(_)
-            if raw_args[2..]
+            if raw_args
                 .iter()
+                .skip(2)
                 .any(|argument| matches!(argument.as_str(), "-h" | "--help")) => {}
         Some(action) => {
             return Err(localization::catalog().remote_client.unknown_action("remote", action));
@@ -1769,7 +1788,7 @@ fn run_main() {
     #[cfg(unix)]
     if raw_args.first().map(String::as_str) == Some("__holder") {
         set_default_task_role();
-        if let Err(error) = cmux_holder::serve(&raw_args[1..]) {
+        if let Err(error) = cmux_holder::serve(panic_free::rest_after(&raw_args, 1)) {
             crate::client_log::stderr_log!("startup", "cmux-tui holder: {error}");
             client_log::exit(1);
         }
@@ -1777,7 +1796,7 @@ fn run_main() {
     }
     if raw_args.first().map(String::as_str) == Some("__terminal-host") {
         set_default_task_role();
-        if let Err(error) = run_terminal_host_process(&raw_args[1..]) {
+        if let Err(error) = run_terminal_host_process(panic_free::rest_after(&raw_args, 1)) {
             crate::client_log::stderr_log!("startup", "cmux-tui terminal host: {error}");
             client_log::exit(1);
         }
@@ -1800,7 +1819,7 @@ fn run_main() {
     // machine supervisor's (`early_unix_scope`).
     if cli::remote_host_requested(&raw_args) {
         discard_provider_secret_environment();
-        client_log::exit(remote_host::run(&raw_args[1..]));
+        client_log::exit(remote_host::run(panic_free::rest_after(&raw_args, 1)));
     }
     // `cmux device list|remove|audit|network|invite` and `add --yes`: one
     // device list over every store (plans/cmux-next/add-device-DESIGN.md).
@@ -1808,7 +1827,7 @@ fn run_main() {
     // surfaces: the app runs its bundled `cmux-tui device list --json`.
     if devices::handles(&raw_args) {
         discard_provider_secret_environment();
-        client_log::exit(devices::run(&raw_args[1..]));
+        client_log::exit(devices::run(panic_free::rest_after(&raw_args, 1)));
     }
     // `cmux route` was removed with the route CLI. Refuse it before the generic
     // unknown-command app fallback or daemon skew re-exec can touch a socket or
@@ -1820,7 +1839,7 @@ fn run_main() {
     #[cfg(unix)]
     if let Some(run) = cli::early_unix_scope(&raw_args) {
         discard_provider_secret_environment();
-        client_log::exit(run(&raw_args[1..]));
+        client_log::exit(run(panic_free::rest_after(&raw_args, 1)));
     }
     if config::is_ghostty_config_helper_invocation(&raw_args) {
         if let Err(error) = harden_provider_secret_process() {
@@ -1872,7 +1891,7 @@ fn run_main() {
     #[cfg(unix)]
     if raw_args.first().map(|arg| arg.as_str()) == Some("machine-agent") {
         discard_provider_secret_environment();
-        if let Err(error) = machine_agent::run(&raw_args[1..]) {
+        if let Err(error) = machine_agent::run(panic_free::rest_after(&raw_args, 1)) {
             crate::client_log::stderr_log!("startup", "{BIN}: {error}");
             if error.show_help() {
                 crate::client_log::stderr_log!(
@@ -2105,7 +2124,7 @@ fn new_mux_generation() -> anyhow::Result<String> {
     let mut generation = String::with_capacity(32);
     use std::fmt::Write as _;
     for byte in bytes {
-        write!(&mut generation, "{byte:02x}").expect("writing to String cannot fail");
+        write!(&mut generation, "{byte:02x}")?;
     }
     Ok(generation)
 }
@@ -2431,9 +2450,9 @@ fn run_server(
                 new_mux_generation()?,
             ),
             (None, None, false) => Ok(Mux::new(args.session.clone(), surface_options)),
-            (_, Some(_), true) => {
-                unreachable!("conflicting provider authority inputs rejected above")
-            }
+            (_, Some(_), true) => Err(anyhow::anyhow!(
+                "a machine provider authority cannot be combined with pending provider management"
+            )),
         };
     let mux = match mux {
         Ok(mux) => mux,

@@ -297,7 +297,9 @@ pub fn load() -> Config {
             config.sidebar.views_explicit = true;
         }
     }
-    config.sidebar.profiles[0].views.clone_from(&config.sidebar.views);
+    if let Some(first) = config.sidebar.profiles.first_mut() {
+        first.views.clone_from(&config.sidebar.views);
+    }
     if let Some(raw_profiles) = raw.sidebar.profiles.as_ref() {
         if raw.sidebar.views.is_some() || raw.sidebar.columns.is_some() {
             crate::client_log::stderr_log!(
@@ -351,17 +353,19 @@ pub fn load() -> Config {
             let requested =
                 raw.sidebar.profile.as_deref().map(str::trim).filter(|id| !id.is_empty());
             let selected = requested
-                .and_then(|id| profiles.iter().position(|profile| profile.id == id))
-                .unwrap_or_else(|| {
+                .and_then(|id| profiles.iter().find(|profile| profile.id == id))
+                .or_else(|| {
                     if let Some(requested) = requested {
                         crate::client_log::stderr_log!("config",
                             "{BIN}: sidebar.profile {requested:?} was not found; using the first profile"
                         );
                     }
-                    0
+                    profiles.first()
                 });
-            config.sidebar.active_profile = profiles[selected].id.clone();
-            config.sidebar.views = profiles[selected].views.clone();
+            if let Some(selected) = selected {
+                config.sidebar.active_profile = selected.id.clone();
+                config.sidebar.views = selected.views.clone();
+            }
             config.sidebar.columns = config
                 .sidebar
                 .views

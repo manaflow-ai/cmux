@@ -154,13 +154,12 @@ pub(super) fn rewrite_root(path: &Path, from: &str, to: &str) -> std::io::Result
     let mut out = String::with_capacity(text.len());
     let mut rest = text.as_str();
     let mut changed = false;
-    while let Some(at) = rest.find(from) {
-        let after = &rest[at + from.len()..];
+    while let Some((before, after)) = rest.split_once(from) {
         let ends = after
             .chars()
             .next()
             .is_none_or(|c| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')));
-        out.push_str(&rest[..at]);
+        out.push_str(before);
         out.push_str(if ends { to } else { from });
         changed |= ends;
         rest = after;

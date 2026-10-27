@@ -78,11 +78,9 @@ fn parse(args: &[String]) -> anyhow::Result<InstallArgs> {
     let mut generation = None;
     let mut authority_file = None;
     let mut cursor = 2;
-    while cursor < args.len() {
-        let value = args
-            .get(cursor + 1)
-            .ok_or_else(|| anyhow::anyhow!("{} needs a value", args[cursor]))?;
-        match args[cursor].as_str() {
+    while let Some(flag) = args.get(cursor) {
+        let value = args.get(cursor + 1).ok_or_else(|| anyhow::anyhow!("{flag} needs a value"))?;
+        match flag.as_str() {
             "--socket" if socket.is_none() => socket = Some(PathBuf::from(value)),
             "--generation" if generation.is_none() => {
                 let parsed = value

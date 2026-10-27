@@ -54,6 +54,7 @@
 mod daemon;
 mod record;
 
+use crate::json_fields::JsonFields;
 use std::path::PathBuf;
 
 use base64::Engine as _;
@@ -161,13 +162,13 @@ pub(super) fn run(args: &[String]) -> i32 {
         Err(failed) => {
             let mut line = json!({"ok": false, "error": failed.error, "error_code": failed.code});
             if let Some(transfer_id) = failed.transfer_id {
-                line["transfer_id"] = json!(transfer_id);
+                line.insert("transfer_id", json!(transfer_id));
             }
             if let Some(seconds) = failed.retry_after_seconds {
-                line["retry_after_seconds"] = json!(seconds);
+                line.insert("retry_after_seconds", json!(seconds));
             }
             if let Some(side) = failed.side {
-                line["side"] = json!(side);
+                line.insert("side", json!(side));
             }
             println!("{line}");
             1
@@ -270,12 +271,13 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
     let mut source = Daemon::connect(&args.from).map_err(|e| Failed::call("source", &e))?;
     let mut params = json!({"surface": args.surface, "interrupt": args.interrupt});
     if args.ask_first {
-        params["ask_first"] = json!(true);
+        params.insert("ask_first", json!(true));
     }
     let begun = match source.call("agent-transfer-begin", params, BEGIN_TIMEOUT) {
         Ok(begun) => begun,
         Err(CallError::Refused { code, message, details }) => {
-            let Some(moving) = details["transfer_id"].as_str().filter(|id| !id.is_empty()) else {
+            let Some(moving) = details.field("transfer_id").as_str().filter(|id| !id.is_empty())
+            else {
                 return Err(Failed::new(code, message));
             };
             // Not a move this command recorded: never ended here.
@@ -292,19 +294,20 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
             return Err(frozen(&error, None));
         }
     };
-    let transfer_id = begun["transfer_id"]
+    let transfer_id = begun
+        .field("transfer_id")
         .as_str()
         .filter(|id| !id.is_empty())
         .ok_or_else(|| Failed::bad_answer("the source's begin named no move"))?;
     let mut record = Record {
         transfer_id: transfer_id.to_owned(),
-        source_session_id: begun["source_session"].as_str().map(str::to_owned),
+        source_session_id: begun.field("source_session").as_str().map(str::to_owned),
         to_socket: args.to.clone(),
         cwd: args.cwd.clone(),
         ..Record::default()
     };
     let (mut target, bytes) =
-        match up_to_finish(args, &mut source, records, &mut record, &begun["manifest"]) {
+        match up_to_finish(args, &mut source, records, &mut record, begun.field("manifest")) {
             Ok(copied) => copied,
             Err(failed) => {
                 // No finish was sent: the target cannot have the chat.
@@ -322,7 +325,7 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
         target.call("agent-transfer-finish", json!({"receive_id": receive_id}), FINISH_TIMEOUT);
     let (landed, finish_error) = match finished {
         Ok(answer) => {
-            if let Some(id) = answer["session"]["sessionId"].as_str() {
+            if let Some(id) = answer.field("session").field("sessionId").as_str() {
                 record.session_id = Some(id.to_owned());
             }
             (Some(true), None)
@@ -365,12 +368,13 @@ fn up_to_finish(
     let params = json!({"manifest": manifest, "cwd": args.cwd});
     let received =
         target.call("agent-transfer-receive", params, CALL_TIMEOUT).map_err(target_failed)?;
-    let receive_id = received["receive_id"]
+    let receive_id = received
+        .field("receive_id")
         .as_str()
         .filter(|id| !id.is_empty())
         .ok_or_else(|| Failed::bad_answer("the machine's receive named no receive"))?;
     record.receive_id = Some(receive_id.to_owned());
-    record.session_id = received["session_id"].as_str().map(str::to_owned);
+    record.session_id = received.field("session_id").as_str().map(str::to_owned);
     records.save(record).map_err(|e| Failed::state(&e))?;
     let files = manifest["files"]
         .as_array()
@@ -403,7 +407,7 @@ fn copy_file(
         let page = source
             .call("agent-transfer-read", params, CALL_TIMEOUT)
             .map_err(|e| Failed::call("source", &e))?;
-        let data = page["data"].as_str().unwrap_or_default();
+        let data = page.field("data").as_str().unwrap_or_default();
         let len = BASE64.decode(data).map_or(0, |bytes| bytes.len() as u64);
         if len == 0 || offset + len > size {
             return Err(Failed::bad_answer(format!("the source served a bad page of {path}")));
@@ -413,7 +417,7 @@ fn copy_file(
         let written = target
             .call("agent-transfer-write", params, CALL_TIMEOUT)
             .map_err(|e| Failed::call("target", &e))?;
-        if written["next"].as_u64() != Some(offset + len) {
+        if written.field("next").as_u64() != Some(offset + len) {
             return Err(Failed::bad_answer(format!("the machine took a page of {path} short")));
         }
         offset += len;
@@ -428,7 +432,7 @@ fn ask_landed(record: &Record) -> Option<bool> {
     let params = json!({"receive_id": receive_id});
     let answer =
         call_once(&record.to_socket, "agent-transfer-receive-abort", params, CALL_TIMEOUT).ok()?;
-    match (answer["landed"].as_bool(), answer["forgotten"].as_bool()) {
+    match (answer.field("landed").as_bool(), answer.field("forgotten").as_bool()) {
         (Some(true), _) => Some(true),
         // Only a forgotten move stays not landed.
         (Some(false), Some(true)) => Some(false),
@@ -500,7 +504,7 @@ fn same_chat(args: &Args, record: &Record) -> bool {
     let Some(pinned) = record.source_session_id.as_deref() else { return false };
     let params = json!({"surface": args.surface});
     call_once(&args.from, "agent-transfer-source", params, CALL_TIMEOUT)
-        .is_ok_and(|answer| answer["session"].as_str() == Some(pinned))
+        .is_ok_and(|answer| answer.field("session").as_str() == Some(pinned))
 }
 
 /// The chat is frozen in a move this command did not record.

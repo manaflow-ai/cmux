@@ -1,6 +1,7 @@
 //! The machine side of `cmux link sync`: `fs-v1` request lines on the
 //! machine daemon's socket (spec/commands.md, "fs-v1").
 
+use crate::json_fields::JsonFields;
 use std::collections::BTreeMap;
 use std::io::{BufRead as _, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
@@ -89,8 +90,8 @@ impl Remote {
     pub(super) fn call(&mut self, cmd: &str, mut params: Value) -> anyhow::Result<Value> {
         let id = self.next_id;
         self.next_id += 1;
-        params["id"] = json!(id);
-        params["cmd"] = json!(cmd);
+        params.insert("id", json!(id));
+        params.insert("cmd", json!(cmd));
         let mut line = params.to_string();
         line.push('\n');
         self.reader.get_mut().write_all(line.as_bytes())?;
@@ -111,15 +112,15 @@ impl Remote {
             }
             let answer: Value =
                 serde_json::from_slice(&answer).context("the answer is not JSON")?;
-            if answer["id"] != json!(id) {
+            if *answer.field("id") != json!(id) {
                 continue;
             }
-            if answer["ok"] == json!(true) {
-                return Ok(answer["data"].clone());
+            if *answer.field("ok") == json!(true) {
+                return Ok(answer.field("data").clone());
             }
             return Err(FsRefusal {
-                code: answer["error_code"].as_str().unwrap_or("fs.unknown").to_string(),
-                message: answer["error"].as_str().unwrap_or_default().to_string(),
+                code: answer.field("error_code").as_str().unwrap_or("fs.unknown").to_string(),
+                message: answer.field("error").as_str().unwrap_or_default().to_string(),
             }
             .into());
         }
@@ -139,7 +140,7 @@ impl Remote {
             Err(error) => return Err(error),
         };
         for _ in 0..MAX_LIST_PAGES {
-            for entry in page["entries"].as_array().into_iter().flatten() {
+            for entry in page.field("entries").as_array().into_iter().flatten() {
                 let name = entry["name"].as_str().unwrap_or_default().to_string();
                 // The machine is not trusted: a listed name is one plain
                 // component, or the whole listing is refused.
@@ -155,10 +156,10 @@ impl Remote {
             if entries.len() > MAX_LIST_ENTRIES {
                 bail!("the machine's listing of {path} never ends");
             }
-            let Some(cursor) = page["cursor"].as_str().map(str::to_string) else {
+            let Some(cursor) = page.field("cursor").as_str().map(str::to_string) else {
                 return Ok(Some(entries));
             };
-            let listing = page["listing"].clone();
+            let listing = page.field("listing").clone();
             page = self.call(
                 "fs.list",
                 json!({ "listing": listing, "cursor": cursor, "limit": LIST_LIMIT }),
@@ -188,7 +189,7 @@ impl Remote {
     /// The kind of the entry at `path` (`file`, `dir`, `symlink`, `other`);
     /// None when nothing is there.
     pub(super) fn kind(&mut self, path: &str) -> anyhow::Result<Option<String>> {
-        Ok(self.stat(path)?.and_then(|stat| stat["kind"].as_str().map(str::to_string)))
+        Ok(self.stat(path)?.and_then(|stat| stat.field("kind").as_str().map(str::to_string)))
     }
 
     /// The `fs.stat` answer for `path`; None when nothing is there.
@@ -239,7 +240,7 @@ impl Remote {
         }
         let entry = self.call("fs.rename", json!({ "path": part, "name": name }))?;
         // A rename keeps size and mtime, so the revision is the last part's.
-        Ok(entry["entry"]["revision"].as_str().map_or(revision, str::to_string))
+        Ok(entry.field("entry").field("revision").as_str().map_or(revision, str::to_string))
     }
 
     /// Reads the whole file at `path` into memory, up to [`READ_CAP`]
@@ -267,22 +268,23 @@ impl Remote {
                 Err(error) => return Err(error),
             };
             let decoded;
-            let part: &[u8] = match (answer["text"].as_str(), answer["bytes_base64"].as_str()) {
-                (Some(text), _) => text.as_bytes(),
-                (None, Some(encoded)) => {
-                    decoded = base64::engine::general_purpose::STANDARD
-                        .decode(encoded)
-                        .context("bad base64")?;
-                    &decoded
-                }
-                (None, None) => bail!("fs.read answered no bytes"),
-            };
+            let part: &[u8] =
+                match (answer.field("text").as_str(), answer.field("bytes_base64").as_str()) {
+                    (Some(text), _) => text.as_bytes(),
+                    (None, Some(encoded)) => {
+                        decoded = base64::engine::general_purpose::STANDARD
+                            .decode(encoded)
+                            .context("bad base64")?;
+                        &decoded
+                    }
+                    (None, None) => bail!("fs.read answered no bytes"),
+                };
             size += part.len() as u64;
             if size > cap {
                 bail!("the machine's {path} is over {cap} bytes");
             }
             out.write_all(part)?;
-            if answer["truncated"] != json!(true) {
+            if *answer.field("truncated") != json!(true) {
                 return Ok(Some(size));
             }
             if part.is_empty() {
@@ -320,7 +322,8 @@ fn encode(bytes: &[u8]) -> String {
 }
 
 fn revision_of(data: &Value) -> anyhow::Result<String> {
-    data["entry"]["revision"]
+    data.field("entry")
+        .field("revision")
         .as_str()
         .map(str::to_string)
         .ok_or_else(|| anyhow!("the write answered no revision"))

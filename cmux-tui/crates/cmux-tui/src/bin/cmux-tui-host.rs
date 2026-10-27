@@ -47,8 +47,10 @@ fn main() -> std::process::ExitCode {
     }
     // The holder of every PTY (cmux-holder) runs from this small binary too.
     #[cfg(unix)]
-    if args.first().map(String::as_str) == Some("__holder") {
-        return match cmux_holder::serve(&args[1..]) {
+    if let Some((mode, holder_args)) = args.split_first()
+        && mode == "__holder"
+    {
+        return match cmux_holder::serve(holder_args) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("cmux-tui-host holder: {error}");

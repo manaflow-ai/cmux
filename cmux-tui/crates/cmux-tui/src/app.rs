@@ -679,10 +679,9 @@ impl App {
                             TerminalInput::Paste(_) => {
                                 localization::catalog().terminal.paste_text_too_large
                             }
-                            TerminalInput::Keyboard(_) | TerminalInput::ClearHistoryKey(_) => {
-                                localization::catalog().terminal.keyboard_text_too_large
-                            }
-                            _ => unreachable!("fixed-size input cannot exceed the byte limit"),
+                            // Every other input is fixed-size and below the
+                            // limit (`TerminalInput::retained_bytes`).
+                            _ => localization::catalog().terminal.keyboard_text_too_large,
                         }
                         .to_string(),
                     );
@@ -933,11 +932,10 @@ impl App {
         }
         let event = match event {
             AppEvent::NormalizedInput(input)
-                if input.is_routable()
-                    && missing_surface.is_some()
+                if let Some(surface) = missing_surface
+                    && input.is_routable()
                     && !self.input_can_update_pending_mutation(&input) =>
             {
-                let surface = missing_surface.unwrap();
                 self.queue_surface_attach(surface);
                 return Ok(self.defer_input_with_sequence(
                     input,

@@ -677,6 +677,10 @@ impl MachineUpdateStream {
         Self { receiver: Some(receiver), stop, worker: Some(worker), armed: true }
     }
 
+    #[allow(
+        clippy::expect_used,
+        reason = "INVARIANT: `new` fills both slots; only this method (which consumes the stream) and `drop` empty them"
+    )]
     pub(crate) fn into_parts(
         mut self,
     ) -> (Receiver<MachineUpdate>, Arc<AtomicBool>, JoinHandle<()>) {
@@ -927,11 +931,11 @@ impl MachineUiState {
             MachineRailTarget::Machine(machine.key)
         }
         let targets = self.rail_targets();
-        if targets.is_empty() {
+        let (Some(&first), Some(&last)) = (targets.first(), targets.last()) else {
             self.selection = 0;
             self.rail_selection = MachineRailSelection::Machine;
             return;
-        }
+        };
         let previous_targets = previous.rail_targets();
         let previous_target = previous.rail_target();
         // A machine whose managed status JUST became Recoverable was deleted
@@ -968,7 +972,7 @@ impl MachineUiState {
                     // Every machine is gone: land on the first action row
                     // ("+ new vm" when available), never on whatever footer
                     // happens to share the deleted machine's old index.
-                    targets[0]
+                    first
                 } else if let Some(MachineRailTarget::Machine(deleted)) = previous_target
                     && !self.snapshot.machines.is_empty()
                 {
@@ -1001,16 +1005,18 @@ impl MachineUiState {
                         .map(|(_, machine)| machine);
                     match next {
                         Some(machine) => return_target(machine),
-                        None => {
-                            let clamp = previous_index.min(self.snapshot.machines.len() - 1);
-                            return_target(&self.snapshot.machines[clamp])
-                        }
+                        None => self
+                            .snapshot
+                            .machines
+                            .get(previous_index)
+                            .or_else(|| self.snapshot.machines.last())
+                            .map_or(first, return_target),
                     }
                 } else {
                     let previous_index = previous_target
                         .and_then(|target| previous_targets.iter().position(|item| *item == target))
                         .unwrap_or_default();
-                    targets[previous_index.min(targets.len() - 1)]
+                    targets.get(previous_index).copied().unwrap_or(last)
                 }
             });
         self.select_rail_target(target);
@@ -1018,17 +1024,17 @@ impl MachineUiState {
 
     fn ensure_rail_selection(&mut self) {
         let targets = self.rail_targets();
-        if targets.is_empty() {
+        let Some(&first) = targets.first() else {
             self.selection = 0;
             self.rail_selection = MachineRailSelection::Machine;
             return;
-        }
+        };
         if let Some(target) = self.rail_target()
             && targets.contains(&target)
         {
             return;
         }
-        self.select_rail_target(targets[0]);
+        self.select_rail_target(first);
     }
 }
 

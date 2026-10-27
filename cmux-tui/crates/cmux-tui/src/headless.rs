@@ -3,6 +3,7 @@
 //! the session shutdown start from the signal thread (`session-shutdown`).
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 #[cfg(unix)]
 mod dev_orphan_exit;
@@ -155,9 +156,9 @@ pub(crate) fn finish_server_shutdown<W, R>(
 fn wait_for_stop(stopped: impl Fn() -> bool) {
     owner_start::register_main_thread();
     let (lock, wake) = &HEADLESS_WAKE;
-    let mut generation = lock.lock().unwrap();
+    let mut generation = lock.lock().recover_poison();
     while !stopped() {
-        generation = wake.wait(generation).unwrap();
+        generation = wake.wait(generation).recover_poison();
     }
 }
 
@@ -168,7 +169,7 @@ static HEADLESS_WAKE: (std::sync::Mutex<u64>, std::sync::Condvar) =
 
 pub(crate) fn wake_headless() {
     let (lock, wake) = &HEADLESS_WAKE;
-    let mut generation = lock.lock().unwrap();
+    let mut generation = lock.lock().recover_poison();
     *generation = generation.wrapping_add(1);
     wake.notify_all();
 }
