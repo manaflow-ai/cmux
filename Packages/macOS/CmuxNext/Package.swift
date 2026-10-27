@@ -1176,6 +1176,12 @@ let package = Package(
             ],
             swiftSettings: daemonSwiftSettings
         ),
+        .target(
+            name: "CmuxNextCloudUI",
+            dependencies: ["CmuxNextCloud", "CmuxNextDesign"],
+            resources: [.process("Resources")],
+            swiftSettings: uiSwiftSettings
+        ),
         // Machines reached over the user's own OpenSSH: destinations, the
         // `cmux-tui remote connect ssh://` link, probe, reconnect gate, the
         // pinned cmux-tui install and the remote-to-local deny policy. No UI.
