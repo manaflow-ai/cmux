@@ -58,39 +58,20 @@ import Testing
         func post(_ item: FeedItem) { posted.append(item.dedupeKey ?? item.id) }
     }
 
-    /// One scheduled activity of ``Activities``; the test runs its intent by hand.
-    @MainActor private final class Scheduled: BackgroundActivity {
-        let request: BackgroundActivityRequest
-        let intent: @MainActor @Sendable () -> Void
-        private(set) var isValid = true
+    /// The intents the activity's runs posted to the main actor, run when the test says, as the
+    /// app's main work scheduler runs them on a later turn.
+    @MainActor private final class Posted {
+        private(set) var intents: [@MainActor @Sendable () -> Void] = []
 
-        init(request: BackgroundActivityRequest, intent: @escaping @MainActor @Sendable () -> Void) {
-            self.request = request
-            self.intent = intent
-        }
+        func append(_ intent: @escaping @MainActor @Sendable () -> Void) { intents.append(intent) }
 
-        func invalidate() { isValid = false }
-    }
-
-    /// Keeps every scheduled activity; ``run()`` runs the live one, as a run's main post would.
-    @MainActor private final class Activities: BackgroundActivityScheduling {
-        private(set) var scheduled: [Scheduled] = []
-
-        func schedule(_ request: BackgroundActivityRequest,
-                      _ intent: @escaping @MainActor @Sendable () -> Void) -> any BackgroundActivity {
-            let activity = Scheduled(request: request, intent: intent)
-            scheduled.append(activity)
-            return activity
-        }
-
-        /// The activities not invalidated.
-        var live: [Scheduled] { scheduled.filter(\.isValid) }
-
-        /// Runs the one live activity once; false when none, or more than one, is live.
-        func run() -> Bool {
-            guard live.count == 1, let activity = live.first else { return false }
-            activity.intent()
-            return true
+        /// Runs the posted intents once, the oldest first; returns how many ran.
+        @discardableResult
+        func run() -> Int {
+            let due = intents
+            intents.removeAll()
+            due.forEach { $0() }
+            return due.count
         }
     }
 
@@ -99,7 +80,10 @@ import Testing
         let owner: Owner
         let script: Script
         let calls: AsyncStream<Int>
-        let activities: Activities
+        let activities: ManualBackgroundActivityScheduler
+        let posted: Posted
+        /// The main deadlines the catch-up after a show is booked on, at an uptime that moves with ``clock``.
+        let deadlines: MainDeadlineRig
         let source: GitHubFeedSource
 
         init(energy: EnergyPolicySource = EnergyPolicySource(), shown: ShownWindows? = nil) {
@@ -107,14 +91,21 @@ import Testing
             let clock = ManualClock()
             let owner = Owner()
             let script = Script(started: started)
-            let activities = Activities()
+            let activities = ManualBackgroundActivityScheduler()
+            let posted = Posted()
+            let deadlines = MainDeadlineRig()
             self.clock = clock
             self.owner = owner
             self.script = script
             self.calls = calls
             self.activities = activities
+            self.posted = posted
+            self.deadlines = deadlines
+            let intents = MainIntentBackgroundActivities(activities: activities) { _, intent in await posted.append(intent) }
             source = GitHubFeedSource(owner: owner, client: Client(script: script), interval: .seconds(120),
-                                      energy: energy, shown: shown, activities: activities, clock: clock)
+                                      energy: energy, shown: shown, activities: intents,
+                                      activityIdentifier: GitHubFeedSource.refreshActivityIdentifier(bundleID: "com.cmuxterm.app.next.test"),
+                                      deadlines: deadlines.deadlines, clock: clock)
         }
 
         /// Waits for the next call to start and returns its number.
@@ -123,13 +114,27 @@ import Testing
             return nil
         }
 
+        /// Moves the clock and the deadlines' uptime on together, firing nothing on the deadlines.
+        func advance(by duration: Duration) {
+            clock.advance(by: duration)
+            deadlines.advance(by: duration)
+        }
+
         /// Waits for the running refresh to end.
         func settle() async { await source.runner?.value }
 
         /// The interval and tolerance of the one live activity; empty when none, or more than one, is live.
         var schedule: [Duration] {
-            guard activities.live.count == 1, let request = activities.live.first?.request else { return [] }
-            return [request.interval, request.tolerance]
+            guard activities.live.count == 1, let activity = activities.live.first else { return [] }
+            return [activity.interval, activity.tolerance]
+        }
+
+        /// One run of the one live activity, its intent run on the main actor; false when none, or
+        /// more than one, is live.
+        func run() async -> Bool {
+            guard activities.live.count == 1 else { return false }
+            await activities.fire()
+            return posted.run() == 1
         }
     }
 
@@ -140,12 +145,12 @@ import Testing
         await rig.settle()
         #expect(rig.owner.posted == ["github:notification:1"])
         #expect(rig.schedule == [.seconds(120), .seconds(30)], "the activity is not the interval with 25% tolerance")
-        let request = try #require(rig.activities.live.first?.request)
-        #expect(request.owner == "GitHubFeedSource.refresh")
-        #expect(request.workClass == .background)
+        let activity = try #require(rig.activities.live.first)
+        #expect(activity.owner == "GitHubFeedSource.refresh")
+        #expect(activity.identifier == "com.cmuxterm.app.next.test.github-feed.refresh", "the identifier does not start with the bundle id")
         #expect(rig.clock.sleeperCount == 0, "the poll still sleeps on a clock")
 
-        #expect(rig.activities.run())
+        #expect(await rig.run())
         #expect(await rig.nextCall() == 2)
         await rig.settle()
         #expect(await rig.script.notificationETags == [nil, "n-1"])
@@ -170,7 +175,7 @@ import Testing
         await rig.settle()
 
         await rig.script.hold()
-        #expect(rig.activities.run())
+        #expect(await rig.run())
         #expect(await rig.nextCall() == 2)
         let stopped = try #require(rig.source.runner)
         rig.source.stop()
@@ -197,21 +202,21 @@ import Testing
         rig.source.start()
         #expect(await rig.nextCall() == 1)
         await rig.settle()
-        let old = try #require(rig.activities.live.first)
+        #expect(await rig.activities.fire() == 1, "the old activity's run did not post before the restart")
 
         rig.source.stop()
         rig.source.start()
         #expect(await rig.nextCall() == 2)
         await rig.settle()
         let settled = rig.source.runner
-        old.intent()
+        #expect(rig.posted.run() == 1)
         #expect(rig.source.runner == settled, "a replaced activity's run started a refresh")
 
         await rig.script.hold()
-        #expect(rig.activities.run())
+        #expect(await rig.run())
         #expect(await rig.nextCall() == 3)
         let running = rig.source.runner
-        #expect(rig.activities.run())
+        #expect(await rig.run())
         #expect(rig.source.runner == running, "a run during a refresh started another")
         await rig.script.release()
         await rig.settle()
@@ -241,7 +246,9 @@ import Testing
     }
 
     /// With every window hidden the activity is invalidated, however long; a window showing again
-    /// schedules it and refreshes once when the interval has passed, and only schedules it when not.
+    /// refreshes once and schedules it when the interval has passed. A show inside the interval
+    /// refreshes at the interval's end (last refresh + interval, not show + interval) and schedules
+    /// the activity then; a hide meanwhile drops that refresh and a show again books the same end.
     @Test(.timeLimit(.minutes(1))) func hiddenWindowsInvalidateTheActivityAndAShowRefreshesOnce() async throws {
         let shown = ShownWindows()
         let window = VisibilityNode(root: "window", own: .visible)
@@ -250,13 +257,13 @@ import Testing
         rig.source.start()
         #expect(await rig.nextCall() == 1)
         await rig.settle()
-        let shownActivity = try #require(rig.activities.live.first)
+        #expect(await rig.activities.fire() == 1, "the activity's run did not post before the hide")
 
         window.set(.occluded)
         #expect(rig.activities.live.isEmpty, "a hidden app kept its activity")
-        rig.clock.advance(by: .seconds(600))
+        rig.advance(by: .seconds(600))
         let hiddenRunner = rig.source.runner
-        shownActivity.intent()
+        #expect(rig.posted.run() == 1)
         #expect(rig.source.runner == hiddenRunner, "a run posted before the hide refreshed while no window showed")
         #expect(await rig.script.notificationETags.count == 1, "a refresh ran while no window showed")
 
@@ -266,13 +273,58 @@ import Testing
         #expect(rig.schedule == [.seconds(120), .seconds(30)])
         #expect(await rig.script.notificationETags.count == 2, "a show refreshed more than once")
 
+        // The last refresh ended at 600 s: a show at 630 s refreshes at 720 s.
         window.set(.hidden)
-        rig.clock.advance(by: .seconds(30))
+        rig.advance(by: .seconds(30))
         let settled = rig.source.runner
         window.set(.visible)
-        #expect(rig.source.runner == settled, "a show inside the interval refreshed")
-        #expect(rig.schedule == [.seconds(120), .seconds(30)], "a show inside the interval did not schedule the activity")
-        #expect(await rig.script.notificationETags.count == 2)
+        #expect(rig.source.catchUpDue == .seconds(720), "a show inside the interval does not book its rest")
+        #expect(rig.source.runner == settled, "a show inside the interval refreshed at once")
+        #expect(rig.activities.live.isEmpty, "a show inside the interval scheduled the activity a whole interval from the show")
+
+        window.set(.hidden)
+        #expect(rig.source.catchUpDue == nil, "a hide kept the refresh at the interval's end")
+        #expect(!rig.deadlines.hasArmedWake)
+        rig.advance(by: .seconds(30))
+        window.set(.visible)
+        #expect(rig.source.catchUpDue == .seconds(720), "a second show moved the interval's end")
+
+        rig.advance(by: .seconds(30))
+        rig.deadlines.fireAtNow()
+        #expect(rig.source.runner == settled, "the refresh came before the interval's end")
+        rig.advance(by: .seconds(30))
+        rig.deadlines.fireAndRun()
+        #expect(await rig.nextCall() == 3, "no refresh came at the interval's end")
+        await rig.settle()
+        #expect(rig.schedule == [.seconds(120), .seconds(30)], "the refresh at the interval's end did not schedule the activity")
+        #expect(await rig.script.notificationETags.count == 3)
+        rig.source.stop()
+    }
+
+    /// An Energy Saver edge while a show waits for the interval's end books the rest of the new interval.
+    @Test(.timeLimit(.minutes(1))) func aSaverEdgeDuringTheWaitBooksTheRestOfTheNewInterval() async throws {
+        let energy = EnergyPolicySource()
+        let shown = ShownWindows()
+        let window = VisibilityNode(root: "window", own: .visible)
+        shown.track(window)
+        let rig = Rig(energy: energy, shown: shown)
+        rig.source.start()
+        #expect(await rig.nextCall() == 1)
+        await rig.settle()
+
+        window.set(.hidden)
+        rig.advance(by: .seconds(60))
+        window.set(.visible)
+        #expect(rig.source.catchUpDue == .seconds(120))
+
+        energy.update(EnergyPolicy(saverReason: .battery))
+        #expect(rig.source.catchUpDue == .seconds(480), "the saver kept the unstretched end")
+        #expect(rig.activities.live.isEmpty)
+        rig.advance(by: .seconds(420))
+        rig.deadlines.fireAndRun()
+        #expect(await rig.nextCall() == 2)
+        await rig.settle()
+        #expect(rig.schedule == [.seconds(480), .seconds(120)])
         rig.source.stop()
     }
 
@@ -304,7 +356,7 @@ import Testing
         await rig.settle()
 
         window.set(.hidden)
-        rig.clock.advance(by: .seconds(10))
+        rig.advance(by: .seconds(10))
         rig.source.stop()
         rig.source.start()
         #expect(rig.source.runner == nil, "a hidden restart refreshed")

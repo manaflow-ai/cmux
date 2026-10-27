@@ -65,7 +65,7 @@ final class FeedService {
     /// `energy` stretches the GitHub poll under Energy Saver; with `shown`, it books nothing while no window shows.
     /// `appEvents` and `workspaceEvents` are the app's one fan-out of the NSApp and NSWorkspace notices.
     init(auth: CloudAuth, deadlines: MainDeadlineScheduler, work: BackgroundWork, appEvents: AppEvents, workspaceEvents: AppEvents,
-         energy: EnergyPolicySource, shown: ShownWindows?, showcase: Bool = false, acpmuxEnvironment: AcpmuxEnvironment? = nil) {
+         energy: EnergyPolicySource, shown: ShownWindows?, bundleID: String?, showcase: Bool = false, acpmuxEnvironment: AcpmuxEnvironment? = nil) {
         self.auth = auth
         self.deadlines = deadlines
         self.work = work
@@ -78,8 +78,8 @@ final class FeedService {
         }
         var observe: (@MainActor (FeedSourceEvent) -> Void)?
         localOwner = LocalFeedSourceAdapter(primary: showcase ? MockFeedSource() : source)
-        github = GitHubFeedSource(owner: localOwner, energy: energy, shown: shown,
-                                  activities: SystemBackgroundActivityScheduler(work: deadlines.work))
+        github = GitHubFeedSource(owner: localOwner, energy: energy, shown: shown, activities: .system(work: deadlines.work),
+                                  activityIdentifier: GitHubFeedSource.refreshActivityIdentifier(bundleID: bundleID), deadlines: deadlines)
         model = FeedModel(source: FeedTeeSource(localOwner) { observe?($0) })
         model.githubDetail = { [weak self] item in self?.githubDetail(for: item) }
         observe = { [weak self] in self?.observe($0) }
