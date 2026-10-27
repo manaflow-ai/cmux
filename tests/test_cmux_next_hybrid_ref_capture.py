@@ -13,7 +13,11 @@ scripts/cmux-next/hybrid_ref_capture.py and the cmux-scheme-compile steps around
 - the workflow: the capture is off unless CMUX_NEXT_HYBRID_REF_CAPTURE is 1, never fails the job
   (continue-on-error, a timeout), runs after the compile on a host-mode build only, turns on only
   EMIT_FRONTEND_COMMAND_LINES on the compile, uses the compile's own settings, and adds no
-  permission.
+  permission;
+- the nightly-next profile: its key moves with the nightly compile's settings and step and not
+  with the DEV recipe, the DEV key is unchanged, and a DerivedData inside the workspace is packed
+  once; nightly.yml captures the same way, off unless NIGHTLY_HYBRID_REF_CAPTURE is 1, on an owned
+  mini only, beside the rest of build-nightly-app, and waits for it only within a bound.
 """
 from __future__ import annotations
 
@@ -22,6 +26,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -37,6 +42,7 @@ sys.path.insert(0, str(ROOT / "scripts/cmux-next"))
 import hybrid_ref_capture as cap  # noqa: E402
 
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
+NIGHTLY = ROOT / ".github/workflows/nightly.yml"
 COMPILE_SCRIPT = ROOT / "scripts/cmux-next/check-cmux-scheme-compile.sh"
 TOOLCHAIN = "Xcode 26.6\nBuild version 17F113\n25F61\n"
 LOG = """\
@@ -286,6 +292,168 @@ class Workflow(unittest.TestCase):
         self.assertEqual(text.count("EMIT_FRONTEND_COMMAND_LINES"), 2)
         self.assertIn(cap.BROWSER_SOURCES_COMPILED_OUT, text)
         self.assertIn(cap.BROWSER_SOURCES, text)
+
+
+NIGHTLY_ENV = {"HYBRID_REF_PROFILE": "nightly-next",
+               "HYBRID_REF_SETTINGS": "BUILD_TRACK=nightly-next\nNIGHTLY_COMPILE_ARCHS=arm64\n"}
+NIGHTLY_STEP_TEXT = """\
+jobs:
+  build-nightly-app:
+    steps:
+      - name: Build nightly app (Release)
+        run: |
+          xcodebuild -scheme cmux build
+      # the next step's comment
+      - name: Bundle
+        run: true
+"""
+
+
+class NightlyProfile(unittest.TestCase):
+    def nightly_repo(self, root: Path) -> Path:
+        repo = make_repo(root)
+        for rel, text in {cap.NIGHTLY_STEP[0]: NIGHTLY_STEP_TEXT, cap.NIGHTLY_RECIPE_PATHS[0]: "X=1\n"}.items():
+            (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (repo / rel).write_text(text)
+        git(repo, "add", "-A")
+        git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "nightly")
+        return repo
+
+    def test_key_moves_with_the_nightly_compile_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.nightly_repo(Path(tmp))
+            dev_env = {"HYBRID_REF_SETTINGS": "CMUX_NEXT_CONFIGURATION=Release\n"}
+            dev = cap.key(repo, dev_env, TOOLCHAIN)
+            self.assertEqual(dev, cap.key(repo, dict(dev_env, HYBRID_REF_PROFILE="dev"), TOOLCHAIN))
+            base = cap.key(repo, NIGHTLY_ENV, TOOLCHAIN)
+            self.assertNotEqual(base, dev)
+            (repo / "scripts/cmux-next/check-cmux-scheme-compile.sh").write_text("# recipe 2\n")
+            self.assertEqual(base, cap.key(repo, NIGHTLY_ENV, TOOLCHAIN), "the DEV recipe is not the nightly's")
+            self.assertNotEqual(dev, cap.key(repo, dev_env, TOOLCHAIN))
+            step = repo / cap.NIGHTLY_STEP[0]
+            step.write_text(NIGHTLY_STEP_TEXT.replace("# the next step's comment", "# another comment"))
+            self.assertEqual(base, cap.key(repo, NIGHTLY_ENV, TOOLCHAIN), "another step's comment")
+            step.write_text(NIGHTLY_STEP_TEXT.replace("-scheme cmux build", "-scheme cmux ONLY_ACTIVE_ARCH=YES build"))
+            self.assertNotEqual(base, cap.key(repo, NIGHTLY_ENV, TOOLCHAIN), "the compile step's own line")
+            step.write_text(NIGHTLY_STEP_TEXT)
+            for rel in (cap.NIGHTLY_RECIPE_PATHS[0], cap.RESOLVED, "config/Release.xcconfig"):
+                before = (repo / rel).read_text()
+                (repo / rel).write_text(before + " ")
+                self.assertNotEqual(base, cap.key(repo, NIGHTLY_ENV, TOOLCHAIN), rel)
+                (repo / rel).write_text(before)
+            arm64_x86 = dict(NIGHTLY_ENV, HYBRID_REF_SETTINGS="BUILD_TRACK=nightly-next\nNIGHTLY_COMPILE_ARCHS=arm64 x86_64\n")
+            self.assertNotEqual(base, cap.key(repo, arm64_x86, TOOLCHAIN))
+            with self.assertRaises(SystemExit):
+                cap.key(repo, dict(NIGHTLY_ENV, HYBRID_REF_SETTINGS="CMUX_NEXT_CONFIGURATION=Release"), TOOLCHAIN)
+            with self.assertRaises(SystemExit):
+                cap.key(repo, dict(NIGHTLY_ENV, HYBRID_REF_PROFILE="nightly"), TOOLCHAIN)
+
+    def test_derived_data_inside_the_workspace_is_packed_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = make_repo(root)
+            shutil.copytree(make_dd(root), repo / "build-universal")
+            for rel in (".spm-cache/checkouts/swift-atomics/Package.swift", ".spm-cache/.package-cache/x/HEAD",
+                        ".spm-cache/repositories/swift-atomics-1/HEAD"):
+                (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+                (repo / rel).write_text(rel)
+            log = root / "xcodebuild.log"
+            log.write_text(LOG + CMUX_LINE)
+            out = root / "out"
+            a = Namespace(log=str(log), workspace="/Users/cmux/w/cmux", derived_data="/Users/cmux/w/cmux/build-universal",
+                          read_workspace=str(repo), read_derived_data=str(repo / "build-universal"), sha="b" * 40,
+                          key="n" * 64, run_id=8, out=str(out), lane="hybrid-ref-nightly-next", upload=False)
+            env = dict(NIGHTLY_ENV, HYBRID_REF_SETTINGS="EMPTY_BROWSER_SOURCES=true\n")
+            self.assertEqual(cap.capture(a, env), 0)
+            manifest = json.loads((out / "manifest.json").read_text())
+            self.assertTrue(manifest["complete"])
+            self.assertEqual(manifest["profile"], "nightly-next")
+            self.assertEqual(manifest["settings"]["EMPTY_BROWSER_SOURCES"], "true")
+            ws = names(out / "packs/ws-src.tgz")
+            self.assertIn("Sources/a.swift", ws)
+            self.assertIn(".spm-cache/checkouts/swift-atomics/Package.swift", ws)
+            self.assertFalse([n for n in ws if n.startswith("build-universal") or "package-cache" in n
+                              or n.startswith(".spm-cache/repositories")], "packed once, as DerivedData")
+            self.assertIn("Build/Products/Release/CmuxNextApp.swiftmodule/arm64.swiftmodule", names(out / "packs/build-noobj.tgz"))
+            with tarfile.open(out / "packs/ws-src.tgz") as tar:
+                self.assertEqual(tar.extractfile(cap.BROWSER_SOURCES).read(), b'{"real": true}\n',
+                                 "the nightly's tree as its compiler read it, not the DEV file")
+
+
+class NightlyWorkflow(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        workflow = yaml.safe_load(NIGHTLY.read_text())
+        cls.job = workflow["jobs"]["build-nightly-app"]
+        cls.steps = {s.get("id"): s for s in cls.job["steps"] if s.get("id")}
+        cls.named = {s.get("name"): s for s in cls.job["steps"]}
+        cls.order = [s.get("id") or s.get("name") for s in cls.job["steps"]]
+        cls.compile = cls.named[cap.NIGHTLY_STEP[1]]
+
+    def test_the_capture_uses_the_compile_settings(self) -> None:
+        env = dict(self.job["env"], **self.compile["env"])
+        want = {name: str(env[name]) for name in cap.NIGHTLY_SETTINGS}
+        self.assertEqual(set(self.compile["env"]) - set(cap.NIGHTLY_SETTINGS),
+                         {"IMPORT_VARIANT", "CMUX_XCODEBUILD_OUTPUT_LOG", "HYBRID_REF_CAPTURE"},
+                         "every other env the compile reads sets a build line")
+        self.assertNotIn("IMPORT_VARIANT", self.compile["run"].replace("browser import variant: $IMPORT_VARIANT", ""))
+        for step in ("hybrid-ref", "hybrid-ref-start"):
+            env = self.steps[step]["env"]
+            self.assertEqual(env["HYBRID_REF_PROFILE"], "nightly-next")
+            got = cap.settings({"HYBRID_REF_PROFILE": "nightly-next", "HYBRID_REF_SETTINGS": env["HYBRID_REF_SETTINGS"]})
+            self.assertEqual(got, want, step)
+            self.assertFalse(set(cap.NIGHTLY_SETTINGS) & set(env), f"{step}: only the compile step carries the settings")
+        self.assertEqual(cap.step_text(NIGHTLY, cap.NIGHTLY_STEP[1]).splitlines()[-1].strip(), '"${notary_test_flags[@]}"')
+
+    def test_off_by_default_owned_mini_only_and_bounded(self) -> None:
+        decide, start, finish = self.steps["hybrid-ref"], self.steps["hybrid-ref-start"], self.steps["hybrid-ref-capture"]
+        upload = self.named["Upload the REF capture manifest"]
+        self.assertTrue(decide["if"].startswith("vars.NIGHTLY_HYBRID_REF_CAPTURE == '1' &&"))
+        self.assertIn("needs.decide.outputs.track == 'nightly-next'", decide["if"])
+        self.assertIn("runner.environment == 'self-hosted'", decide["if"])
+        self.assertIn("*-glaeda | *-glaeda-[0-9]*) ;;", decide["run"], "an owned mini, never a Blacksmith Mac")
+        self.assertIn('skip "no cmux-ci on $RUNNER_NAME"', decide["run"])
+        self.assertIn("name=hybrid-ref-capture-nightly-next-$key&", decide["run"])
+        self.assertIn("select(.expired == false and .created_at >= ", decide["run"])
+        self.assertIn('[ -n "$started" ] || skip', decide["run"], "an unknown job start skips the capture")
+        for step in (decide, start, finish, upload):
+            self.assertTrue(step["continue-on-error"], step.get("name"))
+        self.assertLessEqual(decide["timeout-minutes"], 1)
+        self.assertEqual(start["if"], "steps.hybrid-ref.outputs.capture == 'true'")
+        self.assertEqual(finish["if"], "steps.hybrid-ref-start.outputs.started == 'true'")
+        self.assertIn("(( $(date +%s) - STARTED > 100 * 60 ))", start["run"])
+        self.assertIn("env -u GITHUB_OUTPUT nice -n 10", start["run"])
+        self.assertIn("--lane hybrid-ref-nightly-next", start["run"])
+        self.assertIn('--read-derived-data "$snapshot/src/build-universal"', start["run"])
+        self.assertIn("budget=$(( 130 * 60 - ($(date +%s) - STARTED) ))", finish["run"])
+        self.assertIn("(( budget > 240 )) && budget=240", finish["run"])
+        self.assertLessEqual(130 + finish["timeout-minutes"] + upload["timeout-minutes"], self.job["timeout-minutes"] - 10,
+                             "the wait ends by job minute 130; the upload too, well inside the job's limit")
+        self.assertLessEqual(240, finish["timeout-minutes"] * 60 - 30)
+        self.assertEqual(upload["with"]["retention-days"], 14)
+        self.assertTrue(upload["with"]["name"].startswith("hybrid-ref-capture-nightly-next-${{ steps.hybrid-ref.outputs.key }}"))
+        # Decide before the compile, start right after it (and the bundling, which changes only the
+        # app: tests/test_nightly_helpers_beside_release_build.py pins the steps around the compile),
+        # finish and upload last but the cleanup.
+        compile_at = self.order.index(cap.NIGHTLY_STEP[1])
+        self.assertLess(self.order.index("hybrid-ref"), compile_at)
+        self.assertEqual(self.order[compile_at + 1:compile_at + 3],
+                         ["Bundle the OptChat Chief and the iPhone host", "hybrid-ref-start"])
+        self.assertEqual(self.order[-3:], ["hybrid-ref-capture", "Upload the REF capture manifest",
+                                           "Stop the helper builds still running"])
+        self.assertIn('stop --state "$RUNNER_TEMP/hybrid-ref-builds"', self.named["Stop the helper builds still running"]["run"])
+
+    def test_the_compile_only_adds_emit_frontend_command_lines(self) -> None:
+        env, run = self.compile["env"], self.compile["run"]
+        self.assertEqual(env["HYBRID_REF_CAPTURE"], "${{ steps.hybrid-ref.outputs.capture == 'true' && '1' || '' }}")
+        self.assertEqual(env["CMUX_XCODEBUILD_OUTPUT_LOG"],
+                         "${{ steps.hybrid-ref.outputs.capture == 'true' && format('{0}/hybrid-ref-xcodebuild.log', runner.temp) || '' }}")
+        self.assertIn('[[ "${HYBRID_REF_CAPTURE:-}" == 1 ]] && notary_test_flags=(EMIT_FRONTEND_COMMAND_LINES=YES "${notary_test_flags[@]}")', run)
+        self.assertEqual(run.count("HYBRID_REF_CAPTURE"), 1)
+
+    def test_no_new_permission(self) -> None:
+        self.assertEqual(self.job["permissions"], {"contents": "write", "actions": "read", "attestations": "write",
+                                                   "id-token": "write"})
 
 
 if __name__ == "__main__":

@@ -6,13 +6,17 @@ recorded rules of one real Mac build of the same shape (the REF): the SwiftDrive
 Swift Build's build description and the planning files. Until 2026-10-26 the only REF was
 assembled by hand from an old nightly build, so the Linux path stopped as soon as
 Package.resolved moved. This records a REF from the per-landing DEV compile itself, at its
-own paths, when the inputs that change build lines have no capture yet.
+own paths, when the inputs that change build lines have no capture yet. HYBRID_REF_PROFILE
+nightly-next records the nightly-next Release compile (nightly.yml build-nightly-app) the same
+way, keyed on that compile's own settings and recipe; unset, the profile is dev.
 
   hybrid_ref_capture.py key REPO
       Prints the REF key: sha256 over Package.resolved, every file of cmux.xcodeproj but
       xcuserdata, the macOS xcconfigs, the local package manifests, the compile recipe
       (KEY_PATHS), the DEV build settings (HYBRID_REF_SETTINGS: the
       compile step's CMUX_NEXT_*) and the toolchain (xcodebuild -version, the SDK build). Most landings share one.
+      The nightly-next profile hashes its own recipe (NIGHTLY_RECIPE_PATHS and the text of the
+      compile step, NIGHTLY_STEP) and settings (NIGHTLY_SETTINGS) instead of the DEV ones.
 
   hybrid_ref_capture.py capture --log LOG --workspace WS --derived-data DD --sha SHA
                                 --key KEY --run-id N --out DIR [--lane L] [--upload]
@@ -25,7 +29,8 @@ own paths, when the inputs that change build lines have no capture yet.
       committed Package.resolved, splits each pack under PART_BYTES, and with --upload puts
       every part in the build fleet's private store (cmux-ci artifact-put --lane L). WS and
       DD are the build's paths (the REF's); the files come from the --read-* snapshot of
-      them, cloned while the build still held its host lock (compile-dev-release.sh). It
+      them, cloned while the build still held its host lock (compile-dev-release.sh). A DD
+      inside WS (the nightly's build-universal) is packed once, as DerivedData. It
       writes DIR/manifest.json: names, sizes and sha256 only, never file contents, since the
       manifest goes to this public repository's Actions artifacts.
 """
@@ -52,36 +57,72 @@ PART_BYTES = 480 * 1024 * 1024
 RESOLVED = "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
 # What sets a build line: the project, the macOS xcconfigs, the local package manifests (a target or
 # dependency added there changes the plan) and the compile recipe with its hardcoded settings.
-KEY_PATHS = ("cmux.xcodeproj", "*.xcconfig", "Packages/macOS/**/Package.swift", "Packages/Shared/**/Package.swift",
-             "vendor/**/Package.swift", "scripts/cmux-next/check-cmux-scheme-compile.sh",
-             "scripts/cmux-next/compile-dev-release.sh", "scripts/cmux-next/lib/compilation-cache.sh")
+PROJECT_PATHS = ("cmux.xcodeproj", "*.xcconfig", "Packages/macOS/**/Package.swift", "Packages/Shared/**/Package.swift",
+                 "vendor/**/Package.swift")
+KEY_PATHS = PROJECT_PATHS + ("scripts/cmux-next/check-cmux-scheme-compile.sh",
+                             "scripts/cmux-next/compile-dev-release.sh", "scripts/cmux-next/lib/compilation-cache.sh")
 KEY_SKIP = re.compile(r"(^|/)xcuserdata/|^ios/")
 # The compile step's settings that change a build line (check-cmux-scheme-compile.sh reads them);
 # the capture steps get them as HYBRID_REF_SETTINGS.
 SETTINGS = ("CMUX_NEXT_CONFIGURATION", "CMUX_NEXT_PRODUCT_NAME", "CMUX_NEXT_BUNDLE_ID",
             "CMUX_NEXT_CODE_SIGN_ENTITLEMENTS", "CMUX_NEXT_AUTH_CALLBACK_SCHEME",
             "CMUX_NEXT_BROWSER_DATA_IMPORT", "CMUX_NEXT_SWIFT_COMPILATION_MODE", "CMUX_NEXT_TUI_MODE")
+# The nightly-next profile: the env the nightly's "Build nightly app (Release)" step reads (its own
+# and the job's), the defines it sources, and the step itself, whose xcodebuild flags are inline.
+NIGHTLY_SETTINGS = ("BUILD_TRACK", "SWIFT_IMPORT_FLAGS", "EMPTY_BROWSER_SOURCES", "NIGHTLY_COMPILE_ARCHS",
+                    "CHANNEL_ICON_NAME")
+NIGHTLY_RECIPE_PATHS = ("scripts/cmux-next/lib/nightly-swift-defines.sh",)
+NIGHTLY_STEP = (".github/workflows/nightly.yml", "Build nightly app (Release)")
+PROFILES = {"dev": SETTINGS, "nightly-next": NIGHTLY_SETTINGS}
 # check-cmux-scheme-compile.sh writes this file for a compiled-out browser-data import and
 # restores it after the build; the REF needs the tree the compiler read.
 BROWSER_SOURCES = "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json"
 BROWSER_SOURCES_COMPILED_OUT = "scripts/cmux-next/lib/browser-sources-compiled-out.json"
-WS_EXCLUDE = re.compile(r"(^|/)(\.git|target|node_modules|\.build|DerivedData)(/|$)")
+# .spm-cache is the nightly's -clonedSourcePackagesDirPath: its checkouts are sources, its git
+# mirrors are not (DD_EXCLUDE drops SourcePackages/repositories for the DEV build).
+WS_EXCLUDE = re.compile(r"(^|/)(\.git|target|node_modules|\.build|DerivedData)(/|$)"
+                        r"|^\.spm-cache/(repositories|\.package-cache)(/|$)")
 DD_EXCLUDE = re.compile(r"(^|/)(\.git|CompilationCache\.noindex|Logs|SourcePackages/repositories)(/|$)"
                         r"|\.(o|app|dSYM)(/|$)|(^|/)Chromium Embedded Framework\.framework(/|$)")
 DRIVER = re.compile(r"^SwiftDriver (\S+) normal (\S+) ")
 
 
+def profile(environ=os.environ) -> str:
+    name = environ.get("HYBRID_REF_PROFILE") or "dev"
+    if name not in PROFILES:
+        raise SystemExit(f"hybrid_ref_capture: unknown HYBRID_REF_PROFILE {name}")
+    return name
+
+
 def settings(environ=os.environ) -> dict[str, str]:
-    """HYBRID_REF_SETTINGS (NAME=VALUE lines: the compile step's SETTINGS); a name it lacks is empty."""
+    """HYBRID_REF_SETTINGS (NAME=VALUE lines: the compile step's settings of the profile); a name it lacks is empty."""
+    names = PROFILES[profile(environ)]
     given = {}
     for line in environ.get("HYBRID_REF_SETTINGS", "").splitlines():
         name, sep, value = line.strip().partition("=")
         if sep:
             given[name] = value
-    unknown = sorted(set(given) - set(SETTINGS))
+    unknown = sorted(set(given) - set(names))
     if unknown:
         raise SystemExit(f"hybrid_ref_capture: HYBRID_REF_SETTINGS names unknown settings: {', '.join(unknown)}")
-    return {name: given.get(name, "") for name in SETTINGS}
+    return {name: given.get(name, "") for name in names}
+
+
+def step_text(workflow: Path, name: str) -> str:
+    """The lines of the workflow step named NAME, up to the next step or job."""
+    lines = workflow.read_text().splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if line.strip() == f"- name: {name}":
+            indent = len(line) - len(line.lstrip())
+            end = i + 1
+            while end < len(lines):
+                text = lines[end]
+                # A step's own lines are deeper than its "- name:"; the next step's comments are not.
+                if text.strip() and len(text) - len(text.lstrip()) <= indent:
+                    break
+                end += 1
+            return "".join(lines[i:end]).rstrip() + "\n"
+    raise SystemExit(f"hybrid_ref_capture: no step {name!r} in {workflow}")
 
 
 def xcode_version(text: str) -> str:
@@ -101,9 +142,15 @@ def key(repo: Path, environ=os.environ, toolchain: str | None = None) -> str:
     def add(label: str, data: bytes) -> None:
         h.update(label.encode() + b"\0" + hashlib.sha256(data).hexdigest().encode() + b"\n")
 
-    files = run(["git", "-C", str(repo), "ls-files", "-z", "--", *KEY_PATHS]).split("\0")
+    nightly = profile(environ) == "nightly-next"
+    paths = PROJECT_PATHS + NIGHTLY_RECIPE_PATHS if nightly else KEY_PATHS
+    files = run(["git", "-C", str(repo), "ls-files", "-z", "--", *paths]).split("\0")
     for name in sorted(f for f in files if f and not KEY_SKIP.search(f)):
         add(name, (repo / name).read_bytes())
+    if nightly:
+        # The DEV key stays what it was: only another profile hashes its name and its step.
+        add("profile", b"nightly-next")
+        add("step:" + NIGHTLY_STEP[1], step_text(repo / NIGHTLY_STEP[0], NIGHTLY_STEP[1]).encode())
     for name, value in settings(environ).items():
         add("env:" + name, value.encode())
     if toolchain is None:
@@ -200,7 +247,7 @@ def capture(a: argparse.Namespace, environ=os.environ) -> int:
     modules, compiled, command = drivers_and_lines(log)
     missing = sorted(set(modules) - compiled)
     manifest = {
-        "schema": SCHEMA, "key": a.key, "sha": a.sha, "run_id": a.run_id, "lane": a.lane,
+        "schema": SCHEMA, "profile": profile(environ), "key": a.key, "sha": a.sha, "run_id": a.run_id, "lane": a.lane,
         "complete": bool(modules) and not missing, "modules": len(set(modules)), "missing": missing,
         "workspace": str(ws), "derived_data": str(dd),
         "tmpdir": environ.get("TMPDIR", ""), "runner": environ.get("RUNNER_NAME", ""),
@@ -216,7 +263,8 @@ def capture(a: argparse.Namespace, environ=os.environ) -> int:
     }
     if manifest["complete"]:
         replace = {}
-        if settings(environ)["CMUX_NEXT_BROWSER_DATA_IMPORT"] == "compiled-out":
+        # The nightly writes the empty file into its tree itself and never restores it.
+        if settings(environ).get("CMUX_NEXT_BROWSER_DATA_IMPORT") == "compiled-out":
             replace[BROWSER_SOURCES] = (read_ws / BROWSER_SOURCES_COMPILED_OUT).read_bytes()
         packs = out / "packs"
         packs.mkdir(exist_ok=True)
@@ -226,7 +274,11 @@ def capture(a: argparse.Namespace, environ=os.environ) -> int:
         write_tar(read_dd / "Build/Intermediates.noindex", packs / "xcbuilddata.tgz",
                   re.compile(r"^(?!XCBuildData(/|$))"))
         write_tar(read_dd, packs / "build-noobj.tgz", DD_EXCLUDE)
-        write_tar(read_ws, packs / "ws-src.tgz", WS_EXCLUDE, replace)
+        ws_skip = WS_EXCLUDE
+        inside = os.path.relpath(dd, ws)
+        if inside != "." and not inside.startswith(".."):
+            ws_skip = re.compile(f"{WS_EXCLUDE.pattern}|^{re.escape(inside)}(/|$)")
+        write_tar(read_ws, packs / "ws-src.tgz", ws_skip, replace)
         shutil.copyfile(read_ws / RESOLVED, packs / "Package.resolved")
         for pack in sorted(packs.iterdir()):
             whole = {"sha256": sha256_file(pack), "size": pack.stat().st_size}
