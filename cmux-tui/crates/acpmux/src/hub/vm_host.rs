@@ -8,8 +8,10 @@
 //! `/etc/cmux/vm-kind` and remove `/srv/team`, and as this user it can write
 //! config.json's `vmHost`. So [`Hub::vm_host`] is false: a remote chain's
 //! Claude Code runs inside the platform sandbox after its probe and canary
-//! (`remote_sandbox.rs`) on a Cloud VM as on any other host, and no session
-//! starts approve-all for it (`vm_host_peer_approves`).
+//! (`remote_sandbox.rs`) on a Cloud VM as on any other host, and the owner's
+//! peer daemon's sessions with no policy no longer start approve-all
+//! (`vm_host_peer_approves`). A remote host an older daemon started without
+//! the sandbox is ended at adoption (`REMOTE_ENV_POLICY_ID` v4).
 //!
 //! Still read, for display only (`_acpmux/vm_host`, `acpmux host vm-host`):
 //!

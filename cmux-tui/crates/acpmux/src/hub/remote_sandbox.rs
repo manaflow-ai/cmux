@@ -1346,7 +1346,7 @@ impl Hub {
 /// (`Origin::Peer`, proven by the peer token over ssh), and only while
 /// MDM leaves approve-all allowed (`Hub::approve_all_allowed`); a Web client never.
 /// `Hub::vm_host` is false until an attested source exists (`vm_host.rs`), so
-/// no session starts approve-all this way now.
+/// no session starts approve-all this way now (an asked policy is unchanged).
 pub fn vm_host_peer_approves(
     vm_host: bool,
     macos: bool,

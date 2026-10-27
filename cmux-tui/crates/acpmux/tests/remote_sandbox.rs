@@ -276,15 +276,17 @@ async fn a_guest_written_owner_marker_or_vm_host_never_skips_the_linux_sandbox()
         }
         let hub = hub_with(&d, vm_host);
         hub.set_linux_bwrap_probe_for_tests(d.join("missing-bwrap"));
-        let mut local = Client::new(&hub, Origin::Local);
-        let view = local.call("_acpmux/vm_host", json!({})).await;
-        assert_eq!(view["result"]["vmHost"], false, "{tag}: {view}");
-        assert_eq!(view["result"]["cmuxVm"], kind.is_some(), "{tag}: shown: {view}");
         let mut web = Client::new(&hub, Origin::Web);
-        let e = web.run(&d, "argv").await.expect_err("guest state skipped the sandbox");
-        let _ = std::fs::remove_dir_all(&d);
+        let Err(e) = web.run(&d, "argv").await else {
+            panic!("{tag}: remote Claude ran without the sandbox");
+        };
         assert!(e.to_string().contains("remote.sandbox_refused"), "{tag}: {e}");
         assert!(e.to_string().contains("bwrap unavailable"), "{tag}: {e}");
+        let mut local = Client::new(&hub, Origin::Local);
+        let view = local.call("_acpmux/vm_host", json!({})).await;
+        let _ = std::fs::remove_dir_all(&d);
+        assert_eq!(view["result"]["vmHost"], false, "{tag}: {view}");
+        assert_eq!(view["result"]["cmuxVm"], kind.is_some(), "{tag}: shown: {view}");
     }
 }
 
