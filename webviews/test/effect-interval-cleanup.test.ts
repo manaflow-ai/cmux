@@ -10,6 +10,41 @@ const vp = resolve(import.meta.dir, "../node_modules/.bin/vp");
 const prefix = 'import React, { useEffect, useEffect as effect, useLayoutEffect } from "react";\n';
 const cases = [
   [
+    "guarded allocation",
+    "useEffect(() => { if (active) { const id = setInterval(tick, 1000); return () => clearInterval(id); } }, [active]);",
+    0,
+  ],
+  [
+    "unrelated inactive branch return",
+    "useEffect(() => { if (active) { const id = setInterval(tick, 1000); return () => clearInterval(id); } else { return; } }, [active]);",
+    0,
+  ],
+  [
+    "switch cleanup exit",
+    'useEffect(() => { const id = setInterval(tick, 1000); return () => { switch (mode) { case "skip": return; } clearInterval(id); }; }, []);',
+    1,
+  ],
+  [
+    "loop cleanup exit",
+    "useEffect(() => { const id = setInterval(tick, 1000); return () => { for (const item of items) { if (item) return; } clearInterval(id); }; }, []);",
+    1,
+  ],
+  [
+    "try cleanup exit",
+    "useEffect(() => { const id = setInterval(tick, 1000); return () => { try { if (skip) return; } catch {} clearInterval(id); }; }, []);",
+    1,
+  ],
+  [
+    "finally clears despite return",
+    "useEffect(() => { const id = setInterval(tick, 1000); return () => { try { if (skip) return; } finally { clearInterval(id); } }; }, []);",
+    0,
+  ],
+  [
+    "switch effect exit",
+    'useEffect(() => { const id = setInterval(tick, 1000); switch (mode) { case "skip": return; } return () => clearInterval(id); }, []);',
+    1,
+  ],
+  [
     "shared outer handle",
     "let id; useEffect(() => { id = setInterval(tick, 1000); return () => clearInterval(id); }, []);",
     1,

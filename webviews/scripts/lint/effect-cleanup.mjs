@@ -99,7 +99,7 @@ export const intervalCleanup = {
             false,
           );
           if (suspends) return false;
-          if (statement.type === "IfStatement" && exits(statement)) return false;
+          if (exits(statement)) return false;
         }
         return false;
       }
@@ -127,20 +127,59 @@ export const intervalCleanup = {
       return false;
     }
     function exits(node) {
-      if (!node) return false;
-      if (["ReturnStatement", "ThrowStatement"].includes(node.type)) return true;
-      if (node.type === "BlockStatement") return node.body.some(exits);
-      if (node.type === "IfStatement") return exits(node.consequent) || exits(node.alternate);
-      return false;
+      let exit = false;
+      walk(
+        node,
+        (child) => {
+          if (["ReturnStatement", "ThrowStatement"].includes(child.type)) exit = true;
+        },
+        false,
+      );
+      return exit;
     }
-    function returnsOnEveryPath(node) {
-      if (!node) return false;
-      if (node.type === "ReturnStatement") return true;
-      if (node.type === "BlockStatement") return node.body.some(returnsOnEveryPath);
-      if (node.type === "IfStatement") {
-        return returnsOnEveryPath(node.consequent) && returnsOnEveryPath(node.alternate);
+    // Track whether this specific interval has started along each effect path.
+    // An inactive branch may fall through without returning any cleanup.
+    function effectCleans(effect, interval, handle) {
+      let valid = true;
+      const containsStart = (node) => {
+        let found = false;
+        walk(node, (child) => {
+          if (child === interval) found = true;
+        });
+        return found;
+      };
+      const cleanup = (node) => {
+        const fn = resolveFunction(node);
+        return fn && !fn.async && clears(fn.body, handle);
+      };
+      function flow(node, started) {
+        if (!node) return [started];
+        if (node.type === "BlockStatement") {
+          let paths = [started];
+          for (const statement of node.body) paths = [...new Set(paths.flatMap((path) => flow(statement, path)))];
+          return paths;
+        }
+        if (node.type === "IfStatement") {
+          const active = started || containsStart(node.test);
+          return [...flow(node.consequent, active), ...flow(node.alternate, active)];
+        }
+        if (node.type === "ReturnStatement") {
+          if ((started || containsStart(node.argument)) && !cleanup(node.argument)) valid = false;
+          return [];
+        }
+        if (node.type === "ThrowStatement") {
+          if (started || containsStart(node.argument)) valid = false;
+          return [];
+        }
+        // Complex control flow is conservative: an exit can bypass the later
+        // cleanup return. Do not silently approve paths we cannot establish.
+        if (exits(node)) {
+          if (started || containsStart(node)) valid = false;
+        }
+        return [started || containsStart(node)];
       }
-      return false;
+      const remaining = flow(effect.body, false);
+      return valid && !remaining.includes(true);
     }
     function overwritten(effect, interval, handle) {
       const writes = [];
@@ -200,23 +239,8 @@ export const intervalCleanup = {
       // handles must first be captured locally, so a later write cannot leak it.
       let scopeOwner = handle?.scope.block;
       while (scopeOwner && scopeOwner !== effect) scopeOwner = scopeOwner.parent;
-      if (!handle || !scopeOwner || !returnsOnEveryPath(effect.body) || overwritten(effect, interval, handle))
-        return false;
-      const returns = [];
-      walk(
-        effect.body,
-        (node) => {
-          if (node.type === "ReturnStatement" && node.range[0] > interval.range[0]) returns.push(node);
-        },
-        false,
-      );
-      return (
-        returns.length > 0 &&
-        returns.every((node) => {
-          const cleanup = resolveFunction(node.argument);
-          return cleanup && !cleanup.async && clears(cleanup.body, handle);
-        })
-      );
+      if (!handle || !scopeOwner || overwritten(effect, interval, handle)) return false;
+      return effectCleans(effect, interval, handle);
     }
     return {
       CallExpression(node) {
