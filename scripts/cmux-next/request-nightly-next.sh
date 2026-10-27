@@ -155,11 +155,63 @@ request() { # <sha>
     echo "not promoting ${1:0:12}: its generated page strings are stale (node webviews/scripts/pages/gen-strings.mjs --check); an older or later commit with fresh strings is promoted"
     return 1
   fi
+  # Main's promote guard requires the tree-commit marker (the same check), so
+  # a commit without one is not requested: the backfill marks it.
+  local marker_rc=0
+  bash "$script_dir/tree-commit-marker.sh" check "$1" >/dev/null || marker_rc=$?
+  if (( marker_rc == 1 )); then
+    echo "not promoting ${1:0:12}: its tree is ready but it has no tree-commit marker yet"
+    backfill "${1:0:12} has a ready tree and no tree-commit marker"
+    return 1
+  elif (( marker_rc != 0 )); then
+    echo "not promoting ${1:0:12}: read failure on its tree-commit marker (above); no backfill on a read failure"
+    return 1
+  fi
   if ! gh workflow run nightly.yml --repo "$repo" --ref main -f promote_nightly_next_sha="$1"; then
     echo "error: could not request the nightly-next promotion of $1" >&2
     return 2
   fi
   echo "requested nightly-next promotion of $1 (published, daemon-tested cmux-tui tree; its nightly compiles it)"
+}
+
+# backfill <reason>: one cmux-tui-artifacts dispatch on feat-cmux-next, which
+# marks every recent commit whose tree is ready (mark-tree-commits) and builds
+# the tip's tree when it has none. At most one per job (the nightly-next tick
+# calls this script once per commit it walks): a stamp in RUNNER_TEMP keyed by
+# the run. Never while an artifacts run on feat-cmux-next is queued, waiting
+# or in progress (one filtered read per state, so no older active run hides
+# behind newer finished ones), and never when that cannot be read. Two jobs
+# racing past the check (the tick and an artifacts push run) start at most two
+# runs, and a dispatch's concurrency group (one per commit, never cancelled)
+# keeps one of them pending behind the other.
+backfill() { # <reason>
+  local stamp="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/cmux-tree-backfill-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}" active
+  if [[ -e "$stamp" ]]; then
+    echo "backfill: already dispatched in this job; not dispatching again ($1)"
+    return 0
+  fi
+  local state count
+  active=0
+  # The REST filter, not `gh run list --status`: gh's flag refuses "pending"
+  # (a run held behind its concurrency group).
+  for state in queued in_progress waiting pending requested; do
+    if ! count="$(gh api "repos/$repo/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next&status=$state&per_page=1" \
+        --jq .total_count 2>/dev/null)" || [[ ! "$count" =~ ^[0-9]+$ ]]; then
+      echo "backfill: could not read the cmux-tui-artifacts runs; not dispatching ($1)"
+      return 0
+    fi
+    active=$((active + count))
+  done
+  if (( active > 0 )); then
+    echo "backfill: a cmux-tui-artifacts run on feat-cmux-next is queued or running; not dispatching ($1)"
+    return 0
+  fi
+  if gh workflow run cmux-tui-artifacts.yml --repo "$repo" --ref feat-cmux-next; then
+    : > "$stamp"
+    echo "backfill: dispatched cmux-tui-artifacts on feat-cmux-next ($1)"
+  else
+    echo "warning: backfill: could not dispatch cmux-tui-artifacts on feat-cmux-next ($1)" >&2
+  fi
 }
 
 # 1. The tree, exactly as the nightly will resolve it. Never dispatches a
@@ -168,29 +220,37 @@ if ! resolved="$(env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY CMUX_TUI_TREE_DISPA
     CMUX_TUI_TREE_SEARCH_COMMITS=1 bash "$script_dir/pin-cmux-tui.sh" resolve-newest-published 2>&1)"; then
   printf '%s\n' "$resolved"
   echo "not promoting ${sha:0:12}: the nightly cannot resolve a published cmux-tui tree for it yet"
+  # The feat-cmux-next tip with no cmux-tui-artifacts run at all (a push that
+  # started none, such as a GITHUB_TOKEN push) gets one. A tip whose run failed
+  # or is running gets none: a failed build is a red to fix, not to re-run here.
+  # Only on a confirmed miss: the CDN answers 404 for the tip's tree (verify-key
+  # exit 1), never on a read failure.
+  if tip_line="$(git ls-remote origin refs/heads/feat-cmux-next 2>/dev/null)" && [[ "${tip_line%%[[:space:]]*}" == "$sha" ]] \
+      && tip_key="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$sha" 2>/dev/null)"; then
+    tip_verify=0
+    bash "$script_dir/pin-cmux-tui.sh" verify-key "$tip_key" >/dev/null 2>&1 || tip_verify=$?
+    if (( tip_verify == 1 )) \
+        && tip_runs="$(gh run list --repo "$repo" --workflow cmux-tui-artifacts.yml --commit "$sha" --limit 5 --json status --jq length 2>/dev/null)" \
+        && [[ "$tip_runs" == 0 ]]; then
+      backfill "the feat-cmux-next tip ${sha:0:12} has no cmux-tui-artifacts run"
+    fi
+  fi
   exit 0
 fi
 key="$(sed -n 's/^key=//p' <<<"$resolved" | head -1)"
 [[ "$key" =~ ^[0-9a-f]{40}$ ]] || { printf '%s\n' "$resolved" >&2; echo "error: the resolver printed no tree key" >&2; exit 1; }
 
-# 1b. The daemon tests passed for this tree (chief 2026-10-13). cmux-tui-artifacts
-# publishes a tree before its daemon tests end; such a tree's source.json says
-# daemonTests "separate", and publish-tree-tested writes daemon-tests.json when
-# they pass. A tree published before that change (no field) was published only
-# after its tests, as before. Missing marker: not promoted now; the artifacts
-# run requests promotion again when the tests pass. Only the marker's presence
-# counts: older markers carry a since-retired "os" field, newer ones do not,
-# and both promote.
-tree_base="${CMUX_TUI_PIN_BASE:-https://files.cmux.com/cmux-tui}/tree/$key"
-tree_meta="$(mktemp -d)"
-trap 'rm -rf "$tree_meta"; cleanup_strings' EXIT
-if curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 -o "$tree_meta/source.json" "$tree_base/source.json" 2>/dev/null \
-   && python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("daemonTests") == "separate" else 1)' "$tree_meta/source.json"; then
-  if ! curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 -o "$tree_meta/daemon-tests.json" "$tree_base/daemon-tests.json" 2>/dev/null; then
-    echo "not promoting ${sha:0:12}: the daemon tests have not passed for tree $key yet (no daemon-tests.json); the artifacts run requests it when they pass"
-    exit 0
-  fi
-fi
+# 1b. The daemon tests passed for this tree (tree-commit-marker.sh daemon-tested,
+# the check the marker writer uses). A read of source.json or daemon-tests.json
+# that is neither 200 nor 404 is a read failure: nothing is promoted (it used to
+# skip the daemon-tests check when source.json did not read).
+tested_rc=0
+bash "$script_dir/tree-commit-marker.sh" daemon-tested "$key" || tested_rc=$?
+case "$tested_rc" in
+  0) ;;
+  1) echo "not promoting ${sha:0:12}: tree $key is not daemon-tested yet; the artifacts run requests it when the tests pass"; exit 0 ;;
+  *) echo "not promoting ${sha:0:12}: read failure on tree $key's metadata (above); the next tick asks again"; exit 0 ;;
+esac
 
 # 2. Both modes: the newest feat-cmux-next commit, by first-parent history,
 # that descends from nightly-next and has this tree key, whatever its Release

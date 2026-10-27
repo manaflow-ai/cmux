@@ -90,9 +90,9 @@ extension AgentPaneView {
         String(localized: "agentPane.confirmMode.switch", defaultValue: "Switch Mode", bundle: .module)
     }
 
-    /// Shown when the pane's page keeps crashing and no longer reloads itself.
+    /// Shown when the pane's page crashed (it never reloads by itself; the notice offers Reload).
     static var crashedMessage: String {
-        String(localized: "agentPane.crashed.message", defaultValue: "The agent pane crashed repeatedly.", bundle: .module)
+        String(localized: "agentPane.crashed.message", defaultValue: "The agent pane crashed.", bundle: .module)
     }
 
     /// Shown when automation would open the inspector without an explicit focus request.

@@ -11,6 +11,7 @@ public final class DiffPageRuntime {
     let root: URL
     public let sidecar: (any DiffSidecarRunning)?
     public let languages: DiffLanguageFeed
+    public let isRemote: Bool
     /// Reads the session host's `git.status` of a folder.
     private let status: @MainActor (String) async throws -> JSONValue
     nonisolated private static let swept = Mutex(false)
@@ -18,21 +19,30 @@ public final class DiffPageRuntime {
 
     init(root: URL = DiffSessionRoot.url(), sidecar: (any DiffSidecarRunning)?? = nil,
          configFile: URL = CmuxConfigFile.defaultURL(),
-         status: (@MainActor (String) async throws -> JSONValue)? = nil) {
+         status: (@MainActor (String) async throws -> JSONValue)? = nil,
+         isRemote: Bool = false) {
         self.root = root
         self.sidecar = sidecar ?? DiffSidecarLauncher.bundled(root: root).map { DiffSidecarPool(runner: $0) }
         languages = DiffLanguageFeed(directory: DiffLanguagePack.directory(configFile: configFile))
         self.status = status ?? { _ in throw DiffTabFailure(title: "", message: DiffPageStrings.notRepository) }
+        self.isRemote = isRemote
     }
 
     /// The runtime of the running app: `git.status` through the agent pane's
     /// git link (its own daemon connection, so a slow read never holds
     /// terminal commands).
     public convenience init(git: AgentPaneGitLink) {
-        self.init(status: { directory in
+        self.init(sidecar: Self.sidecarArgument(isLocal: git.isLocal), status: { directory in
             let data = try await git.read(.status(cwd: directory))
             return try JSONValue.parse(data)
-        })
+        }, isRemote: !git.isLocal)
+    }
+
+    /// Nil asks the initializer to retain the bundled sidecar; `.some(nil)` explicitly disables
+    /// it for a remote daemon. Keeping this distinction in one value prevents local tabs from
+    /// becoming unavailable when they use the per-chat runtime.
+    static func sidecarArgument(isLocal: Bool) -> (any DiffSidecarRunning)?? {
+        isLocal ? nil : .some(nil)
     }
 
     /// The repository `folder` is in, from the session host's `git.status`;
@@ -45,7 +55,7 @@ public final class DiffPageRuntime {
     /// The tab's grant (for `repository`'s root) and config, with `turn` as its
     /// Last turn. Fails with a ``DiffTabFailure`` the page shows.
     public func prepare(repository: DiffRepository, source: DiffOpenSource, turn: DiffTurn? = nil) -> Task<DiffTabReady, any Error> {
-        let root = root, available = sidecar != nil
+        let root = root, available = sidecar != nil || isRemote
         return Task {
             guard available else { throw DiffTabFailure(title: repository.name, message: DiffPageStrings.unavailable) }
             let grant = try await Self.grant(root: root, repository: repository.root)

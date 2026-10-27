@@ -25,6 +25,9 @@ nonisolated extension AcpmuxPaneMethods {
         // `maxBytes`: the most one page downloads, opening a chat or paging older turns in (cx-2lv1k).
         "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds"], []),
         "_acpmux/attachment": (["sessionId", "id"], []),
+        // The pane names the listed chat (its id or `HOST/id`) and takes acpmux's default bounds:
+        // no `host`, `limit` or `maxBytes`.
+        "_acpmux/peer_snapshot": (["sessionId"], []),
         // `visible`: whether the pane shows the chat; acpmux owns unread from it (cx-n8ou).
         "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible"], []),
         "_acpmux/detach": (["sessionId"], []),
@@ -44,6 +47,8 @@ nonisolated extension AcpmuxPaneMethods {
         // The composer's Account menu (direct.ts routes, setChatRoute).
         "_acpmux/route/list": (["sessionId"], []),
         "_acpmux/chat/route.set": (["sessionId", "routeId", "when"], []),
+        // The running-limit stepper: `maxRunning` only, never `maxChildren` or `maxDepth`.
+        "_acpmux/subsession/limits": (["sessionId", "maxRunning"], []),
         // `server`: one of that chat's MCP servers by name; acpmux refuses a name the chat does not list.
         "_acpmux/mcp/reconnect": (["sessionId", "server"], []),
         // `release`: a new chat's typing prewarm taken back (cleared prompt, closed unsent; newChatPrewarm.ts).
