@@ -50,7 +50,7 @@ nonisolated enum TabSettingsSchema {
             NewTerminalWorkspaceSetting.configPath, section: .general, group: group,
             title: SettingsText.keyed("settings.newTerminal.opensWorkspace", "New Terminal Opens a Workspace (cmux classic)"),
             help: SettingsText.keyed("settings.newTerminal.opensWorkspace.help",
-                                     "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option to reverse this for one click."),
+                                     "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option when clicking New Terminal to reverse this once."),
             kind: .toggle,
             default: .bool(NewTerminalWorkspaceSetting.fallback),
             keywords: ["new terminal", "workspace", "space", "tab", "option", "classic", "cmd-n"]
