@@ -1742,13 +1742,13 @@ jobs:
           ref: ${{ github.sha }}
           sparse-checkout: scripts/ci
 
-      - name: Pick a Blacksmith macOS label with a moving queue
+      - name: Pick a cloud macOS label with a moving queue
         id: pick
         continue-on-error: true
         timeout-minutes: 2
         env:
           SNAPSHOT_TOKEN: ${{ github.token }}
-          FIRST: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+          FIRST: 6vcpu
           ENABLED: '0'
         run: python3 scripts/ci/classic_nightly_build_runner.py
 

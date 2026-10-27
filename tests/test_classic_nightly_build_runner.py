@@ -118,6 +118,9 @@ class FirstAndAlternate(unittest.TestCase):
         self.assertEqual(picker.blacksmith_route(snapshot(), now, picker.SMALL)[0], picker.SMALL)
         # The 2026-10-27 12:03-12:46Z case: 6 vCPU stalled, 12 vCPU moving.
         self.assertEqual(picker.blacksmith_route(snapshot(small=52), now, picker.SMALL)[0], picker.LARGE)
+        # A size names the same label.
+        self.assertEqual(picker.blacksmith_route(None, now, "6vcpu")[0], picker.SMALL)
+        self.assertEqual(picker.blacksmith_route(snapshot(small=52), now, "6vcpu")[0], picker.LARGE)
         # A label that is not a candidate changes nothing.
         self.assertEqual(picker.blacksmith_route(None, now, "glaeda-std-xcode-26.6")[0], picker.LARGE)
 
@@ -136,7 +139,7 @@ class FirstAndAlternate(unittest.TestCase):
         def pick(attempt: int, **stalled: float) -> dict:
             with tempfile.TemporaryDirectory() as directory:
                 output = Path(directory) / "out"
-                picker.main({"GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": str(attempt), "FIRST": picker.SMALL,
+                picker.main({"GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": str(attempt), "FIRST": "6vcpu",
                              "SNAPSHOT_TOKEN": "t", "GITHUB_REPOSITORY": "o/r"},
                             read_snapshot=lambda token, repo: snapshot(**stalled), now=NOW,
                             sleep=lambda seconds: None, clock=Clock())

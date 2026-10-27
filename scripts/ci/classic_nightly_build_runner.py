@@ -18,7 +18,8 @@ rule over the queue janitor's snapshot: 12 vCPU first (the build's old default),
 both stalled, 6 vCPU (more slots); with no fresh snapshot, 12 vCPU. A re-run of failed jobs keeps
 these outputs, so attempt 2 on takes `cloud`. Nothing here routes to any owned label other
 than the pinned pair, so the ci-cache-writer keys and the Sentry token stay on the trusted mini.
-FIRST (a label among those two) puts that label ahead: the sign and verify jobs of main's nightly
+FIRST (a label among those two, or its size, `6vcpu` or `12vcpu`) puts that label ahead: the sign
+and verify jobs of main's nightly
 and the DEV publisher's Mac jobs keep 6 vCPU, their old pinned default, while it moves. With
 ENABLED unset the trusted pick is skipped and only `cloud` is read. `alternate` is the other label,
 for a re-run.
@@ -89,7 +90,11 @@ def trusted_route(pool: str, runner: str, read: Callable[[], Sequence[Mapping[st
 
 
 def candidates(first: str = "") -> tuple[str, ...]:
-    """CANDIDATES, with `first` ahead when it is one of them (the job's own default label)."""
+    """CANDIDATES, with `first` ahead when it is one of them or its size (the job's own default label).
+
+    A size lets a nightly step name the label without naming Blacksmith outside a runs-on
+    (tests/test_ci_nightly_off_blacksmith.py)."""
+    first = next((label for label in CANDIDATES if first and f"-{first}-" in label), first)
     return (first, *(label for label in CANDIDATES if label != first)) if first in CANDIDATES else CANDIDATES
 
 

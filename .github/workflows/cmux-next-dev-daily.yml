@@ -351,14 +351,14 @@ jobs:
       # stall rule), so a stalled 6 vCPU queue no longer holds verify, tip-dmg-build and tip-deltas:
       # 2026-10-27 12:03-12:46Z it started about one job a minute with the oldest waiting 52 min.
       # Every attempt, so it is also what the owned pick below counts Blacksmith room on.
-      - name: Pick a Blacksmith macOS label with a moving queue
+      - name: Pick a cloud macOS label with a moving queue
         id: cloud
         if: github.repository_owner == 'manaflow-ai'
         continue-on-error: true
         timeout-minutes: 2
         env:
           SNAPSHOT_TOKEN: ${{ github.token }}
-          FIRST: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+          FIRST: 6vcpu
           ENABLED: '0'
         run: python3 scripts/ci/classic_nightly_build_runner.py
 
