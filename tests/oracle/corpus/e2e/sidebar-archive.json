@@ -14,7 +14,8 @@
     "tagged bench build",
     "no unrelated app instance",
     "a fresh launch: one window, one workspace, one terminal tab",
-    "the daemon's sidebar document is active (SidebarDocStore.current), as it is on a fresh local launch"
+    "the daemon's sidebar document is active (SidebarDocStore.current), as it is on a fresh local launch",
+    "no workspace group before group-alpha: the home session serves personal groups and has none"
   ],
   "requires": ["actions", "gui"],
   "platforms": ["mac"],
@@ -107,13 +108,21 @@
       "settleMaxMs": 10000
     },
     {
+      "id": "read-group",
+      "op": "cli",
+      "readOnly": true,
+      "args": {"argv": ["--json", "app", "call", "snapshot.get"]},
+      "expect": {"outcome": "ok"},
+      "note": "topology/workspace_groups/0/id is Proj's id: the launch has no group, and group-alpha made the only one"
+    },
+    {
       "id": "archive-group",
-      "op": "action.run",
+      "op": "cli",
       "target": {"workspace": "$step:make-alpha#/created/0"},
-      "args": {"action": "workspaceGroup.toggleArchive", "entrypoint": "script"},
-      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "args": {"argv": ["--json", "action", "run", "workspaceGroup.toggleArchive", "--target", "$step:read-group#/stdout/topology/workspace_groups/0/id"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "a cli step: the driver reads the cli's exit and output, not the ActionEffect kind; the toggle answering ok is the check"},
       "settleMaxMs": 10000,
-      "note": "a workspace target names its personal group (AppActionContext.personalGroup); case-v1 has no workspace-group target kind"
+      "note": "the action takes a workspace-group target and case-v1 has none, so the cli names Proj by its bare id (ControlRouter.target: a bare id is the action's first target kind); target names Alpha, the member the toggle touches"
     },
     {
       "id": "archived-group",
@@ -123,10 +132,10 @@
     },
     {
       "id": "unarchive-group",
-      "op": "action.run",
+      "op": "cli",
       "target": {"workspace": "$step:make-alpha#/created/0"},
-      "args": {"action": "workspaceGroup.toggleArchive", "entrypoint": "script"},
-      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "args": {"argv": ["--json", "action", "run", "workspaceGroup.toggleArchive", "--target", "$step:read-group#/stdout/topology/workspace_groups/0/id"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "a cli step: the driver reads the cli's exit and output, not the ActionEffect kind; the toggle answering ok is the check"},
       "settleMaxMs": 10000
     },
     {
@@ -137,7 +146,8 @@
     }
   ],
   "invariants": [
-    "every toggle answers ok: on the parent of fdb69742b25 workspace.toggleArchive and workspaceGroup.toggleArchive are no actions (control.not_found)",
+    "every toggle answers ok: on the parent of fdb69742b25 workspace.toggleArchive and workspaceGroup.toggleArchive are no actions (control.not_found, and the cli exits nonzero)",
+    "the group toggles name Proj as a workspace-group target, the kind workspaceGroup.toggleArchive takes (WorkspaceActionCatalog targets: [.workspaceGroup]); a workspace target is control.invalid_params",
     "topology at archived-grouped, archived-group and restored equals topology at grouped, but for sequence and generation: an archive closes, moves out of its group or hides no workspace, tab or group (the mark lives in the sidebar document, not in the workspace list)",
     "intents.totals.refused does not grow from grouped to restored",
     "every mutation has one receipt or one typed error (I1)",

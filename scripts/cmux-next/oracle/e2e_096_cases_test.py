@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline tests of p15-oracle-096's e2e batch: its manifest and its four converted cases.
+"""Offline tests of p15-oracle-096's e2e batch: its manifest and its three converted cases.
 
 Spec: plans/cmux-next/chrome-parity/p15-oracle.md, section 5 item 4, and task p15-oracle-096 (MQ-e2e entries 45-55).
 Stdlib only, Python 3.9+, safe under `python3 -I`.
@@ -9,7 +9,9 @@ Stdlib only, Python 3.9+, safe under `python3 -I`.
   the script, with the fix commit, its parent and the step `catches` names) or excluded with a reason.
 - Each converted case runs through driver_app's real step runner against a fake app that answers only the facets the
   base build provides (AppServices+OracleHost.makeOracleFacets, plus the router's topology for snapshots only): a
-  wait on topology or an unprovided facet is refused, as OracleSettleControl refuses it.
+  wait on topology or an unprovided facet is refused, as OracleSettleControl refuses it. Its action.run checks the
+  target kind against the action's catalog `targets` (CmuxNextActions/Catalog/*.swift), as ControlRouter+Validation
+  does, so a case that aims an action at the wrong kind fails here as it would on the app.
 - The case passes against the fake head. Against a fake of the parent behavior the manifest describes, a `failure`
   catch ends the run Failure or Timeout at the `catches` step, and a `baseline` catch passes but records a different
   snapshot there. That shows the case tells the two apart. It is NOT the task's acceptance (red on the real parent):
@@ -41,6 +43,7 @@ import driver_app_test  # noqa: E402
 
 REPO = HERE.parents[2]
 SUITE = REPO / "tests" / "oracle" / "corpus" / "e2e"
+ACTIONS = REPO / "Packages" / "macOS" / "CmuxNext" / "Sources" / "CmuxNextActions"
 MANIFEST = SUITE / "_scripts-096.json"
 SHA = re.compile(r"^[0-9a-f]{40}$")
 
@@ -51,6 +54,61 @@ SNAPSHOT_PROVIDED = ("topology", "focus", "layout", "tabs", "overlays", "setting
 # own change signal (OracleFacets.signalsChanges).
 WAITABLE = ("focus", "layout", "tabs", "overlays", "settings", "windows", "invariants", "intents", "notifications",
             "liveObjects")
+
+
+def target_kinds() -> Dict[str, str]:
+    """ActionTargetKind's cases (ActionTarget.swift) by Swift name: the raw value is the `kind:` prefix."""
+    source = (ACTIONS / "ActionTarget.swift").read_text(encoding="utf-8")
+    body = source[source.index("enum ActionTargetKind"):]
+    body = body[:body.index("\n}")]
+    return {name: raw or name for name, raw in re.findall(r'^\s*case (\w+)(?:\s*=\s*"([^"]+)")?\s*$', body, re.M)}
+
+
+def catalog_targets() -> Dict[str, List[str]]:
+    """Each catalog action's `targets` as raw kinds (CmuxNextActions/Catalog/*.swift, one ActionDescriptor each)."""
+    kinds = target_kinds()
+    out: Dict[str, List[str]] = {}
+    for path in sorted((ACTIONS / "Catalog").glob("*.swift")):
+        for chunk in path.read_text(encoding="utf-8").split("ActionDescriptor(")[1:]:
+            ident = re.search(r'\bid: "([^"]+)"', chunk)
+            if ident is None:
+                continue
+            targets = re.search(r"\btargets: \[([^\]]*)\]", chunk)
+            names = re.findall(r"\.(\w+)", targets.group(1)) if targets else []
+            out.setdefault(ident.group(1), [kinds[n] for n in names])
+    return out
+
+
+CATALOG_TARGETS = catalog_targets()
+KNOWN_KINDS = tuple(target_kinds().values())
+
+
+def normalized_kind(kind: str) -> str:
+    return kind.lower().replace("-", "").replace("_", "")
+
+
+def routed_target(action: str, raw: str) -> Any:
+    """`raw` as ControlRouter.target(from:allowedKinds:) reads it: `(kind, id)`, or the invalid_params error."""
+    allowed = CATALOG_TARGETS[action]
+    prefix, _, rest = raw.strip().partition(":")
+    named = bool(rest) and any(normalized_kind(k) == normalized_kind(prefix) for k in (*KNOWN_KINDS, *allowed))
+    kind_text, ident = (prefix, rest) if named else (None, raw.strip())
+
+    def invalid(message: str) -> Dict[str, Any]:
+        return {"code": "invalid_params", "message": message}
+
+    if not ident:
+        return invalid("target id is empty")
+    if not allowed:
+        return invalid(f"{action} does not take a target")
+    if kind_text is None:
+        by_prefix = [k for k in allowed if ident.startswith("ws_" if normalized_kind(k) == "workspace"
+                                                            else f"{normalized_kind(k)}_")]
+        return (by_prefix or allowed)[0], ident
+    kind = next((k for k in allowed if normalized_kind(k) == normalized_kind(kind_text)), None)
+    if kind is None:
+        return invalid(f"{action} takes a target of kind {'|'.join(allowed)}, not {kind_text}")
+    return kind, ident
 
 
 def mq_e2e() -> List[str]:
@@ -81,6 +139,8 @@ class ScriptedApp(driver_app_test.FakeApp):
     def __init__(self, app: str, out: Path, env: Mapping[str, str]):
         super().__init__(app, out, env)
         self.names: List[str] = ["workspace-1"]
+        self.groups: Dict[str, str] = {}
+        self.member: Dict[str, str] = {}
         self.shown = 0
         self.unread: Dict[str, int] = {}
         self.refused = 0
@@ -96,10 +156,12 @@ class ScriptedApp(driver_app_test.FakeApp):
 
     def model(self) -> Dict[str, Any]:
         pane, tab, resolved = self.focused
-        workspaces = [{"id": self.ws(i), "name": n, "unread": self.unread.get(self.ws(i), 0)}
-                      for i, n in enumerate(self.names)]
+        workspaces = [{"id": self.ws(i), "name": n, "unread": self.unread.get(self.ws(i), 0),
+                       "group": self.member.get(self.ws(i))} for i, n in enumerate(self.names)]
+        groups = [{"id": g, "name": n} for g, n in self.groups.items()]
         return {
-            "topology": {"topology": {"workspaces": workspaces, "focus": {"workspace": self.ws(self.shown)}},
+            "topology": {"topology": {"workspaces": workspaces, "workspace_groups": groups,
+                                      "focus": {"workspace": self.ws(self.shown)}},
                          "tab_count": sum(len(p["tabs"]) for p in self.panes)},
             "focus": {"windows": [{"model": {"pane": pane, "resolved": resolved, "resolvedPane": pane,
                                              "resolvedTab": tab}}]},
@@ -144,6 +206,14 @@ class ScriptedApp(driver_app_test.FakeApp):
         handler = self.actions.get(params["action"])
         if handler is None:
             return {"ok": False, "error": {"code": "not_found", "message": params["action"]}}
+        if "target" in params:
+            routed = routed_target(params["action"], params["target"])
+            if isinstance(routed, dict):
+                return {"ok": False, "error": routed}
+            kind, ident = routed
+            listed = {"workspace": [self.ws(i) for i in range(len(self.names))], "workspace-group": list(self.groups)}
+            if kind in listed and ident not in listed[kind]:
+                return {"ok": False, "error": {"code": "not_found", "message": f"No {kind} matches {ident}"}}
         self.sequence += 1
         reply = {"action": params["action"], "ran": True, "waited": True, "args": params["args"],
                  "created": [], "sequence": self.sequence}
@@ -205,26 +275,27 @@ def rapid_workspace(app: ScriptedApp, parent: bool) -> None:
 
 def sidebar_archive(app: ScriptedApp, parent: bool) -> None:
     app.actions["newTab"] = lambda p: app.add_workspace(p["args"]["name"])
-    app.actions["workspace.moveToNewGroup"] = lambda p: {}
-    app.actions["workspace.newBelow"] = lambda p: app.add_workspace(f"workspace-{len(app.names) + 1}")
+
+    def new_group(p: Dict[str, Any]) -> Dict[str, Any]:
+        group = f"grp_{len(app.groups) + 1}"
+        app.groups[group] = p["args"]["name"]
+        app.member[p["target"].split(":", 1)[1]] = group
+        return {}
+
+    def new_below(p: Dict[str, Any]) -> Dict[str, Any]:
+        created = app.add_workspace(f"workspace-{len(app.names) + 1}")
+        anchor = app.member.get(p["target"].split(":", 1)[1])
+        if anchor:
+            app.member[created["created"][0]] = anchor
+        return created
+
+    app.actions["workspace.moveToNewGroup"] = new_group
+    app.actions["workspace.newBelow"] = new_below
+    app.cli["snapshot.get"] = lambda words: app.model()["topology"]
     if parent:
         return  # 0498645db2e has no archive actions
     app.actions["workspace.toggleArchive"] = lambda p: {}
     app.actions["workspaceGroup.toggleArchive"] = lambda p: {}
-
-
-def sidebar_notification(app: ScriptedApp, parent: bool) -> None:
-    app.actions["newTab"] = lambda p: app.add_workspace(p["args"]["name"])
-
-    def notify(words: List[str]) -> Any:
-        workspace = words[words.index("--workspace") + 1]
-        if not workspace.startswith("ws_"):
-            raise ValueError(f"notify --workspace {workspace}: not a ws_ id")
-        app.unread[workspace] = app.unread.get(workspace, 0) + 1
-        return {"ok": True}
-
-    app.cli["notify"] = notify
-    app.cli["snapshot.get"] = lambda words: app.model()["topology"]
 
 
 def split_new_tab_page(app: ScriptedApp, parent: bool) -> None:
@@ -266,20 +337,22 @@ def split_new_tab_page(app: ScriptedApp, parent: bool) -> None:
 BEHAVIOR: Dict[str, Callable[[ScriptedApp, bool], None]] = {
     "e2e/rapid-workspace": rapid_workspace,
     "e2e/sidebar-archive": sidebar_archive,
-    "e2e/sidebar-notification": sidebar_notification,
     "e2e/split-new-tab-page": split_new_tab_page,
 }
 
 
 class CliRunner:
     """subprocess.run for cli steps: `cmux --app-socket PATH [--json] <verb ...>` answered by the behavior's cli
-    handlers, keyed by the verb (`notify`) or the `app call` method."""
+    handlers, keyed by the verb or the `app call` method; `action run ID [--target T]` is the fake's action.run with
+    a script origin, as the cli sends it."""
 
     def __init__(self, apps: List[ScriptedApp]):
         self.apps = apps
 
     def __call__(self, argv, **kwargs):
         words = [w for w in list(argv)[3:] if w != "--json"]
+        if words[:2] == ["action", "run"]:
+            return self.action_run(argv, words[2], words[3:])
         key = words[2] if words[:2] == ["app", "call"] else words[0]
         handler = self.apps[-1].cli.get(key)
         if handler is None:
@@ -289,6 +362,15 @@ class CliRunner:
         except ValueError as error:
             return subprocess.CompletedProcess(argv, 1, json.dumps({"error": {"code": "usage", "message": str(error)}}),
                                                "")
+
+    def action_run(self, argv, action: str, flags: List[str]):
+        params: Dict[str, Any] = {"action": action, "args": {}, "origin": "script"}
+        if "--target" in flags:
+            params["target"] = flags[flags.index("--target") + 1]
+        reply = self.apps[-1].m_action_run(params)
+        if reply["ok"]:
+            return subprocess.CompletedProcess(argv, 0, json.dumps(reply["result"]), "")
+        return subprocess.CompletedProcess(argv, 1, json.dumps({"error": reply["error"]}), "")
 
 
 def run_as(case_id: str, parent: bool, out: str, case: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -390,6 +472,27 @@ class ConvertedCaseTest(unittest.TestCase):
                 first, second = (run_as(case_id, False, self.tmp.name) for _ in range(2))
                 self.assertEqual([facets_at(first, c["step"]) for c in first["checkpoints"]],
                                  [facets_at(second, c["step"]) for c in second["checkpoints"]])
+
+    def test_an_action_aimed_at_a_kind_it_does_not_take_is_refused(self) -> None:
+        """The router's target check behind the group toggles: workspaceGroup.toggleArchive takes a workspace-group
+        target, so a workspace target is invalid_params before the handler runs and the case fails at that step."""
+        self.assertEqual(CATALOG_TARGETS["workspaceGroup.toggleArchive"], ["workspace-group"])
+        self.assertEqual(CATALOG_TARGETS["workspace.toggleArchive"], ["workspace"])
+        self.assertEqual(routed_target("workspaceGroup.toggleArchive", "grp_1"), ("workspace-group", "grp_1"))
+        self.assertEqual(routed_target("workspaceGroup.toggleArchive", "workspaceGroup:grp_1"),
+                         ("workspace-group", "grp_1"))
+        self.assertEqual(routed_target("workspaceGroup.toggleArchive", "workspace:ws_2")["code"], "invalid_params")
+        case = load("e2e/sidebar-archive")
+        index = next(i for i, s in enumerate(case["steps"]) if s["id"] == "archive-group")
+        case["steps"][index] = {
+            "id": "archive-group", "op": "action.run", "target": {"workspace": "$step:make-alpha#/created/0"},
+            "args": {"action": "workspaceGroup.toggleArchive", "entrypoint": "script"},
+            "expect": {"outcome": "ok", "receipt": "action.done"}, "settleMaxMs": 10000,
+        }
+        result = run_as("e2e/sidebar-archive", False, self.tmp.name, case=case)
+        self.assertEqual(result["status"], "Failure", result.get("message"))
+        self.assertEqual(result.get("step"), "archive-group")
+        self.assertIn("control.invalid_params", result.get("message", ""))
 
     def test_a_wait_on_topology_is_refused(self) -> None:
         """The guard behind the cases' waits: OracleSettleControl's facet list has no topology, so a wait on it

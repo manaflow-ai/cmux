@@ -33,12 +33,7 @@
       "excluded": "the chevron's icon, size and place and the row fill on hover are drawing, read from debug.sidebar_rows view frames while debug.mouse hovers: no facet records disclosure geometry, hover or fill (the sidebar facet's rows say only collapsed), and case-v1 has no pointer step; the cited fix (cx-fo2t, 575c79494de) changed only how the rows draw"
     },
     "scripts/cmux-next/sidebar-notification-e2e.py": {
-      "case": "e2e/sidebar-notification",
-      "fix": "9f88ede93c53821cb876909f796a9dd432355c95",
-      "parent": "8daa6eaf7904bb27f23c9fbab032931dd346d305",
-      "cited": "cx-sv425, hq#1870 P1 11 (#19862)",
-      "catches": null,
-      "gap": "the fix is the move of the notified workspace to the top row, a sidebar placement (SidebarBridge reorder) the topology's daemon order does not show, and the sidebar facet (p15-oracle-036) has no provider on the base. The case checks the unread mark and that the window keeps what it shows; when 036 lands, its notified snapshots add `sidebar` and it catches the parent at notified"
+      "excluded": "the bug it cites (cx-sv425, fix 9f88ede93c5, parent 8daa6eaf790) is the notified workspace moving to the top row, a sidebar placement (SidebarBridge reorder) the script reads from debug.sidebar_rows. The topology lists the daemon's order, which the move does not change, the sidebar facet (p15-oracle-036) has no provider on the base, and driver_app cannot compare one field of a cli step's output (no resultExcept, and expect.result is the whole reply), so no case can go red on the parent. The unread mark and the unchanged focus were already right on the parent; convert it when 036 provides the sidebar rows"
     },
     "scripts/cmux-next/sidebar-reorder-e2e.py": {
       "excluded": "drags a row with debug.mouse held open, captures the window during the hold, drops, relaunches and captures again, and records the R99 space slide with trackpad scroll phases: case-v1 has no pointer step, driver_app has no restart (p15-oracle-023), and the hold is pixels"
