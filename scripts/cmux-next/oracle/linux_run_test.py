@@ -88,6 +88,12 @@ class LinuxRunCase(unittest.TestCase):
         lib = repo / "cmux-tui" / "crates" / "core" / "src" / "lib.rs"
         lib.parent.mkdir(parents=True)
         lib.write_text("pub fn index(i: usize) -> usize {\n    i\n}\n")
+        # A cmux-tui tag from before ghostty-next builds its VT library from the ghostty submodule (p15-oracle-208).
+        git("submodule", "add", "-q", str(ghostty), "ghostty", cwd=repo)
+        git("add", "-A", cwd=repo)
+        git("commit", "-q", "-m", "tag", cwd=repo)
+        cls.tag_sha = git("rev-parse", "HEAD", cwd=repo)
+        git("rm", "-q", "ghostty", cwd=repo)
         git("submodule", "add", "-q", str(ghostty), "ghostty-next", cwd=repo)
         git("add", "-A", cwd=repo)
         git("commit", "-q", "-m", "base", cwd=repo)
@@ -222,6 +228,19 @@ class BuildTests(LinuxRunCase):
             targets.add(receipt["targetDir"])
         self.assertEqual({Path(t).name for t in targets},
                          {f"{self.base_sha}-oracle-feat-oracle", f"{self.base_sha}-oracle-feat-none"})
+
+    def test_a_sha_from_before_ghostty_next_builds_with_its_ghostty_submodule(self) -> None:
+        result = self.linux_run("build", self.tag_sha, "--profile", "release", "--features", "")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((Path(result.stdout.strip()).parent / "build.json").read_text())
+        self.assertEqual(receipt["vtModule"], "ghostty")
+        self.assertIsNone(receipt["ghosttyNext"])
+        self.assertEqual(receipt["gitlinks"], {"ghostty": git("rev-parse", f"{self.tag_sha}:ghostty", cwd=self.repo)})
+        base = self.linux_run("build", self.base_sha)
+        self.assertEqual(base.returncode, 0, base.stderr)
+        receipt = json.loads((Path(base.stdout.strip()).parent / "build.json").read_text())
+        self.assertEqual((receipt["vtModule"], receipt["ghosttyNext"]),
+                         ("ghostty-next", git("rev-parse", f"{self.base_sha}:ghostty-next", cwd=self.repo)))
 
     def test_the_build_worktree_is_gone_after_the_job(self) -> None:
         result = self.linux_run("build", self.base_sha)

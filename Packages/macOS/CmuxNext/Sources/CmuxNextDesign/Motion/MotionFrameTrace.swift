@@ -1,8 +1,8 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextWakeups
 
-/// `debug.motion` `trace_*` (DEBUG builds): one window's animated geometry, sampled on each
+/// `debug.motion` `trace_*` (DEBUG and `CMUX_BENCH_HOOKS` builds, so the perf lab measures it): one window's animated geometry, sampled on each
 /// tick of that window's display link, for the golden-interactions motion guard
 /// (scripts/ci/frame-pacing/golden.py). A guard starts it, drives an interaction through the
 /// socket and stops it: an animation that ran shows as values that move over many frames;
