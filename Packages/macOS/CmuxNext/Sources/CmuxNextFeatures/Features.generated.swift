@@ -1793,12 +1793,12 @@ nonisolated extension Feature {
     )
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; Chromium tabs stay in cmux until the host supervisor lands.
+    /// debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; in Debug builds every Chromium tab of the launch runs in that one host (ChromiumHostSupervisor).
     public static let cefHelperHost = Feature(
         index: 103,
         name: "cefHelperHost",
         owner: "PL-cef-helper",
-        description: "debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; Chromium tabs stay in cmux until the host supervisor lands.",
+        description: "debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; in Debug builds every Chromium tab of the launch runs in that one host (ChromiumHostSupervisor).",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,
@@ -1852,9 +1852,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// After a Chromium Host crash within the restart budget (Chrome's GPU rule), a new host starts at once and every Chromium tab of every window and profile comes back with its history from its daemon record; hidden tabs when shown, form results not resent.
+    public static let chromiumHostRestoreTabs = Feature(
+        index: 106,
+        name: "chromiumHostRestoreTabs",
+        owner: "PL-cef-helper",
+        description: "After a Chromium Host crash within the restart budget (Chrome's GPU rule), a new host starts at once and every Chromium tab of every window and profile comes back with its history from its daemon record; hidden tabs when shown, form results not resent.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["crash-survival"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.
     public static let perfLabCanary = Feature(
-        index: 106,
+        index: 107,
         name: "perfLabCanary",
         owner: "Performance Lead",
         description: "Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.",
@@ -1871,7 +1888,7 @@ nonisolated extension Feature {
 
     /// Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.
     public static let perfLabKillProbe = Feature(
-        index: 107,
+        index: 108,
         name: "perfLabKillProbe",
         owner: "Performance Lead",
         description: "Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.",
@@ -1996,6 +2013,7 @@ nonisolated extension Feature {
         .cefHelperHost,
         .cefLayerHostingEveryPage,
         .chromiumHostIdleExit,
+        .chromiumHostRestoreTabs,
         .perfLabCanary,
         .perfLabKillProbe,
     ]

@@ -33,7 +33,7 @@ public nonisolated struct BrowserHostTunables {
 
     /// The backend the host's switch picks: ``BrowserBackend/host`` with `cefHelperHost` on
     /// (Debug builds only), otherwise ``BrowserBackend/inProcess``. The App builds its
-    /// `CEFRuntimeSource` from it once the supervisor exists (task 080); until then no tab uses it.
+    /// `CEFRuntimeSource` from it at launch, with the host's supervisor in host mode (task 080).
     public static func backend(hostEnabled: Bool) -> BrowserBackend {
         #if DEBUG
         hostEnabled ? .host : .inProcess
@@ -52,7 +52,7 @@ public nonisolated struct BrowserHostTunables {
     /// runs in the Chromium Host app, over a pane.
     public static let helper = Tunable<Bool>.toggle(
         "browserHost.helper", section, "Chromium Host app",
-        help: "Overrides the cefHelperHost feature: lets debug.chromium_host show a Chromium page whose browser process runs in the Chromium Host app. Chromium tabs still run in cmux until the host supervisor lands. Debug and bench builds only.",
+        help: "Overrides the cefHelperHost feature: lets debug.chromium_host show a Chromium page whose browser process runs in the Chromium Host app. In Debug builds every Chromium tab of the next launch runs there too. Debug and bench builds only.",
         default: false, code: "BrowserHostTunables.helper")
     #endif
 }

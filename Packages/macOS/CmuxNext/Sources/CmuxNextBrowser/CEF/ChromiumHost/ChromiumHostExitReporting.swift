@@ -1,3 +1,5 @@
+public import Foundation
+
 /// A ``ChromiumHostSupervising`` that reports when its host ends (p08-startup-046). The runtime
 /// follows it from its adopt (`CEFRuntime.adopt`): every page the host showed gets the crash
 /// state of its end, the runtime attaches again at its next start, and cmux keeps running, as
@@ -11,4 +13,25 @@ public protocol ChromiumHostExitReporting: ChromiumHostSupervising {
     /// Runs on the main thread each time a host that said hello ends while cmux is not quitting,
     /// with the crash state its pages show. A clean exit (status 0) reports nothing.
     var onHostEnded: (@MainActor (BrowserProcessExit) -> Void)? { get set }
+    /// Whether the pages of the last host that ended come back on a new host at once (task 083 of
+    /// plans/cmux-next/chrome-parity/p01-process.md): its restart budget, Chrome's GPU crash budget
+    /// (`GpuProcessHost::RecordProcessCrash`, content/browser/gpu/gpu_process_host.cc), had room for that
+    /// end. Set before ``onHostEnded`` runs; false leaves each page's crash page until the person reloads it.
+    var lastEndRestoresPages: Bool { get }
+    /// Reads a tab's saved navigation for its page on the next host; nil brings each page back at its address.
+    var savedNavigation: ChromiumHostSavedNavigation? { get }
 }
+
+extension ChromiumHostExitReporting {
+    /// A supervisor with no restart budget restores no page: each one waits for the person's Reload.
+    public var lastEndRestoresPages: Bool { false }
+    /// No saved navigation: a restored page loads its address.
+    public var savedNavigation: ChromiumHostSavedNavigation? { nil }
+}
+
+/// Reads tab `tab`'s saved Chromium navigation (the fork's `cmux_tab_navigation_state`, its back/forward list) from
+/// its daemon history record (`frontend-browser-history-v1`), when that record was saved at `url` and may be
+/// restored (no form submission in it, no file outside the shown page's folder); nil otherwise. The App reads the
+/// record (`BrowserTabService.savedChromiumNavigation`): it outlives the host, as Chrome's session service keeps
+/// each tab's `SerializedNavigationEntry` list outside the renderer (components/sessions/core/session_service_commands.cc).
+public typealias ChromiumHostSavedNavigation = @MainActor @Sendable (_ tab: BrowserTabID, _ url: URL) async -> BrowserRestoreState?

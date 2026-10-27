@@ -48,4 +48,19 @@ extension BrowserHistoryStarts {
         markEngineRestored(key)
         return restored
     }
+
+    /// Chromium tab `key`'s saved navigation from its daemon record, for its page on a Chromium Host restarted after a
+    /// crash (``ChromiumHostSavedNavigation``, p01-process-083): the record outlives the host. Nil, and the page loads
+    /// `url`, as in `chromium`: no record of this Mac's daemon (incognito, another machine), one saved at another
+    /// page, with a form submission (BR-R1) or a file outside `url`'s folder (cx-5djb2), or a read slower than `budget`.
+    func hostRestart(_ key: String, at url: URL, service: BrowserTabService) async -> BrowserRestoreState? {
+        guard let tab = service.tabModel(key), tab.isFrontendOwned, !service.isIncognitoTab(key) else { return nil }
+        let daemon = service.daemon(for: tab)
+        guard daemon.isLocal, daemon.supports(DaemonCapability.frontendBrowserHistory.rawValue) else { return nil }
+        let saved = await BrowserHistoryWriter.within(Self.budget, sleep: service.sleep) {
+            await service.fetchHistory(daemon, tab.surface)
+        }
+        guard BrowserHistoryWriter.keepsFileAccess(of: saved, shown: url) else { return nil }
+        return BrowserHistoryWriter.restoreState(saved, at: url, engine: .cef)
+    }
 }

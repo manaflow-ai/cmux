@@ -76,6 +76,7 @@ extension CEFTab: BrowserContentVisibilityReporting, BrowserVisibilityFollowing 
             reloadWhenShown = false
             if state.processExit != nil { reload() }
         }
+        hostRestoreShown()
     }
 
     func contentDidDisappear() {

@@ -240,7 +240,7 @@ final class CEFPaneHost {
     /// (`createAfterMachineProxy`), so a new window does not ask again.
     @discardableResult
     func ensureCreated(_ tab: CEFTab, machineProxyApplied: Bool = false) -> Bool {
-        guard tab.browserID == nil, tab.isCreationPending == false, runtime.acceptsNewBrowsers, let shim = runtime.shim else { return false }
+        guard tab.browserID == nil, !tab.isCreationPending, !tab.awaitsHostRestore, runtime.acceptsNewBrowsers, let shim = runtime.shim else { return false }
         switch window {
         case .none:
             // A browser profile's own proxy (#24432), before the first request:

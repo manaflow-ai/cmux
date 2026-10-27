@@ -11,10 +11,12 @@ extension CEFRuntime {
     /// them: the remote shim gives up the dead wire, nothing is sent until a new host is attached, and the
     /// next start (a new tab, or a page's Reload through ``reloadAfterHostRestart(_:)``) asks the
     /// supervisor for a host again, as Chrome's `BrowserGpuChannelHostFactory` establishes a new channel
-    /// after the GPU process died. Restoring each tab's history on the new host is task 083 of
-    /// plans/cmux-next/chrome-parity/p01-process.md. No effect in process, before Chromium runs, or
+    /// after the GPU process died. With `restoresPages` (the supervisor's restart budget had room for this
+    /// end) that start comes now and every page comes back on the new host with the navigation
+    /// `savedNavigation` reads for it (``restorePagesOnNextHost(_:reading:)``, task 083 of
+    /// plans/cmux-next/chrome-parity/p01-process.md). No effect in process, before Chromium runs, or
     /// while quitting (quit ends the host).
-    func hostEnded(_ exit: BrowserProcessExit) {
+    func hostEnded(_ exit: BrowserProcessExit, restoresPages: Bool = false, savedNavigation: ChromiumHostSavedNavigation? = nil) {
         guard let hostStart, state == .ready, shutdownSequence == nil else { return }
         logger.error("chromium host ended reason=\(exit.reason.rawValue, privacy: .public) code=\(exit.code ?? 0) tabs=\(self.tabsByBrowser.count)")
         crashLog.append(BrowserCrashRecord(processType: "chromium-host", reason: exit.reason, code: exit.code, source: .process))
@@ -23,8 +25,11 @@ extension CEFRuntime {
         hostStart.hostEnded()
         shim = nil
         state = .idle
-        // The pages on the host: its browsers, and the tabs whose browser it was still making.
-        let tabs = Array(tabsByBrowser.values) + hosts.values.flatMap(\.tabs).filter { $0.browserID == nil && $0.isCreationPending }
+        // The pages on the host: its browsers, the tabs whose browser it was still making, and those a restore brings to it.
+        let restores = hostStart.pageRestores
+        let tabs = Array(tabsByBrowser.values) + hosts.values.flatMap(\.tabs).filter {
+            $0.browserID == nil && ($0.isCreationPending || restores.phase(of: $0) != nil)
+        }
         (tabsByBrowser, pendingWindows, tabBeingAdded) = ([:], [:], nil)
         (orphans.ledger, orphans.unplaced) = (CEFAdoptionLedger(), [:])
         // The new host has none of the old one's contexts.
@@ -33,6 +38,7 @@ extension CEFRuntime {
         for tab in tabs { tab.hostEnded(exit) }
         // The spares' placeholders went with the host (their tabs forgot their browsers above).
         spareWindow.hostEnded(runtime: self)
+        if restoresPages { restorePagesOnNextHost(tabs, reading: savedNavigation) } else { restores.endAll() }
     }
 
     /// The host ended and no new one is attached yet (``hostEnded(_:)``): a page's Reload waits for one.
@@ -43,25 +49,33 @@ extension CEFRuntime {
     /// one when it shows. Nothing reaches the dead host's wire. A host that cannot start leaves the
     /// sad tab.
     func reloadAfterHostRestart(_ tab: CEFTab) {
-        Self.restartHost(self, thenReload: tab)
+        Self.restartHost(self, then: tab, reloads: true)
+    }
+
+    /// `tab` was sent to a new address while its host restore waited for the next host (``CEFTab/hostRestoreNavigated()``):
+    /// once that host is attached, a shown `tab` gets its browser there with that address, a hidden one when it shows.
+    func createAfterHostRestart(_ tab: CEFTab) {
+        Self.restartHost(self, then: tab, reloads: false)
     }
 
     /// The restart waits off the main actor: the start and the reload each run on main as the runtime's own
     /// calls, and the main thread holds nothing while the supervisor starts the host.
-    private nonisolated static func restartHost(_ runtime: CEFRuntime, thenReload tab: CEFTab) {
-        // task-owner: one per Reload of a sad tab; the shared attach (CEFHostStart) owns the restart, and quit fails it
+    private nonisolated static func restartHost(_ runtime: CEFRuntime, then tab: CEFTab, reloads: Bool) {
+        // task-owner: one per Reload of a sad tab, or per navigation of a page a host restore waited for; the shared
+        // attach (CEFHostStart) owns the restart, and quit fails it
         Task { [weak runtime, weak tab] in
             guard let runtime else { return }
             do { try await runtime.start(layout: nil, trigger: "hostRestart") } catch { return }
             guard let tab else { return }
-            await runtime.reloadOnRestartedHost(tab)
+            await runtime.resumeOnRestartedHost(tab, reloads: reloads)
         }
     }
 
-    /// The new host is attached: `tab` loads its page there, and gets a browser now when it is shown.
-    private func reloadOnRestartedHost(_ tab: CEFTab) {
-        guard !tab.isClosed, !awaitsHostRestart else { return }
-        tab.reload()
+    /// The new host is attached: `tab` loads its page there (again when `reloads`), and gets a browser now when it is
+    /// shown. A page a restore brings back (``restorePagesOnNextHost(_:reading:)``) comes back that way, with its history.
+    private func resumeOnRestartedHost(_ tab: CEFTab, reloads: Bool) {
+        guard !tab.isClosed, !awaitsHostRestart, hostStart?.pageRestores.phase(of: tab) == nil else { return }
+        if reloads { tab.reload() }
         tab.host.recreateShown(tab)
     }
 
@@ -77,7 +91,9 @@ extension CEFRuntime {
                                  fencesResizes: fencesResizes, drawsPopupMenus: drawsPopupMenus, fileDialogs: fileDialogs)
         hostStart?.drawsSuggestions = drawsSuggestions
         guard let reporting = supervisor as? any ChromiumHostExitReporting else { return }
-        reporting.onHostEnded = { [weak self] exit in self?.hostEnded(exit) }
+        reporting.onHostEnded = { [weak self, weak reporting] exit in
+            self?.hostEnded(exit, restoresPages: reporting?.lastEndRestoresPages == true, savedNavigation: reporting?.savedNavigation)
+        }
     }
 }
 
