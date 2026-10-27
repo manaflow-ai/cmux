@@ -1,4 +1,6 @@
-use super::{CLEARED, SET, VM_HOST, could_be_vm_host, settle_grant, settle_imported_grant};
+use super::{
+    CLEARED, CLEARED_HOST, SET, VM_HOST, could_be_vm_host, settle_grant, settle_imported_grant,
+};
 use crate::config::PermissionPolicy;
 use crate::hub::Hub;
 use crate::store::{EventRecord, META_SCHEMA, SessionMeta};
@@ -302,4 +304,21 @@ async fn every_approve_all_with_no_source_asks_on_a_machine_that_could_have_had_
             "vmHost {configured}"
         );
     }
+}
+
+/// A host started for a chat whose old host was to end: that one no longer runs, and the new one
+/// is adopted after a restart as any other.
+#[tokio::test]
+async fn a_fresh_host_turns_a_cleared_host_chat_cleared() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    legacy_store(dir.path());
+    let hub = hub_at(dir.path());
+    let s = hub.resolve(VM_HOST_ERA).unwrap();
+    s.meta.lock().unwrap().policy_source = Some(CLEARED_HOST.into());
+    hub.fresh_host_after_clear(&s);
+    assert_eq!(s.meta().policy_source.as_deref(), Some(CLEARED));
+    hub.store.flush().unwrap();
+    let saved = saved(dir.path());
+    let era = saved.iter().find(|m| m.id == VM_HOST_ERA).unwrap();
+    assert_eq!(era.policy_source.as_deref(), Some(CLEARED));
 }

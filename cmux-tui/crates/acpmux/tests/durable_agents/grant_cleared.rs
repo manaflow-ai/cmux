@@ -66,4 +66,9 @@ async fn a_cleared_grants_live_agent_is_ended_not_adopted_and_its_chat_asks() {
     for kind in ["host_adopted", "permission_auto"] {
         assert!(!events.iter().any(|e| e["kind"] == kind), "{kind}: {events:#?}");
     }
+    // The host that start runs is the chat's own: the next restart adopts it.
+    daemon.sigterm();
+    drop(rpc);
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
 }
