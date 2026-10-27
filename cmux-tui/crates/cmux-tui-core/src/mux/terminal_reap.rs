@@ -429,8 +429,12 @@ impl Mux {
         // reporting success, prove every host of this session ended.
         #[cfg(any(unix, windows))]
         if let Some(root) = self.surface_options.lock().unwrap().terminal_host_root.clone() {
-            let survivors =
-                end_surviving_terminal_hosts(&root, Instant::now() + END_TERMINALS_SURVIVOR_WAIT);
+            let panic_log = self.host_panic_log();
+            let survivors = end_surviving_terminal_hosts(
+                &root,
+                panic_log.as_ref(),
+                Instant::now() + END_TERMINALS_SURVIVOR_WAIT,
+            );
             anyhow::ensure!(
                 survivors.is_empty(),
                 "terminal host(s) still running after end_terminals: {}",
@@ -647,7 +651,11 @@ const END_TERMINALS_SURVIVOR_WAIT: Duration = Duration::from_secs(5);
 /// signaled, so a reused PID is never killed. Records are reloaded on every
 /// pass, so a host that appeared during the shutdown is ended too.
 #[cfg(any(unix, windows))]
-fn end_surviving_terminal_hosts(root: &Path, deadline: Instant) -> Vec<String> {
+fn end_surviving_terminal_hosts(
+    root: &Path,
+    panic_log: Option<&crate::terminal_host_runtime::HostPanicLog>,
+    deadline: Instant,
+) -> Vec<String> {
     use crate::terminal_host_runtime::{TerminalHostLiveness, terminal_host_record_liveness};
     let mut signaled = HashSet::new();
     loop {
@@ -658,7 +666,7 @@ fn end_surviving_terminal_hosts(root: &Path, deadline: Instant) -> Vec<String> {
         for (path, record) in records {
             match terminal_host_record_liveness(&path, &record) {
                 Ok(TerminalHostLiveness::Dead) => {
-                    let _ = cleanup_terminal_host_record(&record, &path);
+                    let _ = cleanup_terminal_host_record(&record, &path, panic_log);
                 }
                 Ok(TerminalHostLiveness::Live) => {
                     if let Ok(pid) = i32::try_from(record.host_pid)
