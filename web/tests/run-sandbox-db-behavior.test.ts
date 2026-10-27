@@ -209,4 +209,317 @@ describe("sandboxed Run lifecycle in the repository", () => {
       await removeRuns(userId);
     }
   });
+
+  dbTest("a VM created but never journaled is adopted after a cancel and reported pending until destroyed", async () => {
+    const userId = `sandbox-${randomUUID()}`;
+    try {
+      const created = await repo().createRun(input(userId));
+      const attempt = created.attempts[0]!;
+      await repo().claimAttemptLease({ runId: created.run.id, attemptId: attempt.id, workerId: "sandbox-worker" });
+      // The launcher created the VM, then died before journaling it.
+      const vmId = `vm-orphan-${randomUUID()}`;
+      await insertSandboxVm(userId, `sandbox-run:${created.run.id}:attempt:${attempt.id}`, vmId);
+      await repo().cancelRun(created.run.id, userId);
+      await repo().forceFinalizeRunCancellation(created.run.id, userId);
+      const cancelled = await repo().getRun(created.run.id, userId);
+      expect(cancelled.attempts[0]).toMatchObject({ status: "cancelled", providerVmId: null });
+
+      await repo().failAbandonedSandboxAttempts({ limit: 100 });
+      const claims = await repo().claimExpiredAttemptCleanups({ runId: created.run.id });
+      expect(claims.map((claim) => claim.attempt.providerVmId)).toEqual([vmId]);
+
+      // The reaper destroyed it and cleared the row; the VM row says destroyed; no second adoption.
+      await repo().finishAttemptCleanup({ attemptId: attempt.id, cleanupLeaseToken: claims[0]!.cleanupLeaseToken, succeeded: true });
+      await sql!`update cloud_vms set status = 'destroyed' where provider_vm_id = ${vmId}`;
+      await repo().failAbandonedSandboxAttempts({ limit: 100 });
+      const done = await repo().getRun(created.run.id, userId);
+      expect(done.attempts[0]?.providerVmId).toBeNull();
+    } finally {
+      await sql!`delete from cloud_vms where user_id = ${userId}`;
+      await removeRuns(userId);
+    }
+  });
+
+  dbTest("a VM the provider already lost is adopted once, not every sweep", async () => {
+    const userId = `sandbox-${randomUUID()}`;
+    try {
+      const created = await repo().createRun(input(userId));
+      const attempt = created.attempts[0]!;
+      const vmId = `vm-lost-${randomUUID()}`;
+      await insertSandboxVm(userId, `sandbox-run:${created.run.id}:attempt:${attempt.id}`, vmId);
+      await repo().cancelRun(created.run.id, userId);
+      await repo().failAbandonedSandboxAttempts({ limit: 100 });
+      const claims = await repo().claimExpiredAttemptCleanups({ runId: created.run.id });
+      expect(claims).toHaveLength(1);
+      // The destroy answered not-found, so the reaper cleared the row but the VM row stays running.
+      await repo().finishAttemptCleanup({ attemptId: attempt.id, cleanupLeaseToken: claims[0]!.cleanupLeaseToken, succeeded: true });
+      await repo().failAbandonedSandboxAttempts({ limit: 100 });
+      expect(await repo().claimExpiredAttemptCleanups({ runId: created.run.id })).toEqual([]);
+      // The adoption event's id is opaque: the VM id is in no field a Run view shows.
+      const events = await repo().listRunEvents({ runId: created.run.id, userId });
+      expect(events.events.map((event) => event.externalId)).not.toContain(expect.stringContaining(vmId));
+
+      // An adopted row never takes the batch ahead of a live orphan, however old.
+      const second = await repo().createRun(input(userId));
+      const secondAttempt = second.attempts[0]!;
+      const secondVm = `vm-old-${randomUUID()}`;
+      await insertSandboxVm(userId, `sandbox-run:${second.run.id}:attempt:${secondAttempt.id}`, secondVm);
+      await repo().cancelRun(second.run.id, userId);
+      await sql!`update runs set updated_at = now() - interval '3 days' where id = ${second.run.id}`;
+      await repo().failAbandonedSandboxAttempts({ limit: 1 });
+      expect((await repo().claimExpiredAttemptCleanups({ runId: second.run.id })).map((claim) => claim.attempt.providerVmId)).toEqual([secondVm]);
+    } finally {
+      await sql!`delete from cloud_vms where user_id = ${userId}`;
+      await removeRuns(userId);
+    }
+  });
+
+  dbTest("the reaper keeps a sandbox VM it can't reach while its VM row is up, and retries it later", async () => {
+    const userId = `sandbox-${randomUUID()}`;
+    try {
+      const started = await startedAttempt(userId);
+      const { runId, attemptId } = started;
+      await finishAttempt(started);
+      const vmId = `vm-${attemptId}`;
+      // Recorded under another owner: the run's scope can't reach it, but it is not destroyed.
+      await sql!`insert into cloud_vms (user_id, billing_team_id, owner_team_id, provider, image_id, status, provider_vm_id)
+        values ('someone-else', 'other-team', 'other-team', 'freestyle', 'sh-test-image', 'running', ${vmId})`;
+      const { reapExpiredCloudVmAttempts } = await import("../services/runs/dogfood");
+      const result = await reapExpiredCloudVmAttempts({ runId });
+      expect(result).toMatchObject({ claimed: 1, cleaned: 0, errors: 1 });
+      const kept = (await repo().getRun(runId, userId)).attempts[0]!;
+      expect(kept.providerVmId).toBe(vmId);
+      expect(kept.terminalRetainUntil!.getTime()).toBeGreaterThan(Date.now() + 5 * 60_000);
+      expect(await repo().claimExpiredAttemptCleanups({ runId })).toEqual([]);
+    } finally {
+      await sql!`delete from cloud_vms where user_id = 'someone-else' and provider_vm_id like 'vm-%'`;
+      await removeRuns(userId);
+    }
+  });
+
+  dbTest("with no live VM row left, the reaper asks the provider about the attempt's own VM and only then lets the handle go", async () => {
+    const userId = `sandbox-${randomUUID()}`;
+    const foreignUser = `other-${userId}`;
+    const destroyed: string[] = [];
+    const { mock } = await import("bun:test");
+    const drivers = await import("../services/vms/drivers");
+    // `drivers` is a live module namespace: keep a copy of the real exports to restore.
+    const original = { ...drivers };
+    mock.module("../services/vms/drivers", () => ({
+      ...original,
+      getProvider: () => ({ destroy: async (id: string, _credential?: unknown, options?: { strict?: boolean }) => {
+        // The no-row fallback always asks for a strict destroy.
+        expect(options?.strict).toBe(true);
+        destroyed.push(id);
+        if (id.endsWith("-down")) throw new Error("provider unavailable");
+        // An endpoint 404 is not the provider saying the machine is gone.
+        if (id.endsWith("-route")) throw Object.assign(new Error("no route"), { status: 404, code: "ROUTE_NOT_FOUND" });
+      } }),
+    }));
+    // The launcher's row for the attempt's VM, already reconciled to destroyed (so not live).
+    const destroyedRow = async (target: { runId: string; attemptId: string }, vmId: string) => {
+      await insertSandboxVm(userId, `sandbox-run:${target.runId}:attempt:${target.attemptId}`, vmId);
+      await sql!`update cloud_vms set status = 'destroyed', destroyed_at = now() where provider_vm_id = ${vmId}`;
+    };
+    try {
+      const { reapExpiredCloudVmAttempts } = await import("../services/runs/dogfood");
+      const gone = await startedAttempt(userId);
+      const down = await startedAttempt(userId);
+      await sql!`update run_attempts set provider_vm_id = ${`vm-${down.attemptId}-down`} where id = ${down.attemptId}`;
+      await destroyedRow(gone, `vm-${gone.attemptId}`);
+      await destroyedRow(down, `vm-${down.attemptId}-down`);
+      for (const target of [gone, down]) {
+        await finishAttempt(target);
+      }
+      expect(await reapExpiredCloudVmAttempts({ runId: gone.runId })).toMatchObject({ claimed: 1, cleaned: 1, errors: 0 });
+      expect((await repo().getRun(gone.runId, userId)).attempts[0]?.providerVmId).toBeNull();
+      expect(await reapExpiredCloudVmAttempts({ runId: down.runId })).toMatchObject({ claimed: 1, cleaned: 0, errors: 1 });
+      expect((await repo().getRun(down.runId, userId)).attempts[0]?.providerVmId).toBe(`vm-${down.attemptId}-down`);
+      // Claimed by the reaper (deferred, failed or done): the launcher's lease is gone.
+      expect((await repo().getRun(down.runId, userId)).attempts[0]?.leaseToken).toBeNull();
+      const route = await startedAttempt(userId);
+      await sql!`update run_attempts set provider_vm_id = ${`vm-${route.attemptId}-route`} where id = ${route.attemptId}`;
+      await destroyedRow(route, `vm-${route.attemptId}-route`);
+      await finishAttempt(route);
+      expect(await reapExpiredCloudVmAttempts({ runId: route.runId })).toMatchObject({ claimed: 1, cleaned: 0, errors: 1 });
+      expect((await repo().getRun(route.runId, userId)).attempts[0]?.providerVmId).toBe(`vm-${route.attemptId}-route`);
+      // A VM id that only came from the worker's event (no launcher row for this attempt and user)
+      // is never destroyed through the provider: the handle is released untouched.
+      const forged = await startedAttempt(userId);
+      await finishAttempt(forged);
+      expect(await reapExpiredCloudVmAttempts({ runId: forged.runId })).toMatchObject({ claimed: 1, cleaned: 0, errors: 0 });
+      expect((await repo().getRun(forged.runId, userId)).attempts[0]?.providerVmId).toBeNull();
+      // The same for an id naming another user's marked sandbox VM: no destroy, and its row is not
+      // marked as a confirmed destroy, so its own orphan sweep still finds it.
+      const foreignVm = `vm-foreign-${randomUUID()}`;
+      await insertSandboxVm(foreignUser, `sandbox-run:${randomUUID()}:attempt:${randomUUID()}`, foreignVm);
+      await sql!`update cloud_vms set status = 'destroyed', destroyed_at = now() where provider_vm_id = ${foreignVm}`;
+      const pointed = await startedAttempt(userId);
+      await sql!`update run_attempts set provider_vm_id = ${foreignVm} where id = ${pointed.attemptId}`;
+      await finishAttempt(pointed);
+      expect(await reapExpiredCloudVmAttempts({ runId: pointed.runId })).toMatchObject({ claimed: 1, cleaned: 0, errors: 0 });
+      const [foreignRow] = await sql!`select provider_metadata from cloud_vms where provider_vm_id = ${foreignVm}`;
+      expect(foreignRow?.provider_metadata?.cmuxSandboxDestroyConfirmed).toBeUndefined();
+      // An ownership lookup that fails is no answer: no provider call, and the obligation waits.
+      const repositoryModule = await import("../services/runs/repository");
+      const realRepository = { ...repositoryModule };
+      mock.module("../services/runs/repository", () => ({ ...realRepository, sandboxVmOwnedByAttempt: async () => { throw new Error("db unavailable"); } }));
+      try {
+        const unknown = await startedAttempt(userId);
+        await finishAttempt(unknown);
+        expect(await reapExpiredCloudVmAttempts({ runId: unknown.runId })).toMatchObject({ claimed: 1, cleaned: 0, errors: 1 });
+        expect((await repo().getRun(unknown.runId, userId)).attempts[0]?.providerVmId).toBe(`vm-${unknown.attemptId}`);
+      } finally {
+        mock.module("../services/runs/repository", () => realRepository);
+      }
+      expect(destroyed).toEqual([`vm-${gone.attemptId}`, `vm-${down.attemptId}-down`, `vm-${route.attemptId}-route`]);
+    } finally {
+      mock.module("../services/vms/drivers", () => original);
+      await sql!`delete from cloud_vms where user_id in ${sql!([userId, foreignUser])}`;
+      await removeRuns(userId);
+    }
+  });
+
+  dbTest("a row that only carries the sandbox key prefix, without the launcher's marker, is never adopted", async () => {
+    const userId = `sandbox-${randomUUID()}`;
+    try {
+      const created = await repo().createRun(input(userId));
+      const attempt = created.attempts[0]!;
+      await insertSandboxVm(userId, `sandbox-run:${created.run.id}:attempt:${attempt.id}`, `vm-unmarked-${randomUUID()}`, false);
+      await repo().cancelRun(created.run.id, userId);
+      await repo().failAbandonedSandboxAttempts({ limit: 100 });
+      expect(await repo().claimExpiredAttemptCleanups({ runId: created.run.id })).toEqual([]);
+    } finally {
+      await sql!`delete from cloud_vms where user_id = ${userId}`;
+      await removeRuns(userId);
+    }
+  });
+
+  dbTest("a cancel's own reap adopts that Run's orphan VM, and a sandbox destroy that keeps failing is retried later", async () => {
+    const userId = `sandbox-${randomUUID()}`;
+    const { mock } = await import("bun:test");
+    const drivers = await import("../services/vms/drivers");
+    const original = { ...drivers };
+    mock.module("../services/vms/drivers", () => ({
+      ...original,
+      getProvider: () => ({ destroy: async () => { throw new Error("provider unavailable"); } }),
+    }));
+    try {
+      const { reapExpiredCloudVmAttempts } = await import("../services/runs/dogfood");
+      const created = await repo().createRun(input(userId));
+      const attempt = created.attempts[0]!;
+      await repo().claimAttemptLease({ runId: created.run.id, attemptId: attempt.id, workerId: "sandbox-worker" });
+      const vmId = `vm-cancel-orphan-${randomUUID()}`;
+      const key = `sandbox-run:${created.run.id}:attempt:${attempt.id}`;
+      // Reachable by the Run's scope, so the destroy reaches the (failing) provider.
+      await sql!`insert into cloud_vms (user_id, billing_team_id, owner_team_id, provider, image_id, status, idempotency_key, provider_vm_id, provider_metadata)
+        values (${userId}, ${userId}, ${userId}, 'freestyle', 'sh-test-image', 'running', ${key}, ${vmId}, ${sql!.json({ cmuxSandboxRun: key })})`;
+      await repo().cancelRun(created.run.id, userId);
+      await repo().forceFinalizeRunCancellation(created.run.id, userId);
+      // The cancel's scoped reap: adopts the orphan now, without waiting for the cron pass.
+      const result = await reapExpiredCloudVmAttempts({ runId: created.run.id });
+      expect(result).toMatchObject({ claimed: 1, cleaned: 0, errors: 1 });
+      const kept = (await repo().getRun(created.run.id, userId)).attempts[0]!;
+      expect(kept.providerVmId).toBe(vmId);
+      // The failed destroy is deferred, not left at the head of every batch.
+      expect(kept.terminalRetainUntil!.getTime()).toBeGreaterThan(Date.now() + 5 * 60_000);
+      expect(await repo().claimExpiredAttemptCleanups({ runId: created.run.id })).toEqual([]);
+    } finally {
+      mock.module("../services/vms/drivers", () => original);
+      await sql!`delete from cloud_vms where user_id = ${userId}`;
+      await removeRuns(userId);
+    }
+  });
+
+  dbTest("a worker can't take the sweep's event id, so the sweep always lands", async () => {
+    const userId = `sandbox-${randomUUID()}`;
+    try {
+      const { runId, attemptId, lease } = await startedAttempt(userId);
+      await expect(repo().ingestRunEvent({ runId, attemptId, ...lease, externalId: `cmux:sandbox-abandoned:${lease.leaseGeneration}`, attemptSequence: 1, kind: "attempt.heartbeat" }))
+        .rejects.toThrow("reserved prefix");
+      // The old, unprefixed id a worker might have used is no obstacle either.
+      await repo().ingestRunEvent({ runId, attemptId, ...lease, externalId: `sandbox-abandoned:${lease.leaseGeneration}`, attemptSequence: 2, kind: "attempt.heartbeat" });
+      await sql!`update run_attempts set lease_expires_at = now() - interval '10 minutes' where id = ${attemptId}`;
+      await repo().failAbandonedSandboxAttempts({ limit: 100 });
+      expect((await repo().getRun(runId, userId)).attempts[0]).toMatchObject({ status: "failed" });
+    } finally {
+      await removeRuns(userId);
+    }
+  });
+
+  dbTest("the repository reserves the sandbox key: no unmarked create, and no unmarked or foreign row returned", async () => {
+    const userId = `sandbox-${randomUUID()}`;
+    try {
+      const { vmRepositoryLiveShape: liveVmRepository } = await import("../services/vms/repository");
+      const Effect = await import("effect/Effect");
+      const key = `sandbox-run:${randomUUID()}:attempt:${randomUUID()}`;
+      const begin = (input: { sandboxMarker?: string }) => Effect.runPromiseExit(liveVmRepository.beginCreate({
+        userId, billingTeamId: userId, billingPlanId: "pro", provider: "freestyle", image: "sh-test-image",
+        maxActiveVms: 5, idempotencyKey: key, ...input,
+      }));
+      // No marker: refused before anything is written.
+      expect((await begin({}))._tag).toBe("Failure");
+      // A row someone else wrote under the key without the marker is never handed back.
+      await sql!`insert into cloud_vms (user_id, billing_team_id, owner_team_id, provider, image_id, status, idempotency_key, provider_vm_id)
+        values (${userId}, ${userId}, ${userId}, 'freestyle', 'sh-test-image', 'running', ${key}, 'vm-foreign')`;
+      expect((await begin({ sandboxMarker: key }))._tag).toBe("Failure");
+    } finally {
+      await sql!`delete from cloud_vms where user_id = ${userId}`;
+      await removeRuns(userId);
+    }
+  });
+
+  dbTest("a sandbox key allocates one machine, ever: a destroyed or failed row is returned, never replaced", async () => {
+    const userId = `sandbox-${randomUUID()}`;
+    try {
+      const { vmRepositoryLiveShape: liveVmRepository } = await import("../services/vms/repository");
+      const Effect = await import("effect/Effect");
+      for (const status of ["destroyed", "failed"] as const) {
+        const key = `sandbox-run:${randomUUID()}:attempt:${randomUUID()}`;
+        await sql!`insert into cloud_vms (user_id, billing_team_id, owner_team_id, provider, image_id, status, idempotency_key, provider_vm_id, provider_metadata, updated_at)
+          values (${userId}, ${userId}, ${userId}, 'freestyle', 'sh-test-image', ${status}, ${key}, ${`vm-${status}-${randomUUID()}`}, ${sql!.json({ cmuxSandboxRun: key })}, now() - interval '1 day')`;
+        const result = await Effect.runPromise(liveVmRepository.beginCreate({
+          userId, billingTeamId: userId, billingPlanId: "pro", provider: "freestyle", image: "sh-test-image",
+          maxActiveVms: 5, idempotencyKey: key, sandboxMarker: key,
+        }));
+        expect(result).toMatchObject({ inserted: false, vm: { status, idempotencyKey: key } });
+        const rows = await sql!`select status from cloud_vms where user_id = ${userId} and provider_metadata->>'cmuxSandboxRun' = ${key}`;
+        expect(rows.map((row) => row.status)).toEqual([status]);
+      }
+    } finally {
+      await sql!`delete from cloud_vms where user_id = ${userId}`;
+      await removeRuns(userId);
+    }
+  });
+
+  dbTest("a VM row reconciled to destroyed is still adopted until a strict destroy confirms it gone", async () => {
+    const userId = `sandbox-${randomUUID()}`;
+    try {
+      const created = await repo().createRun(input(userId));
+      const attempt = created.attempts[0]!;
+      await repo().claimAttemptLease({ runId: created.run.id, attemptId: attempt.id, workerId: "sandbox-worker" });
+      // The launcher created the VM and died before journaling it; status reconciliation then
+      // read an endpoint 404 as destroyed, which proves nothing.
+      const vmId = `vm-reconciled-${randomUUID()}`;
+      await insertSandboxVm(userId, `sandbox-run:${created.run.id}:attempt:${attempt.id}`, vmId);
+      await sql!`update cloud_vms set status = 'destroyed', destroyed_at = now() where provider_vm_id = ${vmId}`;
+      await repo().cancelRun(created.run.id, userId);
+      await repo().forceFinalizeRunCancellation(created.run.id, userId);
+      await repo().failAbandonedSandboxAttempts({ limit: 100 });
+      const claims = await repo().claimExpiredAttemptCleanups({ runId: created.run.id });
+      expect(claims.map((claim) => claim.attempt.providerVmId)).toEqual([vmId]);
+
+      // The strict destroy confirmed it: the row says so, and nothing adopts it again.
+      await repo().confirmSandboxVmDestroyed(vmId);
+      await repo().finishAttemptCleanup({ attemptId: attempt.id, cleanupLeaseToken: claims[0]!.cleanupLeaseToken, succeeded: true });
+      const [row] = await sql!`select provider_metadata from cloud_vms where provider_vm_id = ${vmId}`;
+      expect(typeof row?.provider_metadata?.cmuxSandboxDestroyConfirmed).toBe("string");
+      await sql!`delete from run_events where attempt_id = ${attempt.id} and external_id like 'cmux:sandbox-vm-adopted%'`;
+      await repo().failAbandonedSandboxAttempts({ limit: 100 });
+      expect(await repo().claimExpiredAttemptCleanups({ runId: created.run.id })).toEqual([]);
+    } finally {
+      await sql!`delete from cloud_vms where user_id = ${userId}`;
+      await removeRuns(userId);
+    }
+  });
 });
