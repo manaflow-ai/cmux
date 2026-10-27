@@ -444,7 +444,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // and feed) and the floating chat's per-display frames. Wiring stays in the App.
         .target(
             name: "CmuxNextFloating",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
+            // CmuxNextInput: the pet's drag posts to its panel's frame-aligned pointer input (p04-input-089).
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -461,7 +462,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextFloatingTests",
             // CmuxNextWakeups: the pet's AppEvents and the scheduler its setting follow posts on (p06-scheduler-337).
-            dependencies: ["CmuxNextFloating", "CmuxNextWakeups"],
+            // WakeupsTestSupport: ChiefPetDragFramesTests' fake-link coalescer.
+            dependencies: ["CmuxNextFloating", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // Archive and Unarchive of sidebar items (plans/cmux-next/archiving-DESIGN.md): the actions
@@ -1784,8 +1786,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // consumers: CmuxNextSettings depends on CmuxNextDesign, which subscribes to the tap).
         .target(
             name: "CmuxNextInputDiagnostics",
-            // Wakeups: the input-turn hop recorder (MainJobGateDiagnostics) answers action `hops`.
-            dependencies: ["CmuxNextInput", "CmuxNextInputCore", "CmuxNextControl", "CmuxNextSettings", "CmuxNextWakeups"],
+            // Wakeups: the input-turn hop recorder (MainJobGateDiagnostics) answers action `hops`. Compat: the
+            // dirty-view recorder's run-loop observers and stack resolver (action `dirty`).
+            dependencies: ["CmuxNextCompat", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextControl", "CmuxNextSettings",
+                           "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
