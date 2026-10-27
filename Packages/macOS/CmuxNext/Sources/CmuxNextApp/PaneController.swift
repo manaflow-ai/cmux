@@ -49,6 +49,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// The strip's selected tab as last set, unobserved: a tab switch does not re-run `snapshot()` (I2).
     private(set) var stripSelection: String?
     private var sentFocusPane: FocusTopology.Pane? // this pane's topology part as last sent (I4)
+    private(set) var appliedRecordTabs: [String] = [] // the record's tab ids at the last apply: a record that differs is a stale strip (`syncStripIfStale`)
     private var closeTabs: [(SurfaceID, String)] = [] // the tabs of the last apply: a closed tab's opener picks its successor (BrowserTabOpeners.closeRelations)
     private var remapsViewedTab = false // a newly selected tab lost its attention dot: map the strip once, after the apply
     /// Its workspace draws nothing (`WorkspaceContentController.drawsNothing`): no strip observation runs and
@@ -153,6 +154,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
         observation?.cancel(); observation = Task { [weak self] in
             for await structure in later {
                 guard let self, let structure = structure.value else { return }
+                // A tab that left this pane for another one of this workspace (a move) is shown there and leaves
+                // here in one turn, under one topology: the workspace's layout first, which syncs this strip too.
+                self.workspace?.applyLayoutIfChanged()
+                guard !Task.isCancelled else { return } // that apply removed this pane (teardown cancels this task)
                 self.apply(self.compose(structure))
             }
         }
@@ -316,6 +321,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Pushes daemon truth (a New Tab page's replacement in its slot: NewTabSuccession) into the strip. `force` resets optimistic strip state after a rejected command.
     func apply(_ reported: Snapshot, force: Bool = false) {
         let snapshot = NewTabSuccession.order(reported, in: self)
+        appliedRecordTabs = pane.tabs.map(\.id)
         if force { view.stripView.discardPendingReorder() }
         if view.hidesStrip != snapshot.hidesStrip { view.hidesStrip = snapshot.hidesStrip }
         if stripModel.showsSelectedFullWidth != snapshot.fullWidthTab { stripModel.showsSelectedFullWidth = snapshot.fullWidthTab }
