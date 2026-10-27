@@ -116,6 +116,8 @@ fn dispatch(
         Command::Resize { id, geometry, page } => shard.resize(id, geometry, page, events),
         Command::Colors { id, colors } => shard.colors(id, &colors, events),
         Command::Detach { id } => shard.detach(id),
+        Command::KittyLimits { id, limits } => shard.kitty_limits(id, limits, events),
+        Command::KittyMedia { id, answer } => shard.kitty_media(id, answer.into_read(), events),
     }
     Ok(())
 }

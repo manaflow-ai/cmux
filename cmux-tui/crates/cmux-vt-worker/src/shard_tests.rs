@@ -37,6 +37,7 @@ fn attach(shard: &mut Shard, id: u64, fixture: &Fixture, events: &mut Vec<Event>
             page_len: fixture.page_len as u64,
             scrollback: 100_000,
             geometry: GEOMETRY,
+            kitty_limits: KittyGraphicsLimits::default(),
         },
         events,
     );
@@ -166,6 +167,7 @@ fn a_bad_ring_or_a_duplicate_id_fails_the_attach() {
             page_len: page_len as u64,
             scrollback: 0,
             geometry: GEOMETRY,
+            kitty_limits: KittyGraphicsLimits::default(),
         },
         &mut events,
     );
@@ -191,4 +193,82 @@ fn a_resize_too_big_for_the_page_asks_for_a_bigger_one() {
     assert!(matches!(events[0], Event::Parsed { id: 1, .. }));
     let screen = PageReader::open(&reader_fd, len).expect("reader").read().expect("screen");
     assert_eq!((screen.cols, screen.rows), (200, 60));
+}
+
+/// A file-medium Kitty command stops only its own terminal: the worker asks
+/// the daemon for the read, parses nothing past the command until the
+/// answer, and another terminal keeps parsing meanwhile.
+#[test]
+fn a_kitty_file_read_waits_for_the_daemon_and_pauses_only_its_terminal() {
+    let mut first = fixture(1 << 16);
+    let mut second = fixture(1 << 16);
+    let mut shard = Shard::new();
+    let mut events = Vec::new();
+    attach(&mut shard, 1, &first, &mut events);
+    attach(&mut shard, 2, &second, &mut events);
+    // base64("/no/such/file.png"): the worker never opens it itself.
+    let command = b"\x1b_Ga=T,f=100,i=4,t=f;L25vL3N1Y2gvZmlsZS5wbmc=\x1b\\";
+    let mut bytes = b"before ".to_vec();
+    bytes.extend_from_slice(command);
+    bytes.extend_from_slice(b"after");
+    first.ring.push(&bytes);
+    second.ring.push(b"other terminal");
+    shard.advance(1, first.ring.end());
+    shard.advance(2, second.ring.end());
+    events.clear();
+    run(&mut shard, &mut events);
+    let at = (b"before ".len() + command.len()) as u64;
+    let request = events.iter().find_map(|event| match event {
+        Event::KittyMediaRequest { id: 1, request } => Some(request.clone()),
+        _ => None,
+    });
+    let request = request.expect("a media request");
+    assert_eq!(request.name, b"L25vL3N1Y2gvZmlsZS5wbmc=");
+    assert!(events.contains(&Event::Parsed { id: 1, offset: at, frame: 2 }));
+    assert!(events.contains(&Event::Parsed { id: 2, offset: 14, frame: 2 }));
+    assert!(!shard.has_work(), "the waiting terminal takes no slice");
+
+    events.clear();
+    shard.kitty_media(1, Err(MediaRefusal::Forbidden), &mut events);
+    run(&mut shard, &mut events);
+    assert!(events.contains(&Event::Parsed { id: 1, offset: bytes.len() as u64, frame: 4 }));
+    // The refused command reached the parser unchanged: ghostty-vt, with
+    // file media off, answers it with an error, as the daemon's parser does.
+    let answer: Vec<u8> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::PtyWrite { id: 1, bytes } => Some(bytes.clone()),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert!(answer.starts_with(b"\x1b_Gi=4;"), "{:?}", String::from_utf8_lossy(&answer));
+    // A second answer nothing waits for changes nothing.
+    events.clear();
+    shard.kitty_media(1, Ok(vec![1, 2, 3]), &mut events);
+    assert!(events.is_empty());
+}
+
+/// The daemon's output rewrites run before the worker's parser: a title
+/// pop restores the pushed title, and a killed program's mouse mode ends
+/// at the shell's next prompt.
+#[test]
+fn the_daemons_output_rewrites_run_before_the_parser() {
+    let mut fixture = fixture(1 << 16);
+    let mut shard = Shard::new();
+    let mut events = Vec::new();
+    attach(&mut shard, 1, &fixture, &mut events);
+    fixture.ring.push(
+        b"\x1b]2;shell\x07\x1b]133;C\x07\x1b[22;0t\x1b]2;vim\x07\x1b[?1000h\x1b[23;0t\x1b]133;D;137\x07\x1b]133;A\x07$ ",
+    );
+    shard.advance(1, fixture.ring.end());
+    events.clear();
+    run(&mut shard, &mut events);
+    assert!(events.contains(&Event::Title { id: 1, title: "shell".to_owned() }));
+    let screen =
+        PageReader::open(&fixture.page, fixture.page_len).expect("reader").read().expect("screen");
+    assert!(!screen.modes.contains(Modes::MOUSE_NORMAL));
+    assert!(
+        events.contains(&Event::ProgramStatus { id: 1, event: ProgramStatusEvent::PromptStart })
+    );
 }

@@ -8,10 +8,14 @@
 //! profile it compiled ([`sandbox`]) as the first frame, and only after the
 //! worker applied it (its HELLO says how) passes rings and pages as
 //! descriptors. The worker maps each terminal's output ring read-only
-//! ([`ring_view`]), parses its shard ([`shard`]), publishes each screen and
-//! its terminal modes into a seqlock page the daemon maps read-only
-//! ([`screen_page`]), and sends events (parsed offsets, DA/DSR answers,
-//! titles) on the socket ([`wire`]).
+//! ([`ring_view`]), runs the daemon's own per-chunk output rewrites on it
+//! (`cmux_kitty_media`, `cmux_vt_stream`), parses its shard ([`shard`]),
+//! publishes each screen and its terminal modes into a seqlock page the
+//! daemon maps read-only ([`screen_page`]), and sends events (parsed
+//! offsets, DA/DSR and OSC 7501 answers, titles, program status) on the
+//! socket ([`wire`]). A Kitty image sent as a file path is the one read the
+//! sandbox cannot do: the worker asks the daemon for it and that terminal's
+//! parse waits for the answer.
 //!
 //! The daemon broker that spawns workers and relays ring advances is
 //! p01-process-134 (`CMUX_TUI_VT_WORKERS=process`); this crate is the

@@ -1852,6 +1852,7 @@ dependencies = [
  "cmux-tui-remote-access",
  "cmux-tui-util",
  "cmux-unix-socket",
+ "cmux-vt-stream",
  "cmux-wake",
  "flate2",
  "fs4",
@@ -1991,12 +1992,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-vt-stream"
+version = "0.1.0"
+dependencies = [
+ "ghostty-vt",
+]
+
+[[package]]
 name = "cmux-vt-worker"
 version = "0.1.0"
 dependencies = [
  "cmux-holder",
  "cmux-ipc",
+ "cmux-kitty-media",
  "cmux-process",
+ "cmux-vt-stream",
  "ghostty-vt",
  "libc",
 ]

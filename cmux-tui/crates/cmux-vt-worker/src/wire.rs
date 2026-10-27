@@ -13,9 +13,14 @@ use std::io;
 use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 
 use cmux_ipc::fds::{self, FdReceiver};
-use ghostty_vt::{CursorShape, Rgb};
+use cmux_kitty_media::{DEFAULT_MAX_FILE_BYTES, FileMedium, MediaRefusal, MediaRequest};
+use ghostty_vt::{
+    CursorShape, KittyGraphicsLimits, ProgramStatusEvent, ProgramStatusKind, ProgramStatusReport,
+    ProgramStatusState, Rgb,
+};
 
 use crate::sandbox::{SandboxMechanism, SandboxPolicy};
+use crate::shm::{self, Mapping};
 
 /// The wire version a worker's HELLO names.
 pub const WIRE_VERSION: u16 = 1;
@@ -25,6 +30,14 @@ pub const FRAME_HEADER: usize = 8;
 pub const MAX_PAYLOAD: usize = 1 << 20;
 /// The most bytes one PTY_WRITE, TITLE or PWD event carries.
 pub const MAX_EVENT_TEXT: usize = 64 << 10;
+/// The most bytes of one OSC 7501 text field: libghostty refuses a longer
+/// sequence (ghostty-next `program_status.zig` `max_sequence_bytes`).
+pub const MAX_STATUS_TEXT: usize = 4096;
+/// The longest Kitty file name a request carries: the rewriter holds at
+/// most this much of a command (`cmux_kitty_media::Limits::max_held_bytes`).
+pub const MAX_MEDIA_NAME: usize = 8 << 10;
+/// The most bytes one Kitty file read answers with: the rewriter's cap.
+pub const MAX_MEDIA_BYTES: u64 = DEFAULT_MAX_FILE_BYTES;
 
 /// A frame that broke the wire's rules.
 #[derive(Debug, PartialEq, Eq)]
@@ -103,6 +116,60 @@ pub struct Attach {
     /// The parser's retained scrollback, in bytes.
     pub scrollback: u64,
     pub geometry: Geometry,
+    /// The terminal's share of the session's Kitty image budget, as the
+    /// daemon sets it on its own parser (surface/spawn.rs).
+    pub kitty_limits: KittyGraphicsLimits,
+}
+
+/// The daemon's answer to a [`Event::KittyMediaRequest`].
+#[derive(Debug)]
+pub enum MediaAnswer {
+    /// The bytes read, in a shared segment of `len` bytes (none for 0).
+    Bytes { segment: Option<OwnedFd>, len: u64 },
+    /// The read was refused: the command passes through unchanged.
+    Refused(MediaRefusal),
+}
+
+impl MediaAnswer {
+    /// The daemon's side: the answer to `request`, read with the checks
+    /// the in-daemon rewriter applies (`MediaRequest::read`). The worker
+    /// asks only for commands in its terminal's own output, which the
+    /// in-daemon parser would read the same way.
+    pub fn read(request: &MediaRequest) -> io::Result<Self> {
+        Self::from_read(request.read(MAX_MEDIA_BYTES))
+    }
+
+    /// The answer for a read already done.
+    pub fn from_read(read: Result<Vec<u8>, MediaRefusal>) -> io::Result<Self> {
+        match read {
+            Ok(bytes) if bytes.is_empty() => Ok(Self::Bytes { segment: None, len: 0 }),
+            Ok(bytes) => Ok(Self::Bytes {
+                segment: Some(shm::segment_with(&bytes)?),
+                len: bytes.len() as u64,
+            }),
+            Err(refusal) => Ok(Self::Refused(refusal)),
+        }
+    }
+
+    /// The worker's side: the bytes, copied out of the segment, or the
+    /// refusal. A segment it cannot map reads as an I/O refusal.
+    pub fn into_read(self) -> Result<Vec<u8>, MediaRefusal> {
+        match self {
+            Self::Refused(refusal) => Err(refusal),
+            Self::Bytes { segment: None, .. } => Ok(Vec::new()),
+            Self::Bytes { segment: Some(segment), len } => {
+                let len = usize::try_from(len)
+                    .map_err(|_| MediaRefusal::Io(io::ErrorKind::InvalidData))?;
+                let map = Mapping::map(std::os::fd::AsFd::as_fd(&segment), len, false)
+                    .map_err(MediaRefusal::from)?;
+                let mut bytes = vec![0; len];
+                if !map.copy_out(0, &mut bytes) {
+                    return Err(MediaRefusal::Io(io::ErrorKind::InvalidData));
+                }
+                Ok(bytes)
+            }
+        }
+    }
 }
 
 /// Daemon to worker.
@@ -128,6 +195,16 @@ pub enum Command {
     },
     Detach {
         id: u64,
+    },
+    /// The terminal's Kitty image budget changed (host_kitty_limits.rs).
+    KittyLimits {
+        id: u64,
+        limits: KittyGraphicsLimits,
+    },
+    /// The answer to the terminal's [`Event::KittyMediaRequest`].
+    KittyMedia {
+        id: u64,
+        answer: MediaAnswer,
     },
 }
 
@@ -181,6 +258,20 @@ pub enum Event {
         id: u64,
         reason: AttachFailure,
     },
+    /// An OSC 7501 program status report or a primary prompt start, in
+    /// stream order, as the daemon's parser hands them to its records
+    /// (program_status.rs).
+    ProgramStatus {
+        id: u64,
+        event: ProgramStatusEvent,
+    },
+    /// A file-medium Kitty command needs its file read; the terminal's
+    /// parse waits for the [`Command::KittyMedia`] answer. The worker may
+    /// open no file, so the daemon reads it, as Chrome's broker does.
+    KittyMediaRequest {
+        id: u64,
+        request: MediaRequest,
+    },
 }
 
 /// Why an ATTACH or a RESIZE page was refused.
@@ -214,6 +305,8 @@ mod kind {
     pub const RESIZE: u8 = 4;
     pub const COLORS: u8 = 5;
     pub const DETACH: u8 = 6;
+    pub const KITTY_LIMITS: u8 = 7;
+    pub const KITTY_MEDIA: u8 = 8;
     pub const HELLO: u8 = 64;
     pub const PARSED: u8 = 65;
     pub const PTY_WRITE: u8 = 66;
@@ -223,6 +316,8 @@ mod kind {
     pub const LAPPED: u8 = 70;
     pub const PAGE_TOO_SMALL: u8 = 71;
     pub const ATTACH_FAILED: u8 = 72;
+    pub const PROGRAM_STATUS: u8 = 73;
+    pub const KITTY_MEDIA_REQUEST: u8 = 74;
 }
 
 /// Write one frame (blocking).
@@ -260,7 +355,25 @@ pub fn send_command(socket: RawFd, command: &Command) -> io::Result<()> {
                 out.extend_from_slice(&value.to_le_bytes());
             }
             put_geometry(&mut out, attach.geometry);
+            put_kitty_limits(&mut out, attach.kitty_limits);
             send(socket, kind::ATTACH, &out, &[attach.ring.as_raw_fd(), attach.page.as_raw_fd()])
+        }
+        Command::KittyLimits { id, limits } => {
+            out.extend_from_slice(&id.to_le_bytes());
+            put_kitty_limits(&mut out, *limits);
+            send(socket, kind::KITTY_LIMITS, &out, &[])
+        }
+        Command::KittyMedia { id, answer } => {
+            out.extend_from_slice(&id.to_le_bytes());
+            let (outcome, len, fds) = match answer {
+                MediaAnswer::Bytes { segment, len } => {
+                    (0, *len, segment.iter().map(|fd| fd.as_raw_fd()).collect::<Vec<_>>())
+                }
+                MediaAnswer::Refused(refusal) => (refusal_code(refusal), 0, Vec::new()),
+            };
+            out.push(outcome);
+            out.extend_from_slice(&len.to_le_bytes());
+            send(socket, kind::KITTY_MEDIA, &out, &fds)
         }
         Command::Advance { id, end } => {
             out.extend_from_slice(&id.to_le_bytes());
@@ -339,6 +452,24 @@ pub fn send_event(socket: RawFd, event: &Event) -> io::Result<()> {
             out.push(*reason as u8);
             return send(socket, kind::ATTACH_FAILED, &out, &[]);
         }
+        Event::ProgramStatus { id, event } => {
+            out.extend_from_slice(&id.to_le_bytes());
+            put_program_status(&mut out, event);
+            return send(socket, kind::PROGRAM_STATUS, &out, &[]);
+        }
+        Event::KittyMediaRequest { id, request } => {
+            out.extend_from_slice(&id.to_le_bytes());
+            out.push(match request.medium {
+                FileMedium::File => 1,
+                FileMedium::TempFile => 2,
+                FileMedium::SharedMemory => 3,
+            });
+            out.extend_from_slice(&request.offset.to_le_bytes());
+            out.extend_from_slice(&request.size.to_le_bytes());
+            let name = request.name.get(..MAX_MEDIA_NAME).unwrap_or(&request.name);
+            out.extend_from_slice(name);
+            return send(socket, kind::KITTY_MEDIA_REQUEST, &out, &[]);
+        }
     };
     for value in fields {
         out.extend_from_slice(&value.to_le_bytes());
@@ -368,6 +499,77 @@ fn put_rgb(out: &mut Vec<u8>, color: Option<Rgb>) {
         None => out.extend_from_slice(&[0, 0, 0, 0]),
         Some(rgb) => out.extend_from_slice(&[1, rgb.r, rgb.g, rgb.b]),
     }
+}
+
+fn put_kitty_limits(out: &mut Vec<u8>, limits: KittyGraphicsLimits) {
+    for value in [limits.image_bytes, limits.inflight_bytes, limits.images, limits.placements] {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+}
+
+/// `tag u8` (0 prompt start, 1 report), then for a report `state u8,
+/// kind u8, progress u8 (0xFF none)` and the id, app, title and message as
+/// `len u16 | UTF-8`.
+fn put_program_status(out: &mut Vec<u8>, event: &ProgramStatusEvent) {
+    let report = match event {
+        ProgramStatusEvent::PromptStart => {
+            out.push(0);
+            return;
+        }
+        ProgramStatusEvent::Report(report) => report,
+    };
+    out.push(1);
+    out.push(match report.state {
+        ProgramStatusState::Idle => 0,
+        ProgramStatusState::Working => 1,
+        ProgramStatusState::Done => 2,
+        ProgramStatusState::Blocked => 3,
+        ProgramStatusState::Error => 4,
+        ProgramStatusState::Clear => 5,
+    });
+    out.push(match report.kind {
+        None => 0,
+        Some(ProgramStatusKind::Permission) => 1,
+        Some(ProgramStatusKind::Question) => 2,
+        Some(ProgramStatusKind::Auth) => 3,
+    });
+    out.push(report.progress.filter(|progress| *progress <= 100).unwrap_or(u8::MAX));
+    for text in [&report.id, &report.app, &report.title, &report.message] {
+        let text = truncate_utf8(text, MAX_STATUS_TEXT);
+        out.extend_from_slice(&(text.len() as u16).to_le_bytes());
+        out.extend_from_slice(text.as_bytes());
+    }
+}
+
+fn refusal_code(refusal: &MediaRefusal) -> u8 {
+    match refusal {
+        MediaRefusal::BadEncoding => 1,
+        MediaRefusal::BadPath => 2,
+        MediaRefusal::Forbidden => 3,
+        MediaRefusal::NotTemporary => 4,
+        MediaRefusal::NotRegular => 5,
+        MediaRefusal::TooLarge => 6,
+        MediaRefusal::Short => 7,
+        MediaRefusal::BadRange => 8,
+        MediaRefusal::Unsupported => 9,
+        MediaRefusal::Io(_) => 10,
+    }
+}
+
+fn refusal_from(code: u8) -> Option<MediaRefusal> {
+    Some(match code {
+        1 => MediaRefusal::BadEncoding,
+        2 => MediaRefusal::BadPath,
+        3 => MediaRefusal::Forbidden,
+        4 => MediaRefusal::NotTemporary,
+        5 => MediaRefusal::NotRegular,
+        6 => MediaRefusal::TooLarge,
+        7 => MediaRefusal::Short,
+        8 => MediaRefusal::BadRange,
+        9 => MediaRefusal::Unsupported,
+        10 => MediaRefusal::Io(io::ErrorKind::Other),
+        _ => return None,
+    })
 }
 
 /// Reads frames off a socket and pairs each with its descriptors.
@@ -471,6 +673,65 @@ impl<'a> Payload<'a> {
         }
     }
 
+    fn kitty_limits(&mut self) -> Result<KittyGraphicsLimits, WireError> {
+        KittyGraphicsLimits {
+            image_bytes: self.u64()?,
+            inflight_bytes: self.u64()?,
+            images: self.u64()?,
+            placements: self.u64()?,
+        }
+        .validate()
+        .map_err(|_| WireError::BadValue("kitty limits"))
+    }
+
+    /// `len u16 | UTF-8`, at most [`MAX_STATUS_TEXT`] bytes.
+    fn status_text(&mut self) -> Result<String, WireError> {
+        let len = usize::from(self.u16()?);
+        if len > MAX_STATUS_TEXT {
+            return Err(WireError::BadValue("status text length"));
+        }
+        let bytes = self.take(len)?;
+        std::str::from_utf8(bytes)
+            .map(str::to_owned)
+            .map_err(|_| WireError::BadValue("status text UTF-8"))
+    }
+
+    fn program_status(&mut self) -> Result<ProgramStatusEvent, WireError> {
+        if self.u8()? == 0 {
+            return Ok(ProgramStatusEvent::PromptStart);
+        }
+        let state = match self.u8()? {
+            0 => ProgramStatusState::Idle,
+            1 => ProgramStatusState::Working,
+            2 => ProgramStatusState::Done,
+            3 => ProgramStatusState::Blocked,
+            4 => ProgramStatusState::Error,
+            5 => ProgramStatusState::Clear,
+            _ => return Err(WireError::BadValue("status state")),
+        };
+        let kind = match self.u8()? {
+            0 => None,
+            1 => Some(ProgramStatusKind::Permission),
+            2 => Some(ProgramStatusKind::Question),
+            3 => Some(ProgramStatusKind::Auth),
+            _ => return Err(WireError::BadValue("status kind")),
+        };
+        let progress = match self.u8()? {
+            u8::MAX => None,
+            progress @ 0..=100 => Some(progress),
+            _ => return Err(WireError::BadValue("status progress")),
+        };
+        Ok(ProgramStatusEvent::Report(ProgramStatusReport {
+            state,
+            kind,
+            progress,
+            id: self.status_text()?,
+            app: self.status_text()?,
+            title: self.status_text()?,
+            message: self.status_text()?,
+        }))
+    }
+
     fn rest(&mut self) -> &'a [u8] {
         std::mem::take(&mut self.bytes)
     }
@@ -506,6 +767,7 @@ pub fn decode_command(frame: Frame) -> Result<Command, WireError> {
             let (id, start, ring_capacity, page_len, scrollback) =
                 (p.u64()?, p.u64()?, p.u64()?, p.u64()?, p.u64()?);
             let geometry = p.geometry()?;
+            let kitty_limits = p.kitty_limits()?;
             p.end()?;
             let mut fds = frame.fds.into_iter();
             let (Some(ring), Some(page)) = (fds.next(), fds.next()) else {
@@ -520,7 +782,34 @@ pub fn decode_command(frame: Frame) -> Result<Command, WireError> {
                 page_len,
                 scrollback,
                 geometry,
+                kitty_limits,
             }));
+        }
+        kind::KITTY_LIMITS => {
+            expect_fds(&frame, 0)?;
+            Command::KittyLimits { id: p.u64()?, limits: p.kitty_limits()? }
+        }
+        kind::KITTY_MEDIA => {
+            let id = p.u64()?;
+            let outcome = p.u8()?;
+            let len = p.u64()?;
+            p.end()?;
+            let answer = if outcome == 0 {
+                if len > MAX_MEDIA_BYTES {
+                    return Err(WireError::BadValue("kitty media length"));
+                }
+                expect_fds(&frame, usize::from(len != 0))?;
+                MediaAnswer::Bytes { segment: frame.fds.into_iter().next(), len }
+            } else {
+                expect_fds(&frame, 0)?;
+                if len != 0 {
+                    return Err(WireError::BadValue("kitty media refusal length"));
+                }
+                MediaAnswer::Refused(
+                    refusal_from(outcome).ok_or(WireError::BadValue("kitty media refusal"))?,
+                )
+            };
+            return Ok(Command::KittyMedia { id, answer });
         }
         kind::ADVANCE => {
             expect_fds(&frame, 0)?;
@@ -616,6 +905,25 @@ pub fn decode_event(frame: Frame) -> Result<Event, WireError> {
             reason: AttachFailure::from_wire(p.u8()?)
                 .ok_or(WireError::BadValue("attach failure"))?,
         },
+        kind::PROGRAM_STATUS => Event::ProgramStatus { id: p.u64()?, event: p.program_status()? },
+        kind::KITTY_MEDIA_REQUEST => {
+            let id = p.u64()?;
+            let medium = match p.u8()? {
+                1 => FileMedium::File,
+                2 => FileMedium::TempFile,
+                3 => FileMedium::SharedMemory,
+                _ => return Err(WireError::BadValue("kitty medium")),
+            };
+            let (offset, size) = (p.u64()?, p.u64()?);
+            let name = p.rest();
+            if name.len() > MAX_MEDIA_NAME {
+                return Err(WireError::BadValue("kitty media name length"));
+            }
+            Event::KittyMediaRequest {
+                id,
+                request: MediaRequest { medium, name: name.to_vec(), offset, size },
+            }
+        }
         other => return Err(WireError::UnknownKind(other)),
     };
     p.end()?;

@@ -2,17 +2,23 @@
 //!
 //! Each terminal has a ghostty-vt parser set up as the daemon's own
 //! (`cmux-tui-core` surface/spawn.rs: grid, cell size, default colors,
-//! palette and cursor), its ring mapped read-only and its page mapped
-//! writable. [`Shard::step`] parses one slice of at most [`SLICE_BYTES`]
-//! for the next terminal with unparsed bytes, round robin, publishes its
-//! page and returns the events the slice made: one flooding terminal never
-//! holds another back by more than one slice (the vt-pool rule of
-//! p01-process-120, as Chrome's scheduler yields between tasks).
+//! palette, cursor, Kitty limits and the OSC 7501 owner), its ring mapped
+//! read-only and its page mapped writable. The ring's bytes reach the parser
+//! through the daemon's own per-chunk rewrites (surface/local_output.rs):
+//! Kitty file media first, then `cmux_vt_stream::write_output` (title stack
+//! and OSC 1, mode resets at prompt marks), so both parsers read one stream.
+//! [`Shard::step`] parses one slice of at most [`SLICE_BYTES`] for the next
+//! terminal with unparsed bytes, round robin, publishes its page and returns
+//! the events the slice made: one flooding terminal never holds another back
+//! by more than one slice (the vt-pool rule of p01-process-120, as Chrome's
+//! scheduler yields between tasks).
 
 use std::collections::BTreeMap;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use ghostty_vt::{Callbacks, RenderState, Terminal};
+use cmux_kitty_media::{KittyMediaRewriter, Limits, MediaRefusal};
+use cmux_vt_stream::ShellMarks;
+use ghostty_vt::{Callbacks, KittyGraphicsLimits, ProgramStatusEvent, RenderState, Terminal};
 
 use crate::ring_view::{RingCopy, RingView};
 use crate::screen_page::{Modes, PageEncoder, PageMeta, PageWriter, Published};
@@ -30,6 +36,53 @@ enum Effect {
     PtyWrite(Vec<u8>),
     Title,
     Bell,
+    ProgramStatus(ProgramStatusEvent),
+}
+
+/// The daemon's per-terminal output rewrites, carried across slices.
+struct OutputStream {
+    /// Defers each file read to the daemon: the sandbox opens no file.
+    kitty: KittyMediaRewriter,
+    marks: ShellMarks,
+    rewritten: Vec<u8>,
+}
+
+impl OutputStream {
+    /// A parser that starts past the stream's first byte joined it midway:
+    /// a command may be running, as for the daemon's adopted mirrors.
+    fn new(start: u64) -> Self {
+        Self {
+            kitty: KittyMediaRewriter::deferring(Limits::default()),
+            marks: if start == 0 { ShellMarks::default() } else { ShellMarks::joined_midway() },
+            rewritten: Vec::new(),
+        }
+    }
+
+    /// Rewrite and parse `input` up to the end of its first file-medium
+    /// Kitty command; the bytes of `input` consumed.
+    fn write(&mut self, terminal: &mut Terminal, input: &[u8]) -> usize {
+        self.rewritten.clear();
+        let consumed = self.kitty.rewrite_until_media(input, &mut self.rewritten);
+        self.parse(terminal);
+        consumed
+    }
+
+    /// Finish the waiting Kitty command with the daemon's read.
+    fn resume(&mut self, terminal: &mut Terminal, read: Result<Vec<u8>, MediaRefusal>) {
+        self.rewritten.clear();
+        self.kitty.resume_media(read, &mut self.rewritten);
+        self.parse(terminal);
+    }
+
+    fn parse(&mut self, terminal: &mut Terminal) {
+        if !self.rewritten.is_empty() {
+            let _ = cmux_vt_stream::write_output(terminal, &self.rewritten, &mut self.marks);
+        }
+    }
+
+    fn awaiting_media(&self) -> bool {
+        self.kitty.media_request().is_some()
+    }
 }
 
 struct Slot {
@@ -38,12 +91,20 @@ struct Slot {
     ring: RingView,
     page: PageWriter,
     effects: Receiver<Effect>,
+    stream: OutputStream,
     /// The next ring offset to parse.
     parsed: u64,
     /// The ring end the daemon announced.
     target: u64,
     frame: u64,
     pwd: Option<String>,
+}
+
+impl Slot {
+    /// Unparsed bytes and no Kitty read pending.
+    fn has_work(&self) -> bool {
+        self.parsed < self.target && !self.stream.awaiting_media()
+    }
 }
 
 /// One worker's terminals.
@@ -89,7 +150,9 @@ impl Shard {
         };
         let (sender, effects) = channel();
         let scrollback = usize::try_from(attach.scrollback).unwrap_or(usize::MAX);
-        let Ok((terminal, render)) = new_parser(attach.geometry, scrollback, sender) else {
+        let Ok((terminal, render)) =
+            new_parser(attach.geometry, scrollback, attach.kitty_limits, sender)
+        else {
             events.push(Event::AttachFailed { id, reason: AttachFailure::Parser });
             return;
         };
@@ -99,6 +162,7 @@ impl Shard {
             ring,
             page,
             effects,
+            stream: OutputStream::new(attach.start),
             parsed: attach.start,
             target: attach.start,
             frame: 0,
@@ -159,6 +223,39 @@ impl Shard {
         self.publish(id, events);
     }
 
+    /// The terminal's Kitty budget changed: applied where the parser is,
+    /// as the daemon applies it to its own parser between reads
+    /// (host_kitty_limits.rs). An eviction shows on the republished page.
+    pub fn kitty_limits(&mut self, id: u64, limits: KittyGraphicsLimits, events: &mut Vec<Event>) {
+        let Some(slot) = self.slots.get_mut(&id) else {
+            events.push(Event::AttachFailed { id, reason: AttachFailure::Unknown });
+            return;
+        };
+        if slot.terminal.set_kitty_graphics_limits(limits).is_err() {
+            events.push(Event::AttachFailed { id, reason: AttachFailure::Parser });
+            return;
+        }
+        self.publish(id, events);
+    }
+
+    /// The daemon answered `id`'s Kitty file read: the command is parsed
+    /// and the terminal's parse continues. An answer nothing waits for (the
+    /// terminal detached and came back) is dropped.
+    pub fn kitty_media(
+        &mut self,
+        id: u64,
+        read: Result<Vec<u8>, MediaRefusal>,
+        events: &mut Vec<Event>,
+    ) {
+        let Some(slot) = self.slots.get_mut(&id) else { return };
+        if !slot.stream.awaiting_media() {
+            return;
+        }
+        slot.stream.resume(&mut slot.terminal, read);
+        drain_effects(id, slot, events);
+        self.publish(id, events);
+    }
+
     pub fn detach(&mut self, id: u64) {
         self.slots.remove(&id);
         if self.last == Some(id) {
@@ -168,7 +265,7 @@ impl Shard {
 
     /// Whether a terminal has bytes announced and not parsed.
     pub fn has_work(&self) -> bool {
-        self.slots.values().any(|slot| slot.parsed < slot.target)
+        self.slots.values().any(Slot::has_work)
     }
 
     /// Parse one slice for the next terminal with work, publish its page
@@ -179,7 +276,7 @@ impl Shard {
             .slots
             .range(after..)
             .chain(self.slots.range(..after))
-            .find(|(_, slot)| slot.parsed < slot.target)
+            .find(|(_, slot)| slot.has_work())
             .map(|(id, _)| *id);
         let Some(id) = next else { return false };
         self.last = Some(id);
@@ -192,14 +289,18 @@ impl Shard {
                 return true;
             }
             RingCopy::Lapped { from, oldest } => {
-                slot.terminal.vt_write(CANCEL);
+                // The daemon's sink queues the same CAN into its rewrites.
+                slot.stream.write(&mut slot.terminal, CANCEL);
                 slot.parsed = oldest.max(from);
                 slot.target = slot.target.max(slot.parsed);
                 events.push(Event::Lapped { id, from, oldest });
             }
-            RingCopy::Bytes { from, len } => {
-                slot.terminal.vt_write(&self.chunk);
-                slot.parsed = from + len as u64;
+            RingCopy::Bytes { from, .. } => {
+                let consumed = slot.stream.write(&mut slot.terminal, &self.chunk);
+                slot.parsed = from + consumed as u64;
+                if let Some(request) = slot.stream.kitty.media_request() {
+                    events.push(Event::KittyMediaRequest { id, request: request.clone() });
+                }
             }
         }
         drain_effects(id, slot, events);
@@ -243,6 +344,7 @@ impl Shard {
 fn new_parser(
     geometry: Geometry,
     scrollback: usize,
+    kitty_limits: KittyGraphicsLimits,
     effects: Sender<Effect>,
 ) -> ghostty_vt::Result<(Terminal, RenderState)> {
     let callbacks = Callbacks {
@@ -258,11 +360,19 @@ fn new_parser(
                 let _ = effects.send(Effect::Title);
             }
         })),
-        on_bell: Some(Box::new(move || {
-            let _ = effects.send(Effect::Bell);
+        on_bell: Some(Box::new({
+            let effects = effects.clone();
+            move || {
+                let _ = effects.send(Effect::Bell);
+            }
         })),
         on_clipboard_read: None,
-        on_program_status: None,
+        // The daemon owns the OSC 7501 records, as for its own parser
+        // (surface/spawn.rs): with an owner set, libghostty answers the
+        // support query through `on_pty_write` and reports prompt starts.
+        on_program_status: Some(Box::new(move |event| {
+            let _ = effects.send(Effect::ProgramStatus(event));
+        })),
     };
     let mut terminal = Terminal::new(geometry.cols, geometry.rows, scrollback, callbacks)?;
     terminal.resize(
@@ -271,6 +381,7 @@ fn new_parser(
         u32::from(geometry.cell_width),
         u32::from(geometry.cell_height),
     )?;
+    terminal.set_kitty_graphics_limits(kitty_limits)?;
     Ok((terminal, RenderState::new()?))
 }
 
@@ -290,6 +401,7 @@ fn drain_effects(id: u64, slot: &mut Slot, events: &mut Vec<Event>) {
             Effect::PtyWrite(bytes) => answer.extend_from_slice(&bytes),
             Effect::Title => title = true,
             Effect::Bell => bells = bells.saturating_add(1),
+            Effect::ProgramStatus(event) => events.push(Event::ProgramStatus { id, event }),
         }
     }
     if !answer.is_empty() {
