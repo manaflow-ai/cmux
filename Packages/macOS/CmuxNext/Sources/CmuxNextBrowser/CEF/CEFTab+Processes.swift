@@ -1,7 +1,7 @@
 public import CmuxNextWakeups
 public import Foundation
 
-extension CEFTab: BrowserProcessReporting {
+extension CEFTab: BrowserProcessReporting, BrowserSubframeCrashReporting {
     /// Renderer client ids hosting this tab's frames (main frame, out-of-process iframes; one per site).
     public var contentProcesses: BrowserContentProcesses {
         guard let browserID, let shim = runtime.shim else { return .none }
@@ -44,6 +44,22 @@ extension CEFTab: BrowserProcessReporting {
     func rendererTerminated(_ exit: BrowserProcessExit) {
         guard showProcessExit(exit) else { return }
         runtime.recordRendererExit(exit, tab: self)
+    }
+
+    /// Renderer `pid`, which hosted a frame of this page (``CEFChildProcessMonitor/Exit/subframeBrowsers``), ended
+    /// abnormally. When it is not the page's main frame renderer (whose end is ``rendererTerminated(_:)``, the sad tab),
+    /// a subframe crashed: ``onSubframeCrash`` runs. Chrome reads the same from the frame nodes of the dead process
+    /// (chrome/browser/performance_manager/policies/discard_page_with_crashed_subframe_policy.cc).
+    func subframeRendererEnded(pid: pid_t) {
+        guard let hook = onSubframeCrash, let main = rendererPID,
+              Self.isSubframeCrash(main: main, ended: pid, pageExited: state.processExit != nil, closed: isClosed) else { return }
+        hook()
+    }
+
+    /// Whether a renderer `ended` that hosted a frame of a page is a subframe's crash: the page is open, its
+    /// own renderer, `main`, is another process, and Chromium did not report the page's own end.
+    nonisolated static func isSubframeCrash(main: pid_t, ended: pid_t, pageExited: Bool, closed: Bool) -> Bool {
+        !closed && !pageExited && main > 0 && main != ended
     }
 
     /// The Chromium Host ended with this page's browser in it (`CEFRuntime.hostEnded`): the sad tab
