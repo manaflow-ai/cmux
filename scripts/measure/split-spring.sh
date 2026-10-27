@@ -30,15 +30,6 @@
 #   --vdisplay-size=WxH  the virtual display's pixels (default 1920x1200: under the Dock a 1920x1080 display left
 #                   about 965 pt, and AppKit clamped the 1600 x 1000 STRESS window, 2026-10-24). The helper's ready
 #                   line reports the visible frame (visible=WxH), which the report's display.line keeps.
-#   --suite=input-latency  measure with scripts/cmux-next/input-latency-bench.py (p04-input-070: input to presented
-#                   frame per surface with real HID input, storms, stalls and 1000 Hz drags; DC1, DC2, DC5) instead of
-#                   split-spring-terminal.py's suites; the other options go to it (--sessions=light,stress,
-#                   --storm=cli=10hz,sidebar-churn=400, --drag=divider,tab --rate=1000). Real input needs the
-#                   step's GUI session to hold the Accessibility grant; the report says input_reached false otherwise.
-#   --suite=scroll-jank  measure with scripts/cmux-next/scroll-jank-bench.py (p04-input-072: Chrome's scroll jank,
-#                   Event.ScrollJank.*, per scroll target with real trackpad gestures at the display rate; DC4); the
-#                   other options go to it (--sessions=light,stress, --stall=none,50ms/100ms, --targets=sidebar,strip).
-#                   Real input needs the Accessibility grant as above.
 # On exit, TERM, INT or HUP (a cancelled step) the script stops the bench, ends the tag's app and daemons
 # (scripts/cmux-next/tag_teardown.py, exact PIDs of the app bundle) and the virtual display.
 set -euo pipefail
@@ -48,7 +39,6 @@ set -euo pipefail
 SPLIT_SPRING_MEASURE_VERSION=4  # 4: STRESS sessions open their extra terminal, Chromium and WebKit tabs (add_tab had a pane target the actions refuse; 3: the virtual display is 1920x1200)
 cd "$(git rev-parse --show-toplevel)"
 build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 vdisplay_size=1920x1200 args=() reload_config=()
-bench_script=scripts/cmux-next/split-spring-terminal.py
 for arg in "$@"; do
   case "$arg" in
     --build-only) build_only=1 app_cache=1 ;;
@@ -57,8 +47,6 @@ for arg in "$@"; do
     --vdisplay-hold=*) vdisplay_hold="${arg#--vdisplay-hold=}" ;;
     --vdisplay-size=*) vdisplay_size="${arg#--vdisplay-size=}" ;;
     --config=*) reload_config=(--config "${arg#--config=}") ;;
-    --suite=input-latency) bench_script=scripts/cmux-next/input-latency-bench.py ;;
-    --suite=scroll-jank) bench_script=scripts/cmux-next/scroll-jank-bench.py ;;
     *) args+=("$arg") ;;
   esac
 done
@@ -229,7 +217,7 @@ fi
 status=0
 measuring=1
 # In the background and waited for, so a TERM reaches the trap at once (bash runs a trap only between commands).
-python3 "$bench_script" --tag "$tag" --app "$app" --out "$out" --json "$out/report.json" \
+python3 scripts/cmux-next/split-spring-terminal.py --tag "$tag" --app "$app" --out "$out" --json "$out/report.json" \
   ${args[@]+"${args[@]}"} &
 bench_pid=$!
 wait "$bench_pid" || status=$?
