@@ -29,8 +29,6 @@ struct NewTerminalWorkspaceCmdNTests {
             #expect(settings.snapshot.newTerminalOpensWorkspace == false, "off by default")
             services.settings = settings
 
-            let pane = try #require(services.windows.active?.focusedPane)
-            let workspace = try #require(pane.workspace?.workspace.id)
             @MainActor func tabs(_ id: String) -> [TabModel] {
                 services.daemon.store.workspaces.first { $0.id == id }?.screens.flatMap(\.panes).flatMap(\.tabs) ?? []
             }
@@ -38,6 +36,23 @@ struct NewTerminalWorkspaceCmdNTests {
                 path.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }
             }
             let expected = resolved(folder.path)
+            /// Cmd-N; returns the new workspace's id and tabs once it lists a tab.
+            @MainActor func cmdN() async throws -> (String, [TabModel]) {
+                let workspacesBefore = Set(services.daemon.store.workspaces.map(\.id))
+                #expect(services.registry.perform("newTab", invocation: ActionInvocation(origin: .user)))
+                @MainActor func created() -> String? { services.daemon.store.workspaces.first { !workspacesBefore.contains($0.id) }?.id }
+                try await PasswordManagerRouteTests.until({ created().map { !tabs($0).isEmpty } == true },
+                                                          report: { "new workspace tabs: \(created().map(tabs) ?? [])" })
+                let id = try #require(created())
+                return (id, tabs(id))
+            }
+
+            // The default: Cmd-N opens the New Tab page, in the workspace it shows.
+            let (workspace, page) = try await cmdN()
+            #expect(page.contains { services.agentTabs.isNewTabPage($0.id) }, "new workspace tabs: \(page.map { "\($0.id) \($0.kind)" })")
+            try await PasswordManagerRouteTests.until({ services.windows.active?.focusedPane?.workspace?.workspace.id == workspace },
+                                                      report: { "focused workspace: \(services.windows.active?.focusedPane?.workspace?.workspace.id ?? "none")" })
+            let pane = try #require(services.windows.active?.focusedPane)
 
             // The folder the person works in: a terminal tab in `folder`, selected in the focused pane.
             let before = Set(tabs(workspace).map(\.id))
@@ -48,39 +63,15 @@ struct NewTerminalWorkspaceCmdNTests {
             try await PasswordManagerRouteTests.until({ pane.currentTabKey == terminal.id && resolved(pane.selectedTab?.cwd) == expected },
                                                       report: { "selected: \(pane.currentTabKey ?? "none") cwd: \(pane.selectedTab?.cwd ?? "none")" })
 
-            @MainActor func cmdN() async throws -> [TabModel] {
-                let workspacesBefore = Set(services.daemon.store.workspaces.map(\.id))
-                #expect(services.registry.perform("newTab", invocation: ActionInvocation(origin: .user)))
-                @MainActor func created() -> [TabModel]? {
-                    services.daemon.store.workspaces.first { !workspacesBefore.contains($0.id) }.map { tabs($0.id) }
-                }
-                try await PasswordManagerRouteTests.until({ created()?.isEmpty == false },
-                                                          report: { "new workspace tabs: \(String(describing: created()))" })
-                return try #require(created())
-            }
-
-            // The default: Cmd-N opens the New Tab page.
-            let page = try await cmdN()
-            #expect(page.contains { services.agentTabs.isNewTabPage($0.id) }, "new workspace tabs: \(page.map { "\($0.id) \($0.kind)" })")
-
             try await settings.set(.bool(true), at: NewTerminalWorkspaceSetting.configPath)
             try await PasswordManagerRouteTests.until({ services.settings?.snapshot.newTerminalOpensWorkspace == true })
-            // Back to the terminal in `folder`, the one the person works in.
-            services.windows.active?.state.showWorkspace(workspace)
-            try await PasswordManagerRouteTests.until({ services.windows.active?.focusedPane?.selectedTab?.id == terminal.id },
-                                                      report: { "focused: \(services.windows.active?.focusedPane?.selectedTab?.id ?? "none")" })
 
             // On: Cmd-N opens a workspace whose only tab is a terminal that starts in `folder` (its cwd may report later).
-            let created = try await cmdN()
+            let (opened, created) = try await cmdN()
             #expect(created.allSatisfy { $0.kind == .pty && !services.agentTabs.isNewTabPage($0.id) },
                     "new workspace tabs: \(created.map { "\($0.id) \($0.kind)" })")
-            let terminals = Set(created.map(\.id))
-            @MainActor func cwds() -> [String?] {
-                services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
-                    .filter { terminals.contains($0.id) }.map { resolved($0.cwd) }
-            }
-            try await PasswordManagerRouteTests.until({ !cwds().isEmpty && cwds().allSatisfy { $0 == expected } },
-                                                      report: { "new workspace cwd: \(cwds()), expected \(expected ?? "none")" })
+            try await PasswordManagerRouteTests.until({ !tabs(opened).isEmpty && tabs(opened).allSatisfy { resolved($0.cwd) == expected } },
+                                                      report: { "new workspace cwd: \(tabs(opened).map { $0.cwd ?? "none" }), expected \(expected ?? "none")" })
         }
     }
 }
