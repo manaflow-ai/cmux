@@ -228,6 +228,36 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
         ActiveLookScope.during(window) { unsafeBitCast(implementation, to: Method.self)(self, selector) }
     }
 
+    // Setting these re-renders the graph at once, outside any update above: the window backdrop's
+    // theme repaint sets the tint while the app is inactive (fleet trace, macOS 27.0.1).
+    override var tintColor: NSColor? {
+        get { super.tintColor }
+        set { ActiveLookScope.during(window) { super.tintColor = newValue } }
+    }
+
+    override var style: NSGlassEffectView.Style {
+        get { super.style }
+        set { ActiveLookScope.during(window) { super.style = newValue } }
+    }
+
+    override var cornerRadius: CGFloat {
+        get { super.cornerRadius }
+        set { ActiveLookScope.during(window) { super.cornerRadius = newValue } }
+    }
+
+    override var appearance: NSAppearance? {
+        get { super.appearance }
+        set { ActiveLookScope.during(window) { super.appearance = newValue } }
+    }
+
+    @objc(_viewDidChangeAppearance:)
+    func viewDidChangeAppearance(_ previous: AnyObject?) {
+        typealias Method = @convention(c) (NSView, Selector, AnyObject?) -> Void
+        let selector = NSSelectorFromString("_viewDidChangeAppearance:")
+        guard let implementation = Self.superImplementation(selector) else { return }
+        ActiveLookScope.during(window) { unsafeBitCast(implementation, to: Method.self)(self, selector, previous) }
+    }
+
     override func didAddSubview(_ subview: NSView) {
         super.didAddSubview(subview)
         scopeGraphHosts()
