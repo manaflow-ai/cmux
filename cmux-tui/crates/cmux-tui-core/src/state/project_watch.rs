@@ -28,15 +28,25 @@ pub(crate) fn start(mux: &Arc<Mux>) {
     }
     let Some(layout) = Layout::current() else { return };
     let weak = Arc::downgrade(mux);
-    let spawned = crate::thread_qos::spawn_raisable(
+    if let Err(error) = spawn_thread(move || run(&weak, &layout)) {
+        note(&format!("project sources thread did not start: {error}"));
+    }
+}
+
+/// Starts `body` on the `mux-project-sources` thread: a watcher, utility
+/// through `spawn_raisable` (p05-ipc-080), so the registry lock a request
+/// waits for raises it. With `daemonRequestQos` on, each import pass also
+/// runs as a utility `WorkQos` (`import_changed`, p04-input-084), so a pass
+/// is lowered where the thread could only start at default.
+pub(crate) fn spawn_thread(
+    body: impl FnOnce() + Send + 'static,
+) -> std::io::Result<std::thread::JoinHandle<()>> {
+    crate::thread_qos::spawn_raisable(
         "mux-project-sources",
         crate::thread_qos::ThreadType::Utility.qos(),
         None,
-        move || run(&weak, &layout),
-    );
-    if let Err(error) = spawned {
-        note(&format!("project sources thread did not start: {error}"));
-    }
+        body,
+    )
 }
 
 fn note(message: &str) {
@@ -139,6 +149,7 @@ fn import_changed(
     imported: &mut HashMap<&'static str, Vec<Observation>>,
 ) -> bool {
     let Some(mux) = mux.upgrade() else { return false };
+    let _pass = mux.request_qos().enter_upkeep_pass();
     let changed: Vec<SourceScan> = project_sources::scan_all(layout)
         .into_iter()
         .filter(|scan| imported.get(scan.source) != Some(&scan.entries))
@@ -177,6 +188,23 @@ mod tests {
         assert!(relevant(&event("/a/.t3/userdata/state.sqlite-wal")));
         assert!(relevant(&event("/a/User/globalStorage/storage.json")));
         assert!(!relevant(&event("/a/.codex/logs_2.sqlite-wal")));
+    }
+
+    /// An import pass runs at utility with `daemonRequestQos` on, and at
+    /// the declared class with it off (p04-input-084).
+    #[test]
+    fn an_import_pass_runs_at_utility_with_the_feature_on() {
+        use crate::request_qos::tests::take_entered;
+        let home = std::env::temp_dir().join(format!("cmux-project-qos-{}", std::process::id()));
+        let layout = Layout::linux(&home, None, None);
+        let mux = Mux::new_for_test("project-import-qos", crate::SurfaceOptions::default());
+        let weak = Arc::downgrade(&mux);
+        let _ = take_entered();
+        assert!(import_changed(&weak, &layout, &mut HashMap::new()));
+        assert!(take_entered().is_empty(), "the feature is off");
+        mux.set_request_qos_for_test(true);
+        assert!(import_changed(&weak, &layout, &mut HashMap::new()));
+        assert_eq!(take_entered(), vec![cmux_threads::ThreadQos::Utility]);
     }
 
     #[test]

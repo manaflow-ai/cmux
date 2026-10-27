@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import Foundation
 
 /// Tabs Chromium creates itself (target=_blank, window.open,
@@ -6,7 +7,10 @@ import Foundation
 /// for the fork to insert them into a pane window (`unplaced`, fork API 8).
 @MainActor
 final class CEFOrphanTabs {
-    unowned let runtime: CEFRuntime
+    /// The runtime, which owns this as `CEFRuntime.orphans` (p10-stability-091).
+    private let runtimeReference: OwnerReference<CEFRuntime>
+    /// The runtime; nil (reported) only once it is gone, and then no tab is adopted.
+    private var runtime: CEFRuntime? { runtimeReference.resolve() }
     /// Browsers Chromium created while their pane's window was still being
     /// created, and browsers that closed before cmux registered them.
     var ledger = CEFAdoptionLedger()
@@ -15,7 +19,7 @@ final class CEFOrphanTabs {
     var unplaced: [Int32: CEFCreatedBy] = [:]
 
     init(runtime: CEFRuntime) {
-        self.runtime = runtime
+        runtimeReference = CEFRuntime.childReference(runtime)
     }
 
     /// A browser Chromium created itself in `window`. When that window is
@@ -28,8 +32,8 @@ final class CEFOrphanTabs {
     /// pane (the window guard hides that window).
     func adopt(browser: Int32, window: Int32, created: CEFCreatedBy = .none) {
         // A popup window's tab may already belong to its popup host (fork API 11).
-        guard !ledger.isClosed(browser), runtime.tabsByBrowser[browser] == nil else { return }
-        guard let disposition = linkDisposition(browser: browser, created: created) else { return }
+        guard let runtime, !ledger.isClosed(browser), runtime.tabsByBrowser[browser] == nil else { return }
+        guard let disposition = linkDisposition(browser: browser, created: created, in: runtime) else { return }
         if let host = runtime.hosts.values.first(where: { $0.owns(window: window) }) {
             let placement = runtime.takePlacement(window: window, fallback: disposition, created: created)
             host.adoptChromiumTab(browser: browser, disposition: placement.disposition, bounds: placement.bounds)
@@ -50,16 +54,16 @@ final class CEFOrphanTabs {
     /// The fork inserted `browser` into `window` (fork API 8): a tab that
     /// waited for a pane window is adopted there.
     func placeUnplaced(browser: Int32, window: Int32) {
-        guard let created = unplaced[browser], runtime.tabsByBrowser[browser] == nil,
+        guard let runtime, let created = unplaced[browser], runtime.tabsByBrowser[browser] == nil,
               let host = runtime.hosts.values.first(where: { $0.owns(window: window) }) else { return }
         unplaced[browser] = nil
-        guard let disposition = linkDisposition(browser: browser, created: created) else { return }
+        guard let disposition = linkDisposition(browser: browser, created: created, in: runtime) else { return }
         let placement = runtime.takePlacement(window: window, fallback: disposition, created: created)
         // The event arrives inside Chromium's tab strip notification, which
         // forbids tab strip changes (the host may select the new tab): adopt
         // on the next main-actor turn.
         Task { @MainActor [weak self, weak host] in
-            guard let self, let host, self.runtime.tabsByBrowser[browser] == nil, !self.ledger.isClosed(browser) else { return }
+            guard let self, let host, let runtime = self.runtime, runtime.tabsByBrowser[browser] == nil, !self.ledger.isClosed(browser) else { return }
             host.adoptChromiumTab(browser: browser, disposition: placement.disposition, bounds: placement.bounds)
         }
     }
@@ -67,7 +71,7 @@ final class CEFOrphanTabs {
     /// How a tab Chromium created for a page opens (`CEFLinkClicks`); nil
     /// when a modified click was mapped to the current tab or a download:
     /// the new browser closes and its opener loads or downloads the link.
-    private func linkDisposition(browser: Int32, created: CEFCreatedBy) -> BrowserNewTabDisposition? {
+    private func linkDisposition(browser: Int32, created: CEFCreatedBy, in runtime: CEFRuntime) -> BrowserNewTabDisposition? {
         // The shim matched the popup's target URL, disposition and gesture
         // as one record (OnBeforePopup), so a URL never pairs with another
         // popup's disposition.
@@ -80,7 +84,7 @@ final class CEFOrphanTabs {
             guard let url, let link = URL(string: url), let opener = runtime.tabsByBrowser[created.opener] else { return .foregroundTab }
             // Never inside Chromium's tab insertion (OnAfterCreated, the tab
             // strip notification): close and load on the next turn.
-            Task { @MainActor [weak runtime = self.runtime, weak opener] in
+            Task { @MainActor [weak runtime, weak opener] in
                 runtime?.shim?.close(browser)
                 opener?.load(link)
             }
@@ -88,7 +92,7 @@ final class CEFOrphanTabs {
         case .download:
             guard let url, runtime.tabsByBrowser[created.opener] != nil else { return .foregroundTab }
             // As for `.opener`: never inside Chromium's tab insertion.
-            Task { @MainActor [weak runtime = self.runtime] in
+            Task { @MainActor [weak runtime] in
                 runtime?.shim?.close(browser)
                 _ = runtime?.downloads.download(url, browser: created.opener)
             }
@@ -101,6 +105,7 @@ final class CEFOrphanTabs {
     /// A pane's window now exists: adopt the tabs that were created in it
     /// before its first browser reported.
     func windowBecameLive(_ host: CEFPaneHost) {
+        guard let runtime else { return }
         let waiting = ledger.takeWaiting()
         for orphan in waiting {
             if host.owns(window: orphan.window) {
@@ -144,7 +149,7 @@ final class CEFOrphanTabs {
                                       preferred: CEFPaneHost?) {
         // Chromium may have closed it meanwhile (a tab an extension opened
         // and removed at once): adopting it would leave a ghost tab.
-        guard runtime.tabsByBrowser[browser] == nil, !ledger.isClosed(browser) else { return }
+        guard let runtime, runtime.tabsByBrowser[browser] == nil, !ledger.isClosed(browser) else { return }
         let hosts = runtime.hosts
         guard let shim = runtime.shim, runtime.forkAPIVersion >= CEFPaneHost.tabMoveForkAPI,
               let host = preferred.flatMap({ $0.isLive ? $0 : nil }) ?? runtime.lastShownHost ?? hosts.values.first(where: { $0.isLive }),
