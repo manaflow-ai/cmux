@@ -151,6 +151,25 @@ public func blockingSecCodeCopySigningInformation(_ code: SecStaticCode, _ flags
     return blockingCall(.systemCall, fileID: fileID, line: line) { unsafe SecCodeCopySigningInformation(code, flags, information) }
 }
 
+/// The designated requirement of code, like `SecCodeCopyDesignatedRequirement`, as a checked blocking call: it
+/// reads the code's signature on disk.
+///
+/// - Parameters:
+///   - code: The code on disk (or running code).
+///   - flags: The options.
+///   - requirement: Receives the requirement.
+///   - fileID: The calling code's `#fileID` (names the call site).
+///   - line: The calling code's `#line`.
+/// - Returns: What `SecCodeCopyDesignatedRequirement` returns.
+@inlinable
+public func blockingSecCodeCopyDesignatedRequirement(_ code: SecStaticCode, _ flags: SecCSFlags,
+                                                     _ requirement: UnsafeMutablePointer<SecRequirement?>,
+                                                     fileID: StaticString = #fileID, line: UInt = #line) -> OSStatus {
+    // SAFETY: forwards the caller's pointers to SecCodeCopyDesignatedRequirement unchanged, only for the call; the
+    // caller's own `unsafe` states why they are valid for it.
+    return blockingCall(.systemCall, fileID: fileID, line: line) { unsafe SecCodeCopyDesignatedRequirement(code, flags, requirement) }
+}
+
 /// The guest code a host names by attributes (an audit token or a pid), like
 /// `SecCodeCopyGuestWithAttributes`, as a checked blocking call: it asks the kernel and the code signing
 /// daemon about the other process.

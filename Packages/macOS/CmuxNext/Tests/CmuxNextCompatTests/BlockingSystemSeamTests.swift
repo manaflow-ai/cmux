@@ -87,6 +87,8 @@ private nonisolated func callEachSystemSeam() throws -> [BlockingSite] {
     seam(.systemCall) { _ = blockingSecStaticCodeCheckValidity(code, [], nil) }
     var information: CFDictionary?
     seam(.systemCall) { _ = blockingSecCodeCopySigningInformation(code, [], &information) }
+    var designated: SecRequirement?
+    seam(.systemCall) { _ = blockingSecCodeCopyDesignatedRequirement(code, [], &designated) }
 
     var madeSelf: SecCode?
     seam(.systemCall) { _ = blockingSecCodeCopySelf([], &madeSelf) }

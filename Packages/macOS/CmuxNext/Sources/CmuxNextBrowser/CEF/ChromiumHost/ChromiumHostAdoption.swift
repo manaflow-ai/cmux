@@ -179,8 +179,9 @@ nonisolated struct ChromiumHostAdoption: Sendable {
         guard unsafe SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else { return nil }
         var requirement: SecRequirement?
         // SAFETY: SecCodeCopyDesignatedRequirement writes one retained SecRequirement reference into `requirement`, a local.
-        let copied = unsafe blockingCall(.systemCall) { unsafe SecCodeCopyDesignatedRequirement(code, [], &requirement) }
-        guard copied == errSecSuccess, let requirement else { return nil }
+        guard unsafe blockingSecCodeCopyDesignatedRequirement(code, [], &requirement) == errSecSuccess, let requirement else {
+            return nil
+        }
         var text: CFString?
         // SAFETY: SecRequirementCopyString writes one retained CFString reference into `text`, a local.
         guard unsafe SecRequirementCopyString(requirement, [], &text) == errSecSuccess, let text else { return nil }
