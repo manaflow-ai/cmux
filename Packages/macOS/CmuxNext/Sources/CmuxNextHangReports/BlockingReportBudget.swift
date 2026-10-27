@@ -45,7 +45,7 @@ public nonisolated struct BlockingReportBudget: Sendable, Equatable {
     public static func site(of violation: BlockingViolation) -> String {
         var hash: UInt64 = 0xCBF2_9CE4_8422_2325
         func mix(_ byte: UInt8) {
-            hash ^= UInt64(byte)
+            hash ^= UInt64(truncatingIfNeeded: byte)
             hash = hash &* 0x0000_0100_0000_01B3
         }
         violation.kind.rawValue.utf8.forEach(mix)
@@ -58,8 +58,7 @@ public nonisolated struct BlockingReportBudget: Sendable, Equatable {
             // SAFETY: as above.
             unsafe withUnsafeBytes(of: frame.offset.littleEndian) { unsafe $0.forEach(mix) }
         }
-        let hex = String(hash, radix: 16)
-        return String(repeating: "0", count: 16 - hex.count) + hex
+        return String(("0000000000000000" + String(hash, radix: 16)).suffix(16))
     }
 
     private static func isRecent(_ sent: Date, now: Date) -> Bool {

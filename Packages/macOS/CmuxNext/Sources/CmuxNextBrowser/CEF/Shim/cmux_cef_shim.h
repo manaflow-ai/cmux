@@ -1310,6 +1310,13 @@ CMUX_SHIM_EXPORT int cmux_shim_ext_load_later_supported(void);
 // cmux_shim_initialize. Returns 1 when the load started, 0 for an
 // off-the-record key, an empty path or a fork without the call (no reply).
 CMUX_SHIM_EXPORT int cmux_shim_ext_load_command_line(const char* profile_cache_path, int reply, const char* path);
+// The page push channel (fork API 39, cmux_tab_page_push; p13-webui-079): `text` (UTF-8) to the
+// receiver the browser's cmux-page document registered with cmuxPageListen, as data: no script runs
+// for it and nothing answers. Pushes keep their order with each other and with the frame's scripts,
+// and the renderer keeps them until the receiver registers or a frozen page runs again. Returns 1
+// when sent, 0 for NULL text, an unknown browser, a page whose document is not a cmux-page one, or
+// a fork without the call. UI thread.
+CMUX_SHIM_EXPORT int cmux_shim_tab_page_push(int browser_id, const char* text);
 // <select> popups (fork API 31's cmux_browser_set_popup_menu_handler, task
 // p01-process-171). 1: every browser's popups, now and later, come to the
 // host as CMUX_SHIM_POPUP_MENU, and Chromium shows no NSMenu of its own (the

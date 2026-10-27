@@ -81,6 +81,8 @@ struct ForkApi {
   int (*browser_attach_view)(int, void*) = nullptr;
   // API version 37: a tab's visibility and capture from the app.
   int (*tab_set_visibility)(int, int, int) = nullptr;
+  // API version 39: a string to a cmux-page document's receiver (the page push channel).
+  int (*tab_page_push)(int, const char*, size_t) = nullptr;
   void (*set_new_tab_page_url)(const char*) = nullptr;
   void (*set_install_prompt_handler)(void (*)(void*, int, int, const char*), void*) = nullptr;
   int (*install_prompt_reply)(int, int) = nullptr;

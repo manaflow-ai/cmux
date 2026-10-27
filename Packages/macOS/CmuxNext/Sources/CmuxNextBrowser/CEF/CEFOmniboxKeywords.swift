@@ -120,6 +120,11 @@ import Foundation
         replies.resolve(requestID, with: .success(json))
     }
 
+    /// The Chromium Host ended (`CEFRuntime.hostGone`): its extensions answer no request now.
+    func hostEnded() {
+        replies.failAll(where: { _ in true }, with: BrowserTabError.closed)
+    }
+
     /// `cmux_shim_omnibox_input`'s session events, in the fork's order.
     private enum Event: Int32 {
         case started = 0, changed, entered, ended

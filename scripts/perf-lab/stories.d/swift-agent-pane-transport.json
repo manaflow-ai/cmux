@@ -1,0 +1,19 @@
+{
+  "id": "swift-agent-pane-transport",
+  "tier": "builder",
+  "description": "AgentPaneTransportBench and AgentPaneTransportBenchParse: frame round trips through the agent pane's host transport (host-frames, host-turns) against the page-world WebSocket (direct) at light, paced and burst load, main-thread CPU and bridge calls per burst, and the JSON id-swap and duplicate-key check costs on large frames.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-agent-pane-transport", "--filter", "AgentPaneTransportBench", "--env", "CMUX_PANE_TRANSPORT_BENCH=1"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.agent_pane_transport\\.(direct|host-frames|host-turns)\\.(light|paced|burst|burst_total|main_cpu)", "unit": "ms", "better": "lower"},
+    {"name": "swift\\.agent_pane_transport\\.(direct|host-frames|host-turns)\\.bridge_calls_per_burst", "unit": "count", "better": "lower"},
+    {"name": "swift\\.agent_pane_parse\\.[A-Za-z0-9-]+\\.(full|check|main_cpu|wall)", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 1500,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneTransportBench.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneTransportBenchParse.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "Performance Lead",
+  "component": "AgentPane>Transport"
+}

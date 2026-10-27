@@ -4513,6 +4513,27 @@
       "pending_keys": [],
       "reply_event": "CMUX_SHIM_REPLY",
       "reason": "Answered by CMUX_SHIM_REPLY with the caller's reply id once the fork installed the extension and its background page finished its first load (p13-webui-055); the profile's first browser tab waits for it. The host's wire:REPLY under the op's token carries the start result: a start other than 1 ends that load at once instead of at its deadline (CEFBuiltInExtensionLoader awaits it, as profileWrite does, task 021)."
+    },
+    {
+      "name": "cmux_shim_tab_page_push",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "text",
+          "type": "const char*"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "A page's host events and replies as data (p13-webui-079), one-way and in call order on the control channel, which also carries the page's scripts (tab_evaluate), so a push never overtakes a script sent before it. The app reads no answer: it pushes only while CEFForkFeatures.pagePush says the fork and the shim have the channel."
     }
   ],
   "events": [

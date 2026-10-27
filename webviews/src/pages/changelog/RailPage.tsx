@@ -11,7 +11,7 @@ export function RailPage({ store, strings, s }: { store: ChangelogStore; strings
   const view = s.notes ? releaseView(s.notes, strings.language) : undefined;
   return (
     <div className="clr">
-      <nav className="clr-rail" aria-label={strings.t("changelog.page.versions")}>
+      <nav className="clr-rail" data-page-scroll="rail" aria-label={strings.t("changelog.page.versions")}>
         {s.inSpan.length > 0 && <div className="clr-rail-head">{strings.t("changelog.page.sinceLastUpdate")}</div>}
         {s.builds.length === 0 && <p className="cl-muted">{strings.t("changelog.page.noHistory")}</p>}
         {s.builds.map((b) => (
@@ -30,7 +30,7 @@ export function RailPage({ store, strings, s }: { store: ChangelogStore; strings
           </button>
         ))}
       </nav>
-      <article className="clr-reader">
+      <article className="clr-reader" data-page-scroll="reader">
         {s.failed && <p className="cl-error">{s.failed}</p>}
         {s.span && (s.inSpan.length === 0 || (s.missing && !!s.selected && s.inSpan.includes(s.selected))) && (
           <h1 className="cl-updated" data-testid="changelog.updatedTo">
