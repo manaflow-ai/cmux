@@ -99,6 +99,17 @@ def test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups() ->
     assert "cancel-in-progress: false" in dev
 
 
+def test_nightly_push_runs_never_share_a_build_group() -> None:
+    # A shared workflow-level group held a newer tip pending behind a running
+    # build and let the next push replace it (2026-10-27). Each push run of
+    # nightly.yml takes a group keyed by its own run id, chosen before any
+    # other alternative, so no two pushes (two SHAs) ever share one.
+    group = load(WORKFLOWS / "nightly.yml")["concurrency"]["group"]
+    suffix = group.split("}}-${{", 1)[1].strip()
+    assert suffix.startswith("github.event_name == 'push' && format('push-{0}', github.run_id) ||"), group
+    assert load(WORKFLOWS / "nightly.yml")["concurrency"]["cancel-in-progress"] is False
+
+
 if __name__ == "__main__":
     test_required_delivery_workflows_exist()
     test_the_declared_list_matches_every_delivery_workflow_path()
@@ -106,4 +117,5 @@ if __name__ == "__main__":
     test_delivery_workflows_never_cancel_in_progress_work()
     test_newest_wins_jobs_take_no_concurrency_group()
     test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups()
+    test_nightly_push_runs_never_share_a_build_group()
     print("PASS: nightly and DEV delivery never cancel or replace waiting builds")
