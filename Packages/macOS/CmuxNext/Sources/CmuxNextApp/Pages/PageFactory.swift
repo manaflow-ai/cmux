@@ -176,6 +176,12 @@ struct PageFactory {
                 return path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
             }
         }
+        provider.themeOverrides = { GhosttyRuntime.shared.configDiagnosticsSnapshot?.colorOverrides ?? [] }
+        provider.openThemeOverride = { [weak services] override in
+            guard let services else { return false }
+            return services.linkOpener.openFile(URL(fileURLWithPath: override.file), from: services.windows.active?.focusedPane,
+                                                asText: true, at: FilePosition(line: override.line))
+        }
         provider.themeFiles = SettingsThemeFiles(
             folders: {
                 .init(resources: GhosttyRuntime.resourcesDirectory(), home: FileManager.default.homeDirectoryForCurrentUser,
@@ -216,7 +222,7 @@ struct PageFactory {
                                     // The acpmux this app starts; none in a showcase or with the mock agent host.
                                     guard let environment = services.flatMap(QuitAgents.environment) else { return nil }
                                     return (AcpmuxDaemonSummary.title, await AcpmuxDaemonSummary.current(environment).text)
-                                })),
+                                }, machines: { DaemonUpdateBoard.shared.otherMachines })),
                       PageRoute(prefix: WebUpdatesPageProvider.prefix, provider: WebUpdatesPageProvider()),
                       // Chief > Voice input: the home.voiceInput tunable (DEV and NIGHTLY).
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),
