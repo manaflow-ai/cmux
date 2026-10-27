@@ -20,7 +20,7 @@ export interface UnsentDraftThrottle {
 }
 
 export interface UnsentDraftThrottleOptions {
-  send(text: string): void | Promise<unknown>;
+  send(text: string): unknown;
   intervalMs?: number;
   now?: () => number;
   setTimer?: (run: () => void, ms: number) => unknown;
