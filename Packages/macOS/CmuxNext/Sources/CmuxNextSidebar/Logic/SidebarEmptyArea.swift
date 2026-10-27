@@ -17,7 +17,7 @@ public nonisolated struct SidebarEmptyAreaTarget: Hashable, Sendable {
 extension SidebarLayout {
     /// The new-workspace target for a double-click at `y`, or nil on a row.
     /// The row above decides: inside an expanded group (between its rows,
-    /// or within its bottom padding) the group; anywhere else the end of the
+    /// or in the row spacing under its last row) the group; anywhere else the end of the
     /// section of that row. Above every row, the first machine section.
     /// The pinned section takes no new workspace.
     public func emptyAreaTarget(at y: CGFloat, metrics: SidebarLayoutMetrics) -> SidebarEmptyAreaTarget? {
@@ -28,8 +28,7 @@ extension SidebarLayout {
         let above = rows[index]
         guard above.section != .pinned else { return nil }
         if let group = groupOpening(below: above) {
-            let endsGroup = above.isLastInGroup || above.key == .group(group) && above.childCount == 0
-            let extent = above.maxY + metrics.rowSpacing + (endsGroup ? metrics.groupBottomPadding : 0)
+            let extent = above.maxY + metrics.rowSpacing
             if y < extent { return SidebarEmptyAreaTarget(section: above.section, group: group) }
         }
         return SidebarEmptyAreaTarget(section: above.section)
