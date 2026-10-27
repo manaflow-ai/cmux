@@ -3670,6 +3670,12 @@
       "title" : "Hide Bands Until Hover",
       "type" : "string"
     },
+    "sidebar.noFade" : {
+      "default" : false,
+      "description" : "The sidebar's edges stop fading and the whole list shows. It also hides the bottom profile and search bar. Off, the edges fade and the bar shows.",
+      "title" : "Show Whole Sidebar Without Fade",
+      "type" : "boolean"
+    },
     "sidebar.nowPlaying.enabled" : {
       "default" : false,
       "description" : "A player for what is playing, at the bottom of the sidebar.",

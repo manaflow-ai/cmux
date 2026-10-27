@@ -273,6 +273,8 @@ type Props = {
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string, peer?: string): void;
+  /// A new chat's machine was picked where no folder of it is known: the chat starts there.
+  onComputer?(computer: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
   /// New Worktree: a new chat on this Mac starts in a worktree of its folder (cx-lyqio.2).
@@ -353,6 +355,7 @@ export function Composer({
   upload,
   localPaths,
   onProject,
+  onComputer,
   projectChoices,
   onBrowseProject,
   onNewWorktree,
@@ -1575,9 +1578,11 @@ export function Composer({
       peers={snapshot.peers}
       {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
       {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
+      {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
       {...(onRefreshMachines ? { onRefreshMachines } : {})}
       {...(folderNote ? { folderNote } : {})}
       environments={environments}
+      {...(onComputer ? { onComputer } : {})}
       onProject={
         onProject &&
         ((cwd, peer) => {
