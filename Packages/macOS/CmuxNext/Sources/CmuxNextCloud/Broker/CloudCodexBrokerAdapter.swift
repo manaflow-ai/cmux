@@ -200,9 +200,7 @@ import Observation
         // Keep the barrier visible until teardown completes. Every concurrent
         // caller must await the same task before opening a replacement holder.
         teardownTasks[scope] = Task { [registry] in
-            let result = await registry.remove(scope: scope)
-            cleanupByScope[scope, default: []].subtract(result.attempted.subtracting(result.failed))
-            cleanupByScope[scope, default: []].formUnion(result.failed)
+            cleanupByScope[scope] = await registry.remove(scope: scope)
             teardownTasks.removeValue(forKey: scope)
         }
     }
