@@ -117,7 +117,6 @@ class WorkflowStructureTests(unittest.TestCase):
         for script in ("ensure-cef.sh --optional\n", "ensure-cef.sh --optional --arch x86_64",
                        "ensure-remote-browser-host.sh --optional"):
             self.assertIn(script, command)
-        # A failed fetch (a digest mismatch) fails the join, not just its own subshell line.
         self.assertIn("set -e", command)
         join = self.step(CEF_JOIN)
         self.assertEqual(join["if"], fetch["if"])
@@ -128,6 +127,41 @@ class WorkflowStructureTests(unittest.TestCase):
         # Every track starts it, so every track's cleanup stops it.
         self.assertNotIn("track", self.step(STOP)["if"])
         self.assertIn("always()", self.step(STOP)["if"])
+
+    def run_engine_fetch(self, failing):
+        """Run the fetch step's own command and its join on stub fetch scripts; return the join."""
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            (work / "scripts/cmux-next").mkdir(parents=True)
+            (work / "scripts/ci").mkdir(parents=True)
+            (work / "scripts/ci/background_build.py").write_bytes(BACKGROUND.read_bytes())
+            for script in ("ensure-cef.sh", "ensure-remote-browser-host.sh"):
+                stub = work / "scripts/cmux-next" / script
+                status = 1 if script == failing else 0
+                stub.write_text(f'#!/bin/bash\necho "{script} $*" >> "$RUNNER_TEMP/calls"\nexit {status}\n')
+                stub.chmod(0o755)
+            env = {**os.environ, "RUNNER_TEMP": str(work / "temp")}
+            (work / "temp").mkdir()
+            started = subprocess.run(["bash", "-e", "-c", self.step(CEF)["run"]], cwd=work, env=env,
+                                     capture_output=True, text=True)
+            self.assertEqual(started.returncode, 0, started.stderr)
+            join = subprocess.run(["bash", "-e", "-c", self.step(CEF_JOIN)["run"]], cwd=work, env=env,
+                                  capture_output=True, text=True, timeout=60)
+            calls = (work / "temp/calls").read_text().splitlines() if (work / "temp/calls").exists() else []
+            return join, calls
+
+    def test_the_engine_join_succeeds_after_every_fetch_ran(self):
+        join, calls = self.run_engine_fetch(failing=None)
+        self.assertEqual(join.returncode, 0, join.stdout + join.stderr)
+        self.assertEqual(calls, ["ensure-cef.sh --optional", "ensure-cef.sh --optional --arch x86_64",
+                                 "ensure-remote-browser-host.sh --optional"])
+
+    def test_a_failed_fetch_fails_the_join(self):
+        # ensure-cef.sh exits 1 only when the store is unusable; the host script on a digest mismatch.
+        for failing in ("ensure-cef.sh", "ensure-remote-browser-host.sh"):
+            with self.subTest(failing=failing):
+                join, _ = self.run_engine_fetch(failing=failing)
+                self.assertNotEqual(join.returncode, 0, join.stdout + join.stderr)
 
     def test_chief_and_iphone_host_build_in_the_background_and_xcodebuild_never_sees_them(self):
         for name, script, env in ((CHIEF, "build-optchat-chief.sh", "OPTCHAT_CHIEF"),

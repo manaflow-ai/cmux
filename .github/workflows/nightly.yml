@@ -1885,8 +1885,10 @@ jobs:
       # and reports the browser unavailable; "Report the embedded Chromium
       # engine" flags that. The fetch (9-134 s, runs 40378565252, 40380339203)
       # runs in the background beside the steps below, and "Finish fetching
-      # the Chromium engine" joins it right before the Release build: a digest
-      # mismatch still fails the job there, before anything reads the cache.
+      # the Chromium engine" joins it right before the Release build. It fails
+      # where the serial step failed (a remote browser host digest mismatch,
+      # or an engine store that is not optional): the join exits with the
+      # fetch's status, before anything reads the cache.
       - name: Fetch the Chromium engine
         if: inputs.nightly_next_unsigned_run == ''
         env:
