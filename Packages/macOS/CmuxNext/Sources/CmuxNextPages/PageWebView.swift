@@ -317,7 +317,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // No script until the first show (``PageScriptTarget/hasDocument``); the engine that shows the document sets the bridge.
         let target = PageScriptTarget(hasDocument: !(load && startsAtFirstShow))
         scriptTarget = target
-        scripts = PageScriptPipeline { script in target.evaluate(script) } // MQ12 held queue: the router holds envelopes while hidden
+        scripts = PageScriptPipeline(deliver: { target.deliver($0) }, form: { target.deliveryForm }) // MQ12 held queue: the router holds envelopes while hidden
         let decision = Self.engineDecision(for: descriptor, options: options, hosting: chromium)
         engineDecision = pooled || !load ? decision.webKitOnly : decision
         super.init(frame: .zero)

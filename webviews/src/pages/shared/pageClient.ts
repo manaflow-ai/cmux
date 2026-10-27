@@ -94,6 +94,13 @@ export interface ReplyHandler {
 export const RECEIVE_NAME = "__cmuxPageReceive";
 /** The batch form: the host sends one frame's envelopes as one script (PageScriptPipeline). */
 export const RECEIVE_MANY_NAME = "__cmuxPageReceiveMany";
+/**
+ * The page push channel (Chromium, p13-webui-079): where the host's page script defines it, the
+ * client registers its receiver of envelope runs with it, and the host sends each run as data
+ * instead of a `__cmuxPageReceiveMany` script, as Chrome's WebUI pages get Mojo messages
+ * (ChromiumPageHostBridge.pushReceiverScript). The script globals stay for every other host.
+ */
+export const LISTEN_NAME = "__cmuxPageHostListen";
 
 /** The parked-document flag (pageLifecycle.ts); the client holds calls until the claim. */
 export { PARKED_NAME };
@@ -236,7 +243,8 @@ interface ClaimLocation {
 /**
  * The bridge client: the page posts envelopes and awaits the reply; the host pushes events and its
  * own calls through `window.__cmuxPageReceive(envelope)`, or one frame's envelopes through
- * `window.__cmuxPageReceiveMany(envelopes)`. Every page that boots through it serves
+ * `window.__cmuxPageReceiveMany(envelopes)` or, on the page push channel, the receiver it registers
+ * with `__cmuxPageHostListen` (`LISTEN_NAME`). Every page that boots through it serves
  * the pooled host's claim (`CLAIM_OP`); no page code takes part.
  */
 export class BridgePageClient implements PageClient {
@@ -258,6 +266,8 @@ export class BridgePageClient implements PageClient {
   ) {
     target[RECEIVE_NAME] = (message: unknown) => this.receive(message);
     target[RECEIVE_MANY_NAME] = (messages: unknown) => this.receiveMany(messages);
+    const listen = target[LISTEN_NAME];
+    if (typeof listen === "function") listen((messages: unknown) => this.receiveMany(messages));
     this.parked = target[PARKED_NAME] === true;
     this.restore = takePageRestore(target);
     this.location = target.location as ClaimLocation | undefined;
