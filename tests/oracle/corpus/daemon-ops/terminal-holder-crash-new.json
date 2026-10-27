@@ -1,0 +1,391 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "terminal-holder-crash-new",
+  "suite": "daemon-ops",
+  "title": "Terminal holder crash journey, holder arm: the VT state survives a SIGKILL and an abort mid-output",
+  "surface": "cmux-next-daemon",
+  "source": {
+    "repo": "manaflow-ai/cmux",
+    "ref": "$RUN",
+    "artifact": "$RUN"
+  },
+  "environment": {},
+  "fixture": {
+    "seed": "daemon-ops.terminal-holder-crash-new",
+    "network": "offline",
+    "clock": "virtual"
+  },
+  "preconditions": [
+    "hermetic state root",
+    "no other cmux-tui on the state root"
+  ],
+  "requires": [
+    "resource_api",
+    "restart"
+  ],
+  "switches": [
+    "terminal-holder"
+  ],
+  "platforms": [
+    "linux",
+    "mac"
+  ],
+  "allow_crashes": [
+    {
+      "kind": "holder",
+      "reason": "kill ends the terminal holder on purpose (SIGKILL)",
+      "steps": [
+        "kill"
+      ]
+    },
+    {
+      "kind": "holder",
+      "reason": "abort ends the terminal holder on purpose (SIGABRT)",
+      "steps": [
+        "abort"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "id": "fx-workspace",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.create",
+        "params": {
+          "initial_content": "terminal",
+          "name": "oracle"
+        },
+        "idempotencyKey": "terminal-holder-crash-new.fx-workspace"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "arm",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.input.write",
+        "params": {
+          "text": "printf '\\033[H\\033[2J\\033[3J'; i=0; while [ $i -lt 30 ]; do i=$((i+1)); echo line-$i; done; stty raw -echo; printf 'X\\033]2;oracle-armed\\007\\033[38;5;1'; dd bs=1 count=1 >/dev/null 2>&1; printf '96mRED\\033]2;oracle-second\\007\\303'; dd bs=1 count=1 >/dev/null 2>&1; printf '\\251 END\\033[0m\\r\\n\\033]2;oracle-done\\007'; exec cat\r"
+        },
+        "idempotencyKey": "terminal-holder-crash-new.arm"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "the program prints 30 lines and stops inside the SGR `ESC [ 38;5;1`"
+    },
+    {
+      "id": "armed",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/terminals/0/title",
+        "equals": "sha256:4871df02e32ffadd7e963d3b761f4735b39899515988a92af0d05c3d33e2b75d",
+        "maxMs": 15000
+      },
+      "settleMaxMs": 15000
+    },
+    {
+      "id": "state-1",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.state.read",
+        "params": {}
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "view-1",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.get",
+        "params": {}
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "kill",
+      "op": "kill",
+      "target": {
+        "process": "holder"
+      },
+      "args": {
+        "signal": "KILL"
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a killed process sends no reply; the driver's reply is the daemon's record of each ended terminal host",
+        "result": {
+          "signal": "KILL",
+          "process": "holder",
+          "ended": [
+            "holder"
+          ],
+          "records": []
+        }
+      },
+      "note": "SIGKILL of the holder while the parser is inside the SGR"
+    },
+    {
+      "id": "state-2",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.state.read",
+        "params": {}
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok",
+        "result": "$step:state-1#"
+      },
+      "note": "the VT state (screen, modes, pen) and the 80x24 size are the ones before the kill"
+    },
+    {
+      "id": "view-2",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.get",
+        "params": {}
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok",
+        "result": "$step:view-1#",
+        "resultExcept": [
+          "/extra"
+        ]
+      },
+      "note": "the same terminal, title, cwd and size, still running: `extra` holds only the last output time"
+    },
+    {
+      "id": "go",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.input.write",
+        "params": {
+          "text": "g"
+        },
+        "idempotencyKey": "terminal-holder-crash-new.go"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "one byte for the program, which ends the SGR and stops inside `é`"
+    },
+    {
+      "id": "second",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/terminals/0/title",
+        "equals": "sha256:2e2f9f48aa6fc82b7d04b83074757bfdc671a2e8266eadc8c13646a7ad749b28",
+        "maxMs": 15000
+      },
+      "settleMaxMs": 15000,
+      "note": "the new holder streams the shell's output"
+    },
+    {
+      "id": "state-3",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.state.read",
+        "params": {}
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "view-3",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.get",
+        "params": {}
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "id": "abort",
+      "op": "kill",
+      "target": {
+        "process": "holder"
+      },
+      "args": {
+        "signal": "ABRT"
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a killed process sends no reply; the driver's reply is the daemon's record of each ended terminal host",
+        "result": {
+          "signal": "ABRT",
+          "process": "holder",
+          "ended": [
+            "holder"
+          ],
+          "records": []
+        }
+      },
+      "note": "the holder aborts while the parser holds the first byte of `é`; the holder has no crash seam, so the driver sends SIGABRT"
+    },
+    {
+      "id": "state-4",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.state.read",
+        "params": {}
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok",
+        "result": "$step:state-3#"
+      }
+    },
+    {
+      "id": "view-4",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.get",
+        "params": {}
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok",
+        "result": "$step:view-3#",
+        "resultExcept": [
+          "/extra"
+        ]
+      }
+    },
+    {
+      "id": "go-again",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.input.write",
+        "params": {
+          "text": "g"
+        },
+        "idempotencyKey": "terminal-holder-crash-new.go-again"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "the second byte of `é`: the program ends its line and runs cat"
+    },
+    {
+      "id": "done",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/terminals/0/title",
+        "equals": "sha256:c57885d4c24ed9f349e946da82d6aa248a5a9717b1a14e8c10fc4c7b06d57297",
+        "maxMs": 15000
+      },
+      "settleMaxMs": 15000
+    },
+    {
+      "id": "screen",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.copy",
+        "params": {
+          "mode": "screen"
+        }
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok",
+        "result": {
+          "mode": "screen",
+          "text": "line-9\nline-10\nline-11\nline-12\nline-13\nline-14\nline-15\nline-16\nline-17\nline-18\nline-19\nline-20\nline-21\nline-22\nline-23\nline-24\nline-25\nline-26\nline-27\nline-28\nline-29\nline-30\nXREDé END"
+        }
+      },
+      "note": "no byte was lost or parsed twice: `X`, the red text and `é` on one row"
+    }
+  ],
+  "invariants": [
+    "the holder arm (CMUX_TUI_TERMINAL_HOST_MODEL=holder): a holder that dies loses no shell, no byte and no VT state; the daemon starts a new holder and hands it every PTY master"
+  ],
+  "teardown": [
+    "stop the case daemon",
+    "verify the socket and state root are gone"
+  ]
+}

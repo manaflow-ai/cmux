@@ -1,0 +1,5 @@
+# daemon-ops cases that never run on one configuration (format: scripts/cmux-next/oracle/expectations.py).
+# The terminal holder crash journey (p15-oracle-224) is one case per arm of the terminal-holder switch: the
+# holder arm keeps the VT state, the per-terminal host arm records a host loss.
+p15-oracle-224 [ new ] daemon-ops/terminal-holder-crash-old [ Skip ]
+p15-oracle-224 [ old ] daemon-ops/terminal-holder-crash-new [ Skip ]
