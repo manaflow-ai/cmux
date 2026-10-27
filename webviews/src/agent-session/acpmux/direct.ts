@@ -3195,10 +3195,11 @@ export class AcpmuxDirectClient {
   private staleRun(summary: Record<string, any>): boolean {
     const turnId = summary.turn?.turnId;
     if (typeof turnId === "string" && this.endedTurns.has(turnId)) return true;
+    const startedAt = summary.turn?.startedAt;
     if (
       this.turnEndedAtMs !== undefined &&
-      typeof turnId !== "string" &&
-      !(summary.turn?.startedAt > this.turnEndedAtMs)
+      ((typeof startedAt === "number" && startedAt <= this.turnEndedAtMs) ||
+        (typeof turnId !== "string" && typeof startedAt !== "number"))
     )
       return true;
     return summary.queuePaused === true && typeof turnId !== "string";
