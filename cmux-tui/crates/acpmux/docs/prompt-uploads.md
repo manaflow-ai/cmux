@@ -352,6 +352,16 @@ Today, an unknown upload, a wrong offset, or a finish before all bytes arrived r
 A client retries every error except `filePut.name`, `filePut.remote` and disk-full. Before it
 retries, it reads the upload's state (status, or its last acknowledged offset).
 
+`acpmux send --attach` and `send_message` (`attach/upload.rs`) retry only what the link lost: a
+peer link that timed out, dropped or is down (`peer_unreachable`), and `upload.offset`. They read
+the upload's status and go on from its offset, until no byte has gone for 10 minutes. The CLI says
+on stderr what it is doing: when the uploads start, every 10 seconds with the bytes sent, the rate
+and the time left, and when they are in. Each upload it begins has an owner-only record under
+`<ACPMUX_HOME>/run/upload-resume/`, keyed by the chat and the file's path, size and modification
+time, and held by one sender at a time. So a sender that was killed, or whose link stayed down,
+leaves its upload for the next send of the same file to the same chat to resume. The record goes
+once the upload is finished or cancelled; an upload nobody resumes goes with the age sweep.
+
 ## 5. The upload-ref block in `session/prompt`
 
 Each file is one block with no bytes, in the place the person put it. There are exactly two
