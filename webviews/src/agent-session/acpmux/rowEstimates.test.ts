@@ -12,10 +12,11 @@
 // Before: a reply over a footer was estimated as any reply (8px below it, at least 34px), and a
 // task's result kept the old 16px below it.
 import { expect, test } from "bun:test";
-import { layoutConversation, placeRows, RECEIVED_LINES } from "./model";
+import { layoutConversation, placeRows } from "./model";
 import { turnView } from "./conversation/turns";
 import { COLLAPSED_PROMPT_LINES, PASTE_CHIP_HEIGHT, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
+import { setMessageOpened } from "./conversation/incomingOpened";
 
 const reply = (id: string, text: string) => ({ id, version: 1, at: 0, kind: "assistant", text });
 // A footer carries its answer's text, for Copy (conversation/turns.ts), so the estimate never reads it.
@@ -256,7 +257,7 @@ test("a hidden row after the chat's last footer leaves it the last one", () => {
   expect(heights[2]).toBe(0);
 });
 
-test("another agent's message is its 26px line in 2px margins, its card cut to eight lines, and the 8px message gap", () => {
+test("another agent's message stays one line closed and measures its full Markdown when opened", () => {
   const row = (text: string) => ({
     id: "m",
     version: 1,
@@ -265,18 +266,23 @@ test("another agent's message is its 26px line in 2px margins, its card cut to e
     text,
     incoming: { kind: "message", message: { name: "cmux16/glass-lens", text, raw: text } },
   });
-  const { lineHeight } = currentChatMetrics();
-  // The card: 4px above, 8px padding each side and 6px below its text.
-  const [short] = heightsOf([row("Draft is up.")]);
-  expect(short).toBe(2 + 26 + 2 + 4 + 8 + lineHeight + 8 + 6 + 8);
-  // Rendered geometry: eight text lines, plus the Show more control (20px + 4px margin).
-  const rows = [row("Line of the report.\n".repeat(40)), reply("after", "Ready.")];
-  const estimated = layoutConversation(rows as never, 720);
-  const renderedHeight = 2 + 26 + 2 + 4 + 8 + RECEIVED_LINES * lineHeight + 24 + 8 + 6 + 8;
-  const rendered = placeRows(estimated, (index) => (index === 0 ? renderedHeight : undefined));
-  expect(estimated.heights[0]).toBe(renderedHeight);
-  expect(rendered.tops[1]).toBe(estimated.tops[1]);
-  expect(rendered.totalHeight).toBe(estimated.totalHeight);
+  // The closed line has a fixed 26px row, plus its 4px message rhythm, regardless of text length.
+  expect(heightsOf([row("Draft is up.")])[0]).toBe(38);
+  expect(heightsOf([row("Line of the report.\n".repeat(40))])[0]).toBe(38);
+
+  // Opening is the only state that measures Markdown. The row below starts after that measured
+  // height, so a streamed or virtualized remount cannot reserve the old eight-line cut.
+  setMessageOpened(undefined, "m", true);
+  try {
+    const rows = [row("Line of the report.\n".repeat(40)), reply("after", "Ready.")];
+    const estimated = layoutConversation(rows as never, 720);
+    expect(estimated.heights[0]).toBeGreaterThan(38);
+    const rendered = placeRows(estimated, (index) => (index === 0 ? estimated.heights[0] : undefined));
+    expect(rendered.tops[1]).toBe(estimated.tops[1]);
+    expect(rendered.totalHeight).toBe(estimated.totalHeight);
+  } finally {
+    setMessageOpened(undefined, "m", false);
+  }
 });
 
 test("a task notice is a tool row's line, 2px under the row's top, and the 8px message gap", () => {
