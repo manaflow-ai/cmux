@@ -65,7 +65,10 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
     private var run = 0
     /// Times each stream's run and counts the quick exits in a row.
     private var restarts: AdapterRestarts
-    private let restart = DemandTimer(owner: "now-playing.adapter-restart")
+    /// The wait before a stream that exited starts again (`background`: nobody sees the restart itself).
+    private let restart: MainDeadline
+    /// The app's main-thread scheduler: the stream's lines, its exit and a failed launch reach main as its tasks.
+    private let mainWork: MainWorkScheduler
     static let streamArguments = ["stream", "--micros", "--debounce=150"]
 
     /// Runs `"$0" "$@"` (the adapter) and ends it when stdin reaches end of file, which happens
@@ -88,13 +91,18 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
         exit "$status"
         """
 
-    /// - Parameter launcher: spawns and stops the children; a test passes one with a fake `spawn`.
-    ///   Making the adapter spawns nothing: the first stream starts at ``start(onUpdate:)``.
-    public init(script: URL, framework: URL, clock: TraceClock = TraceClock(),
+    /// - Parameters:
+    ///   - deadlines: The app's one deadline placer: the restart waits on it, and its scheduler takes the
+    ///     stream's lines (`visible`: the card shows what plays) and exits (`background`).
+    ///   - launcher: spawns and stops the children; a test passes one with a fake `spawn`.
+    ///     Making the adapter spawns nothing: the first stream starts at ``start(onUpdate:)``.
+    public init(script: URL, framework: URL, deadlines: MainDeadlineScheduler, clock: TraceClock = TraceClock(),
                 launcher: ProcessLauncher = ProcessLauncher(label: "com.cmuxterm.next.now-playing", priority: .userVisible)) {
         self.script = script
         self.framework = framework
         self.launcher = launcher
+        mainWork = deadlines.work
+        restart = MainDeadline(owner: "now-playing.adapter-restart", workClass: .background, scheduler: deadlines)
         restarts = AdapterRestarts(clock: clock)
     }
 
@@ -102,11 +110,11 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
 
     /// The adapter cmux bundles: the script in Resources/MediaRemoteAdapter and
     /// the framework in Frameworks; nil when either is missing (a build without it).
-    public static func bundled(in bundle: Bundle = .main) -> MediaRemoteAdapterProcess? {
+    public static func bundled(in bundle: Bundle = .main, deadlines: MainDeadlineScheduler) -> MediaRemoteAdapterProcess? {
         guard let script = bundle.url(forResource: "mediaremote-adapter", withExtension: "pl", subdirectory: "MediaRemoteAdapter"),
               let framework = bundle.privateFrameworksURL?.appendingPathComponent("MediaRemoteAdapter.framework"),
               FileManager.default.fileExists(atPath: framework.path) else { return nil }
-        return MediaRemoteAdapterProcess(script: script, framework: framework)
+        return MediaRemoteAdapterProcess(script: script, framework: framework, deadlines: deadlines)
     }
 
     /// `executable arguments…` under ``parentWatch``: what cmux launches for a stream.
@@ -162,6 +170,9 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
         let stdout = Pipe()
         stream.standardOutput = stdout
         let splitter = AdapterLineSplitter()
+        // R-hop: each batch of lines is one visible task (the card shows what plays); the exit and a failed
+        // launch are background tasks, so a run's last lines apply before its exit.
+        let mainWork = mainWork
         stdout.fileHandleForReading.readabilityHandler = { [weak self] handle in
             // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
             let data = handle.availableData
@@ -172,7 +183,7 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
             // Decoded here, on the pipe's queue: an artwork line is megabytes of JSON.
             let updates = splitter.append(data).compactMap(SystemNowPlayingFeed.Update.decode)
             guard !updates.isEmpty else { return }
-            Task { @MainActor [weak self] in
+            mainWork.postFromAnyThread(.visible, owner: "now-playing.adapter-lines") { [weak self] in
                 guard let self, self.run == current, self.process != nil, let onUpdate = self.onUpdate else { return }
                 for update in updates { onUpdate(update) }
             }
@@ -181,14 +192,16 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
         let clock = restarts.clock
         stream.terminationHandler = { [weak self] _ in
             let endedNanos = clock.nowNanos()
-            Task { @MainActor [weak self] in self?.exited(run: current, atNanos: endedNanos) }
+            mainWork.postFromAnyThread(.background, owner: "now-playing.adapter-exit") { [weak self] in
+                self?.exited(run: current, atNanos: endedNanos)
+            }
         }
         process = stream
         lifeline = stdin
         // The spawn runs off main; a launch failure clears this run's state back on main.
-        launcher.launch(stream) { _ in
+        launcher.launch(stream) { [weak self] _ in
             stdout.fileHandleForReading.readabilityHandler = nil
-            Task { @MainActor [weak self] in
+            mainWork.postFromAnyThread(.background, owner: "now-playing.adapter-exit") { [weak self] in
                 guard let self, self.run == current else { return }
                 self.process = nil
                 try? self.lifeline?.fileHandleForWriting.close()
@@ -204,7 +217,7 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
         try? lifeline?.fileHandleForWriting.close()
         lifeline = nil
         guard onUpdate != nil, let wait = restarts.exited(atNanos: endedNanos) else { return }
-        restart.scheduleOnMain(after: wait) { [weak self] in self?.launch() }
+        restart.schedule(after: wait) { [weak self] in self?.launch() }
     }
 }
 

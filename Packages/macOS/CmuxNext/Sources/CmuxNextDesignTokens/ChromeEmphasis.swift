@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// How an unfocused pane's tabs draw subtler (`focus.inactiveTabStyle` in
 /// cmux.json; `fade` is the default).

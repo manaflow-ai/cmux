@@ -991,6 +991,14 @@
         {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunch/LaunchMarkSink.swift:23", "kind": "via environmentKey", "cond": "", "release": true}
       ]
     },
+    "CMUX_NEXT_MAIN_JOB_CENSUS": {
+      "class": "benchOnly",
+      "auto": true,
+      "sites": [
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunch/MainJobCensus.swift:35", "kind": "constant", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false},
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunch/MainJobCensus.swift:76", "kind": "via environmentKey", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
+      ]
+    },
     "CMUX_NEXT_MAIN_TASK_DIAGNOSTICS": {
       "class": "diagnostics",
       "note": "Task budget diagnostics: one cross-thread wake per main task while set; no bench runs with it.",

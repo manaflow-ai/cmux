@@ -27,6 +27,7 @@ extension PageWebView {
     func showChromiumMenu(_ request: PageChromiumContextMenu) {
         guard let wait = chromiumMenuWait else { return buildChromiumMenu(request) }
         // task-owner: one menu per right-click; Chromium waits for it to close (`finish`)
+        // main-hop-allow: the person's right-click: wait is the page's main-actor async menu wait; the task only builds the menu after it
         Task { @MainActor [weak self] in
             await wait()
             guard let self else { return request.finish() }
@@ -63,7 +64,7 @@ extension PageWebView {
         guard let page = chromiumSession?.page else {
             return (try? await webKitPieces?.view.evaluateJavaScript(script)) as? String ?? "" // MQ12 allowed: the page the person acts on shows
         }
-        return (try? await page.evaluate(script)) as? String ?? ""
+        return (try? await page.evaluate(script)) as? String ?? "" // MQ12 allowed: the page the person acts on shows
     }
 
     /// Runs an editing action (`cut:`, `copy:`, `paste:`, `pasteAsPlainText:`) as the page's own

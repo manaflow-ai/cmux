@@ -4,7 +4,6 @@
 //! silently (a wrong owner on a shared directory means someone else
 //! created it first).
 
-use std::fs;
 use std::io;
 use std::path::Path;
 
@@ -40,7 +39,7 @@ fn owner_name(owner: PosixOwner) -> String {
 pub fn check(policy: &PathAccess) -> Result<bool> {
     let Access::Posix { owner, mode, .. } = policy.access else { return Ok(true) };
     let path = Path::new(policy.path.as_str());
-    let meta = match fs::symlink_metadata(path) {
+    let meta = match cmux_blocking::fs::symlink_metadata(path) {
         Ok(meta) => meta,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
         Err(e) => return Err(Error::io(path.display(), e)),

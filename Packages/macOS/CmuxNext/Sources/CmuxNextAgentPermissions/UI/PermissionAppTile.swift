@@ -61,6 +61,7 @@ final class PermissionAppTile: NSView, NSDraggingSource {
     override func mouseDown(with event: NSEvent) { hover.state.pressed = true }
     override func mouseUp(with event: NSEvent) { hover.state.pressed = false }
 
+    // input-coalesce: native (the first drag event starts an AppKit dragging session, which must start from that event and then tracks the pointer itself)
     override func mouseDragged(with event: NSEvent) {
         hover.state.pressed = false
         let item = NSDraggingItem(pasteboardWriter: appURL as NSURL)

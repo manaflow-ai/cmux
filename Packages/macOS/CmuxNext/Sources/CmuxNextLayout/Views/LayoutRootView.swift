@@ -36,7 +36,7 @@ public final class LayoutRootView: NSView {
     let driver = DisplayLinkDriver()
     /// This window's `motion.frame` and `motion.run` signposts.
     let motionTrace: LayoutMotionTrace
-    private var observationTask: Task<Void, Never>?
+    private var modelWatch: FrameObservation<Snapshot>?
     /// The attention ring's look (`AttentionHighlightLook`, Debug Settings): one watch for every pane's
     /// overlay, applied once per frame (made in `init`).
     private var attentionLookWatch: FrameObservation<AttentionHighlightLook>?
@@ -72,8 +72,10 @@ public final class LayoutRootView: NSView {
     /// only when the pointer enters another pane, so a keyboard move is not undone by a
     /// small pointer twitch inside the pane it left.
     var hoveredPane: PaneID?
-    /// Delivers pointer moves for focus-follows-mouse (owner: self).
-    private var hoverTrackingArea: NSTrackingArea?
+    /// Focus-follows-mouse's hover moves on the window's frames (``mouseMoved(with:)``).
+    private(set) lazy var hoverFocus = PointerFrameHover(owner: "LayoutRootView.focusFollowsMouse", view: self) { [weak self] point in
+        _ = self?.focusPaneForPointerHover(at: point)
+    }
     var dragTab: TabID?
     /// The drop preview's rect for the current tab drag target, in screen
     /// coordinates; nil when nothing is highlighted. The drag session flies
@@ -211,10 +213,12 @@ public final class LayoutRootView: NSView {
         followLooks(on: mainWork)
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
+        // Pointer moves for focus-follows-mouse.
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self))
         registerForDraggedTypes([LayoutTabDrag.pasteboardType, .URL])
         sync(snapshot())
-        observe()
-        #if DEBUG
+        observe(on: mainWork)
+        #if DEBUG || CMUX_BENCH_HOOKS
         ScreenContentView.registerMotionSampler()
         #endif
     }
@@ -242,7 +246,7 @@ public final class LayoutRootView: NSView {
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
-            observationTask?.cancel()
+            modelWatch?.cancel()
             inputIntercept?.cancel()
             pointerLanding?.cancel()
             for subscription in keyWindowObservers { subscription.cancel() }
@@ -252,20 +256,6 @@ public final class LayoutRootView: NSView {
     }
 
     override public var isFlipped: Bool { true }
-
-    override public func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
-        addTrackingArea(area)
-        hoverTrackingArea = area
-    }
-
-    override public func mouseMoved(with event: NSEvent) {
-        super.mouseMoved(with: event)
-        guard event.window === window else { return }
-        focusPaneForPointerHover(at: event.locationInWindow)
-    }
 
     // MARK: Public API
 
@@ -305,7 +295,9 @@ public final class LayoutRootView: NSView {
 
     // MARK: Observation
 
-    private func snapshot() -> Snapshot {
+    private func snapshot() -> Snapshot { Self.snapshot(of: model) }
+
+    private static func snapshot(of model: LayoutModel) -> Snapshot {
         Snapshot(
             screens: model.screens,
             activeScreen: model.activeScreenID,
@@ -323,37 +315,23 @@ public final class LayoutRootView: NSView {
         )
     }
 
-    private func observe() {
+    /// One sync per burst of model changes, before the changes' run loop pass commits its frame (a person's in
+    /// their input's response pass), as Blink runs its lifecycle once per frame (page_animator.cc).
+    private func observe(on mainWork: MainWorkScheduler) {
         let model = model
-        observationTask = Task { [weak self] in
-            for await snapshot in ObservationStream({
-                Snapshot(
-                    screens: model.screens,
-                    activeScreen: model.activeScreenID,
-                    focused: model.focusedPane,
-                    dimsInactive: model.dimsInactivePanes,
-                    style: model.style,
-                    gestureActive: model.isGestureActive,
-                    centerRequest: model.centerRequest,
-                    revealRequest: model.revealRequest,
-                    centerMode: model.centerFocusedColumn,
-                    attention: model.attention,
-                    scrollbar: model.stripScrollbar,
-                    rowOps: model.acceptsRowOps,
-                    canvases: model.canvases
-                )
-            }) {
-                guard let self else { return }
-                if snapshot != self.lastSnapshot { self.sync(snapshot) }
-            }
+        modelWatch = FrameObservation(owner: "Layout.modelSync", delivery: .sameTurn("syncWithModel and the frame driver read the synced screens in the change's turn"),
+                                      on: mainWork) { Self.snapshot(of: model) } onChange: { [weak self] snapshot in
+            guard let self, snapshot != self.lastSnapshot else { return }
+            self.sync(snapshot)
         }
     }
 
-    /// Mirrors the model now instead of on the observation's next turn.
+    /// Mirrors the model now (a pending observed change first) instead of on the observation's apply.
     /// The App calls it after applying a daemon tree, so the frame that
     /// shows a workspace (or a split, close or new tab in it) already has
     /// its panes and tab strips; the observation then finds nothing new.
     public func syncWithModel() {
+        modelWatch?.flushIfDirty()
         let current = snapshot()
         if current != lastSnapshot { sync(current) }
     }
@@ -682,6 +660,7 @@ public final class LayoutRootView: NSView {
     /// what parks it, as leaving did.
     public private(set) var isLive = false
 
+    // visibility-walk-allow: read once per window move, unhide or park to set isLive; per-frame and per-event readers read isLive
     private var isShown: Bool { window != nil && !isHiddenOrHasHiddenAncestor && !isParkedOrHasParkedAncestor }
 
     override public func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -691,6 +670,7 @@ public final class LayoutRootView: NSView {
 
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        hoverFocus.frames = (window as? any HoverFrameInputHosting)?.hoverFrameInput
         setLive(isShown)
     }
 
