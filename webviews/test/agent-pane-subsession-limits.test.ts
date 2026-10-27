@@ -283,3 +283,56 @@ test("a kept tail's old limit, replayed as the chat is opened again, is never st
     record([["mux", "user_message", { text: "start the agents" }], changed(5)], 1, chat),
   );
 });
+
+test("a + while a reopened chat's kept tail shows its own old limit steps from acpmux's limit", async () => {
+  // The chat's own limit was 8 on the last visit; another client set 20 since. Opening it again
+  // draws the kept tail (own 8) before the attach answers, and a + then must not trust it.
+  const daemon = fakeDaemon(record([["mux", "user_message", { text: "start the agents" }]]));
+  let snapshot: any;
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (next: any) => (snapshot = next),
+    undefined,
+    daemon.open,
+  );
+  try {
+    await until(() => snapshot?.connection === "connected", "the attach");
+    expect(snapshot.summary.subsessionLimits).toEqual({ maxRunning: 8, maxRunningSource: "session" });
+    daemon.state.held = 20;
+    const opened = client.select(CHAT);
+    await client.setRunningLimit(CHAT, 9, 8);
+    await opened;
+    expect(daemon.limitAsks).toEqual([{ sessionId: CHAT }, { sessionId: CHAT, maxRunning: 21 }]);
+    await until(() => snapshot.summary?.subsessionLimits?.maxRunning === 21, "the stepped limit");
+  } finally {
+    client.close();
+  }
+});
+
+test("a step whose every read is overtaken is refused, and writes nothing", async () => {
+  const daemon = fakeDaemon(record([["mux", "user_message", { text: "start the agents" }]]), true);
+  let snapshot: any;
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (next: any) => (snapshot = next),
+    undefined,
+    daemon.open,
+  );
+  try {
+    await until(() => snapshot?.connection === "connected", "the attach");
+    // Each read's reply is overtaken by a newer change: 20, 30, then 40.
+    daemon.state.beforeReply = () => {
+      daemon.state.held += daemon.state.held < 20 ? 12 : 10;
+      daemon.push(record([changed(daemon.state.held)], daemon.next()));
+    };
+    await expect(client.setRunningLimit(CHAT, 9, 8)).rejects.toThrow();
+    expect(daemon.limitAsks).toEqual([{ sessionId: CHAT }, { sessionId: CHAT }, { sessionId: CHAT }]);
+    expect(snapshot.summary.subsessionLimits.maxRunning).toBe(40);
+    // Once the limit holds still, the next + steps from it.
+    daemon.state.beforeReply = undefined;
+    await client.setRunningLimit(CHAT, 41, 40);
+    expect(daemon.limitAsks.at(-1)).toEqual({ sessionId: CHAT, maxRunning: 41 });
+  } finally {
+    client.close();
+  }
+});

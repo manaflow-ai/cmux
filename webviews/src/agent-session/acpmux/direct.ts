@@ -2593,7 +2593,10 @@ export class AcpmuxDirectClient {
   private async applyRunningLimit(sessionId: string, maxRunning: number | null, from?: number): Promise<void> {
     let value = maxRunning;
     if (value !== null && from !== undefined) {
-      const known = sessionId === this.selectedSessionId ? subsessionLimits(this.summary?.subsessionLimits) : undefined;
+      // The chat's own limit is current here only once this selection's attach is in: a kept tail
+      // drawn before it is what an earlier visit saw, and another client may have moved it since.
+      const attached = sessionId === this.selectedSessionId && this.attachedSession() === sessionId;
+      const known = attached ? subsessionLimits(this.summary?.subsessionLimits) : undefined;
       const current = known?.maxRunningSource === "session" ? known : await this.readRunningLimit(sessionId);
       if (current && current.maxRunning !== from) value = clampRunning(current.maxRunning + (value - from));
     }
@@ -2606,17 +2609,17 @@ export class AcpmuxDirectClient {
   /// field only reads them). A read that something overtook while it was in flight (a `limits`
   /// record, a chat selected or attached: `limitsVersion` moved) may be older than acpmux's limit,
   /// and neither the summary nor a kept tail proves which is newer, so it is read again, at most
-  /// `LIMIT_READS` times; a step builds on the last answer.
+  /// `LIMIT_READS` times. A step builds only on a read nothing overtook: if every read was, the
+  /// step is refused (the stepper says so and shows acpmux's limit) rather than written from a
+  /// number known to be stale.
   private async readRunningLimit(sessionId: string) {
-    let limits: ReturnType<typeof subsessionLimits>;
     for (let read = 0; read < LIMIT_READS; read++) {
       const seen = this.limitsVersion;
       const result = await this.request("_acpmux/subsession/limits", { sessionId }, 10_000);
       this.takeRunningLimit(sessionId, result?.subsessionLimits, seen);
-      limits = subsessionLimits(result?.subsessionLimits);
-      if (this.limitsVersion === seen) break;
+      if (this.limitsVersion === seen) return subsessionLimits(result?.subsessionLimits);
     }
-    return limits;
+    throw new Error("the running limit kept changing while it was read");
   }
 
   /// A reply carries no seq, so it is current only as of the request: a `limits` record, a new
