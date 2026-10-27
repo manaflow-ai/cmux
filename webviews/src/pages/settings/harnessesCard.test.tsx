@@ -246,10 +246,21 @@ test("an outdated harness shows both versions and an Update; one that needs sudo
   expect(codex.querySelector("[data-harness-version]")!.textContent).toContain("0.3.1");
   expect(codex.querySelector("[data-harness-version]")!.textContent).toContain("0.4.0");
   expect(codex.querySelector('[data-harness-auth="signedOut"]')).not.toBeNull();
+  const updateCard = element.querySelector<HTMLElement>('[data-harness-update-card="codex"]')!;
+  expect(updateCard.textContent).toContain("Update Codex for reliable chats");
+  expect(updateCard.textContent).toContain("Installed 0.3.1 · 0.4.0 available");
+  expect(updateCard.textContent).toContain("compatibility fixes");
+  expect(updateCard.querySelector('[data-harness-action="updateCard"]')).not.toBeNull();
   // An update that writes a folder this user cannot: the exact command, never a button that runs it.
   const claude = element.querySelector<HTMLElement>('[data-harness="claude"]')!;
   expect(claude.querySelector('[data-harness-action="update"]')).toBeNull();
   expect(claude.querySelector("[data-harness-command]")!.textContent).toBe(
+    "sudo npm install -g @anthropic-ai/claude-code@latest",
+  );
+  const manualCard = element.querySelector<HTMLElement>('[data-harness-update-card="claude"]')!;
+  expect(manualCard.textContent).toContain("Run the command below to update Claude Code");
+  expect(manualCard.querySelector('[data-harness-action="updateCard"]')).toBeNull();
+  expect(manualCard.querySelector("[data-harness-update-command]")!.textContent).toBe(
     "sudo npm install -g @anthropic-ai/claude-code@latest",
   );
   expect(claude.querySelector("[data-harness-auth]")).toBeNull();
@@ -261,10 +272,12 @@ test("an outdated harness shows both versions and an Update; one that needs sudo
     await act(async () => element.querySelector<HTMLButtonElement>(selector)!.click());
     await settle();
   };
+  await press('[data-harness-update-card="codex"] [data-harness-action="updateCard"]');
   await press('[data-harness="codex"] [data-harness-action="update"]');
   await press('[data-harness-action="updateAll"]');
   await press('[data-harness-action="refresh"]');
   expect(page.provider.harnessRuns.filter((run) => run.action !== "refresh")).toEqual([
+    { action: "update", id: "codex" },
     { action: "update", id: "codex" },
     { action: "updateAll" },
   ]);
