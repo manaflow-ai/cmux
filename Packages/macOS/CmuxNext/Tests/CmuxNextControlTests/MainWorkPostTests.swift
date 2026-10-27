@@ -203,6 +203,29 @@ import Testing
         keeper.stop()
     }
 
+    /// An automation task (0.4 ms chunks, the automation share 1 ms) yields after chunk 2. An automation post in the same
+    /// frame runs on the next turn, as automation does while frames run, but that turn's drain leaves the continuation
+    /// for the next frame: a continuation never runs past its class's share on idle time in the frame it yielded in.
+    @Test func anAutomationContinuationWaitsForTheNextFrameThoughATurnDrainsItsClass() {
+        let clock = PostClock()
+        let turns = PostTurns()
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: clock.read), performTurn: { turns.queue($0) }) { _ in
+            PostFakeLink()
+        }
+        let keeper = LinkKeeper(on: work)
+        let task = ChunkedAutomationTask(work: work, clock: clock)
+        work.post(.automation, owner: "agent.batch") { task.run() }
+        work.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
+        #expect(task.ran == ["1", "2"], "a third chunk would pass the automation share: it yields after chunk 2")
+        work.post(.automation, owner: "agent.next") { task.note("next") }
+        turns.runAll()
+        #expect(task.ran == ["1", "2", "next"], "the turn's drain ran the continuation in the frame it yielded in")
+        clock.advance(ms: 17)
+        work.frameDidFire(timestamp: 2, refreshInterval: 1.0 / 60)
+        #expect(task.ran == ["1", "2", "next", "3", "4"], "the next frame resumes the continuation")
+        keeper.stop()
+    }
+
     /// `shouldYield` answers a person's pending input anywhere, and inside a budgeted task also whether one more chunk,
     /// as long as the last one, would pass the class's share.
     @Test func shouldYieldForPendingInputAndWhenTheNextChunkWouldPassTheShare() {
@@ -260,6 +283,45 @@ private final class ChunkedTask {
         guard next <= 10 else { return }
         if next == 4 { work.post(.visible, owner: "sidebar.later") { [weak self] in self?.ran.append("later") } }
         work.postContinuation(.visible, owner: "sidebar.show") { [weak self] in self?.run() }
+    }
+}
+
+/// Six chunks of 0.4 ms each, run as an automation task that yields when ``MainFrameBudget/shouldYield()`` says so and
+/// posts its rest as a continuation.
+@MainActor
+private final class ChunkedAutomationTask {
+    private let work: MainWorkScheduler
+    private let clock: PostClock
+    private var next = 1
+    private(set) var ran: [String] = []
+
+    init(work: MainWorkScheduler, clock: PostClock) {
+        self.work = work
+        self.clock = clock
+    }
+
+    func note(_ name: String) { ran.append(name) }
+
+    func run() {
+        repeat {
+            ran.append("\(next)")
+            clock.advance(ms: 0.4)
+            next += 1
+        } while next <= 6 && !work.budget.shouldYield()
+        guard next <= 6 else { return }
+        work.postContinuation(.automation, owner: "agent.batch") { [weak self] in self?.run() }
+    }
+}
+
+/// Main run loop turns the scheduler asked for, run when the test says.
+@MainActor
+private final class PostTurns {
+    private var pending: [@MainActor () -> Void] = []
+
+    func queue(_ turn: @escaping @MainActor () -> Void) { pending.append(turn) }
+
+    func runAll() {
+        while !pending.isEmpty { pending.removeFirst()() }
     }
 }
 

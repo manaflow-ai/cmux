@@ -282,7 +282,7 @@ extension SidebarDocStore {
     /// machine stayed connected closed there: the client sends `close` for
     /// it (the home daemon closes its own machine's workspaces itself).
     /// `then` gets `shown` once it shows `live`: now, or after the last chunk when the store shows in chunks
-    /// (`showInChunks(on:)`), where a show replaced by a newer one before it started never calls it.
+    /// (`showInChunks(on:)`), where a show replaced by a newer one before it showed never calls it.
     public func show(live: [SidebarDocWorkspaceRef], connectedRemotes: Set<String> = [],
                      then: (@MainActor (SidebarDocProjection?) -> Void)? = nil) {
         if let showChunks, queueShow(SidebarDocShowChunks.Ask(live: live, connectedRemotes: connectedRemotes, then: then), on: showChunks) {
@@ -300,12 +300,16 @@ extension SidebarDocStore {
         if let next, !next.unplaced.isEmpty { adopt(next.unplaced) }
         let now = Set(live)
         let stillConnected = connectedRemotes.intersection(lastConnectedRemotes)
-        let closed = lastLive.subtracting(now).filter { stillConnected.contains($0.sessionID) && previous?.items[$0] != nil }
+        // Placed as last shown, or in the confirmed document now: a chunked show skips the asks between two builds, so
+        // a workspace placed and closed meanwhile is in neither projection.
+        let closed = lastLive.subtracting(now).filter {
+            stillConnected.contains($0.sessionID) && (previous?.items[$0] != nil || records.item(for: $0) != nil)
+        }
         (lastLive, lastLiveOrder, lastConnectedRemotes) = (now, live, connectedRemotes)
         guard isActive, !closed.isEmpty else { return }
         let refs = closed.sorted { ($0.sessionID, $0.workspaceID) < ($1.sessionID, $1.workspaceID) }
             .map { ["session_id": $0.sessionID, "workspace_id": $0.workspaceID] }
-        send(ops: [["op": "close", "refs": refs]], title: Self.moveTitle, undoable: false)
+        send(ops: [["op": "close", "refs": refs]], title: Self.moveTitle, undoable: false, byPerson: false)
     }
 
     /// The target that puts moved items where `index` (counted without

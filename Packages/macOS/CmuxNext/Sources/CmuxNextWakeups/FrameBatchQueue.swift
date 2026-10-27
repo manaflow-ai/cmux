@@ -63,6 +63,8 @@ public final class FrameBatchQueue {
         var work: (@MainActor () -> Void)?
         var owner: MainTaskOwner?
         var post: MainTaskPost?
+        /// A continuation's frame (``MainFrameBudget/frameSerial`` when it was posted): it runs in a later one.
+        var frame: UInt64 = 0
     }
 
     /// Lets the client's tick reach the queue before `self` exists (the client is built in init).
@@ -163,10 +165,10 @@ public final class FrameBatchQueue {
     }
 
     /// Queues posted work as `owner` ahead of every task ``append(owner:post:_:)`` queued, after the continuations
-    /// queued before it, and ticks on the next frame: a drain runs only the continuations queued before it started, so
-    /// the rest of a task that yielded never runs in the frame it yielded in.
+    /// queued before it, and ticks on the next frame. It is stamped with the budget's frame and no drain runs it, tick
+    /// or turn, until a later frame opened: the rest of a task that yielded never runs in the frame it yielded in.
     func appendContinuation(owner: MainTaskOwner, post: MainTaskPost?, _ work: @escaping @MainActor () -> Void) {
-        continuations.append(Item(work: work, owner: owner, post: post))
+        continuations.append(Item(work: work, owner: owner, post: post, frame: budgeted?.budget.frameSerial ?? 0))
         client.activate()
     }
 
@@ -185,18 +187,21 @@ public final class FrameBatchQueue {
         drainBudgeted(limit: limit)
     }
 
-    /// Runs the work queued before this frame, continuations first, from the front, while the
-    /// class may run (the scheduler let the first task start); the rest stays in place, ahead of
-    /// work queued meanwhile, which waits for the next frame. No copy and no re-insert: a backlog
-    /// of N costs O(N) over all its frames. True while work is left.
+    /// Runs the work queued before this frame, from the front, while the class may run (the
+    /// scheduler let the first task start): first the continuations posted in an earlier frame,
+    /// then posted tasks. The rest stays in place, ahead of work queued meanwhile, which waits for
+    /// the next frame. No copy and no re-insert: a backlog of N costs O(N) over all its frames.
+    /// True while work is left.
     private func drainBudgeted(limit: Int = .max) -> Bool {
         guard let budgeted else { return drainAll() }
         let budget = budgeted.budget, mainClass = budgeted.workClass
-        let continued = continuations.count, end = pending.count
+        let end = pending.count
         var ran = 0
-        while ran < limit, continuationHead < continued || head < end {
+        while ran < limit {
+            let continues = continuationHead < continuations.count && continuations[continuationHead].frame < budget.frameSerial
+            guard continues || head < end else { break }
             if ran > 0, !budget.mayRun(mainClass) { break }
-            let item = continuationHead < continued ? takeContinuation() : takeHead()
+            let item = continues ? takeContinuation() : takeHead()
             budget.run(mainClass, owner: item.owner ?? budgeted.owner, posted: item.post) { item.work?() }
             ran += 1
         }

@@ -116,6 +116,9 @@ public final class MainFrameBudget {
     /// When this window's scheduled work stops at the latest (``uptimeNanos`` time); nil: no
     /// deadline, the fixed limit alone.
     private var deadline: UInt64?
+    /// Counts the frame windows opened: a continuation posted in one runs only once a later one opened
+    /// (``MainWorkScheduler/postContinuation(_:owner:file:line:_:)``).
+    public private(set) var frameSerial: UInt64 = 0
     private var sequence: UInt32 = 0
     /// The tasks that started and have not returned, the innermost last.
     var open: [OpenTask] = []
@@ -249,6 +252,7 @@ public final class MainFrameBudget {
 
     private func roll(at now: UInt64, offTick: Bool = false) {
         stats.frames += 1
+        frameSerial &+= 1
         windowStart = now
         windowOpenedOffTick = offTick
         for index in spent.indices {

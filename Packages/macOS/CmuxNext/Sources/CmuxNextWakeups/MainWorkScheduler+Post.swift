@@ -106,9 +106,11 @@ extension MainWorkScheduler {
     /// Queues `body`, the rest of a task that stopped between two chunks because
     /// ``MainFrameBudget/shouldYield()`` said so, at the front of `workClass`'s queue: Blink's
     /// `scheduler.yield()` continuation (third_party/blink/renderer/modules/scheduler/dom_scheduler.cc), which runs
-    /// ahead of every task of its priority, posted before it or after. It runs on the next frame, first of its class,
-    /// so the frame it stopped in renders and the person's pending input goes first; continuations run in the order
-    /// they were posted. Never inline: the caller returns first.
+    /// ahead of every task of its priority, posted before it or after. It runs in a later frame, first of its class,
+    /// so the frame it stopped in renders and the person's pending input goes first: no drain runs it in the frame it
+    /// was posted in, a turn drain of ``MainWorkClass/userBlocking`` or ``MainWorkClass/automation`` work included, so
+    /// the task keeps to its class's share. Continuations run in the order they were posted. Never inline: the caller
+    /// returns first. Post only the rest of a task that yielded; a new task is a ``post(_:owner:file:line:_:)``.
     ///
     /// - Parameters:
     ///   - workClass: The class of the task that yielded (its continuation keeps it).
