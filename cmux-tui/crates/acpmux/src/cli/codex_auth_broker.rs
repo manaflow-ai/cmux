@@ -27,6 +27,7 @@ const DEADLINE: Duration = Duration::from_secs(8);
 /// No terminal can accidentally display the bearer token. The app launches
 /// this with private pipes and owns consent, request correlation and delivery.
 pub async fn run(home: PathBuf, codex: PathBuf) -> Result<()> {
+    ignore_broken_pipe()?;
     ensure!(
         !std::io::stdin().is_terminal() && !std::io::stdout().is_terminal(),
         "Codex auth broker requires private input and output pipes"
@@ -43,6 +44,17 @@ pub async fn run(home: PathBuf, codex: PathBuf) -> Result<()> {
     };
     owner.stop().await;
     result
+}
+
+fn ignore_broken_pipe() -> Result<()> {
+    // The CLI defaults SIGPIPE for ordinary pipelines. This private owner must
+    // instead receive EPIPE and stop/reap Codex before releasing its lock.
+    // SAFETY: SIG_IGN is a supported process-wide disposition for SIGPIPE.
+    ensure!(
+        unsafe { libc::signal(libc::SIGPIPE, libc::SIG_IGN) } != libc::SIG_ERR,
+        "cannot configure broker pipe handling"
+    );
+    Ok(())
 }
 
 async fn serve(owner: &mut Owner, home: &Path) -> Result<()> {

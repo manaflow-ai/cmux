@@ -71,6 +71,35 @@ async fn private_output_is_cancellable_when_the_reader_stalls() {
     );
 }
 
+#[tokio::test]
+async fn closed_reply_pipe_returns_error_instead_of_sigpipe() {
+    const CHILD: &str = "CMUX_BROKER_TEST_SIGPIPE";
+    if std::env::var_os(CHILD).is_none() {
+        let result = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "cli::codex_auth_broker::tests::closed_reply_pipe_returns_error_instead_of_sigpipe",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .await
+            .unwrap();
+        assert!(result.status.success(), "isolated signal test failed: {:?}", result.status);
+        return;
+    }
+    // Exercise the actual CLI default in an isolated process, never change
+    // another parallel test's signal disposition.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+    ignore_broken_pipe().unwrap();
+    let (reader, writer) = std::os::unix::net::UnixStream::pair().unwrap();
+    let output = nonblocking_input(writer.into()).unwrap();
+    drop(reader);
+    assert!(write_reply(&output, &json!({"id": 1})).await.is_err());
+}
+
 #[test]
 fn broker_refuses_two_holders_and_preserves_refreshed_state() {
     let home = Home::new();
