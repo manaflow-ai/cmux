@@ -115,6 +115,13 @@ pub(super) async fn route(
     if m == crate::rpc::method::MUX_TRACE {
         return crate::trace_control::handle(conn.origin, &params).await;
     }
+    // The crash injector (`debug_crash_inject.rs`): local only, debug and bench builds only.
+    #[cfg(any(debug_assertions, feature = "bench"))]
+    if m == crate::debug_crash_inject::METHOD {
+        return crate::debug_crash_inject::handle(conn.origin, &params, |kind| {
+            crate::debug_crash_inject::fire(kind).map(drop)
+        });
+    }
     // Energy Saver (`energy_control.rs`): the unix socket and the local app only.
     if m == crate::rpc::method::MUX_ENERGY {
         return crate::energy_control::handle(&hub.maintenance, conn.origin, &params).await;

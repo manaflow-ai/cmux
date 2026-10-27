@@ -56,11 +56,15 @@ extension PaneHostView {
         var moves = renderSpringMoves(from: move.from, velocity: move.velocity)
         if move.fromAlpha != move.toAlpha { moves.append(RenderSpring.Move(layer, .opacity, from: move.fromAlpha, to: move.toAlpha)) }
         // The chrome is off this rest only when the plane placed nothing (a root that is not live, a hidden host).
+        var rides = false
         if let superview, let rest = inPlane(bounds, self), Self.gap(rest, chrome.frame) < 0.01,
            let start = Self.converted(move.from, velocity: move.velocity, from: superview, by: inPlane) {
             moves += chrome.rideMoves(from: start.rect, velocity: start.velocity, fromAlpha: move.fromAlpha, toAlpha: move.toAlpha)
+            rides = true
         }
         spring.animateGroup(moves, in: self, completion: finish)
+        // The rings' sizes spring now; their glows' outlines follow them.
+        if rides { chrome.followRideShadows() }
     }
 
     /// `rect`, moving at `velocity`, in `view`'s coordinates, in the coordinates `convert` maps a rect of
