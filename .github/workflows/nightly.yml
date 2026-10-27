@@ -1998,7 +1998,11 @@ jobs:
           if [ "${{ needs.decide.outputs.track }}" = nightly-next ]; then
             # No restore on an older build checkout that lacks this recipe.
             if [ -f scripts/ci/nightly_next_cache.py ]; then
-              python3 scripts/ci/nightly_next_cache.py >> "$GITHUB_OUTPUT"
+              if keys="$(python3 scripts/ci/nightly_next_cache.py)"; then
+                printf '%s\n' "$keys" >> "$GITHUB_OUTPUT"
+              else
+                echo "::notice::NEXT cache identity unavailable; building cold"
+              fi
             fi
             exit 0
           fi
