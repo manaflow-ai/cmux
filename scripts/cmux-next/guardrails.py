@@ -2754,6 +2754,9 @@ RUST_STABILITY_SPECS = tuple(f":(glob){root}**/src/**/*.rs" for root in RUST_STA
 RUST_TEST_PATH = re.compile(r"/(tests|benches|examples|fuzz)/|_tests?\.rs$|/src/(.+/)?tests?\.rs$")
 RUST_RULES_DIR = "ast-grep/rules"  # beside this file
 RUST_RULES_TREE = "scripts/cmux-next/" + RUST_RULES_DIR
+# The rules that judge a push: the reviewed copy beside this file (install-git-hooks.sh installs it with the
+# snapshot). self_test points it at other folders.
+RUST_RULES_HOME = HERE / RUST_RULES_DIR
 RUST_COMMENT_OR_ATTRIBUTE = re.compile(r"^\s*(//|/\*|\*/|\*(\s|$)|#!?\[)")
 RUST_SCAN_TIMEOUT = 20.0  # seconds; a scan of a large push takes well under one
 RUST_MEMO = "rust-stability"
@@ -2770,19 +2773,20 @@ def in_rust_stability_scope(path: str) -> bool:
 
 
 def rust_rule_paths() -> list[str]:
-    """The rule files at their repository paths (measure() reads HEAD's copies)."""
+    """The rule files at their repository paths (measure() reads the base's copies)."""
     return [f"{RUST_RULES_TREE}/{rule.id}.yml" for rule in RUST_RULES]
 
 
-def rust_rule_texts(texts: dict[tuple[str, str], str], head: str) -> str:
-    """The Rust rules as one `--inline-rules` document: the copies beside this file, else HEAD's (the installed
-    hook snapshot holds the top-level scripts only)."""
+def rust_rule_texts(texts: dict[tuple[str, str], str], base: str) -> str:
+    """The Rust rules as one `--inline-rules` document: the copies in RUST_RULES_HOME, else BASE's (a snapshot
+    installed before the rules were). Never the pushed HEAD's: the commit under check does not pick its rules."""
     docs = []
     for path in rust_rule_paths():
-        own = HERE / RUST_RULES_DIR / PurePosixPath(path).name
-        text = own.read_text(encoding="utf-8") if own.is_file() else texts.get((head, path))
+        own = RUST_RULES_HOME / PurePosixPath(path).name
+        text = own.read_text(encoding="utf-8") if own.is_file() else texts.get((base, path))
         if text is None:
-            raise RustScanError(f"{path} is neither beside guardrails.py nor at {head[:11]}")
+            raise RustScanError(f"{path} is neither in {RUST_RULES_HOME} nor at the base {base[:11]}: run "
+                                "scripts/install-git-hooks.sh")
         docs.append(text)
     return "\n---\n".join(docs)
 
@@ -2835,10 +2839,15 @@ def _scan_rust(changes: list[FileChange]) -> dict[str, tuple[dict[str, set[int]]
                 files.append(f"{side}/{change.path}")
         result = subprocess.run([binary, "scan", "--inline-rules", rules, "--json=compact", *files], cwd=tmp,
                                 capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=RUST_SCAN_TIMEOUT)
+    # 0: no match, 1: matches (the rules are severity error). Anything else is a rule ast-grep rejects, a flag it
+    # does not know or a crash: it prints no JSON, and an empty list would pass the push unjudged.
+    failed = RustScanError(f"ast-grep exited {result.returncode}: {result.stderr.strip()[:300]}")
+    if result.returncode not in (0, 1):
+        raise failed
     try:
-        matches = json.loads(result.stdout or "[]")
+        matches = json.loads(result.stdout)
     except json.JSONDecodeError:
-        raise RustScanError(f"ast-grep exited {result.returncode}: {result.stderr.strip()[:300]}") from None
+        raise failed from None
     found: dict[str, tuple[dict[str, set[int]], dict[str, set[int]]]] = {}
     for match in matches:
         side, _, path = match["file"].partition("/")
@@ -5127,7 +5136,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES), (head, OWNERS)]
                   + [(head, MANIFEST), (base, MANIFEST), (head, THREADING_DOC), (head, PACKAGE_MANIFEST),
                      (head, IDLE_BUDGET), (base, IDLE_BUDGET)]
-                  + [(head, p) for p in rust_rule_paths() if any(map(in_rust_stability_scope, early))], blob_ids)
+                  + [(base, p) for p in rust_rule_paths() if any(map(in_rust_stability_scope, early))], blob_ids)
     diff = diff_proc.communicate()[0].decode("utf-8", "replace")
     changes = parse_diff(diff)
     warnings: list[tuple[str, str]] = []
@@ -5154,7 +5163,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     rust = [changes[p] for p in paths if in_rust_stability_scope(p)]
     if rust:
         try:
-            rust_rules: str | RustScanError = rust_rule_texts(texts, head)
+            rust_rules: str | RustScanError = rust_rule_texts(texts, base)
         except RustScanError as error:  # the Rust rules fail open with it (rust_rule)
             rust_rules = error
         for change in rust:
@@ -5792,6 +5801,7 @@ SELF_TEST_ASYNC_BASE = {
     SELF_TEST_ESCAPED_SLEEP: "pub async fn escaped() {\n" + SELF_TEST_SLEEP_ESCAPE + "    std::thread::sleep(PAUSE);\n}\n",
 }
 SELF_TEST_NEW_RS = SELF_TEST_CRATE + "new.rs"
+SELF_TEST_RULE = RUST_RULES_TREE + "/rust-async-blocking.yml"
 RUST_ASYNC_BLOCKING_CASES = (
     ("a std sleep in an async fn", {SELF_TEST_NEW_RS: "async fn f() {\n    std::thread::sleep(PAUSE);\n}\n"}, True),
     ("a std::fs read in an async block",
@@ -5821,6 +5831,36 @@ RUST_ASYNC_BLOCKING_CASES = (
     ("deleting the escape of an old blocking call",
      {SELF_TEST_ESCAPED_SLEEP: SELF_TEST_ASYNC_BASE[SELF_TEST_ESCAPED_SLEEP].replace(SELF_TEST_SLEEP_ESCAPE, "")},
      True),
+    ("a std::fs read handed to an awaited send",
+     {SELF_TEST_NEW_RS: "async fn f() {\n    tx.send(std::fs::read(path)).await;\n}\n"}, True),
+    ("a std::fs read in a map closure",
+     {SELF_TEST_NEW_RS: "async fn f() -> Vec<Vec<u8>> {\n    paths.iter().map(|p| std::fs::read(p).unwrap()).collect()\n"
+                        "}\n"}, True),
+    ("a std::fs read in an unwrap_or_else closure",
+     {SELF_TEST_NEW_RS: "async fn f() -> String {\n    cfg.unwrap_or_else(|| std::fs::read_to_string(path).unwrap())\n"
+                        "}\n"}, True),
+    ("a std process output bound and never awaited",
+     {SELF_TEST_NEW_RS: "async fn f() {\n    let out = std::process::Command::new(x).output();\n    use_it(out);\n}\n"},
+     True),
+    ("a tokio process output bound and awaited under a timeout",
+     {SELF_TEST_NEW_RS: "async fn f() {\n    let fut = tokio::process::Command::new(x).output();\n"
+                        "    timeout(PAUSE, fut).await;\n}\n"}, False),
+    ("a read_to_end bound and awaited under a timeout",
+     {SELF_TEST_NEW_RS: "async fn f() {\n    let read = reader.read_to_end(&mut input);\n"
+                        "    match timeout(PAUSE, read).await {\n        _ => {}\n    }\n}\n"}, False),
+    ("futures from a closure handed to an awaited call",
+     {SELF_TEST_NEW_RS: "async fn f() {\n    timeout(PAUSE, join_all(xs.iter().map(|x| x.wait()))).await;\n}\n"}, False),
+    ("an awaited unqualified connect (tokio::net)",
+     {SELF_TEST_NEW_RS: "async fn f() {\n    TcpStream::connect(addr).await;\n"
+                        "    timeout(PAUSE, TcpStream::connect(addr)).await;\n}\n"}, False),
+    ("a blocking call in a new thread's closure",
+     {SELF_TEST_NEW_RS: "async fn f() {\n    let worker = std::thread::spawn(move || std::fs::read(path));\n}\n"},
+     False),
+    ("a push that weakens the rule it is judged by",
+     {SELF_TEST_RULE: "id: rust-async-blocking\nlanguage: rust\nseverity: error\nrule:\n  pattern: never_called()\n",
+      SELF_TEST_NEW_RS: "async fn f() {\n    std::thread::sleep(PAUSE);\n}\n"}, True),
+    ("a push that deletes the rule it is judged by",
+     {SELF_TEST_RULE: None, SELF_TEST_NEW_RS: "async fn f() {\n    std::thread::sleep(PAUSE);\n}\n"}, True),
 )
 SELF_TEST_TASKS = SELF_TEST_CRATE + "tasks.rs"
 SELF_TEST_SPAWN_BASE = {SELF_TEST_TASKS: "pub fn start() {\n    let handle = tokio::spawn(run());\n    keep(handle);\n}\n"}
@@ -5877,6 +5917,47 @@ SELF_TEST_SUITES = (
 )
 
 
+def edits_rust_rules(files: dict[str, str | None]) -> bool:
+    return any(path.startswith(RUST_RULES_TREE + "/") for path in files)
+
+
+def self_test_rust_rules(root: Path, rule_id: str, refusing: tuple, cases: tuple,
+                         judge: Callable[[dict[str, str | None], str], tuple[list[Added], list[str]]]) -> list[str]:
+    """The Rust rules' sources, judged with RUST_RULES_HOME swapped: a snapshot without the rules (installed before
+    them) judges the cases that edit or delete a rule with the base's copy, and a rule ast-grep rejects fails open
+    with a warning instead of passing the push unjudged. The failures."""
+    global RUST_RULES_HOME
+    failures = []
+    installed = RUST_RULES_HOME
+    broken = root / f"{rule_id}-broken-rules"
+    broken.mkdir()
+    for path in rust_rule_paths():
+        name = PurePosixPath(path).name
+        text = (installed / name).read_text(encoding="utf-8")
+        if name == f"{rule_id}.yml":
+            text = f"id: {rule_id}\nlanguage: rust\nseverity: error\nrule:\n  kind: no_such_kind\n"
+        (broken / name).write_text(text, encoding="utf-8")
+    try:
+        RUST_RULES_HOME = root / "a-snapshot-without-rules"
+        for name, files, refused in (case for case in cases if edits_rust_rules(case[1])):
+            hits, raised = judge(files, name)
+            ok = bool(hits) == refused and not raised
+            print(f"  {'ok  ' if ok else 'FAIL'} {name}, from a snapshot without the rules: "
+                  f"{'refused' if hits else 'passes'}" + "".join(f"\n         {text}" for text in raised))
+            if not ok:
+                failures.append(f"{rule_id}: {name} from a snapshot without the rules")
+        RUST_RULES_HOME = broken
+        hits, raised = judge(refusing[1], refusing[0])
+        ok = bool(raised) and not hits
+        print(f"  {'ok  ' if ok else 'FAIL'} {refusing[0]}, with a rule ast-grep rejects: "
+              f"{'fails open with a warning' if raised else 'refused' if hits else 'passes unjudged'}")
+        if not ok:
+            failures.append(f"{rule_id}: {refusing[0]} with a rule ast-grep rejects")
+    finally:
+        RUST_RULES_HOME = installed
+    return failures
+
+
 def self_test() -> int:
     """The rules of SELF_TEST_SUITES on their cases: each case is one commit over its suite's base in a scratch
     repository, judged by check() as the hook judges a push (git only: no network, no build). Exit 1 on a wrong
@@ -5910,17 +5991,24 @@ def self_test() -> int:
                     run("commit", "--quiet", "--no-verify", "--allow-empty", "-m", message)
                     return run("rev-parse", "HEAD")
 
+                def judge(files: dict[str, str | None], message: str) -> tuple[list[Added], list[str]]:
+                    """(this rule's hits, its fail-open warnings) for one commit of FILES over the suite's base."""
+                    run("checkout", "--quiet", "--detach", base)
+                    refusals, warnings = check(repo, base, commit(files, message))
+                    return ([h for rule, found in refusals if rule.id == rule_id for h in found],
+                            [text for kind, text in warnings if kind == "guardrails" and f"rule {rule_id} " in text])
+
                 run("init", "--quiet", "--initial-branch=self-test")
-                base = commit(base_files, "base")
+                rust_suite = any(r.id == rule_id for r in RUST_RULES)
+                # The Rust suites' base holds the reviewed rules, which a snapshot without them falls back to.
+                rule_files = {path: (RUST_RULES_HOME / PurePosixPath(path).name).read_text(encoding="utf-8")
+                              for path in rust_rule_paths()} if rust_suite else {}
+                base = commit({**base_files, **rule_files}, "base")
                 print(f"{rule_id}:")
                 for name, files, refused in cases:
                     total += 1
-                    run("checkout", "--quiet", "--detach", base)
-                    head = commit(files, name)
-                    refusals, warnings = check(repo, base, head)
-                    hits = [h for rule, found in refusals if rule.id == rule_id for h in found]
+                    hits, raised = judge(files, name)
                     # A rule that raised is skipped (fail open) and would pass every case that expects no refusal.
-                    raised = [text for kind, text in warnings if kind == "guardrails" and f"rule {rule_id} " in text]
                     ok = bool(hits) == refused and not raised
                     print(f"  {'ok  ' if ok else 'FAIL'} {name}: {'refused' if hits else 'passes'}"
                           + "".join(f"\n         {h.path}:{h.number}: {h.text.strip()}" for h in hits)
@@ -5948,6 +6036,9 @@ def self_test() -> int:
                           f"{'passes' if ok else 'refused'}")
                     if not ok:
                         failures.append(f"{rule_id}: {refusing[0]} under GitHub Actions")
+                if rust_suite and refusing is not None:
+                    failures += self_test_rust_rules(root, rule_id, refusing, cases, judge)
+                    total += 1 + sum(1 for case in cases if edits_rust_rules(case[1]))
         finally:
             os.environ.update(saved)
     rules = ", ".join(rule_id for rule_id, _, _ in SELF_TEST_SUITES)

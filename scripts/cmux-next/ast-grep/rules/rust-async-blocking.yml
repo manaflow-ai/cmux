@@ -1,8 +1,8 @@
 # guardrails.py (local tier, never CI) runs this on the Rust lines a push adds under cmux-tui/ and Native/.
 # Chrome's rule: a thread that runs tasks never blocks unannounced (base/threading/scoped_blocking_call.h,
 # base/threading/thread_restrictions.h). A tokio worker is such a thread: one blocking call stalls every
-# task queued on it. An awaited call is async and passes; a non-async closure inside the body (the one
-# given to spawn_blocking) is its own context and passes.
+# task queued on it. A sync closure in the body (map, unwrap_or_else) runs inline on that worker; only the
+# closure given to spawn_blocking, block_in_place or a new thread runs off it.
 id: rust-async-blocking
 language: rust
 severity: error
@@ -33,22 +33,108 @@ utils:
                 - kind: attribute_item
                 - kind: line_comment
                 - kind: block_comment
+  # The closure a blocking pool or a new thread runs: its own context, off the tokio worker.
+  off-worker-closure:
+    kind: closure_expression
+    inside:
+      kind: arguments
+      inside:
+        kind: call_expression
+        has:
+          field: function
+          any:
+            - regex: '(^|::|\.)(spawn_blocking|block_in_place|supervise_thread)$'
+            - regex: '^(::)?((std::)?thread|cmux_threads)::spawn(_with_stack)?$'
+            - kind: field_expression
+              all:
+                - has:
+                    field: field
+                    regex: '^spawn(_unchecked)?$'
+                - has:
+                    field: value
+                    regex: '(^|::)Builder::new\(\)'
+  # A call whose result may be a future: awaited, handed to an awaited call (`timeout(limit, rx.recv()).await`,
+  # also as a closure's result: `join_all(xs.iter().map(|x| x.wait()))`), bound and awaited later in the same
+  # block, or on a `tokio::` receiver. A `std::` receiver never is.
+  future-call:
+    not:
+      has:
+        field: function
+        has:
+          field: value
+          regex: '^(::)?std::'
+    any:
+      - inside:
+          kind: await_expression
+      - inside:
+          kind: arguments
+          inside:
+            kind: call_expression
+            inside:
+              kind: await_expression
+      - inside:
+          kind: closure_expression
+          inside:
+            kind: arguments
+            inside:
+              kind: call_expression
+              inside:
+                kind: await_expression
+            stopBy:
+              any:
+                - kind: block
+                - kind: function_item
+      - has:
+          field: function
+          has:
+            field: value
+            regex: '^(::)?tokio::'
+      - inside:
+          kind: let_declaration
+          pattern: let $FUTURE = $$$;
+          precedes:
+            stopBy: end
+            has:
+              stopBy: end
+              kind: await_expression
+              has:
+                stopBy: end
+                kind: identifier
+                pattern: $FUTURE
 rule:
   kind: call_expression
   any:
-    # Path calls: std sleep, std::fs, std::net connects, executor block_on.
+    # Path calls on std that block whatever surrounds them (sleep, fs, net connects) and executor block_on.
     - has:
         field: function
         regex: >-
-          ^(::)?(std::)?(thread::)?sleep$|^(::)?(std::)?fs::([a-z_]+|File::(open|create))$|^(::)?File::(open|create)$|^(::)?(std::)?(net::)?(TcpStream|TcpListener|UdpSocket)::(connect|connect_timeout|bind)$|(^|::)block_on$
+          ^(::)?std::(thread::sleep|fs::([a-z_]+|File::(open|create))|net::(TcpStream|TcpListener|UdpSocket)::(connect|connect_timeout|bind))$|^(::)?thread::sleep$|(^|::)block_on$
+    # The same unqualified: `use tokio::fs` or `tokio::net::TcpStream` makes them futures.
+    - all:
+        - has:
+            field: function
+            regex: >-
+              ^(::)?(sleep|fs::([a-z_]+|File::(open|create))|File::(open|create)|(net::)?(TcpStream|TcpListener|UdpSocket)::(connect|connect_timeout|bind))$
+        - not:
+            matches: future-call
     # Methods that wait whatever their arguments.
     - has:
         field: function
         kind: field_expression
         has:
           field: field
-          regex: '^(blocking_(lock|lock_owned|read|write|recv|send)|block_on|recv_timeout|wait_timeout|wait_timeout_while|wait_while|read_to_end|read_to_string|read_line)$'
-    # Methods that wait when called with no argument (thread join, process wait/output, sync channel recv).
+          regex: '^(blocking_(lock|lock_owned|read|write|recv|send)|block_on|recv_timeout|wait_timeout|wait_timeout_while|wait_while)$'
+    # Methods that block on a std receiver and return a future on a tokio one.
+    - all:
+        - has:
+            field: function
+            kind: field_expression
+            has:
+              field: field
+              regex: '^(read_to_end|read_to_string|read_line)$'
+        - not:
+            matches: future-call
+    # The same, called with no argument (thread join, process wait/output, channel recv).
     - all:
         - has:
             field: function
@@ -59,20 +145,12 @@ rule:
         - has:
             field: arguments
             regex: '^\(\s*\)$'
+        - not:
+            matches: future-call
   not:
-    any:
-      - inside:
-          kind: await_expression
-      # A future handed to an awaited call: `timeout(limit, rx.recv()).await`.
-      - inside:
-          kind: arguments
-          inside:
-            kind: call_expression
-            inside:
-              kind: await_expression
-      - inside:
-          matches: test-code
-          stopBy: end
+    inside:
+      matches: test-code
+      stopBy: end
   inside:
     any:
       - kind: async_block
@@ -85,5 +163,7 @@ rule:
     stopBy:
       any:
         - kind: function_item
-        - kind: closure_expression
         - kind: async_block
+        - kind: closure_expression
+          regex: '^async\b'
+        - matches: off-worker-closure
