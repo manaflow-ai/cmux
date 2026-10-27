@@ -11,14 +11,14 @@ import Testing
 /// restart policy keeps it off by default). The automatic-download opt-in
 /// (`updates.downloadAutomatically`) only skips the first ask.
 @MainActor @Suite(.serialized) struct UpdateAsksBeforeInstallTests {
-    static let stable = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app", shortVersion: "0.70.0", build: "100",
-                                            minimumSystemVersion: nil, infoFeedURL: TipAppTrackTests.stableFeed, hasPublicKey: true)
-    static let nightly = TipUpdateCheckTests.nightly
-    static let tip = TipUpdateCheckTests.tip
-    static let dev = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.asks-before-install", shortVersion: "0.1.0", build: "100",
-                                         minimumSystemVersion: nil, infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml",
-                                         hasPublicKey: false)
-    static let channels = [stable, nightly, tip, dev]
+    nonisolated static let stable = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app", shortVersion: "0.70.0", build: "100",
+                                                        minimumSystemVersion: nil, infoFeedURL: TipAppTrackTests.stableFeed, hasPublicKey: true)
+    nonisolated static let nightly = TipUpdateCheckTests.nightly
+    nonisolated static let tip = TipUpdateCheckTests.tip
+    nonisolated static let dev = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.asks-before-install", shortVersion: "0.1.0", build: "100",
+                                                     minimumSystemVersion: nil, infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml",
+                                                     hasPublicKey: false)
+    nonisolated static let channels = [stable, nightly, tip, dev]
 
     /// What the updater asked Sparkle for.
     @MainActor final class Effects {

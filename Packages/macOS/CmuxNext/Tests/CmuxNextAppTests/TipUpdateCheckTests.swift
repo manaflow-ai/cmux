@@ -44,12 +44,12 @@ import CmuxNextWakeupsTestSupport
         var downloads = true
     }
 
-    static let tip = UpdateBuildIdentity(bundleIdentifier: UpdateBuildIdentity.tipBundleIdentifier, shortVersion: "0.1.0", build: "100",
-                                         minimumSystemVersion: nil, infoFeedURL: "https://files.cmux.com/nightly-next/tip/appcast-arm64.xml",
-                                         hasPublicKey: true)
-    static let nightly = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.next.staged-yields", shortVersion: "0.1.0", build: "100",
-                                             minimumSystemVersion: nil, infoFeedURL: "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml",
-                                             hasPublicKey: true)
+    nonisolated static let tip = UpdateBuildIdentity(bundleIdentifier: UpdateBuildIdentity.tipBundleIdentifier, shortVersion: "0.1.0", build: "100",
+                                                     minimumSystemVersion: nil, infoFeedURL: "https://files.cmux.com/nightly-next/tip/appcast-arm64.xml",
+                                                     hasPublicKey: true)
+    nonisolated static let nightly = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.next.staged-yields", shortVersion: "0.1.0", build: "100",
+                                                         minimumSystemVersion: nil, infoFeedURL: "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml",
+                                                         hasPublicKey: true)
     static let stable = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.next.staged-yields", shortVersion: "0.1.0", build: "100",
                                             minimumSystemVersion: nil, infoFeedURL: TipAppTrackTests.stableFeed, hasPublicKey: true)
 
