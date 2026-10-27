@@ -467,6 +467,8 @@ extension CloudHandlers {
             let key = try await terminalAnchor(on: session, context).key
             // The handle is "<surface> <terminal id>": the surface takes input and waits, the id closes it.
             let surface: @Sendable (String) -> SurfaceID = { SurfaceID(rawValue: $0.split(separator: " ").first.flatMap { UInt64($0) } ?? 0) }
+            // Read here, on the main actor (CloudStrings is main-actor isolated); the link's closures are not.
+            let notConnected = CloudStrings.notConnected
             let link = CloudMachineSecrets.Link(
                 // Like the receiver: 0644 in the work user's 0700 folder, so only it (and root) can read it.
                 writeTicket: { ticket in
@@ -477,7 +479,7 @@ extension CloudHandlers {
                     // whose values the daemon stores with the receipt. Only the daemon's placement ids are added.
                     let made = try await connection.createTerminal(in: key, argv: argv, name: "cmux secrets",
                                                                    size: CellSize(cols: CloudMachineSecrets.terminalColumns, rows: 24), env: [:], keep: false)
-                    guard let surface = made.surface else { throw ActionFailure(message: CloudStrings.notConnected) }
+                    guard let surface = made.surface else { throw ActionFailure(message: notConnected) }
                     return "\(surface.rawValue) \(made.terminalID.rawValue)"
                 },
                 waitFor: { handle, pattern, seconds in
