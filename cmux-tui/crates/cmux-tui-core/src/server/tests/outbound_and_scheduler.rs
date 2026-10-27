@@ -777,10 +777,10 @@ fn independent_muxes_do_not_share_surface_operation_admission() {
     let first = ConnectionSurfaceScheduler::new(first_mux.surface_operation_admission.clone());
     let second = ConnectionSurfaceScheduler::new(second_mux.surface_operation_admission.clone());
     let permits = (0..SERVER_SURFACE_WORKER_CAPACITY)
-        .map(|_| first.admission.try_reserve_worker().unwrap())
+        .map(|_| first.admission.try_reserve_worker(WorkerClass::Automation).unwrap())
         .collect::<Vec<_>>();
 
-    let isolated = second.admission.try_reserve_worker();
+    let isolated = second.admission.try_reserve_worker(WorkerClass::Automation);
     drop(permits);
 
     assert!(

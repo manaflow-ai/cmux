@@ -20,6 +20,7 @@ use super::ResponseErrorDelivery;
 use super::ServerSurfaceAdmissionError;
 use super::ServerSurfaceBytesPermit;
 use super::ServerSurfaceOperationAdmission;
+use super::WorkerClass;
 use super::frame_dispatch::FrameCall;
 use super::handle_request_with_cancellation;
 use super::send_request_error;
@@ -531,7 +532,8 @@ fn run_connection_surface_dispatcher(
         if pending.request.cmd.is_clear_history()
             && let Some(surface) = pending.request.cmd.ordering_surface()
         {
-            let Some(worker_permit) = scheduler.admission.try_reserve_worker() else {
+            let class = WorkerClass::of(writer.lock_caller.get());
+            let Some(worker_permit) = scheduler.admission.try_reserve_worker(class) else {
                 let (id, reply) = (pending.request.id.clone(), pending.reply_writer(&writer));
                 drop(pending);
                 scheduler.finish_clear(surface);

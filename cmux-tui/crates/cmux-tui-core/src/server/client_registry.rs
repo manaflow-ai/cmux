@@ -33,8 +33,10 @@ use super::TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY;
 use super::TERMINAL_PENDING_SEQUENCE_CAPABILITY;
 use super::VIEW_ATTACHMENT_DETACH_CAPABILITY;
 use super::VIEW_ATTACHMENT_LEASE_CAPABILITY;
+use super::WorkerClass;
 #[cfg(unix)]
 use super::agent_session_attach;
+use super::connection_caller;
 use super::connection_scheduler::connection_qos::ConnectionClassCell;
 use super::sanitize_window_title;
 use super::size_state_event_json;
@@ -507,7 +509,8 @@ impl ClientRegistry {
         if record.resource_streams.contains_key(stream_id.as_str()) {
             return Err(ResourceStreamInstallError::Duplicate);
         }
-        let worker_permit = self.resource_stream_admission.try_reserve(client)?;
+        let class = WorkerClass::of(connection_caller(record.transport, &record.writer));
+        let worker_permit = self.resource_stream_admission.try_reserve(client, class)?;
         let canceled = Arc::new(AtomicBool::new(false));
         record.resource_streams.insert(
             stream_id.to_string(),
@@ -563,7 +566,8 @@ impl ClientRegistry {
         if record.resource_waits.contains_key(request_id) {
             return Err(ResourceWaitInstallError::Duplicate);
         }
-        let worker_permit = self.resource_wait_admission.try_reserve(client)?;
+        let class = WorkerClass::of(connection_caller(record.transport, &record.writer));
+        let worker_permit = self.resource_wait_admission.try_reserve(client, class)?;
         let canceled = Arc::new(ResourceWaitCancellation::default());
         record.resource_waits.insert(
             request_id.clone(),

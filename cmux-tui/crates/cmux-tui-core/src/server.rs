@@ -2333,7 +2333,7 @@ mod worker_admission;
 pub(crate) use worker_admission::ServerSurfaceOperationAdmission;
 use worker_admission::{
     ResourceWorkerAdmission, ResourceWorkerAdmissionError, ResourceWorkerPermit,
-    ServerSurfaceAdmissionError, ServerSurfaceBytesPermit,
+    ServerSurfaceAdmissionError, ServerSurfaceBytesPermit, WorkerClass,
 };
 
 // The frame variant of the attach writer; no transport serves it yet.
@@ -2473,8 +2473,8 @@ mod routes;
 #[cfg(test)]
 use connection_frame::write_vt_state_command_json;
 use connection_frame::{
-    auth_token, constant_time_eq, handle_connection_frame_at, handle_request_with_cancellation,
-    lock_caller_scope, pairing_request, zeroize_string,
+    auth_token, connection_caller, constant_time_eq, handle_connection_frame_at,
+    handle_request_with_cancellation, lock_caller_scope, pairing_request, zeroize_string,
 };
 #[cfg(test)]
 use connection_frame::{handle_connection_frame, handle_request};
