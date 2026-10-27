@@ -370,7 +370,8 @@ jobs:
               --max-queued "$POOL_MAX_QUEUED" \
               --owned "$POOL_OWNED" \
               --owned-slots "$OWNED_SLOTS" \
-              --pr-xcode-app "$PR_XCODE_APP"
+              --pr-xcode-app "$PR_XCODE_APP" \
+              "${@:2}"
           }
           # Two machines free: verify and tip-dmg-build both take the owned
           # pool. Otherwise verify alone may take one, and tip-dmg-build
@@ -381,12 +382,14 @@ jobs:
             *)
               echo "No two owned Macs free now (picker said '${label:-nothing}'); Blacksmith macOS 26 takes tip-dmg-build."
               dmg_label=""
-              label="$(pick 1)" || label=""
+              # verify alone waits on the fleet rather than a stalled
+              # Blacksmith queue (the rescue watches it; --wait-owned).
+              label="$(pick 1 --wait-owned)" || label=""
               ;;
           esac
           case "$label" in
             glaeda-*) ;;
-            *) echo "No owned Mac free now (picker said '${label:-nothing}'); Blacksmith macOS 26 takes verify."; label="" ;;
+            *) echo "No owned Mac to wait on (picker said '${label:-nothing}'); Blacksmith macOS 26 takes verify."; label="" ;;
           esac
           echo "label=$label" >> "$GITHUB_OUTPUT"
           echo "dmg_label=$dmg_label" >> "$GITHUB_OUTPUT"
