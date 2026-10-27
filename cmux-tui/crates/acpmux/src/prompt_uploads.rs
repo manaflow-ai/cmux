@@ -84,10 +84,17 @@ pub fn owned_refs(blocks: &[Value]) -> Vec<(String, String)> {
     refs.collect()
 }
 
-/// The id, in its one spelling, of every upload `blocks` name, owned or not.
+/// The id, in its one spelling, of every upload `blocks` name, owned or not, by reference or by
+/// a link resolved from one (`uploadPath`, `<uploads>/<chat>/<id>/<name>`). Any chat's: the set
+/// is what a caller keeps, so a larger one deletes less.
 pub fn upload_ids(blocks: &[Value]) -> std::collections::HashSet<String> {
-    let ids = blocks.iter().filter_map(upload_of).filter_map(|u| u.get("uploadId")?.as_str());
-    ids.filter_map(|id| uuid::Uuid::try_parse(id).ok()).map(|id| id.to_string()).collect()
+    let named = blocks.iter().filter_map(upload_of).filter_map(|u| u.get("uploadId")?.as_str());
+    let linked = blocks.iter().filter_map(|b| {
+        let path = Path::new(b.pointer("/_meta/acpmux/uploadPath")?.as_str()?);
+        path.parent()?.file_name()?.to_str()
+    });
+    let ids = named.chain(linked).filter_map(|id| uuid::Uuid::try_parse(id).ok());
+    ids.map(|id| id.to_string()).collect()
 }
 
 /// Whether `block` names an upload (`send_message` sends files that go by reference so).
