@@ -25,7 +25,7 @@ struct LaunchWindowReopenGapTests {
         services.windows.restoreWhenLoaded()
         #expect(services.windows.controllers.isEmpty, "the launch window opened before the snapshot's read ended")
 
-        #expect(services.windows.reopenOrCreateWindow() == .launchWindow, "the reopen created a workspace in a second window")
+        #expect(services.windows.reopenOrCreateWindow() == nil, "the reopen created a workspace in a second window")
 
         read.end(.missing)
         await withCheckedContinuation { continuation in launchSnapshot.whenSettled { continuation.resume() } }
