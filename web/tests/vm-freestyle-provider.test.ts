@@ -290,7 +290,15 @@ describe("Freestyle failed create leaves no VM behind", () => {
 
   test("a lookup that fails reports the create's own failure, not unconfirmed cleanup", async () => {
     const fake = leakingClient({ failList: true });
-    const error = await providerWith(fake).create({ image: "sh-image" }).catch((err: unknown) => err);
+    const logged: unknown[][] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => { logged.push(args); };
+    const error = await providerWith(fake).create({ image: "sh-image" }).catch((err: unknown) => err).finally(() => {
+      console.error = original;
+    });
+    // Reported as an operator fault so the attempt can be found by its tag.
+    expect(logged.some(([event, context]) => event === "cmux.observability.error"
+      && (context as { code?: string }).code === "provider_create_cleanup_lookup_failed")).toBe(true);
     expect(error).toBeInstanceOf(ProviderError);
     expect(isProviderCreateCleanupError(error)).toBe(false);
     expect(((error as ProviderError).cause as FreestyleApiError).code).toBe("VM_START_FAILED");

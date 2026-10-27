@@ -19,6 +19,7 @@ import { freestyleHealthInventory } from "./freestyleHealthInventory";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
 import type { FreestyleClientFactory } from "./freestyleGuestCli";
 import { ProviderCreateCleanupError } from "./providerCreateCleanup";
+import { reportError } from "../../observability/report";
 import { freestyleRequestFetch } from "./freestyleRequestTiming";
 import { isProviderMachineGone } from "../providerErrors";
 import { currentVmRequestContext } from "../requestContext";
@@ -740,7 +741,14 @@ async function deleteFreestyleCreateAttempt(client: FreestyleClientFactory, atte
       .filter((vm) => vm.metadata?.[FREESTYLE_CREATE_ATTEMPT_METADATA_KEY] === attempt)
       .map((vm) => vm.id);
   } catch (lookupErr) {
-    console.error(`[freestyle] could not look up VMs left by failed create attempt ${attempt}`, lookupErr);
+    // Nothing is known about the attempt's VM, so the row keeps no cleanup
+    // claim. Report the attempt id: an operator can find the VM by it with
+    // the same metadata filter.
+    reportError(
+      lookupErr,
+      { subsystem: "cloud_vm_alerts", code: "provider_create_cleanup_lookup_failed", operatorFault: true },
+      { tags: { create_attempt: attempt }, fingerprint: ["cmux-vm-freestyle-create-cleanup-lookup"] },
+    );
     return;
   }
   for (const vmId of leaked) {
