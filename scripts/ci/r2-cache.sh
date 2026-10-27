@@ -44,7 +44,21 @@ fi
 namespace="v1/$platform"
 set_output() { if [[ -n "${GITHUB_OUTPUT:-}" ]]; then echo "$1=$2" >> "$GITHUB_OUTPUT"; fi; }
 
+lan_cache="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lan_cache_fetch.py"
 fetch() { # <relative object path> <destination file>
+  # An archive comes from the site's LAN cache host first, through the mini's glaeda broker: the minis
+  # share one slow uplink, and the host fetches each object over it once. A miss there means the bucket
+  # has none; anything else (no broker, host down) falls through to the bucket.
+  if [[ "$1" == */objects/* ]] && [[ -S "${CMUX_LAN_CACHE_SOCKET:-$HOME/.local/state/glaeda/lan-fetch/fetch.sock}" ]] \
+      && command -v python3 >/dev/null 2>&1; then
+    local lan_status=0
+    python3 "$lan_cache" "${CI_CACHE_R2_PUBLIC_URL%/}" "$1" "$2" || lan_status=$?
+    case "$lan_status" in
+      0) return 0 ;;
+      3) return 22 ;;
+    esac
+    rm -f "$2"
+  fi
   curl --fail --silent --show-error --location --retry 3 --retry-delay 2 \
     --connect-timeout 15 --max-time 900 -o "$2" "${CI_CACHE_R2_PUBLIC_URL%/}/$1"
 }
