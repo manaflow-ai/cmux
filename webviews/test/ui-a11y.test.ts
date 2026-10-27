@@ -417,8 +417,10 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
           expect(await visible(page, ".md-source")).toHaveLength(1);
           await page.getByRole("button", { name: md["mode.rich"] }).click();
           await untilResult(page, "mode: rich");
-          await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-          await page.keyboard.press("Tab");
+          // Start the directional toolbar walk from the first history control in both LTR and RTL.
+          // A mode switch can leave the document itself focused in Chromium RTL, so establish the
+          // same concrete starting point instead of relying on Tab order from a detached button.
+          await page.locator(".md-history-button").first().focus();
           await untilFocus(
             page,
             (state) => state.name === document.querySelector(".md-history-button")?.getAttribute("aria-label"),
