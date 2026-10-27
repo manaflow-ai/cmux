@@ -46,6 +46,7 @@ run).
 import argparse
 import collections
 import fnmatch
+import itertools
 import json
 import os
 import re
@@ -357,8 +358,8 @@ def report(checked, counts, files, fmt, only=None):
 #
 # The deny-lint hits of a (merged) run become fix tasks of at most
 # QUEUE_MAX_HITS hits each, so one agent takes one task: a file with more hits
-# is split into balanced line ranges, and the smaller files of one module
-# directory and owner are packed in path order into one task up to the limit.
+# is split into balanced line ranges cut between distinct lines (no line in
+# two tasks), and the smaller files of one module directory and owner are packed in path order into one task up to the limit.
 # Every hit is in exactly one task. Each task names its crate, Rust module,
 # owner (plans/cmux-next/OWNERS.md, the most specific row; PL-stability, the
 # panic lane, when no row covers the file), class and boundary error type.
@@ -412,6 +413,15 @@ def _generic_args(text, start):
     return None
 
 
+def owner_label(cell):
+    """The owner an OWNERS.md cell names: its text before the first note ('(', ':', ';' or ','), so
+    'PL-daemon holder (session cmux-4f)' stays apart from 'PL-daemon (session cmux-b6): ...'; a head that names
+    no PL- lane takes the cell's first one ('Performance Lead (PL-guardrails)' -> 'PL-guardrails')."""
+    head = re.split(r"[(:;,]", cell, maxsplit=1)[0].strip()
+    lane = re.search(r"\bPL-[\w-]+", cell)
+    return lane.group(0) if lane and "PL-" not in head else head or cell.strip()
+
+
 def _read(path):
     try:
         with open(path, encoding="utf-8", errors="replace") as handle:
@@ -440,8 +450,7 @@ class QueueSource:
             cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
             if len(cells) < 3:
                 continue
-            match = re.search(r"\bPL-[\w-]+", cells[2])
-            owner = match.group(0) if match else cells[2].split("(")[0].strip()
+            owner = owner_label(cells[2])
             for owned in re.findall(r"`([^`]+)`", cells[1]):
                 rows.append((owned, owner))
         return rows
@@ -541,15 +550,30 @@ def rust_module(path):
     return "::".join([root] + rest)
 
 
-def _balanced_chunks(items, limit):
-    count = -(-len(items) // limit)
-    size, extra = divmod(len(items), count)
-    chunks, at = [], 0
-    for index in range(count):
-        step = size + (1 if index < extra else 0)
-        chunks.append(items[at:at + step])
-        at += step
+def _line_chunks(lines, cap):
+    """Greedy cut of the per-line hit lists into chunks of at most `cap` hits; a longer line is its own chunk."""
+    chunks, current, size = [], [], 0
+    for line in lines:
+        if current and size + len(line) > cap:
+            chunks.append(current)
+            current, size = [], 0
+        current.extend(line)
+        size += len(line)
+    if current:
+        chunks.append(current)
     return chunks
+
+
+def _balanced_chunks(hits, limit):
+    """The line-sorted hits of one file in the fewest chunks of at most `limit` hits, cut only between distinct
+    lines (so no line is in two tasks), with the smallest largest chunk; a line above `limit` stays one chunk."""
+    lines = [list(group) for _, group in itertools.groupby(hits, key=lambda hit: hit["line"])]
+    fewest = len(_line_chunks(lines, limit))
+    for cap in range(-(-len(hits) // fewest), limit):
+        chunks = _line_chunks(lines, cap)
+        if len(chunks) <= fewest:
+            return chunks
+    return _line_chunks(lines, limit)
 
 
 def _heaviest(counter):

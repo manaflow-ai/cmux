@@ -45,6 +45,8 @@ SOURCES = {
     "cmux-tui/crates/cmux-tui-core/src/mux/tree.rs": "fn walk() -> std::io::Result<Vec<u8>> { Ok(vec![]) }\n",
     "cmux-tui/crates/cmux-tui-core/src/holder_runtime.rs":
         "fn load(p: &Path) -> anyhow::Result<String> { Ok(std::fs::read_to_string(p)?) }\n",
+    # A daemon-row file next to the holder-row file: same crate and directory, another owner.
+    "cmux-tui/crates/cmux-tui-core/src/store.rs": "fn get(v: &[u8]) -> u8 { v[0] }\n",
     # The crate alias `type Result<T> = Result<T, PtyError>` names the error of `-> Result<T>`.
     "cmux-tui/crates/cmux-pty/src/error.rs":
         "pub enum PtyError { Io }\npub type Result<T> = std::result::Result<T, PtyError>;\n",
@@ -88,12 +90,13 @@ def fixture_hits():
     items += [hit("crates/cmux-tui-core/src/mux/mod.rs", line, "expect_used") for line in range(1, 16)]
     items += [hit("crates/cmux-tui-core/src/mux/tree.rs", line, "panic") for line in range(1, 11)]
     items += [hit("crates/cmux-tui-core/src/holder_runtime.rs", 3)]
+    items += [hit("crates/cmux-tui-core/src/store.rs", line) for line in range(1, 4)]
     items += [hit("crates/cmux-pty/src/lib.rs", 1), hit("crates/cmux-pty/src/lib.rs", 1, column=9)]
     items += [hit("crates/cmux-motion/src/spring.rs", 1, "unreachable")]
     items += [hit("crates/acpmux/src/hub/route.rs", 1), hit("crates/acpmux/src/main.rs", 1)]
     items += [hit("crates/cmux-gone/src/lib.rs", 4)]  # not in the checkout: unreadable
     items += [hit("crates/cmux-motion/src/spring.rs", 1, "arithmetic_side_effects")]  # tracked, not queued
-    return items + [FINISHED], 120 + 30 + 15 + 10 + 1 + 2 + 1 + 2 + 1
+    return items + [FINISHED], 120 + 30 + 15 + 10 + 1 + 3 + 2 + 1 + 2 + 1
 
 
 def assert_partition(test, queue, limit=50):
@@ -199,7 +202,9 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(tree["boundary_error"], "std::io::Error")
         holder = files[core + "holder_runtime.rs"]
         # The most specific OWNERS row wins; fs::read_to_string makes it input.
-        self.assertEqual((holder["owner"], holder["owner_row"]), ("PL-daemon", core + "holder_runtime.rs"))
+        self.assertEqual((holder["owner"], holder["owner_row"]), ("PL-daemon holder", core + "holder_runtime.rs"))
+        store = files[core + "store.rs"]
+        self.assertEqual((store["owner"], store["owner_row"]), ("PL-daemon", "cmux-tui/crates/cmux-tui-core/"))
         self.assertEqual((holder["class"], holder["boundary_error"]), ("input", "anyhow::Error"))
         pty = files["cmux-tui/crates/cmux-pty/src/lib.rs"]
         self.assertEqual((pty["module"], pty["boundary_error"]), ("cmux_pty", "PtyError"))
@@ -222,6 +227,45 @@ class QueueTests(unittest.TestCase):
         for task in queue["tasks"]:
             self.assertEqual({f["owner"] for f in task["files"]}, {task["owner"]}, task["id"])
             self.assertEqual({f["crate"] for f in task["files"]}, {task["crate"]}, task["id"])
+
+    def test_holder_file_and_daemon_files_of_one_directory_never_share_a_task(self):
+        items, _ = fixture_hits()
+        tasks = self.by_file(self.queue(("linux", self.write("linux.jsonl", items))))
+        core = "cmux-tui/crates/cmux-tui-core/src/"
+        holder, store = tasks[core + "holder_runtime.rs"], tasks[core + "store.rs"]
+        self.assertEqual((len(holder), len(store)), (1, 1))
+        self.assertNotEqual(holder[0]["id"], store[0]["id"])
+        self.assertEqual((holder[0]["owner"], store[0]["owner"]), ("PL-daemon holder", "PL-daemon"))
+
+    def test_owner_label_keeps_the_owner_before_its_notes(self):
+        label = self.ratchet.owner_label
+        self.assertEqual(label("PL-daemon holder (session cmux-4f)"), "PL-daemon holder")
+        self.assertEqual(label("PL-daemon (session cmux-b6): request speed, journal"), "PL-daemon")
+        self.assertEqual(label("PL-holder (session cmux-1c); PL-daemon migrates its own crates"), "PL-holder")
+        self.assertEqual(label("PL-instant, session cmux-1c (interim)"), "PL-instant")
+        self.assertEqual(label("Performance Lead (PL-guardrails)"), "PL-guardrails")
+        self.assertEqual(label("Performance Lead (chrome-parity program p14-energy, task 021)"), "Performance Lead")
+        self.assertEqual(label("Aziz's agent and the Performance Lead"), "Aziz's agent and the Performance Lead")
+
+    def test_split_cuts_only_between_lines(self):
+        # Line 1 has 1 hit, lines 2-26 have 2 (51 hits): two parts, and no line in both.
+        layout = "crates/cmux-tui-core/src/mux/layout.rs"
+        items = [artifact("cmux-tui-core"), hit(layout, 1)]
+        items += [hit(layout, line, column=c) for line in range(2, 27) for c in (5, 9)]
+        tasks = self.by_file(self.queue(("linux", self.write("pairs.jsonl", items + [FINISHED]))))
+        parts = tasks["cmux-tui/crates/cmux-tui-core/src/mux/layout.rs"]
+        self.assertEqual([t["hit_count"] for t in parts], [25, 26])
+        self.assertEqual([t["files"][0]["lines"] for t in parts], ["1-13", "14-26"])
+        lines = [{h["loc"].rsplit(":", 2)[1] for h in t["hits"]} for t in parts]
+        self.assertFalse(lines[0] & lines[1])
+
+    def test_split_keeps_a_line_above_the_limit_whole(self):
+        layout = "crates/cmux-tui-core/src/mux/layout.rs"
+        items = [artifact("cmux-tui-core")] + [hit(layout, 1, column=c) for c in range(1, 61)]
+        items += [hit(layout, line) for line in range(2, 32)]
+        tasks = self.by_file(self.queue(("linux", self.write("wide.jsonl", items + [FINISHED]))))
+        parts = tasks["cmux-tui/crates/cmux-tui-core/src/mux/layout.rs"]
+        self.assertEqual([(t["hit_count"], t["files"][0]["lines"]) for t in parts], [(60, "1-1"), (30, "2-31")])
 
     def test_merged_runs_count_a_shared_line_once_and_mark_one_run_hits(self):
         linux = self.write("linux.jsonl", [artifact("cmux-pty"), hit("crates/cmux-pty/src/lib.rs", 1),
@@ -253,6 +297,11 @@ class QueueTests(unittest.TestCase):
                         for i in items if i["reason"] == "compiler-message"}
             self.assertEqual(queue["total_hits"], len(distinct))
             assert_partition(self, queue)
+            owners = collections.defaultdict(set)
+            for task in queue["tasks"]:
+                for h in task["hits"]:
+                    owners[h["loc"].rsplit(":", 1)[0]].add(task["id"])
+            self.assertTrue(all(len(ids) == 1 for ids in owners.values()))
 
     def test_cli_queue_json_and_md_exit_zero_above_the_baseline(self):
         items, deny = fixture_hits()
