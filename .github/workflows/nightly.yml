@@ -3406,8 +3406,9 @@ jobs:
             const incident = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/nightly_failure_issue.mjs`);
             await incident.report({
               github, owner, repo, channel, appName, ref: refName, sha: process.env.HEAD_SHA, body, runUrl, log: core.info,
-              // A stale tag is this commit's own incident even though it published.
-              releaseTag: tagStale ? null : process.env.CHANNEL_RELEASE_TAG,
+              // A stale tag is this commit's own incident (the release names this
+              // commit, which supersedes nothing), unless a newer publication already did.
+              releaseTag: process.env.CHANNEL_RELEASE_TAG,
             });
 
   close-nightly-failure-issue:

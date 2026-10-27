@@ -91,7 +91,8 @@ const github = {{
       update: async (args) => calls.push(["update", args]),
     }},
     repos: {{
-      compareCommitsWithBasehead: async () => ({{ data: {{ status: {json.dumps(compare_status)} }} }}),
+      // Against a branch name: the failed commit is still on its branch.
+      compareCommitsWithBasehead: async ({{ basehead }}) => ({{ data: {{ status: /[.][.][.][0-9a-f]{{40}}$/.test(basehead) ? {json.dumps(compare_status)} : 'ahead' }} }}),
     }},
   }},
 }};

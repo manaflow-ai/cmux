@@ -116,21 +116,28 @@ async function failedCommitGone(github, owner, repo, failedSha, publishedSha) {
   return !(await commitExists(github, owner, repo, failedSha)) && (await commitExists(github, owner, repo, publishedSha));
 }
 
+// Whether `sha` is no longer on `branch`: the branch tip does not include it.
+// A branch GitHub cannot read is not proof, so the failure stays.
+async function offBranch(github, owner, repo, sha, branch) {
+  const status = await compareStatus(github, owner, repo, sha, branch);
+  return status === 'behind' || status === 'diverged';
+}
+
 // Whether publishing `published` resolves `failure`.
 export async function covers({ github, owner, repo, published, failure }) {
   if (failure.sha === published.sha.toLowerCase()) return true;
   const status = await compareStatus(github, owner, repo, failure.sha, published.sha);
   if (status === 'ahead' || status === 'identical') return true;
   if (status === 'missing') return failedCommitGone(github, owner, repo, failure.sha, published.sha);
-  if (status === 'behind') return false; // the failure is newer than the publication
   if (failure.ref !== published.ref) {
+    if (status === 'behind') return false; // the failure is newer than the publication
     const failed = rcVersion(failure.ref);
     const shipped = rcVersion(published.ref);
     return Boolean(failed && shipped && compareVersions(shipped, failed) > 0);
   }
-  // Diverged on one branch: the failure is resolved only if it was rewritten away.
-  const onBranch = await compareStatus(github, owner, repo, failure.sha, failure.ref);
-  return !(onBranch === 'ahead' || onBranch === 'identical');
+  // Newer than or diverged from the publication on one branch: the failure is
+  // resolved only if it was rewritten away (a force-push or a rewind).
+  return offBranch(github, owner, repo, failure.sha, failure.ref);
 }
 
 async function texts(github, owner, repo, issue) {
@@ -253,13 +260,14 @@ async function superseding({ github, owner, repo, releaseTag, sha, ref }) {
   const status = await compareStatus(github, owner, repo, sha, published);
   if (status === 'ahead') return { sha: published, ref };
   if (status === 'missing') return (await failedCommitGone(github, owner, repo, sha, published)) ? { sha: published, ref } : null;
-  if (status !== 'diverged') return null;
-  const line = await newerRcLine({ github, owner, repo, published, failureRef: ref });
-  if (line) return { sha: published, ref: line };
+  if (status !== 'diverged' && status !== 'behind') return null;
+  if (status === 'diverged') {
+    const line = await newerRcLine({ github, owner, repo, published, failureRef: ref });
+    if (line) return { sha: published, ref: line };
+  }
   // The failed commit was rewritten off its branch, and the publication is
   // that branch's: the failure is not an incident (`covers` resolves it too).
-  const failedOnBranch = await compareStatus(github, owner, repo, sha, ref);
-  if (failedOnBranch === 'ahead' || failedOnBranch === 'identical') return null;
+  if (!(await offBranch(github, owner, repo, sha, ref))) return null;
   const publishedOnBranch = await compareStatus(github, owner, repo, published, ref);
   return publishedOnBranch === 'ahead' || publishedOnBranch === 'identical' ? { sha: published, ref } : null;
 }

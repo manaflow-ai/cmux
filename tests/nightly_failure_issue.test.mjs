@@ -15,7 +15,8 @@ function httpError(status) {
 }
 
 // An in-memory GitHub: labels, issues with comments, and a commit graph.
-function fakeGitHub({ parents = {}, branches = {}, labelExists = false, labelRace = false } = {}) {
+// main is d unless a test moves it.
+function fakeGitHub({ parents = {}, branches = { main: 'd'.repeat(40) }, labelExists = false, labelRace = false } = {}) {
   const issues = [];
   const labels = new Set(labelExists ? ['nightly-failure', 'rc-failure'] : []);
   const hooks = { afterComment: null, beforeList: null, hideFromList: () => false };
@@ -347,6 +348,22 @@ test('a publication of a commit GitHub does not have never closes a failure', as
   assert.deepEqual(await publish(other.github, sha('d')), [1]);
 });
 
+test('a branch rewound below a failed commit is resolved by publishing its tip', async () => {
+  // main was rewound from d to b; d still exists.
+  const { github, issues } = fakeGitHub({ parents: MAIN, branches: { main: sha('b') } });
+  await fail(github, sha('d'));
+  assert.deepEqual(await publish(github, sha('b')), [1]);
+  // The reporter for d, after b published from the rewound branch, opens nothing.
+  const other = fakeGitHub({ parents: MAIN, branches: { main: sha('b') } });
+  other.github.rest.repos.getReleaseByTag = async () => ({ data: { body: `<!-- cmux-published-sha: ${sha('b')} -->` } });
+  assert.equal(await fail(other.github, sha('d'), 'main', { releaseTag: 'nightly' }), null);
+  assert.equal(other.issues.length, 0);
+  // Not rewound: d is still on main and stays an incident.
+  const kept = fakeGitHub({ parents: MAIN, branches: { main: sha('d') } });
+  await fail(kept.github, sha('d'));
+  assert.deepEqual(await publish(kept.github, sha('b')), []);
+});
+
 test('a failure that the closing publication already includes leaves the incident closed', async () => {
   const { github, issues } = fakeGitHub({ parents: MAIN });
   await fail(github, sha('b'));
@@ -356,7 +373,7 @@ test('a failure that the closing publication already includes leaves the inciden
   await fail(github, sha('c'));
   assert.equal(issues[0].state, 'closed');
   // A newer commit's failure reopens it.
-  const { github: g2, issues: i2 } = fakeGitHub({ parents: { ...MAIN, [sha('e')]: [sha('d')] } });
+  const { github: g2, issues: i2 } = fakeGitHub({ parents: { ...MAIN, [sha('e')]: [sha('d')] }, branches: { main: sha('e') } });
   await fail(g2, sha('b'));
   await publish(g2, sha('d'));
   await fail(g2, sha('e'));
