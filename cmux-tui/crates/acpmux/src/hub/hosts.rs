@@ -358,16 +358,25 @@ impl Hub {
         let stalls = std::env::var_os("ACPMUX_TEST_REPLAY_INCOMPLETE").is_some();
         #[cfg(not(debug_assertions))]
         let stalls = false;
-        if stalls || !child.wait_replayed(adopted.last_h, REPLAY_STALL, REPLAY_CEILING).await {
+        let replayed =
+            !stalls && child.wait_replayed(adopted.last_h, REPLAY_STALL, REPLAY_CEILING).await;
+        if !replayed {
             tracing::warn!(session = %session.id, "agent host replay incomplete; recovering from the partial log");
         }
         // MDM forces full access off (#23322, review 60): what the host kept while no daemon was
         // attached is in the log now. A mode or option it moved to then is judged before the
         // agent is handed out (every caller holds the spawn lock, so `child_for` waits); a later
         // report reaches `write_mode_state` live.
+        // A replay that did not complete may still hold such a report: under MDM's off the host
+        // is not known to ask, so it ends (review 61).
         if self.full_access_managed_off() {
             session.floor.left_host_read.store(false, Ordering::SeqCst);
-            if self.end_if_runs_full_access(session).await != FullAccessEnd::NotInFullAccess {
+            let ended = if replayed {
+                self.end_if_runs_full_access(session).await
+            } else {
+                self.end_managed_full_access(session).await
+            };
+            if ended != FullAccessEnd::NotInFullAccess {
                 return Ok(());
             }
         }
@@ -1078,6 +1087,8 @@ impl Hub {
             started["remoteEnvPolicy"] = crate::agent::REMOTE_ENV_POLICY_ID.into();
         }
         self.append(session, "mux", "host_started", started);
+        // A new host: its log is read back again under MDM's off (`full_access_bound.rs`).
+        session.floor.left_host_read.store(false, Ordering::SeqCst);
         let attached = ChildAgent::attach_hosted(
             &meta.harness,
             record.clone(),

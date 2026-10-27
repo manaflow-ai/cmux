@@ -125,13 +125,16 @@ impl Hub {
                         }
                     },
                     ModeWrite::ConfigOptions(v) => {
-                        // What the harness reports replaces what bare answers took.
-                        session
-                            .floor
-                            .asked_options
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner())
-                            .clear();
+                        // What the harness reports replaces what bare answers took; a null
+                        // reports nothing (review 61).
+                        if v.is_array() {
+                            session
+                                .floor
+                                .asked_options
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .clear();
+                        }
                         m.config_options = Some(v)
                     }
                 }

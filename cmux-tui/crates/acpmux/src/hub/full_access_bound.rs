@@ -190,7 +190,8 @@ impl Hub {
     /// restart left, by what that host reported since it started (`reported_by_left_host`). Once
     /// that read finds no full access, what this daemon keeps is complete (every later report
     /// reaches it live), so the log is read once per host, not at each check
-    /// (`FloorState::left_host_read`).
+    /// (`FloorState::left_host_read`, cleared at each `host_started`). A log that cannot be read
+    /// says nothing either way: under MDM's off the host counts as in full access (review 61).
     fn runs_full_access_by_any_record(&self, session: &Session) -> bool {
         if runs_full_access(&FullAccessView::of_session(session)).is_some() {
             return true;
@@ -200,7 +201,9 @@ impl Hub {
         {
             return false;
         }
-        let reported = runs_full_access(&self.reported_by_left_host(session)).is_some();
+        let reported = self
+            .reported_by_left_host(session)
+            .is_none_or(|view| runs_full_access(&view).is_some());
         if !reported {
             session.floor.left_host_read.store(true, Ordering::SeqCst);
         }
@@ -227,7 +230,8 @@ impl Hub {
     /// update is not the session's own: the tap marks it
     /// (`SubagentTree::annotate`) only for a thread that is not the session's own, as `on_update`
     /// skips it live.
-    fn reported_by_left_host(&self, session: &Session) -> FullAccessView {
+    /// None when the log could not be read.
+    fn reported_by_left_host(&self, session: &Session) -> Option<FullAccessView> {
         use crate::rpc::method;
         let own = session.meta().agent_session_id;
         let mut modes: Option<Value> = None;
@@ -259,7 +263,7 @@ impl Hub {
             }
             self.store.scan_kinds(&session.id, &kinds, visit)
         };
-        let _ = scan(&mut |e: crate::store::EventRecord| {
+        let scanned = scan(&mut |e: crate::store::EventRecord| {
             let its_own = || {
                 e.msg.pointer("/params/_meta/acpmux/subagent").is_none()
                     || e.msg.pointer("/params/sessionId").and_then(Value::as_str) == own.as_deref()
@@ -335,12 +339,16 @@ impl Hub {
             }
             true
         });
-        FullAccessView {
+        if let Err(e) = scanned {
+            tracing::warn!(session = %session.id, "its left host's log could not be read back: {e:#}");
+            return None;
+        }
+        Some(FullAccessView {
             argv: Vec::new(),
             mode: mode.or_else(|| text_at(modes.as_ref(), "currentModeId")),
             undeclared_mode: None,
             options: options.as_ref().and_then(Value::as_array).cloned().unwrap_or_default(),
-        }
+        })
     }
 
     /// Ends the agent of a session that runs in full access while MDM forces it off: the live
@@ -349,7 +357,7 @@ impl Hub {
     /// nonce does not prove may still run in full access: what says so stays, so the next check
     /// (a start, a push, the background check) tries again, and nothing reaches it meanwhile
     /// (`FullAccessEnd::StillRunning`, review 51 of #23322).
-    async fn end_managed_full_access(&self, session: &Session) -> FullAccessEnd {
+    pub(super) async fn end_managed_full_access(&self, session: &Session) -> FullAccessEnd {
         let child = session.child.lock().await.take();
         let ended = child.is_some() || Self::host_record_live(&session.id);
         if let Some(child) = child {

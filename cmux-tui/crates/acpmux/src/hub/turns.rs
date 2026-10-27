@@ -1010,7 +1010,8 @@ impl Hub {
             }
             method::SESSION_SET_CONFIG_OPTION => {
                 let mut writes = Vec::new();
-                if let Some(opts) = res.get("configOptions") {
+                // A null is no report of options: the answer is bare (review 61).
+                if let Some(opts) = res.get("configOptions").filter(|o| !o.is_null()) {
                     writes.push(ModeWrite::ConfigOptions(opts.clone()));
                 } else if let Some(asked) = asked_option {
                     // A bare answer took the value asked: the full-access bound reads it (review
