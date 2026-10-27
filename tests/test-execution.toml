@@ -1981,3 +1981,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_xcode_build_timeline.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_dev_landing_place.py"
+lane = "linux-guard"
