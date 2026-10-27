@@ -444,4 +444,29 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
     expect(frames.slice(0, landed).some((frame) => frame.height > first.height)).toBe(true);
     expect(restarts).toBeLessThanOrEqual(1);
   });
+  test.each(engines.map(([name]) => name))("%s: native turn navigation replaces a bottom jump", async (name) => {
+    const page = await open(name);
+    const view = (await page.locator(".acpmux-scroll").boundingBox())!;
+    await page.mouse.move(view.x + view.width / 2, view.y + 120);
+    await page.mouse.wheel(0, -900);
+    await untilStill(page);
+    await page.locator(".acpmux-jump-latest[data-shown]").waitFor();
+    await page.locator(".acpmux-jump-latest").click();
+    // Menu/key-equivalent commands are bridged on window while focus remains in the composer.
+    await page.locator(".acpmux-md").focus();
+    await page.evaluate(() => window.dispatchEvent(new Event("cmux-acpmux-previousTurn")));
+    await untilStill(page);
+    const stopped = await measure(page);
+    expect(stopped.fromEnd).toBeGreaterThan(80);
+    await page.locator(".acpmux-jump-latest[data-shown]").waitFor();
+    // An unrelated render must not revive the cancelled bottom-follow owner.
+    send(record("mux", "turn_started", {}));
+    send(record("in", "agent_message_chunk", chunk("A reply arriving after native turn navigation.")));
+    await page
+      .getByText("A reply arriving after native turn navigation.", { exact: false })
+      .waitFor({ state: "attached" });
+    await untilStill(page);
+    expect((await measure(page)).fromEnd).toBeGreaterThan(80);
+    await page.close();
+  });
 });

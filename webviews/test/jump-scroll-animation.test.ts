@@ -104,3 +104,29 @@ test("zero motion lands synchronously; lifecycle stop cancels the pending frame"
     clock.restore();
   }
 });
+
+test("a replacement notifies the old owner without reporting a completed landing", () => {
+  const clock = frames();
+  let cancelled = 0;
+  let landed = 0;
+  try {
+    animateScroll(
+      clock.node,
+      () => 900,
+      400,
+      JUMP_CURVE,
+      () => landed++,
+      () => cancelled++,
+    );
+    clock.tick(performance.now() + 100);
+    animateScroll(clock.node, () => 100, 200, JUMP_CURVE);
+    expect(cancelled).toBe(1);
+    expect(landed).toBe(0);
+    clock.tick(performance.now() + 800);
+    expect(clock.node.scrollTop).toBe(100);
+    expect(cancelled).toBe(1);
+    expect(landed).toBe(0);
+  } finally {
+    clock.restore();
+  }
+});
