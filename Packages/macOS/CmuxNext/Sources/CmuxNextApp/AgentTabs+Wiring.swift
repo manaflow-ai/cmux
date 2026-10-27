@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextFloating
@@ -251,9 +252,19 @@ extension AgentTabStore {
                 // the page's first send, never when the tab opens.
                 guard started else { return nil }
                 guard daemon.supports(DaemonCapability.agentSessionStart.rawValue) else { return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine)) }
+                let cloud = services.machines.session(daemon.machineID)
+                let (isCloud, cloudLink) = (cloud != nil, cloud?.link)
+                let servesVMKind = daemon.supports(DaemonCapability.agentSessionStartVMKind.rawValue)
                 host.start = { [weak tabs] cwd, harness, personKey in
                     guard let tabs else { throw CancellationError() }
-                    return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, personKey: personKey, endpoint: endpoint)
+                    // The Cloud API's answer for this caller on the link in use, read at each start
+                    // and never kept past that link (an app-server link has none: no owner word).
+                    let ownsVM = await cloudLink?.callerOwnsVM ?? false
+                    guard AgentTabRemoteStart.mayStart(cloud: isCloud, callerOwnsVM: ownsVM, servesVMKind: servesVMKind) else {
+                        throw AgentRemoteStartRefusal(code: "agent_session.host_unverified", machine: machine)
+                    }
+                    return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, personKey: personKey,
+                                                          callerOwnsVM: ownsVM, endpoint: endpoint)
                 }
             }
             // cx-0q7o: the app's own ssh exec to that machine restarts its acpmux with a key.
