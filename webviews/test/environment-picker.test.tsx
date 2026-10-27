@@ -436,6 +436,13 @@ test("a started chat with a folder action keeps the chip actionable", async () =
   expect(folders).toEqual(["/Users/you/src/other"]);
 });
 
+test("a started chat with a folder panel but no new chat to start keeps the fixed label", async () => {
+  // The floating chat: the host reads folders but opens no new chat from it.
+  await mount(true, { ...startedOn("ssh"), onBrowseFolder: async () => "/Users/you/src/other" });
+  expect(computerButton()).toBeUndefined();
+  expect(host.querySelector(".acpmux-location-readonly")).not.toBeNull();
+});
+
 test("a started chat with no move to offer keeps the fixed computer label", async () => {
   const fixed = () =>
     [...host.querySelectorAll(".acpmux-location-readonly")].some((label) =>
