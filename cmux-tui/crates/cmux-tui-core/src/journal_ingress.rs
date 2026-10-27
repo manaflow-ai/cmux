@@ -1093,7 +1093,15 @@ pub(crate) fn start(
     Ok(())
 }
 
+/// How long one batch commit may run before the release hang watch reports
+/// it. The retry waits between attempts are outside the scope.
+const JOURNAL_BATCH_HANG_DEADLINE: Duration = Duration::from_secs(5);
+
 fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
+    let _hang_watch = cmux_hang_watch::register_thread(
+        cmux_hang_watch::ThreadKind::Lane,
+        "mux-session-journal-writer",
+    );
     loop {
         let Some(batch) = receive_batch(&receivers) else { return };
         let mut pending = VecDeque::from([batch]);
@@ -1142,12 +1150,14 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                 // A commit busy past its hang tier is written to the hang
                 // log with this thread's stack (request_watchdog.rs).
                 let hang = mux.request_watchdog.watch(crate::server::WatchKind::JournalWriter, 0);
+                let watched = cmux_hang_watch::watch(JOURNAL_BATCH_HANG_DEADLINE);
                 let committed = mux.commit_session_journal_events(
                     &events,
                     retry_deadline,
                     JOURNAL_SQLITE_RETRY_SLICE,
                     || admit_batch_commit(&receivers.state, &batch, retry_deadline),
                 );
+                drop(watched);
                 drop(hang);
                 match committed {
                     Ok(commits) => {
