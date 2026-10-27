@@ -11,18 +11,14 @@ import Testing
 
 /// The machine runs in any language, so expectations come from the same localized lookups.
 struct SessionPriorityStatusRowTests {
-    private func local(_ key: String.LocalizationValue, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value)
-    }
-
     private var hard: String { String(localized: "sidebar.sessionPriority.difficulty.hard", defaultValue: "Hard") }
 
     private func row(
-        _ tier: SessionPriorityTier = .urgent,
-        _ difficulty: ClaudeSessionDifficulty = .hard,
-        _ source: SessionPriorityWorkspaceState.DifficultySource = .default,
-        _ target: SessionPriorityTarget? = .init(effort: .xhigh),
-        _ states: [SessionPriorityPaneState]
+        _ states: [SessionPriorityPaneState] = [],
+        tier: SessionPriorityTier = .urgent,
+        difficulty: ClaudeSessionDifficulty = .hard,
+        source: SessionPriorityWorkspaceState.DifficultySource = .default,
+        target: SessionPriorityTarget? = .init(effort: .xhigh)
     ) -> SidebarStatusEntry {
         SessionPriorityStatusRow.entry(
             tier: tier, difficulty: difficulty, difficultySource: source, target: target, paneStates: states
@@ -44,7 +40,7 @@ struct SessionPriorityStatusRowTests {
         #expect(entry.icon == "bolt.fill")
         #expect(entry.color == nil)
         #expect(entry.helpText == nil)
-        #expect(row(.slow, .easy, .default, nil, []).icon == "tortoise.fill")
+        #expect(row(tier: .slow, difficulty: .easy, target: nil).icon == "tortoise.fill")
     }
 
     @Test
@@ -61,16 +57,17 @@ struct SessionPriorityStatusRowTests {
 
     @Test
     func manualDifficultyIsMarked() {
-        let manualFormat = String(localized: "sidebar.sessionPriority.difficulty.manual", defaultValue: "\(hard) (manual)")
-        let autoFormat = String(localized: "sidebar.sessionPriority.difficulty.auto", defaultValue: "\(hard) (auto)")
-        #expect(row(.urgent, .hard, .override, .init(effort: .low), []).value.contains(manualFormat))
-        #expect(row(.urgent, .hard, .auto, .init(effort: .low), []).value.contains(autoFormat))
+        let manualText = String(localized: "sidebar.sessionPriority.difficulty.manual", defaultValue: "\(hard) (manual)")
+        let autoText = String(localized: "sidebar.sessionPriority.difficulty.auto", defaultValue: "\(hard) (auto)")
+        #expect(row(source: .override, target: .init(effort: .low)).value.contains(manualText))
+        #expect(row(source: .auto, target: .init(effort: .low)).value.contains(autoText))
+        #expect(manualText != hard)
     }
 
     @Test
     func effortAndModelSegment() {
-        #expect(row(.slow, .easy, .default, .init(effort: .low, model: "sonnet"), []).value.hasSuffix("low / sonnet"))
-        #expect(row(.slow, .easy, .default, .init(model: "sonnet"), []).value.hasSuffix("sonnet"))
-        #expect(row(.slow, .easy, .default, .init(), []).value.components(separatedBy: " · ").count == 2)
+        #expect(row(tier: .slow, difficulty: .easy, target: .init(effort: .low, model: "sonnet")).value.hasSuffix("low / sonnet"))
+        #expect(row(tier: .slow, difficulty: .easy, target: .init(model: "sonnet")).value.hasSuffix("sonnet"))
+        #expect(row(tier: .slow, difficulty: .easy, target: .init()).value.components(separatedBy: " · ").count == 2)
     }
 }
