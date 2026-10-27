@@ -13,7 +13,7 @@ struct PageContextMenuGestureTests {
         defer { try? FileManager.default.removeItem(at: root) }
         try Data("<!doctype html><title>Menu</title>".utf8).write(to: root.appendingPathComponent("index.html"))
         let hosting = FakeChromiumHosting()
-        hosting.preference = chromium ? .chromium : .webKit
+        hosting.preference = chromium ? .chromium : .webkit
         let descriptor = PageDescriptor(id: "test.menu-gesture", resource: "menu-gesture", namespaces: [])
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
         view.chromiumClock = PageTestClock.never
