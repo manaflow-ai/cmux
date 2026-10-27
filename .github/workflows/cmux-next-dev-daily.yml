@@ -67,9 +67,6 @@ jobs:
         cmux NEXT DEV Release compile
         cmux app scheme compile (Debug)
         cmux-next Release compile (Xcode 26)
-      # A feat-cmux-next push run builds its DEV app only in the landing compile
-      # (cmux-next.yml dev-landing-compile).
-      SOURCE_LANDING_PRODUCER_JOB: cmux NEXT DEV Release compile (landing)
     steps:
       # The source-run reads below (run, jobs, artifact, compares) go through the
       # manaflow-glaeda-route App's own budget, read-only, not the GITHUB_TOKEN
@@ -92,11 +89,7 @@ jobs:
 
       # SOURCE_SHA is the commit the source run built: a dev daily run of
       # cmux-next.yml on feat-cmux-next whose name carries the SHA it was asked
-      # for (cmux-next.yml fails a run whose checkout is not that SHA), or a
-      # feat-cmux-next push run of cmux-next.yml, whose landing compile built its
-      # own head_sha (dev-landing-compile). A push run hands its app over the
-      # moment that job succeeds, while its other jobs still run, so it need not
-      # be completed: the gate below requires the landing compile itself.
+      # for (cmux-next.yml fails a run whose checkout is not that SHA).
       - name: Resolve the source run
         env:
           GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
@@ -104,20 +97,13 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "error: source run id '$SOURCE_RUN_ID' is not a number" >&2; exit 1; }
-          resolved="$(gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID" --jq '
-            select(.head_branch == "feat-cmux-next" and .path == ".github/workflows/cmux-next.yml"
+          sha="$(gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID" --jq '
+            select(.event == "workflow_dispatch" and .head_branch == "feat-cmux-next"
+                   and .path == ".github/workflows/cmux-next.yml" and .status == "completed"
                    and .head_repository.full_name == env.GH_REPO
-                   and ((.event == "workflow_dispatch" and .status == "completed"
-                         and (.name == "cmux NEXT DEV daily · " + .head_sha or .display_title == "cmux NEXT DEV daily · " + .head_sha))
-                        or .event == "push"))
-            | .event + " " + .head_sha')"
-          event="${resolved%% *}"
-          sha="${resolved#* }"
-          [[ "$event" == workflow_dispatch || "$event" == push ]] && [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || {
-            echo "error: run $SOURCE_RUN_ID is neither a finished cmux NEXT DEV daily run nor a push run of cmux-next.yml on feat-cmux-next" >&2
-            exit 1
-          }
-          echo "SOURCE_EVENT=$event" >> "$GITHUB_ENV"
+                   and (.name == "cmux NEXT DEV daily · " + .head_sha or .display_title == "cmux NEXT DEV daily · " + .head_sha))
+            | .head_sha')"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "error: run $SOURCE_RUN_ID is not a finished cmux NEXT DEV daily run of cmux-next.yml on feat-cmux-next" >&2; exit 1; }
           # head_branch is a short name, the same for a tag called
           # feat-cmux-next: require the commit to be on the branch itself.
           branch_sha="$(gh api "repos/$GH_REPO/git/ref/heads/feat-cmux-next" --jq '.object.sha')"
@@ -141,27 +127,15 @@ jobs:
           # would read as handled to the dispatcher, which would not retry it.
           jobs="$(gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID/jobs?filter=latest&per_page=100" \
             --jq '.jobs[] | select(.conclusion == "success") | .name')"
-          # A push run's DEV app is its landing compile's, and only that job's.
-          producers="$SOURCE_APP_PRODUCER_JOBS"
-          [[ "$SOURCE_EVENT" != push ]] || producers="$SOURCE_LANDING_PRODUCER_JOB"
           eligible=false
           while IFS= read -r job_name; do
             while IFS= read -r producer_name; do
               if [[ -n "$job_name" && "$job_name" == "$producer_name" ]]; then
                 eligible=true
               fi
-            done <<< "$producers"
+            done <<< "$SOURCE_APP_PRODUCER_JOBS"
           done <<< "$jobs"
           if [[ "$eligible" != true ]]; then
-            # A push run is handed over only once its landing compile succeeded
-            # (cmux-next.yml dev-landing-publish, or the dispatcher), so a push
-            # source without one is a read that came back short: fail, so the
-            # dispatcher, which counts only a successful publisher run as
-            # handled, hands it over again.
-            if [[ "$SOURCE_EVENT" == push ]]; then
-              echo "::error::push run $SOURCE_RUN_ID lists no successful '$SOURCE_LANDING_PRODUCER_JOB'; retry the handoff" >&2
-              exit 1
-            fi
             echo "::notice::cmux-next run $SOURCE_RUN_ID has no successful app-producing job; skipping daily publication"
           fi
           echo "eligible=$eligible" >> "$GITHUB_OUTPUT"
@@ -360,6 +334,10 @@ jobs:
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          # The only Blacksmith label verify and tip-dmg-build fall back to (their
+          # runs-on; test_cmux_next_dev_tip_feed.py keeps the three equal). Free
+          # room on another label (macOS 15) is none for them.
+          BLACKSMITH_LABELS: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
         run: |
           set -uo pipefail
           pick() {
@@ -371,6 +349,7 @@ jobs:
               --owned "$POOL_OWNED" \
               --owned-slots "$OWNED_SLOTS" \
               --pr-xcode-app "$PR_XCODE_APP" \
+              --blacksmith-labels "$BLACKSMITH_LABELS" \
               "${@:2}"
           }
           # Two machines free: verify and tip-dmg-build both take the owned
@@ -816,9 +795,9 @@ jobs:
   # The DMG work runs while verify does (Leo, 2026-10-26: "And I thought we
   # were incremental..."), and only the part that needs a Mac runs on one
   # (Leo, 2026-10-26: "I THOUGHT THESE COULD JUST GO ON LINUX").
-  # tip-dmg-build needs only sign: it runs Apple's codesign --verify --deep
-  # --strict on the Linux-signed app before it builds the unsigned DMG with
-  # hdiutil. tip-dmg, on Linux, signs, notarizes and staples that DMG with
+  # tip-dmg-build needs only sign: it builds the unsigned DMG with hdiutil
+  # (verify runs Apple's codesign check, and tip publishes only after verify
+  # passed). tip-dmg, on Linux, signs, notarizes and staples that DMG with
   # rcodesign and generates the appcast. Nothing they make is public: tip-dmg
   # hands the DMG and appcast to tip in an artifact. tip, the only job that writes R2, needs
   # verify to succeed with outputs.verified 'true' (as publish does) and the
@@ -839,8 +818,8 @@ jobs:
     needs: [sign, runner]
     # The runner job is only a placement: its failure keeps Blacksmith.
     if: ${{ !cancelled() && needs.sign.result == 'success' && needs.sign.outputs.signed == 'true' && needs.sign.outputs.build != '' }}
-    # The Mac half of the tip DMG, and all of it that needs a Mac: Apple's
-    # codesign check of the Linux signature and hdiutil's ULMO image. No
+    # The Mac half of the tip DMG, and all of it that needs a Mac: hdiutil's
+    # ULMO image. No
     # environment and no secrets: tip-dmg signs, notarizes and staples the
     # DMG on Linux. No concurrency group (a group replaces a pending run,
     # which the dev-build rule forbids).
@@ -849,8 +828,7 @@ jobs:
     # takes the runner job's dmg_label when it named one (two machines free
     # now, so verify and this job each get one), in a fresh work directory
     # removed after the job; every re-run, the owned-pool rescue's included,
-    # takes Blacksmith. It runs no bundle code (codesign --verify, ditto and
-    # hdiutil only), so the bundle-code guard's rule 6 (its OWNED_VERIFY_JOBS
+    # takes Blacksmith. It runs no bundle code (ditto and hdiutil only), so the bundle-code guard's rule 6 (its OWNED_VERIFY_JOBS
     # exception) does not apply; bundle code added here would fail that rule
     # on this runs-on.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.dmg_label || 'blacksmith-6vcpu-macos-26') }}
@@ -938,8 +916,9 @@ jobs:
           fi
           echo "fresh=true" >> "$GITHUB_OUTPUT"
 
-      # The signed archive the sign job made on Linux (its sha256 was checked
-      # above), checked by codesign before it goes into the DMG.
+      # The signed archive the sign job made (its sha256 was checked above).
+      # Apple's codesign check of it is verify's: tip publishes this DMG only
+      # after verify passed, for the digest verify tested.
       - name: Build the tip DMG
         id: dmg
         if: steps.feed.outputs.fresh == 'true'
@@ -948,13 +927,6 @@ jobs:
           cd "$TIP_WORK_DIR"
           mkdir -p signed tip-unsigned
           /usr/bin/ditto -x -k "signed-handoff/$APP_ARCHIVE_NAME" signed
-          # Apple's check of the Linux signature, here and not only in verify:
-          # no DMG is built, signed or submitted around an app it rejects.
-          /usr/bin/codesign --verify --deep --strict --verbose=2 "signed/$APP_NAME.app" 2>&1 | tee codesign-verify.log
-          if grep -q "sealed resource is missing or invalid" codesign-verify.log; then
-            echo "codesign reports a sealed resource missing or invalid" >&2
-            exit 1
-          fi
           dmg_root="$TIP_WORK_DIR/dmg-root"
           mkdir -p "$dmg_root"
           /usr/bin/ditto "signed/$APP_NAME.app" "$dmg_root/$APP_NAME.app"
@@ -984,19 +956,64 @@ jobs:
         run: |
           if [[ -n "${TIP_WORK_DIR:-}" ]]; then rm -rf "$TIP_WORK_DIR"; fi
 
+  rcodesign-dmg:
+    # Builds the patched DMG signer (scripts/ci/build-rcodesign-dmg.sh) from
+    # pinned source on every run, alongside sign, with no environment, secret or
+    # cache. tip-dmg runs it only after checking its sha256 against this job's
+    # output.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    name: Build the DMG signer
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      sha256: ${{ steps.build.outputs.sha256 }}
+      # A rerun of tip-dmg alone keeps this job's outputs from its own attempt,
+      # so the artifact name travels with them.
+      artifact: rcodesign-dmg-${{ github.run_attempt }}
+    steps:
+      - name: Checkout trusted build scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      # The runner image's rustup only; never a fetched installer script.
+      - name: Set up Rust
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.cargo/bin:$PATH"
+          command -v rustup >/dev/null || { echo "::error::this runner image has no rustup" >&2; exit 1; }
+          rustup toolchain install 1.95.0 --profile minimal
+          dirname "$(rustup which --toolchain 1.95.0 cargo)" >> "$GITHUB_PATH"
+
+      - name: Build rcodesign with the DMG patch
+        id: build
+        run: ./scripts/ci/build-rcodesign-dmg.sh "$RUNNER_TEMP/rcodesign-dmg" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the DMG signer
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rcodesign-dmg-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rcodesign-dmg/rcodesign
+          if-no-files-found: error
+          retention-days: 1
+
   tip-dmg:
     name: Sign, notarize and staple the cmux NEXT DEV tip DMG
     # Advisory, as tip is: a red tip-dmg never makes the dispatcher re-publish
     # the same source run. A failure still shows red on the job.
     continue-on-error: true
-    needs: [sign, tip-dmg-build]
-    if: ${{ !cancelled() && needs.sign.result == 'success' && needs.sign.outputs.signed == 'true' && needs.sign.outputs.build != '' && needs.tip-dmg-build.outputs.fresh == 'true' }}
+    needs: [sign, tip-dmg-build, rcodesign-dmg]
+    if: ${{ !cancelled() && needs.sign.result == 'success' && needs.sign.outputs.signed == 'true' && needs.sign.outputs.build != '' && needs.tip-dmg-build.outputs.fresh == 'true' && needs.rcodesign-dmg.result == 'success' }}
     # No concurrency group (a group replaces a pending run, which the dev-build
     # rule forbids): tip-dmg runs side by side, and tip's compare-and-swap lets
     # the newest build win.
     environment: release
-    # Linux: rcodesign signs, notarizes and staples the DMG
-    # (scripts/ci/rcodesign-notarize-dmg-dev.sh), and the full-DMG appcast is
+    # Linux: rcodesign (rcodesign-dmg's build) signs, notarizes and staples the
+    # DMG (scripts/ci/rcodesign-notarize-dmg-dev.sh), and the full-DMG appcast is
     # one Ed25519 signature (scripts/ci/tip_appcast_linux.py), so the notary
     # wait never holds a Mac and no signing secret reaches one. tip-deltas
     # checks the published DMG with Apple's stapler and spctl.
@@ -1024,6 +1041,7 @@ jobs:
       TIP_BUILD: ${{ needs.sign.outputs.build }}
       TIP_APPCAST: appcast-arm64.xml
       UNSIGNED_SHA256: ${{ needs.tip-dmg-build.outputs.dmg_sha256 }}
+      DMG_SIGNER_SHA256: ${{ needs.rcodesign-dmg.outputs.sha256 }}
     steps:
       - name: Checkout trusted signing and feed scripts
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1054,8 +1072,22 @@ jobs:
           [[ "$UNSIGNED_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "tip-dmg-build gave no DMG digest" >&2; exit 1; }
           echo "$UNSIGNED_SHA256  tip-unsigned/$TIP_DMG_NAME" | sha256sum -c -
 
-      - name: Install rcodesign
-        run: ./scripts/ci/install-rcodesign.sh "$RUNNER_TEMP/rcodesign" >> "$GITHUB_ENV"
+      - name: Download the DMG signer
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ needs.rcodesign-dmg.outputs.artifact }}
+          path: ${{ runner.temp }}/rcodesign-dmg
+
+      # Only the binary rcodesign-dmg built, by its digest.
+      - name: Install the DMG signer
+        run: |
+          set -euo pipefail
+          signer="$RUNNER_TEMP/rcodesign-dmg/rcodesign"
+          [[ "$DMG_SIGNER_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "rcodesign-dmg gave no digest" >&2; exit 1; }
+          echo "$DMG_SIGNER_SHA256  $signer" | sha256sum -c -
+          chmod 755 "$signer"
+          "$signer" --version
+          echo "RCODESIGN=$signer" >> "$GITHUB_ENV"
 
       - name: Sign, notarize and staple the tip DMG
         env:

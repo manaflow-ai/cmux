@@ -18,6 +18,7 @@ import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
 import { freestyleHealthInventory } from "./freestyleHealthInventory";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
 import { freestyleRequestFetch } from "./freestyleRequestTiming";
+import { isProviderMachineGone } from "../providerErrors";
 import { currentVmRequestContext } from "../requestContext";
 import {
   ProviderError,
@@ -697,6 +698,15 @@ function isNotFound(err: unknown): boolean {
 }
 
 /**
+ * Freestyle's explicit answer that a machine does not exist. A "destroyed"
+ * status retires the machine's row, so a bare 404 (a gateway page, a moved
+ * endpoint) must not produce one.
+ */
+function isMachineGone(err: unknown): boolean {
+  return err instanceof FreestyleApiError && isProviderMachineGone(err);
+}
+
+/**
  * The Freestyle-side half of cmux private networking: one VPC per owner, and
  * one WireGuard tunnel per owner's computer attached to it.
  *
@@ -1279,7 +1289,7 @@ export class FreestyleProvider implements VMProvider {
           setSpanAttributes(span, { "cmux.vm.provider_state": data.state, "cmux.vm.status": status });
           return status;
         } catch (err) {
-          if (isNotFound(err)) return "destroyed";
+          if (isMachineGone(err)) return "destroyed";
           throw new ProviderError("freestyle", `getStatus(${vmId})`, err);
         }
       },
@@ -1303,7 +1313,7 @@ export class FreestyleProvider implements VMProvider {
           setSpanAttributes(span, { "cmux.vm.provider_state": data.state, "cmux.vm.pause_state": state });
           return state;
         } catch (err) {
-          if (isNotFound(err)) return "destroyed";
+          if (isMachineGone(err)) return "destroyed";
           throw new ProviderError("freestyle", `getPauseState(${vmId})`, err);
         }
       },

@@ -38,6 +38,8 @@ BLACKSMITH = "blacksmith-6vcpu-macos-26"
 START = dt.datetime(2026, 9, 24, 12, 0, tzinfo=dt.timezone.utc)
 RUN_ID = 555
 HEAD = "a" * 40
+# The bot's two re-run actors (rescue.RESCUE_ACTORS): the workflow token's and the cmux-bot App's.
+ACTIONS_BOT, CMUX_BOT = "github-actions[bot]", "cmux-bot[bot]"
 
 
 def stamp(seconds: float) -> str:
@@ -435,7 +437,7 @@ class Refusal(unittest.TestCase):
         self.assertEqual(api.calls[-1], "rerun-failed")
         # A later sweeper resumes test-ios through attempt 2 at most (no owned_rerun() past it), and
         # cmux-next's bot re-runs through attempt 3, whose re-run takes Blacksmith: two re-runs at most.
-        stranded = {"status": "completed", "conclusion": "failure", "triggering_actor": {"login": rescue.RESCUE_ACTOR}}
+        stranded = {"status": "completed", "conclusion": "failure", "triggering_actor": {"login": ACTIONS_BOT}}
         for path, last in ((".github/workflows/test-ios.yml", rescue.LAST_OWNED_ATTEMPT),
                            (rescue.CMUX_NEXT_WORKFLOW_PATH, rescue.REFUSAL_RESCUE_ATTEMPT)):
             self.assertEqual(rescue.sweep_target(listed(RUN_ID, path=path, run_attempt=last + 1, **stranded),
@@ -1611,13 +1613,40 @@ class SideLanes(unittest.TestCase):
         path = ".github/workflows/cmux-next.yml"
         for attempt, watched in ((2, True), (3, True), (4, False)):
             self.assertEqual(rescue.owned_rerun({"path": path, "run_attempt": attempt,
-                                                 "triggering_actor": {"login": rescue.RESCUE_ACTOR}}), watched, attempt)
+                                                 "triggering_actor": {"login": ACTIONS_BOT}}), watched, attempt)
         self.assertTrue(rescue.owned_rerun({"path": path, "run_attempt": 4,
                                            "triggering_actor": {"login": "teamleaderleo"}}))
 
+    def test_cmux_bot_reruns_count_as_the_bots(self):
+        # The rescue re-runs with the cmux-bot App's token. Run 40444295785 (a DEV daily) went through 10
+        # cmux-bot attempts on the minis while only github-actions[bot] counted as the bot here.
+        self.assertEqual(rescue.RESCUE_ACTORS, {ACTIONS_BOT, CMUX_BOT})
+        path = rescue.CMUX_NEXT_WORKFLOW_PATH
+        for attempt, watched in ((2, True), (3, True), (4, False)):
+            self.assertEqual(rescue.owned_rerun({"path": path, "run_attempt": attempt,
+                                                 "triggering_actor": {"login": CMUX_BOT}}), watched, attempt)
+        run = dict(side_event(path=path, event="workflow_dispatch", run_attempt=3, status="completed",
+                              conclusion="failure", triggering_actor={"login": CMUX_BOT})["workflow_run"])
+        target = rescue.sweep_target(run, "manaflow-ai/cmux", late=False)
+        self.assertNotIsInstance(target, str)
+        self.assertIs(target.refusals_only, True)
+        self.assertEqual(rescue.next_attempt(target), "attempt 4 takes Blacksmith: a mini refused attempt 3")
+        self.assertEqual(rescue.sweep_target({**run, "run_attempt": 4}, "manaflow-ai/cmux", late=False),
+                         "attempt 4")
+        # ci.yml's placement moves only github-actions[bot]'s attempt 3 to Blacksmith (pr_runner_pool), so a
+        # cmux-bot re-run of a pull request's CI still goes back to the minis and is still watched.
+        for actor, watched in ((CMUX_BOT, True), (ACTIONS_BOT, False)):
+            self.assertEqual(rescue.owned_rerun({"path": rescue.CI_WORKFLOW_PATH, "event": "pull_request",
+                                                 "run_attempt": 3, "triggering_actor": {"login": actor}}),
+                             watched, actor)
+        # A person's attempt 3 stays minis-first and is not refusals only.
+        person = rescue.sweep_target({**run, "triggering_actor": {"login": "teamleaderleo"}},
+                                     "manaflow-ai/cmux", late=False)
+        self.assertIs(person.refusals_only, False)
+
     def follow_cmux_next_attempt_three(self, jobs):
         run = dict(side_event(path=".github/workflows/cmux-next.yml", run_attempt=3, status="in_progress",
-                              triggering_actor={"login": rescue.RESCUE_ACTOR})["workflow_run"])
+                              triggering_actor={"login": ACTIONS_BOT})["workflow_run"])
         target = rescue.sweep_target(run, "manaflow-ai/cmux", late=False)
         self.assertNotIsInstance(target, str)
         clock = Clock()
@@ -1639,6 +1668,41 @@ class SideLanes(unittest.TestCase):
         self.assertEqual(api.calls.count("rerun-failed"), 1, log)
         self.assertNotIn("cancel", api.calls)
         self.assertIn("attempt 4 takes Blacksmith", log)
+
+    def dev_daily_completed(self, **overrides):
+        run = {"path": rescue.CMUX_NEXT_WORKFLOW_PATH, "event": "workflow_dispatch", "run_attempt": 2,
+               "status": "completed", "conclusion": "failure", "pull_requests": [],
+               "display_title": f"cmux NEXT DEV daily · {HEAD}", "triggering_actor": {"login": CMUX_BOT},
+               **overrides}
+        return {"action": "completed", "workflow_run": dict(side_event(**run)["workflow_run"])}
+
+    def test_a_failed_dev_daily_wakes_its_own_rescue_at_attempt_two(self):
+        # The sweeper's listings ran out of the hour's API budget, so a refused DEV compile on a re-run
+        # had no rescue owner; the `completed` event watches that attempt itself.
+        refused = refused_job("cmux NEXT DEV Release compile", seconds=68, labels=(SIDE,), steps=[
+            {"name": "Set up job", "conclusion": "success"}, {"name": "Set up runner", "conclusion": "failure"}])
+        clock = Clock()
+        api = FakeAPI(clock, lambda seconds: [], rerun_jobs=lambda seconds: [refused])
+        api.attempt = 2
+        code, summary = run_main(api, clock, payload=self.dev_daily_completed())
+        self.assertEqual(code, 0, summary)
+        # A refused DEV compile re-runs every job (FakeAPI.rerun checks it starts attempt 3).
+        self.assertEqual(api.calls.count("rerun"), 1, summary)
+        self.assertEqual(api.attempt, 3)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("attempt 3 takes the side lane's Blacksmith overflow", summary)
+
+    def test_a_completed_event_watches_only_cmux_next_and_never_past_the_bots_attempt_three(self):
+        clock = Clock()
+        api = FakeAPI(clock, lambda seconds: [])
+        _, summary = run_main(api, clock, payload=self.dev_daily_completed(path=".github/workflows/nightly.yml"))
+        self.assertIn("not watched: a finished run of .github/workflows/nightly.yml", summary)
+        _, summary = run_main(api, clock, payload=self.dev_daily_completed(run_attempt=4))
+        self.assertIn("not watched: attempt 4", summary)
+        _, summary = run_main(api, clock, payload=self.dev_daily_completed(conclusion="success"))
+        self.assertIn("not watched: finished (success)", summary)
+        self.assertEqual(api.calls, [])
 
     def test_a_real_failure_on_cmux_next_attempt_three_is_not_rerun(self):
         # Only refusals go to attempt 4: a re-run of failed jobs would also re-run the red test.
@@ -1989,7 +2053,7 @@ class Nightly(unittest.TestCase):
         api = rescue.GitHub("token", "manaflow-ai/cmux")
         workflows = {"ci.yml": [], "cmux-next.yml": [
             {"id": RUN_ID, "path": ".github/workflows/cmux-next.yml", "event": "pull_request", "run_attempt": 2,
-             "triggering_actor": {"login": rescue.RESCUE_ACTOR}}]}
+             "triggering_actor": {"login": ACTIONS_BOT}}]}
 
         def request(method, path, **_):
             name = path.split("/actions/workflows/")[1].split("/")[0]
@@ -2458,7 +2522,7 @@ class Sweeper(unittest.TestCase):
     def test_watches_attempt_2_and_a_persons_re_run_on_any_attempt(self):
         # A re-run of failed jobs goes back to the minis with no marker of its own: attempt 2 whoever
         # started it (the failure attribution's, say), and a person's on any attempt.
-        person, bot = {"login": "teamleaderleo"}, {"login": rescue.RESCUE_ACTOR}
+        person, bot = {"login": "teamleaderleo"}, {"login": ACTIONS_BOT}
         api = SweepAPI([listed(1, run_attempt=3, triggering_actor=person),
                         listed(2, run_attempt=3, triggering_actor=bot),
                         listed(3, run_attempt=2, triggering_actor=person, status="completed", conclusion="success"),
@@ -2467,7 +2531,7 @@ class Sweeper(unittest.TestCase):
         self.assertEqual(self.sweep(api, ticks=1)[0], [(1, 3, False), (4, 2, False)])
 
     def test_resumes_the_attempt_a_rescue_re_ran(self):
-        api = SweepAPI([listed(1, run_attempt=2), listed(2, run_attempt=3, triggering_actor={"login": rescue.RESCUE_ACTOR})],
+        api = SweepAPI([listed(1, run_attempt=2), listed(2, run_attempt=3, triggering_actor={"login": ACTIONS_BOT})],
                        picker=[1, 2])
         # The bot's attempt 3 and later take Blacksmith: nothing to watch.
         self.assertEqual(self.sweep(api)[0], [(1, 2, False)])
@@ -2496,7 +2560,7 @@ class Sweeper(unittest.TestCase):
         # stayed on the side label and a re-run could only rejoin that queue. The sweeper cancelled
         # and re-ran it twice while it waited. Its marker says so; the bot's re-runs inherit it.
         path = ".github/workflows/cmux-next.yml"
-        bot = {"login": rescue.RESCUE_ACTOR}
+        bot = {"login": ACTIONS_BOT}
         api = SweepAPI([listed(1, path=path), listed(2, path=path),
                         listed(3, path=path, run_attempt=2, triggering_actor=bot)],
                        picker=[2], refusals=[1, 3])
@@ -2515,7 +2579,7 @@ class Sweeper(unittest.TestCase):
 
     def test_a_marker_older_than_the_watch_still_marks_a_re_run(self):
         # A new sweeper finds attempt 2 of a run whose attempt-1 marker is past SWEEP_MAX_AGE_SECONDS.
-        bot = {"login": rescue.RESCUE_ACTOR}
+        bot = {"login": ACTIONS_BOT}
         api = SweepAPI([listed(1, path=".github/workflows/cmux-next.yml", run_attempt=2, triggering_actor=bot)],
                        refusals=[1], created=-rescue.SWEEP_MAX_AGE_SECONDS - 60)
         clock, targets = Clock(), []
@@ -2531,7 +2595,7 @@ class Sweeper(unittest.TestCase):
     def test_a_cmux_next_re_run_waits_for_the_refusals_listing(self):
         # The refusals listing failed: a cmux-next re-run is adopted on a later tick, with its mark;
         # a ci.yml re-run, which has none, is adopted at once.
-        bot = {"login": rescue.RESCUE_ACTOR}
+        bot = {"login": ACTIONS_BOT}
         api = SweepAPI([listed(1, path=".github/workflows/cmux-next.yml", run_attempt=2, triggering_actor=bot),
                         listed(2, run_attempt=2, triggering_actor=bot)], refusals=[1])
         listings = {"failed": False}
@@ -2825,6 +2889,25 @@ class Tokens(unittest.TestCase):
         self.assertEqual([entry[:2] for entry in seen], [("POST", f"{rescue.API}/repos/o/r/actions/runs/7/rerun-failed-jobs")] * 4)
         self.assertTrue(all(entry[2] == "Bearer repo-token" for entry in seen))
 
+    def test_a_re_run_waiting_out_a_rate_limit_is_not_sent_once_someone_else_re_ran_the_run(self):
+        # A cmux-next `completed` watch and the sweeper can own one failed attempt; the other's re-run
+        # may start during this one's wait.
+        limited = b'{"message": "API rate limit exceeded for installation."}'
+        for moved, sent in (({"run_attempt": 3, "status": "queued"}, 1), ({"run_attempt": 2, "status": "completed"}, 2)):
+            with self.subTest(moved=moved):
+                seen, patch = self.refusing([(403, {}, limited)])
+                with patch, unittest.mock.patch.object(rescue.GitHub, "run", lambda api, run_id: moved):
+                    api = rescue.GitHub("repo-token", "o/r")
+                    api.sleep = lambda seconds: None
+                    api.request_ui_tests = lambda run_id, attempt: None
+                    if sent == 1:
+                        with self.assertRaisesRegex(rescue.Aborted, "someone else already re-ran it"):
+                            api.rerun_failed(7, 3)
+                    else:
+                        api.rerun_failed(7, 3)
+                posts = [entry for entry in seen if entry[0] == "POST"]
+                self.assertEqual(len(posts), sent)
+
     def test_an_app_read_refused_with_429_goes_on_github_token(self):
         seen, patch = self.refusing([(429, {}, b"")])
         with patch:
@@ -2960,25 +3043,28 @@ class Workflow(unittest.TestCase):
         # release.yml calls ios-screenshots.yml with contents: read only, so
         # it cannot upload through a job asking for more. Side lanes are swept
         # periodically and must not create one rescue run per workflow_run.
-        self.assertEqual(triggers["workflow_run"]["types"], ["requested"])
+        # cmux-next is the one `completed` source; the `if` keeps the others on `requested`.
+        self.assertEqual(triggers["workflow_run"]["types"], ["requested", "completed"])
         self.assertEqual(
             triggers["workflow_run"]["workflows"],
-            ["iOS App Store screenshots", "Nightly macOS build", "cmux NEXT DEV daily"],
+            ["iOS App Store screenshots", "Nightly macOS build", "cmux NEXT DEV daily", "cmux-next"],
         )
         self.assertNotIn("CI", triggers["workflow_run"]["workflows"])
         paths = self.doc["env"]["SOURCE_WORKFLOW_PATHS"].split()
         self.assertEqual(
             set(paths),
             {rescue.IOS_SCREENSHOTS_WORKFLOW_PATH, rescue.NIGHTLY_WORKFLOW_PATH,
-             rescue.CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH},
+             rescue.CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH, rescue.CMUX_NEXT_WORKFLOW_PATH},
         )
-        self.assertTrue(set(paths).isdisjoint(rescue.SIDE_WORKFLOW_PATHS))
+        self.assertEqual(set(paths) & rescue.SIDE_WORKFLOW_PATHS, {rescue.CMUX_NEXT_WORKFLOW_PATH})
         # workflow_run matches by display name: each source's `name:` is listed, and nothing else.
         names = {yaml.safe_load((ROOT / path).read_text(encoding="utf-8"))["name"] for path in paths}
         self.assertEqual(set(triggers["workflow_run"]["workflows"]), names)
         condition = self.doc["jobs"]["rescue"]["if"]
         for part in ("vars.CI_PR_POOL_OWNED == '1'", "(vars.CI_OWNED_POOL_RESCUE || '1') != '0'",
                      "(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || "
+                     "github.event.action == 'requested' && "
+                     "github.event.workflow_run.path != '.github/workflows/cmux-next.yml' && "
                      "(github.event.workflow_run.path != '.github/workflows/nightly.yml' && "
                      "github.event.workflow_run.path != '.github/workflows/ios-screenshots.yml' && "
                      "contains(fromJSON('[\"pull_request\",\"push\",\"schedule\",\"workflow_dispatch\"]'), "
@@ -3000,11 +3086,39 @@ class Workflow(unittest.TestCase):
                      "startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, 'glaeda-trusted-') && "
                      "startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-')))) && "
                      "github.event.workflow_run.head_repository.full_name == github.repository && "
-                     "github.event.workflow_run.run_attempt == 1)"):
+                     "github.event.workflow_run.run_attempt == 1 || "
+                     + self.COMPLETED_DEV_RUN + ")"):
             self.assertIn(part, condition)
         step = self.doc["jobs"]["rescue"]["steps"][-1]
         self.assertEqual(step["env"]["WATCH_RUN_ID"], "${{ inputs.run_id }}")
         self.assertIn("inputs.run_id || github.event.workflow_run.id", self.doc["concurrency"]["group"])
+
+    # A failed cmux-next DEV daily dispatch or feat-cmux-next push, at any attempt (completed_target()).
+    COMPLETED_DEV_RUN = (
+        "github.event.action == 'completed' && "
+        "github.event.workflow_run.path == '.github/workflows/cmux-next.yml' && "
+        "github.event.workflow_run.conclusion == 'failure' && "
+        "github.event.workflow_run.head_repository.full_name == github.repository && "
+        "(github.event.workflow_run.event == 'workflow_dispatch' && "
+        "startsWith(github.event.workflow_run.display_title, 'cmux NEXT DEV daily') || "
+        "github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'feat-cmux-next')")
+
+    def test_a_failed_cmux_next_dev_run_wakes_a_rescue_when_it_completes(self):
+        condition = self.doc["jobs"]["rescue"]["if"]
+        self.assertIn(" || " + self.COMPLETED_DEV_RUN + ") }}", condition)
+        # The run-name the completed branch matches: cmux-next.yml's DEV daily dispatch title.
+        next_doc = yaml.safe_load((ROOT / rescue.CMUX_NEXT_WORKFLOW_PATH).read_text(encoding="utf-8"))
+        self.assertEqual(next_doc["name"], "cmux-next")
+        # A cmux-next `requested` event never matches the requested branch, which admits any side lane.
+        self.assertIn("github.event.action == 'requested' && "
+                      "github.event.workflow_run.path != '.github/workflows/cmux-next.yml' && ", condition)
+        # Each failed attempt gets its own concurrency group, so attempt 3's rescue never cancels attempt 2's,
+        # and a `completed` event never joins (and cancels) the `requested` watch of the same attempt.
+        suffixed = ("format('owned-pool-rescue-{0}-{1}{2}', inputs.run_id || github.event.workflow_run.id, "
+                    "inputs.run_attempt || github.event.workflow_run.run_attempt, "
+                    "github.event.action == 'completed' && '-completed' || '')")
+        self.assertIn(suffixed, self.doc["concurrency"]["group"])
+        self.assertIn(suffixed, self.doc["run-name"])
 
     def test_one_sweeper_at_a_time_from_the_cron(self):
         self.assertEqual(self.doc[True]["schedule"], [{"cron": "17 */2 * * *"}])

@@ -125,7 +125,7 @@ import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
 import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
 import { detachNetworkTunnels } from "./teamNetworkAccess";
-import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
+import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderMachineGone, isProviderNotFoundError } from "./providerErrors";
 import { withVmReadDeadline, type VmReadDeadline } from "./routeDeadline";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
@@ -445,7 +445,7 @@ export function getVm(input: {
 
     const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
       Effect.catchAll((err) =>
-        isProviderNotFoundError(err)
+        isProviderMachineGone(err)
           ? Effect.succeed("destroyed" as const)
           : Effect.fail(err),
       ),
@@ -2047,7 +2047,7 @@ function reopenBaseIfProviderDeleted(
   return getStatus(existing.provider, providerVmId).pipe(
     Effect.as(null),
     Effect.catchAll((err) =>
-      isProviderNotFoundError(err)
+      isProviderMachineGone(err)
         ? Effect.gen(function* () {
           // forceStatus, the one caller that overrides the mapping. Everywhere
           // else a missing provider machine follows the shared observation
@@ -3547,7 +3547,7 @@ function reconcileObservedProviderStatus(
     if (!providerVmId || isRetiredProviderRow(vm)) return "skipped" as const;
     const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
       Effect.catchAll((err) =>
-        isProviderNotFoundError(err)
+        isProviderMachineGone(err)
           ? Effect.succeed("destroyed" as const)
           : Effect.succeed(null),
       ),
@@ -4918,7 +4918,7 @@ export function getVmStats(input: {
                 ...sample, providerVmId: input.providerVmId, receivedAt: sample.resourceSampledAt,
               },
             }, input.providerVmId, Date.now()) : { ...reported, health: "unresponsive" as const }),
-            Effect.catchAll((error) => isProviderNotFoundError(error)
+            Effect.catchAll((error) => isProviderMachineGone(error)
               ? Effect.fail(error)
               : Effect.succeed({ ...reported, health: "unresponsive" as const })),
           );
@@ -4926,7 +4926,7 @@ export function getVmStats(input: {
       }),
       Effect.mapError((error): VmWorkflowError => error),
       Effect.catchAll((error) => {
-        if (!isProviderNotFoundError(error)) return Effect.fail(error);
+        if (!isProviderMachineGone(error)) return Effect.fail(error);
         return Effect.gen(function* () {
           yield* applyObservedProviderStatus(repo, providers, vm, {
             providerVmId: input.providerVmId,
