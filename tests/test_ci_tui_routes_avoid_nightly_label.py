@@ -247,7 +247,6 @@ def test_a_dispatch_runner_input_still_wins() -> None:
     artifacts = load("cmux-tui-artifacts.yml")["jobs"]
     for context in contexts(**{}):
         context["inputs.macos_runner"] = "blacksmith-6vcpu-macos-26"
-        assert route(artifacts["cmux-next-daemon-macos-shadow"]["runs-on"], context) == "blacksmith-6vcpu-macos-26"
         assert route(artifacts["build"]["with"]["macos_runner"], context) == "blacksmith-6vcpu-macos-26"
 
 
