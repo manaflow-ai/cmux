@@ -140,6 +140,23 @@ import Testing
         #expect(rig.flagged("busy"))
     }
 
+    /// A share an hour old says nothing about the tab now: a tab flagged at 60 s that idled since is not flagged when
+    /// its card asks an hour later, before the fresh reading lands, nor after it (it idled).
+    @Test func aShareFromLongAgoIsNotFlaggedBeforeTheFreshReadingLands() throws {
+        let rig = Rig()
+        rig.hidden = ["busy": 1]
+        try rig.measureWindow(cpu: .milliseconds(4800), tabs: ["busy"])
+        #expect(rig.flagged("busy"))
+        rig.advance(3540)
+        var refreshed = 0
+        #expect(!rig.monitor.usesHighEnergy("busy") { refreshed += 1 }, "the card showed an hour-old high-energy flag")
+        #expect(rig.requests.count == 3, "the card's question asked for no fresh reading")
+        // Idle since: the renderer's CPU time did not move.
+        try rig.land([(pid: 10, cpu: .milliseconds(4800), tabs: ["busy"])])
+        #expect(refreshed == 1)
+        #expect(!rig.flagged("busy"), "an idle tab kept its flag after the fresh reading")
+    }
+
     /// A renderer whose CPU time went back (a new process on its id) adds nothing.
     @Test func aRendererWhoseTimeWentBackAddsNothing() throws {
         let rig = Rig()

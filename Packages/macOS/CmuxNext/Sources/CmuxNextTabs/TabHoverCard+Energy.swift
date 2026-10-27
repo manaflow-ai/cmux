@@ -52,6 +52,7 @@ extension TabHoverCardView {
         discardButton.font = Typography.caption
         discardButton.toolTip = Strings.discardHelp
         discardButton.setAccessibilityHelp(Strings.discardHelp)
+        discardButton.actsOnFirstClick = true
         discardButton.target = self
         discardButton.action = #selector(discardPressed)
         discardButton.isHidden = true

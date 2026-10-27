@@ -23,10 +23,11 @@ package nonisolated struct HighEnergyTabs: Sendable {
         package var keys: [String] { hides.keys.sorted() }
     }
 
-    /// One hidden tab's last whole window: the hide it measured and the tab's share of one core over it.
+    /// One hidden tab's last whole window: the hide it measured, the tab's share of one core over it, and when it ended.
     package struct Measured: Sendable, Equatable {
         package var hide: UInt64
         package var share: Double
+        package var end: ContinuousClock.Instant
     }
 
     /// One hidden tab's open window: the hide it measures, when it began, and each renderer's CPU time then.
@@ -102,16 +103,17 @@ package nonisolated struct HighEnergyTabs: Sendable {
                 guard let before = open.cpu[renderer.id], renderer.cpu >= before else { return sum }
                 return sum + (renderer.cpu - before) / span / Double(renderer.tabs.count)
             }
-            measured[key] = Measured(hide: hide, share: share)
+            measured[key] = Measured(hide: hide, share: share, end: reading.at)
             windows[key] = Window(hide: hide, since: reading.at, cpu: cpu)
         }
         return true
     }
 
     /// Tab `key`, hidden now at lifecycle generation `hide` (nil while it shows), used more than ``threshold`` of one
-    /// core over its last whole window in this hide.
-    package func isHighEnergy(_ key: String, hide: UInt64?) -> Bool {
-        guard let hide, let last = measured[key], last.hide == hide else { return false }
+    /// core over its last whole window in this hide, and that window ended less than ``window`` before `now`. An older
+    /// share says nothing about the tab now (it may have gone idle since); a wake then asks for a fresh reading.
+    package func isHighEnergy(_ key: String, hide: UInt64?, now: ContinuousClock.Instant) -> Bool {
+        guard let hide, let last = measured[key], last.hide == hide, now - last.end < Self.window else { return false }
         return last.share > Self.threshold
     }
 }
@@ -125,7 +127,8 @@ package final class HighEnergyTabMonitor {
     package private(set) var rule = HighEnergyTabs()
     /// The hidden browser tabs now, each with its lifecycle generation.
     private let hidden: @MainActor () -> [String: UInt64]
-    private let measure: SaverCPUFreeze.Measure
+    /// Reads the hidden tabs' renderers (a seam: tests and the `high-energy-tab` capture scene read fixtures).
+    package var measure: SaverCPUFreeze.Measure
     private let discardTab: @MainActor (String) -> Void
     /// The clock of the windows (a seam for tests).
     package var now: @MainActor () -> ContinuousClock.Instant = { .now }
@@ -140,23 +143,23 @@ package final class HighEnergyTabMonitor {
     }
 
     /// The browser hibernation's replan: a natural wake.
-    package func wake() { wake(hidden: hidden()) }
+    package func wake() { wake(hidden: hidden(), now: now()) }
 
     /// Whether tab `key` is hidden and used high energy over its last whole window. Asking is a natural wake (a card
     /// opening or refreshing): when it starts a reading, or one is out, `changed` runs once that reading lands.
     package func usesHighEnergy(_ key: String, changed: @escaping @MainActor () -> Void) -> Bool {
-        let hidden = hidden()
-        wake(hidden: hidden)
+        let hidden = hidden(), now = now()
+        wake(hidden: hidden, now: now)
         let hide = hidden[key]
         if hide != nil, rule.isMeasuring { waiting[key] = changed }
-        return rule.isHighEnergy(key, hide: hide)
+        return rule.isHighEnergy(key, hide: hide, now: now)
     }
 
     /// The person's Discard for tab `key`.
     package func discard(_ key: String) { discardTab(key) }
 
-    private func wake(hidden: [String: UInt64]) {
-        guard let request = rule.wake(hidden: hidden, now: now()) else { return }
+    private func wake(hidden: [String: UInt64], now: ContinuousClock.Instant) {
+        guard let request = rule.wake(hidden: hidden, now: now) else { return }
         measure(request.keys) { [weak self] reading in self?.land(reading, generation: request.generation) }
     }
 
