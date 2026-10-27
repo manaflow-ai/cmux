@@ -31,6 +31,11 @@ fn safe_key(key: &str) -> bool {
 /// The agent-home base, only when it is canonical (as the app requires): a
 /// symlinked base or parent moves nothing.
 fn base() -> Option<PathBuf> {
+    // In-crate tests and the request fuzzer never move the person's folders
+    // (the daemon's integration tests set their own HOME).
+    if cfg!(any(test, feature = "fuzz")) {
+        return None;
+    }
     let base = agent_home_base(crate::platform::home_dir().as_deref())?;
     (files::canonicalize(&base).ok()? == base).then_some(base)
 }

@@ -21,9 +21,9 @@ use crate::state::projects::Observation;
 
 /// Starts the import and the watch on its own thread; returns at once.
 pub(crate) fn start(mux: &Arc<Mux>) {
-    // In-crate tests build many a `Mux`: none reads the real HOME's editor data (the daemon
-    // binary's socket tests set their own HOME).
-    if cfg!(test) || !project_sources::enabled() {
+    // In-crate tests and the request fuzzer build many a `Mux`: none reads the real HOME's
+    // editor data (the daemon binary's socket tests set their own HOME).
+    if cfg!(any(test, feature = "fuzz")) || !project_sources::enabled() {
         return;
     }
     let Some(layout) = Layout::current() else { return };

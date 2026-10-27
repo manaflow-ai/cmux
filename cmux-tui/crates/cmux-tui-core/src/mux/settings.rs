@@ -58,8 +58,8 @@ impl Mux {
     }
 
     fn default_settings_paths(self: &Arc<Self>) -> SettingsPaths {
-        if cfg!(test) {
-            // Unit tests never touch the user's settings file.
+        if cfg!(any(test, feature = "fuzz")) {
+            // Unit tests and the request fuzzer never touch the user's settings file.
             let directory = std::env::temp_dir().join(format!(
                 "cmux-settings-test-{}-{}",
                 std::process::id(),

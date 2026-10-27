@@ -74,8 +74,8 @@ fn emit_changes(mux: &Mux, changes: impl IntoIterator<Item = KeybindingsChange>)
 }
 
 fn keybindings_path(mux: &Mux) -> (PathBuf, bool) {
-    if cfg!(test) {
-        // Unit tests never touch the user's keys.
+    if cfg!(any(test, feature = "fuzz")) {
+        // Unit tests and the request fuzzer never touch the user's keys.
         let directory = std::env::temp_dir().join(format!(
             "cmux-keybindings-test-{}-{}",
             std::process::id(),

@@ -31,10 +31,10 @@ type Prints = HashMap<String, u64>;
 const MAX_FILES: usize = 2_000;
 
 impl Supervisor {
-    /// Starts the watch thread; returns at once. In-crate tests build many
-    /// supervisors and read no real folders.
+    /// Starts the watch thread; returns at once. In-crate tests and the
+    /// request fuzzer build many supervisors and read no real folders.
     pub(crate) fn start_local_watch(self: &Arc<Self>) {
-        if cfg!(test) {
+        if cfg!(any(test, feature = "fuzz")) {
             return;
         }
         let me = Arc::downgrade(self);
