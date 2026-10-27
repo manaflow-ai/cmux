@@ -294,6 +294,37 @@ async fn a_waiting_prompt_whose_upload_was_swept_is_refused_at_its_turn() {
     assert!(!c.text.contains("resource_link:gone.bin"), "{}", c.text);
 }
 
+/// A remote web client that edits a person's waiting prompt takes its control, and the files the
+/// person sent are not handed to a turn it controls.
+#[tokio::test]
+async fn a_waiting_prompt_edited_from_the_web_does_not_send_its_files() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let session = c.new_session("uploads-web-edit").await;
+    let id = c.upload(&session, "mine.bin", b"\x00 private bytes").await;
+    let link = json!({"type": "resource_link", "uri": format!("acpmux-upload:{id}"),
+        "name": "mine.bin",
+        "_meta": {"acpmux": {"upload": {"uploadId": id, "fileName": "mine.bin"}}}});
+    c.post(method::SESSION_PROMPT, prompt(&session, "busy", "until-cancel", vec![])).await;
+    c.until(|v| v.pointer("/params/update/content/text").is_some()).await;
+    let prompt_id = v7();
+    let asked =
+        c.post(method::SESSION_PROMPT, prompt(&session, &prompt_id, "read", vec![link])).await;
+    c.until(|v| v["method"] == "_acpmux/prompt_accepted" && v["params"]["queued"] == true).await;
+    let mut web = client(&hub, Origin::Web);
+    let edit = json!({"sessionId": session, "promptId": prompt_id, "op": "update", "text": "y"});
+    let edited = web.call(method::MUX_QUEUE_EDIT, edit).await;
+    c.post(method::SESSION_CANCEL, json!({"sessionId": session})).await;
+    let reply = c.until(|v| v.get("id") == Some(&json!(asked))).await;
+    // A remote guard that refuses the edit itself keeps the person's prompt as it was.
+    if edited.get("error").is_some() {
+        assert!(reply.get("error").is_none(), "{reply}");
+        return;
+    }
+    assert_eq!(reply["error"]["data"]["reason"], "upload.remote", "{reply}");
+    assert!(!c.text.contains("resource_link:mine.bin"), "{}", c.text);
+}
+
 /// An image too large for the model and a file of any other type go by path, never as base64.
 #[tokio::test]
 async fn a_large_image_and_any_other_file_go_by_path() {
@@ -348,6 +379,12 @@ async fn a_reference_outside_the_chats_finished_uploads_is_refused() {
         (
             json!({"type": "resource", "resource": {"uri": "x"},
                 "_meta": {"acpmux": {"upload": {"uploadId": mine, "fileName": "mine.png"}}}}),
+            "upload.invalid",
+        ),
+        // The upload's uri with no reference: never handed to an agent unresolved.
+        (
+            json!({"type": "resource_link", "uri": format!("acpmux-upload:{mine}"),
+                "name": "mine.png"}),
             "upload.invalid",
         ),
     ];

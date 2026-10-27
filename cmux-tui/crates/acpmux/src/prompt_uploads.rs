@@ -45,13 +45,20 @@ pub const INLINE_IMAGE_BYTES: usize = (5 << 20) / 4 * 3;
 /// message on every hop (`rpc::MAX_MESSAGE_BYTES`, 15 MiB). The images past it go by path.
 pub const INLINE_PROMPT_BYTES: usize = 10 << 20;
 
+/// The upload a block names: its `_meta.acpmux.upload`, or (refused as invalid by [`resolve`])
+/// null for a link whose `uri` is [`URI_SCHEME`] with no such field, so it never reaches an agent
+/// or an older peer unresolved.
 fn upload_of(block: &Value) -> Option<&Value> {
-    block.pointer("/_meta/acpmux/upload").filter(|u| !u.is_null())
+    static NONE: Value = Value::Null;
+    let named = block.pointer("/_meta/acpmux/upload").filter(|u| !u.is_null());
+    let by_uri =
+        block.get("uri").and_then(Value::as_str).is_some_and(|u| u.starts_with(URI_SCHEME));
+    named.or(by_uri.then_some(&NONE))
 }
 
-/// Whether any of `blocks` names an upload.
+/// Whether any of `blocks` names an upload, or carries a link this daemon resolved from one.
 pub fn any(blocks: &[Value]) -> bool {
-    blocks.iter().any(|b| upload_of(b).is_some())
+    blocks.iter().any(|b| upload_of(b).is_some()) || links_upload(blocks)
 }
 
 fn refused(reason: &str, message: String) -> RpcError {
@@ -62,12 +69,16 @@ fn refused(reason: &str, message: String) -> RpcError {
 /// the inline image or the link to its file, and adds the note of their paths (module docs).
 /// `web`: a remote web client's prompt, which is refused. Blocking: run it off the runtime.
 pub fn resolve(session: &str, web: bool, blocks: &mut Vec<Value>) -> Result<(), RpcError> {
-    if !any(blocks) {
-        return Ok(());
-    }
-    if web {
+    // Web control never sends uploads, nor a link this daemon resolved (`uploadPath`): a queue
+    // edit from a remote web client keeps a person's resolved blocks, and must not hand their
+    // files to a turn it controls.
+    if web && any(blocks) {
         let message = "a remote web connection cannot send uploaded files".to_owned();
         return Err(refused("upload.remote", message));
+    }
+    // Resolved already (a prompt that waited): nothing to read again.
+    if !blocks.iter().any(|b| upload_of(b).is_some()) {
+        return Ok(());
     }
     // What the prompt's other blocks take of one message, and room for the envelope and links.
     let others: usize =
@@ -109,6 +120,7 @@ pub fn resolve(session: &str, web: bool, blocks: &mut Vec<Value>) -> Result<(), 
             _ => refused("upload.unreadable", format!("cannot read upload {name}: {e}")),
         };
         let mut file = crate::hub::file_uploads::open_finished(&path).map_err(unreadable)?;
+        crate::hub::file_uploads::touch(&path);
         let len = file.metadata().map_err(unreadable)?.len();
         let mut head = Vec::with_capacity(64);
         (&mut file).take(64).read_to_end(&mut head).map_err(unreadable)?;
@@ -175,8 +187,15 @@ fn still_there(blocks: &[Value]) -> Result<(), RpcError> {
         let Some(path) = block.pointer("/_meta/acpmux/uploadPath").and_then(Value::as_str) else {
             continue;
         };
+        // Only this daemon's uploads are checked (and kept from the sweep a while longer): a
+        // path a client wrote there itself tells it nothing about any other file.
+        let path = Path::new(path);
+        if !crate::hub::file_uploads::is_upload(path) {
+            continue;
+        }
+        crate::hub::file_uploads::touch(path);
         if !std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file()) {
-            let name = block.get("name").and_then(Value::as_str).unwrap_or(path);
+            let name = block.get("name").and_then(Value::as_str).unwrap_or("a file");
             return Err(refused("upload.missing", format!("upload {name} was removed")));
         }
     }
@@ -207,7 +226,7 @@ pub async fn resolve_off_runtime(
     web: bool,
     blocks: &mut Vec<Value>,
 ) -> Result<(), RpcError> {
-    if !any(blocks) && !links_upload(blocks) {
+    if !any(blocks) {
         return Ok(());
     }
     let (id, mut owned) = (session.to_owned(), std::mem::take(blocks));

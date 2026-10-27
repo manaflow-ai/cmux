@@ -64,6 +64,32 @@ fn made_at(name: &str) -> Option<u64> {
     Some(secs * 1000 + u64::from(nanos) / 1_000_000)
 }
 
+/// Whether `path` is inside this daemon's uploads folder (no `..`).
+pub(crate) fn is_upload(path: &Path) -> bool {
+    path.starts_with(root())
+        && !path.components().any(|c| matches!(c, std::path::Component::ParentDir))
+}
+
+/// Marks the upload folder of `file` as used now, so the age sweep keeps it for another
+/// `uploadsMaxAgeDays` from its last use, not its upload: a prompt that names it, or a turn that
+/// starts with it. Best effort. Blocking.
+pub(crate) fn touch(file: &Path) {
+    if let Some(dir) = file.parent()
+        && let Ok(folder) = std::fs::File::open(dir)
+    {
+        let _ = folder.set_modified(std::time::SystemTime::now());
+    }
+}
+
+/// When folder `dir` last changed or was used ([`touch`]), in Unix ms; 0 when unknown.
+fn used_at(dir: &Path) -> u64 {
+    let modified = std::fs::symlink_metadata(dir).and_then(|m| m.modified());
+    modified
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
 /// Deletes each upload under `root` older than `max_age` at `now_ms`, and a session folder it
 /// leaves empty; answers how many uploads went. Only real folders with a UUIDv7 name are read as
 /// uploads: a symlink, a file or another name is kept. Blocking: run it off the runtime.
@@ -78,7 +104,9 @@ pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Duration) -> usize {
     let mut removed = 0;
     for session in real_dirs(root) {
         for upload in real_dirs(&session.path()) {
-            let old = upload.file_name().to_str().and_then(made_at).is_some_and(|at| at < cutoff);
+            // Made and last used before the cutoff (`touch`).
+            let old = upload.file_name().to_str().and_then(made_at).is_some_and(|at| at < cutoff)
+                && used_at(&upload.path()) < cutoff;
             if old && std::fs::remove_dir_all(upload.path()).is_ok() {
                 removed += 1;
             }
@@ -584,7 +612,10 @@ mod tests {
         }
     }
 
+    /// Unix: the test sets a folder's modified time, which `File::open` of a folder cannot do on
+    /// Windows.
     #[test]
+    #[cfg(unix)]
     fn the_sweep_deletes_old_uploads_and_keeps_new_ones_and_what_it_did_not_name() {
         let root = std::env::temp_dir().join(format!("acpmux-sweep-{}", uuid::Uuid::now_v7()));
         let day = 24 * 60 * 60 * 1000;
@@ -598,10 +629,15 @@ mod tests {
         let only_old = root.join("chat-b").join(named(now - 40 * day));
         let other = root.join("chat-c").join("notes");
         let v4 = root.join("chat-c").join("0190a000-0000-4000-8000-000000000000");
-        for dir in [&old, &new, &only_old, &other, &v4] {
+        // An old upload that a prompt used yesterday stays.
+        let used = root.join("chat-a").join(named(now - 35 * day));
+        let long_ago = std::time::UNIX_EPOCH + Duration::from_millis(now - 90 * day);
+        for dir in [&old, &new, &only_old, &other, &v4, &used] {
             std::fs::create_dir_all(dir).unwrap();
             std::fs::write(dir.join("f.txt"), b"x").unwrap();
+            std::fs::File::open(dir).unwrap().set_modified(long_ago).unwrap();
         }
+        touch(&used.join("f.txt"));
         // An old-named link, and a linked session folder: neither is followed.
         let outside = root.with_extension("outside");
         std::fs::create_dir_all(&outside).unwrap();
@@ -616,7 +652,7 @@ mod tests {
             std::os::unix::fs::symlink(&outside, root.join("chat-e")).unwrap();
         }
         assert_eq!(sweep(&root, now, Duration::from_millis(30 * day)), 2);
-        assert!(!old.exists() && new.exists());
+        assert!(!old.exists() && new.exists() && used.exists());
         assert!(!root.join("chat-b").exists(), "an emptied session folder stays");
         assert!(other.exists() && v4.exists());
         assert!(outside.join("keep.txt").exists() && outside_old.exists());
