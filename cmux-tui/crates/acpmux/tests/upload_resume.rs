@@ -143,9 +143,13 @@ async fn an_upload_resumes_from_its_status_and_its_finish_is_checked() {
     wrong["sha256"] = json!(sha(b"other"));
     let wrong = c.call(method::MUX_FILE_PUT_FINISH, wrong).await;
     assert_eq!(reason(&wrong), "upload.corrupt", "{wrong}");
+    // Asking marks a finished upload used, so the age sweep keeps one a sender just polled.
+    let used = std::path::Path::new(&path).with_file_name(".used");
+    let _ = std::fs::remove_file(&used);
     let at = c.status(&session, &upload).await;
     assert_eq!(at["result"]["finished"], true, "{at}");
     assert_eq!(at["result"]["path"], json!(path), "{at}");
+    assert!(used.is_file(), "status did not mark {path} used");
 
     // Bytes that are not the sender's: refused at finish, and the upload is gone.
     let bad = id_of(&c.begin(&session, "bad.bin", 3).await);
