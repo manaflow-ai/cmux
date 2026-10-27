@@ -1399,6 +1399,15 @@ class StrandedCancel(unittest.TestCase):
         self.assertEqual(mutations(api), ["cancel", "rerun-failed"])
         self.assertTrue(any("cancelled this attempt and nothing re-ran it" in line for line in lines), lines)
 
+    def test_a_successor_sweeper_adopts_a_recently_cancelled_marked_run(self):
+        cancelled = listed(1, path=DEV_DAILY, event="workflow_dispatch", pull_requests=[], status="completed",
+                           conclusion="cancelled", updated_at=stamp(0))
+        old = dict(cancelled, id=2, updated_at=stamp(-3 * 3600))
+        success = dict(cancelled, id=3, conclusion="success")
+        api = SweepAPI([cancelled, old, success], picker=[1, 2, 3])
+        self.assertEqual(Sweeper.sweep(Sweeper(), api)[0], [(1, 1, False)])
+        self.assertIsInstance(rescue.sweep_target(cancelled, "manaflow-ai/cmux", late=False), rescue.Target)
+
     def test_a_run_cancelled_by_anyone_else_or_unknown_stays_cancelled(self):
         for note in ("The run was canceled by @leo.", "", None,
                      urllib.error.HTTPError("u", 403, "no checks: read", None, io.BytesIO(b""))):
@@ -3404,9 +3413,11 @@ class Sweeper(unittest.TestCase):
             return {"workflow_runs": pages.get(page, [])}
         api.request = request
         self.assertEqual(api.failed_runs(2, START, since=START - dt.timedelta(minutes=30), pages=5), [(9, 1)])
-        # Page 2 is short, which no longer ends the listing (failed_runs()): the empty page 3 does.
-        self.assertEqual(len(seen), 3)
+        # Page 2 is short, which no longer ends the listing (failed_runs()): the empty page 3 does. Then one
+        # page of cancelled runs (a rescue's cancel whose re-run never came).
+        self.assertEqual(len(seen), 4)
         self.assertIn("status=failure", seen[0])
+        self.assertIn("status=cancelled", seen[3])
         self.assertIn("created=%3E%3D2026-09-24T12:00:00Z", seen[0])
 
     def test_failed_runs_reads_past_a_short_page_while_the_total_says_more(self):
@@ -3424,7 +3435,7 @@ class Sweeper(unittest.TestCase):
             return {"workflow_runs": pages.get(page, []), "total_count": 2}
         api.request = request
         self.assertEqual(api.failed_runs(2, START, pages=5), [(9, 1), (7, 2)])
-        self.assertEqual(seen, [1, 2, 3])
+        self.assertEqual(seen, [1, 2, 3, 1])
 
     def test_the_session_label_is_an_owned_pool(self):
         # feat-cmux-next's session role (glaeda#1530): run 39638669325's Mac job asked for it.
@@ -3563,7 +3574,7 @@ class Tokens(unittest.TestCase):
             seen.append((request.get_method(), request.headers["Authorization"]))
             if fail_first_read and len(seen) == 1:
                 raise rescue.urllib.error.HTTPError(request.full_url, code, "refused", {}, None)
-            return Response(b"{}")
+            return Response(b'{"run_attempt": 1, "status": "completed"}' if request.get_method() == "GET" else b"{}")
         return seen, unittest.mock.patch.object(rescue.urllib.request, "urlopen", urlopen)
 
     def test_reads_use_the_app_token_and_writes_keep_github_token(self):
@@ -3574,9 +3585,9 @@ class Tokens(unittest.TestCase):
             api.rerun_failed(1, 2)
             api.cancel(1)
         # A re-run started by the App would not be github-actions[bot], which
-        # ci-macos.yml's attempt-2 routing requires. The re-run then reads the
-        # run to see whether a UI test dispatch must follow (not for this one).
-        self.assertEqual(seen, [("GET", "Bearer app-token"), ("POST", "Bearer repo-token"),
+        # ci-macos.yml's attempt-2 routing requires. It reads the run's attempt right before it is sent, and
+        # after it the run, to see whether a UI test dispatch must follow (not for this one).
+        self.assertEqual(seen, [("GET", "Bearer app-token"), ("GET", "Bearer app-token"), ("POST", "Bearer repo-token"),
                                 ("GET", "Bearer app-token"), ("POST", "Bearer repo-token")])
 
     def test_a_re_run_of_pull_request_ci_starts_its_ui_test_dispatch(self):
@@ -3594,7 +3605,7 @@ class Tokens(unittest.TestCase):
             if request.get_method() == "GET":
                 # A read right after the re-run may still report the old attempt.
                 return Response(json.dumps({"path": ".github/workflows/ci.yml", "event": "pull_request",
-                                            "run_attempt": 1}).encode())
+                                            "run_attempt": 1, "status": "completed"}).encode())
             return Response(b"")
         with unittest.mock.patch.object(rescue.urllib.request, "urlopen", urlopen):
             rescue.GitHub("repo-token", "o/r").rerun(7, 2)
@@ -3666,7 +3677,12 @@ class Tokens(unittest.TestCase):
         for moved, sent in (({"run_attempt": 3, "status": "queued"}, 1), ({"run_attempt": 2, "status": "completed"}, 2)):
             with self.subTest(moved=moved):
                 seen, patch = self.refusing([(403, {}, limited)])
-                with patch, unittest.mock.patch.object(rescue.GitHub, "run", lambda api, run_id: moved):
+                reads = []
+
+                def run(api, run_id):
+                    reads.append(run_id)
+                    return {"run_attempt": 2, "status": "completed"} if len(reads) == 1 else moved
+                with patch, unittest.mock.patch.object(rescue.GitHub, "run", run):
                     api = rescue.GitHub("repo-token", "o/r")
                     api.sleep = lambda seconds: None
                     api.request_ui_tests = lambda run_id, attempt: None
@@ -3677,6 +3693,18 @@ class Tokens(unittest.TestCase):
                         api.rerun_failed(7, 3)
                 posts = [entry for entry in seen if entry[0] == "POST"]
                 self.assertEqual(len(posts), sent)
+
+    def test_a_re_run_is_not_sent_once_someone_else_re_ran_the_run_since_the_rescue_read_it(self):
+        # A token mint (or a slow read) lets another watch re-run the run before this one's first send.
+        seen, patch = self.refusing([])
+        with patch, unittest.mock.patch.object(rescue.GitHub, "run",
+                                               lambda api, run_id: {"run_attempt": 3, "status": "in_progress"}):
+            api = rescue.GitHub("repo-token", "o/r")
+            api.request_ui_tests = lambda run_id, attempt: None
+            for rerun in (api.rerun_failed, api.rerun):
+                with self.assertRaisesRegex(rescue.Aborted, "someone else already re-ran it"):
+                    rerun(7, 2)
+        self.assertEqual([entry for entry in seen if entry[0] == "POST"], [])
 
     def test_an_app_read_refused_with_429_goes_on_github_token(self):
         seen, patch = self.refusing([(429, {}, b"")])
