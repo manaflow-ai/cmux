@@ -39,20 +39,38 @@ public struct HomeGroupActions: Sendable {
         let title = row.summary.title.isHomeInternalID ? "" : row.summary.title
         return HomeGroupInfo(conversation: id, isGroup: row.kind == .group, title: title, displayTitle: row.title,
                              members: ordered, canMute: muting.canMute(id), muted: muting.isMuted(id) || row.summary.muted,
-                             memberCount: row.summary.memberCount, chiefReplies: Self.chiefReplies(of: row))
+                             memberCount: row.summary.memberCount, chiefReplies: Self.chiefReplies(of: row),
+                             canAddPeople: Self.isMyCloudChief(row, me: me) || (row.kind == .group && row.summary.declaredKind != .chief),
+                             canRename: row.kind == .group && row.summary.declaredKind != .chief)
+    }
+
+    /// `id` is my Cloud Chief's conversation (people are added and removed there, though it is no group).
+    private func sharesMyChief(_ id: ConversationID) -> Bool {
+        store.rows.first { $0.id == id }.map { Self.isMyCloudChief($0, me: store.me?.id) } ?? false
+    }
+
+    /// My Cloud Chief's own conversation: I share it with teammates there (cmux#25569); the owner
+    /// takes only people of a shared team, never another agent.
+    static func isMyCloudChief(_ row: InboxRow, me: ParticipantID?) -> Bool {
+        guard row.summary.owner == .cloud, let me else { return false }
+        return row.summary.isMyChiefLine(me: me)
     }
 
     /// The Chiefs Reply setting the group info shows: nil for a DM, a group without a Chief, or a
     /// local group (its owner has no setting); else the owner's, ``ChiefReplyPolicy/default`` when it names none.
     static func chiefReplies(of row: InboxRow) -> ChiefReplyPolicy? {
-        guard row.kind == .group, row.summary.owner == .cloud, row.summary.participants.contains(where: \.isChief) else { return nil }
+        // Someone else's Chief conversation shared with me: only its owner sets anything there.
+        guard row.kind == .group, row.summary.declaredKind != .chief, row.summary.owner == .cloud,
+              row.summary.participants.contains(where: \.isChief) else { return nil }
         return row.summary.chiefReplies ?? .default
     }
 
     /// The people the user can add to `id`: contacts not already in it.
     public func addable(to id: ConversationID) -> [HomeContact] {
-        let present = Set(store.rows.first { $0.id == id }?.summary.participants.map(\.id) ?? [])
-        return contacts().filter { !present.contains($0.id) }
+        let row = store.rows.first { $0.id == id }
+        let present = Set(row?.summary.participants.map(\.id) ?? [])
+        let peopleOnly = row?.kind == .chief
+        return contacts().filter { !present.contains($0.id) && !(peopleOnly && $0.source == .agent) }
     }
 
     /// The names in a comma-separated list (`--people "Aziz, leo@example.com"`), trimmed, without empties.
@@ -92,7 +110,7 @@ public struct HomeGroupActions: Sendable {
     /// Adds `people` to the group `id`.
     public func add(_ people: [ParticipantID], to id: ConversationID, naming: String = "") async -> HomeGroupOutcome {
         guard !people.isEmpty else { return .noPeople }
-        return await run(on: id, naming: naming) { .addParticipants(conversation: id, participants: people) }
+        return await run(on: id, naming: naming, requiresGroup: !sharesMyChief(id)) { .addParticipants(conversation: id, participants: people) }
     }
 
     /// Adds the people a comma-separated list names (contacts by name or id; an email of a cmux
@@ -119,7 +137,7 @@ public struct HomeGroupActions: Sendable {
     public func remove(_ person: ParticipantID, from id: ConversationID) async -> HomeGroupOutcome {
         if person == store.me?.id { return await leave(id) }
         let name = summary(id)?.participants.first { $0.id == person }?.visibleName ?? person.rawValue
-        return await run(on: id, naming: name, removing: true) { .removeParticipant(conversation: id, participant: person) }
+        return await run(on: id, naming: name, removing: true, requiresGroup: !sharesMyChief(id)) { .removeParticipant(conversation: id, participant: person) }
     }
 
     /// Removes the member `text` names (id or name).

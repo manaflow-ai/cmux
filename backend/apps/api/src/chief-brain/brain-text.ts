@@ -150,17 +150,36 @@ export const formatMessage = (head: Head, m: Message, opts: { readonly files?: b
   const where = head.title?.trim() ? head.title.trim() : kind
   const thread = m.thread_root ? " · in a thread" : ""
   // In a shared conversation the Chief must tell its owner from everyone else (CHIEF-DONE B3: the owner's
-  // requests run, anyone else's keep the approval rule); the owner's own Chief line has only the owner.
-  const owner = kind !== "chief" && opts.owner !== undefined && m.author === opts.owner ? " (your owner)" : ""
+  // requests run, anyone else's keep the approval rule); the owner's own Chief line has only the owner
+  // until the owner shares it with teammates (cmux#25569).
+  const owner = (kind !== "chief" || sharedChief(head)) && opts.owner !== undefined && m.author === opts.owner ? " (your owner)" : ""
   return `[${where} · ${kind} · ${nameOf(head, m.author)}${owner}${thread}] ${lines.join("\n")}`
 }
 
 /**
+ * The inbox kind of a Chief's conversation its owner shared with teammates (cmux#25569). It reads like
+ * the Chief's own line (the main timeline), but the reply quotes the message it answers, so each person
+ * sees which of their messages the Chief answered.
+ */
+export const SHARED_CHIEF = "chief_shared"
+
+/** More than one person is in this Chief's conversation (its owner shared it). */
+export const sharedChief = (head: Head): boolean =>
+  head.kind === "chief" && head.participants.filter((p) => p.kind === "human" && p.left_at === undefined).length > 1
+
+/** The kind a message is queued under (cb_inbox.kind, then cb_turn.trigger_kind). */
+export const inboxKind = (head: Head): string => (sharedChief(head) ? SHARED_CHIEF : (head.kind ?? "group"))
+
+/** The Chief's line, shared or not, or a DM: replies stay on the main timeline. */
+export const oneLine = (kind: string): boolean => kind === "chief" || kind === SHARED_CHIEF || kind === "dm"
+
+/**
  * Where the reply goes: in a channel or group, the thread of the message answered (its own thread,
  * or the thread it is in); in the chief's line or a DM, the main timeline unless that message was
- * already in a thread.
+ * already in a thread; in a shared chief's line, the main timeline as a reply to the message answered.
  */
 export const replyTarget = (kind: string, message: string, threadRoot: string | null): { reply_to?: string; thread_root?: string } => {
+  if (kind === SHARED_CHIEF) return { reply_to: message, ...(threadRoot ? { thread_root: threadRoot } : {}) }
   if (kind === "chief" || kind === "dm") return threadRoot ? { reply_to: message, thread_root: threadRoot } : {}
   return { reply_to: message, thread_root: threadRoot ?? message }
 }

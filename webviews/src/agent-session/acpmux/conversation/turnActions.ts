@@ -59,8 +59,10 @@ export type TurnActions = {
   restartSubagent?: (agent: Subagent) => void;
   /// Re-run the current harness's declared login command after an authentication failure.
   reauthenticate?: () => void;
+  /// Explicitly set up this Cloud chat's provider credentials on its machine, then retry the turn.
+  transferCloudCredentials?: (rowId: string, prompt: string) => Promise<void>;
   /// Who serves this chat's turns, for failure copy (cx-w10a): the harness profile's display name and id.
-  route?: { name?: string; harness?: string };
+  route?: { name?: string; harness?: string; hostKind?: "local" | "cloud"; host?: string };
   /// Opens the model and harness picker (a failure's "Switch model" action).
   switchModel?: () => void;
   /// cmux's own route for a key, sign-in or capacity failure (CodeRouterOffer.tsx): what the chat's

@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { agentAvatarChanged, drawAgentAvatar, hasAgentAvatar, loadAgentAvatar, removeAgentAvatar, setAgentAvatar, setAgentAvatarHost } from "./agentAvatar";
+import {
+  agentAvatarChanged,
+  drawAgentAvatar,
+  hasAgentAvatar,
+  loadAgentAvatar,
+  removeAgentAvatar,
+  setAgentAvatar,
+  setAgentAvatarHost,
+} from "./agentAvatar";
 import { avatarRows } from "./header/avatarRow";
 
 const PNG = "data:image/png;base64,AAAA";
@@ -48,7 +56,13 @@ describe("agent avatars", () => {
     answer = { src: "javascript:alert(1)" };
     await setAgentAvatar("s1");
     expect(hasAgentAvatar("s1")).toBe(false);
-    expect(state.asked).toEqual(["agent.avatar.set", "agent.avatar", "agent.avatar.remove", "agent.avatar", "agent.avatar.set"]);
+    expect(state.asked).toEqual([
+      "agent.avatar.set",
+      "agent.avatar",
+      "agent.avatar.remove",
+      "agent.avatar",
+      "agent.avatar.set",
+    ]);
   });
 
   test("a read that started before Remove or Set keeps nothing", async () => {

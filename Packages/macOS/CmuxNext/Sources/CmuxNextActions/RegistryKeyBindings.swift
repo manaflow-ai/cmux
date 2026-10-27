@@ -79,6 +79,8 @@ public struct RegistryKeyBindings {
         // Home's conversation keys run on Home only, whoever bound them (a Settings rebind too).
         if KeyBindingDefaults.homeChatScoped.contains(id) {
             when = WhenClause.and([when, KeyBindingDefaults.onHomeChats].compactMap { $0 })
+        } else if KeyBindingDefaults.homeScoped.contains(id) {
+            when = WhenClause.and([when, KeyBindingDefaults.onHome].compactMap { $0 })
         }
         // The code editor's editing chords win over these defaults (R127).
         var defaultWhen = KeyBindingDefaults.yieldsToCodeEditor.contains(id)
@@ -115,6 +117,11 @@ public struct RegistryKeyBindings {
                 let keyWhen = Self.keyWhen(defaultWhen, keys: keys, yieldsToTextInput: yieldsToTextInput)
                 let binding = KeyBinding(keys: keys, command: id, argument: argument, when: source == .default ? keyWhen : when, source: source)
                 layers[source, default: []].append((binding, specificity, order))
+            }
+            // `{"any": [...]}`: the keys after the override are cmux.json entries too.
+            for keys in registry.alternateShortcuts[id] ?? [] {
+                guard let last = keys.last else { continue }
+                for (key, argument) in expandFamily(id, last) { add(Array(keys.dropLast()) + [key], argument: argument, source: .user) }
             }
             let userChord = registry.chordOverrides[id] != nil
             if let chord = registry.effectiveChord(for: id) {
@@ -169,7 +176,10 @@ public struct RegistryKeyBindings {
 
     /// A user override equal to the catalog default stays a default entry,
     /// so writing the default key into cmux.json changes nothing.
+    /// An action with alternates (`{"any": [...]}`) has all its keys as
+    /// cmux.json entries, so one of them never yields where another runs.
     private func source(_ id: ActionID, _ shortcut: Shortcut) -> KeyBinding.Source {
+        if registry.alternateShortcuts[id] != nil { return .user }
         guard let override = registry.shortcutOverrides[id], override != nil else { return .default }
         return override == registry.descriptor(for: id)?.defaultShortcut ? .default : .user
     }

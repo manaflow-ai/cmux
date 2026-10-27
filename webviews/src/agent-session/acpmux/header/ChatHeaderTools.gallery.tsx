@@ -123,21 +123,29 @@ const groupedControls: Play = async (ctx) => {
 
 // Plain icons (Leo 2026-10-25: "why do the icons have their own background border situation instead of
 // just being, you know, good"): with the right-side panel and Terminal's split open, Terminal hovered
-// and the chat menu open, no header tool draws a fill, border or shadow; the open panel's toggle reads
-// as on by its ink alone, against Browser at rest.
+// and the chat menu open, no header tool draws a fill, border or shadow. The open panel's toggle
+// reads as on through its ink and selected glyph, including on hover (Leo, 2026-10-27).
 const plainIcons: Play = async (ctx) => {
   const { setHeaderState } = await import("./headerState");
   setHeaderState({ lit: ["splitRight"] });
   await ctx.waitFor(() => ctx.document.querySelector('[data-quick-action="terminal"][aria-pressed="true"]'));
-  await ctx.hover({ role: "button", name: "Terminal" });
-  await openMenu(ctx);
+  await ctx.hover({ role: "button", name: "Chat summary" });
+  const panel = ctx.find({ selector: '.acpmux-summary-button[aria-pressed="true"]' });
   const view = ctx.document.defaultView!;
   const tools = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools .acpmux-header-tool")];
+  const clear = (color: string) => /^rgba\(.*,\s*0\)$|^transparent$/.test(color);
+  if (!clear(view.getComputedStyle(panel).backgroundColor))
+    throw new Error("the open panel toggle draws a fill on hover");
+  await ctx.hover({ role: "button", name: "Terminal" });
+  await openMenu(ctx);
+  await ctx.hover({ role: "menuitem", name: "Rename" });
+  const menuButton = ctx.find({ role: "button", name: "Chat actions" });
+  if (!menuButton.hasAttribute("data-popup-open")) throw new Error("the chat menu closed on pointer exit");
+  await ctx.waitFor(() => view.getComputedStyle(menuButton).color === view.getComputedStyle(panel).color);
   for (const tool of tools) {
     const style = view.getComputedStyle(tool);
     const name = tool.getAttribute("aria-label");
-    if (!/^rgba\(.*,\s*0\)$|^transparent$/.test(style.backgroundColor))
-      throw new Error(`header tool ${name} draws a fill: ${style.backgroundColor}`);
+    if (!clear(style.backgroundColor)) throw new Error(`header tool ${name} draws a fill: ${style.backgroundColor}`);
     if (["top", "right", "bottom", "left"].some((side) => style.getPropertyValue(`border-${side}-width`) !== "0px"))
       throw new Error(`header tool ${name} draws a border`);
     if (style.boxShadow !== "none") throw new Error(`header tool ${name} draws a shadow: ${style.boxShadow}`);
@@ -360,7 +368,7 @@ export default componentEntry<HeaderToolsProps>({
       play: panelsOpen,
     },
     "panel-open": {
-      note: "The right-side panel is open: its toggle, first of the icons, is pressed and its glyph's column filled.",
+      note: "Session Info is open: its toggle uses the text ink and selected glyph without a box, matching every other header control.",
       props: { ...base, summary: panelToggle(true) },
     },
     "panel-icon-list": {
@@ -492,7 +500,10 @@ export default componentEntry<HeaderToolsProps>({
         menu: () => {
           const rows = menuRows();
           const archive = rows.findIndex((row) => row !== "separator" && row.key === "archive");
-          const avatar = avatarRows({ sessionId: "session-1", hasAvatar: true }, { set: () => undefined, remove: () => undefined });
+          const avatar = avatarRows(
+            { sessionId: "session-1", hasAvatar: true },
+            { set: () => undefined, remove: () => undefined },
+          );
           return [...rows.slice(0, archive), ...avatar, "separator", ...rows.slice(archive)];
         },
       },

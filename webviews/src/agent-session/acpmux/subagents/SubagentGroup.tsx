@@ -5,7 +5,7 @@
 // the transcript.
 import { createContext, useContext, useEffect, useState } from "react";
 import { Icon } from "../icons/Icon";
-import { AgentMark, agentBrand } from "../../shared/AgentMark";
+import { AgentMark } from "../../shared/AgentMark";
 import { usePaneLanguage, useT, type PaneLanguage, type Translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { formatDuration } from "../conversation/turns";
@@ -101,7 +101,7 @@ export function Avatar({ agent, wave }: { agent: Subagent; wave?: number }) {
       style={style}
       data-state={agent.state}
     >
-      {agentBrand(harness) ? <AgentMark agent={harness} size={14} /> : <Icon name="agent.session" size={14} />}
+      <AgentMark agent={harness} size={14} fallback={<Icon name="agent.session" size={14} />} />
     </span>
   );
 }

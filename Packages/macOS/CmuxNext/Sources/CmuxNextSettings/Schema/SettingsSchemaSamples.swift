@@ -66,6 +66,11 @@ nonisolated enum SettingsSchemaSamples {
         case .stringMap:
             return ([.object([:]), .object(["*": .string("★"), "Work": .string("")])],
                     [.string("★"), .array([]), .object(["Work": .number(1)])])
+        case .soundRules:
+            return ([.object([:]), .object(["ws_1": .string("none"), "Ops": .object(["sound": .string("Glass"), "volume": .number(0.5),
+                                                                                    "events": .object(["needsInput": .string("Ping")])])])],
+                    [.string("Glass"), .array([]), .object(["ws_1": .number(1)]), .object(["ws_1": .object(["volume": .string("loud")])]),
+                     .object(["ws_1": .object(["events": .object(["ringing": .string("Ping")])])])])
         case .stringList:
             return ([.array([]), .array([.string("ws-1"), .string("2B7F0C3A-workspace")])],
                     [.string("ws-1"), .array([.number(1)]), .array([.string("")]), .object([:])])

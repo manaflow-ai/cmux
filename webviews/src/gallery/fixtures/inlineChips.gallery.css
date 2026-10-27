@@ -4,6 +4,7 @@
   color: var(--cv-text);
   font-size: var(--text-body);
   line-height: 1.4;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .inline-chip-preview.is-accent .cv-chip.is-path {
   color: var(--agent-link);

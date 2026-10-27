@@ -263,8 +263,12 @@ pub const TURN_DENIED_TOOLS: [&str; 25] = [
 /// which always loads; cmux MCP has no conversation or Chief tools (v2_tools
 /// EXCLUDED). Every other cmux MCP tool is denied in the turn's settings
 /// and stays reachable through the `cmux` CLI on its own host. Names:
-/// `agents_*` and `render` (cmux mcp agent tools).
-pub const CHIEF_CMUX_TOOLS: [&str; 13] = [
+/// `agents_*` and `render` (cmux mcp agent tools). `agents_chat_send`,
+/// `agents_chat_read` and `agents_chat_state` reach the agent chats the user
+/// started in the app (#25571): a send is the Chief's agent message, under
+/// the daemon's agent message policy, and starts a turn in that chat, a
+/// restored chat no tab has shown yet included.
+pub const CHIEF_CMUX_TOOLS: [&str; 16] = [
     "agents_snapshot",
     "agents_workspace_create",
     "agents_workspace_select",
@@ -278,6 +282,9 @@ pub const CHIEF_CMUX_TOOLS: [&str; 13] = [
     "render",
     "agents_terminal_list",
     "agents_terminal_send",
+    "agents_chat_send",
+    "agents_chat_read",
+    "agents_chat_state",
 ];
 
 /// The turn presets' env that keeps only acpmux's `cmux` MCP server

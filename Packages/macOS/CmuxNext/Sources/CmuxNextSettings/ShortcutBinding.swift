@@ -29,11 +29,36 @@ public enum ShortcutBinding: Sendable, Hashable {
     /// A two-stroke chord (`["ctrl+b", "c"]`); the first key needs Command
     /// or Control.
     case chord(ShortcutStrokeSpec, ShortcutStrokeSpec)
+    /// Several keys for one action (`{"any": ["ctrl+tab", "cmd+]"]}`), each
+    /// a `.stroke` or a `.chord`, at least two, none twice. The first is the
+    /// one menus show.
+    case alternates([ShortcutBinding])
+}
+
+extension ShortcutBinding {
+    /// One key or one chord: what an `{"any": [...]}` item may be.
+    var isKey: Bool {
+        switch self {
+        case .stroke, .chord: true
+        case .unbound, .alternates: false
+        }
+    }
+
+    /// The keys this binding gives an action, in order (none when unbound).
+    public var keys: [ShortcutBinding] {
+        switch self {
+        case .unbound: []
+        case .stroke, .chord: [self]
+        case .alternates(let bindings): bindings
+        }
+    }
 }
 
 /// Reads and writes the cmux.json shortcut formats the old app accepts:
 /// `"cmd+shift+p"`, `["ctrl+b", "c"]`, the unbind tokens, and the Settings
-/// recorder's object form `{ "first": { "key": "p", "command": true, ... } }`.
+/// recorder's object form `{ "first": { "key": "p", "command": true, ... } }`;
+/// plus next's alternates, `{"any": [...]}` with one of those keys or chords
+/// per item (`{"any": ["ctrl+tab", "cmd+]", ["ctrl+b", "n"]]}`).
 public struct ShortcutBindingFormat {
     public init() {}
     static let unboundTokens: Set<String> = ["", "none", "clear", "unbound", "disabled"]
@@ -55,6 +80,8 @@ public struct ShortcutBindingFormat {
             case 2: return .chord(strokes[0], strokes[1])
             default: return nil
             }
+        case .object(let members) where members["any"] != nil:
+            return parseAlternates(members)
         case .object(let members):
             guard let first = members["first"].flatMap(parseStrokeObject) else { return nil }
             if first.key.isEmpty { return .unbound }
@@ -65,6 +92,37 @@ public struct ShortcutBindingFormat {
             return .stroke(first)
         default:
             return nil
+        }
+    }
+
+    /// `{"any": [...]}`: every item a key or a chord (not an unbind token);
+    /// a repeated item counts once. No items unbinds; one is that binding.
+    private static func parseAlternates(_ members: [String: JSONValue]) -> ShortcutBinding? {
+        guard members.count == 1, case .array(let items)? = members["any"] else { return nil }
+        var bindings: [ShortcutBinding] = []
+        for item in items {
+            switch parse(item) {
+            case let binding? where binding.isKey:
+                if !bindings.contains(binding) { bindings.append(binding) }
+            default:
+                return nil
+            }
+        }
+        switch bindings.count {
+        case 0: return .unbound
+        case 1: return bindings[0]
+        default: return .alternates(bindings)
+        }
+    }
+
+    /// The cmux.json value for `binding`, in the forms ``parse(_:)`` reads:
+    /// `"cmd+]"`, `["ctrl+b", "c"]`, `{"any": [...]}`, or null.
+    public static func configValue(_ binding: ShortcutBinding) -> JSONValue {
+        switch binding {
+        case .unbound: .null
+        case .stroke(let stroke): .string(configString(stroke))
+        case .chord(let first, let second): .array([.string(configString(first)), .string(configString(second))])
+        case .alternates(let bindings): .object(["any": .array(bindings.map(configValue))])
         }
     }
 
