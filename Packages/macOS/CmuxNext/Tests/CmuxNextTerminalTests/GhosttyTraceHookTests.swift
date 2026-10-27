@@ -265,7 +265,7 @@ struct GhosttyTraceHookTests {
         probe.turnDidEnd()
         let commits = probe.takePresentCommits()
         #expect(commits.map(\.flow).sorted() == flows.sorted())
-        #expect(commits.allSatisfy(\.awaitsGPU))
+        #expect(commits.allSatisfy { $0.awaitsGPU })
         rig.call(.gpuDone, seq: 1)
         #expect(heard.gpuFlows.sorted() == flows.sorted())
     }

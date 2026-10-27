@@ -18,7 +18,7 @@ struct GhosttyTraceHookWaitsTests {
     }
 
     private static func surface() -> GhosttyTraceHook.Surface {
-        GhosttyTraceHook.Surface(key: TypingLatencyProbe.SurfaceKey(id: 1), echoStage: nil)
+        GhosttyTraceHook.Surface(key: TypingLatencyProbe.SurfaceKey(id: 1, route: .local), echoStage: nil)
     }
 
     /// Flows past the free waits are delivered at once, never left waiting for a completion nobody gives them.
