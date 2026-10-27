@@ -217,7 +217,10 @@ jobs:
       contents: read
       pull-requests: read
     steps:
+      # A failed checkout measures nothing: the next step finds no script and passes.
       - name: Check out the size script from the base
+        id: checkout
+        continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.base.sha }}
@@ -233,8 +236,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
+          CHECKOUT: ${{ steps.checkout.outcome }}
         run: |
           set -euo pipefail
+          if [ "$CHECKOUT" != success ]; then
+            echo "::warning title=PR size::could not check out the size script; size not measured"
+            exit 0
+          fi
           if [ ! -f scripts/ci/pr_size.py ]; then
             echo "::notice title=PR size::the base predates the size check; skipped"
             exit 0

@@ -226,14 +226,17 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertNotIn("advisory", job["name"].lower())
         self.assertNotIn(context_of(JOB, job, WORKFLOW, self.workflow), REQUIRED_CHECKS)
         self.assertNotIn("continue-on-error", job)
+        # Only the checkout may fail open (it measures nothing); the count step never does.
         for step in job["steps"]:
-            self.assertNotIn("continue-on-error", step)
+            if step.get("id") != "checkout":
+                self.assertNotIn("continue-on-error", step)
+        self.assertIn("steps.checkout.outcome", str(job["steps"][-1]["env"]))
         self.assertIn(GATE, str(job["if"]))
         self.assertIn(DRAFT, str(job["if"]))
         self.assertIn(JOB, HOLD_GATED[WORKFLOW.name])
         self.assertIn(JOB, DRAFT_SKIPPED[WORKFLOW.name])
 
-    def run_step(self, script_exit: int, gh_exit: int = 0) -> int:
+    def run_step(self, script_exit: int, gh_exit: int = 0, checkout: str = "success") -> int:
         """The job's own count step, with gh and the script stubbed."""
         run = self.job["steps"][-1]["run"]
         with tempfile.TemporaryDirectory() as temporary:
@@ -245,7 +248,7 @@ class WorkflowShapeTests(unittest.TestCase):
             (bin_dir / "gh").write_text(f"#!/bin/sh\nexit {gh_exit}\n", encoding="utf-8")
             (bin_dir / "gh").chmod(0o755)
             env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "RUNNER_TEMP": str(directory),
-                   "GITHUB_EVENT_PATH": "/dev/null", "REPOSITORY": "o/r", "PR": "1"}
+                   "GITHUB_EVENT_PATH": "/dev/null", "REPOSITORY": "o/r", "PR": "1", "CHECKOUT": checkout}
             return subprocess.run(["bash", "-c", run], cwd=directory, env=env, capture_output=True).returncode
 
     def test_the_step_fails_only_on_a_measured_size(self) -> None:
@@ -254,6 +257,7 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertEqual(self.run_step(1), 0, "a script crash warns and passes")
         self.assertEqual(self.run_step(2), 0, "a script crash warns and passes")
         self.assertEqual(self.run_step(3, gh_exit=1), 0, "an unread file list warns and passes")
+        self.assertEqual(self.run_step(3, checkout="failure"), 0, "a failed checkout warns and passes")
 
     def test_script_comes_from_the_base_commit(self) -> None:
         checkout = self.job["steps"][0]
