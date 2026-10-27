@@ -240,6 +240,8 @@ extension CaptureSceneRegistry {
     private static let autoNameSession = "mock-session"
     private static let firstAutoName = "First chat title"
     private static let generatedAutoName = "Updated chat title"
+    private static let userWorkspaceName = "My workspace"
+    private static let laterGeneratedName = "Later chat title"
 
     func renderWorkspaceAutoName(_ params: [String: CmuxNextSettings.JSONValue], definition: CaptureSceneDefinition,
                                  windowID: String) async -> CmuxNextSettings.JSONValue {
@@ -251,6 +253,11 @@ extension CaptureSceneRegistry {
         guard rule.enabled, rule.variant == .persist else {
             return .object(["error": .string("auto-name capture requires enabled persisted naming"), "scene": .string(definition.name)])
         }
+        let mode = params["mode"]?.stringValue ?? "default"
+        guard mode == "default" || mode == "after_user_rename" else {
+            return .object(["error": .string("unknown auto-name capture mode"), "scene": .string(definition.name), "mode": .string(mode)])
+        }
+        let keep = params["keep"]?.boolValue == true
         let expectedArgument = params["expected_name"]
         let expectedName = expectedArgument?.stringValue
         guard expectedArgument == nil || expectedName == Self.firstAutoName else {
@@ -272,12 +279,9 @@ extension CaptureSceneRegistry {
             return .object(["error": .string(message), "scene": .string(definition.name)])
         }
         do {
-            let key = WorkspaceKey.generate()
-            // Record the key before awaiting create: a late daemon reply may
-            // have created it even when the request reports an error.
+            let workspaceID = try await services.windows.createWorkspace(WorkspaceSpawn(newTabPage: true), on: services.daemon, into: windowID)
+            let key = WorkspaceKey(rawValue: workspaceID)
             createdKey = key
-            _ = try await connection.createWorkspace(key: key)
-            services.windows.claimNew(workspaceID: key.rawValue, window: windowID)
             guard let pane = await services.daemon.store.firstPane(mirroring: key),
                   let workspace = services.daemon.store.workspace(key: key) else {
                 return await failure("auto-name workspace has no mirrored pane")
@@ -313,13 +317,54 @@ extension CaptureSceneRegistry {
                 "first_name": .string(Self.firstAutoName), "first_name_revision": .number(Double(firstRevision)),
                 "workspace_name": .string(workspace.name), "workspace_name_source": .string(workspace.nameSource.rawValue),
                 "workspace_name_revision": .number(Double(workspace.nameRevision)),
-                "generated_title": .string(generatedTitle), "expected_name": .string(expected), "frames": frameStats,
+                "generated_title": .string(generatedTitle), "expected_name": .string(expected),
+                "mode": .string(mode), "kept": .bool(keep), "user_name": .null,
+                "later_generated_name": .null, "frames": frameStats,
             ]
             guard let settled else {
                 await cleanup()
                 report["error"] = .string("auto-name scene did not settle before deadline")
                 return .object(report)
             }
+            var finalSettled = settled
+            var finalFrameStats = frameStats
+            var finalGeneratedTitle = generatedTitle
+            var finalExpectedName = expected
+            if mode == "after_user_rename" {
+                _ = try await connection.renameWorkspace(key, to: Self.userWorkspaceName, source: .user,
+                                                          expectedNameRevision: workspace.nameRevision)
+                let laterSummary: [String: Any] = ["sessionId": Self.autoNameSession,
+                                                    "title": Self.laterGeneratedName, "titleSource": "generated"]
+                let laterTitle = AgentTurnStates.title(laterSummary)
+                let laterGeneratedTitle = AgentTurnStates.title(laterSummary, includingPrompt: false)
+                guard let laterGeneratedTitle, laterGeneratedTitle == Self.laterGeneratedName else {
+                    return await failure("later generated title fixture did not produce the expected literal title")
+                }
+                AgentTurnStateStore.shared.apply(session: Self.autoNameSession, state: nil, lastMessage: nil, muted: false,
+                                                  title: laterTitle, generatedTitle: laterGeneratedTitle, detail: nil,
+                                                  recordsTimeline: false)
+                let (laterSettled, laterFrameStats) = await autoNameSettled {
+                    self.autoNameReady(workspace: workspace, tabID: created.key, windowID: windowID, expected: Self.userWorkspaceName,
+                                       expectedSource: .user, expectedGeneratedTitle: laterGeneratedTitle)
+                }
+                guard let laterSettled else {
+                    await cleanup()
+                    report["error"] = .string("user rename precedence did not settle before deadline")
+                    return .object(report)
+                }
+                finalSettled = laterSettled
+                finalFrameStats = laterFrameStats
+                finalGeneratedTitle = laterGeneratedTitle
+                finalExpectedName = Self.userWorkspaceName
+                report["user_name"] = .string(Self.userWorkspaceName)
+                report["later_generated_name"] = .string(Self.laterGeneratedName)
+            }
+            report["workspace_name"] = .string(workspace.name)
+            report["workspace_name_source"] = .string(workspace.nameSource.rawValue)
+            report["workspace_name_revision"] = .number(Double(workspace.nameRevision))
+            report["generated_title"] = .string(finalGeneratedTitle)
+            report["expected_name"] = .string(finalExpectedName)
+            report["frames"] = finalFrameStats
             var snapshotParams = params
             snapshotParams["window"] = .string(windowID)
             let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
@@ -328,17 +373,17 @@ extension CaptureSceneRegistry {
                 return snapshot
             }
             for (key, value) in report { result[key] = value }
-            result["settled_ms"] = .number(settled)
+            result["settled_ms"] = .number(finalSettled)
             guard result["error"] == nil else {
                 await cleanup()
                 return .object(result)
             }
-            guard (result["webviews_composited"]?.intValue ?? 0) > 0 else {
+            guard Self.pageComposited(result) else {
                 await cleanup()
                 result["error"] = .string("auto-name agent web view was not composited")
                 return .object(result)
             }
-            await cleanup()
+            if !keep { await cleanup() }
             return .object(result)
         } catch {
             return await failure("auto-name scene failed: \(error)")
@@ -352,11 +397,13 @@ extension CaptureSceneRegistry {
         return (settled, frames.stop())
     }
 
-    private func autoNameReady(workspace: WorkspaceModel, tabID: String, windowID: String, expected: String) -> Bool {
-        guard workspace.name == expected, workspace.nameSource == .auto,
+    private func autoNameReady(workspace: WorkspaceModel, tabID: String, windowID: String, expected: String,
+                               expectedSource: WorkspaceNameSource = .auto,
+                               expectedGeneratedTitle: String = CaptureSceneRegistry.generatedAutoName) -> Bool {
+        guard workspace.name == expected, workspace.nameSource == expectedSource,
               let tab = workspace.screens.flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == tabID }),
               let session = tab.agentSession, session.session == Self.autoNameSession,
-              AgentTurnStateStore.shared.generatedTitle(for: session) == Self.generatedAutoName,
+              AgentTurnStateStore.shared.generatedTitle(for: session) == expectedGeneratedTitle,
               let view = services.agentTabs.existingView(tabID), view.model.hasPainted,
               view.webView.window != nil, !view.webView.isLoading,
               let sidebar = services.windows.controller(for: windowID)?.sidebar.model else { return false }
