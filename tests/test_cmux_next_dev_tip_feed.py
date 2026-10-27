@@ -800,7 +800,8 @@ check("CRATE_SHA256=f24e9ebdb70a2aee3ca1cea217009fb50776955f0d7678c31d22e48c1524
       "the signer builds the pinned crate with its own lock file and our patch")
 patch_text = (ROOT / "scripts/ci/rcodesign-0.29.0-dmg.patch").read_text()
 check("+++ b/src/dmg.rs" in patch_text and "team_name" in patch_text and "derive_designated_requirements" in patch_text
-      and "0x20200" in patch_text, "the signer patch carries the DMG signature")
+      and "0x20200" in patch_text and "builder.use_codesign_cms_encoding()?;" in patch_text,
+      "the signer patch carries the DMG signature")
 check(all(f"+++ b/src/{name}.rs" in patch_text for name in ("macho_signing", "signing_settings", "code_requirement", "bundle_signing"))
       and "CODESIGN_CMS_RESERVATION: usize = 18000" in patch_text and "Ok(16384)" in patch_text
       and "entitlements_xml_raw" in patch_text and "apple_text::format" in patch_text,
