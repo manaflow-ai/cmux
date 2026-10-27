@@ -106,6 +106,19 @@ import Testing
         #expect(column.page.frame.width == 184, "one layout at the landed size: \(column.page.frame)")
     }
 
+    /// A handoff moves an already painted full-width chat into its narrower final pane. The first
+    /// frame must use the handoff target size so the old width is never replayed at landing.
+    @Test func aMovingHandoffUsesItsFinalContentSizeFromTheFirstFrame() {
+        let column = Screen(hostFrame: CGRect(x: 400, y: 0, width: 400, height: 300), holdsContent: true)
+        column.host.restSize = CGSize(width: 200, height: 300)
+        column.host.restOffset = CGVector(dx: -200, dy: 0)
+        column.host.isOnLayoutSpring = true
+        column.host.frame = CGRect(x: 200, y: 0, width: 200, height: 300)
+        column.host.layoutSubtreeIfNeeded()
+        #expect(column.page.frame.width == 184, "handoff replayed the old full-width page: \(column.page.frame)")
+        column.host.isOnLayoutSpring = false
+    }
+
     /// A right-pane close can be reopened before its spring lands. The content keeps the widest
     /// target announced by that motion, rather than falling back to live resize at the reopened
     /// target, and releases it only for the final layout.
