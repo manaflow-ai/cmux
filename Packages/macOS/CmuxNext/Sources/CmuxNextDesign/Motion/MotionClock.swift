@@ -30,7 +30,8 @@ public final class MotionClock {
 
     private var entries: [ObjectIdentifier: Entry] = [:]
     private var order: [ObjectIdentifier] = []
-    private lazy var client = FrameClient(owner: "Motion.clock", scheduler: resolveScheduler) { [weak self] tick in
+    // frame-client: the window's one chrome spring clock (motion.md P4), on main while an animator moves
+    private lazy var client = FrameClient(owner: "Motion.clock", rate: .motion, scheduler: resolveScheduler) { [weak self] tick in
         self?.tick(tick) ?? false
     }
     /// The scheduler the clock ticks on: its window's (``FrameScheduler/app`` for the app clock).
