@@ -189,6 +189,105 @@ class MeasureTests(unittest.TestCase):
         self.assertEqual(len(result["package_samples"]), 2)
         self.assertAlmostEqual(result["total"]["mw"], 2.0)
 
+    def assert_an_early_end_stops_the_sampler(self, error: BaseException):
+        events = []
+
+        class FakeProcess:
+            """sudo with the root sampler behind it: only a signal from the bench ends it."""
+
+            def __init__(self, argv, **kwargs):
+                events.append("spawn")
+                self.stdout = io.BytesIO(b"")
+
+            def send_signal(self, signum):
+                events.append(signum)
+
+            def wait(self, timeout=None):
+                return 0
+
+        def during(_seconds):
+            events.append("during")
+            raise error
+
+        package = bp.PackagePower(["sudo", "-n", "/usr/bin/powermetrics"], popen=FakeProcess)
+        with mock.patch.object(bp, "counters", lambda pid: (0, 0, 0, 0)), \
+                mock.patch.object(bp.bm, "owned", lambda pid, bundle: {pid: ("app", "cmux")}):
+            with self.assertRaises(type(error)):
+                bp.measure(42, "/Apps/cmux.app", "typing", 60, during=during, package=package)
+        self.assertEqual(events, ["spawn", "during", signal.SIGINT])
+        self.assertIsNone(package.process, "the sampler was stopped")
+
+    def test_a_scenario_that_raises_still_stops_the_sampler(self):
+        self.assert_an_early_end_stops_the_sampler(RuntimeError("scenario failed"))
+
+    def test_sigterm_inside_the_window_still_stops_the_sampler(self):
+        # main() turns the runner's SIGTERM into KeyboardInterrupt (bench_memory.interrupted).
+        self.assert_an_early_end_stops_the_sampler(KeyboardInterrupt())
+
+
+class FakeKeyApp:
+    def __init__(self, reply):
+        self.reply = reply
+        self.keys = []
+
+    def call(self, method, params=None, label=None, timeout=120):
+        self.keys.append((method, params["key"]))
+        return self.reply(len(self.keys)) if callable(self.reply) else self.reply
+
+
+class TypingTests(unittest.TestCase):
+    def setUp(self):
+        self.records = []
+        test = self
+
+        class FakeBench:
+            def record(self, story, metric, unit, samples, better, engine, target_ref=None):
+                test.records.append(metric)
+                return f"/out/{metric}"
+
+        self.bench = FakeBench()
+
+    def type_window(self, app) -> tuple[bp.KeyTyping, dict]:
+        typing = bp.KeyTyping(app, clock=FakeClock())
+        typing(10)
+        result = window("typing", [{"cpu_power_mw": 30.0, "gpu_power_mw": 4.0, "combined_power_mw": 34.0}])
+        return typing, result
+
+    def test_keys_the_app_refuses_record_no_typing_series(self):
+        typing, result = self.type_window(FakeKeyApp({"error": "no window"}))
+        written = bp.judge_and_record(self.bench, "power", result, True, record=True, verdict=typing.verdict)
+        self.assertEqual(self.records, [], "an idle terminal was recorded as typing power")
+        self.assertEqual(result["keys"], {"sent": 80, "accepted": 0, "expected": 80, "first_error": "no window"})
+        failures = bp.unrecorded({"typing": written})
+        self.assertEqual(sorted(written), ["power.typing.cpu_mw", "power.typing.gpu_mw", "power.typing.package_mw",
+                                           "power.typing.processes_mw", "power.typing.wakeups_per_s"])
+        self.assertIn("power.typing.package_mw: not recorded: debug.key refused (no window): 0 of 80 keys accepted",
+                      failures)
+
+    def test_a_refusal_fails_the_run_without_an_out_folder_too(self):
+        typing, result = self.type_window(FakeKeyApp({"error": "no window"}))
+        written = bp.judge_and_record(self.bench, "power", result, False, record=False, verdict=typing.verdict)
+        self.assertTrue(bp.unrecorded({"typing": written}))
+        self.assertEqual(self.records, [])
+
+    def test_mostly_refused_keys_record_nothing(self):
+        typing, result = self.type_window(FakeKeyApp(lambda n: {} if n % 4 == 0 else {"error": "bad key"}))
+        bp.judge_and_record(self.bench, "power", result, True, record=True, verdict=typing.verdict)
+        self.assertEqual(result["keys"]["accepted"], 20)
+        self.assertEqual(self.records, [])
+
+    def test_accepted_keys_record_the_window(self):
+        app = FakeKeyApp({})
+        typing, result = self.type_window(app)
+        written = bp.judge_and_record(self.bench, "power", result, True, record=True, verdict=typing.verdict)
+        self.assertEqual(result["keys"], {"sent": 80, "accepted": 80, "expected": 80, "first_error": None})
+        self.assertEqual(bp.unrecorded({"typing": written}), [])
+        self.assertIn("power.typing.package_mw", self.records)
+        self.assertEqual(app.keys[:3], [("debug.key", "c"), ("debug.key", "m"), ("debug.key", "u")])
+
+    def test_a_window_without_a_verdict_and_out_folder_records_nothing(self):
+        self.assertIsNone(bp.judge_and_record(self.bench, "power", window("tab1", []), False, record=False))
+
 
 class RecordTests(unittest.TestCase):
     def setUp(self):

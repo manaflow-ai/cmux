@@ -22,7 +22,9 @@ there, require refuses before the launch without it (exit 2, sudo's reason,
 nothing written), off never runs it.
 
 `typing` types letters into the terminal in view (debug.key, a bench build) at
-TYPING_KEYS_PER_S, a person's pace, for the whole window.
+TYPING_KEYS_PER_S, a person's pace, for the whole window. A window in which the
+app accepted under half of those keys records none of its series (exit 1): it
+measured an idle terminal, not typing. The report has the key counts.
 
 Usage (a fleet mini, never a laptop; launches the app through BenchApp):
   bench_power.py --app BUNDLE [--settle 120] [--measure 60]
@@ -303,24 +305,28 @@ def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None, 
     if pm:
         pm.start()
     sampler = None
-    if during:
-        during(seconds)
-    elif not sample_idle:
-        time.sleep(seconds)  # test script: the measured window
-    else:
-        # --sample-idle (sampling interrupts the app, so normal runs leave it off): a stack sample
-        # inside the window. The app's energy rises for a while, then drops, so a sample after the
-        # window shows it idle. Kept only when the window ends above the guard.
-        time.sleep(seconds / 2)  # test script: first half of the measured window
-        sample_path = os.path.abspath(f"app-{label}.sample")
-        sampler = subprocess.Popen(["sample", str(app_pid), str(int(min(10, seconds / 3))), "-mayDie", "-file", sample_path],
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(seconds / 2)  # test script: second half of the measured window
-    if window:
-        window.end()
-    elapsed = time.monotonic() - started
-    ends = {pid: counters(pid) for pid in start}
-    window_samples = pm.stop() if pm else []  # after the end counters: stopping the sampler is not in the window
+    try:
+        if during:
+            during(seconds)
+        elif not sample_idle:
+            time.sleep(seconds)  # test script: the measured window
+        else:
+            # --sample-idle (sampling interrupts the app, so normal runs leave it off): a stack sample
+            # inside the window. The app's energy rises for a while, then drops, so a sample after the
+            # window shows it idle. Kept only when the window ends above the guard.
+            time.sleep(seconds / 2)  # test script: first half of the measured window
+            sample_path = os.path.abspath(f"app-{label}.sample")
+            sampler = subprocess.Popen(["sample", str(app_pid), str(int(min(10, seconds / 3))), "-mayDie", "-file",
+                                        sample_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(seconds / 2)  # test script: second half of the measured window
+        if window:
+            window.end()
+        elapsed = time.monotonic() - started
+        ends = {pid: counters(pid) for pid in start}
+    finally:
+        # After the end counters (stopping the sampler is not in the window), and on an early end too (SIGTERM, a
+        # scenario that raised): the root sampler runs in a session of its own, out of reach of the runner's killpg.
+        window_samples = pm.stop() if pm else []
     pm_result = package_summary(window_samples)
     raw = window.finish() if window else None
     kinds: dict[str, dict] = {}
@@ -449,6 +455,47 @@ def neighbor_switches(app, sock: str, tabs: list[str], start: int, gap: float, r
     return result
 
 
+# The share of TYPING_KEYS_PER_S * seconds the app must accept for a typing window to count as typing. Each
+# debug.key round trip adds to the pace's sleep, so a working run lands under the full count.
+TYPING_ACCEPTED_FRACTION = 0.5
+
+
+class KeyTyping:
+    """The typing scenario's `during`: TYPED at TYPING_KEYS_PER_S through debug.key for the window, counting the keys
+    the app accepted. A reply with an `error` (no window, a bad key, a socket timeout) is a refusal; `verdict` says
+    whether the window typed. `clock` (monotonic, sleep) is the seam the tests replace."""
+
+    def __init__(self, app, clock=time):
+        self.app = app
+        self.clock = clock
+        self.seconds = 0.0
+        self.sent = 0
+        self.accepted = 0
+        self.first_error: str | None = None
+
+    def __call__(self, seconds: float) -> None:
+        self.seconds += seconds
+        deadline = self.clock.monotonic() + seconds
+        while self.clock.monotonic() < deadline:
+            reply = self.app.call("debug.key", {"key": TYPED[self.sent % len(TYPED)]}, timeout=10)
+            self.sent += 1
+            error = reply.get("error") if isinstance(reply, dict) else f"reply {reply!r}"
+            if error:
+                self.first_error = self.first_error or str(error)
+            else:
+                self.accepted += 1
+            self.clock.sleep(1 / TYPING_KEYS_PER_S)  # test script: a person's typing pace
+
+    def verdict(self) -> tuple[dict, str | None]:
+        """({sent, accepted, expected, first_error}, None when the app accepted enough keys, else why not)."""
+        expected = round(self.seconds * TYPING_KEYS_PER_S)
+        counts = {"sent": self.sent, "accepted": self.accepted, "expected": expected, "first_error": self.first_error}
+        if self.accepted and self.accepted >= expected * TYPING_ACCEPTED_FRACTION:
+            return counts, None
+        return counts, (f"debug.key refused ({self.first_error or 'no error named'}): "
+                        f"{self.accepted} of {expected} keys accepted")
+
+
 def refused(response: dict) -> str | None:
     return response.get("error") or (response.get("message") if response.get("code") else None)
 
@@ -488,9 +535,13 @@ def window_series(result: dict) -> list[tuple[str, str, list[float]]]:
     return series
 
 
-def record_window(bench, story: str, result: dict, package_required: bool) -> dict[str, str]:
+def record_window(bench, story: str, result: dict, package_required: bool,
+                  refusal: str | None = None) -> dict[str, str]:
     """Writes one window's series as result-v1 through `bench`.record (a BenchApp). Returns {metric: path or
-    "not recorded: <reason>"}; with `package_required`, a window powermetrics gave no complete sample of is one."""
+    "not recorded: <reason>"}; with `package_required`, a window powermetrics gave no complete sample of is one.
+    A `refusal` (the window did not run its scenario) records none of the window's series."""
+    if refusal:
+        return {metric: f"not recorded: {refusal}" for metric, _unit, _samples in window_series(result)}
     written = {}
     if package_required and not result.get("package_samples"):
         written[f"power.{result['label']}.package_mw"] = "not recorded: powermetrics gave no complete sample"
@@ -500,6 +551,19 @@ def record_window(bench, story: str, result: dict, package_required: bool) -> di
         except (RecordError, perf_result.ResultError) as error:
             written[metric] = f"not recorded: {error}"
     return written
+
+
+def judge_and_record(bench, story: str, result: dict, package_required: bool, record: bool,
+                     verdict=None) -> dict[str, str] | None:
+    """One measured window's outcome: `verdict` (a scenario's check that it ran, KeyTyping.verdict) puts its counts in
+    result["keys"] and may refuse the window, which then records nothing and names why. Otherwise the window's
+    series are written when `record` (an --out folder), and None is returned when not."""
+    refusal = None
+    if verdict:
+        result["keys"], refusal = verdict()
+    if record or refusal:
+        return record_window(bench, story, result, package_required, refusal=refusal)
+    return None
 
 
 def unrecorded(recorded: dict[str, dict[str, str]]) -> list[str]:
@@ -609,13 +673,15 @@ def main(argv=None) -> int:
         reason = run("openBrowser.chromium", url=base.replace("127.0.0.1", f"t{tabs}.localhost") + path)
         tabs += 0 if reason else 1
 
-    def settle_measure(label: str, during=None, settle: float | None = None):
+    def settle_measure(label: str, during=None, settle: float | None = None, verdict=None):
         time.sleep(args.settle if settle is None else settle)  # test script: let the app settle
         result = measure(pid, bundle, label, args.measure, during, sample_idle=args.sample_idle,
                          attribute=args.attribute, package=package)
         results.append(result)
-        if results_dir:
-            recorded[label] = record_window(bench, args.story, result, args.powermetrics == "require")
+        written = judge_and_record(bench, args.story, result, args.powermetrics == "require",
+                                   record=bool(results_dir), verdict=verdict)
+        if written is not None:
+            recorded[label] = written
 
     try:
         print(f"PERF-POWER-MACHINE sudo_powermetrics={package is not None}"
@@ -625,13 +691,8 @@ def main(argv=None) -> int:
         if "terminal" in scenarios:
             settle_measure("terminal")
         if "typing" in scenarios:
-            def typing(seconds: float):
-                deadline, index = time.monotonic() + seconds, 0
-                while time.monotonic() < deadline:
-                    app.call("debug.key", {"key": TYPED[index % len(TYPED)]}, timeout=10)
-                    index += 1
-                    time.sleep(1 / TYPING_KEYS_PER_S)  # test script: a person's typing pace
-            settle_measure("typing", during=typing, settle=10)
+            typing = KeyTyping(app)
+            settle_measure("typing", during=typing, settle=10, verdict=typing.verdict)
         open_tab("/static.html?n=1")
         if "tab1" in scenarios:
             settle_measure("tab1")
@@ -688,7 +749,7 @@ def main(argv=None) -> int:
     finally:
         bench.stop()
     report = {"app": bundle, "measure_s": args.measure, "results": results}
-    if results_dir:
+    if recorded:
         report["recorded"] = recorded
     if report_path:
         with open(report_path, "w") as handle:
