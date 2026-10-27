@@ -1,0 +1,8 @@
+{
+  "title": "Cloud machine menu: a fixture Cloud machine header's right-click menu with its Tools folder open",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "A fixture Cloud machine's header (no machine, sign-in or network), its right-click menu open", "rpc": {"method": "debug.cloud_machine_fixture", "params": {"sidebar": true, "menu": true}}, "wait": 1.5, "record": true, "optional": "debug.cloud_machine_fixture is DEBUG only"},
+    {"title": "Its Tools folder: type-select Tools, then the right arrow", "rpc": {"method": "debug.key", "params": {"sequence": [{"key_code": 17, "down": true, "after_ms": 40}, {"key_code": 17, "down": false, "after_ms": 20}, {"key_code": 31, "down": true, "after_ms": 40}, {"key_code": 31, "down": false, "after_ms": 20}, {"key_code": 31, "down": true, "after_ms": 40}, {"key_code": 31, "down": false, "after_ms": 20}, {"key_code": 37, "down": true, "after_ms": 40}, {"key_code": 37, "down": false, "after_ms": 20}, {"key_code": 1, "down": true, "after_ms": 40}, {"key_code": 1, "down": false, "after_ms": 20}, {"key_code": 124, "down": true, "after_ms": 150}, {"key_code": 124, "down": false, "after_ms": 20}]}}, "wait": 1.5}
+  ]
+}

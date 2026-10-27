@@ -34,6 +34,10 @@ extension AppServices {
         if signedIn, let machine = windows.active?.state.machineID, machines.session(machine) != nil {
             context.insert(.cloudWorkspace)
         }
+        #if DEBUG
+        // `debug.cloud_machine_fixture`: a capture's Cloud machine header, with no session or sign-in.
+        if DebugCloudMachineFixture.holdsCloudWorkspace { context.insert(.cloudWorkspace) }
+        #endif
         if registry.context != context { registry.context = context }
     }
 
