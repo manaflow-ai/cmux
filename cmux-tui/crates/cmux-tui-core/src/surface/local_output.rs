@@ -116,9 +116,13 @@ impl LocalOutput {
             let before = terminal_scroll_position(&term);
             let color_revision = term.color_revision();
             let color_reapply_revision = term.color_reapply_revision();
-            // As the hosted reader and the host parser: an activity counter
-            // the terminal cannot report counts as unchanged.
-            let cursor_activity = term.cursor_activity().ok();
+            #[allow(
+                clippy::expect_used,
+                reason = "INVARIANT: a live local terminal always reports cursor activity"
+            )]
+            let cursor_activity = term
+                .cursor_activity()
+                .expect("INVARIANT: valid local terminals expose cursor activity");
             let normalized =
                 crate::prompt_mode_reset::write_output(&mut term, output, &mut self.shell_marks);
             #[cfg(unix)]
@@ -129,7 +133,14 @@ impl LocalOutput {
             finished_commands = pty.observe_shell_marks(&mut term, || {
                 mux.upgrade().is_some_and(|mux| mux.terminal_command_history_enabled())
             });
-            let cursor_changed = term.cursor_activity().ok() != cursor_activity;
+            #[allow(
+                clippy::expect_used,
+                reason = "INVARIANT: a live local terminal always reports cursor activity"
+            )]
+            let cursor_changed = term
+                .cursor_activity()
+                .expect("INVARIANT: valid local terminals expose cursor activity")
+                != cursor_activity;
             pty.mouse_encoders.lock().recover_poison().sync_from_terminal(&term);
             let after = terminal_scroll_position(&term);
             let has_attach_taps = pty.broadcast_attach_output_flow(normalized.as_ref(), flow);
