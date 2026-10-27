@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import Testing
 @testable import CmuxNextDaemon
@@ -57,12 +58,60 @@ struct DaemonFeatureHelloTests {
         #expect(hello.lastReply?.hash == "h2")
         #expect(hello.lastReply?.applied == ["flagsFetch"])
         #expect(hello.lastReply?.pending.isEmpty == true)
+        #expect(hello.sessionValues == nil, "a handshake alone does not fix the session: the attached connection does")
         await connection.close()
+    }
+
+    private static func report(pending: [(String, app: Bool, daemon: Bool)]) throws -> ClientHelloRequest.FeatureReport {
+        let rows = pending.map { #"{"name":"\#($0.0)","app":\#($0.app),"daemon":\#($0.daemon)}"# }
+        let json = #"{"hash":"d","applied":[],"pending":[\#(rows.joined(separator: ","))]}"#
+        return try JSONDecoder().decode(ClientHelloRequest.FeatureReport.self, from: Data(json.utf8))
+    }
+
+    /// The finding p12-perf-process-150 fixes: an app launched with `energySaver` on attaches to a daemon that
+    /// started with it off. The daemon keeps off; the app's reader must run off too, never its launch value.
+    @Test func aPendingBothFeatureRunsWithTheDaemonsValueInTheApp() throws {
+        let hello = DaemonFeatureHello(hash: "app", values: ["energySaver": true, "terminalHolder": false])
+        let seen = Seen([])
+        hello.whenSessionValueKnown(of: "energySaver", launchValue: true) { value in seen.value.withLock { $0.append(value) } }
+        hello.record(try Self.report(pending: [("energySaver", app: true, daemon: false)]))
+        #expect(seen.value.withLock { $0 }.isEmpty, "the reader waits for the attached connection's answer")
+        hello.settle()
+        #expect(seen.value.withLock { $0 } == [false])
+        #expect(hello.sessionValues == ["energySaver": false, "terminalHolder": false])
+        // A reader that asks later gets the same session value at once.
+        hello.whenSessionValueKnown(of: "energySaver", launchValue: true) { value in seen.value.withLock { $0.append(value) } }
+        #expect(seen.value.withLock { $0 } == [false, false])
+        // A later connection's answer (after a daemon restart) changes the report, never the session.
+        hello.record(try Self.report(pending: []))
+        hello.settle()
+        #expect(hello.sessionValues?["energySaver"] == false)
+        #expect(hello.lastReply?.pending.isEmpty == true)
+    }
+
+    /// No answer (an older daemon, or startup gave up): the app's own values are the session's.
+    @Test func noAnswerKeepsTheAppsValues() {
+        let hello = DaemonFeatureHello(hash: "app", values: ["energySaver": true])
+        hello.record(nil)
+        hello.settle()
+        #expect(hello.sessionValues == ["energySaver": true])
+        let seen = Seen([])
+        hello.whenSessionValueKnown(of: "notInTheHello", launchValue: true) { value in seen.value.withLock { $0.append(value) } }
+        #expect(seen.value.withLock { $0 } == [true])
     }
 
     @Test func aPageRelayHelloNeverCarriesFeatures() throws {
         let features = ClientHelloRequest.Features(hash: "h", values: ["flagsFetch": false])
         #expect(ClientHelloRequest(role: .pageRelay, page: "history", features: features).features == nil)
         #expect(ClientHelloRequest(role: .main, features: features).features == features)
+    }
+}
+
+/// What a reader was called with: the `Mutex` in a class, since an escaping closure cannot capture a `Mutex`.
+private nonisolated final class Seen: Sendable {
+    let value: Mutex<[Bool]>
+
+    init(_ initial: [Bool]) {
+        value = Mutex(initial)
     }
 }

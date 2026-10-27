@@ -6,8 +6,9 @@
 //! Its `client-hello` carries the hash and the values of its `daemon` and
 //! `both` features. A verified app's off for a `process=daemon` kill switch
 //! applies at once; every other difference stays pending until the daemon
-//! restarts, and the daemon keeps its own value for the session, so no
-//! `both` feature is read from two sources in one session. Chromium's child
+//! restarts. The daemon keeps its own value for the session, and the app
+//! takes the daemon's value for each pending `both` feature
+//! (`DaemonFeatureHello`), so both processes run it the same. Chromium's child
 //! processes likewise keep the feature state they started with
 //! (`FeatureList::InitFromSharedMemory`, base/feature_list.cc).
 
@@ -224,6 +225,25 @@ mod tests {
         let newer_app =
             live.reconcile(Some("0"), [("appOnlyFeature", false), ("coldScrollback", true)], true);
         assert_eq!(newer_app, Reconciled { hash, applied: vec![], pending: vec![] });
+    }
+
+    /// A hello never reads the flags document or any file: this module's
+    /// code (its tests aside) names no std path but `std::sync::atomic` and
+    /// nothing of `sources`, the flags-document reader. The client-hello
+    /// step hands it only the hello's values (cmux-tui-core
+    /// `the_daemon_never_fetches_on_a_hello`).
+    #[test]
+    fn the_reconcile_module_does_no_io() {
+        let code = include_str!("hello.rs").split("#[cfg(test)]").next().unwrap();
+        assert!(!code.contains("sources"), "hello.rs must not reach the flags-document reader");
+        for (at, _) in code.match_indices("std::") {
+            assert!(
+                code[at..].starts_with("std::sync::atomic"),
+                "hello.rs names {}",
+                code[at..].lines().next().unwrap_or_default()
+            );
+        }
+        assert!(!code.contains("Command") && !code.contains("File"), "hello.rs does I/O");
     }
 
     #[test]

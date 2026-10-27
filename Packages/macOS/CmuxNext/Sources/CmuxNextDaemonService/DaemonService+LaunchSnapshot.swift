@@ -138,7 +138,10 @@ extension DaemonService {
         await withCheckedContinuation { connectionWaiters.append($0) }
     }
 
+    /// Runs at the first connection and when startup gives up: the moment the app's daemon features take
+    /// their session values (``DaemonFeatureHello/settle()``, the attached connection's answer or none).
     func resumeConnectionWaiters() {
+        featureHello?.settle()
         let waiters = connectionWaiters
         connectionWaiters.removeAll()
         for waiter in waiters { waiter.resume() }

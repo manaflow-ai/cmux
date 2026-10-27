@@ -1308,7 +1308,9 @@ signature at step 1, or the install-key proof, then reported again in step 2's
 result) an off for a `process=daemon` kill switch applies at once and is
 listed in `applied`; it stays off until the daemon restarts. Every other
 difference, a `both` feature's included, is `pending`: the daemon keeps its
-own value for its session, so no feature is read from two sources. Names the
+own value for its session, and the app runs each pending `both` feature with
+the daemon's value too (fixed by the hello of the connection it attaches), so
+no feature is read from two sources. Names the
 daemon does not declare are ignored. The daemon reads no file and fetches
 nothing for it. The member is left out before the daemon resolved its own
 features.

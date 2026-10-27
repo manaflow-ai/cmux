@@ -576,7 +576,9 @@ final class AppServices {
     /// Stills ambient motion loops while the saver is on (`MotionEnergyLink`, p14-energy-027).
     var energyMotion: MotionEnergyLink?
     /// The writer of `mainWork.energy`, the policy every scheduler reads, and the idle wakeup histogram.
-    private(set) lazy var energy = EnergyServices(source: mainWork.energy, isEnabled: features.isEnabled(.energySaver))
+    /// `energySaver` is a `both` feature: with a local daemon its value waits for the daemon's answer (`startEnergy`).
+    private(set) lazy var energy = EnergyServices(source: mainWork.energy,
+                                                  isEnabled: environment.daemonFeatureHello == nil ? features.isEnabled(.energySaver) : nil)
     /// Follows `energy.saver` into ``energy``'s policy driver (`followEnergySaver`).
     private var energySaverObservation: ServiceObservation<EnergySaverMode?>?
     /// `idle.wakeups.*` of the app and the local daemon (p09-observability-059); nil until `startIdleWakeups`.
@@ -884,6 +886,13 @@ final class AppServices {
     /// `AppDelegate` calls it, so an `AppServices` a test builds reads no IOKit (tests pass their own consumers).
     func startEnergy(keepAwake: KeepAwakeService = .shared, videos: BackdropVideoPlayers = .shared, design: DesignSettings = .shared) {
         energy.start(inputs: energyMonitor, suspend: features.isEnabled(.sleepWakeKeepalives) ? SuspendWatch(events: workspaceEvents, path: .system(on: mainWork)) : nil)
+        // The session's `energySaver`: the daemon's value when it kept another one (p12-perf-process-150).
+        environment.daemonFeatureHello?.whenSessionValueKnown(of: Feature.energySaver.name,
+                                                              launchValue: features.isEnabled(.energySaver)) { [weak self, mainWork] value in
+            mainWork.postFromAnyThread(.visible, owner: "AppServices.energySaverFeature") { [weak self] in
+                self?.energy.driver.resolveFeature(isEnabled: value)
+            }
+        }
         energyMotion = MotionEnergyLink(mainWork.energy, design: design)
         daemon.follow(mainWork.energy, on: mainWork)
         energyLink = energyMonitor.follow { [weak self] inputs in

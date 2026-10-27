@@ -41,11 +41,23 @@ public struct FeatureFlagsReport: Sendable {
         self.daemon = daemon
     }
 
-    /// The value the app runs with for `feature`: its live Debug toggle (source `local`) when one is set, else
-    /// the launch's resolution.
+    /// The value the app runs with for `feature`: for a `both` feature the local daemon kept another value of, the
+    /// daemon's (``daemonSessionValue(of:)``, under the launch's source); else its live Debug toggle (source
+    /// `local`) when one is set; else the launch's resolution. Every reader of the report (rows, hashes, field
+    /// reports) so names the value the app runs with.
     public func resolution(of feature: Feature) -> Feature.Resolution {
+        let launch = features.resolution(of: feature)
+        if let session = daemonSessionValue(of: feature) { return Feature.Resolution(isEnabled: session, source: launch.source) }
         if let value = liveLocal[feature.name]?() { return Feature.Resolution(isEnabled: value, source: .local) }
-        return features.resolution(of: feature)
+        return launch
+    }
+
+    /// The daemon's value of a `both` feature the app runs with this session instead of its launch value
+    /// (``DaemonFeatureHello/sessionValues``); nil when they are equal, not settled yet, or not a `both` feature.
+    public func daemonSessionValue(of feature: Feature) -> Bool? {
+        guard feature.process == .both, let session = daemon?.sessionValues?[feature.name],
+              session != features.resolution(of: feature).isEnabled else { return nil }
+        return session
     }
 
     /// Every feature with ``resolution(of:)``, in registry order.
@@ -65,6 +77,8 @@ public struct FeatureFlagsReport: Sendable {
     /// reader sees what an override changed. `local_overrides` is whether
     /// Labs and Debug toggles apply on this channel (DEV and NIGHTLY only). `daemon` is the local daemon's
     /// answer to the last hello (`{hash, applied, pending}`), null before one or from an older daemon.
+    /// A `both` feature the app runs with the daemon's value this session (``daemonSessionValue(of:)``) shows
+    /// that value, source `daemon`, and `app_enabled`, the app's own launch value.
     public var json: JSONValue {
         let channel = features.channel
         let reply = daemon?.lastReply
@@ -74,7 +88,10 @@ public struct FeatureFlagsReport: Sendable {
             "safe_mode": safeMode.map(Self.safeModeJSON) ?? .null,
             "unknown_names": .array(features.unknownNames.map(JSONValue.string)),
             "daemon": reply.map(Self.daemonJSON) ?? .null,
-            "features": .array(entries.map { Self.row($0.feature, $0.resolution, channel: channel, daemon: reply) }),
+            "features": .array(entries.map {
+                Self.row($0.feature, $0.resolution, channel: channel, daemon: reply,
+                         fromDaemon: daemonSessionValue(of: $0.feature) != nil)
+            }),
         ])
     }
 
@@ -87,8 +104,12 @@ public struct FeatureFlagsReport: Sendable {
     }
 
     static func row(_ feature: Feature, _ resolution: Feature.Resolution, channel: Feature.Channel,
-                    daemon: ClientHelloRequest.FeatureReport?) -> JSONValue {
+                    daemon: ClientHelloRequest.FeatureReport?, fromDaemon: Bool) -> JSONValue {
         guard case .object(var row) = row(feature, resolution, channel: channel) else { return .null }
+        if fromDaemon {
+            row["source"] = .string("daemon")
+            row["app_enabled"] = .bool(!resolution.isEnabled)
+        }
         if let pending = daemon?.pending.first(where: { $0.name == feature.name }) {
             row["daemon"] = .string("pending")
             row["daemon_enabled"] = .bool(pending.daemon)

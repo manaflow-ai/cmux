@@ -534,11 +534,44 @@ mod features {
         assert!(enabled(&mux, "flagsFetch"));
     }
 
+    /// The hello's feature step gets only the hello's values and the
+    /// daemon's in-memory `Live`: no mux, no path, no flags reader and no
+    /// fetcher. The fn type below fails to compile if that step ever takes
+    /// one, and cmux-features checks that `Live` itself does no I/O
+    /// (`hello::tests::the_reconcile_module_does_no_io`).
     #[test]
     fn the_daemon_never_fetches_on_a_hello() {
-        // The flags document is the owner's own start fetch
-        // (cmux-tui feature_flags.rs): a hello only reads the features
-        // installed in memory. Without them it answers with no report.
+        use super::super::HelloFeatures;
+        let report: fn(&HelloFeatures, &Live, bool) -> Value = HelloFeatures::report;
+        let hello = HelloFeatures {
+            hash: Some("0000000000000000".into()),
+            values: vec![("flagsFetch".into(), false), ("terminalHolder".into(), true)],
+        };
+        let live = Live::new(Snapshot::defaults_of(TABLE, Channel::Release));
+        let unverified = report(&hello, &live, false);
+        assert_eq!(unverified["applied"], json!([]), "{unverified}");
+        let mut pending = unverified["pending"].as_array().unwrap().clone();
+        pending.sort_by_key(|item| item["name"].as_str().unwrap().to_owned());
+        assert_eq!(
+            pending,
+            [
+                json!({"name": "flagsFetch", "app": false, "daemon": true}),
+                json!({"name": "terminalHolder", "app": true, "daemon": false}),
+            ],
+            "{unverified}"
+        );
+        let proved = report(&hello, &live, true);
+        assert_eq!(proved["applied"], json!(["flagsFetch"]), "{proved}");
+        assert_eq!(
+            proved["pending"],
+            json!([{"name": "terminalHolder", "app": true, "daemon": false}]),
+            "{proved}"
+        );
+        assert_eq!(proved["hash"], json!(live.hash()), "{proved}");
+    }
+
+    #[test]
+    fn a_daemon_without_features_answers_with_no_report() {
         let mux = mux("features-none");
         let mut client = Client::connect(&mux, "features-none");
         let reply =

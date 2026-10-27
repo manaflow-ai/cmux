@@ -110,7 +110,13 @@ impl HelloFeatures {
     /// The reply's `features`, after reconciling with the daemon's (kills
     /// only for a `verified` app); None before the daemon installed its own.
     fn reconcile(&self, mux: &Mux, verified: bool) -> Option<Value> {
-        let live = daemon_features(mux)?;
+        daemon_features(mux).map(|live| self.report(live, verified))
+    }
+
+    /// The reply's `features` from `live` alone. The hello's values and the
+    /// daemon's in-memory features are all this step gets, so it can read
+    /// no file, no flags document and no network.
+    fn report(&self, live: &Live, verified: bool) -> Value {
         let values = self.values.iter().map(|(name, enabled)| (name.as_str(), *enabled));
         let reconciled = live.reconcile(self.hash.as_deref(), values, verified);
         let pending: Vec<Value> = reconciled
@@ -118,7 +124,7 @@ impl HelloFeatures {
             .iter()
             .map(|item| json!({"name": item.name, "app": item.app, "daemon": item.daemon}))
             .collect();
-        Some(json!({"hash": reconciled.hash, "applied": reconciled.applied, "pending": pending}))
+        json!({"hash": reconciled.hash, "applied": reconciled.applied, "pending": pending})
     }
 }
 
