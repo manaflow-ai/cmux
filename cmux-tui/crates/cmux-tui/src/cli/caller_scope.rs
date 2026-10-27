@@ -7,7 +7,10 @@
 //! resolves the agent session on every call, so a chat that moved is
 //! followed) and puts those ids in place of `current` before the request
 //! leaves. `focused` is the object the person looks at, from the app's
-//! focus (`snapshot.get`).
+//! focus (`snapshot.get`). The CLI's `focused` uses the same rule
+//! (resolve.rs `focused_scopes`).
+
+#![cfg_attr(not(unix), allow(dead_code))]
 
 use serde_json::{Map, Value, json};
 

@@ -1,12 +1,12 @@
-//! `current` in a CLI command is the caller's own place, never the
-//! workspace the person looks at (https://github.com/manaflow-ai/cmux/issues/25590).
+//! Where an agent's or a person's CLI command acts when it names the
+//! caller's place implicitly (https://github.com/manaflow-ai/cmux/issues/25590):
+//! `current` is the caller's own object (resolve.rs `caller_scopes`),
+//! `focused` the one the person looks at, a terminal tab created from a
+//! person's terminal with no place opens in that terminal's pane, and a
+//! Chief turn is placed only by the app that owns its daemon.
 //!
-//! An agent that ran `cmux pane current split`, `cmux tab create terminal`
-//! or `cmux browser open` split or opened a tab in the daemon's active
-//! workspace: the CLI sent `current`, which the daemon reads as its active
-//! object. The CLI now sends the caller's ids: a terminal's from the daemon
-//! (terminal -> tab -> pane -> screen -> workspace), an agent chat's from the
-//! app's `system.identify`. `focused` is the app's focus.
+//! The CLI runs against a fake daemon and a fake app that record what they
+//! were asked.
 #![cfg(unix)]
 
 use std::io::{BufRead, BufReader, Write};
@@ -34,7 +34,6 @@ const FRONT_PANE: &str = "pane_88888888888888888888888888888888";
 const STALE_TERMINAL: &str = "term_00000000000000000000000000000000";
 /// Another machine.
 const MACHINE: &str = "machine_99999999999999999999999999999999";
-const URL: &str = "http://127.0.0.1:8765/page.html";
 /// Stands for the fake daemon's socket path in a test's arguments.
 const SOCKET: &str = "{daemon socket}";
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
@@ -66,14 +65,6 @@ fn a_current_parent_flag_is_the_callers_too() {
 }
 
 #[test]
-fn browser_open_without_an_app_opens_in_the_callers_pane() {
-    let run = Run::new().terminal().cli(&["--json", "browser", "open", URL]);
-    let created = run.mutation("tab.create_browser");
-    assert_eq!(created["workspace"], OWN_WS, "{}", run.stderr());
-    assert_eq!(created["pane"], OWN_PANE);
-}
-
-#[test]
 fn workspace_current_is_the_callers_workspace() {
     let run =
         Run::new().terminal().cli(&["--json", "workspace", "current", "rename", "--name", "dev"]);
@@ -88,14 +79,6 @@ fn an_agent_chats_current_is_where_the_app_places_its_chat() {
     assert_eq!(split["workspace"], OWN_WS, "{}", run.stderr());
     assert_eq!(split["pane"], OWN_PANE);
     assert!(run.app_methods().contains(&"system.identify".to_owned()));
-}
-
-#[test]
-fn an_agent_chat_the_app_cannot_place_fails_instead_of_acting_on_the_front() {
-    let run = Run::new().app(App::Unplaced).agent().cli(&["--json", "pane", "current", "split"]);
-    assert!(!run.output.status.success());
-    assert!(run.stderr().contains("caller.unresolved") || run.stderr().contains("cannot find"));
-    assert!(!run.daemon_operations().contains(&"pane.split".to_owned()));
 }
 
 #[test]
@@ -190,6 +173,26 @@ fn a_cloud_chief_turn_keeps_its_vms_current_and_never_sends_the_macs_ids() {
 }
 
 #[test]
+fn a_chief_turn_in_the_mac_app_acts_at_the_home_chat() {
+    let run = Run::new().app(App::Placed).chief_turn().cli(&["--json", "pane", "current", "split"]);
+    let split = run.mutation("pane.split");
+    assert_eq!(split["workspace"], OWN_WS, "{}", run.stderr());
+    assert_eq!(split["pane"], OWN_PANE);
+}
+
+#[test]
+fn focused_on_another_session_is_its_active_pane() {
+    let run = Run::new()
+        .app(App::Placed)
+        .terminal()
+        .cli(&["--json", "--socket", SOCKET, "pane", "focused", "split"]);
+    let split = run.mutation("pane.split");
+    assert_eq!(split["workspace"], "current", "{}", run.stderr());
+    assert_eq!(split["pane"], "current");
+    assert!(run.app.is_empty(), "no app was asked: {:?}", run.app_methods());
+}
+
+#[test]
 fn a_terminal_the_daemon_no_longer_shows_keeps_the_default_pane_for_a_new_tab() {
     let run = Run::new().stale_terminal().cli(&["--json", "tab", "create", "terminal"]);
     let created = run.mutation("tab.create_terminal");
@@ -218,6 +221,8 @@ struct Run {
     app: Option<App>,
     terminal: bool,
     agent: bool,
+    /// A Chief turn (`CMUX_CALLER_HOME_CHAT`).
+    home_chat: bool,
     /// The app is reached through `CMUX_SOCKET_PATH` (a relay) and does not
     /// own the request's daemon.
     relay: bool,
@@ -230,8 +235,6 @@ struct Run {
 enum App {
     /// The caller's chat is in the caller's place.
     Placed,
-    /// The app knows no chat for the caller (`found: false`).
-    Unplaced,
 }
 
 struct Finished {
@@ -272,7 +275,15 @@ impl Run {
         let dir = Path::new("/tmp")
             .join(format!("cmux-cplace-{}-{stamp}-{sequence}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        Self { dir, app: None, terminal: false, agent: false, relay: false, stale: false }
+        Self {
+            dir,
+            app: None,
+            terminal: false,
+            agent: false,
+            home_chat: false,
+            relay: false,
+            stale: false,
+        }
     }
 
     fn app(mut self, app: App) -> Self {
@@ -286,8 +297,17 @@ impl Run {
         self
     }
 
-    /// A Cloud Chief turn: `CMUX_CALLER_HOME_CHAT`, the app over a relay.
+    /// A Chief turn in the Mac app: `CMUX_CALLER_HOME_CHAT`, the app that
+    /// owns the daemon.
+    fn chief_turn(mut self) -> Self {
+        self.home_chat = true;
+        self
+    }
+
+    /// A Cloud Chief turn: `CMUX_CALLER_HOME_CHAT`, the Mac app over a
+    /// relay, and the VM's own daemon.
     fn cloud_chief_turn(mut self) -> Self {
+        self.home_chat = true;
         self.relay = true;
         self
     }
@@ -316,7 +336,7 @@ impl Run {
         if self.relay {
             // The app socket comes from the environment, and nothing ties
             // it to the daemon.
-            command.env("CMUX_SOCKET_PATH", &app_socket).env("CMUX_CALLER_HOME_CHAT", "1");
+            command.env("CMUX_SOCKET_PATH", &app_socket);
         } else {
             // A missing socket: the app is unreachable.
             command.arg("--app-socket").arg(&app_socket);
@@ -336,6 +356,9 @@ impl Run {
         if self.terminal {
             let terminal = if self.stale { STALE_TERMINAL } else { OWN_TERMINAL };
             command.env("CMUX_TUI_TERMINAL_ID", terminal);
+        }
+        if self.home_chat {
+            command.env("CMUX_CALLER_HOME_CHAT", "1");
         }
         if self.agent {
             command.env("CMUX_AGENT_SESSION", "01a17599");
@@ -446,7 +469,6 @@ fn app_response(mode: App, request: &Value) -> Value {
         "system.identify" => match mode {
             App::Placed => json!({"caller": {"agent_session": "01a17599", "workspace": OWN_WS,
                 "screen": OWN_SCREEN, "pane": OWN_PANE, "tab": OWN_TAB}, "beside": null}),
-            App::Unplaced => json!({"caller": {"agent_session": "01a17599", "found": false}}),
         },
         "snapshot.get" => json!({"topology": {"focus": {"window": "win_a",
             "workspace": FRONT_WS, "screen": FRONT_SCREEN, "pane": FRONT_PANE}}}),

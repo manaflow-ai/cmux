@@ -27,7 +27,9 @@ cmux tab list --json
 
 The terminal record lists the tabs that show it, and a tab record names its pane. Use those ids for every mutating command.
 
-In the CLI and the cmux MCP server (`cmux_exec`), `current` is the caller's own workspace, screen, pane or tab: a terminal's from the daemon, an agent chat's from the app on every call, so the person can look at another workspace while the agent works. `focused` is the one the person looks at; use it only when the user asked about the focused context, and say so. A chat the app cannot place fails with `caller.unresolved` instead of acting on the focused workspace. With `--socket` or `--session`, `current` is that session's active object.
+`caller` names your own workspace, screen, pane, tab or terminal (`cmux pane caller split --right`, `cmux workspace caller rename …`), and fails rather than guess when there is no caller. Inside cmux, `current` means the caller's object too; it is the focused object (what the user is looking at) only without a caller, such as a shell outside cmux, or with `--socket`/`--session`. Prefer `caller` in agent scripts.
+
+In the cmux MCP server (`cmux_exec`), `current` is the caller's own workspace, screen, pane or tab: the server asks the app where the chat is on every call, so the person can look at another workspace while the script runs. `focused` is the one the person looks at. A chat the app cannot place fails with `caller.unresolved` instead of acting on the focused workspace.
 
 An agent's new terminal or link that names no place opens beside its own chat, in its own workspace: `tab_create_terminal` (and `cmux tab create terminal`) with no workspace, screen or pane goes to the column right of the chat, or makes that column; `workspace_open_url` with no workspace opens through the app's beside-the-chat rule, never in Home. Name a pane only to put it somewhere else.
 
@@ -185,7 +187,7 @@ Lists act on that one session. `--all-sessions` runs a list on every local sessi
 - `pane split` and `workspace create` keep focus; pass `--focus` (MCP `focus: true`) only when the user asked to look at the new pane or workspace.
 - If a command rejects a valid id, report it. Do not work around by focusing.
 - Do not close, focus, move, or send input to another workspace unless the user names that target.
-- Old `workspace:N`, `pane:N` and `surface:N` refs are gone. Selectors are a public id, `current`, or an exact name (`name:<value>` forces a name).
+- Old `workspace:N`, `pane:N` and `surface:N` refs are gone. Selectors are a public id, `caller`, `current`, or an exact name (`name:<value>` forces a name).
 
 ## References
 

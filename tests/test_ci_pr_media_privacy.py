@@ -20,6 +20,8 @@ from unittest import mock
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+from nightly_workflow_text import nightly_text  # noqa: E402
 spec = importlib.util.spec_from_file_location("pr_media_privacy", ROOT / "scripts/ci/pr_media_privacy.py")
 assert spec and spec.loader
 privacy = importlib.util.module_from_spec(spec)
@@ -640,6 +642,9 @@ class WriterInventoryTests(unittest.TestCase):
                 text = (ROOT / path).read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
                 continue
+            if path == ".github/workflows/nightly.yml":
+                # With its moved step scripts (scripts/ci/nightly-steps/) put back inline.
+                text = nightly_text()
             if cls.MEDIA.search(text) and (cls.DIRECT.search(text) or cls.VIA_TOOL.search(text)):
                 found[path] = text
         return found

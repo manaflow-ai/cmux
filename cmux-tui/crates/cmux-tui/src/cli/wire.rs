@@ -115,72 +115,24 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     // The caller's terminal belongs to the session its environment names; an
     // explicit route targets that session's current workspace.
     let caller_route = global.socket.is_none() && global.session.is_none();
-    let socket_route = super::resolve::SocketRoute { path: &socket, derived: socket_is_derived };
-    // `current` is the caller's own place and `focused` the person's
-    // (caller_place.rs); a browser tab's place waits for the app path below.
-    #[cfg(unix)]
-    if let Err(code) = place_caller(
-        global,
-        &mut plan,
-        &mut request,
-        &mut encoded,
-        &mut reader,
-        caller_route,
-        &socket_route,
-        super::caller_place::Pass::Selectors,
-    ) {
-        return code;
-    }
-    // An agent's terminal with no place goes beside its chat (beside.rs),
-    // when the app that places the chat owns this machine's daemon.
-    #[cfg(unix)]
-    let beside_route = caller_route
-        && plan.params.as_object().is_some_and(super::caller_place::machine_is_local)
-        && super::caller_place::app_owns(global, &socket_route);
+    // An agent's terminal with no place goes beside its chat (beside.rs).
     #[cfg(unix)]
     match super::beside::run_cli(
         global,
         &mut plan,
         &mut request,
         &mut reader,
-        beside_route,
+        &socket,
+        caller_route,
         &key_report,
     ) {
         Ok(Some(reencoded)) => encoded = reencoded,
         Ok(None) => {}
         Err(code) => return code,
     }
-    // A browser tab in a session a cmux app owns is the app's to render.
-    #[cfg(unix)]
-    if let Some(code) = super::frontend_browser::run_in_app(
-        global,
-        &plan,
-        &request,
-        &mut reader,
-        &socket,
-        caller_route,
-        &key_report,
-    ) {
-        return code;
-    }
-    // A browser tab no app opened goes to the terminal caller's own pane.
-    #[cfg(unix)]
-    if let Err(code) = place_caller(
-        global,
-        &mut plan,
-        &mut request,
-        &mut encoded,
-        &mut reader,
-        caller_route,
-        &socket_route,
-        super::caller_place::Pass::DaemonBrowser,
-    ) {
-        return code;
-    }
     if !plan.resolve.is_empty() {
-        if let Err(failure) =
-            super::resolve::apply(&mut reader, &mut plan, caller_route, &socket_route)
-        {
+        let route = super::resolve::SocketRoute::new(&socket, socket_is_derived, global);
+        if let Err(failure) = super::resolve::apply(&mut reader, &mut plan, caller_route, &route) {
             // A browser tab's page zoom: the app hosts the page and owns it.
             #[cfg(unix)]
             if let super::resolve::Failure::AppAction { action, target } = &failure {
@@ -201,6 +153,19 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
             Ok(encoded) => encoded,
             Err(code) => return code,
         };
+    }
+    // A browser tab in a session a cmux app owns is the app's to render (after the lookups).
+    #[cfg(unix)]
+    if let Some(code) = super::frontend_browser::run_in_app(
+        global,
+        &plan,
+        &request,
+        &mut reader,
+        &socket,
+        caller_route,
+        &key_report,
+    ) {
+        return code;
     }
     if notify_desktop::drop_unsupported(&mut reader, &socket, &mut request)
         | super::launch_credential::attach(&mut reader, &socket, &mut request)
@@ -249,31 +214,6 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
         key_report.finish(global.output);
     }
     code
-}
-
-/// Puts the caller's own place in the request ([`super::caller_place`])
-/// and encodes it again when that changed it; `Err` is the exit code.
-#[cfg(unix)]
-#[allow(clippy::too_many_arguments)]
-fn place_caller(
-    global: &GlobalArgs,
-    plan: &mut RequestPlan,
-    request: &mut Value,
-    encoded: &mut Vec<u8>,
-    reader: &mut BufReader<Box<dyn transport::Stream>>,
-    caller_route: bool,
-    socket: &super::resolve::SocketRoute<'_>,
-    pass: super::caller_place::Pass,
-) -> Result<(), i32> {
-    match super::caller_place::apply(global, plan, reader, caller_route, socket, pass) {
-        Ok(true) => {
-            request["params"] = plan.params.clone();
-            *encoded = encode_request(request)?;
-            Ok(())
-        }
-        Ok(false) => Ok(()),
-        Err(failure) => Err(failure.report(global.output)),
-    }
 }
 
 pub(super) fn encode_request(request: &Value) -> Result<Vec<u8>, i32> {

@@ -205,9 +205,9 @@ async function showTab(name: string) {
   await settle();
 }
 
-async function openAccount() {
-  const row = itemsOf(menu()!).find((item) => labelOf(item) === "Account");
-  expect(row, `Account row in ${itemsOf(menu()!).map(labelOf).join(", ")}`).toBeDefined();
+async function openProfile() {
+  const row = itemsOf(menu()!).find((item) => labelOf(item) === "Profile");
+  expect(row, `Profile row in ${itemsOf(menu()!).map(labelOf).join(", ")}`).toBeDefined();
   await act(async () => row!.click());
   await settle();
   return menus().at(-1)!;
@@ -234,18 +234,18 @@ test("a started chat's model menu keeps the harness rail, and another harness's 
   expect(switched).toEqual([]);
 });
 
-test("each harness's Account row lists only its own accounts, and another account forks there", async () => {
+test("each harness's Profile row lists only its launch profiles, and another profile forks there", async () => {
   const { forked } = await mount(1, { ready: true });
   await open();
-  // The second accounts are no rail tabs of their own.
+  // Launch profiles are no rail tabs of their own.
   const tabs = railTabs().map((tab) => tab.getAttribute("aria-label"));
   expect(tabs).not.toContain("Claude (work)");
   expect(tabs).not.toContain("Codex (work)");
-  const claude = await openAccount();
+  const claude = await openProfile();
   expect(profileRows(claude).map(labelOf)).toEqual(["Claude Code", "Claude (work)"]);
   expect(claude.querySelector('.acpmux-quick-profile[aria-checked="true"]')?.textContent).toContain("Claude Code");
-  // The chat's own routes stay after its accounts.
-  expect(itemsOf(claude).map(labelOf)).toContain("CLI login");
+  // Real account routes have their own submenu, outside launch profiles.
+  expect(itemsOf(claude).map(labelOf)).not.toContain("CLI login");
   await act(async () =>
     profileRows(claude)
       .find((row) => labelOf(row) === "Claude (work)")!
@@ -255,7 +255,7 @@ test("each harness's Account row lists only its own accounts, and another accoun
   expect(forked).toEqual(["claude-work"]);
   await open();
   await showTab("Codex");
-  const codex = await openAccount();
+  const codex = await openProfile();
   expect(profileRows(codex).map(labelOf)).toEqual(["Codex", "Codex (work)"]);
   // A Fork to tab has no routes: they are the chat's own.
   expect(itemsOf(codex).map(labelOf)).not.toContain("CLI login");
@@ -279,11 +279,11 @@ test("while the chat can't fork (a turn running), Fork to is disabled and does n
   expect(forked).toEqual([]);
 });
 
-test("a chat with no message yet starts on another account of the harness from its Account row", async () => {
+test("a chat with no message yet starts on another launch profile from its Profile row", async () => {
   const { forked, switched } = await mount(0);
   await open();
   expect(railTabs().map((tab) => tab.getAttribute("aria-label"))).not.toContain("Claude (work)");
-  const account = await openAccount();
+  const account = await openProfile();
   expect(profileRows(account).map(labelOf)).toEqual(["Claude Code", "Claude (work)"]);
   await act(async () =>
     profileRows(account)
@@ -331,7 +331,7 @@ test("the chat composer forks through Continue In…'s chat.handoff.prepare", as
 // that harness's one entry, keeping only the profile it runs (`acpmuxHarness`). With `claude` and
 // `claude-sr` installed, the live pane's picker saw one Claude Code: a started Claude chat's Account
 // row left out `claude-sr`, and nothing forked to it. The real catalog join and the pane's own chips.
-test("a family's profiles that the catalog join folds into one harness are each its accounts, and fork", async () => {
+test("a family's profiles that the catalog join folds into one harness remain separate launch profiles, and fork", async () => {
   const { BUNDLED_MODEL_CATALOG, buildPickerCatalog } = await import("../src/agent-session/acpmux/modelCatalogData");
   const models = (id: string) =>
     BUNDLED_MODEL_CATALOG.harnesses
@@ -371,7 +371,7 @@ test("a family's profiles that the catalog join folds into one harness are each 
   await settle();
   await open();
   expect(railTabs().filter((tab) => tab.getAttribute("aria-label") === "Claude Code")).toHaveLength(1);
-  const account = await openAccount();
+  const account = await openProfile();
   expect(profileRows(account).map(labelOf)).toEqual(["Claude Code", "claude-sr"]);
   expect(account.querySelector('.acpmux-quick-profile[aria-checked="true"]')?.textContent).toContain("Claude Code");
   await act(async () =>

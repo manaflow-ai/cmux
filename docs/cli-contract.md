@@ -168,22 +168,24 @@ Every instance selector accepts:
 1. a public id: `ws_…`, `screen_…`, `pane_…`, `tab_…`, `term_…`, `browser_…`,
    `split_…`, `notification_…`, `agent_…`. Ids are persisted and survive app and
    daemon restarts;
-2. `current`, the caller's own object, or `focused`, the one the person looks at;
+2. `caller` or `current`, the caller's own object, or `focused`, the one the
+   person looks at;
 3. an exact name. `name:<value>` forces name interpretation and is required for
    names equal to `current`, names shaped like ids, and names containing `_`.
 
-For a `current` or name selector, missing structural ancestors default to
-`current` (for `focused`, to `focused`). `current` is the caller's own place:
-from a cmux terminal (`$CMUX_TUI_TERMINAL_ID`) the CLI reads the tab, pane,
-screen and workspace that hold it; from an agent chat (`$CMUX_AGENT_SESSION`)
-it asks the app where the chat is, and fails with `caller.unresolved` when the
-app cannot place it. So `cmux pane current split --right` splits the caller's
+For a `caller`, `current` or name selector, missing structural ancestors
+default to `current` (for `focused`, to `focused`). `caller` and `current` are
+the caller's own place: from a cmux terminal (`$CMUX_TUI_TERMINAL_ID`) the CLI
+reads the tab, pane, screen and workspace that hold it; from an agent chat
+(`$CMUX_AGENT_SESSION`) or a Chief turn it asks the app that owns the daemon
+where the chat is. So `cmux pane current split --right` splits the caller's
 own pane even while the person looks at another workspace, and
-`cmux tab create terminal` or `cmux browser open` from a terminal with no
-`--workspace`, `--screen` or `--pane` opens in the caller's pane. `focused` is
-the app's focused workspace and pane (the daemon's active one without an app).
-Outside cmux, or with `--socket` or `--session`, `current` is that session's
-active object. An id selector needs no ancestors. Nested forms name the chain
+`cmux tab create terminal` from a terminal with no `--workspace`, `--screen` or
+`--pane` opens in the caller's pane. `caller` fails without a caller; `current`
+is then the session's active object, as it is outside cmux and with
+`--socket`, `--session` or `--machine`. `focused` is the app's focused
+workspace, screen and pane, and the daemon's active ones without an app that
+owns the daemon. An id selector needs no ancestors. Nested forms name the chain
 explicitly: `cmux workspace api screen current pane current split --down`.
 
 A selector id, or an id given to `--workspace`, `--screen`, `--pane`, `--tab`,

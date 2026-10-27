@@ -389,6 +389,11 @@ extension LiveCoordinator {
         let onWaiting: @MainActor @Sendable () -> Void = { [weak self, weak session] in
             // Only the current link's pairing speaks for the banner (review M1).
             guard let self, let session, session.currentLink === link else { return }
+            // A code for this Mac came in after this link's challenge: a new link presents it.
+            if pairing.invites.pending(mac: macID) != nil {
+                self.redial(session)
+                return
+            }
             self.setPairing(keys.takeReplaced() ? .waitingAfterNewKeys(mac: name) : .waiting(mac: name), for: session)
         }
         let outcome = Task.detached { await pairing.finish(auth, macID: macID, onWaiting: onWaiting) }
@@ -398,6 +403,8 @@ extension LiveCoordinator {
             switch outcome {
             case .paired(let macDevice):
                 self.setPairing(.paired, for: session)
+                // Allowed already: a code for this Mac has nothing left to approve.
+                pairing.invites.drop(mac: macID)
                 session.acpmux.approver = AcpmuxHub.Approver(phoneID: pairing.phoneID, macDevice: macDevice) { reason in
                     try await keys.authorizeApproval(reason: reason)
                 }

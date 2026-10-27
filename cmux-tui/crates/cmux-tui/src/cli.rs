@@ -25,9 +25,6 @@ mod apps_run;
 mod beside;
 #[cfg(unix)]
 mod billing;
-#[cfg(unix)]
-mod caller_place;
-#[cfg(unix)]
 mod caller_scope;
 mod capability_cache;
 #[cfg(unix)]
@@ -35,6 +32,8 @@ mod chief;
 mod chief_target;
 #[cfg(unix)]
 mod cloud_machines;
+#[cfg(unix)]
+mod cloud_secret;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
@@ -53,6 +52,8 @@ mod host_mount;
 mod launch_credential;
 mod lifecycle;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
+#[cfg(unix)]
+mod sandbox_run;
 #[cfg(unix)]
 mod vm;
 #[cfg(unix)]
@@ -352,7 +353,9 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| chief::run_avatar_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
+        .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
+        .or_else(|| cloud_secret::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
@@ -947,6 +950,7 @@ USAGE
   cmux attach [START OPTIONS]
   cmux relay [ROUTING OPTIONS]
   cmux wg hub --config <wg-quick file> --socket <unix socket>
+  cmux wg dial --hub <unix socket> <host> <port>
 ";
 
 const ROOT_HELP_PROCESS_SUFFIX: &str = "\
@@ -1123,7 +1127,7 @@ CLI actions (the live action catalog is authoritative):
   sign-out                  open-mobile-pairing
   open-browser              port-list
   port-forward              port-close
-  machine-link
+  machine-link              enroll-machine
 
 Run `cmux action list --category cloud --json` for the current catalog and
 `cmux action describe <action> --json` for an action's arguments.
@@ -1158,7 +1162,7 @@ CLI アクション（現在の一覧はアクションカタログを参照）:
   sign-out                  open-mobile-pairing
   open-browser              port-list
   port-forward              port-close
-  machine-link
+  machine-link              enroll-machine
 
 現在のカタログは `cmux action list --category cloud --json`、引数は
 `cmux action describe <action> --json` で確認できます。
