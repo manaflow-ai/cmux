@@ -1142,9 +1142,9 @@ class Wiring(unittest.TestCase):
         is taken only on attempt 1 and only when placement named the job and the label."""
         fresh = "glaeda-dev-std-xcode-26.6"
         feat = "refs/heads/" + "feat-cmux-next"
-        # The slot's hook admits only cmux-scheme-compile, so the push's Release compile never reads it.
-        self.assertNotIn("fresh_runner", self.jobs["release-compile"]["runs-on"])
-        for name, event in (("cmux-scheme-compile", "workflow_dispatch"),):
+        # The slot's hook (glaeda#1636) admits cmux-scheme-compile and a push's Release compile, the
+        # nightly-next promote gate.
+        for name, event in (("cmux-scheme-compile", "workflow_dispatch"), ("release-compile", "push")):
             job = self.jobs[name]
             for attempt, outputs, expected in (
                     ("1", {"fresh_runner": fresh, "fresh_jobs": f" {name} "}, fresh),
@@ -1159,6 +1159,13 @@ class Wiring(unittest.TestCase):
                     context["inputs"] = {"dev_daily": event == "workflow_dispatch"}
                     self.assertEqual(evaluate(job["runs-on"], context), expected)
                     self.assertEqual(evaluate(job["env"]["CMUX_NEXT_RUNNER"], context), expected)
+                    if name == "release-compile":
+                        # A fleet fast check that failed without a verdict sends the compile to Blacksmith, but
+                        # an idle slot placement named comes first (review of #25817).
+                        context["needs"]["release-compile-fast"] = {"result": "failure", "outputs": {"verdict": ""}}
+                        failed = expected if expected == fresh else "blacksmith-6vcpu-macos-26"
+                        self.assertEqual(evaluate(job["runs-on"], context), failed)
+                        self.assertEqual(evaluate(job["env"]["CMUX_NEXT_RUNNER"], context), failed)
 
     def test_release_compile_never_targets_the_dedicated_nightly_runner(self):
         """The nightly runner builds and signs nightly-next; the Release compile that gates it never takes it,

@@ -162,6 +162,24 @@ def side_lane_reason(label: str) -> str | None:
     return forbidden_reason(label)
 
 
+NIGHTLY_NEXT_BUILD_VARIABLE = "CI_NIGHTLY_NEXT_BUILD_RUNNER"
+
+
+def nightly_next_build_reason(label: str) -> str | None:
+    """Why CI_NIGHTLY_NEXT_BUILD_RUNNER is not allowed, or None when it is fine.
+
+    nightly.yml's nightly-next app build reads it first, for every event and
+    attempt. It may name an owned side or dev label (glaeda-side-<class>-... or
+    glaeda-dev-<class>-...), the same trust as CI_SIDE_LANE_RUNNER, which that
+    build already takes. Anything else is held to the workflow policy. Empty is
+    fine (off).
+    """
+    for prefix in (SIDE_LANE_PREFIX, "glaeda-dev-"):
+        if label.startswith(prefix) and _owned_pattern().fullmatch("glaeda-" + label[len(prefix):]):
+            return None
+    return forbidden_reason(label)
+
+
 FAST_LANE_VARIABLE = "CI_FAST_LANE_RUNNER"
 FAST_LANE_PREFIX = "glaeda-fast-"
 
@@ -303,6 +321,8 @@ def drifted_runner_variables(
             reason = pool_order_reason(value.strip())
         elif name in SIDE_LANE_VARIABLES:
             reason = side_lane_reason(value.strip())
+        elif name == NIGHTLY_NEXT_BUILD_VARIABLE:
+            reason = nightly_next_build_reason(value.strip())
         elif name == FAST_LANE_VARIABLE:
             reason = fast_lane_reason(value.strip())
         elif name == SESSION_LANE_VARIABLE:

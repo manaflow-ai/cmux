@@ -10,7 +10,9 @@
 //! same lock every mode write takes (`write_mode_state`, the one setter).
 //! The sticky `web_control_ended` flag adds one rule: after a mode left
 //! the table, the harness's own return does not restore Web control; the
-//! unix socket or the local app setting an asking mode does.
+//! unix socket or the local app setting an asking mode does. A permission
+//! answer that only narrows, or that carries the person's own proof, is held
+//! to less (`Hub::web_answer_check`).
 //!
 //! `Control::Peer` (a proven peer daemon of the same user,
 //! `server/peer_auth.rs`) has no mode rule, unless it forwards a request
@@ -317,12 +319,8 @@ impl Hub {
         }
         // A remote chain's agent adopted with no record that it runs in the
         // sandbox (it started before the sandbox existed).
-        if session.floor.unsandboxed.load(Ordering::SeqCst) {
-            return Err(RpcError::new(
-                -32000,
-                "This chat's agent started before the remote sandbox. Restart this chat to control it remotely.",
-            )
-            .with_data(json!({"reason": "remote.unsandboxed_agent", "harness": meta.harness})));
+        if let Some(e) = unsandboxed_refusal(session, meta) {
+            return Err(e);
         }
         // A grant this harness process holds ("allow always", given by a
         // local client) runs its tool without a request in any later turn.
@@ -356,6 +354,38 @@ impl Hub {
 }
 
 impl Hub {
+    /// `web_control_check` for an answer to a pending prompt. An answer that
+    /// only narrows (`narrows`: a reject or a cancel) makes the session do
+    /// nothing it would not do anyway, and any client may give one
+    /// (`person.rs`): no Web rule holds it. An allow that carries the
+    /// person's decision proof or an enrolled approver's signature for this
+    /// very prompt (`proved`) is the person's own click on their own app or
+    /// phone, for this one request: the mode, policy and lasting-grant rules,
+    /// which keep a paired device from steering a session that acts without
+    /// asking, add nothing to it. It still allows once only
+    /// (`lasting_grant_refused`), and a Claude session the Mac started (D13)
+    /// or an unsandboxed agent stays refused. Any other Web answer is held
+    /// to the whole check.
+    pub(crate) fn web_answer_check(
+        &self,
+        session: &Session,
+        control: Control,
+        narrows: bool,
+        proved: bool,
+    ) -> Result<(), RpcError> {
+        if control != Control::Web || narrows {
+            return Ok(());
+        }
+        if !proved {
+            return self.web_control_check(session, control);
+        }
+        let meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(e) = self.local_claude_refusal(&meta) {
+            return Err(e);
+        }
+        unsandboxed_refusal(session, &meta).map_or(Ok(()), Err)
+    }
+
     /// D13: a Claude Code session the Mac started (not a remote chain) runs
     /// with the user's own Claude permission rules, whose allow rules run
     /// tools with no acpmux request, so the remote floor cannot hold there:
@@ -390,6 +420,18 @@ impl Hub {
             .with_data(json!({"reason": "remote.local_claude_session", "harness": meta.harness}))
         })
     }
+}
+
+/// A remote chain's agent adopted with no record that it runs in the
+/// sandbox: no Web control until the chat restarts.
+fn unsandboxed_refusal(session: &Session, meta: &crate::store::SessionMeta) -> Option<RpcError> {
+    session.floor.unsandboxed.load(Ordering::SeqCst).then(|| {
+        RpcError::new(
+            -32000,
+            "This chat's agent started before the remote sandbox. Restart this chat to control it remotely.",
+        )
+        .with_data(json!({"reason": "remote.unsandboxed_agent", "harness": meta.harness}))
+    })
 }
 
 /// A Web permission answer that would grant more than this one request
