@@ -191,9 +191,13 @@ export class SandboxTab {
 
   /// A send runs: a web update's reload waits (bounded by the send's and the read's deadlines). This
   /// page's own send holds it until its answer, even once a read found the tab's receipt: a refused
-  /// send's prompt comes back only with that answer.
+  /// send's prompt comes back only with that answer. A run the host reported holds it only while the
+  /// newest read answered: once one fails (``unread``), the run stays in view but no longer holds a
+  /// reload, since no timer is left to end the hold.
   busy(): boolean {
-    return this.mine !== undefined || (this.receipt === undefined && this.host.kind === "running");
+    return (
+      this.mine !== undefined || (this.receipt === undefined && !this.unread && this.host.kind === "running")
+    );
   }
 
   setMode(mode: RunMode) {
