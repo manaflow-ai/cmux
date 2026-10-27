@@ -22,7 +22,7 @@ import func CmuxSafeConcurrency.withOnceContinuation
 ///
 /// ```swift
 /// let launcher = ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.crash-watcher", priority: .bestEffort)
-/// let pid = try await launcher.run { () throws(SpawnError) -> pid_t in try spawnWatcher(launcher.priority) }
+/// let pid = try await launcher.run { (permit) throws(SpawnError) -> pid_t in try spawnWatcher(launcher.priority, permit) }
 /// ```
 public final class ChildProcessLauncher: Sendable {
     /// The priority of every spawn this launcher runs, and of the children it clamps.
@@ -60,5 +60,20 @@ public final class ChildProcessLauncher: Sendable {
     /// Queues `body` (a spawn nobody awaits, such as a watcher started at launch) and returns at once.
     public func post(_ body: @escaping @Sendable () -> Void) {
         queue.async(execute: DispatchWorkItem(qos: priority.qos, flags: .enforceQoS, block: body))
+    }
+
+    /// ``run(_:)`` whose body gets the launcher's ``BlockingPermit`` (issuer ``BlockingPermit/Issuer/dedicated``)
+    /// for the seams it calls (``blockingPosixSpawn(_:_:_:_:_:_:priority:_:fileID:line:)``).
+    ///
+    /// - Throws: What `body` throws.
+    public func run<T: Sendable, Failure: Error>(
+        _ body: @escaping @Sendable (borrowing BlockingPermit) throws(Failure) -> T
+    ) async throws(Failure) -> T {
+        try await run { () throws(Failure) -> T in try body(BlockingPermit(issuer: .dedicated)) }
+    }
+
+    /// ``post(_:)`` whose body gets the launcher's ``BlockingPermit``.
+    public func post(_ body: @escaping @Sendable (borrowing BlockingPermit) -> Void) {
+        post { () -> Void in body(BlockingPermit(issuer: .dedicated)) }
     }
 }
