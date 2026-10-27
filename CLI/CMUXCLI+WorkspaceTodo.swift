@@ -9,7 +9,7 @@ extension CMUXCLI {
 
     /// Resolves the `--workspace` / `--window` flags (plus the ambient
     /// caller-workspace default) shared by every status/todo subcommand.
-    private func workspaceTodoTarget(
+    func workspaceTodoTarget(
         _ commandArgs: [String],
         client: SocketClient,
         windowOverride: String?
@@ -33,12 +33,12 @@ extension CMUXCLI {
     }
 
     /// The target options every status/todo subcommand reads a value for.
-    private static let workspaceTodoTargetOptions: Set<String> = ["--workspace", "--window"]
+    static let workspaceTodoTargetOptions: Set<String> = ["--workspace", "--window"]
 
     /// The positional arguments left once options are stripped: words that
     /// don't start with `--` (these commands have no single-dash options, so
     /// `-5C` is text), plus everything after `--` taken literally.
-    private func workspaceTodoPositionals(_ rest: [String]) -> [String] {
+    func workspaceTodoPositionals(_ rest: [String]) -> [String] {
         var positionals: [String] = []
         var pastTerminator = false
         for argument in rest {
