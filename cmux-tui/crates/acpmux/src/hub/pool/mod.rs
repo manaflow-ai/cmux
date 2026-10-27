@@ -638,6 +638,9 @@ impl Hub {
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
     ) -> Option<String> {
+        // MDM's off comes and goes as the claim begins (reviews 120 and 122 of #23322).
+        #[cfg(debug_assertions)]
+        self.off_blip_seam();
         // REMOTE-FLOOR v3: a remote-origin chain is never served.
         if meta.remote_origin || !self.pool_enabled().await {
             return None;
@@ -663,9 +666,6 @@ impl Hub {
                 Take::Ready(mut p) => {
                     #[cfg(debug_assertions)]
                     self.claim_gap_report(&p);
-                    // While the entry is out of both the pool and the claims (review 120).
-                    #[cfg(debug_assertions)]
-                    self.off_blip_seam();
                     // A dead or wedged host is ended; the session starts on
                     // a fresh host (`spawn_hosted_child`).
                     let asked = std::time::Instant::now();
