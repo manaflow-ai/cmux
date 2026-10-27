@@ -1,11 +1,13 @@
 // Read the same CSS import graph as build-agent-pane-web.sh: dev.tsx's base sheets, then the
 // component sheets it reaches, in cascade order. Keep the bundler as the owner of that order.
+// Repo paths ("webviews/src/..."), as before: the bundler lists them relative to webviews/.
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 const WEBVIEWS = path.resolve(import.meta.dir, "../..");
+const REPO = path.resolve(WEBVIEWS, "..");
 let cached: string[] | undefined;
 
 export function paneSheets(): string[] {
@@ -32,7 +34,7 @@ export function paneSheets(): string[] {
     const sheets = readFileSync(list, "utf8")
       .split("\n")
       .filter(Boolean)
-      .map((sheet) => path.relative(WEBVIEWS, path.resolve(WEBVIEWS, sheet)));
+      .map((sheet) => path.relative(REPO, path.resolve(WEBVIEWS, sheet)));
     if (sheets.length === 0) throw new Error("pane stylesheet graph returned no styles");
     cached = sheets;
     return [...cached];
