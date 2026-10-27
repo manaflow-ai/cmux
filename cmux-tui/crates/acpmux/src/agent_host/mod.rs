@@ -34,6 +34,7 @@ pub(crate) mod scope;
 pub mod sweep;
 #[cfg(unix)]
 pub(crate) mod tree;
+pub(crate) mod unresolved;
 mod wait;
 pub use wait::{
     BOOTSTRAP_BUDGET, HostTimeout, QUERY_BUDGET, dead, death_watches, wait_dead_async,

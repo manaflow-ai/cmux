@@ -295,7 +295,7 @@ impl Hub {
         hold: FamilyHold,
     ) -> crate::agent::Fence {
         let fence = crate::agent::Fence::default();
-        Self::hold_fences(session, hold, vec![fence.clone()]);
+        Self::hold_fences(&session.id, hold, vec![fence.clone()]);
         fence
     }
 

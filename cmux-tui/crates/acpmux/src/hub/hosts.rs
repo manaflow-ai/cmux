@@ -226,6 +226,8 @@ impl Hub {
             Ok(records) => records,
             Err(e) => {
                 tracing::warn!("agent hosts: {e:#}");
+                // Any host may still hold a line the previous daemon handed it (fail closed).
+                self.hold_unresolved(None).await;
                 return;
             }
         };
@@ -247,6 +249,8 @@ impl Hub {
                 .await;
                 if ended {
                     agent_host::remove_artifacts(&dir, &record);
+                } else {
+                    self.hold_unresolved(Some(&record.session_id)).await;
                 }
                 continue;
             };
@@ -263,14 +267,23 @@ impl Hub {
             // MDM forces full access off (start-mode.json, loaded with the hub): a host left
             // running in it is ended, never adopted (#23322). One whose end failed is not adopted
             // either (review 51).
-            if self.end_if_runs_full_access(&session, off).await != FullAccessEnd::NotInFullAccess {
-                continue;
+            match self.end_if_runs_full_access(&session, off).await {
+                FullAccessEnd::NotInFullAccess => {}
+                FullAccessEnd::Ended => continue,
+                FullAccessEnd::StillRunning => {
+                    self.hold_unresolved(Some(&session.id)).await;
+                    continue;
+                }
             }
             if let Err(e) = self.adopt_one(&session, record).await {
                 tracing::warn!(session = %session.id, "agent host adoption failed: {e:#}");
             }
         }
         for unreadable in bad {
+            // Nothing proves what it may still write: held until its host is proven gone.
+            if !Self::host_record_gone(&unreadable.session_id) {
+                self.hold_unresolved(Some(&unreadable.session_id)).await;
+            }
             if let Some(session) = self.session_by_id(&unreadable.session_id) {
                 // MDM forces full access off (#23322): a live host this build cannot adopt ends
                 // too when its chat runs in full access (`end_unadopted_host`: its nonce proves it).
@@ -341,7 +354,7 @@ impl Hub {
         let mut hold = Some(self.family_hold().await);
         let adopted = self.adopt_held(session, record, &mut hold).await;
         if let Some(hold) = hold {
-            Self::hold_fences(session, hold, vec![agent_host::link::adopt_untold(&kept)]);
+            Self::hold_fences(&session.id, hold, vec![agent_host::link::adopt_untold(&kept)]);
         }
         adopted
     }

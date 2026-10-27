@@ -13,7 +13,7 @@ impl Hub {
     /// [`Self::hold_until_written`] for `fences` already made: one hold for all of them (a
     /// restart's, `hold_unwritten`, or an adoption's, `adopt_one`), so no push takes the gate between two of them.
     pub(super) fn hold_fences(
-        session: &Session,
+        session_id: &str,
         hold: FamilyHold,
         fences: Vec<crate::agent::Fence>,
     ) {
@@ -21,7 +21,7 @@ impl Hub {
             return;
         }
         let FamilyHold { gate, bound, mut cut } = hold;
-        let id = session.id.clone();
+        let id = session_id.to_owned();
         // task-owner: ends once every message settles (every carrier settles it) or is cut;
         // each try to end its writer below is bounded.
         tokio::spawn(async move {
@@ -63,6 +63,16 @@ impl Hub {
         } else {
             vec![agent_host::link::adopt_untold(record)]
         };
-        Self::hold_fences(session, hold, fences);
+        Self::hold_fences(&session.id, hold, fences);
+    }
+
+    /// Hosts of `session` (of every session: `None`) this adoption could not resolve: a record
+    /// it can not read, records it could not list, or an end at adoption that failed. Held until
+    /// an off push proves none of them lives (`Fence::unresolved`), so it never returns while
+    /// one may still write a line the previous daemon handed it.
+    pub(super) async fn hold_unresolved(&self, session: Option<&str>) {
+        let hold = self.family_hold().await;
+        let fence = crate::agent::Fence::unresolved(session.map(str::to_owned));
+        Self::hold_fences(session.unwrap_or("every session"), hold, vec![fence]);
     }
 }
