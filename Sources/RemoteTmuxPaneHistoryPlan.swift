@@ -33,7 +33,6 @@ struct RemoteTmuxPaneHistoryPlan: Equatable {
     static let maximumChunkCells =
         RemoteTmuxControlStreamParser.defaultMaximumCommandBlockBytes / 2 / maximumEncodedBytesPerCell
     static let maximumChunkRows = 2_000
-    static let minimumChunkRows = 32
 
     /// Ranges oldest first, ending at row `-1`.
     let chunks: [Chunk]
@@ -51,10 +50,8 @@ struct RemoteTmuxPaneHistoryPlan: Equatable {
         let available = max(0, historySize)
         let rows = min(available, max(0, maximumRows))
         let truncated = available > rows
-        let rowsPerChunk = max(
-            Self.minimumChunkRows,
-            min(Self.maximumChunkRows, max(1, maximumChunkCells) / max(1, paneWidth))
-        )
+        // No row floor: on a very wide pane even a few rows can pass the cell bound.
+        let rowsPerChunk = max(1, min(Self.maximumChunkRows, max(1, maximumChunkCells) / max(1, paneWidth)))
         var chunks: [Chunk] = []
         var top = rows
         while top > 0 {

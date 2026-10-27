@@ -186,8 +186,8 @@ import Testing
 
         let reseed = Task { await fixture.connection.reseedPaneWithFullHistory(paneId: 7) }
         try await waitForPendingCommands(on: fixture.connection) { !$0.isEmpty }
-        // 40 rows on a 10,000-column pane read as two chunks (32 rows is the minimum).
-        fixture.reply(number: 40, lines: ["40 10000 0"])
+        // 40 rows on a 6,000-column pane read as two chunks of 21 and 19 rows.
+        fixture.reply(number: 40, lines: ["40 6000 0"])
         try await waitForPendingCommands(on: fixture.connection) { kinds in
             kinds.contains { if case .paneState = $0 { return true } else { return false } }
         }
