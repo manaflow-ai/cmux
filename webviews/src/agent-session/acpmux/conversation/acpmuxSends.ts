@@ -95,6 +95,7 @@ export type ShellWord = { text: string; literal: boolean };
 export type ShellCommand = {
   words: ShellWord[];
   stdin?: ShellWord | "file";
+  stdinQuoted?: boolean;
   /// The path used by a file stdin redirect. It is only resolved when a prior command in
   /// this same recorded shell call wrote a literal here-document to that path.
   stdinFile?: ShellWord;
@@ -125,6 +126,7 @@ export function shellCommands(line: string): ShellCommand[] {
   const commands: ShellCommand[] = [];
   let words: ShellWord[] = [];
   let stdin: ShellCommand["stdin"];
+  let stdinQuoted = false;
   let stdinFile: ShellCommand["stdinFile"];
   let writes = false;
   let redirectWrites = 0;
@@ -149,6 +151,7 @@ export function shellCommands(line: string): ShellCommand[] {
         words,
         op,
         ...(stdin && { stdin }),
+        ...(stdinQuoted && { stdinQuoted: true as const }),
         ...(stdinFile && { stdinFile }),
         ...(writes && { writes: true as const }),
         ...(redirectWrites && { redirectWrites }),
@@ -163,6 +166,7 @@ export function shellCommands(line: string): ShellCommand[] {
     }
     words = [];
     stdin = undefined;
+    stdinQuoted = false;
     stdinFile = undefined;
     writes = false;
     redirectWrites = 0;
@@ -252,12 +256,14 @@ export function shellCommands(line: string): ShellCommand[] {
         stdinFile = op.startsWith("<") && op !== "<<" && op !== "<<-" && op !== "<<<" ? target : undefined;
       }
       if (op === "<<" || op === "<<-") {
+        if (fd !== undefined && fd !== "0") redirectUnsafe = true;
         const quoted = /['"\\]/.test(line.slice(start, next));
         const doc = { delimiter: target.text, strip: op === "<<-", quoted, stdin: true, command: {} };
         pending.push(doc);
         docs.push(doc);
         stdin = undefined;
         stdinFile = undefined;
+        stdinQuoted = quoted;
       } else if (op === "<<<") stdin = { text: `${target.text}\n`, literal: target.literal };
       else if (op === "<" || op === "<>") stdin = "file";
       continue;
@@ -322,15 +328,18 @@ function recordedMessageBodyChange(command: ShellCommand): RecordedMessageBodyCh
     // filesystem normalization. Keep the body unresolved unless the recorded path is unambiguous.
     if (!path.startsWith("/") || path.includes("//") || path.includes("/./") || path.includes("/../"))
       return { reset: true };
-    const body = command.words.length === 1 && name === "cat" ? command.stdin : undefined;
+    const body = command.words.length === 1 && name === "cat" && command.stdinQuoted ? command.stdin : undefined;
+    if (!body || typeof body === "string" || !body.literal) return { reset: true };
     return {
       path,
-      ...(body && typeof body !== "string" && body.literal ? { text: body.text } : {}),
+      text: body.text,
     };
   }
   if (command.writes || !name || MESSAGE_PATH_MUTATORS.has(name) || SHELLS.has(name) || name === "reach")
     return { reset: true };
-  return undefined;
+  // Unknown commands may write through libraries, scripts, xargs or shell APIs. Without a typed
+  // recorded-write event, fail closed instead of preserving an older producer body.
+  return { reset: true };
 }
 
 export function recordedMessageBodyChanges(line: string): RecordedMessageBodyChange[] {
@@ -641,7 +650,13 @@ export function acpmuxSend(
   for (const [index, command] of commands.entries()) {
     // Apply producer events in shell order before examining a send. A later unknown write or
     // shadowing redirect therefore cannot reuse an earlier heredoc body.
-    if (!uncertainControlFlow) applyRecordedMessageBodyChange(command, recordedFiles);
+    const commandWords = unwrapped(command.words);
+    const commandName = program(commandWords[0]);
+    const isSendCommand =
+      ((commandName === "acpmux" || commandName === "acpmux-debug-cli") &&
+        commandWords.some((word) => word.text === "send")) ||
+      (commandName === "cmux" && commandWords[1]?.text === "acp" && commandWords[2]?.text === "send");
+    if (!uncertainControlFlow && !isSendCommand) applyRecordedMessageBodyChange(command, recordedFiles);
     const words = unwrapped(command.words);
     const name = program(words[0]);
     let send: AcpmuxSend | undefined;

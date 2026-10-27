@@ -276,6 +276,11 @@ describe("acpmuxSend", () => {
     expect(recordedMessageBodyChanges("cat <> /tmp/message <<'EOF'\nread-write\nEOF")).toEqual([{ reset: true }]);
     expect(recordedMessageBodyChanges("cat > \"$MESSAGE\" <<'EOF'\ndynamic\nEOF")).toEqual([{ reset: true }]);
     expect(recordedMessageBodyChanges("cd /tmp")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges('python3 -c \'open("/tmp/message", "w").write("new")\'')).toEqual([
+      { reset: true },
+    ]);
+    expect(recordedMessageBodyChanges("cat > /tmp/message 3<<'EOF'\nwrong fd\nEOF")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("cat > /tmp/message <<EOF\nunquoted\nEOF")).toEqual([{ reset: true }]);
     expect(read("cat > /tmp/message >> /tmp/other <<'EOF'\nambiguous\nEOF\nacpmux send lane - < /tmp/message")).toEqual(
       {
         target: "lane",
