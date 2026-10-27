@@ -80,6 +80,9 @@ pub(super) fn subscribe_command(
     let writer = writer.clone();
     // Its events share the reply FIFO (spec/transports.md "Reply and event order").
     let outbound_stream = writer.start_control_stream(&subscription_overflow_json())?;
+    // A later reply that follows events parks behind them in this mailbox
+    // (reply_order.rs); the loop below releases it after writing them.
+    writer.reply_order.register(events.reply_fence_target());
     cmux_threads::spawn("mux-events-out", REQUEST_THREAD_QOS, move || {
         let mut transport_overflow = false;
         for challenge in pending_pairings {

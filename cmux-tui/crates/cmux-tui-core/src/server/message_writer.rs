@@ -189,6 +189,8 @@ pub(super) struct MessageWriter {
     /// The connection's caller class for `debug-daemon-locks`, read by its
     /// reader and dispatcher with no lock (server/origin_gate.rs sets it).
     pub(super) lock_caller: Arc<crate::diagnostics::LockCallerCell>,
+    /// The connection's subscriptions its replies follow (reply_order.rs).
+    pub(super) reply_order: Arc<super::reply_order::ReplyOrder>,
 }
 
 impl MessageWriter {
@@ -212,6 +214,7 @@ impl MessageWriter {
             api_revision: Arc::default(),
             reply: None,
             lock_caller: Arc::default(),
+            reply_order: Arc::default(),
         }
     }
 

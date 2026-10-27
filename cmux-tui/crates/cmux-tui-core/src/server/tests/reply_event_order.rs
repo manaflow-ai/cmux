@@ -1,14 +1,11 @@
 //! The reply/event order rule (spec/transports.md "Reply and event order").
 //!
 //! The `*_under_stream_flood_*` tests run a request through the server's
-//! request path (`handle_message`: the command runs, then its reply is
-//! enqueued at once, as the connection loop does). The request emits its
-//! event before it returns, but the subscription thread moves that event from
-//! the subscriber mailbox to the writer later, so today the reply is written
-//! first. They stay red, and ignored, until p05-ipc-120 emits a request's
-//! events into the writer before its reply is enqueued; run them with
-//! `cargo test -p cmux-tui-core --lib reply_event_order -- --include-ignored`.
-//! The other tests check the writer's FIFOs alone.
+//! request path (`handle_message`, as the connection loop does). The request
+//! emits its event before it returns and the subscription thread moves it
+//! from the subscriber mailbox to the writer later; the reply parks behind it
+//! in that mailbox (server/reply_order.rs, p05-ipc-120), so it is written
+//! after. The other tests check the writer's FIFOs alone.
 
 use super::*;
 

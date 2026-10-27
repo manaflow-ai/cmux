@@ -6,6 +6,11 @@
 /// Every daemon-side feature in registry order; a handle is its index here.
 pub(crate) const TABLE: &[crate::FeatureDef] = &[
     crate::FeatureDef {
+        name: "admitThenReply",
+        defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        process: crate::Process::Daemon,
+    },
+    crate::FeatureDef {
         name: "agentToolsInDaemon",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
         process: crate::Process::Daemon,
@@ -60,6 +65,8 @@ pub(crate) const TABLE: &[crate::FeatureDef] = &[
 /// One handle per daemon feature, for `Snapshot::is_enabled`.
 pub mod feature {
     feature_handles!(super::TABLE;
+        /// A daemon request whose registry commit result is decided in memory replies once the session journal writer has the commit queued, without waiting for the journal write; a later read waits for it, and a write the journal does not take shows a journal-degraded status.
+        ADMIT_THEN_REPLY = "admitThenReply",
         /// The acpmux daemon serves each agent chat's sub-session and secret tools itself, to that chat's own caller token only, instead of two tool processes per chat; a harness that runs its own tool servers gets a byte-copy relay under 1 MB.
         AGENT_TOOLS_IN_DAEMON = "agentToolsInDaemon",
         /// The daemon compresses the scrollback of a terminal that no client views and that printed nothing for 10 minutes, at utility priority and never under memory pressure; any access restores it first. Stays off until the kernel compressor measurement (p07-memory-112) shows a 2x gain.

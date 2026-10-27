@@ -163,8 +163,11 @@ pub(crate) struct RegistryConnection {
     write_path_stats: crate::diagnostics::WritePathStats,
     /// The journal writer, once it runs (see `registry_intent`).
     pub(super) intent_sink: std::sync::OnceLock<Arc<dyn super::RegistryIntentSink>>,
-    /// Indeterminate registry commits still owed to state (cx-g1fa.3).
-    pub(super) unsettled: std::sync::Mutex<Vec<super::registry_intent::UnsettledReceipt>>,
+    /// Indeterminate registry commits still owed to state (cx-g1fa.3) and
+    /// admitted intents still without their writer answer (p05-ipc-120).
+    pub(super) unsettled: std::sync::Mutex<super::registry_intent::Unsettled>,
+    /// The admit then reply gate, sequence and counters (`admitted_reply`).
+    pub(super) admit: super::admitted_reply::AdmitState,
     /// Flushes the WAL to disk off every request path (`wal_durability`);
     /// `None` for an in-memory registry.
     durability: Option<super::wal_durability::WalDurability>,
@@ -269,6 +272,7 @@ impl RegistryConnection {
             write_path_stats: crate::diagnostics::WritePathStats::default(),
             intent_sink: std::sync::OnceLock::new(),
             unsettled: std::sync::Mutex::default(),
+            admit: super::admitted_reply::AdmitState::from_env(),
             durability,
             #[cfg(test)]
             journal_hooks: std::sync::Mutex::default(),
@@ -302,6 +306,7 @@ impl RegistryConnection {
     #[track_caller]
     pub(crate) fn get_at(&self, site: &'static Location<'static>) -> RegistryConnectionGuard<'_> {
         self.debug_assert_lock_order();
+        self.read_barrier_unless_held(site);
         let wait = self.acquire_rank();
         let reentry = self.connection.is_owned_by_current_thread();
         let timed = RequestPathHold::note_acquire(reentry, site);
@@ -326,8 +331,9 @@ impl RegistryConnection {
     #[track_caller]
     pub(crate) fn pin(&self) -> RegistryConnectionPin {
         self.debug_assert_lock_order();
-        let wait = self.acquire_rank();
         let site = Location::caller();
+        self.read_barrier_unless_held(site);
+        let wait = self.acquire_rank();
         let reentry = self.connection.is_owned_by_current_thread();
         let timed = RequestPathHold::note_acquire(reentry, site);
         let guard = if reentry {
@@ -342,6 +348,15 @@ impl RegistryConnection {
             _guard: guard,
             _rank: wait.held(),
             _request_path: RequestPathHold::held(timed),
+        }
+    }
+
+    /// A first acquisition reads after every admitted intent
+    /// (`RegistryConnection::read_barrier`, before the lock and its rank);
+    /// a re-entry cannot wait for the writer, which needs this lock.
+    fn read_barrier_unless_held(&self, site: &'static Location<'static>) {
+        if !self.connection.is_owned_by_current_thread() {
+            self.read_barrier(site);
         }
     }
 

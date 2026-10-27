@@ -27,7 +27,7 @@ mod effect_intents;
 mod writer_qos;
 pub(crate) use completion::JournalBatchReceipt;
 use completion::{JournalIngressCompletion, complete_batch_error, complete_batch_success};
-pub(crate) use effect_intents::{EffectSend, PendingRegistryReceipt};
+pub(crate) use effect_intents::{AdmitSend, EffectSend, PendingRegistryReceipt};
 
 const JOURNAL_TERMINAL_QUEUE_CAPACITY: usize = 1024;
 const JOURNAL_DURABLE_QUEUE_CAPACITY: usize = 256;
@@ -1171,9 +1171,8 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                         // drops the last other owner after its receipt must not
                         // leave the final drop (and its session lease) to this
                         // thread.
-                        // A batch no request waits for (background events)
-                        // asks for its own flush; a request's reply does.
-                        if batch.iter().all(|queued| queued.completion.is_none()) {
+                        // A batch no reply follows asks for its own flush.
+                        if completion::no_reply_flushes(&batch) {
                             mux.request_registry_flush();
                         }
                         drop((writer, mux));

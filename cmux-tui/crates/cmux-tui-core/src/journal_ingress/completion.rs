@@ -27,6 +27,9 @@ pub(super) enum JournalIngressCompletion {
         sender: SyncSender<Result<crate::workspace_registry::RegistryReceipt, String>>,
         deadline: Instant,
         commit_fence: Arc<AtomicU8>,
+        /// Admitted (admit then reply): its request replied before this
+        /// commit, so no reply asks for the commit's flush; the writer does.
+        admitted: bool,
     },
 }
 
@@ -37,6 +40,12 @@ impl JournalIngressCompletion {
             | Self::Producer { deadline, .. }
             | Self::Effect { deadline, .. } => *deadline,
         }
+    }
+
+    /// True when no request waits for this commit to reply: it asks for
+    /// its own flush once committed.
+    pub(super) fn replied_before_commit(&self) -> bool {
+        matches!(self, Self::Effect { admitted: true, .. })
     }
 
     pub(super) fn commit_fence(&self) -> &AtomicU8 {
@@ -59,6 +68,16 @@ pub(crate) enum JournalBatchReceipt {
     /// writer rolled back to its savepoint while the rest of the batch
     /// committed.
     Effect(Result<crate::workspace_registry::RegistryReceipt, String>),
+}
+
+/// True when no request reply asks for the flush of `batch` once it
+/// committed: no request waits for it (background events), or it carries an
+/// admitted commit, whose request replied before the commit.
+pub(super) fn no_reply_flushes(batch: &[QueuedJournalEvent]) -> bool {
+    batch.iter().all(|queued| queued.completion.is_none())
+        || batch.iter().any(|queued| {
+            queued.completion.as_ref().is_some_and(JournalIngressCompletion::replied_before_commit)
+        })
 }
 
 pub(super) fn complete_batch_success(
@@ -107,5 +126,36 @@ pub(super) fn complete_batch_error(batch: &[QueuedJournalEvent], error: String) 
             }
             None => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use cmux_threads::sync::mpsc::sync_channel;
+
+    use super::super::{COMMIT_PENDING, JournalIngressEvent};
+    use super::*;
+
+    fn queued(completion: Option<JournalIngressCompletion>) -> QueuedJournalEvent {
+        QueuedJournalEvent { event: JournalIngressEvent::TerminalBarrier, completion }
+    }
+
+    fn effect(admitted: bool) -> Option<JournalIngressCompletion> {
+        let (sender, _receiver) = sync_channel(1);
+        Some(JournalIngressCompletion::Effect {
+            sender,
+            deadline: Instant::now(),
+            commit_fence: Arc::new(AtomicU8::new(COMMIT_PENDING)),
+            admitted,
+        })
+    }
+
+    /// An admitted commit's request replied before the commit, so the
+    /// writer asks for the flush that reply used to ask for (p05-ipc-120).
+    #[test]
+    fn the_writer_flushes_a_batch_no_reply_follows() {
+        assert!(no_reply_flushes(&[queued(None)]), "background events");
+        assert!(!no_reply_flushes(&[queued(None), queued(effect(false))]), "a waiting request");
+        assert!(no_reply_flushes(&[queued(effect(false)), queued(effect(true))]), "admitted");
     }
 }

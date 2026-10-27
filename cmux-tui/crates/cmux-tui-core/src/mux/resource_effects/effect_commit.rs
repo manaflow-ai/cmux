@@ -13,7 +13,7 @@
 use std::sync::Weak;
 
 use super::*;
-use crate::journal_ingress::EffectSend;
+use crate::journal_ingress::{AdmitSend, EffectSend};
 use crate::workspace_registry::{
     EffectCommitFinish, EffectCommitIntent, EffectCommitReceipt, RegistryIntent,
     RegistryIntentSink, RegistryReceipt,
@@ -37,6 +37,18 @@ impl RegistryIntentSink for MuxIntentSink {
         match self.0.upgrade() {
             Some(mux) => mux.journal_ingress.send_effect(intent, site),
             None => EffectSend::NotQueued(Box::new(intent)),
+        }
+    }
+
+    #[track_caller]
+    fn admit(
+        &self,
+        intent: RegistryIntent,
+        site: &'static std::panic::Location<'static>,
+    ) -> AdmitSend {
+        match self.0.upgrade() {
+            Some(mux) => mux.journal_ingress.admit_effect(intent, site),
+            None => AdmitSend::NotQueued(Box::new(intent)),
         }
     }
 }
@@ -81,6 +93,7 @@ impl Mux {
     #[track_caller]
     pub(crate) fn settle_registry_receipts(&self, registry: &WorkspaceRegistry, state: &mut State) {
         let settled = registry.connection.take_settled_receipts();
+        self.emit_journal_degraded(registry);
         if settled.is_empty() {
             return;
         }

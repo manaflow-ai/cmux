@@ -59,6 +59,7 @@ mod receipt_env;
 pub(crate) mod registry_connection;
 pub(crate) mod wal_durability;
 pub(crate) use registry_connection::RegistryConnection;
+pub(crate) mod admitted_reply;
 mod registry_intent;
 pub(crate) use registry_intent::{
     OwnedTransactionWrite, RegistryIntent, RegistryIntentSink, RegistryReceipt, SettleState,

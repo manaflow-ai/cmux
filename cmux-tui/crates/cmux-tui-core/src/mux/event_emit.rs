@@ -186,6 +186,12 @@ impl Mux {
         }
     }
 
+    /// Publish the delta of a workspace revision that is committed, or
+    /// admitted with its prepare-time receipt (admit then reply,
+    /// `workspace_registry::admitted_reply`). The caller still holds the
+    /// registry and emits before it replies, so the reply follows its events
+    /// on the connection's one control FIFO (cmux-tui/spec/transports.md,
+    /// p05-ipc-007) whether or not the journal writer has committed yet.
     pub(super) fn emit_committed_workspace_delta(
         &self,
         _registry: &WorkspaceRegistry,
@@ -194,6 +200,17 @@ impl Mux {
     ) {
         debug_assert!(delta.workspace_revision.is_some());
         self.emit_tree_delta(delta, selection_resync);
+    }
+
+    /// Publish each journal-degraded note of `registry`: an admitted intent
+    /// the journal writer did not commit as its reply said. The in-memory
+    /// state keeps the reply; the status tells subscribers the session
+    /// journal is behind it until the next restart reconciles. Called by the
+    /// state holder that settles receipts (`settle_registry_receipts`).
+    pub(crate) fn emit_journal_degraded(&self, registry: &WorkspaceRegistry) {
+        for note in registry.connection.take_journal_degraded() {
+            self.emit(MuxEvent::Status(format!("journal-degraded: {note}")));
+        }
     }
 
     pub(super) fn emit_empty_if_current(&self, workspace_revision: Option<u64>) {

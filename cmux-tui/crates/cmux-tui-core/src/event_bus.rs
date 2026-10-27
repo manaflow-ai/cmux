@@ -10,12 +10,24 @@ use std::time::{Duration, Instant};
 use crate::event_cause::EventCause;
 use crate::{MuxEvent, PaneId, ScreenId, SurfaceId, TreeDelta, TreeDeltaKind, WorkspaceId};
 
+mod reply_fence;
+pub(crate) use reply_fence::{ReplyFenceTarget, park_reply};
+
+/// How many events this thread has emitted (wrapping); compare two reads.
+pub(crate) fn events_emitted_on_this_thread() -> u64 {
+    EMITTED_ON_THREAD.with(std::cell::Cell::get)
+}
+
 // A subscriber may drain accepted events after crossing this limit, then observes a disconnect.
 const MAX_PENDING_EVENTS: usize = 4_096;
 
 type SessionPathUpdate = (SurfaceId, WorkspaceId, ScreenId, PaneId);
 
 thread_local! {
+    /// Events this thread emitted, ever: a request compares it before and
+    /// after its handler to know whether its reply must follow events
+    /// (`reply_fence`).
+    static EMITTED_ON_THREAD: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     /// Session path updates held back while a resource mutation is staged
     /// on a candidate state. `None` outside [`defer_session_paths`].
     static DEFERRED_SESSION_PATHS: RefCell<Option<Vec<SessionPathUpdate>>> =
@@ -103,6 +115,8 @@ struct MuxEventMailboxState {
     events: VecDeque<(u128, MuxEvent, EventCause)>,
     coalesced_sequences: HashMap<CoalescedEventKey, u128>,
     coalesced: BTreeMap<u128, (CoalescedEventKey, MuxEvent, EventCause)>,
+    /// Replies parked behind the events queued before them (`reply_fence`).
+    fences: BTreeMap<u128, reply_fence::ParkedReply>,
     closed: bool,
     overflowed: bool,
 }
@@ -223,6 +237,7 @@ impl MuxEventBroadcaster {
     }
 
     pub(crate) fn emit_caused(&self, event: MuxEvent, cause: EventCause) {
+        EMITTED_ON_THREAD.with(|emitted| emitted.set(emitted.get().wrapping_add(1)));
         let mut subscribers = self.subscribers.lock().recover_poison();
         subscribers.retain_mut(|subscriber| {
             let Some(mailbox) = subscriber.mailbox.upgrade() else { return false };
@@ -567,8 +582,28 @@ impl MuxEventMailbox {
     }
 
     fn close(&self) {
-        self.state.lock().recover_poison().closed = true;
+        let mut state = self.state.lock().recover_poison();
+        state.closed = true;
+        let fences = std::mem::take(&mut state.fences);
+        drop(state);
         self.changed.notify_all();
+        // Released after the lock: a release may send a reply.
+        drop(fences);
+    }
+
+    /// Queue `park` after every event pending now; `Err` hands it back
+    /// when the mailbox is closed.
+    fn park(&self, park: reply_fence::ParkedReply) -> Result<(), reply_fence::ParkedReply> {
+        let mut state = self.state.lock().recover_poison();
+        if state.closed {
+            return Err(park);
+        }
+        let sequence = state.next_sequence;
+        state.next_sequence = state.next_sequence.saturating_add(1);
+        state.fences.insert(sequence, park);
+        drop(state);
+        self.changed.notify_all();
+        Ok(())
     }
 }
 
@@ -624,6 +659,18 @@ impl MuxEventMailboxState {
         self.pop_caused().map(|(event, _)| event)
     }
 
+    /// The parked reply that comes before every pending event, if any.
+    fn pop_leading_fence(&mut self) -> Option<reply_fence::ParkedReply> {
+        let fence = *self.fences.first_key_value()?.0;
+        let event = self.events.front().map(|(sequence, ..)| *sequence);
+        let coalesced = self.coalesced.first_key_value().map(|(sequence, _)| *sequence);
+        let first_event = [event, coalesced].into_iter().flatten().min();
+        if first_event.is_some_and(|first| first < fence) {
+            return None;
+        }
+        self.fences.pop_first().map(|(_, park)| park)
+    }
+
     fn pop_caused(&mut self) -> Option<(MuxEvent, EventCause)> {
         let event_sequence = self.events.front().map(|(sequence, ..)| *sequence);
         let coalesced_sequence = self.coalesced.first_key_value().map(|(sequence, _)| *sequence);
@@ -641,6 +688,13 @@ impl MuxEventMailboxState {
 impl MuxEventReceiver {
     pub fn close(&self) {
         self.mailbox.close();
+    }
+
+    /// Where a reply can be parked behind this receiver's pending events
+    /// (`reply_fence`); only a receiver drained by
+    /// [`Self::recv_caused_until_interrupted`] releases them in order.
+    pub(crate) fn reply_fence_target(&self) -> ReplyFenceTarget {
+        ReplyFenceTarget::of(&self.mailbox)
     }
 
     /// Wake this receiver alone with a `TreeChanged` token. Owner-internal
@@ -693,6 +747,14 @@ impl MuxEventReceiver {
     ) -> Result<(MuxEvent, EventCause), RecvTimeoutError> {
         let mut state = self.mailbox.state.lock().recover_poison();
         loop {
+            // A reply parked behind the events this loop already delivered
+            // goes out now, after them (`reply_fence`), off the lock.
+            if let Some(park) = state.pop_leading_fence() {
+                drop(state);
+                drop(park);
+                state = self.mailbox.state.lock().recover_poison();
+                continue;
+            }
             if let Some(event) = state.pop_caused() {
                 return Ok(event);
             }

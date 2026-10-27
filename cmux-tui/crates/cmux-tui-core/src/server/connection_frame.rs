@@ -361,7 +361,27 @@ pub(super) fn handle_request_with_cancellation(
         _ => None,
     };
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
+    let emitted_before = crate::event_bus::events_emitted_on_this_thread();
     let result = handle_command_with_cancellation(mux, client, cmd, writer, cancellation);
+    let emitted = crate::event_bus::events_emitted_on_this_thread() != emitted_before;
+    // Its reply follows the events it emitted (spec/transports.md "Reply and
+    // event order"): parked behind them in the connection's subscriptions.
+    // Shutdown and self-detach send at once: the connection ends on their
+    // send, so no later event of theirs reaches it anyway.
+    if !shutdown_daemon
+        && detach_self.is_none()
+        && let Some(fences) = writer.reply_order.fences_for(emitted)
+    {
+        let (reply_mux, reply_writer) = (Arc::clone(mux), writer.clone());
+        let keep_open = span.reply(|| {
+            writer.reply_order.park(&fences, move || {
+                send_command_result(&reply_mux, client, id, result, &reply_writer);
+            });
+            writer.is_open()
+        });
+        mux.request_registry_flush();
+        return keep_open;
+    }
     let mut response_ok = false;
     let sent = span.reply(|| {
         let (ok, sent) = send_command_result(mux, client, id, result, writer);

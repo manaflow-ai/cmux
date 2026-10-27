@@ -8,6 +8,12 @@
 //! returns an error; nothing waits without a bound. A commit the writer
 //! admitted but did not answer in time is indeterminate: the caller keeps
 //! its receipt channel ([`PendingRegistryReceipt`]) and settles it later.
+//!
+//! [`JournalIngressSender::admit_effect`] queues the same intent and returns
+//! at once (admit then reply, p05-ipc-120): the request replies with the
+//! receipt it decided at prepare, and the writer's answer arrives on the
+//! returned channel for the registry's read barrier and its journal-degraded
+//! check (`workspace_registry::admitted_reply`).
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicU8;
@@ -33,6 +39,19 @@ pub(crate) enum EffectSend {
     /// the writer thread itself, or the durable lane refused the event
     /// (deadline, admission closed). Nothing was queued: commit it locally.
     NotQueued(Box<RegistryIntent>),
+}
+
+/// The result of admitting a registry commit to the journal writer without
+/// waiting for its receipt ([`JournalIngressSender::admit_effect`]).
+#[cfg_attr(not(test), allow(dead_code, reason = "Q3 sites p05-ipc-121..126 adopt admit"))]
+pub(crate) enum AdmitSend {
+    /// The durable lane holds the intent; the writer's answer arrives on
+    /// the channel.
+    Admitted(PendingRegistryReceipt),
+    /// Nothing was queued, as [`EffectSend::NotQueued`]: commit it locally.
+    NotQueued(Box<RegistryIntent>),
+    /// Nothing was queued and the intent is lost (a lane defect).
+    Failed(anyhow::Error),
 }
 
 /// The receipt channel of an indeterminate registry commit. Until its answer
@@ -127,10 +146,67 @@ impl JournalIngressSender {
         intent: RegistryIntent,
         site: &'static std::panic::Location<'static>,
     ) -> EffectSend {
+        let queued = match self.queue_effect(intent, false, site) {
+            Ok(queued) => queued,
+            Err(QueueRefused::NotQueued(intent)) => return EffectSend::NotQueued(intent),
+            Err(QueueRefused::Failed(error)) => return EffectSend::Sent(Err(error)),
+        };
+        let waited = Instant::now();
+        let outcome = self.wait_for_commit_result(
+            &queued.result,
+            queued.deadline,
+            &queued.commit_fence,
+            "waiting for a session journal registry commit receipt",
+            site,
+        );
+        self.state.stats.receipt_waited(waited.elapsed());
+        match outcome {
+            Err(error) if error.downcast_ref::<JournalCommitIndeterminate>().is_some() => {
+                EffectSend::Indeterminate(
+                    error,
+                    PendingRegistryReceipt::counted(queued.result, queued.wait),
+                )
+            }
+            outcome => EffectSend::Sent(outcome),
+        }
+    }
+
+    /// Queue `intent` and return without its receipt (admit then reply,
+    /// p05-ipc-120). The only wait is the bounded enqueue when the durable
+    /// lane is full, a `journal_wait` at `site` as in [`Self::send_effect`].
+    /// The writer applies the intent within the durable deadline or answers
+    /// with the error. The receipt counts as a request wait until it is
+    /// taken: the registry's read barrier waits for it, so the writer
+    /// attempt that answers it runs at the writer's class, not at utility.
+    #[cfg_attr(not(test), allow(dead_code, reason = "Q3 sites p05-ipc-121..126 adopt admit"))]
+    pub(crate) fn admit_effect(
+        &self,
+        intent: RegistryIntent,
+        site: &'static std::panic::Location<'static>,
+    ) -> AdmitSend {
+        match self.queue_effect(intent, true, site) {
+            Ok(queued) => {
+                AdmitSend::Admitted(PendingRegistryReceipt::counted(queued.result, queued.wait))
+            }
+            Err(QueueRefused::NotQueued(intent)) => AdmitSend::NotQueued(intent),
+            Err(QueueRefused::Failed(error)) => AdmitSend::Failed(error),
+        }
+    }
+
+    /// Put `intent` on the durable lane with a receipt channel; `admitted`
+    /// when its request replies without waiting for the commit.
+    fn queue_effect(
+        &self,
+        intent: RegistryIntent,
+        admitted: bool,
+        site: &'static std::panic::Location<'static>,
+    ) -> Result<QueuedEffect, QueueRefused> {
         let intent = Box::new(intent);
-        let Some(sender) = &self.durable_sender else { return EffectSend::NotQueued(intent) };
+        let Some(sender) = &self.durable_sender else {
+            return Err(QueueRefused::NotQueued(intent));
+        };
         if !self.accepts_effects() {
-            return EffectSend::NotQueued(intent);
+            return Err(QueueRefused::NotQueued(intent));
         }
         let wait = self.state.request_waits.enter();
         let (completion, result) = sync_channel(1);
@@ -144,6 +220,7 @@ impl JournalIngressSender {
                     sender: completion,
                     deadline,
                     commit_fence: commit_fence.clone(),
+                    admitted,
                 }),
             },
             deadline,
@@ -152,28 +229,30 @@ impl JournalIngressSender {
             // Not queued (deadline, admission closed, writer gone): hand the
             // intent back so a caller without state can commit it locally,
             // as before the writer took registry commits.
-            return match event.event {
-                JournalIngressEvent::Effect(intent) => EffectSend::NotQueued(intent),
+            return Err(match event.event {
+                JournalIngressEvent::Effect(intent) => QueueRefused::NotQueued(intent),
                 _ => {
                     debug_assert!(false, "the durable lane returned a different event");
-                    EffectSend::Sent(Err(anyhow::Error::msg(error)))
+                    QueueRefused::Failed(anyhow::Error::msg(error))
                 }
-            };
+            });
         }
-        let waited = Instant::now();
-        let outcome = self.wait_for_commit_result(
-            &result,
-            deadline,
-            &commit_fence,
-            "waiting for a session journal registry commit receipt",
-            site,
-        );
-        self.state.stats.receipt_waited(waited.elapsed());
-        match outcome {
-            Err(error) if error.downcast_ref::<JournalCommitIndeterminate>().is_some() => {
-                EffectSend::Indeterminate(error, PendingRegistryReceipt::counted(result, wait))
-            }
-            outcome => EffectSend::Sent(outcome),
-        }
+        Ok(QueuedEffect { result, wait, deadline, commit_fence })
     }
+}
+
+/// An intent the durable lane took: where and by when its receipt arrives.
+struct QueuedEffect {
+    result: Receiver<Result<RegistryReceipt, String>>,
+    wait: RequestWait,
+    deadline: Instant,
+    commit_fence: Arc<AtomicU8>,
+}
+
+/// Why [`JournalIngressSender::queue_effect`] queued nothing.
+enum QueueRefused {
+    /// The intent, handed back to commit locally.
+    NotQueued(Box<RegistryIntent>),
+    /// The lane returned a different event (a defect; debug builds assert).
+    Failed(anyhow::Error),
 }
