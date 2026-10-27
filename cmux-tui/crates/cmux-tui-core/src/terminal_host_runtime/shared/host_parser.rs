@@ -161,6 +161,8 @@ pub(crate) fn run_host_parser(
         }
     };
     while let Ok(command) = waits::recv(&parser_command_receiver) {
+        // The class the daemon set (SetThreadQos), applied on this thread.
+        cmux_threads::apply_pending_qos();
         // One `task.host_parse` slice per command, after its wait: terminal hash, command kind
         // and, for Output, its bytes.
         let _parse = cmux_trace::trace_scope!(

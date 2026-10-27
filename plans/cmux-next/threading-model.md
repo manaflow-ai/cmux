@@ -193,7 +193,7 @@ the app, not only CmuxNext: check it with
 | `holder-link` (cmux-holder `link::LINK_READER_QOS`) | daemon | Routes each held terminal's output to its surface: the echo of a held terminal | yes (p04-input-060, `ThreadType::InputCritical`; `thread_qos_tests.rs` keeps the two equal); cmux-holder-v3's `holder-link` is not set |
 | Holder `poll` loop | holder | The PTY that outlives the daemon | no: not set; task 207 after task 223 |
 
-Per-terminal entries (`surface-<id>-*`, `terminal-host-*`) of a hidden workspace drop to utility (task 236).
+Per-terminal reader and parser threads (`surface-<id>-reader`, `surface-<id>-host`, `surface-<id>-host-frames`, `terminal-host-pty`, `terminal-host-parser`) drop to utility while no view that counts toward the terminal's size shows it (a parked tab, a hidden workspace), and return at their next wake when one does (task 236, feature `hiddenTerminalQos`; each thread applies its class itself with `cmux_threads::apply_pending_qos`).
 Child processes never inherit this class: a shell or agent starts at default (task 223), and a helper at its
 `WorkPriority.processQoS` or utility.
 

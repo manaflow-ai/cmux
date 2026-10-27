@@ -161,6 +161,7 @@ indexes are fatal.
 | 111 | `Detach` | daemon owner to host | `ADMIN` | empty |
 | 112 | `ClipboardReadReply` | owner to host | `CLIPBOARD_READ` | `token:u64, outcome:u8` (0 refused, 1 granted), text blob |
 | 113 | `TraceControl` | daemon owner to host | `ADMIN` | `op:u8` (1 start, 2 stop, 3 status), `categories:u64` (0 unless start); no path |
+| 114 | `SetThreadQos` | daemon owner to host | `MINT_CAPABILITY` | `qos:u8` (0 background, 1 utility, 2 default, 3 user-initiated, 4 user-interactive) |
 
 `TraceControl` (the daemon's `trace-start`, `trace-stop` and `trace-status`)
 needs a nonzero request id and is answered by `TraceControlAck`. The host
@@ -170,6 +171,14 @@ records into `trace/` beside its discovery record. Hosts that predate it end
 the connection on the unknown kind, so the daemon sends it only when the host
 record advertises `supports_trace_control`, which records before version 4
 must not set.
+
+`SetThreadQos` asks the host to run its PTY reader and parser threads at a
+class: the daemon sends utility when no view of the terminal counts toward
+its size (its workspace or tab is hidden) and user-interactive when one does
+again (feature `hiddenTerminalQos`). It has request id 0 and no answer; each
+thread applies the class itself after its next wake. The daemon sends it only
+when the host record advertises `supports_thread_qos`, which records before
+version 4 must not set.
 
 OSC 52 clipboard reads are denied by default. While a `CLIPBOARD_READ` owner
 connection is attached, the host defers each program read and sends

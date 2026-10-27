@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "hiddenTerminalQos",
+  "owner": "Performance Lead",
+  "description": "A terminal that no view shows (its tab is parked or its workspace is hidden) runs its PTY reader and parser threads at utility, in the daemon and in its terminal host; showing it again returns them to user-interactive at their next wake.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "daemon",
+  "params": [],
+  "stories": ["switch", "typing"],
+  "sticky": false,
+  "runtimeMutable": false
+}

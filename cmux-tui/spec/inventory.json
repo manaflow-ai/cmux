@@ -2069,7 +2069,8 @@
         "Activate": 110,
         "Detach": 111,
         "ClipboardReadReply": 112,
-        "TraceControl": 113
+        "TraceControl": 113,
+        "SetThreadQos": 114
       }
     },
     "machine_provider_v1": {

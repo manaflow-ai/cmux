@@ -4,7 +4,9 @@
 //!
 //! Start threads with [`spawn`], change a thread's QoS with [`set_current`]
 //! or for one scope with [`with_qos`], and register threads started by other
-//! code (tokio workers) with [`register_current`].
+//! code (tokio workers) with [`register_current`]. A thread started with
+//! [`spawn_following`] runs at the class its owner requests through a
+//! [`DesiredQos`], applied by the thread itself with [`apply_pending_qos`].
 //!
 //! The registry is process-wide state on purpose: threads are a process
 //! resource, as in Chromium's `ThreadIdNameManager`
@@ -72,6 +74,7 @@ pub use qos::{
     reversible, set_current, with_qos,
 };
 pub use registry::{
-    QosSlot, ThreadInfo, current_slot, deregister_current, register_current, snapshot,
+    DesiredQos, QosSlot, ThreadInfo, apply_pending_qos, current_slot, deregister_current,
+    register_current, register_current_following, snapshot,
 };
-pub use spawn::{spawn, spawn_with_stack};
+pub use spawn::{spawn, spawn_following, spawn_with_stack};

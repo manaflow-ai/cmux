@@ -97,6 +97,10 @@ pub(crate) struct HostShared {
     /// Answers the daemon's `TraceControl` frames one at a time, in the
     /// order they arrive (`host_trace.rs`).
     pub(crate) trace_control: super::host_trace::HostTraceQueue,
+    /// The class the PTY reader and parser threads run at, set by the
+    /// daemon's `SetThreadQos` and applied by each thread after its next
+    /// wake (p02-threads-236).
+    pub(crate) thread_qos: cmux_threads::DesiredQos,
     #[cfg(test)]
     pub(crate) fail_next_resize_publication: AtomicBool,
 }

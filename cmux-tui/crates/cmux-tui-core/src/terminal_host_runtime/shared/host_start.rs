@@ -154,60 +154,72 @@ pub(crate) fn start_host_runtime(
         session_cleanup: session_cleanup::SessionCleanup::new(),
         adopted_session: child.adopted_session(),
         trace_control: super::host_trace::HostTraceQueue::default(),
+        thread_qos: cmux_threads::DesiredQos::new(crate::echo_thread::ECHO_PATH_QOS),
         #[cfg(test)]
         fail_next_resize_publication: AtomicBool::new(false),
     });
     HostShared::start_exit_publisher(&shared, exit_publish_receiver)?;
     shared.clipboard.start_timer(&shared)?;
 
+    // Both threads follow the class the daemon sets with SetThreadQos
+    // (utility while no view shows the terminal).
     let parser_host = shared.clone();
-    crate::echo_thread::spawn("terminal-host-parser", move || {
-        let guarded = parser_host.clone();
-        let parse = move || {
-            run_host_parser(parser_host, parser_command_receiver, initial_colors, signals);
-        };
-        run_guarded_host_parser(&guarded, parse, || {
-            // crash-allow: the exit is published (or its bound passed); end the host.
-            std::process::exit(host_parser::PARSER_FAILURE_EXIT_CODE)
-        });
-    })?;
+    crate::echo_thread::spawn_following(
+        "terminal-host-parser",
+        shared.thread_qos.clone(),
+        move || {
+            let guarded = parser_host.clone();
+            let parse = move || {
+                run_host_parser(parser_host, parser_command_receiver, initial_colors, signals);
+            };
+            run_guarded_host_parser(&guarded, parse, || {
+                // crash-allow: the exit is published (or its bound passed); end the host.
+                std::process::exit(host_parser::PARSER_FAILURE_EXIT_CODE)
+            });
+        },
+    )?;
 
     let reader_host = shared.clone();
-    crate::echo_thread::spawn("terminal-host-pty", move || {
-        reader_host.wait_for_launch_owner_stream_ready();
-        let mut buffer = [0u8; PTY_READ_BYTES];
-        // File-medium Kitty images are read here, next to the program, so
-        // every consumer of the stream gets in-band image data.
-        let mut kitty_media = KittyMediaRewriter::new();
-        let mut kitty_scratch = Vec::new();
-        let mut forced_at = None;
-        let mut pty_drain_waiter = pty_drain_waiter;
-        while let Ok(true) = wait_for_pty_readable_or_forced_drain(
-            pty_poll_fd,
-            &mut pty_drain_waiter,
-            &reader_host.force_pty_drain,
-            &mut forced_at,
-        ) {
-            let read = read_pty_once(
-                &reader_host,
-                &mut pty_reader,
-                &mut buffer,
-                &mut kitty_media,
-                &mut kitty_scratch,
-            );
-            if read.ends() {
-                break;
+    crate::echo_thread::spawn_following(
+        "terminal-host-pty",
+        shared.thread_qos.clone(),
+        move || {
+            reader_host.wait_for_launch_owner_stream_ready();
+            let mut buffer = [0u8; PTY_READ_BYTES];
+            // File-medium Kitty images are read here, next to the program, so
+            // every consumer of the stream gets in-band image data.
+            let mut kitty_media = KittyMediaRewriter::new();
+            let mut kitty_scratch = Vec::new();
+            let mut forced_at = None;
+            let mut pty_drain_waiter = pty_drain_waiter;
+            while let Ok(true) = wait_for_pty_readable_or_forced_drain(
+                pty_poll_fd,
+                &mut pty_drain_waiter,
+                &reader_host.force_pty_drain,
+                &mut forced_at,
+            ) {
+                cmux_threads::apply_pending_qos();
+                let read = read_pty_once(
+                    &reader_host,
+                    &mut pty_reader,
+                    &mut buffer,
+                    &mut kitty_media,
+                    &mut kitty_scratch,
+                );
+                if read.ends() {
+                    break;
+                }
             }
-        }
-        // An unfinished command at end of stream goes out as it came.
-        let mut held = Vec::new();
-        kitty_media.finish(&mut held);
-        let _ = publish_pty_output(&reader_host, &held);
-        // Drain is ordered after the final source byte. The parser worker,
-        // rather than the reader, publishes the drained rendezvous.
-        let _source_order = reader_host.source_order_lock.lock().recover_poison();
-        let _ = reader_host.parser_commands.send(ParserCommand::Drain);
-    })?;
+            // An unfinished command at end of stream goes out as it came.
+            let mut held = Vec::new();
+            kitty_media.finish(&mut held);
+            let _ = publish_pty_output(&reader_host, &held);
+            // Drain is ordered after the final source byte. The parser worker,
+            // rather than the reader, publishes the drained rendezvous.
+            let _source_order = reader_host.source_order_lock.lock().recover_poison();
+            let _ = reader_host.parser_commands.send(ParserCommand::Drain);
+        },
+    )?;
     let child_host = shared.clone();
     thread::Builder::new().name("terminal-host-child".into()).spawn(move || {
         let observed_without_reaping = child.wait_exit_observed();

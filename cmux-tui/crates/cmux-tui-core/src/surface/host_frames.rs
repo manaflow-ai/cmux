@@ -135,6 +135,7 @@ impl HostFrames {
         control_responses: Arc<ControlResponses>,
         protocol_version: u16,
         smart_renderer: bool,
+        thread_qos: cmux_threads::DesiredQos,
     ) -> std::io::Result<Self> {
         let early = EarlyResponses::new(smart_renderer);
         let shutdown = stream.try_clone()?;
@@ -142,9 +143,14 @@ impl HostFrames {
             Arc::new(Queue { state: Mutex::new(QueueState::default()), changed: Condvar::new() });
         let thread_queue = queue.clone();
         let thread_responses = control_responses.clone();
-        crate::echo_thread::spawn_host_stream_reader(name, stream, move |stream| {
-            read_stream(stream, &thread_responses, protocol_version, early, &thread_queue);
-        })?;
+        crate::echo_thread::spawn_host_stream_reader_following(
+            name,
+            stream,
+            thread_qos,
+            move |stream| {
+                read_stream(stream, &thread_responses, protocol_version, early, &thread_queue);
+            },
+        )?;
         Ok(Self { queue, control_responses, early, shutdown })
     }
 
@@ -271,6 +277,7 @@ fn read_stream(
             break;
         }
         let Ok(Some(frame)) = read_frame(&mut stream, MAX_FRAME_PAYLOAD) else { break };
+        cmux_threads::apply_pending_qos();
         // A host-originated clipboard read is outside the live sequence and
         // waits for the user, so it never enters the ordered queue.
         if frame.kind == MessageKind::ClipboardReadRequest {

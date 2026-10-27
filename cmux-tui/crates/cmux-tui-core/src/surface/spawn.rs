@@ -216,6 +216,7 @@ impl Surface {
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
+                thread_qos: cmux_threads::DesiredQos::new(crate::echo_thread::ECHO_PATH_QOS),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: terminal_runtime::TerminalCell::new(Box::new(term)),
@@ -322,7 +323,11 @@ impl Surface {
         spawn_frame_producer(&surface)?;
 
         // PTY reader: pty bytes -> terminal state -> SurfaceOutput events.
-        let reader_thread = crate::echo_thread::spawn(format!("surface-{id}-reader"), {
+        // It reads and parses, at the terminal's class (surface/thread_qos.rs).
+        let thread_qos =
+            surface.as_pty().expect("local PTY surface owns its class").thread_qos.clone();
+        let reader_name = format!("surface-{id}-reader");
+        let reader_thread = crate::echo_thread::spawn_following(reader_name, thread_qos, {
             let surface = surface.clone();
             #[cfg(unix)]
             let read_fd = output
@@ -358,6 +363,7 @@ impl Surface {
                     };
                     #[cfg(not(unix))]
                     let ready = true;
+                    cmux_threads::apply_pending_qos();
                     #[cfg(all(test, unix))]
                     if ready {
                         pty.run_geometry_test_hook(PtyGeometryTestStep::LocalReaderReady);

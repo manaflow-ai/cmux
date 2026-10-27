@@ -193,6 +193,10 @@ impl SizingMember {
 /// participant per terminal (schemas/features/features.d/terminalSizingPerApp.json).
 pub(crate) const PARTICIPANT_PER_APP_FEATURE: &str = "terminalSizingPerApp";
 
+/// The daemon feature that runs a hidden terminal's threads at utility
+/// (schemas/features/features.d/hiddenTerminalQos.json, mux/terminal_sizing/thread_qos.rs).
+pub(crate) const HIDDEN_TERMINAL_QOS_FEATURE: &str = "hiddenTerminalQos";
+
 /// How a connection's own views of one terminal map to sizing participants.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum ParticipantScheme {
@@ -283,6 +287,9 @@ pub(super) struct ClientSizingState {
     /// Counts [`Self::visible_terminals`] publications, so an older one never
     /// replaces a newer one (the Kitty share, `mux/kitty_share.rs`).
     pub(super) visibility_publications: u64,
+    /// Terminal threads run at utility while no view counting toward the
+    /// size shows the terminal (feature `hiddenTerminalQos`, read at start).
+    pub(super) threads_follow_visibility: bool,
 }
 
 pub(super) fn entry_owns(
@@ -303,7 +310,8 @@ pub(crate) fn sub_view_participant_id(client: u64, view: &str) -> String {
 
 impl ClientSizingState {
     pub(super) fn with_scheme(participant_scheme: ParticipantScheme) -> Self {
-        Self { participant_scheme, ..Self::default() }
+        let threads_follow_visibility = cmux_features::listed_in_env(HIDDEN_TERMINAL_QOS_FEATURE);
+        Self { participant_scheme, threads_follow_visibility, ..Self::default() }
     }
 
     /// Host participant id of `client`'s own view of `placement`.

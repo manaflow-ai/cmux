@@ -176,7 +176,7 @@ pub fn refused_changes() -> u64 {
     REFUSED_CHANGES.load(Ordering::Relaxed)
 }
 
-fn record_refusal() {
+pub(crate) fn record_refusal() {
     REFUSED_CHANGES.fetch_add(1, Ordering::Relaxed);
     registry::with_current(registry::Row::record_refusal);
 }

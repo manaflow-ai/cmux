@@ -14,6 +14,7 @@ mod parser_failure;
 mod parser_order;
 mod smart_viewer_exit;
 mod terminal_queries;
+mod thread_qos;
 use super::super::shared::control_responses::ControlResponseWaiter;
 use super::super::shared::host_serve::*;
 use super::super::sys::process_definitely_gone as process_definitely_absent;
@@ -185,6 +186,7 @@ fn exited_host_fixture_with_parser_at(
         session_cleanup: session_cleanup::SessionCleanup::new(),
         adopted_session: None,
         trace_control: shared::host_trace::HostTraceQueue::default(),
+        thread_qos: cmux_threads::DesiredQos::new(crate::echo_thread::ECHO_PATH_QOS),
         fail_next_resize_publication: AtomicBool::new(false),
     });
     HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();
@@ -249,6 +251,7 @@ fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease
         supports_shell_activity: false,
         supports_trace_control: false,
         supports_input_flow: false,
+        supports_thread_qos: false,
         orphan_grace_secs: None,
     };
     let record_path = record.record_path(&root);
@@ -284,6 +287,7 @@ pub(crate) fn input_ack_surface_fixture() -> (HostAttachment, UnixStream) {
         supports_shell_activity: false,
         supports_trace_control: false,
         supports_input_flow: false,
+        supports_thread_qos: false,
         orphan_grace_secs: None,
     };
     let record_path = std::env::temp_dir().join(format!(

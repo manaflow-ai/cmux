@@ -212,6 +212,11 @@ pub struct PtyTerminalRuntime {
     /// journal barrier.
     pub(super) reader_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
     pub(super) reader_completion: Arc<ReaderCompletion>,
+    /// The class this terminal's reader and parser threads run at: the
+    /// echo class while a view shows it, utility while none does
+    /// (`surface/thread_qos.rs`). The threads apply it themselves after
+    /// their next wake.
+    pub(super) thread_qos: cmux_threads::DesiredQos,
     /// Owned child-reaper join fence. Shutdown uses the same bounded deadline
     /// as the reader so the child wait cannot outlive terminal teardown.
     pub(super) reaper_thread: Mutex<Option<std::thread::JoinHandle<()>>>,

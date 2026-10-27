@@ -590,6 +590,17 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                     };
                     command_host.set_default_colors(colors);
                 }
+                MessageKind::SetThreadQos => {
+                    if !granted_rights.contains(CapabilityRights::MINT_CAPABILITY)
+                        || frame.request_id != 0
+                    {
+                        break;
+                    }
+                    let Some(qos) = super::thread_qos::decode_thread_qos(&frame.payload) else {
+                        break;
+                    };
+                    command_host.set_thread_qos(qos);
+                }
                 MessageKind::SetCellPixelSize
                     if frame.request_id != 0 && frame.payload.len() == 4 =>
                 {

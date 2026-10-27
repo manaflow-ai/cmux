@@ -6,6 +6,7 @@ mod grid_hold;
 mod handheld_ceiling;
 pub(super) use grid_hold::AppliedSeat;
 pub(crate) mod host_policy;
+mod thread_qos;
 
 impl Mux {
     /// Activity by one client view: attach, explicit focus-click, or keyboard,
@@ -730,11 +731,14 @@ impl Mux {
     /// only without the sizing lock held.
     pub(super) fn publish_size_states(&self) {
         let follows_visibility = self.kitty_share_follows_visibility();
-        let (publications, visible) = {
+        let (publications, visible, threads_follow) = {
             let mut sizing = self.client_sizing.lock().unwrap();
             let visible = follows_visibility.then(|| sizing.visible_terminals());
-            (sizing.take_size_state_publications(), visible)
+            (sizing.take_size_state_publications(), visible, sizing.threads_follow_visibility)
         };
+        if threads_follow {
+            self.set_terminal_threads_shown(&publications);
+        }
         // Size leases are what the person sees: the Kitty share follows them
         // (claimed, released, expired), never a bare attach.
         if let Some((order, visible)) = visible {

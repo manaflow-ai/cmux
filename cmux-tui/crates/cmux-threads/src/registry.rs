@@ -2,6 +2,13 @@
 //! declared QoS, desired-QoS slot, effective QoS, scheduler priority and
 //! native ids.
 //!
+//! A row's desired QoS is a [`DesiredQos`] that another thread sets and the
+//! row's thread applies itself with [`crate::apply_pending_qos`] at the top
+//! of its loop, so a change costs no wake and no cross-thread syscall.
+//! Chromium changes a thread's type only from the thread itself
+//! (`PlatformThread::SetCurrentThreadType`, base/threading/platform_thread.h).
+//! Threads of one owner (a terminal) can share one [`DesiredQos`].
+//!
 //! A thread's row lives in a thread-local of this crate and is removed when
 //! the thread deregisters (at the end of [`crate::spawn`], or by its
 //! thread-local destructor), always before the thread exits. Callers cannot
@@ -18,7 +25,7 @@ use std::cell::RefCell;
 use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use crate::qos::{self, LiveQos, ThreadQos};
+use crate::qos::{self, LiveQos, QosChange, ThreadQos};
 
 /// The native ids of a registered thread.
 #[derive(Clone, Copy, Debug)]
@@ -72,12 +79,39 @@ pub(crate) fn current_tid() -> Option<u64> {
 /// `Row::effective` before the thread's first QoS change succeeds.
 const NOT_APPLIED: u8 = u8::MAX;
 
+/// A QoS that one or more threads are asked to run at. The owner of the
+/// threads requests a class; each thread that follows it applies the class
+/// at its next [`crate::apply_pending_qos`].
+#[derive(Clone, Debug)]
+pub struct DesiredQos(Arc<AtomicU8>);
+
+impl DesiredQos {
+    /// A desired QoS that starts at `qos`.
+    pub fn new(qos: ThreadQos) -> Self {
+        Self(Arc::new(AtomicU8::new(qos as u8)))
+    }
+
+    /// Asks the following threads to run at `qos`. True when that changed
+    /// the request.
+    pub fn request(&self, qos: ThreadQos) -> bool {
+        self.0.swap(qos as u8, Ordering::Relaxed) != qos as u8
+    }
+
+    /// The QoS last requested.
+    pub fn get(&self) -> ThreadQos {
+        ThreadQos::from_u8(self.0.load(Ordering::Relaxed))
+    }
+}
+
 /// One registered thread.
 #[derive(Debug)]
 pub(crate) struct Row {
     name: String,
     declared: ThreadQos,
-    desired: AtomicU8,
+    desired: DesiredQos,
+    /// The desired QoS the thread last acted on (applied or refused), so
+    /// an unchanged request costs no syscall.
+    acted: AtomicU8,
     effective: AtomicU8,
     refused: AtomicU32,
     native: NativeThread,
@@ -105,6 +139,13 @@ impl Row {
     pub(crate) fn record_refusal(&self) {
         self.refused.fetch_add(1, Ordering::Relaxed);
     }
+
+    /// The desired QoS when it changed since the thread last acted on it,
+    /// marked as acted on.
+    pub(crate) fn take_pending(&self) -> Option<ThreadQos> {
+        let desired = self.desired.get();
+        (self.acted.swap(desired as u8, Ordering::Relaxed) != desired as u8).then_some(desired)
+    }
 }
 
 /// A handle to a registered thread's desired-QoS slot. Another thread stores
@@ -114,14 +155,15 @@ impl Row {
 pub struct QosSlot(Arc<Row>);
 
 impl QosSlot {
-    /// Asks the owning thread to run at `qos`.
+    /// Asks the owning thread to run at `qos`. A thread that follows a
+    /// shared [`DesiredQos`] shares the request with the others that follow it.
     pub fn request(&self, qos: ThreadQos) {
-        self.0.desired.store(qos as u8, Ordering::Relaxed);
+        self.0.desired.request(qos);
     }
 
     /// The QoS last requested (the declared QoS until a request).
     pub fn desired(&self) -> ThreadQos {
-        ThreadQos::from_u8(self.0.desired.load(Ordering::Relaxed))
+        self.0.desired.get()
     }
 
     /// The QoS the thread was registered with: its own class, whatever it
@@ -200,15 +242,33 @@ pub(crate) fn current_qos() -> Option<ThreadQos> {
 /// [`deregister_current`] or when the thread exits. Returns `false`, and
 /// changes nothing, when the thread is registered already.
 pub fn register_current(name: impl Into<String>, qos: ThreadQos) -> bool {
+    register(name.into(), qos, DesiredQos::new(qos))
+}
+
+/// [`register_current`] for a thread that follows `desired`: its row's
+/// desired QoS is `desired`, which the thread applies at its next
+/// [`crate::apply_pending_qos`].
+pub fn register_current_following(
+    name: impl Into<String>,
+    qos: ThreadQos,
+    desired: DesiredQos,
+) -> bool {
+    register(name.into(), qos, desired)
+}
+
+fn register(name: String, qos: ThreadQos, desired: DesiredQos) -> bool {
     let registered = CURRENT.try_with(|current| {
         let mut current = current.borrow_mut();
         if current.is_some() {
             return false;
         }
         let row = Arc::new(Row {
-            name: name.into(),
+            name,
             declared: qos,
-            desired: AtomicU8::new(qos as u8),
+            desired,
+            // The declared class is applied below: a request still at it
+            // is acted on.
+            acted: AtomicU8::new(qos as u8),
             effective: AtomicU8::new(NOT_APPLIED),
             refused: AtomicU32::new(0),
             native: NativeThread::current(),
@@ -240,6 +300,24 @@ pub fn current_slot() -> Option<QosSlot> {
         .flatten()
 }
 
+/// Applies the QoS another thread requested for the calling thread (its
+/// row's [`DesiredQos`]) when the request changed since the last call;
+/// `None`, with no syscall, when it did not or the thread is not registered.
+/// A thread calls it at the top of its loop, so a request takes effect at
+/// the thread's next wake and never wakes it.
+///
+/// A class the thread could not leave again is not applied: on Linux an
+/// unprivileged thread that raised its nice could never return to nice 0,
+/// so the demotion is refused and counted ([`qos::reversible`]).
+pub fn apply_pending_qos() -> Option<QosChange> {
+    let pending = with_current(Row::take_pending).flatten()?;
+    if !qos::reversible(pending) {
+        qos::record_refusal();
+        return Some(QosChange::Refused);
+    }
+    Some(qos::set_current(pending))
+}
+
 /// Every registered thread with its live QoS.
 pub fn snapshot() -> Vec<ThreadInfo> {
     // The lock stays held across the live reads: a thread removes its row
@@ -250,7 +328,7 @@ pub fn snapshot() -> Vec<ThreadInfo> {
         .map(|row| ThreadInfo {
             name: row.name.clone(),
             declared: row.declared,
-            desired: ThreadQos::from_u8(row.desired.load(Ordering::Relaxed)),
+            desired: row.desired.get(),
             effective: row.effective(),
             live: qos::live_of(&row.native),
             priority: qos::priority_of(&row.native),
@@ -259,3 +337,7 @@ pub fn snapshot() -> Vec<ThreadInfo> {
         })
         .collect()
 }
+
+#[cfg(test)]
+#[path = "registry_tests.rs"]
+mod tests;

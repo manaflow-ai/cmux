@@ -35,6 +35,7 @@ pub(crate) mod spawn;
 mod stream_progress;
 mod terminal_runtime;
 mod terminal_stream;
+mod thread_qos;
 pub use color_overrides::apply_terminal_color_overrides;
 #[cfg(unix)]
 pub(crate) use holder_spawn::{HolderAdoption, HolderSpawn};
@@ -783,6 +784,7 @@ impl Surface {
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
+                thread_qos: cmux_threads::DesiredQos::new(crate::echo_thread::ECHO_PATH_QOS),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: terminal_runtime::TerminalCell::new(Box::new(term)),
@@ -912,10 +914,13 @@ impl Surface {
             resync_backoff: TerminalHostReconnectBackoff::default(),
             connected_at: None,
         };
-        let reader_thread = crate::echo_thread::spawn(format!("surface-{id}-host"), {
-            let surface = surface.clone();
-            move || hosted_reader.run(surface, reader)
-        })?;
+        let thread_qos =
+            surface.as_pty().expect("hosted PTY surface owns its class").thread_qos.clone();
+        let reader_thread =
+            crate::echo_thread::spawn_following(format!("surface-{id}-host"), thread_qos, {
+                let surface = surface.clone();
+                move || hosted_reader.run(surface, reader)
+            })?;
         *surface
             .as_pty()
             .expect("hosted PTY surface owns its reader")

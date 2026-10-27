@@ -508,6 +508,11 @@ pub enum MessageKind {
     /// op:u8 and categories:u64; no path. Sent only to a host whose record
     /// advertises `supports_trace_control` (`shared/host_trace.rs`).
     TraceControl = 113,
+    /// Admin request: the class the host's per-terminal threads (PTY reader,
+    /// parser) run at, as one `cmux_threads::ThreadQos` byte (0 background
+    /// to 4 user-interactive). Fire and forget; sent only to a host whose
+    /// record advertises `supports_thread_qos`.
+    SetThreadQos = 114,
 }
 
 impl TryFrom<u16> for MessageKind {
@@ -557,6 +562,7 @@ impl TryFrom<u16> for MessageKind {
             111 => Ok(Self::Detach),
             112 => Ok(Self::ClipboardReadReply),
             113 => Ok(Self::TraceControl),
+            114 => Ok(Self::SetThreadQos),
             other => Err(ProtocolError::UnknownMessageKind(other)),
         }
     }

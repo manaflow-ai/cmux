@@ -106,6 +106,7 @@ pub fn serve_terminal_host_stdio(
         supports_shell_activity: true,
         supports_trace_control: true,
         supports_input_flow: true,
+        supports_thread_qos: true,
         orphan_grace_secs: host_orphan_grace().map(|grace| grace.as_secs()),
     };
     let record_root = Path::new(&launch.record_path)
