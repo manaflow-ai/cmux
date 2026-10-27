@@ -780,4 +780,93 @@ mod tests {
         assert!(spawned.child.wait().unwrap().success());
         assert!(output.contains("limit=200."), "{output}");
     }
+
+    /// Set by the SIGWINCH handler of the re-executed child below.
+    static WINCH_SEEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    extern "C" fn note_winch(_: libc::c_int) {
+        WINCH_SEEN.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// A resize of the PTY reaches its child as SIGWINCH, and the child then
+    /// reads the new size (TIOCGWINSZ). Full-screen programs (top, htop, vim)
+    /// redraw only on that signal. The kernel sends it to the terminal's
+    /// foreground process group, so a child whose session has no controlling
+    /// terminal never gets it: it keeps drawing at the old size into the new
+    /// grid (dogfood chrome-parity-v1 on macOS: "resizing window makes
+    /// terminal looks buggy", top garbled after a drag-resize). The child is
+    /// a copy of this test binary that opens no terminal itself, as zsh does
+    /// not. A thread drains the PTY all along, as the daemon does.
+    #[test]
+    fn a_pty_child_gets_sigwinch_with_the_new_size_when_the_pty_resizes() {
+        const CHILD: &str = "CMUX_PTY_WINCH_CHILD";
+        const NAME: &str =
+            "tests::a_pty_child_gets_sigwinch_with_the_new_size_when_the_pty_resizes";
+        fn size() -> (u16, u16) {
+            let mut size = libc::winsize { ws_row: 0, ws_col: 0, ws_xpixel: 0, ws_ypixel: 0 };
+            // SAFETY: TIOCGWINSZ fills one winsize from fd 0, the PTY slave.
+            unsafe { libc::ioctl(0, libc::TIOCGWINSZ, &raw mut size) };
+            (size.ws_row, size.ws_col)
+        }
+        if std::env::var_os(CHILD).is_some() {
+            // SAFETY: installs an async-signal-safe handler (one atomic store).
+            unsafe { libc::signal(libc::SIGWINCH, note_winch as *const () as libc::sighandler_t) };
+            let (rows, cols) = size();
+            println!("winch-ready size={rows}x{cols} end");
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while !WINCH_SEEN.load(std::sync::atomic::Ordering::SeqCst)
+                && std::time::Instant::now() < deadline
+            {
+                // test harness: wait a bounded time for the parent's resize
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            let (rows, cols) = size();
+            let seen = WINCH_SEEN.load(std::sync::atomic::Ordering::SeqCst);
+            println!("winch-result signal={seen} size={rows}x{cols} done");
+            return;
+        }
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut command = PtyCommand::new(std::env::current_exe().unwrap().to_string_lossy());
+        command.args(["--exact", NAME, "--nocapture", "--test-threads=1"]);
+        command.env(CHILD, "1");
+        let mut spawned = pair.spawn(command).unwrap();
+        let mut reader = spawned.master.try_clone_reader().unwrap();
+        let (line_tx, line_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut output = Vec::new();
+            let mut buffer = [0u8; 1024];
+            let mut sent = 0;
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(count) => output.extend_from_slice(&buffer[..count]),
+                }
+                let text = String::from_utf8_lossy(&output);
+                let lines: Vec<String> = text
+                    .lines()
+                    .filter(|line| line.contains(" end") || line.contains(" done"))
+                    .map(str::to_string)
+                    .collect();
+                for line in lines.into_iter().skip(sent) {
+                    sent += 1;
+                    let _ = line_tx.send(line);
+                }
+            }
+        });
+        let timeout = std::time::Duration::from_secs(30);
+        let ready = line_rx.recv_timeout(timeout).expect("the child never reported it was ready");
+        assert!(ready.contains("winch-ready size=24x80 "), "{ready}");
+
+        spawned
+            .master
+            .resize(PtySize { rows: 30, cols: 100, pixel_width: 0, pixel_height: 0 })
+            .unwrap();
+        let result = line_rx.recv_timeout(timeout).expect("the child never reported its result");
+        let _ = spawned.child.wait();
+        assert!(
+            result.contains("winch-result signal=true size=30x100 "),
+            "the PTY child did not get SIGWINCH with the new size after the resize (no \
+             controlling terminal, or not in its foreground group): {result}"
+        );
+    }
 }
