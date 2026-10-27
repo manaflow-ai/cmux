@@ -133,6 +133,22 @@ nonisolated public struct CloudCodexBrokerTarget: Sendable {
         return capabilities.contains("codex-external-access-v1")
     }
 
+    /// Runs the fixed install transaction with privilege because the file API
+    /// may stage root-owned files while exec runs as the work user. Token bytes
+    /// travel only through the file API, never through this command.
+    static func commitCommand(stageAccess: String, finalAccess: String, stageMode: String, finalMode: String) -> String {
+        let quote: (String) -> String = { "'" + $0.replacingOccurrences(of: "'", with: "'\"'\"'") + "'" }
+        let script = [
+            "set -eu",
+            "a=\(quote(stageAccess)); f=\(quote(finalAccess)); m=\(quote(stageMode)); n=\(quote(finalMode)); b=\(quote(stageMode + ".previous"))",
+            #"for p in "$a" "$m"; do test -f "$p"; test ! -L "$p"; test "$(stat -c %a "$p")" = 600; case $(stat -c %u "$p") in 0|$(id -u cmux)) ;; *) exit 83 ;; esac; chown cmux:cmux "$p"; done"#,
+            #"had_mode=0; if test -e "$n"; then test -f "$n"; test ! -L "$n"; cp -p -- "$n" "$b"; had_mode=1; fi"#,
+            #"rollback() { if test "$had_mode" = 1; then mv -f -- "$b" "$n"; else rm -f -- "$n"; fi; }"#,
+            #"trap rollback EXIT; mv -f -- "$m" "$n"; mv -f -- "$a" "$f"; trap - EXIT; rm -f -- "$b" || :"#,
+        ].joined(separator: "; ")
+        return "if [ \"$(id -u)\" = 0 ]; then /bin/sh -c \(quote(script)); else sudo -n /bin/sh -c \(quote(script)); fi"
+    }
+
     /// The default probe is deliberately read-only: the running bridge reports
     /// its capability and the guest marker proves that this is an owner VM.
     nonisolated public init(api: CloudAPIClient, machineID: String, scope: CloudCodexBrokerScope) {
@@ -172,8 +188,9 @@ nonisolated public struct CloudCodexBrokerTarget: Sendable {
         }, writeFile: { path, data, mode in
             try await api.writeFile(machineID, path: path, data: data, mode: mode)
         }, commitFiles: { stageAccess, finalAccess, stageMode, finalMode in
-            let script = "set -eu; for p in \(stageAccess) \(stageMode); do test -f $p; test ! -L $p; test $(stat -c %a $p) = 600; case $(stat -c %u $p) in 0|$(id -u cmux)) ;; *) exit 83 ;; esac; chown cmux:cmux $p; done; mv -f \(stageMode) \(finalMode); mv -f \(stageAccess) \(finalAccess)"
-            let result = try await api.exec(machineID, command: script, timeoutMs: 8_000)
+            let command = Self.commitCommand(stageAccess: stageAccess, finalAccess: finalAccess,
+                                             stageMode: stageMode, finalMode: finalMode)
+            let result = try await api.exec(machineID, command: command, timeoutMs: 8_000)
             guard result.exitCode == 0 else { throw CloudCodexBrokerError.remoteDeliveryFailed }
         }, removeFile: { path in
             do { try await api.removeFile(machineID, path: path) }
@@ -252,7 +269,7 @@ public actor CloudCodexBroker {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: timeout)
         while clock.now < deadline {
-            guard targetGenerations[target.machineID, default: 0] == generation else { throw CloudCodexBrokerError.cancelled }
+            guard !pendingRevocations.contains(target.machineID), targetGenerations[target.machineID, default: 0] == generation else { throw CloudCodexBrokerError.cancelled }
             do {
                 return try await transfer(target: target, confirmed: confirmed, forceRefresh: true)
             } catch CloudCodexBrokerError.notAuthenticated {
@@ -274,7 +291,7 @@ public actor CloudCodexBroker {
         let generation = targetGenerations[target.machineID, default: 0]
         try await validate(target: target, confirmed: confirmed)
         try await ensureScope()
-        guard targetGenerations[target.machineID, default: 0] == generation else { throw CloudCodexBrokerError.cancelled }
+        guard !pendingRevocations.contains(target.machineID), targetGenerations[target.machineID, default: 0] == generation else { throw CloudCodexBrokerError.cancelled }
         targets[target.machineID] = target
         targetGenerations[target.machineID] = generation
         if !forceRefresh, let cached, cached.expiresAt > Date().addingTimeInterval(120) {
@@ -349,6 +366,7 @@ public actor CloudCodexBroker {
 
     private func validate(target: CloudCodexBrokerTarget, confirmed: Bool) async throws {
         guard confirmed else { throw CloudCodexBrokerError.consentRequired }
+        guard !pendingRevocations.contains(target.machineID) else { throw CloudCodexBrokerError.cancelled }
         guard await currentScope() == scope else { throw CloudCodexBrokerError.scopeChanged }
         guard try await target.isLive() else { throw CloudCodexBrokerError.targetOffline }
         let capability = try await target.capability()
@@ -402,7 +420,7 @@ public actor CloudCodexBroker {
         defer { unlockTarget(target.machineID) }
         guard targets[target.machineID] != nil else { throw CloudCodexBrokerError.cancelled }
         let generation = expectedGeneration ?? targetGenerations[target.machineID, default: 0]
-        guard targetGenerations[target.machineID, default: 0] == generation else { throw CloudCodexBrokerError.cancelled }
+        guard !pendingRevocations.contains(target.machineID), targetGenerations[target.machineID, default: 0] == generation else { throw CloudCodexBrokerError.cancelled }
         let object: [String: Any] = [
             "schema": 1,
             "bridge": "codex-external-access-v1",
@@ -416,7 +434,7 @@ public actor CloudCodexBroker {
         let suffix = UUID().uuidString.lowercased()
         let stageAccess = "/home/cmux/.config/cmux/codex-broker/.access-\(suffix).json"
         let stageMode = "/home/cmux/.config/cmux/agent-auth/.codex-\(suffix)"
-        var commitAttempted = false
+        var committed = false
         var stagingAttempted = false
         do {
             try await validate(target: target, confirmed: true)
@@ -441,15 +459,15 @@ public actor CloudCodexBroker {
             try await target.writeFile(stageMode, Data("own\n".utf8), 0o600)
             try await ensureScope()
             guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation else { throw CloudCodexBrokerError.cancelled }
-            commitAttempted = true
             try await target.commitFiles(stageAccess, Self.accessPath, stageMode, Self.modePath)
+            committed = true
             try await ensureScope()
             try? await target.removeFile(stageAccess)
             try? await target.removeFile(stageMode)
             try await ensureScope()
             guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation else { throw CloudCodexBrokerError.cancelled }
         } catch {
-            if commitAttempted || Task.isCancelled || error as? CloudCodexBrokerError == .scopeChanged {
+            if committed || Task.isCancelled || error as? CloudCodexBrokerError == .scopeChanged {
                 targets.removeValue(forKey: target.machineID)
                 targetGenerations[target.machineID, default: 0] += 1
                 pendingRevocations.insert(target.machineID)
@@ -461,7 +479,7 @@ public actor CloudCodexBroker {
                     try? await target.removeFile(stageAccess)
                     try? await target.removeFile(stageMode)
                 }
-                if commitAttempted {
+                if committed {
                     try await target.removeFile(Self.accessPath)
                     try await target.removeFile(Self.modePath)
                     if let previous { try await target.writeFile(Self.modePath, previous, 0o600) }
@@ -513,7 +531,8 @@ public actor CloudCodexBroker {
             do {
                 // wakeup-allow: one renewal wakeup before the short-lived grant expires
                 try await Task.sleep(for: .seconds(wait))
-                guard let self, await self.currentScope() == expectedScope else { return }
+                guard let self else { return }
+                guard await self.currentScope() == expectedScope else { throw CloudCodexBrokerError.scopeChanged }
                 let refreshed = try await self.refreshAccess(schedule: false)
                 let targets = await self.targetList()
                 for target in targets {
@@ -536,11 +555,12 @@ public actor CloudCodexBroker {
     }
 
     private func rescheduleRefresh(after grant: CloudCodexAccessGrant, cycle: Int) {
-        guard cycle == refreshCycle, !Task.isCancelled, !targets.isEmpty else { return }
+        guard cycle == refreshCycle else { return }
         // This method runs on the renewal task itself; clear its handle before
         // installing the next one so scheduleRefresh cannot cancel this task.
         refreshTask = nil
-        scheduleRefresh(grant: grant)
+        guard !Task.isCancelled, !targets.isEmpty else { return }
+        scheduleRefresh(grant: cached ?? grant)
     }
 
 }

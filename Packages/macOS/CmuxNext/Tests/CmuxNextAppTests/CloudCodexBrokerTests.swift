@@ -19,10 +19,19 @@ struct CloudCodexBrokerTests {
             if commitCount >= count { return }
             await withCheckedContinuation { commitWaiter = (count, $0) }
         }
+        var removals = 0
+        var liveChecks = 0
+        func liveUntilDelivery() -> Bool { liveChecks += 1; return liveChecks == 1 }
         var refuseRemoval = false
+        var heldRenewal = false
+        func holdFirstRenewal() -> Bool {
+            guard commitCount > 0, !heldRenewal else { return false }
+            heldRenewal = true; return true
+        }
         enum Failure: Error { case denied }
         func failRemoval(_ fail: Bool) { refuseRemoval = fail }
         func remove(_ path: String) throws {
+            removals += 1
             if refuseRemoval { throw Failure.denied }
             files.removeValue(forKey: path)
         }
@@ -112,7 +121,7 @@ done
             .init(ownerVM: true, protocolVersion: 1, codexExternalAccessToken: true)
         }, makeDirectory: { _ in }, readFile: { _ in nil },
                                       writeFile: { path, data, _ in
-                                          if path.contains(".access-"), await recorder.commitCount > 0 { await gate.pause() }
+                                          if path.contains(".access-"), await recorder.holdFirstRenewal() { await gate.pause() }
                                           await recorder.write(path, data)
                                       },
                                       commitFiles: { a, b, c, d in await recorder.commit((a, b, c, d)) },
@@ -160,16 +169,18 @@ done
         let target = CloudCodexBrokerTarget(machineID: "vm-refresh", capability: {
             .init(ownerVM: true, protocolVersion: 1, codexExternalAccessToken: true)
         }, makeDirectory: { _ in }, readFile: { _ in nil }, writeFile: { path, data, _ in
-            if path.contains(".access-"), await recorder.commitCount > 0 { await gate.pause() }
+            if path.contains(".access-"), await recorder.holdFirstRenewal() { await gate.pause() }
             await recorder.write(path, data)
         }, commitFiles: { a, b, c, d in await recorder.commit((a, b, c, d)) }, removeFile: { path in try await recorder.remove(path) })
         _ = try await broker.transfer(target: target, confirmed: true)
         await gate.entered()
-        let foreground = Task { try await broker.transfer(target: target, confirmed: true, forceRefresh: true) }
-        await Task.yield()
+        let other = CloudCodexBrokerTarget(machineID: "foreground-vm", capability: {
+            .init(ownerVM: true, protocolVersion: 1, codexExternalAccessToken: true)
+        }, makeDirectory: { _ in }, readFile: { _ in nil }, writeFile: { _, _, _ in }, commitFiles: { _, _, _, _ in }, removeFile: { _ in })
+        _ = try await broker.transfer(target: other, confirmed: true, forceRefresh: true)
         await gate.open()
-        _ = try await foreground.value
-        #expect(await broker.registeredMachineIDs() == Set([target.machineID]))
+        await recorder.awaitCount(2)
+        #expect(await broker.registeredMachineIDs() == Set([target.machineID, other.machineID]))
         #expect(await recorder.files[CloudCodexBroker.accessPath] != nil)
     }
 
@@ -204,7 +215,7 @@ done
         func logout() { scope = nil }
     }
 
-    @Test(arguments: [0, 1, 2]) func deliversAccessOnlyGrantAndRestoresPriorModeOnRevoke(interruption: Int) async throws {
+    @Test(arguments: [0, 1, 2, 3, 4]) func deliversAccessOnlyGrantAndRestoresPriorModeOnRevoke(interruption: Int) async throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -233,9 +244,24 @@ done
         let target = CloudCodexBrokerTarget(machineID: "vm-1", capability: {
             .init(ownerVM: true, protocolVersion: 1, codexExternalAccessToken: true)
         }, makeDirectory: { _ in }, readFile: { _ in Data("team\n".utf8) }, writeFile: { path, data, _ in await recorder.write(path, data) }, commitFiles: { a, b, c, d in
+            if interruption == 3 { throw CloudCodexBrokerError.remoteDeliveryFailed }
             if interruption > 0 { await gate.pause() }
             await recorder.commit((a, b, c, d))
-        }, removeFile: { path in try await recorder.remove(path) })
+        }, removeFile: { path in try await recorder.remove(path) }, isLive: {
+            if interruption == 4 { return await recorder.liveUntilDelivery() }
+            return true
+        })
+        if interruption == 4 {
+            await #expect(throws: CloudCodexBrokerError.targetOffline) { try await broker.transfer(target: target, confirmed: true) }
+            #expect(await recorder.removals == 0)
+            return
+        }
+        if interruption == 3 {
+            await recorder.write(CloudCodexBroker.accessPath, Data("existing-grant".utf8))
+            await #expect(throws: CloudCodexBrokerError.remoteDeliveryFailed) { try await broker.transfer(target: target, confirmed: true) }
+            #expect(await recorder.files[CloudCodexBroker.accessPath] == Data("existing-grant".utf8))
+            return
+        }
         let transfer = Task { try await broker.transfer(target: target, confirmed: true) }
         if interruption > 0 {
             await gate.entered()
@@ -271,6 +297,8 @@ done
         await recorder.failRemoval(true)
         await #expect(throws: Recorder.Failure.denied) { try await broker.revoke(target: target) }
         #expect(await recorder.files[CloudCodexBroker.accessPath] != nil)
+        await #expect(throws: CloudCodexBrokerError.cancelled) { try await broker.transfer(target: target, confirmed: true) }
+        #expect(!(await broker.registeredMachineIDs()).contains(target.machineID))
         await recorder.failRemoval(false)
         try await broker.revoke(target: target)
         #expect(await recorder.files[CloudCodexBroker.accessPath] == nil)
