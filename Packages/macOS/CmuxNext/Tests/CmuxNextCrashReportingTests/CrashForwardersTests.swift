@@ -20,15 +20,29 @@ import Testing
     @Test func startSendsThePreviousRunsPanicOnTheForwardersQueue() async throws {
         let dir = try CrashForwardersScratch()
         defer { dir.remove() }
-        let (seen, report) = AsyncStream.makeStream(of: String.self)
-        let forwarders = dir.forwarders(sent: nil, report: { report.yield($0) })
+        let (seen, report) = AsyncStream.makeStream(of: CrashForwardersReport.self)
+        let forwarders = dir.forwarders(sent: nil, report: { report.yield(CrashForwardersReport(value: $0)) })
         forwarders.start()
         var reports = seen.makeAsyncIterator()
-        // start() finds acpmux on the calling thread, as the launch did before the feature.
-        let first = await reports.next()
-        #expect(first == "acpmux.made")
-        let second = await reports.next()
-        #expect(second == "owner: boom")
+        // The owner's queue and the calling thread both report, in no set order.
+        let first = try #require(await reports.next())
+        let second = try #require(await reports.next())
+        #expect(Set([first.value, second.value]) == ["acpmux.made", "owner: boom"])
+        let byValue = Dictionary([first, second].map { ($0.value, $0.thread) }, uniquingKeysWith: { kept, _ in kept })
+        // start() finds acpmux on the calling thread, as the launch did before the feature, and the
+        // owner's panic goes out on the forwarder's own queue, so on another thread.
+        #expect(byValue["acpmux.made"] != byValue["owner: boom"])
+    }
+}
+
+/// One report and the thread it was made on.
+private struct CrashForwardersReport: Sendable {
+    let value: String
+    let thread: ObjectIdentifier
+
+    init(value: String) {
+        self.value = value
+        thread = ObjectIdentifier(Thread.current)
     }
 }
 
