@@ -21,6 +21,10 @@ use super::{
 use crate::browser::{BrowserAttachUpdate, BrowserFrameUpdate};
 use crate::{BrowserAttachState, Rgb, SurfaceId, SurfaceRenderFrame};
 
+/// SNAPSHOT and REPLAY frames: the binary forms of `snapshot` and `vt-state`.
+#[path = "snapshot_frames.rs"]
+pub(super) mod snapshot_frames;
+
 pub(super) struct VtStateMessage {
     pub(super) surface: SurfaceId,
     pub(super) cols: u16,

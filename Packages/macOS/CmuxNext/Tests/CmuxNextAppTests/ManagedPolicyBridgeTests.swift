@@ -76,7 +76,7 @@ import Testing
         #expect(rig.auth.managedTeamID == "team_acme", "start applied the managed team and nothing cleared it")
 
         await rig.settings.reload()
-        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.2))
+        runMainLoopPass(for: 0.2)
         #expect(rig.updater.managedMinimumVersion == "9.0.0", "the first load keeps the minimum")
         #expect(rig.updater.managedChannel == .stable)
         #expect(rig.auth.managedTeamID == "team_acme", "the first load keeps the managed team")

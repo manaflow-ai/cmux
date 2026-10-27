@@ -49,8 +49,8 @@ public final class LayoutRootView: NSView {
     /// The pointer-move intercept held while a strip shows away from its laid-out place
     /// (``updatePointerLanding()``).
     private var pointerLanding: InputSubscription?
-    /// Key-window observers of the current window (`observeKeyWindow()`).
-    var keyWindowObservers: [any NSObjectProtocol] = []
+    /// Key-window subscriptions on the current window's ``WindowEvents`` (`observeKeyWindow()`).
+    var keyWindowObservers: [EventSubscription] = []
     private var lastSnapshot: Snapshot?
     /// The last reveal request applied; a newer one waits until its pane is in a screen's layout.
     private var appliedReveal: ColumnCenterRequest?
@@ -245,7 +245,7 @@ public final class LayoutRootView: NSView {
             observationTask?.cancel()
             inputIntercept?.cancel()
             pointerLanding?.cancel()
-            for token in keyWindowObservers { NotificationCenter.default.removeObserver(token) }
+            for subscription in keyWindowObservers { subscription.cancel() }
             driver.detach()
             motionTrace.endRun()
         }
@@ -761,8 +761,10 @@ extension LayoutRootView {
     /// or stops showing moved and when the root goes live, so a strip at rest costs pointer moves nothing.
     func updatePointerLanding() {
         let moved = isLive && screenViews.values.contains { $0.showsPanMoved }
-        if moved, pointerLanding == nil {
-            pointerLanding = inputTap?.subscribe(class: .pointerMove, phase: .intercept(order: .layout)) { [weak self] event in
+        if moved, pointerLanding == nil, let window {
+            // Scoped to the root's window (a live root leaves its window only through `setLive(false)`,
+            // which cancels this): another window's moves run no closure; its page windows' do, and pass.
+            pointerLanding = inputTap?.subscribe(class: .pointerMove, phase: .intercept(order: .layout), window: .window(window)) { [weak self] event in
                 if let self, event.window === self.window { self.landStripsWhereTheyShow() }
                 return .pass
             }

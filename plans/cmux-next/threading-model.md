@@ -152,7 +152,7 @@ are in [Daemon threads](#daemon-threads-cmux-tui).
 | **Mac Screen capture** `cmux.screen.capture` (`ScreenCaptureBackend`, CmuxVNCWebRTC in Packages/Shared, used by `MacScreenHubHost`) | ScreenCaptureKit sample buffers of this Mac's display, handed to the encoder for a remote viewer | Nothing: SCStream calls back on it; state behind its `NSLock` | user-interactive | user-initiated: no local frame waits on it, a viewer on another device does (listed in the closed list as a known exception until a task lowers it; no task yet) | One SCStream, 60 fps at most, frames only on change |
 | **Browser host provider** thread `cmux browser-host provider reader`; queue `com.cmuxterm.next.browser-host.provider.write` (`ProviderConnection`) | The browser-host provider socket | Reader: `read(2)` of its socket. Writer: `write(2)` | user-initiated, both (the writer since p02-threads-032) | as today | One per provider connection |
 | **Browser support** `com.cmuxterm.import-history-sync` (`ImportHistorySync`), `com.cmuxterm.chromium-runtime.download` (URLSession delegate queue, serial), thread `cmux-next webkit setup probe` (`WebKitSetupGate`, one-shot) | History import sync; the Chromium runtime download; WebKit's one sandbox-extension request | Import: disk and SQLite. Download: nothing (URLSession delivers). Probe: the WebKit request | import default (no QoS stated); download and probe utility | import utility (task 033); download and probe as today | Serial queue; one probe per launch |
-| **Agent pane and acpmux client** `com.cmuxterm.app.next.agent-pane.inbound`, `com.cmuxterm.app.next.agent-pane.socket` (URLSession delegate queue, serial), `com.cmuxterm.app.next.tasks.socket` (`SocketTasksSource`), `com.cmuxterm.app.next.agent-pane.prompt-journal`, `cmux.next.agent-pane.acpmux-exit.<pid>`, `cmux.next.agent-pane.acpmux-launch-reap.<pid>`, `cmux.next.agent-pane.acpmux-log-progress`, `cmux.next.agent-pane.acpmux-status`, `cmux.acpmux.checked-line`, `cmux.agent-activity.socket`, `com.cmuxterm.app.next.chief-settle` | The agent pane's socket to acpmux and its frames; the task list socket; prompt journal writes; acpmux launch, exit and status; agent activity lines; the Chief settle notice | inbound, agent-pane.socket, tasks.socket, acpmux-status, agent-activity: socket reads and writes (non-blocking sources); prompt-journal: disk; exit and reap: process sources; log-progress: a vnode source | inbound, agent-pane.socket, tasks.socket user-initiated; prompt-journal, agent-activity (p02-threads-032) utility; the others default (no QoS stated) | inbound, agent-pane.socket, tasks.socket as today (the visible pane waits); prompt-journal, agent-activity as today; acpmux queues and chief-settle utility (task 033) | Serial queues; the pane's inbox bounds |
+| **Agent pane and acpmux client** `com.cmuxterm.app.next.agent-pane.inbound`, `com.cmuxterm.app.next.agent-pane.socket` (URLSession delegate queue, serial), `com.cmuxterm.app.next.tasks.socket` (`SocketTasksSource`), `com.cmuxterm.app.next.tasks.directory` (its socket directory watch), `com.cmuxterm.app.next.agent-pane.prompt-journal`, `cmux.next.agent-pane.acpmux-exit.<pid>`, `cmux.next.agent-pane.acpmux-launch-reap.<pid>`, `cmux.next.agent-pane.acpmux-log-progress`, `cmux.next.agent-pane.acpmux-status`, `cmux.acpmux.checked-line`, `cmux.agent-activity.socket`, `com.cmuxterm.app.next.chief-settle` | The agent pane's socket to acpmux and its frames; the task list socket; prompt journal writes; acpmux launch, exit and status; agent activity lines; the Chief settle notice | inbound, agent-pane.socket, tasks.socket, acpmux-status, agent-activity: socket reads and writes (non-blocking sources); prompt-journal: disk; exit and reap: process sources; log-progress, tasks.directory: a vnode source | inbound, agent-pane.socket, tasks.socket user-initiated; prompt-journal, agent-activity (p02-threads-032), tasks.directory utility; the others default (no QoS stated) | inbound, agent-pane.socket, tasks.socket as today (the visible pane waits); prompt-journal, agent-activity as today; acpmux queues and chief-settle utility (task 033) | Serial queues; the pane's inbox bounds |
 | **Computer Use helper** queue `com.cmuxterm.next.computer-use.helper-reap` (one per `DisclaimedHelperSpawner`), thread `cua-helper-v2-stdout` (`ComputerUseHelperV2Spawner`) | Reaping the helper after SIGTERM; reading its stdout | reap: a process-exit source (`ChildExitWatch`), one `waitpid` that returns at once (p02-threads-128); stdout: `read(2)` of its pipe | utility | as today | One reap queue per spawner; one stdout thread per helper |
 | **Diagnostics writers** `cmux-next.hang-episodes`, `cmux-next.hang-episodes.symbols` (`HangEpisodeRecorder`), `com.cmuxterm.app.next.run-marker`, `com.cmuxterm.app.next.crash-forwarder`, `com.cmuxterm.app.next.owner-panic-forwarder`, `com.cmuxterm.app.next.invariant-sink`, `com.cmuxterm.next.typing-probe` (writes), `com.cmux.host-pressure` (`HostPressureMonitor`), `debug.window_record` (Debug window recording) | Hang episode files and symbolication; the run marker; crash and owner-panic forwarding; invariant reports; typing probe records; host memory and thermal pressure; Debug frame recording | Disk (writes and symbol reads); host-pressure: nothing (a pressure source hands one level change to main); window record: disk | utility; `debug.window_record` user-initiated | as today (window record is a Debug tool a person runs and watches) | Serial queues; the recorders' own rings |
 | **Launch warm-ups** threads `cmux-next resource bundle warm-up`, `cmux-next launch warm-up` (one-shot) | Opening the app's SwiftPM resource bundles and building launch-time globals (`ActionCatalog.all`) while AppKit starts | Disk (bundle reads); a main-thread read of a global still being built waits for that one build (`swift_once`) | user-initiated | as today (main may wait on what they build) | One each per launch, then they exit |
@@ -645,6 +645,7 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
   `cmux.acpmux.checked-line` (user-initiated; approvals, and callers wait on it with `sync`),
   `cmux.agent-activity.socket` (utility), `com.cmuxterm.app.next.chief-settle` (utility; a watcher),
   `com.cmuxterm.app.next.tasks.socket` (user-initiated),
+  `com.cmuxterm.app.next.tasks.directory` (utility; the Tasks socket directory's vnode source while the owner is away, `SocketTasksSource`),
   `com.cmuxterm.app.next.agent-pane.socket` (OperationQueue, user-initiated, serial; the agent pane's URLSession
   delegate queue),
   `com.cmuxterm.next.computer-use.helper-reap` (utility; the helper's exit source, `ChildExitWatch`),
@@ -744,6 +745,90 @@ children, provider write, mobile unix-lane, agent-activity socket, updates netwo
 remote-view transport and mock host, remote-fetch, import-history-sync, acpmux, chief-settle and fixture video
 queues, each at the QoS listed above. Watchers run at utility; a queue that a visible pane or a waiting caller
 needs runs at user-initiated. None goes to user-interactive.
+
+## QoS audit (MQ-15, p02-threads-302)
+
+`scripts/cmux-next/qos-audit.py` reads what runs and judges it against the thread parts of RUN-3 and RUN-4
+(chrome-parity/p02-threads.md). Each finding is one task, `p02-threads-R-qos-<process>-<kind>-<thread>`, with
+its evidence rows and the spawn sites that spell the name (`qos-tasks.json`). The id stays the same on a rerun.
+Chrome keeps the same facts per thread (`ThreadType` to QoS in `base/threading/platform_thread_apple.mm`, thread
+type and priority in chrome://tracing metadata).
+
+- App: `qos-audit.py app --app "$NX_APP" --daemon-socket <socket>` (fleet GUI Mac, Debug or bench build)
+  builds STRESS (perf-stress-session.py). It reads `debug.threads` and `debug.surfaces` with the window visible,
+  then with the app hidden (`showHideAllWindows`), then shows the app again. It finds: `mismatch` (`match`
+  false), `hidden-tier` (hidden phase: a Ghostty surface thread not at utility), `hidden-workspace-tier`,
+  `undeclared-cmux`, `undeclared-library`, `interactive-outside-closed-list` (a cmux thread at user-interactive
+  that the closed list above does not name), `queue-problem`, `undeclared-queue`, `queue-log-overflow` and
+  `task-role`. `hidden-workspace-tier` is the visible phase's check of a hidden workspace in a shown window
+  (STRESS has 59): Ghostty names its threads without the surface, so the audit counts. Each by-visibility row
+  (renderer, io) may have at most as many threads above utility as surfaces draw (`debug.surfaces` `drawing`, the
+  visibility `ghostty_surface_set_occlusion` gave). `--daemon-socket` also reads the app's daemon in both phases.
+  There it judges the app's UI connection (`ui-connection`): the person's readers must rest at user-interactive
+  and their request threads at user-initiated. `unseen` means no verified app connection was found.
+- Daemon: `qos-audit.py daemon --bin <cmux-tui> --base-peak <base qos-peak.json>` starts a headless daemon with
+  `daemonRequestQos` on and the blocking detector in record mode. It builds STRESS (60 workspaces, 14 panes of 2
+  terminals in the measured one, 10 busy terminals) and runs perf-10x-lifecycle's op mix (bench-lifecycle.py's
+  creates and closes, 3 warm-up and 40 rounds) on a second connection. During the rounds it reads
+  `server-threads` and the process's OS threads by id (Linux `/proc/<pid>/task`, macOS `proc_pidinfo`). From the
+  daemon's start to the last round, a thread of the script counts the daemon's OS threads every millisecond. The
+  peak is the highest count, so the threads that live only during a create or a close count. Threads shorter
+  than the interval can still be missed. The whole run repeats 3 times, each with a new daemon. The base binary
+  gets the same runs with `--peak-only`. It finds: `unregistered` (an OS thread with no row; `main` is the first
+  thread: the pid on Linux, the lowest thread id on macOS; `unnamed` is a thread that never set its name),
+  `mismatch` (`matches` false), `automation-class` (an automation connection's reader or request thread not
+  resting at utility), `interactive-outside-closed-list` and `peak-threads` (the head's highest peak not below the
+  base's lowest). Run it at nice 0. A Linux daemon inherits the script's nice and cannot lower it again, so the
+  script refuses to start under `nice -n`.
+- Each connection thread's `server-threads` row names its connection (`connection`: client id, transport,
+  origin, peer pid, class). The audit decides from those facts which connection is the person's: origin `user`,
+  or `agent` from the verified app's process. It does not use the daemon's class, so a connection the daemon
+  classed wrongly is still judged by what it is.
+- The verdict has one part per check. RUN-3: `run3_visible`, `run3_hidden_workspaces`, `run3_hidden`. RUN-4:
+  `run4_daemon_threads`, `run4_ui_connection` (app mode with `--daemon-socket`), `run4_automation`, `run4_peak`
+  (daemon mode). A RUN is true only when all its parts are true, false when one fails, otherwise null. A partial
+  read never passes. `qos-audit.py judge` reads saved replies again. Exit 0 means every part the run covers
+  passes, 1 means a finding is open, 2 means a part the run covers was not read (`missing`) or a read failed.
+  RUN-3 (b) queue literals and RUN-4's crate deny attributes and clippy are static checks (threading-inventory.py,
+  task 219); the audit does not read them.
+
+Run 2, Linux daemon only (2026-10-27, 360-core Linux VM, nice 0, Debug `cmux-tui` of this branch on
+perf/chrome-parity 3bbdf9d3d6a, with the `connection` field; base feat-cmux-next 772cdfc45ac). The run used the
+millisecond sampler, 3 runs per side, perf-10x-lifecycle's op mix and about 22 s and 17,500 counts per run. Peaks:
+head 490, 506, 501; base 504, 497, 487. The ranges overlap, so RUN-4's peak part fails: the head is not lower
+than the base. Run 1 read the count only between rounds and gave 383 against 389. That method missed the threads
+of a create or a close, so its "passes" did not hold. RUN-4 also fails on 21 thread findings: 2 mismatches and 19
+unregistered threads. `run4_automation` passes: the script's automation connections ask for utility. On Linux
+their nice stays 0, which is the `mismatch` rows below. `run4_ui_connection` is not read because a headless
+daemon has no app. The up to 143 `terminal-host-r` threads are the per-child `terminal-host-reaper` (task 237).
+Linux cuts names to 15 characters. The deny attributes are on no daemon crate root (task 219 has not landed).
+The fleet run is still open: app STRESS visible and hidden with `--daemon-socket` (RUN-3, and RUN-4's UI
+connection), and the macOS daemon. Until it is done, this task does not pass.
+
+| Task (`p02-threads-R-qos-daemon-` + suffix) | Thread | Seen | Spawn site |
+|---|---|---|---|
+| `peak-threads-process` | the process | head peaks 490, 506, 501; base 504, 497, 487 | the threads per terminal (`terminal-host-reaper`, task 237) and the lifecycle's one-shot threads |
+| `mismatch-mux-conn` | `mux-conn` | desired utility, applied default: `RestingClass::follow` asks the registry slot for utility before `WorkQos::enter`, which does not lower a class the process cannot raise again (Linux nice without CAP_SYS_NICE) | server/connection_qos.rs, server/listen.rs |
+| `mismatch-mux-control-dispatch` | `mux-control-dispatch` | desired utility, applied user-initiated, same cause | server/connection_qos.rs, server/connection_scheduler.rs |
+| `unregistered-main` | daemon main thread | no row | cmux-tui/src/main.rs |
+| `unregistered-unnamed` | a thread with no name of its own | no row | (by stack) |
+| `unregistered-tokio-rt-worker` | an unnamed tokio worker, idle phase | no row; task 228 runtimes name theirs | (by stack) |
+| `unregistered-background-chec` | `background-checks` | no row | cmux-tui/src/owner_start/background_checks.rs |
+| `unregistered-client-log` | `client-log` | no row | cmux-tui/src/client_log.rs |
+| `unregistered-memory-guard` | `memory-guard` | no row | cmux-tui/src/owner_start/memory_guard.rs |
+| `unregistered-headless-signal` | `headless-signal` | no row | cmux-tui/src/headless.rs |
+| `unregistered-cmux-config-wat` | `cmux-config-watch` (2) | no row | cmux-config/src/watch/inotify.rs, portable.rs |
+| `unregistered-notify-rs-inoti` | `notify-rs inotify` (the notify crate's watcher thread) | no row | a `notify` watcher of cmux-config or cmux-tui-core |
+| `unregistered-mux-project-sou` | `mux-project-sources` | no row | cmux-tui-core/src/state/project_watch.rs |
+| `unregistered-mux-agent-chat` | `mux-agent-chat-*` | no row | cmux-tui-core/src/mux/agent_chat_notices.rs |
+| `unregistered-cmux-journal-pl` | `cmux-journal-plugin*` | no row | cmux-tui-core/src/journal_plugin.rs |
+| `unregistered-mux-cloud-io` | `mux-cloud-io` | no row | cmux-tui/src/cloud_conversations_backend.rs |
+| `unregistered-mux-host-replic` | `mux-host-replica*` (up to 3) | no row | cmux-tui-core/src/server/cloud_host_replica.rs |
+| `unregistered-mux-deadline-n` | `mux-deadline-<n>` | no row | cmux-tui-core/src/mux/deadline_fanout.rs |
+| `unregistered-mux-idle-close` | `mux-idle-close` | no row | cmux-tui-core/src/mux/idle_close.rs |
+| `unregistered-mux-launch-snap` | `mux-launch-snapshot` | no row | cmux-tui-core/src/server/launch_snapshot.rs |
+| `unregistered-terminal-host-r` | `terminal-host-reaper` (up to 143) | one thread per child | terminal_host_runtime/sys/unix/spawned_host.rs (task 237) |
+| `unregistered-terminal-host-c` | `terminal-host-close` or `-child` (up to 8, during lifecycle closes) | no row | mux/host_close.rs, terminal_host_runtime/shared/host_start.rs |
 
 ## Reviewed blocking allowances
 

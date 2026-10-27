@@ -40,7 +40,8 @@ extension AppServices {
     /// The page host pool follows the main windows (``LaterTabWarmupHost``); it makes no host until a page is likely.
     func followWindowsForPageHosts() {
         pageHostPool.start(isMainWindow: { [weak self] window in self?.windows.controllers.contains { $0.window === window } == true },
-                           fallback: { [weak self] window in self?.windows.controllers.compactMap(\.window).first { $0 !== window && $0.isVisible } })
+                           fallback: { [weak self] window in self?.windows.controllers.compactMap(\.window).first { $0 !== window && $0.isVisible } },
+                           mainWork: mainWork)
     }
 
     /// The platform services (p08-startup-029). Now, before the windows build and the restore mounts a page:
