@@ -221,6 +221,7 @@ public actor CloudCodexBroker {
         pendingRevocations.remove(machineID)
         previousModeByMachine.removeValue(forKey: machineID)
         installedAccess.removeValue(forKey: machineID)
+        accessRemovalAttempted.remove(machineID)
         loadedPreviousMode.remove(machineID)
         if targets.isEmpty { cached = nil; refreshTask?.cancel(); refreshTask = nil }
     }
