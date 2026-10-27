@@ -160,6 +160,13 @@ class TextInputPushes {
   void Forget(int browser);
   bool watching(int browser) const { return watched_.count(browser) != 0; }
   size_t watches() const { return watched_.size(); }
+  // The watched browsers, in no order (HostContext::Orphan stops each).
+  std::vector<int> watched() const {
+    std::vector<int> browsers;
+    browsers.reserve(watched_.size());
+    for (const auto& entry : watched_) browsers.push_back(entry.first);
+    return browsers;
+  }
 
   // A new state of a watched browser (others are ignored).
   void Changed(int browser, TextInputState state);

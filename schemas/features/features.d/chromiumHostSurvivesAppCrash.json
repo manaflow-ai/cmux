@@ -1,0 +1,16 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "chromiumHostSurvivesAppCrash",
+  "owner": "PL-cef-helper",
+  "description": "With chromiumHostTabs on, a crashed cmux's Chromium Host keeps its pages 30 s and the relaunched cmux adopts it after both check code signature (team, designated requirement) and wire, ABI, fork API and framework versions; a mismatch quits it. Unsigned builds never adopt.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["chromium-host", "crash-survival"],
+  "sticky": false,
+  "runtimeMutable": false,
+  "benchOnly": true,
+  "replaces": ["browserHost.survivesAppCrash"]
+}

@@ -112,6 +112,10 @@ Per mode:
            with a second display (cmux20-bench has an external one), frames until both are the new display's after
            the window moves there and back, counted from the move (pass: rate within 2 frames, scale within 1, the
            1x to 2x move reported as `scale_up`) (chromium_host_display.py).
+  kill_app --kill-app (task 150), instead of the modes, with every Chromium tab in the supervisor's host and the
+           feature chromiumHostSurvivesAppCrash: SIGKILL of cmux leaves the host running on its adoption socket, the
+           bench's unsigned offer is refused, the relaunch adopts the host (same pid) and the page keeps
+           performance.timeOrigin, and a host nobody adopts ends 30 s after the kill (chromium_host_kill_app.py).
   profiles `--modes profiles` (task 080), with `browserHost.tabs` on (every Chromium tab in the supervisor's
            host): two browser profiles made with the app's CLI, a Chromium tab of each; pass when the backend is the
            host, both load, the supervisor's one host (`debug.cef` host_supervisor) serves both and their localStorage
@@ -174,6 +178,7 @@ import chromium_host_display  # noqa: E402
 import chromium_host_find  # noqa: E402
 import chromium_host_native_ui  # noqa: E402
 import chromium_host_native_ui_dialogs  # noqa: E402
+import chromium_host_kill_app  # noqa: E402
 import chromium_host_profiles  # noqa: E402
 
 
@@ -193,6 +198,9 @@ def parse(argv=None):
                         help="only the native UI rows (chromium_host_native_ui.py): all, or the comma-separated ROWS "
                              f"({', '.join(chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS)})")
     parser.add_argument("--find", action="store_true", help="only the find rows (chromium_host_find.py)")
+    parser.add_argument("--kill-app", action="store_true",
+                        help="only the crash survival rows (chromium_host_kill_app.py, task p01-process-150): every "
+                             "Chromium tab in the host, SIGKILL of cmux, relaunch and adoption, the 30 s orphan")
     parser.add_argument("--baseline", action="store_true", help="task p01-process-005: stall 9a, 10-tab idle wakes, census, rows")
     parser.add_argument("--idle-settle-seconds", type=float, default=35.0, help="wait before the 10-tab idle sample")
     parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
@@ -202,8 +210,10 @@ def parse(argv=None):
     parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
                         help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
     args = parser.parse_args(argv)
-    if args.native_ui is not None and args.find:
-        parser.error("--native-ui and --find each run instead of the modes: pick one")
+    if sum([args.native_ui is not None, args.find, args.kill_app]) > 1:
+        parser.error("--native-ui, --find and --kill-app each run instead of the modes: pick one")
+    if args.kill_app and (args.baseline or args.stress):
+        parser.error("--kill-app runs every Chromium tab in the host and kills cmux: run it without --baseline or --stress")
     if "profiles" in args.modes.split(",") and ("inproc" in args.modes.split(",") or args.baseline or args.stress):
         parser.error("--modes profiles runs every Chromium tab in the host: run it in a launch of its own, without "
                      "inproc, --baseline or --stress (they measure in-process tabs)")
@@ -365,10 +375,10 @@ addEventListener("wheel", e => { if (e.ctrlKey) __mouse.push({type: "pinch-wheel
 TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.layerHostingEveryPage": True}}
 
 
-def launch_tunables(modes):
+def launch_tunables(modes, kill_app=False):
     """TUNABLES for a run of `modes`: Chromium tabs move to the host (`browserHost.tabs`, feature chromiumHostTabs)
-    only for the profiles row, so every other row's Chromium tab stays in process."""
-    values = dict(TUNABLES["values"], **{"browserHost.tabs": "profiles" in modes})
+    only for the profiles row and the --kill-app rows, so every other row's Chromium tab stays in process."""
+    values = dict(TUNABLES["values"], **{"browserHost.tabs": "profiles" in modes or kill_app})
     return {**TUNABLES, "values": values}
 
 
@@ -712,7 +722,7 @@ def padded(values, expected):
 def main():
     os.makedirs(opts.out, exist_ok=True)
     tunables = os.path.join(opts.out, "debug-tunables.json")
-    json.dump(launch_tunables(opts.modes.split(",")), open(tunables, "w"))
+    json.dump(launch_tunables(opts.modes.split(","), kill_app=opts.kill_app), open(tunables, "w"))
     probe = os.path.join(opts.out, "probe.html")
     open(probe, "w").write(PAGE)
     url = pathlib.Path(probe).as_uri()
@@ -729,6 +739,8 @@ def main():
         url = pathlib.Path(find_page).as_uri()
     if "dragin" in opts.modes.split(","):
         env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), "chromiumHostDragIn"]))
+    if opts.kill_app:
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), "chromiumHostSurvivesAppCrash"]))
     if opts.host_switches:
         env["CMUX_NEXT_CHROMIUM_HOST_SWITCHES"] = opts.host_switches
         RESULT["host_switches"] = opts.host_switches
@@ -750,7 +762,7 @@ def main():
         RESULT["cef"] = {"fork_api": (cef.get("windows") or {}).get("fork_api"), "unavailable": cef.get("unavailable"),
                          "fallback": cef.get("fallback")}
         DEFAULTS["launch"] = defaults_snapshot(app_bundle_id())
-        modes = [] if opts.native_ui or opts.find else opts.modes.split(",")
+        modes = [] if opts.native_ui or opts.find or opts.kill_app else opts.modes.split(",")
         if opts.native_ui:
             RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(
                 rpc, wait, lambda script: page_eval(rpc, script, None), url,
@@ -765,6 +777,9 @@ def main():
                 ok = ok and dialogs_ok
         if opts.find:
             RESULT["modes"]["find"], ok = chromium_host_find.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
+        if opts.kill_app:
+            RESULT["modes"]["kill_app"], ran = chromium_host_kill_app.run(KillAppBench(app), url)
+            ok = ran and ok
         inproc_tab = None
         if "inproc" in modes:
             inproc_tab = run_inproc(rpc, url)
@@ -957,6 +972,75 @@ def open_inproc_probe(rpc, url, name):
         rect = page(f"(() => {{ const r = document.getElementById('{element}').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; }})()")
         return {"x": rect[0], "y": rect[1]} if rect else {}
     return page, click_point, found
+
+
+class KillAppBench:
+    """chromium_host_kill_app.run's view of this bench's app (task p01-process-150): the probe in a Chromium tab, a
+    SIGKILL of the cmux process this bench started, a relaunch of the same tag that keeps its state (the daemon and the
+    orphaned host still run), and the supervisor host's socket."""
+
+    PROBE = "kill-app"
+
+    def __init__(self, app):
+        self.app = app
+
+    def rpc(self, method, params=None):
+        alive = self.app.process is not None and self.app.process.poll() is None
+        return self.app.rpc(method, params) if alive else None
+
+    def open_page(self, url):
+        return open_inproc_probe(self.app.rpc, url, self.PROBE)[2]
+
+    def find_tab(self, url):
+        ready = f"document.readyState === 'complete' && location.search === '?probe={self.PROBE}'"
+        return wait(lambda: (lambda value, tab: tab if value is True and tab else None)(
+            *page_eval_reply(self.app.rpc, ready)), 60, 0.5)
+
+    def page_eval(self, script, tab):
+        return page_eval(self.app.rpc, script, tab)
+
+    def kill_app(self):
+        os.kill(self.app.process.pid, signal.SIGKILL)  # the cmux process this bench started
+        self.app.process.wait(30)
+
+    def relaunch(self):
+        self.app.fresh_state = False  # the tag's daemon and the orphaned host are the state under test
+        self.app.launch()
+        settle_host_feature(self.app)
+
+    def pid_alive(self, pid):
+        return not pid_gone(pid)
+
+    def socket_path(self):
+        root = os.path.expanduser(f"~/Library/Application Support/{app_bundle_id()}/ChromiumHost")
+        path = os.path.join(root, "chromium-host.sock")
+        if len(path.encode()) <= 103:
+            return path
+        digest = 0xcbf29ce484222325
+        for byte in root.encode():
+            digest = ((digest ^ byte) * 0x100000001b3) & 0xFFFFFFFFFFFFFFFF
+        return f"/tmp/cmux-chromium-host-{os.geteuid()}/{digest:016x}.sock"
+
+    def socket_exists(self):
+        return os.path.exists(self.socket_path())
+
+    def offer_refused(self):
+        """Whether the orphaned host closed this unsigned bench's connection with no reply byte."""
+        import socket as sockets
+        try:
+            with sockets.socket(sockets.AF_UNIX, sockets.SOCK_STREAM) as client:
+                client.settimeout(5)
+                client.connect(self.socket_path())
+                client.sendall(chromium_host_kill_app.offer_frame(os.getpid()))
+                return client.recv(1) == b""
+        except OSError:
+            return True  # reset by the host: refused too
+
+    def sleep(self, seconds):
+        time.sleep(seconds)
+
+    def monotonic(self):
+        return time.monotonic()
 
 
 def run_inproc(rpc, url):

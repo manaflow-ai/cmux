@@ -32,6 +32,13 @@
 // holds a user-initiated activity while cmux shows one of its pages and lets
 // App Nap apply when every page is hidden (host_page_activity.h, task
 // p14-energy-128).
+//
+// A crash of cmux (task p01-process-150, --survives-app-crash): the channel's
+// EOF with no shutdown op before it leaves the pages running for
+// adoption::kGraceSeconds while the host listens on its root cache's socket
+// (host_adoption.h); a relaunched cmux that passes the peer check and the
+// version check takes the host over with a new control channel, else the
+// host ends as at a quit.
 
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
@@ -63,8 +70,10 @@
 #include "chromium_host_input_ring.h"
 #include "chromium_host_wire.h"
 #include "cmux_cef_shim.h"
+#include "host_adoption.h"
 #include "host_dispatch.h"
 #include "host_page_activity.h"
+#include "host_peer.h"
 #include "host_switches.h"
 #include "host_user_input.h"
 #include "shim_internal.h"
@@ -77,6 +86,10 @@ static_assert(cmux_host::kCefControlDown == EVENTFLAG_CONTROL_DOWN && cmux_host:
               "CEF's control, option and command flags");
 static_assert(cmux_host::kCefPrecisionScrollingDelta == EVENTFLAG_PRECISION_SCROLLING_DELTA,
               "CEF's precise wheel delta flag");
+
+// The cmux this host serves: its parent at start, the cmux that adopted it
+// after a crash of the first (task p01-process-150). Any thread.
+static std::atomic<pid_t> g_app_pid{0};
 
 @interface ChromiumHostApplication : NSApplication <CefAppProtocol> {
   BOOL _handlingSendEvent;
@@ -100,7 +113,7 @@ static_assert(cmux_host::kCefPrecisionScrollingDelta == EVENTFLAG_PRECISION_SCRO
 // make: pass it to the app that started this host; the host then reads EOF
 // and ends. With no such app (cmux is gone) the host ends as at EOF.
 - (void)terminate:(id)sender {
-  NSRunningApplication* parent = [NSRunningApplication runningApplicationWithProcessIdentifier:getppid()];
+  NSRunningApplication* parent = [NSRunningApplication runningApplicationWithProcessIdentifier:g_app_pid.load()];
   if (parent && parent.processIdentifier != getpid() && parent.processIdentifier > 1) {
     [parent terminate];
     return;
@@ -122,7 +135,7 @@ constexpr int kExitBadMessage = 68;
 // for 10 of 10 clicks after one activation), because macOS picks the next app
 // itself. The host is the active app here, so it may hand activation over.
 void ReturnActivationToParent() {
-  NSRunningApplication* parent = [NSRunningApplication runningApplicationWithProcessIdentifier:getppid()];
+  NSRunningApplication* parent = [NSRunningApplication runningApplicationWithProcessIdentifier:g_app_pid.load()];
   if (!parent || parent.processIdentifier == getpid() || parent.processIdentifier <= 1) {
     [NSApp deactivate];
     return;
@@ -222,6 +235,14 @@ std::string Arg(const std::vector<std::string>& args, const std::string& name) {
     if (arg.rfind(prefix, 0) == 0) return arg.substr(prefix.size());
   }
   return std::string();
+}
+
+bool HasSwitch(const std::vector<std::string>& args, const std::string& name) {
+  const std::string flag = "--" + name;
+  for (const std::string& arg : args) {
+    if (arg == flag) return true;
+  }
+  return false;
 }
 
 // A kWheel frame to its page (task p04-input-063), with its scroll phase,
@@ -389,6 +410,8 @@ class HostMain : public cmux_host::HostDelegate {
 
   std::optional<cmux_host::InitializeRequest>& request() { return request_; }
   bool quit_before_start() const { return quit_before_start_; }
+  // Chromium runs and no quit began: a channel end may leave an orphan (adoption::KeepsPages).
+  bool serving() const { return running_ && !quitting_; }
   void set_running() { running_ = true; }
   int exit_status() const { return exit_status_; }
 
@@ -465,6 +488,15 @@ int main(int argc, char* argv[]) {
   }
   const std::string framework = Arg(args, "framework");
   const std::string binary = framework + "/Chromium Embedded Framework";
+  g_app_pid.store(getppid());
+  // Crash survival (task p01-process-150): the framework this host runs is read at start, so a
+  // framework an update put in its place later never matches an adopting cmux's.
+  const bool survives_app_crash = HasSwitch(args, cmux_host::adoption::kSwitch);
+  const std::optional<cmux_host::adoption::FrameworkIdentity> framework_identity =
+      survives_app_crash ? cmux_host::adoption::IdentityOf(binary) : std::nullopt;
+  const std::string adoption_socket =
+      survives_app_crash ? cmux_host::adoption::SocketPath(Arg(args, "root-cache"), geteuid()) : std::string();
+  const std::string app_bundle = Arg(args, "main-bundle");
 
   @autoreleasepool {
     [ChromiumHostApplication sharedApplication];
@@ -543,13 +575,64 @@ int main(int argc, char* argv[]) {
   auto check = [&host_main, &ordered](cmux_host::control::OrderedStream::Result result) {
     if (result == cmux_host::control::OrderedStream::Result::kMalformed) host_main.BadMessage(ordered.what());
   };
+  // The control channel's end: a quit, or with crash survival on and Chromium serving, an orphan
+  // that waits for a relaunched cmux (host_adoption.h). Main thread.
+  std::function<void(cmux_host::control::End)> channel_ended;
+  auto open_channel = [&channel, &ordered, &check, &channel_ended](int fd) {
+    channel = std::make_unique<cmux_host::control::Channel>(
+        fd, &PostToMain,
+        [&ordered, &check](std::vector<cmux_host::control::Message> messages) {
+          check(ordered.AddControl(std::move(messages)));
+        },
+        [&channel_ended](cmux_host::control::End end) { channel_ended(end); });
+  };
+  // A relaunched cmux took the orphan, was refused, or none came in time. Main thread.
+  auto adoption_done = [&](cmux_host::adoption::Listener::Outcome outcome) {
+    using Kind = cmux_host::adoption::Listener::Outcome::Kind;
+    if (outcome.kind != Kind::kAdopted || !host.orphaned() || !host_main.serving()) {
+      if (outcome.fd >= 0) close(outcome.fd);
+      if (outcome.kind == Kind::kVersionMismatch) {
+        // Every page closes, so Chromium writes its profile; the new cmux restores each tab from
+        // its history record with a new host once this one has ended.
+        fprintf(stderr, "cmux-chromium-host: the relaunched cmux speaks another version; quitting\n");
+      } else if (outcome.kind == Kind::kFailed) {
+        fprintf(stderr, "cmux-chromium-host: no adoption socket (errno %d); quitting\n", outcome.error);
+      }
+      host_main.Quit();
+      return;
+    }
+    g_app_pid.store(outcome.app_pid);
+    open_channel(outcome.fd);  // the dead channel's reader is joined here; it has ended
+    ordered.Reset();
+    host.Reattach();
+  };
+  channel_ended = [&](cmux_host::control::End end) {
+    if (!cmux_host::adoption::KeepsPages(end, survives_app_crash, host_main.serving()) || !framework_identity ||
+        adoption_socket.empty()) {
+      host_main.Quit();
+      return;
+    }
+    host.Orphan();
+    cmux_host::adoption::Listener::Options options;
+    options.path = adoption_socket;
+    options.versions = {cmux_host::HostContext::WireId(), cmux_host::HostContext::ShimAbiId(),
+                        cmux_shim_fork_api_version(), *framework_identity};
+    options.reply.host_pid = getpid();
+    options.reply.fork_api = cmux_shim_fork_api_version();
+    const cmux_host::HostContext::MintFloor floor = host.mint_floor();
+    options.reply.mint_browser = floor.browser;
+    options.reply.mint_devtools = floor.devtools;
+    options.reply.resize_fence = fence_inbox ? Arg(args, cmux_host::kResizeFenceSwitch) : std::string();
+    options.check_peer = [app_bundle](int fd) { return cmux_host::TrustedPeer(fd, app_bundle); };
+    options.done = [&adoption_done](cmux_host::adoption::Listener::Outcome outcome) {
+      PostToMain([&adoption_done, outcome] { adoption_done(outcome); });
+    };
+    fprintf(stderr, "cmux-chromium-host: cmux went away; keeping the pages %d s for a relaunched cmux\n",
+            cmux_host::adoption::kGraceSeconds);
+    cmux_host::adoption::Listener::Start(std::move(options));
+  };
   // The reader thread starts here, after the framework load.
-  channel = std::make_unique<cmux_host::control::Channel>(
-      kControlFd, &PostToMain,
-      [&ordered, &check](std::vector<cmux_host::control::Message> messages) {
-        check(ordered.AddControl(std::move(messages)));
-      },
-      [&host_main](cmux_host::control::End) { host_main.Quit(); });
+  open_channel(kControlFd);
   // Chromium's ack of each wheel goes to cmux's swipe navigation (WHEEL_ACK, task p01-process-234).
   host.SetWheelAckHandler(fork_input.set_wheel_ack_handler);
   host.Attach();

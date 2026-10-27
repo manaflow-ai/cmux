@@ -460,6 +460,20 @@ class Runtime {
     return next_browser_id_ < std::numeric_limits<int32_t>::max() ? next_browser_id_++ : 0;
   }
 
+  bool SetMintFloor(int32_t browser, int32_t devtools) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    bool moved = false;
+    if (cmux_host::mint::IsMintedBrowser(browser) && browser > next_browser_id_) {
+      next_browser_id_ = browser;
+      moved = true;
+    }
+    if (cmux_host::mint::IsMintedDevTools(devtools) && devtools > next_devtools_id_) {
+      next_devtools_id_ = devtools;
+      moved = true;
+    }
+    return moved;
+  }
+
   void MarkPending(uint16_t mirror_op, uint32_t token, const TlvWriter& key, uint32_t wildcards) {
     CMUX_REMOTE_ASSERT_MAIN();
     // With no host to ack it, a mark would never clear.
@@ -910,6 +924,10 @@ void cmux_remote_shim_set_fence_sender(cmux_remote_fence_send_fn send) {
 
 uint32_t cmux_remote_shim_order_input(uint32_t* ctl_seq) {
   return R().OrderInput(ctl_seq);
+}
+
+int cmux_remote_shim_set_mint_floor(int32_t browser, int32_t devtools) {
+  return R().SetMintFloor(browser, devtools) ? 1 : 0;
 }
 
 // --- local exports (chromium-host-ops.json class local) --------------------------------------

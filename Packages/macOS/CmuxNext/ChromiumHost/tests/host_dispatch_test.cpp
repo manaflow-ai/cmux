@@ -941,6 +941,76 @@ void PageVisibilityAppliesAtTheDetach() {
          "a malformed op is bad");
 }
 
+// Task p01-process-150: the channel ended with no quit and the host keeps its pages for a
+// relaunched cmux. While orphaned it sends nothing and hides every shown page; a new peer's
+// HELLO comes first again, its INITIALIZE is acked with no second CefInitialize, and every open
+// tab's mirrors go out under the ids the old peer minted. The next peer mints above them.
+void OrphanKeepsPagesForTheNextPeer() {
+  Fixture f;
+  f.Start();
+  CreateWindow(f, kMinted, 9);
+  Writer visible;
+  visible.I32(kMinted);
+  visible.I32(CMUX_SHIM_PAGE_VISIBLE);
+  f.host.OnMessages({Op(kOpBrowserSetPageVisibility, 0, visible)});
+  f.Sent();
+  Check(f.host.mint_floor().browser == kMinted + 1, "the next peer mints above the old peer's create");
+  Check(f.host.mint_floor().devtools == (1 << 29), "no DevTools call: the range's first id");
+
+  shim.calls.clear();
+  f.host.Orphan();
+  Check(f.host.orphaned(), "orphaned");
+  Expect(shim.calls, {"visibility 3 1"}, "the shown page is hidden for the orphan");
+  Emit(CMUX_SHIM_TITLE, 3, 0);
+  Check(f.sent.empty(), "an orphan sends nothing: no peer");
+  f.host.OnMessages({Op(kOpInitialize, 70, Writer())});
+  Check(f.delegate.calls.back() == "bad no hello of this wire first", "a message before a new peer's HELLO is bad");
+}
+
+void ReattachPushesEverySurvivingPage() {
+  Fixture f;
+  f.Start();
+  CreateWindow(f, kMinted, 9);
+  f.Sent();
+  f.host.Orphan();
+  shim.calls.clear();
+  f.host.Reattach();
+  auto mirror = [](uint16_t op) { return "mirror " + std::to_string(op); };
+  Expect(f.Sent(),
+         {mirror(kOpForkApiVersion), mirror(kOpPlaceholderSupported), mirror(kOpNavigationRestoreSupported), mirror(kOpPasswordImportAvailable),
+          mirror(kOpPasswordReplaceAvailable), mirror(kOpPasskeysAvailable), mirror(kOpPasswordCoreAvailable),
+          mirror(kOpExtLoadLaterSupported), "hello cmux_shim_tab_set_frozen"},
+         "a new peer gets the attach mirrors and the HELLO again");
+  f.host.OnMessages({Hello()});
+  Writer ntp;
+  ntp.Str("https://ntp/");
+  f.host.OnMessages({Op(kOpSetNewTabPageUrl, 0, ntp)});
+  Writer init;
+  init.Str("/fw");
+  init.Str("/app");
+  init.Str("/helper");
+  init.Str("/root");
+  init.Str(nullptr);
+  init.I32(0);
+  init.Str("en-US");
+  init.Str(nullptr);
+  const char* switches[] = {"--a"};
+  init.StrList(switches, 1);
+  f.host.OnMessages({Op(kOpInitialize, 71, init)});
+  Expect(f.delegate.calls, {"initialize /root"}, "no second CefInitialize for the adopting peer");
+  const std::vector<std::string> sent = f.Sent();
+  Check(!sent.empty() && sent.front() == "ack 71", "the adopting peer's INITIALIZE is acked first");
+  const std::string minted = std::to_string(kMinted);
+  for (const std::string& key : TabKeys("mirror", minted, {})) {
+    Check(std::find(sent.begin(), sent.end(), key) != sent.end(), "the surviving page's mirror is pushed: " + key);
+  }
+  Check(std::find(shim.calls.begin(), shim.calls.end(), "ntp https://ntp/") != shim.calls.end(),
+        "the peer's preinit replay applies as a post");
+  // A second INITIALIZE after the adoption's is still bad.
+  f.host.OnMessages({Op(kOpInitialize, 72, init)});
+  Check(f.delegate.calls.back() == "bad a second initialize", "only the adopting peer's INITIALIZE is acked");
+}
+
 // Task p14-energy-128: the host holds its App Nap activity while cmux shows one of its pages and
 // lets App Nap apply when every page is hidden or occluded. It starts held, through Chromium's
 // start; 1 shown page begins it, 0 ends it, and the same count again changes nothing.
@@ -1394,6 +1464,8 @@ int main() {
   WipeZeroes();
   EnergySaverReachesTheFork();
   HostSwitchesFitTheHostsLoop();
+  OrphanKeepsPagesForTheNextPeer();
+  ReattachPushesEverySurvivingPage();
   if (failures) return EXIT_FAILURE;
   std::puts("chromium-host-dispatch tests: ok");
   return EXIT_SUCCESS;

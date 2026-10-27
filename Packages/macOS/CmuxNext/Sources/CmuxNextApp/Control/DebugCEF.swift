@@ -263,14 +263,16 @@ enum DebugCEF {
         return .object(object)
     }
 
-    /// Host mode's one supervisor (p01-process-080): its running host's pid, the hosts it started, how they ended
-    /// and why none can start. Null in process. chromium-host-bench.py's profiles row tells its host from others.
+    /// Host mode's one supervisor (p01-process-080): its running host's pid, the hosts it started or adopted (task
+    /// 150) and what the launch's adoption try found, how they ended and why none can start. Null in process. chromium-host-bench.py's profiles row tells its host from others.
     private static func hostSupervisor(_ supervising: (any ChromiumHostSupervising)?) -> JSONValue {
         #if DEBUG || CMUX_BENCH_HOOKS
         guard let supervisor = supervising as? ChromiumHostSupervisor else { return .null }
         return .object([
             "pid": supervisor.hostPID.map { .number(Double($0)) } ?? .null,
             "hosts_started": .number(Double(supervisor.hostsStarted)),
+            "hosts_adopted": .number(Double(supervisor.hostsAdopted)),  // p01-process-150: chromium-host-bench.py --kill-app
+            "adoption": supervisor.adoption.map(JSONValue.string) ?? .null,
             "exits": .array(supervisor.exits.map(JSONValue.string)),
             "start_failure": supervisor.startFailure.map(JSONValue.string) ?? .null,
         ])

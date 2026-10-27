@@ -134,6 +134,11 @@ typedef int (*cmux_remote_fence_send_fn)(unsigned int channel, unsigned int fenc
 // Mach message of host_resize.h (SendFence), which sends nothing where there is no Mach; the
 // tests pass their own to drive the fenced path on Linux.
 CMUX_REMOTE_EXPORT void cmux_remote_shim_set_fence_sender(cmux_remote_fence_send_fn send);
+// Main thread, before the attach of a host this cmux adopted (task p01-process-150,
+// ChromiumHost/src/host_adoption.h): the next ids MintID gives are at least `browser` and
+// `devtools`, above every id the crashed cmux minted in that host. A floor below the counter, or
+// outside the minted ranges (chromium_host_mint.h), changes nothing. 1 when it moved a counter.
+CMUX_REMOTE_EXPORT int cmux_remote_shim_set_mint_floor(int32_t browser, int32_t devtools);
 
 }  // extern "C"
 

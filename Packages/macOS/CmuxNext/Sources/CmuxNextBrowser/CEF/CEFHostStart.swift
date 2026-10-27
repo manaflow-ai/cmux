@@ -131,6 +131,8 @@ final class CEFHostStart {
             attachment.closeDescriptors()
             return .failure(error)
         }
+        // An adopted host holds pages under the ids the crashed cmux minted: this cmux mints above them.
+        if let floor = attachment.mintFloor { _ = remote.setMintFloor(floor) }
         let hostExports: Set<String>
         switch await remote.attach(attachment, replies: replies, helloDeadline: helloDeadline, clock: clock) {
         case .success(let exports): hostExports = exports

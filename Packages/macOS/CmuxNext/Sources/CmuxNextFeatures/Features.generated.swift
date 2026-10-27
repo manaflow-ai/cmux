@@ -1869,9 +1869,27 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// With chromiumHostTabs on, a crashed cmux's Chromium Host keeps its pages 30 s and the relaunched cmux adopts it after both check code signature (team, designated requirement) and wire, ABI, fork API and framework versions; a mismatch quits it. Unsigned builds never adopt.
+    public static let chromiumHostSurvivesAppCrash = Feature(
+        index: 107,
+        name: "chromiumHostSurvivesAppCrash",
+        owner: "PL-cef-helper",
+        description: "With chromiumHostTabs on, a crashed cmux's Chromium Host keeps its pages 30 s and the relaunched cmux adopts it after both check code signature (team, designated requirement) and wire, ABI, fork API and framework versions; a mismatch quits it. Unsigned builds never adopt.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["chromium-host", "crash-survival"],
+        sticky: false,
+        runtimeMutable: false,
+        replaces: ["browserHost.survivesAppCrash"]
+    )
+
     /// With cefHelperHost on too, every Chromium tab of the launch, of every profile, runs in the one Chromium Host (ChromiumHostSupervisor) instead of cmux's process. Debug builds only; bench builds keep tabs in process.
     public static let chromiumHostTabs = Feature(
-        index: 106,
+        index: 108,
         name: "chromiumHostTabs",
         owner: "PL-cef-helper",
         description: "With cefHelperHost on too, every Chromium tab of the launch, of every profile, runs in the one Chromium Host (ChromiumHostSupervisor) instead of cmux's process. Debug builds only; bench builds keep tabs in process.",
@@ -1889,7 +1907,7 @@ nonisolated extension Feature {
 
     /// Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.
     public static let perfLabCanary = Feature(
-        index: 107,
+        index: 109,
         name: "perfLabCanary",
         owner: "Performance Lead",
         description: "Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.",
@@ -1906,7 +1924,7 @@ nonisolated extension Feature {
 
     /// Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.
     public static let perfLabKillProbe = Feature(
-        index: 108,
+        index: 110,
         name: "perfLabKillProbe",
         owner: "Performance Lead",
         description: "Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.",
@@ -2032,6 +2050,7 @@ nonisolated extension Feature {
         .cefHelperHost,
         .cefLayerHostingEveryPage,
         .chromiumHostIdleExit,
+        .chromiumHostSurvivesAppCrash,
         .chromiumHostTabs,
         .perfLabCanary,
         .perfLabKillProbe,

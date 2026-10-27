@@ -1093,6 +1093,23 @@ int main() {
     }
   }
 
+  {
+    // A cmux that adopted a crashed cmux's host (task p01-process-150) mints above every id the
+    // host has bound: the floor from the adoption reply moves the counters up, never down.
+    const int32_t browser_floor = cmux_remote::kFirstMintedBrowserID + 5000;
+    const int32_t devtools_floor = cmux_remote::kFirstMintedDevToolsID + 7000;
+    Host adopted;
+    CHECK(AttachNew(&adopted) == 1);  // the adopted host's wire: a create goes out with its id
+    CHECK(cmux_remote_shim_set_mint_floor(browser_floor, devtools_floor) == 1);
+    CHECK(cmux_shim_tab_add(1, "https://floor.test/", 0, 1) == browser_floor);
+    CHECK(cmux_shim_devtools_call(1, "Page.enable", "{}") == devtools_floor);
+    CHECK(cmux_remote_shim_set_mint_floor(cmux_remote::kFirstMintedBrowserID, cmux_remote::kFirstMintedDevToolsID) == 0);
+    CHECK(cmux_remote_shim_set_mint_floor(7, 7) == 0);  // outside the minted ranges
+    CHECK(cmux_shim_tab_add(1, "https://floor.test/", 0, 1) == browser_floor + 1);
+    cmux_remote_shim_detach();
+    ::close(adopted.fd);
+  }
+
   if (failures == 0) std::printf("remote shim: ok\n");
   return failures == 0 ? 0 : 1;
 }

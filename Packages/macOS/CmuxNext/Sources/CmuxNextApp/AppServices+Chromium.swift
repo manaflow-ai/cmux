@@ -104,7 +104,8 @@ extension AppServices {
         let hostSwitch = AppControl.chromiumHostSwitch(in: features, tunables: TunableStore.shared)
         let hostTabs = hostSwitch.isEnabled && features.isEnabled(.chromiumHostTabs)
         guard BrowserHostTunables.backend(hostEnabled: hostTabs) == .host else { return nil }
-        return ChromiumHostSupervisor(work: work, mainWork: mainWork, fencesResizes: features.isEnabled(.chromiumHostResizeFence))
+        return ChromiumHostSupervisor(work: work, mainWork: mainWork, fencesResizes: features.isEnabled(.chromiumHostResizeFence),
+                                      survivesAppCrash: features.isEnabled(.chromiumHostSurvivesAppCrash))  // p01-process-150
         #else
         return nil
         #endif

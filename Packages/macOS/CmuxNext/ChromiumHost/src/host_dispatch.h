@@ -230,6 +230,31 @@ class HostContext {
   // cmux_shim_initialize returned 1: acks kOpInitialize, pushes the mirrors
   // that also refresh on attach and runs the messages that waited.
   void Resume();
+
+  // The control channel ended with no quit and the host keeps its pages for a
+  // relaunched cmux (host_adoption.h, task p01-process-150). What only the old
+  // peer could use goes: its mirror watches, text input watches and held
+  // replies. Every shown page is hidden, as Chrome hides a WebContents whose
+  // window went away (WebContentsImpl::WasHidden), so an orphan draws nothing.
+  // The next message must be a new peer's HELLO. Running only.
+  void Orphan();
+  // A new peer adopted the host: the attach mirrors and the HELLO again
+  // (Attach). The peer's INITIALIZE is acked with no second CefInitialize;
+  // then every open tab's mirrors go out, so its cache holds each page that
+  // survived, under the ids the old peer minted.
+  void Reattach();
+  // Where the next peer mints ids (cmux_remote_shim_set_mint_floor): above
+  // every minted id cmux sent this host, so a new peer never names a page
+  // the old one created.
+  struct MintFloor {
+    int32_t browser = 0;
+    int32_t devtools = 0;
+  };
+  MintFloor mint_floor() const;
+  bool orphaned() const { return orphaned_; }
+  // The generated op table's wire and shim ABI ids (kWireID, kShimAbiID), which an adoption offer must name.
+  static const char* WireId();
+  static const char* ShimAbiId();
   // The shim's event_fn; ctx is this HostContext.
   static void OnShimEvent(void* ctx, int kind, int browser_id, int request, int64_t a, int64_t b, const char* s1,
                           const char* s2);
@@ -338,6 +363,10 @@ class HostContext {
 
   void Handle(control::Message& message);
   bool HandleHello(const control::Message& message);
+  // The adopting peer's INITIALIZE (Reattach): read, acked, the mirrors pushed.
+  bool HandleAdoptedInitialize(const control::Message& message);
+  // A minted id cmux sent in a create or a DevTools call: mint_floor() stays above it.
+  void NoteMinted(uint16_t op, int32_t minted);
   void Dispatch(const control::Message& message);
   bool HandleInitialize(const control::Message& message);
   bool HandleTextInputWatch(const control::Message& message);
@@ -406,6 +435,10 @@ class HostContext {
   PageViews& views_;
   State state_ = State::kPreinit;
   bool peer_hello_ = false;  // cmux's HELLO came: every other op must follow it
+  bool orphaned_ = false;  // Orphan: no peer until Reattach
+  bool adopted_ = false;   // Reattach: the peer's INITIALIZE is acked with no call
+  int32_t highest_minted_browser_ = 0;
+  int32_t highest_minted_devtools_ = 0;
   // Messages that arrived while initialize runs, or mirror watches before it.
   std::deque<control::Message> waiting_;
   uint32_t initialize_token_ = 0;

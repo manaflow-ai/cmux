@@ -198,6 +198,23 @@ struct Logged {
   }
 };
 
+// A new peer adopts the host (task p01-process-150): its seqs start again at
+// 1. Without the reset its first control is "not after the one before it".
+static void TestStreamResetForNewPeer() {
+  Logged t;
+  t.stream.OpenInput();
+  t.stream.AddControl({Control(1, 7, 0, 7)});
+  t.stream.AddInput(Input(9, 7, 9));
+  t.stream.AddInput(Input(10, 8, 10));  // waits for control 8, which the dead peer never sent
+  Check(t.log == std::vector<std::string>({"c7", "i9"}) && t.stream.held_input() == 1, "the old peer's stream");
+  t.stream.Reset();
+  Check(t.stream.held_input() == 0 && t.stream.applied_control() == 0 && t.stream.dispatched_input() == 0,
+        "the reset drops what was held for the old peer and its seqs");
+  Check(t.stream.AddControl({Control(1, 1, 0, 1)}) == Result::kOk, "the new peer's control 1 is in order");
+  Check(t.stream.AddInput(Input(1, 1, 1)) == Result::kOk, "the new peer's input 1 is in order");
+  Check(t.log == std::vector<std::string>({"c7", "i9", "c1", "i1"}), "input stays open across the reset");
+}
+
 static void TestStreamChecks() {
   {
     Logged t;
@@ -521,6 +538,7 @@ int main() {
   TestOutboxKeepsStateAcrossInput();
   TestFrameQueueKeepsInputAcrossControl();
   TestStreamChecks();
+  TestStreamResetForNewPeer();
   TestStreamPassesNonInputKinds();
   TestOrderingCase();
   if (failures != 0) {

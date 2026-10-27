@@ -217,6 +217,44 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
             : ChromiumHostExit(signal: info.si_status, status: nil)
     }
 
+    /// Returns once `pid`, a process this one did not start (an adopted host), has ended: a process source's exit
+    /// event, which a non-child has too (kqueue `NOTE_EXIT`); nothing to reap.
+    func foreignExit(of pid: pid_t) async {
+        guard Self.isRunning(pid) else { return }
+        _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
+            // DispatchSource process source: the carve-out for a process exit (no Foundation async API for a pid).
+            let queue = exitQueue
+            let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
+            // One-shot resume guard (the lock carve-out): the exit event and the check after arming race.
+            let done = Mutex(false)
+            let finish: @Sendable () -> Void = {
+                guard done.withLock({ done in defer { done = true }; return !done }) else { return }
+                source.cancel()
+                continuation.resume(returning: ())
+            }
+            source.setEventHandler { finish() }
+            source.resume()
+            // A process that ended before the source was armed posts no event.
+            queue.async { if !Self.isRunning(pid) { finish() } }
+        }
+    }
+
+    /// Whether a process with `pid` exists (a zombie counts until reaped).
+    static func isRunning(_ pid: pid_t) -> Bool {
+        pid > 0 && (Darwin.kill(pid, 0) == 0 || errno == EPERM)
+    }
+
+    /// SIGKILL to `pid` only while it runs `executable` (symlinks resolved): a process that is not this one's child
+    /// may have ended and its pid gone to another process.
+    static func killIfRunning(_ pid: pid_t, executable: URL) {
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        // SAFETY: proc_pidpath writes at most the buffer's count of bytes into `buffer`, which it lends for the call.
+        guard pid > 1, unsafe proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return }
+        let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        guard URL(fileURLWithPath: path).resolvingSymlinksInPath().path == executable.resolvingSymlinksInPath().path else { return }
+        _ = Darwin.kill(pid, SIGKILL)
+    }
+
     func reap(_ pid: pid_t) {
         var status: Int32 = 0
         // SAFETY: waitpid writes one Int32 into `status` during the call.

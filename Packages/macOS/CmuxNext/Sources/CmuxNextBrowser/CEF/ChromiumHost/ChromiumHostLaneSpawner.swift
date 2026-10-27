@@ -37,39 +37,48 @@ nonisolated struct ChromiumHostLaneSpawner: ChromiumHostSpawning {
     let work: BackgroundWork
     let mainWork: MainWorkScheduler
     let fencesResizes: Bool
+    /// Each host keeps its pages after cmux's crash for a relaunched cmux to adopt (feature
+    /// `chromiumHostSurvivesAppCrash`, ``ChromiumHostAdoption``).
+    let survivesAppCrash: Bool
     /// What each spawn starts; read on the lane (it checks the disk).
     let plan: @Sendable () -> ChromiumHostLaunchPlan?
     /// Exit watching, reaping and kills (the spawn is ``ChromiumHostLauncher/spawnControlled(executable:arguments:priority:)``).
     private let processes = ChromiumHostLauncher(exitQueue: DispatchQueue(label: "com.cmuxterm.chromium-host.supervisor", qos: .utility))
 
-    init(work: BackgroundWork, mainWork: MainWorkScheduler, fencesResizes: Bool,
+    init(work: BackgroundWork, mainWork: MainWorkScheduler, fencesResizes: Bool, survivesAppCrash: Bool = false,
          plan: @escaping @Sendable () -> ChromiumHostLaunchPlan?) {
         self.work = work
         self.mainWork = mainWork
         self.fencesResizes = fencesResizes
+        self.survivesAppCrash = survivesAppCrash
         self.plan = plan
     }
 
     func spawn() async throws(ChromiumHostAttachError) -> ChromiumHostSpawn {
-        let (plan, fencesResizes) = (plan, fencesResizes)
+        let (plan, fencesResizes, survivesAppCrash) = (plan, fencesResizes, survivesAppCrash)
         let started: Result<ChromiumHostSpawn, ChromiumHostAttachError>
         do {
             // userBlocking: the first Chromium tab waits for this host.
-            started = try await work.run(.userBlocking, mayBlock: .system) { Self.start(plan(), fencesResizes: fencesResizes) }
+            started = try await work.run(.userBlocking, mayBlock: .system) {
+                Self.start(plan(), fencesResizes: fencesResizes, survivesAppCrash: survivesAppCrash)
+            }
         } catch {
             throw .cannotStart("the start was dropped (\(error))")
         }
         return try started.get()
     }
 
-    /// One spawn, on the lane: the plan's host with its control channel on fd 3, and a resize fence inbox name
-    /// when `fencesResizes`.
-    static func start(_ plan: ChromiumHostLaunchPlan?, fencesResizes: Bool) -> Result<ChromiumHostSpawn, ChromiumHostAttachError> {
+    /// One spawn, on the lane: the plan's host with its control channel on fd 3, a resize fence inbox name
+    /// when `fencesResizes`, and the survival switch when `survivesAppCrash`.
+    static func start(_ plan: ChromiumHostLaunchPlan?, fencesResizes: Bool,
+                      survivesAppCrash: Bool = false) -> Result<ChromiumHostSpawn, ChromiumHostAttachError> {
         guard let plan else { return .failure(.cannotStart("this build has no Chromium Host")) }
         let fence = fencesResizes ? ChromiumHostResizeFenceChannel.make() : nil
+        let survival = survivesAppCrash ? [ChromiumHostAdoption.survivalArgument] : []
         do throws(ChromiumHostLauncher.LaunchError) {
             let (pid, controlFD) = try ChromiumHostLauncher.spawnControlled(
-                executable: plan.configuration.executable, arguments: plan.configuration.arguments + (fence?.arguments ?? []),
+                executable: plan.configuration.executable,
+                arguments: plan.configuration.arguments + (fence?.arguments ?? []) + survival,
                 priority: .userBlocking)
             let attachment = ChromiumHostAttachment(controlFD: controlFD, remoteShim: plan.remoteShim,
                                                     frameworkLocales: plan.frameworkLocales, resizeFence: fence?.name)
@@ -94,6 +103,45 @@ nonisolated struct ChromiumHostLaneSpawner: ChromiumHostSpawning {
 
     func kill(_ pid: pid_t) {
         processes.kill(pid)
+    }
+
+    func adopt() async -> ChromiumHostAdoption.Outcome {
+        guard survivesAppCrash else { return .noHost("crash survival is off") }
+        let plan = plan
+        do {
+            // userBlocking: the relaunched cmux's first Chromium tab waits for this answer.
+            return try await work.run(.userBlocking, mayBlock: .system) {
+                guard let plan = plan() else { return .noHost("this build has no Chromium Host") }
+                guard let adoption = ChromiumHostAdoption(plan: plan) else { return .noHost("the host's framework cannot be read") }
+                return adoption.adopt()
+            }
+        } catch {
+            return .noHost("the adoption was dropped (\(error))")
+        }
+    }
+
+    func watchAdoptedExit(of pid: pid_t, _ ended: @escaping @MainActor @Sendable (ChromiumHostExit) -> Void) {
+        let (processes, mainWork) = (processes, mainWork)
+        work.task(.userVisible) {
+            await processes.foreignExit(of: pid)
+            // Not this process's child: its status is the crashed cmux's to read, so the end has none.
+            mainWork.postFromAnyThread(.visible, owner: "ChromiumHostSupervisor.hostEnded") { ended(ChromiumHostExit(signal: nil, status: nil)) }
+        }
+    }
+
+    func awaitAdoptedEnd(of pid: pid_t, limit: Duration) async {
+        let processes = processes
+        if await Deadline(limit).value("chromium-host.adopted-end", { await processes.foreignExit(of: pid) }) != nil { return }
+        killAdopted(pid)
+        _ = await Deadline(.seconds(1)).value("chromium-host.adopted-kill", { await processes.foreignExit(of: pid) })
+    }
+
+    func killAdopted(_ pid: pid_t) {
+        let plan = plan
+        work.post(.userVisible, mayBlock: .system) {
+            guard let executable = plan()?.configuration.executable else { return }
+            ChromiumHostLauncher.killIfRunning(pid, executable: executable)
+        }
     }
 }
 #endif

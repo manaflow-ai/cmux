@@ -39,15 +39,19 @@ public nonisolated struct ChromiumHostAttachment: Sendable, Equatable {
     /// The bootstrap name of the host's resize fence inbox (the spawn's `--resize-fence=` argument,
     /// `ChromiumHostResizeFenceChannel`, task 052); nil for a host spawned without one.
     public var resizeFence: String?
+    /// Where the remote shim mints ids for a host this cmux adopted from a crashed one (task p01-process-150): above
+    /// every id that cmux minted there. Nil for a host this cmux started.
+    public var mintFloor: ChromiumHostMintFloor?
 
     public init(controlFD: Int32, inputRingFD: Int32 = -1, outputRingFD: Int32 = -1, remoteShim: URL,
-                frameworkLocales: [String], resizeFence: String? = nil) {
+                frameworkLocales: [String], resizeFence: String? = nil, mintFloor: ChromiumHostMintFloor? = nil) {
         self.controlFD = controlFD
         self.inputRingFD = inputRingFD
         self.outputRingFD = outputRingFD
         self.remoteShim = remoteShim
         self.frameworkLocales = frameworkLocales
         self.resizeFence = resizeFence
+        self.mintFloor = mintFloor
     }
 
     /// Closes every descriptor: the remote shim did not take them.
@@ -55,6 +59,20 @@ public nonisolated struct ChromiumHostAttachment: Sendable, Equatable {
         for fd in [controlFD, inputRingFD, outputRingFD] where fd >= 0 {
             Darwin.close(fd)
         }
+    }
+}
+
+/// The first ids a cmux may mint in a host it adopted (`cmux_remote_shim_set_mint_floor`; the host's
+/// `HostContext::mint_floor`, task p01-process-150).
+public nonisolated struct ChromiumHostMintFloor: Sendable, Equatable {
+    /// The first browser id (create_window, tab_add, tab_duplicate).
+    public var browser: Int32
+    /// The first DevTools message id.
+    public var devtools: Int32
+
+    public init(browser: Int32, devtools: Int32) {
+        self.browser = browser
+        self.devtools = devtools
     }
 }
 

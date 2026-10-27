@@ -4,7 +4,8 @@
 # each against the golden frame that the Swift side (ChromiumHostFrameTests,
 # ChromiumHostControlChannelTests) checks too, then the one ordered input
 # stream (chromium_host_order_test.cpp, task 092) and the host's input queue
-# (host_user_input_test.cpp, task p04-input-065). Small: four clang++ calls.
+# (host_user_input_test.cpp, task p04-input-065) and the adoption of an orphaned host
+# (host_adoption_test.cpp, task p01-process-150). Small: five clang++ calls.
 #
 # The host is a Debug-only prototype, not part of the CEF shim, so this is not
 # one of the shim's scripts/cmux-next/test-*-cpp.sh that cmux-next-shim-cpp.yml
@@ -30,3 +31,8 @@ host="$root/Packages/macOS/CmuxNext/ChromiumHost"
 "${cxx[@]}" -std=c++17 -Wall -Wextra -Werror -O1 \
   -o "$work/user-input-test" "$host/tests/host_user_input_test.cpp"
 "$work/user-input-test"
+# The orphan's adoption by a relaunched cmux (host_adoption.h, task p01-process-150): the offer and
+# reply frames, the verdicts, the socket and its listener thread.
+"${cxx[@]}" -std=c++20 -Wall -Wextra -Werror -O1 -pthread \
+  -o "$work/adoption-test" "$host/tests/host_adoption_test.cpp" "$host/src/host_adoption.cc" "$host/src/chromium_host_control.cc"
+"$work/adoption-test"

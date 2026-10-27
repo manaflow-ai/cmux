@@ -370,6 +370,10 @@ class OrderedStream {
   Result AddInput(const Header& frame);
   // Input may be dispatched from here on: kOk or kMalformed.
   Result OpenInput();
+  // A new peer took the host (task p01-process-150, host_adoption.h): its seqs
+  // start again at 1, so what the old peer sent and what was held for it go.
+  // The input dispatch and whether input is open stay.
+  void Reset();
 
   size_t held_input() const { return inputs_.size(); }
   size_t held_control() const { return controls_.size(); }

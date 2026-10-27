@@ -19,6 +19,11 @@ import Darwin
 ///   ``attachment()`` starts a new host, as Chrome's `BrowserGpuChannelHostFactory` establishes a new channel after
 ///   the GPU process died (content/browser/gpu/browser_gpu_channel_host_factory.cc). A host that could not start
 ///   (``ChromiumHostExit/startFailure``) is not started again: a new one would fail the same way.
+/// - Crash survival (feature `chromiumHostSurvivesAppCrash`, task 150): every host is spawned to keep its pages for 30 s
+///   after a crash of cmux, and the first attach of a launch adopts the host a crashed cmux left
+///   (``ChromiumHostAdoption``) before it starts one. A host that speaks another version quits on the offer; the new
+///   host starts once it ended, since both use one data folder. An adopted host is no child of this process: its end
+///   is watched without a status and a kill checks that its pid still runs the host executable.
 @MainActor
 public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     public var onHostEnded: (@MainActor (BrowserProcessExit) -> Void)?
@@ -28,6 +33,10 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     public var hostPID: Int32? { host?.pid }
     /// Hosts this supervisor started.
     public private(set) var hostsStarted = 0
+    /// Hosts this supervisor adopted from a crashed cmux (task 150).
+    public private(set) var hostsAdopted = 0
+    /// What the launch's adoption try found (``ChromiumHostAdoption/Outcome``), nil before it ran or with survival off.
+    public private(set) var adoption: String?
     /// How earlier hosts ended, oldest first (``ChromiumHostExit/description``).
     public private(set) var exits: [String] = []
     /// Why no host can start in this process, once one could not.
@@ -38,9 +47,14 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
         let generation: UInt64
         /// The attach that took its wire got its hello: its end is a crash of its pages.
         var saidHello = false
+        /// A host a crashed cmux started (``ChromiumHostSpawn/adopted``).
+        var adopted = false
     }
 
     private let spawner: any ChromiumHostSpawning
+    /// The launch's first attach tries an adoption (``ChromiumHostLaneSpawner/survivesAppCrash``).
+    private let survivesAppCrash: Bool
+    private var adoptionTried = false
     private var host: Host?
     private var generation: UInt64 = 0
     private var starting = false
@@ -49,15 +63,21 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     /// The host this app bundles, spawned on `work`'s `.system` lane; each host's end reaches the main thread on
     /// `mainWork` (class visible: its pages show the crash).
     ///
-    /// - Parameter fencesResizes: Each host gets a resize fence inbox (feature `chromiumHostResizeFence`).
-    public convenience init(work: BackgroundWork, mainWork: MainWorkScheduler, fencesResizes: Bool = false) {
-        self.init(spawner: ChromiumHostLaneSpawner(work: work, mainWork: mainWork, fencesResizes: fencesResizes) {
+    /// - Parameters:
+    ///   - fencesResizes: Each host gets a resize fence inbox (feature `chromiumHostResizeFence`).
+    ///   - survivesAppCrash: Each host outlives a crash of cmux for 30 s, and the first attach adopts such a host
+    ///     (feature `chromiumHostSurvivesAppCrash`).
+    public convenience init(work: BackgroundWork, mainWork: MainWorkScheduler, fencesResizes: Bool = false,
+                            survivesAppCrash: Bool = false) {
+        self.init(spawner: ChromiumHostLaneSpawner(work: work, mainWork: mainWork, fencesResizes: fencesResizes,
+                                                   survivesAppCrash: survivesAppCrash) {
             ChromiumHostLaunchPlan.bundled()
-        })
+        }, survivesAppCrash: survivesAppCrash)
     }
 
-    init(spawner: any ChromiumHostSpawning) {
+    init(spawner: any ChromiumHostSpawning, survivesAppCrash: Bool = false) {
         self.spawner = spawner
+        self.survivesAppCrash = survivesAppCrash
     }
 
     /// The running host's wire, starting a host first. One start at a time: the runtime shares one attach
@@ -69,13 +89,32 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
         if let running = host { supersede(running) }
         starting = true
         defer { starting = false }
-        let spawned = try await spawner.spawn()
+        let spawned = try await nextHost()
         generation &+= 1
-        let started = Host(pid: spawned.pid, generation: generation)
+        let started = Host(pid: spawned.pid, generation: generation, adopted: spawned.adopted)
         host = started
-        hostsStarted += 1
+        if spawned.adopted { hostsAdopted += 1 } else { hostsStarted += 1 }
         watch(started)
         return spawned.attachment
+    }
+
+    /// The host the launch's first attach adopts, when a crashed cmux left one that passes both checks; else a new one.
+    private func nextHost() async throws(ChromiumHostAttachError) -> ChromiumHostSpawn {
+        if survivesAppCrash, !adoptionTried {
+            adoptionTried = true
+            switch await spawner.adopt() {
+            case .adopted(let adopted):
+                adoption = "adopted host \(adopted.pid)"
+                return adopted
+            case .versionMismatch(let pid):
+                adoption = "host \(pid) speaks another version: it closed its pages, and a new host starts"
+                // Both use one data folder, whose Chromium profile the old host holds until it ended.
+                await spawner.awaitAdoptedEnd(of: pid, limit: ChromiumHostFrame.quitLimit + .seconds(1))
+            case .noHost(let reason):
+                adoption = reason
+            }
+        }
+        return try await spawner.spawn()
     }
 
     /// The running host said hello to the attach that took its wire (`CEFHostStart`): its end is reported from now on.
@@ -91,14 +130,22 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     /// Waits for `started` to end off the main thread, then handles the end on it.
     private func watch(_ started: Host) {
         let spawner = spawner
-        spawner.watchExit(of: started.pid) { [weak self] exit in
-            guard let self else { return spawner.reap(started.pid) }
+        let ended: @MainActor @Sendable (ChromiumHostExit) -> Void = { [weak self] exit in
+            guard let self else {
+                if !started.adopted { spawner.reap(started.pid) }
+                return
+            }
             self.ended(started, exit)
+        }
+        if started.adopted {
+            spawner.watchAdoptedExit(of: started.pid, ended)
+        } else {
+            spawner.watchExit(of: started.pid, ended)
         }
     }
 
     private func ended(_ ended: Host, _ exit: ChromiumHostExit) {
-        spawner.reap(ended.pid)
+        if !ended.adopted { spawner.reap(ended.pid) }
         exits.append(exit.description)
         // A superseded host's end was handled when it was superseded.
         guard let current = host, current.generation == ended.generation else { return }
@@ -111,7 +158,11 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
 
     /// Ends `running`, whose wire nothing holds any more, before a new host starts.
     private func supersede(_ running: Host) {
-        spawner.kill(running.pid)
+        if running.adopted {
+            spawner.killAdopted(running.pid)
+        } else {
+            spawner.kill(running.pid)
+        }
         host = nil
         endObservers.forEach { $0() }
     }

@@ -93,6 +93,18 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
         lastReplyTokenFn()
     }
 
+    /// Before the attach of a host this cmux adopted (task p01-process-150): the ids the shim mints from here are at
+    /// least `floor`'s, above every id the crashed cmux minted in that host. False when the dylib has no
+    /// `cmux_remote_shim_set_mint_floor` or the floor moved nothing.
+    @MainActor
+    func setMintFloor(_ floor: ChromiumHostMintFloor) -> Bool {
+        typealias SetMintFloorFn = @convention(c) (Int32, Int32) -> Int32
+        guard let pointer = unsafe symbol("cmux_remote_shim_set_mint_floor") else { return false }
+        // SAFETY: the export's C type in remote_shim_runtime.h, `int (int32_t, int32_t)`, on a dylib never closed.
+        let setMintFloor = unsafe unsafeBitCast(pointer, to: SetMintFloorFn.self)
+        return setMintFloor(floor.browser, floor.devtools) == 1
+    }
+
     /// Hands the host's wire to the remote shim and returns, once the host's hello is in, the
     /// optional exports its shim defines. Fails when the shim refused the wire (its descriptors
     /// are closed here), the host ended first (the shim closed them), or no hello came within

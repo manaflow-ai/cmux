@@ -179,6 +179,81 @@ void HostContext::Resume() {
   UpdatePageActivity();
 }
 
+void HostContext::Orphan() {
+  if (state_ != State::kRunning || orphaned_) return;
+  orphaned_ = true;
+  peer_hello_ = false;
+  adopted_ = false;
+  held_replies_.clear();
+  watched_.clear();
+  watched_count_ = 0;
+  // A watch or a held request answers the old peer's token, which no peer waits for now.
+  text_input_awaiting_.clear();
+  held_for_creation_.clear();
+  for (int browser : text_input_.watched()) {
+    text_input_.Forget(browser);
+    cmux_shim_browser_text_input_watch(browser, nullptr, nullptr);
+  }
+  for (auto& [client, visibility] : page_visibility_) {
+    if (visibility != CMUX_SHIM_PAGE_VISIBLE) continue;
+    visibility = CMUX_SHIM_PAGE_HIDDEN;
+    cmux_shim_browser_set_page_visibility(Browser(client), CMUX_SHIM_PAGE_HIDDEN);
+    page_windows_.Post(mirrors_.WindowOf(client), client, CMUX_SHIM_PAGE_HIDDEN);
+  }
+  UpdatePageActivity();
+}
+
+void HostContext::Reattach() {
+  if (!orphaned_) return;
+  orphaned_ = false;
+  adopted_ = true;
+  Attach();
+}
+
+const char* HostContext::WireId() {
+  return kWireID;
+}
+const char* HostContext::ShimAbiId() {
+  return kShimAbiID;
+}
+
+HostContext::MintFloor HostContext::mint_floor() const {
+  MintFloor floor;
+  floor.browser = highest_minted_browser_ >= mint::kFirstBrowserID ? highest_minted_browser_ + 1 : mint::kFirstBrowserID;
+  floor.devtools =
+      highest_minted_devtools_ >= mint::kFirstDevToolsID ? highest_minted_devtools_ + 1 : mint::kFirstDevToolsID;
+  return floor;
+}
+
+void HostContext::NoteMinted(uint16_t op, int32_t minted) {
+  if (op == kOpDevtoolsCall) {
+    if (mint::IsMintedDevTools(minted) && minted > highest_minted_devtools_) highest_minted_devtools_ = minted;
+  } else if (mint::IsMintedBrowser(minted) && minted > highest_minted_browser_) {
+    highest_minted_browser_ = minted;
+  }
+}
+
+bool HostContext::HandleAdoptedInitialize(const control::Message& message) {
+  // The same fields as the first INITIALIZE; Chromium runs already, so none is applied.
+  TlvReader r(message.fields);
+  for (int i = 0; i < 4; ++i) r.Str();
+  r.Str();
+  r.I32();
+  r.Str();
+  r.Str();
+  r.StrList();
+  if (!r.ok() || !r.AtEnd()) return false;
+  adopted_ = false;
+  Ack(message.token);
+  ProduceAttach(false);
+  // Every open tab's history, window and toolbar, as at its AFTER_CREATED: the new peer's
+  // cache learns each page that survived (every key parameter is a wildcard).
+  ForEachMirrorRefreshedBy(CMUX_SHIM_AFTER_CREATED, -1,
+                           [&](uint16_t op) { mirrors_.Refresh(*this, op, {}, ~uint32_t{0}); });
+  UpdatePageActivity();
+  return true;
+}
+
 void HostContext::Handle(control::Message& message) {
   // No op takes descriptors yet (shm payloads are task 020).
   for (int fd : message.fds) close(fd);
@@ -205,7 +280,11 @@ void HostContext::Handle(control::Message& message) {
       }
       return;
     case State::kRunning:
-      if (message.op == kOpInitialize) return Bad("a second initialize");
+      if (message.op == kOpInitialize) {
+        if (!adopted_) return Bad("a second initialize");
+        if (!HandleAdoptedInitialize(message)) Bad("a malformed initialize");
+        return;
+      }
       if (message.op == kOpTextInputWatch) {
         if (!HandleTextInputWatch(message)) Bad("a malformed text input watch");
         return;
@@ -821,6 +900,7 @@ void HostContext::Reply(uint32_t token, const TlvWriter& reply) {
 }
 
 void HostContext::BindMinted(uint16_t op, int32_t minted, int64_t result, int32_t client_browser) {
+  NoteMinted(op, minted);
   switch (op) {
     case kOpTabAdd:
     case kOpTabDuplicate:
@@ -842,6 +922,7 @@ void HostContext::BindMinted(uint16_t op, int32_t minted, int64_t result, int32_
 }
 
 void HostContext::BindMintedOnEvent(uint16_t op, int32_t minted, int event_kind, int request, int64_t result) {
+  NoteMinted(op, minted);
   if (result != 1) {
     // The call refused: no event will name the browser.
     fprintf(stderr, "cmux-chromium-host: op %u refused minted id %d\n", op, minted);
@@ -891,6 +972,7 @@ void HostContext::RefreshMirror(uint16_t op, const TlvWriter& key, uint32_t wild
 }
 
 bool HostContext::Post(control::Message message) {
+  if (orphaned_) return false;  // no peer: the next one reads the state its INITIALIZE pushes
   if (send_(message)) return true;
   // Over a frame bound (a value past 64 KiB goes as shm, task 020) or the channel ended.
   fprintf(stderr, "cmux-chromium-host: op %#x not sent\n", message.op);

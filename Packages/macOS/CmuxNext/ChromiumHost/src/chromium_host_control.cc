@@ -1087,6 +1087,14 @@ void OrderedStream::AttachInput(DispatchInput dispatch) {
   dispatch_ = std::move(dispatch);
 }
 
+void OrderedStream::Reset() {
+  controls_.clear();
+  inputs_.clear();
+  applied_ = dispatched_ = last_control_ = last_input_ = 0;
+  malformed_ = false;
+  what_ = nullptr;
+}
+
 OrderedStream::Result OrderedStream::AddControl(std::vector<Message> batch) {
   for (Message& message : batch) {
     if (malformed_) {
