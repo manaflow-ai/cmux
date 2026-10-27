@@ -232,6 +232,14 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         }
     }
 
+    /// The answer ``sent(pageID:proved:)`` named did not go out after all.
+    func notSent(pageID: String) {
+        state.withLock { state in
+            state.proved[pageID] = nil
+            state.provedOrder.removeAll { $0 == pageID }
+        }
+    }
+
     func takeAnswers() -> [Answer] {
         state.withLock { state in
             defer { state.answers = [] }

@@ -537,6 +537,33 @@ struct AgentPaneRelayedAllowTests {
         #expect(peerOff == [.onceOnly, .notEnrolled(peer: "far"), .notEnrolled(peer: "far")])
     }
 
+    /// A second answer under the page id of one still in flight is refused before it goes, and
+    /// changes nothing about the first: the signed Allow's refusal still offers to enroll.
+    @Test func anAnswerRefusedBeforeItGoesLeavesTheSignedOnesHint() async throws {
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        let inbox = PageInbox()
+        let transport = AgentPaneTransport()
+        var peerOff: [AgentPanePeerApprovals?] = []
+        transport.onPeerApprovalsOff = { peerOff.append($0) }
+        let id = try await Self.peerChat(server, inbox, transport)
+        server.setAnswers(false)
+
+        transport.gestures.record(click: true)
+        let yesIntent = try #require(Self.intent(option: "yes"))
+        let yes = try #require(transport.reserveGesture(yesIntent))
+        #expect(await transport.send(connection: id, frames: [Self.allow(ticket: yes)]) == nil)
+        let signed = try await Self.relayID(server, "permission_respond", after: 0)
+        // The same page id again, unsigned (no ticket), while the first is in flight: refused here.
+        transport.gestures.record(click: true)
+        _ = await transport.send(connection: id, frames: [Self.allow(ticket: nil)])
+        #expect(server.peers.first?.frames.filter { $0.contains("permission_respond") }.count == 1)
+        server.push(Self.refusal(signed, peer: "far"), to: 0)
+        _ = await inbox.frame(containing: "person_required")
+        #expect(peerOff == [.notEnrolled(peer: "far")])
+    }
+
     /// The card's Allow for a batch of a peer's tool prompts (`_acpmux/permission_group_respond`),
     /// after the person's click: one signed one-time allow per pending member of the group the
     /// page read (two here), over that member's prompt, tool call, nonce and the option the group's

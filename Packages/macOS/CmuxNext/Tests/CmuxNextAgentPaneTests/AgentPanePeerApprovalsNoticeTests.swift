@@ -55,14 +55,25 @@ struct AgentPanePeerApprovalsNoticeTests {
         let (view, directory) = try pane()
         defer { view.close(); try? FileManager.default.removeItem(at: directory) }
         var asked: [String] = []
+        var through: [[String: String]] = []
         var failure: String? = "ssh: far: no route"
-        AgentPanePeerApprovals.enroll = { peer, _ in asked.append(peer); return failure }
+        AgentPanePeerApprovals.enroll = { peer, daemon in asked.append(peer); through.append(daemon); return failure }
         defer { AgentPanePeerApprovals.enroll = nil }
 
+        // A pane with no daemon enrolls nowhere.
         view.showPeerApprovalsOff(.notEnrolled(peer: "far"))
         #expect(view.pressRemoteApprovalsRestart())
+        await settle { false }
+        #expect(asked.isEmpty)
+
+        // The daemon the pane talks to when the person clicks, though it reconnects elsewhere
+        // while the command runs.
+        view.model.transport.acpmuxSocket = "/tmp/far-a.sock"
+        #expect(view.pressRemoteApprovalsRestart())
+        view.model.transport.acpmuxSocket = "/tmp/far-b.sock"
         await settle { view.remoteApprovalsNoticeLines?.restart == true }
         #expect(asked == ["far"])
+        #expect(through == [["ACPMUX_SOCKET": "/tmp/far-a.sock"]])
         #expect(view.remoteApprovalsNoticeLines?.lines.last == AgentPaneView.peerApprovalsEnrollFailed("far", "ssh: far: no route"))
         #expect(view.remoteApprovalsNoticeLines?.restart == true, "the button stayed off after a failure")
 

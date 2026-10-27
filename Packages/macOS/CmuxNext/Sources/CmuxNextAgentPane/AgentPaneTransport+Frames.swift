@@ -403,12 +403,6 @@ extension AgentPaneTransport {
             await signPeerGroupAllow(box)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
         }
-        // Whether this answer carries this Mac's signed allow: its reply is read by its own id
-        // (`AcpmuxDecisionContexts.sent`), so an unsigned one's refusal never offers to enroll.
-        if !facts.isFirst, let pageID = facts.pageID,
-           facts.method == "_acpmux/permission_respond" || facts.method == "_acpmux/permission_group_respond" {
-            decisions.sent(pageID: pageID, proved: box.hasAcpmuxMeta("approverDecision") || box.hasAcpmuxMeta("approverDecisions"))
-        }
         // A Trust answer on another machine for the folder the person chose there by Use Home
         // Folder (a root of this pane): that machine's daemon trusts its home folder only with
         // this mark, which no page can send (known params), so one click never trusts it (cx-1bhjj).
@@ -455,8 +449,17 @@ extension AgentPaneTransport {
                 gestures.clearTickets(); gestures.dropSeedTicket(); startCredit.clear(); pickCredit.clear()
             }
         }
+        // Whether this answer carries this Mac's signed allow, by its page id (one request at a
+        // time, `ids.begin` above): its reply is read against it (`AcpmuxDecisionContexts.sent`),
+        // so an unsigned one's refusal never offers to enroll.
+        let answer = !facts.isFirst
+            && (facts.method == "_acpmux/permission_respond" || facts.method == "_acpmux/permission_group_respond")
+        if answer, let pageID = facts.pageID {
+            decisions.sent(pageID: pageID, proved: box.hasAcpmuxMeta("approverDecision") || box.hasAcpmuxMeta("approverDecisions"))
+        }
         if let error = await Self.encodeAndSend(box, relayID: relayID, socket: socket) {
             socket.pageFrameNotSent(method: facts.method)
+            if answer, let pageID = facts.pageID { decisions.notSent(pageID: pageID) }
             if let relayID { ids.cancel(relayID) }
             await relay?.withdraw(journaled, relayID: nil, ids: ids)
             if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }

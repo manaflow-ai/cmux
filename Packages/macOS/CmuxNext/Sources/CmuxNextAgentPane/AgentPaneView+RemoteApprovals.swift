@@ -97,12 +97,15 @@ extension AgentPaneView {
     }
 
     @objc private func enrollThisMac(_ sender: NSButton) {
+        // The daemon this pane talks to now, which named the peer: a reconnect while the command
+        // runs does not change where it enrolls, and a pane with no daemon enrolls nowhere.
         guard case .notEnrolled(let peer) = peerApprovalsReason, let enroll = AgentPanePeerApprovals.enroll,
-              let notice = remoteApprovalsNotice else { return }
+              let notice = remoteApprovalsNotice, let socket = model.transport.acpmuxSocket else { return }
+        let daemon = AgentPanePeerApprovals.daemon(socket: socket)
         sender.isEnabled = false
         // task-owner: one enroll per click; the notice it updates belongs to this pane
         Task { @MainActor [weak self, weak notice, weak sender] in
-            let failure = await enroll(peer, AgentPanePeerApprovals.daemon(socket: self?.model.transport.acpmuxSocket))
+            let failure = await enroll(peer, daemon)
             guard let self, let notice, self.remoteApprovalsNotice === notice else { return }
             // Enrolled: the prompt is still open there, and Allow once now counts.
             guard let failure else { return self.hideRemoteApprovalsOff() }
