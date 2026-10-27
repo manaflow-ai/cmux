@@ -16,6 +16,7 @@ use super::agent::{Agents, HARNESSES};
 use super::config::HandConfig;
 use super::requests::{Ctx, handle};
 use super::{HandError, pair};
+use crate::no_panic::JsonExt;
 use anyhow::Result;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
@@ -258,7 +259,7 @@ async fn serve(
                 let Some(frame) = frame else { return Ok(()) };
                 if let Err(e) = sink.send(Ws::Text(frame.to_string().into())).await {
                     // Keep the frame for the next connection when it is an answer.
-                    if frame["t"] == "res" || frame["t"] == "approve" { let _ = out_tx.try_send(frame); }
+                    if *frame.field("t") == "res" || *frame.field("t") == "approve" { let _ = out_tx.try_send(frame); }
                     return Err(Ended::Failed(e.to_string()));
                 }
             }

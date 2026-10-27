@@ -36,6 +36,7 @@ use regex::Regex;
 use serde_json::Value;
 
 use crate::config::{HarnessKind, HarnessProfile};
+use crate::no_panic::JsonExt;
 
 /// Where the daemon reads the registry.
 pub const REGISTRY_URL: &str =
@@ -50,15 +51,35 @@ const MAX_ENV: usize = 16;
 const MAX_ENV_VALUE_BYTES: usize = 512;
 const MAX_TEXT_BYTES: usize = 512;
 
+#[allow(
+    clippy::unwrap_used,
+    reason = "INVARIANT: a constant pattern; tests::the_constant_patterns_compile builds it"
+)]
 static ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[a-z0-9][a-z0-9._-]{0,63}$").unwrap()); // crash-allow: constant pattern
+#[allow(
+    clippy::unwrap_used,
+    reason = "INVARIANT: a constant pattern; tests::the_constant_patterns_compile builds it"
+)]
 static NPX_PACKAGE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*@[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$")
         .unwrap() // crash-allow: constant pattern
 });
+#[allow(
+    clippy::unwrap_used,
+    reason = "INVARIANT: a constant pattern; tests::the_constant_patterns_compile builds it"
+)]
 static UVX_PACKAGE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[A-Za-z0-9][A-Za-z0-9._-]*(==|@)[0-9][0-9A-Za-z.+-]*$").unwrap() // crash-allow: constant pattern
 });
+#[allow(
+    clippy::unwrap_used,
+    reason = "INVARIANT: a constant pattern; tests::the_constant_patterns_compile builds it"
+)]
 static ENV_KEY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Z_][A-Z0-9_]{0,63}$").unwrap()); // crash-allow: constant pattern
+#[allow(
+    clippy::unwrap_used,
+    reason = "INVARIANT: a constant pattern; tests::the_constant_patterns_compile builds it"
+)]
 static SHA256: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9a-f]{64}$").unwrap()); // crash-allow: constant pattern
 
 /// Env keys a registry entry may never set: they change how any program,
@@ -257,7 +278,7 @@ pub fn parse(bytes: &[u8]) -> Result<Registry, String> {
         return Err(format!("the registry is above the {MAX_BODY_BYTES} byte limit"));
     }
     let value: Value = serde_json::from_slice(bytes).map_err(|e| format!("registry json: {e}"))?;
-    let list = value["agents"].as_array().ok_or("the registry has no agents list")?;
+    let list = value.field("agents").as_array().ok_or("the registry has no agents list")?;
     let mut seen = std::collections::BTreeSet::new();
     let agents = list
         .iter()
@@ -508,7 +529,8 @@ pub fn discovered(
         let Some(Launch::Installed { argv, env }) = agent.installed(platform, which) else {
             continue;
         };
-        let description = format!("{} (ACP Registry {}): {}", agent.name, agent.version, argv[0]);
+        let program = argv.first().map_or("", String::as_str);
+        let description = format!("{} (ACP Registry {}): {program}", agent.name, agent.version);
         out.insert(
             id.clone(),
             HarnessProfile {

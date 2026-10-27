@@ -273,8 +273,10 @@ impl Turn {
                 if !self.taken && !self.went_busy {
                     return Vec::new();
                 }
-                if self.streaming.as_deref() == Some(kind) && text.starts_with(&self.streamed) {
-                    let more = text[self.streamed.len()..].to_owned();
+                if self.streaming.as_deref() == Some(kind)
+                    && let Some(more) = text.strip_prefix(self.streamed.as_str())
+                {
+                    let more = more.to_owned();
                     self.streamed = text.to_owned();
                     return if more.is_empty() { Vec::new() } else { self.out(kind, more, false) };
                 }
@@ -293,8 +295,10 @@ impl Turn {
                         } else {
                             String::new()
                         };
-                        if !was.is_empty() && text.starts_with(&was) {
-                            let more = text[was.len()..].to_owned();
+                        if let Some(more) =
+                            text.strip_prefix(was.as_str()).filter(|_| !was.is_empty())
+                        {
+                            let more = more.to_owned();
                             if more.is_empty() { Vec::new() } else { self.out(kind, more, false) }
                         } else if was.is_empty() {
                             self.out(kind, text.to_owned(), true)

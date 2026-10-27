@@ -21,6 +21,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use crate::no_panic::JsonExt;
 use cmux_chat_index::{
     AdapterKind, ChatChange, ChatIndex, ChatKey, Discovery, DiscoveryInput, IndexedChat,
     RecordedRoots, RefusedRoot, RootSource, RootSpec, discover,
@@ -163,7 +164,7 @@ impl ChatService {
             state.index.chats().into_iter().filter(|chat| query.matches(chat)).collect();
         let start = query.cursor.start(&matching);
         let held = matching.get(start..).unwrap_or_default();
-        let held = &held[..held.len().min(query.limit)];
+        let held = held.get(..query.limit).unwrap_or(held);
         let page: Vec<Value> = held.iter().map(|c| chat_value(c)).collect();
         let more = start + held.len() < matching.len();
         let next = held.last().filter(|_| more).map(|last| ChatCursor::after(last).to_text());
@@ -182,7 +183,7 @@ impl ChatService {
             .roots()
             .map(|root| {
                 let mut value = serde_json::to_value(root).unwrap_or(Value::Null);
-                value["id"] = Value::String(root.id());
+                value.set("id", Value::String(root.id()));
                 value
             })
             .collect();
@@ -462,8 +463,8 @@ pub fn parse_key(text: &str) -> Option<ChatKey> {
 pub fn chat_value(chat: &IndexedChat) -> Value {
     let mut value = serde_json::to_value(chat).unwrap_or(Value::Null);
     let key = chat.entry.key();
-    value["brand"] = json!(brand::harness_brand(key.harness));
-    value["key"] = Value::String(key_text(&key));
+    value.set("brand", json!(brand::harness_brand(key.harness)));
+    value.set("key", Value::String(key_text(&key)));
     value
 }
 

@@ -5,6 +5,7 @@
 //! passes through here, only the ref.
 
 use crate::client::Client;
+use crate::no_panic::JsonExt;
 use crate::rpc::method;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
@@ -86,16 +87,16 @@ where
     while let Some(line) = lines.next_line().await? {
         let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
         let Some(id) = message.get("id").cloned() else { continue }; // a notification
-        let verb = message["method"].as_str().unwrap_or_default().to_owned();
+        let verb = message.field("method").as_str().unwrap_or_default().to_owned();
         let reply = match verb.as_str() {
             "initialize" => {
                 let mut reply = json!({
-                    "protocolVersion": message["params"]["protocolVersion"].as_str().unwrap_or("2025-06-18"),
+                    "protocolVersion": message.field("params").field("protocolVersion").as_str().unwrap_or("2025-06-18"),
                     "capabilities": {"tools": {}},
                     "serverInfo": {"name": name, "version": env!("CARGO_PKG_VERSION")},
                 });
                 if let Some(text) = &instructions {
-                    reply["instructions"] = json!(text);
+                    reply.set("instructions", json!(text));
                 }
                 reply
             }
@@ -105,7 +106,7 @@ where
                 // A card waits on the person: the next request is read meanwhile. Each call
                 // connects anew, so a restarted daemon serves the next one.
                 let (tx, session, params, call) =
-                    (tx.clone(), session.clone(), message["params"].clone(), call.clone());
+                    (tx.clone(), session.clone(), message.field("params").clone(), call.clone());
                 tokio::spawn(async move {
                     let result = match crate::daemon::connect(false).await {
                         Ok(daemon) => call(daemon, session, params).await,
@@ -145,23 +146,23 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
         Some("request_secret") => (
             method::MUX_SECRET_REQUEST,
             json!({
-                "name": arguments["name"], "reason": arguments["reason"],
+                "name": arguments.field("name"), "reason": arguments.field("reason"),
             }),
         ),
         Some("run_with_secret") => (
             method::MUX_SECRET_RUN,
             json!({
-                "secretRef": arguments["secretRef"], "env": arguments["env"], "argv": arguments["argv"],
+                "secretRef": arguments.field("secretRef"), "env": arguments.field("env"), "argv": arguments.field("argv"),
             }),
         ),
         other => return error_result(format!("unknown tool: {}", other.unwrap_or_default())),
     };
-    request["sessionId"] = Value::String(session.to_owned());
+    request.set("sessionId", Value::String(session.to_owned()));
     match daemon.request(m, request).await {
         Ok(result) => {
-            let text = if result["outcome"] == "cancelled" {
+            let text = if *result.field("outcome") == "cancelled" {
                 "The card closed before the user answered (the turn stopped, or a newer ask replaced it).".to_owned()
-            } else if result["declined"] == true {
+            } else if *result.field("declined") == true {
                 "The user declined to give this secret.".to_owned()
             } else {
                 result.to_string()

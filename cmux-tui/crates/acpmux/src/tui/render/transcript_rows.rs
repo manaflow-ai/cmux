@@ -51,11 +51,12 @@ pub(super) fn transcript_rows_range(
     // Visible items: lifecycle noise and silent turn ends never draw.
     let vis: Vec<usize> = range
         .filter(|&i| {
-            let it = &t.items[i];
+            let Some(it) = t.items.get(i) else { return false };
             if let Item::Permission { title, decided: Some(d), .. } = it {
                 // "✓ Allowed  Write x" right under "✎ Write x" repeats the row.
-                let echoes_tool =
-                    i > 0 && matches!(&t.items[i - 1], Item::Tool { title: tt, .. } if tt == title);
+                let echoes_tool = i.checked_sub(1).and_then(|prev| t.items.get(prev)).is_some_and(
+                    |prev| matches!(prev, Item::Tool { title: tt, .. } if tt == title),
+                );
                 if d.starts_with("allow") && echoes_tool {
                     return false;
                 }
@@ -75,7 +76,8 @@ pub(super) fn transcript_rows_range(
     // One tool or permission row (plus open details) at `indent`.
     let tool_rows = |rows: &mut Vec<Row>, i: usize, indent: &str| {
         let iw = width.saturating_sub(indent.len());
-        match &t.items[i] {
+        let Some(it) = t.items.get(i) else { return };
+        match it {
             Item::Tool { title, kind, status, detail, .. } => {
                 // Codex app: one muted line per activity, an icon for the
                 // kind, paths shortened, red only when it failed. Details
@@ -189,20 +191,23 @@ pub(super) fn transcript_rows_range(
     let queued: Vec<usize> = vis
         .iter()
         .copied()
-        .filter(|&i| matches!(t.items[i], Item::User { queued: true, .. }))
+        .filter(|&i| matches!(t.items.get(i), Some(Item::User { queued: true, .. })))
         .collect();
     let mut k = 0usize;
     let mut turn_open = true;
     // When a turn's work is collapsed, rendering resumes at this item (the
     // turn's final reply, or the next user message).
     let mut reopen_at: Option<usize> = None;
-    while k < vis.len() {
-        let i = vis[k];
+    while let Some(&i) = vis.get(k) {
         if reopen_at == Some(i) {
             turn_open = true;
             reopen_at = None;
         }
-        let item = &t.items[i];
+        // `vis` holds indexes of `t.items` (filtered above).
+        let Some(item) = t.items.get(i) else {
+            k += 1;
+            continue;
+        };
         if matches!(item, Item::User { queued: true, .. }) {
             k += 1;
             continue;
@@ -264,11 +269,7 @@ pub(super) fn transcript_rows_range(
                         Span::styled(m.to_owned(), if n == 0 { marker_style } else { bg }),
                         Span::styled(
                             content.clone(),
-                            if r.line.spans.len() > 1 {
-                                r.line.spans[1].style.bg(c.user_bg)
-                            } else {
-                                style
-                            },
+                            r.line.spans.get(1).map_or(style, |span| span.style.bg(c.user_bg)),
                         ),
                     ];
                     rows.push(bubble_row(spans, used, format!("{m}{content}")));
@@ -278,8 +279,10 @@ pub(super) fn transcript_rows_range(
                 // The turn's work: everything visible between this message
                 // and the final reply. Two or more blocks get a handle row
                 // that collapses them all; one block collapses on its own.
-                let next_user = t.items[i + 1..]
+                let next_user = t
+                    .items
                     .iter()
+                    .skip(i + 1)
                     .position(|x| matches!(x, Item::User { queued: false, .. }))
                     .map(|p| i + 1 + p)
                     .unwrap_or(t.items.len());
@@ -289,11 +292,13 @@ pub(super) fn transcript_rows_range(
                 let final_reply = if turn_live {
                     None
                 } else {
-                    (i + 1..next_user).rev().find(|&j| matches!(t.items[j], Item::Assistant { .. }))
+                    (i + 1..next_user)
+                        .rev()
+                        .find(|&j| matches!(t.items.get(j), Some(Item::Assistant { .. })))
                 };
                 let work_end = final_reply.unwrap_or(next_user);
                 let work: Vec<usize> =
-                    vis[k..].iter().copied().take_while(|&j| j < work_end).collect();
+                    vis.iter().skip(k).copied().take_while(|&j| j < work_end).collect();
                 let mut blocks = 0usize;
                 let mut tools = 0usize;
                 let mut commands = 0usize;
@@ -301,7 +306,8 @@ pub(super) fn transcript_rows_range(
                 let mut thoughts = 0usize;
                 let mut prev_group = false;
                 for &j in &work {
-                    match &t.items[j] {
+                    let Some(it) = t.items.get(j) else { continue };
+                    match it {
                         Item::Tool { title, kind, status, .. } => {
                             tools += 1;
                             if matches!(kind.as_str(), "execute" | "terminal" | "shell")
@@ -351,8 +357,8 @@ pub(super) fn transcript_rows_range(
                     let span = t.turn_span(i);
                     let edited_files = work
                         .iter()
-                        .filter_map(|&j| match &t.items[j] {
-                            Item::Tool { detail, .. } => Some(detail),
+                        .filter_map(|&j| match t.items.get(j) {
+                            Some(Item::Tool { detail, .. }) => Some(detail),
                             _ => None,
                         })
                         .flat_map(|detail| {
@@ -431,7 +437,7 @@ pub(super) fn transcript_rows_range(
                     let mut files: Vec<String> = Vec::new();
                     let (mut plus, mut minus) = (0usize, 0usize);
                     for &j in &work {
-                        if let Item::Tool { detail, .. } = &t.items[j]
+                        if let Some(Item::Tool { detail, .. }) = t.items.get(j)
                             && let Some((p, m)) = crate::transcript::diff_counts(detail)
                         {
                             plus += p;
@@ -483,34 +489,34 @@ pub(super) fn transcript_rows_range(
             }
             it if group(it) => {
                 let start_k = k;
-                while k < vis.len() && group(&t.items[vis[k]]) {
+                while vis.get(k).and_then(|&j| t.items.get(j)).is_some_and(&group) {
                     k += 1;
                 }
                 if !turn_open {
                     continue;
                 }
-                let members = &vis[start_k..k];
+                let members = vis.get(start_k..k).unwrap_or_default();
                 spacer(&mut rows, i, after_user_block);
                 let tools: Vec<usize> = members
                     .iter()
                     .copied()
-                    .filter(|&m| matches!(t.items[m], Item::Tool { .. }))
+                    .filter(|&m| matches!(t.items.get(m), Some(Item::Tool { .. })))
                     .collect();
-                if tools.len() >= 2 {
-                    let g = Toggle::Group(tools[0]);
+                if let &[first, _, ..] = tools.as_slice() {
+                    let g = Toggle::Group(first);
                     let open = is_open(g, true);
                     let names: Vec<String> = tools
                         .iter()
                         .take(6)
-                        .map(|&m| match &t.items[m] {
-                            Item::Tool { title, .. } => {
+                        .map(|&m| match t.items.get(m) {
+                            Some(Item::Tool { title, .. }) => {
                                 title.split_whitespace().next().unwrap_or("tool").to_owned()
                             }
                             _ => String::new(),
                         })
                         .collect();
-                    let done = tools.iter().filter(|&&m| matches!(&t.items[m], Item::Tool { status, .. } if status == "completed")).count();
-                    let failed = tools.iter().filter(|&&m| matches!(&t.items[m], Item::Tool { status, .. } if status == "failed")).count();
+                    let done = tools.iter().filter(|&&m| matches!(t.items.get(m), Some(Item::Tool { status, .. }) if status == "completed")).count();
+                    let failed = tools.iter().filter(|&&m| matches!(t.items.get(m), Some(Item::Tool { status, .. }) if status == "failed")).count();
                     let state = if failed > 0 {
                         format!(" · {failed} failed")
                     } else if done < tools.len() {
@@ -531,7 +537,7 @@ pub(super) fn transcript_rows_range(
                             Span::styled(format!("  {}", if open { "▾" } else { "›" }), c.dim()),
                         ]),
                         text,
-                        item: tools[0],
+                        item: first,
                         toggle: Some(g),
                     });
                     if open {
@@ -726,7 +732,7 @@ pub(super) fn transcript_rows_range(
         }
     }
     for &i in &queued {
-        if let Item::User { text, .. } = &t.items[i] {
+        if let Some(Item::User { text, .. }) = t.items.get(i) {
             spacer(&mut rows, i, false);
             let bg = Style::default().bg(c.user_bg);
             let style = c.dim().bg(c.user_bg);

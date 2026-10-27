@@ -140,7 +140,9 @@ pub async fn prepare(client: &Client, api: &str, route: &ModelRoute) -> Result<S
     sweep().await;
     let api = super::pair::check_api(api)
         .map_err(|e| HandError::new("agent.bad_route", e.to_string()))?;
-    let id = format!("cmux-gateway-{}", &uuid::Uuid::now_v7().simple().to_string()[20..]);
+    let simple = uuid::Uuid::now_v7().simple().to_string();
+    // The last 12 hex digits: the v7 uuid's random tail.
+    let id = format!("cmux-gateway-{}", simple.get(20..).unwrap_or(&simple));
     let path = token_path(&id);
     let dir = path.parent().map(PathBuf::from).unwrap_or_default();
     std::fs::create_dir_all(&dir).map_err(|e| HandError::io(&dir, e))?;

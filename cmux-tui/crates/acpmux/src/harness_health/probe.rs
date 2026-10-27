@@ -104,6 +104,10 @@ fn end_group(child: &mut std::process::Child) {
     let _ = child.wait();
 }
 
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: a constant pattern; tests::the_constant_patterns_compile builds it"
+)]
 static VERSION: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.]+)?").expect("version pattern") // crash-allow: constant pattern
 });
@@ -172,4 +176,16 @@ pub fn compare_versions(left: &str, right: &str) -> Option<std::cmp::Ordering> {
     a.resize(n, 0);
     b.resize(n, 0);
     Some(a.cmp(&b))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// VERSION is a constant behind an INVARIANT expect: building it here keeps a
+    /// broken pattern a test failure, never a daemon panic.
+    #[test]
+    fn the_constant_patterns_compile() {
+        assert_eq!(parse_version("codex-acp 0.3.1").as_deref(), Some("0.3.1"));
+    }
 }

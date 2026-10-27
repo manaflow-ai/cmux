@@ -7,6 +7,8 @@
 //! The transcript is the record: no file is read, so an edit's before and after text are its
 //! hunks' lines (context and removed, context and added), with each file's +/- counts.
 
+use crate::no_panic::JsonExt;
+use crate::no_panic::StrExt;
 use serde_json::{Value, json};
 
 /// One past tool call.
@@ -40,16 +42,17 @@ pub struct ToolResult {
 impl PastTool {
     /// Settles the call with `result` at `at`.
     pub fn settle(&mut self, result: &ToolResult, at: Option<u64>) {
-        let failed = result.done["status"] == "failed";
+        let failed = *result.done.field("status") == "failed";
         if let (Some(proposed), false) = (self.proposed.take(), failed) {
             // A Write's diff is a fragment until its result says it created the file or holds
             // the text it replaced; otherwise Undo would read the file as one the turn created.
             let text = result.done.pointer("/content/0/content/text").and_then(Value::as_str);
-            self.done["content"] = crate::claude_stdio::settle_write(
+            let settled = crate::claude_stdio::settle_write(
                 proposed,
                 text.unwrap_or_default(),
                 result.structured.as_ref(),
             );
+            self.done.set("content", settled);
         }
         if let (Some(done), Some(update)) = (self.done.as_object_mut(), result.done.as_object()) {
             for (key, value) in update {
@@ -82,11 +85,7 @@ fn s<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
 
 /// `text` cut to at most `max` bytes, on a character boundary.
 fn capped(text: &str, max: usize) -> String {
-    let mut cut = text.len().min(max);
-    while !text.is_char_boundary(cut) {
-        cut -= 1;
-    }
-    text[..cut].to_owned()
+    text.head(max).to_owned()
 }
 
 fn text_content(text: &str) -> Value {
@@ -158,7 +157,7 @@ fn codex_command(id: &str, item: &Value, at: Option<u64>) -> Option<PastTool> {
     if kind != "execute"
         && let Some(path) = path
     {
-        call["locations"] = json!([{"path": path}]);
+        call.set("locations", json!([{"path": path}]));
     }
     let output = ["aggregated_output", "formatted_output", "stdout"]
         .iter()
@@ -172,7 +171,7 @@ fn codex_command(id: &str, item: &Value, at: Option<u64>) -> Option<PastTool> {
         "rawOutput": {"exit_code": exit_code, "duration_ms": took},
     });
     if !output.is_empty() {
-        done["content"] = json!([text_content(output)]);
+        done.set("content", json!([text_content(output)]));
     }
     Some(PastTool {
         id: id.to_owned(),
@@ -262,18 +261,21 @@ fn hunks(diff: &str) -> Vec<Hunk> {
         }
         // File headers ("--- a", "+++ b") come before the first hunk only.
         let Some(hunk) = out.last_mut() else { continue };
-        match line.chars().next() {
+        let mut chars = line.chars();
+        let marker = chars.next();
+        let rest = chars.as_str();
+        match marker {
             Some('-') => {
-                hunk.old.push(line[1..].to_owned());
+                hunk.old.push(rest.to_owned());
                 hunk.deletions += 1;
             }
             Some('+') => {
-                hunk.new.push(line[1..].to_owned());
+                hunk.new.push(rest.to_owned());
                 hunk.additions += 1;
             }
             Some(' ') => {
-                hunk.old.push(line[1..].to_owned());
-                hunk.new.push(line[1..].to_owned());
+                hunk.old.push(rest.to_owned());
+                hunk.new.push(rest.to_owned());
             }
             // A blank context line whose leading space was trimmed.
             None => {
@@ -349,11 +351,11 @@ fn codex_file_change(
         };
         let mut entry = json!({"path": target, "type": change.kind});
         if !failed {
-            entry["additions"] = json!(additions);
-            entry["deletions"] = json!(deletions);
+            entry.set("additions", json!(additions));
+            entry.set("deletions", json!(deletions));
         }
         if change.move_path.is_some() {
-            entry["from"] = json!(change.path);
+            entry.set("from", json!(change.path));
         }
         summary.push(entry);
     }
@@ -481,7 +483,7 @@ pub fn codex_tool(record: &Value, at: Option<u64>) -> Option<(Result<PastTool, T
             let mut done = json!({"status": state});
             if state == "failed" {
                 // The begin event's diffs never applied: the error, or nothing, replaces them.
-                done["content"] = error.map(text_content).into_iter().collect();
+                done.set("content", error.map(text_content).into_iter().collect());
             }
             Some((Err(ToolResult { id: id.to_owned(), done, structured: None }), false))
         }
@@ -498,7 +500,7 @@ pub fn codex_tool(record: &Value, at: Option<u64>) -> Option<(Result<PastTool, T
                 "status": if ok.is_some() { "completed" } else { "failed" },
             });
             if let Some(ok) = ok {
-                item["result"] = ok.clone();
+                item.set("result", ok.clone());
             }
             Some((Ok(codex_mcp(id, &item, at)), false))
         }

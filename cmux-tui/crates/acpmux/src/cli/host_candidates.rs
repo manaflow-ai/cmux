@@ -147,10 +147,14 @@ pub(crate) fn probe_all(list: &mut [Candidate], ssh: &(impl Fn(&[String]) -> Ran
         workers.into_iter().flat_map(|w| w.join().unwrap_or_default()).collect()
     });
     for &(i, _) in &targets {
-        list[i].ssh_ok = Some(false);
+        if let Some(host) = list.get_mut(i) {
+            host.ssh_ok = Some(false);
+        }
     }
     for (i, ok) in results {
-        list[i].ssh_ok = Some(ok);
+        if let Some(host) = list.get_mut(i) {
+            host.ssh_ok = Some(ok);
+        }
     }
 }
 

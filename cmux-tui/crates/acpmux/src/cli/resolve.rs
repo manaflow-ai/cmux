@@ -6,6 +6,7 @@ use anyhow::Result;
 use serde_json::{Value, json};
 
 use crate::cli::output::{age, print_json, short};
+use crate::no_panic::JsonExt;
 use crate::rpc::method;
 
 pub async fn run(query: String, json_out: bool) -> Result<()> {
@@ -16,7 +17,7 @@ pub async fn run(query: String, json_out: bool) -> Result<()> {
         print_json(&reply);
         return Ok(());
     }
-    let matches = reply["matches"].as_array().cloned().unwrap_or_default();
+    let matches = reply.field("matches").as_array().cloned().unwrap_or_default();
     for (i, s) in matches.iter().enumerate() {
         if i > 0 {
             println!();
@@ -59,7 +60,9 @@ fn card(s: &Value) -> String {
         row("last turn", format!("{how}{when}"));
     }
     // The latest message, the agent's or the person's (`LastMessage`), else the last prompt.
-    if let Some(text) = s["lastMessage"]["text"].as_str().or(s["lastPrompt"].as_str()) {
+    if let Some(text) =
+        s.field("lastMessage").field("text").as_str().or(s.field("lastPrompt").as_str())
+    {
         row("last", short(text, 120));
     }
     row("link", text("link"));

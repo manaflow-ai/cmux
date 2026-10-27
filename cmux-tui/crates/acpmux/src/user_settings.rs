@@ -90,8 +90,7 @@ fn drop_comments(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut output = String::with_capacity(text.len());
     let (mut index, mut start, mut in_string) = (0, 0, false);
-    while index < bytes.len() {
-        let byte = bytes[index];
+    while let Some(&byte) = bytes.get(index) {
         if in_string {
             match byte {
                 b'\\' => index += 2,
@@ -108,18 +107,20 @@ fn drop_comments(text: &str) -> String {
                 in_string = true;
                 index += 1;
             }
+            // `start` and `index` sit on ASCII bytes outside strings: character boundaries.
             (b'/', Some(b'/')) => {
-                output.push_str(&text[start..index]);
-                while index < bytes.len() && bytes[index] != b'\n' {
+                output.push_str(text.get(start..index).unwrap_or_default());
+                while bytes.get(index).is_some_and(|&b| b != b'\n') {
                     index += 1;
                 }
                 start = index;
             }
             (b'/', Some(b'*')) => {
-                output.push_str(&text[start..index]);
+                output.push_str(text.get(start..index).unwrap_or_default());
                 index += 2;
-                while index < bytes.len()
-                    && !(bytes[index] == b'*' && bytes.get(index + 1) == Some(&b'/'))
+                while bytes
+                    .get(index)
+                    .is_some_and(|&b| !(b == b'*' && bytes.get(index + 1) == Some(&b'/')))
                 {
                     index += 1;
                 }
@@ -129,7 +130,7 @@ fn drop_comments(text: &str) -> String {
             _ => index += 1,
         }
     }
-    output.push_str(&text[start.min(bytes.len())..]);
+    output.push_str(text.get(start..).unwrap_or_default());
     output
 }
 
@@ -138,8 +139,7 @@ fn drop_trailing_commas(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut output = String::with_capacity(text.len());
     let (mut index, mut start, mut in_string) = (0, 0, false);
-    while index < bytes.len() {
-        let byte = bytes[index];
+    while let Some(&byte) = bytes.get(index) {
         if in_string {
             match byte {
                 b'\\' => index += 2,
@@ -155,15 +155,15 @@ fn drop_trailing_commas(text: &str) -> String {
             in_string = true;
         } else if byte == b','
             && matches!(
-                bytes[index + 1..].iter().find(|byte| !byte.is_ascii_whitespace()),
+                bytes.iter().skip(index + 1).find(|byte| !byte.is_ascii_whitespace()),
                 Some(b'}' | b']')
             )
         {
-            output.push_str(&text[start..index]);
+            output.push_str(text.get(start..index).unwrap_or_default());
             start = index + 1;
         }
         index += 1;
     }
-    output.push_str(&text[start.min(bytes.len())..]);
+    output.push_str(text.get(start..).unwrap_or_default());
     output
 }

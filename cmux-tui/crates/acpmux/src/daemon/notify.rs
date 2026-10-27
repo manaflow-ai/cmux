@@ -2,6 +2,7 @@
 //! person may want to hear about while no client shows the chat.
 
 use crate::hub::Hub;
+use crate::no_panic::JsonExt;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -24,12 +25,12 @@ pub(super) async fn notify_loop(hub: Arc<Hub>) {
         let Ok(session) = hub.resolve(&ev.session_id) else { continue };
         let summary = hub.session_summary(&session);
         // A chat some client shows needs no notification (`hub/seen.rs`).
-        if kind == "turn_result" && summary["shown"] == true {
+        if kind == "turn_result" && *summary.field("shown") == true {
             continue;
         }
         let name = summary.get("name").and_then(Value::as_str).unwrap_or("").to_owned();
         let text = match kind {
-            "permission_request" => permission_text(&name, &ev.record.msg["request"]),
+            "permission_request" => permission_text(&name, ev.record.msg.field("request")),
             "agent_pair_paused" => {
                 let peer = ev
                     .record

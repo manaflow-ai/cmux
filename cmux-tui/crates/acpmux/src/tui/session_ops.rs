@@ -1,6 +1,7 @@
 //! Part of the TUI `App`; see `tui/mod.rs`.
 
 use super::*;
+use crate::no_panic::JsonExt;
 
 impl App {
     // ------------------------------------------------------------ overlays
@@ -186,15 +187,15 @@ impl App {
         }
         let mut params = json!({"cwd": d.cwd, "mcpServers": [], "_meta": {"acpmux": {"harness": d.harness, "policy": d.policy}}});
         if let Some(p) = &d.peer {
-            params["_meta"]["acpmux"]["peer"] = json!(p);
+            params.set_path(&["_meta", "acpmux", "peer"], json!(p));
         }
         let client = self.client.clone();
         let tx = self.tx.clone();
         if let Some(model) = &d.model {
-            params["_meta"]["acpmux"]["model"] = json!(model);
+            params.set_path(&["_meta", "acpmux", "model"], json!(model));
         }
         if let Some(effort) = &d.effort {
-            params["_meta"]["acpmux"]["effort"] = json!(effort);
+            params.set_path(&["_meta", "acpmux", "effort"], json!(effort));
         }
         self.status = format!("starting {}…", d.harness);
         tokio::spawn(async move {
@@ -259,9 +260,13 @@ impl App {
             self.status = e;
             return;
         }
-        let mut meta = json!({"harness": agent, "policy": POLICIES[form.policy]});
+        let Some(policy) = form.policy_name() else {
+            self.report_error("choose a permission policy".into());
+            return;
+        };
+        let mut meta = json!({"harness": agent, "policy": policy});
         if !form_name.is_empty() {
-            meta["name"] = json!(form_name);
+            meta.set("name", json!(form_name));
         }
         let params = json!({"cwd": form.cwd.text(), "mcpServers": [], "_meta": {"acpmux": meta}});
         let first = form.prompt.text().trim().to_owned();
@@ -497,7 +502,11 @@ impl App {
         );
         // Land on the current harness's first model when no exact model matched.
         if current_model.is_none() {
-            p.cursor = p.visible.iter().position(|&i| !p.rows[i].header).unwrap_or(0);
+            p.cursor = p
+                .visible
+                .iter()
+                .position(|&i| p.rows.get(i).is_some_and(|row| !row.header))
+                .unwrap_or(0);
         }
         self.overlay = Overlay::Picker(p);
         self.status = DEFAULT_STATUS.into();
@@ -778,8 +787,9 @@ impl App {
                     Some((p, a)) => (Some(p.to_owned()), a.to_owned()),
                     None => (None, group.clone()),
                 };
-                if live.is_none() && self.on_draft() {
-                    let d = self.draft_mut().unwrap();
+                if live.is_none()
+                    && let Some(d) = self.draft_mut()
+                {
                     d.peer = peer;
                     d.harness = agent;
                     d.model = if value == "default" { None } else { Some(value.clone()) };

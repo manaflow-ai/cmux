@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+use crate::no_panic::JsonExt;
 use anyhow::{Context as _, anyhow, bail};
 use serde_json::Value;
 use wait_timeout::ChildExt;
@@ -264,7 +265,7 @@ fn node(value: &Value, users: &HashMap<u64, String>) -> Node {
 pub fn parse_status(raw: &[u8]) -> anyhow::Result<Status> {
     let doc = json(raw)?;
     let mut users = HashMap::new();
-    if let Some(map) = doc["User"].as_object() {
+    if let Some(map) = doc.field("User").as_object() {
         for profile in map.values() {
             if let (Some(id), Some(login)) = (profile["ID"].as_u64(), profile["LoginName"].as_str())
             {
@@ -272,14 +273,15 @@ pub fn parse_status(raw: &[u8]) -> anyhow::Result<Status> {
             }
         }
     }
-    let this = node(&doc["Self"], &users);
-    let mut peers: Vec<Node> = doc["Peer"]
+    let this = node(doc.field("Self"), &users);
+    let mut peers: Vec<Node> = doc
+        .field("Peer")
         .as_object()
         .map(|map| map.values().map(|v| node(v, &users)).collect())
         .unwrap_or_default();
     peers.sort_by(|a, b| a.dns_name.cmp(&b.dns_name));
     Ok(Status {
-        backend_state: doc["BackendState"].as_str().unwrap_or_default().to_owned(),
+        backend_state: doc.field("BackendState").as_str().unwrap_or_default().to_owned(),
         this,
         peers,
     })
@@ -287,13 +289,13 @@ pub fn parse_status(raw: &[u8]) -> anyhow::Result<Status> {
 
 pub fn parse_whois(raw: &[u8]) -> anyhow::Result<Identity> {
     let doc = json(raw)?;
-    let node = &doc["Node"];
+    let node = doc.field("Node");
     if node.is_null() {
         return Err(anyhow!("tailscale did not identify the peer"));
     }
     let tags = strings(&node["Tags"]);
     let login = if tags.is_empty() {
-        doc["UserProfile"]["LoginName"].as_str().and_then(person)
+        doc.field("UserProfile").field("LoginName").as_str().and_then(person)
     } else {
         None
     };

@@ -49,6 +49,7 @@ pub use mouse::{ButtonAction, PermChoice};
 pub use picker::{PickRow, Picker};
 
 use crate::client::Client;
+use crate::no_panic::JsonExt;
 use crate::rpc::{Message, method};
 use crate::transcript::{Item, Transcript};
 use anyhow::Result;
@@ -286,7 +287,9 @@ impl App {
         let next =
             (current as isize + delta).clamp(0, self.sidebar_nav.len() as isize - 1) as usize;
         self.sidebar_nav_pos = next;
-        match self.sidebar_nav[next].clone() {
+        // `next` is clamped into the non-empty list.
+        let Some(item) = self.sidebar_nav.get(next).cloned() else { return };
+        match item {
             SidebarNav::Session(idx) => self.select(idx),
             SidebarNav::ShowMore(group) => {
                 self.expanded_groups.insert(group);
@@ -316,8 +319,8 @@ impl App {
         }
     }
     pub fn row_visible(&self, i: usize) -> bool {
-        if i < self.drafts.len() {
-            self.host_matches(self.drafts[i].peer.as_deref())
+        if let Some(draft) = self.drafts.get(i) {
+            self.host_matches(draft.peer.as_deref())
         } else {
             self.sessions
                 .get(i - self.drafts.len())
@@ -333,11 +336,9 @@ impl App {
         }
     }
     pub fn editor_mut(&mut self) -> &mut Editor {
-        if self.on_draft() {
-            let i = self.selected;
-            &mut self.drafts[i].text
-        } else {
-            &mut self.input
+        match self.drafts.get_mut(self.selected) {
+            Some(draft) => &mut draft.text,
+            None => &mut self.input,
         }
     }
 
@@ -346,10 +347,9 @@ impl App {
     }
 
     fn take_prompt_images(&mut self) -> Vec<PromptImage> {
-        if self.on_draft() {
-            std::mem::take(&mut self.drafts[self.selected].images)
-        } else {
-            std::mem::take(&mut self.input_images)
+        match self.drafts.get_mut(self.selected) {
+            Some(draft) => std::mem::take(&mut draft.images),
+            None => std::mem::take(&mut self.input_images),
         }
     }
 
@@ -377,7 +377,9 @@ impl App {
         for token in tokens {
             let token = token.trim_matches(|c| matches!(c, '"' | '\'' | '`'));
             let path = token.strip_prefix("file://").unwrap_or(token);
-            let path = if path.starts_with("localhost/") { &path[9..] } else { path };
+            // `localhost/x` keeps its leading `/`: `/x`.
+            let path =
+                path.strip_prefix("localhost").filter(|p| p.starts_with('/')).unwrap_or(path);
             let path = std::path::Path::new(path);
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
             let mime = match ext.as_str() {
@@ -405,8 +407,8 @@ impl App {
         if found.is_empty() {
             return false;
         }
-        if self.on_draft() {
-            self.drafts[self.selected].images.extend(found);
+        if let Some(draft) = self.drafts.get_mut(self.selected) {
+            draft.images.extend(found);
         } else {
             self.input_images.extend(found);
         }
@@ -502,7 +504,7 @@ impl App {
         tokio::spawn(async move {
             let mut params = json!({"sessionId": id, "limit": 3000});
             if let Some(after) = after_seq {
-                params["afterSeq"] = json!(after);
+                params.set("afterSeq", json!(after));
             }
             match client.request(method::MUX_ATTACH, params).await {
                 Ok(v) => {

@@ -80,15 +80,22 @@ pub fn find(text: &str) -> Option<Result<AgentLink, String>> {
     }
     let query = WEB.as_ref()?.captures(text)?.get(1).map_or("", |m| m.as_str());
     let named = |key: &str| pairs(query).into_iter().filter(|(k, _)| k == key).collect::<Vec<_>>();
-    let mut required = Vec::new();
-    for key in ["harness", "session"] {
+    let one = |key: &'static str| {
         let mut values = named(key);
         if values.len() > 1 {
-            return Some(Err(format!("the link names {key} more than once")));
+            return Err(format!("the link names {key} more than once"));
         }
-        required.push((key, values.pop().map(|(_, v)| v)));
-    }
-    Some(build([required[0].clone(), required[1].clone()], query))
+        Ok((key, values.pop().map(|(_, v)| v)))
+    };
+    let harness = match one("harness") {
+        Ok(found) => found,
+        Err(e) => return Some(Err(e)),
+    };
+    let session = match one("session") {
+        Ok(found) => found,
+        Err(e) => return Some(Err(e)),
+    };
+    Some(build([harness, session], query))
 }
 
 fn build(required: [(&str, Option<Option<String>>); 2], query: &str) -> Result<AgentLink, String> {
@@ -138,17 +145,17 @@ fn pairs(query: &str) -> Vec<(String, Option<String>)> {
 
 /// Percent-decoding; None for a bad escape or bytes that are not UTF-8.
 fn decode(s: &str) -> Option<String> {
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' {
-            let hex = s.get(i + 1..i + 3)?;
+    let mut out = Vec::with_capacity(s.len());
+    let mut rest = s.as_bytes();
+    while let Some((&byte, after)) = rest.split_first() {
+        if byte == b'%' {
+            let (hex, after) = after.split_first_chunk::<2>()?;
+            let hex = std::str::from_utf8(hex).ok()?;
             out.push(u8::from_str_radix(hex, 16).ok()?);
-            i += 3;
+            rest = after;
         } else {
-            out.push(bytes[i]);
-            i += 1;
+            out.push(byte);
+            rest = after;
         }
     }
     String::from_utf8(out).ok()

@@ -58,7 +58,8 @@ mod platform {
     pub(super) fn sample(logical_cpus: u32) -> Sample {
         let mut load = [0f64; 3];
         // SAFETY: `load` has room for the 3 values asked for.
-        let load1 = (unsafe { libc::getloadavg(load.as_mut_ptr(), 3) } >= 1).then_some(load[0]);
+        let loaded = unsafe { libc::getloadavg(load.as_mut_ptr(), 3) } >= 1;
+        let load1 = load.first().copied().filter(|_| loaded);
         // The core counts never change while the daemon runs.
         static CORES: std::sync::OnceLock<(Option<u32>, Option<u32>)> = std::sync::OnceLock::new();
         let (performance_cores, physical_cores) =
@@ -124,8 +125,8 @@ mod platform {
             )
         } == 0;
         let bytes = buf.get(..size.min(buf.len())).filter(|_| ok)?;
-        let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
-        Some(String::from_utf8_lossy(&bytes[..end]).into_owned())
+        let text = bytes.split(|b| *b == 0).next().unwrap_or_default();
+        Some(String::from_utf8_lossy(text).into_owned())
     }
 
     /// `vm_stat`'s Swapouts (pages) in bytes.

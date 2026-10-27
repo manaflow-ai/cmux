@@ -18,6 +18,7 @@
 //! Adopting a chat that is open elsewhere runs two harnesses on one
 //! conversation, which forks it.
 
+use crate::no_panic::JsonExt;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -92,11 +93,12 @@ fn claude_holder(config: &Path, id: &str) -> Option<LiveUse> {
             return None;
         }
         let record: Value = serde_json::from_slice(&std::fs::read(&path).ok()?).ok()?;
-        if record["sessionId"].as_str() != Some(id) {
+        if record.field("sessionId").as_str() != Some(id) {
             return None;
         }
-        let pid = u32::try_from(record["pid"].as_u64()?).ok()?;
-        registered_runs(pid, record["startedAt"].as_u64()).then_some(LiveUse::Registered { pid })
+        let pid = u32::try_from(record.field("pid").as_u64()?).ok()?;
+        registered_runs(pid, record.field("startedAt").as_u64())
+            .then_some(LiveUse::Registered { pid })
     })
 }
 

@@ -5,6 +5,7 @@
 //! the daemon knows which session acts; nothing here decides a limit.
 
 use crate::client::Client;
+use crate::no_panic::JsonExt;
 use crate::rpc::method;
 use crate::secret_mcp::error_result;
 use anyhow::Result;
@@ -284,7 +285,8 @@ async fn wait(daemon: &Client, args: &Value) -> Value {
     if ids.is_empty() {
         match daemon.request(method::MUX_SUBSESSION_LIST, json!({})).await {
             Ok(list) => {
-                ids = list["sessions"]
+                ids = list
+                    .field("sessions")
                     .as_array()
                     .into_iter()
                     .flatten()

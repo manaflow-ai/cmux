@@ -8,6 +8,7 @@
 
 use super::HandError;
 use crate::client::Client;
+use crate::no_panic::JsonExt;
 use crate::rpc::{Message, method};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -179,16 +180,16 @@ impl Agents {
                     ));
                 }
                 let id = super::gateway::prepare(&client, api, r).await?;
-                meta["route"] = json!(id);
+                meta.set("route", json!(id));
                 Some(id)
             }
             None => None,
         };
         if let Some(m) = model {
-            meta["model"] = json!(m);
+            meta.set("model", json!(m));
         }
         if let Some(e) = effort {
-            meta["effort"] = json!(e);
+            meta.set("effort", json!(e));
         }
         let created = client
             .request(
@@ -376,7 +377,7 @@ impl Agents {
             let base = json!({ "sessionId": session, "permissionId": permission });
             let mut params = base.clone();
             if let Some(option) = chosen {
-                params["optionId"] = json!(option);
+                params.set("optionId", json!(option));
             }
             if client.request(method::MUX_PERMISSION_RESPOND, params).await.is_err() {
                 let _ = client.request(method::MUX_PERMISSION_RESPOND, base).await;
@@ -453,8 +454,8 @@ impl TextBuffer {
 async fn forward(session: &str, ev: &Value, text: &mut TextBuffer, sink: &EventSink) {
     let seq = ev.get("seq").and_then(Value::as_u64).unwrap_or(0);
     let Some(summary) = summarize(ev) else { return };
-    if summary["kind"] == "text" {
-        text.text.push_str(summary["text"].as_str().unwrap_or(""));
+    if *summary.field("kind") == "text" {
+        text.text.push_str(summary.field("text").as_str().unwrap_or(""));
         text.seq = seq;
         if text.text.len() >= TEXT_FLUSH {
             text.flush(session, Some(seq), sink).await;
