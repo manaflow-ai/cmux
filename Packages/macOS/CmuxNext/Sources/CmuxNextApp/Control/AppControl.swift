@@ -54,6 +54,10 @@ final class AppControl {
     #if DEBUG || CMUX_BENCH_HOOKS
     private let keySequencePlayer = DebugKeySequencePlayer() // `debug.key` sequences' player (one at a time), not a static
     let hops = InputTurnHops() // `debug.input hops` (p04-input-022); the MainJobGate hook (021) records into `hops.recorder`
+    /// `debug.startup`'s report: the launch marks and the first committed frame (kept by AppDelegate). Counters, scheduler
+    /// and catalog wait have no producer yet (tasks 007, 012, 092 wire theirs here); their fields read null until then.
+    let startupReport = StartupReportRecorder(launch: { DebugTimings.launchMarksNow }, processStartNanos: DebugTimings.processStartUptimeNanos,
+                                              counters: { nil }, scheduler: { _ in nil }, actionCatalogMainWaitMs: { nil })
     #endif
     private(set) var service: ControlService?
     private var publisher: ControlSnapshotPublisher?

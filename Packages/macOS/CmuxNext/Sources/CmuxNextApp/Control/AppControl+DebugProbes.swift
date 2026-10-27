@@ -61,6 +61,8 @@ extension AppControl {
             },
             // The startup trace (CMUX_TRACE_STARTUP): write what it holds now, its file and counts.
             DebugTimings.startupTraceMethod,
+            // This launch's milestones, temperature, startup tasks and first frame (bench-startup.py, startup-queue.py).
+            .mainActor("debug.startup") { [startupReport] _ in .value(try JSONValue(foundation: startupReport.report.foundationObject()) ?? .null) },
             // The launch's main jobs and main turns until startup completed (startup-queue.py mainjobs, p08-startup-080):
             // copied on main, symbolized off it.
             .mainActor("debug.startup.main_jobs") { [weak services] _ in
