@@ -1390,7 +1390,9 @@
         "CmuxNextSettings"
       ],
       "packages": [],
-      "reads": []
+      "reads": [
+        "webviews/src/pages/"
+      ]
     },
     "CmuxNextPalette": {
       "kind": "regular",
@@ -1659,11 +1661,10 @@
       ],
       "packages": [],
       "reads": [
-        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
         "cmux-tui/crates/cmux-tui-core/tests/fixtures/browser_site_engines.json",
         "docs/configuration.md",
         "docs/mdm/",
-        "schemas/settings-export/settings-schema.sources.sha256",
         "schemas/settings/settings-schema.json"
       ]
     },

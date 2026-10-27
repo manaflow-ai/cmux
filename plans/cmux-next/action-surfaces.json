@@ -9900,6 +9900,132 @@
       "title_table" : "HomeActions"
     },
     {
+      "cli" : "stepAdjust",
+      "cli_name" : "action home-zoom-in",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "=",
+              "modifiers" : [
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "=",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.zoomIn",
+      "main_menu" : null,
+      "mcp" : "stepAdjust",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Chief: Zoom In",
+      "title_key" : "action.home.zoomIn",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "stepAdjust",
+      "cli_name" : "action home-zoom-out",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "-",
+              "modifiers" : [
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.zoomOut",
+      "main_menu" : null,
+      "mcp" : "stepAdjust",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Chief: Zoom Out",
+      "title_key" : "action.home.zoomOut",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "stepAdjust",
+      "cli_name" : "action home-zoom-reset",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "0",
+              "modifiers" : [
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.zoomReset",
+      "main_menu" : null,
+      "mcp" : "stepAdjust",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Chief: Actual Size",
+      "title_key" : "action.home.zoomReset",
+      "title_table" : "HomeActions"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "action home-new-message",
       "context_menu" : "noObject",
@@ -26323,6 +26449,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "cloud start-session",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudStartSession",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Start Agent Session on Cloud Machine…",
+      "title_key" : "action.cloudStartSession",
+      "title_table" : "CloudSessionActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "machine set-icon",
       "context_menu" : "offered",
       "context_menus" : [
@@ -38202,14 +38356,27 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "cloudStartSession",
+              "kind" : "action",
+              "order" : 15,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 15
+              "order" : 16
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.cloud.deleteSnapshot",
               "kind" : "action",
-              "order" : 16,
+              "order" : 17,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",

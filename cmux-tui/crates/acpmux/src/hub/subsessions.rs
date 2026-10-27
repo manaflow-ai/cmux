@@ -225,6 +225,11 @@ impl Index {
         short
     }
 
+    /// The open children of `parent`.
+    pub(super) fn open_children(&self, parent: &str) -> Vec<String> {
+        self.lock().open.get(parent).map(|s| s.iter().cloned().collect()).unwrap_or_default()
+    }
+
     /// How many children of `parent` are open.
     pub fn open_count(&self, parent: &str) -> u32 {
         self.lock().open.get(parent).map_or(0, |s| s.len() as u32)
@@ -336,6 +341,12 @@ pub struct StartRequest {
     /// Work in a new git worktree of the folder's repository
     /// (`subsession_worktree.rs`) instead of the folder itself.
     pub worktree: bool,
+    /// `_meta.acpmux.forceAdmit` (`acpmux new --parent --force-admit`):
+    /// admitted past this host's refusal, logged (`admission.rs`).
+    pub force_admit: bool,
+    /// A refusal may name this host and its paths: false for a Web client, here or
+    /// through a peer (`server/requests.rs`).
+    pub local: bool,
 }
 
 /// A sub-session's new worktree (and the folder it was made from) until its
@@ -406,7 +417,7 @@ impl Hub {
     /// it (`claim_name`) only when the link is set, so a refused answer
     /// takes no name.
     pub(super) fn offer_link(&self, parent: &Session, title: Option<&str>) -> SubsessionLink {
-        let depth = parent.meta().subsession.as_ref().map_or(0, |l| l.depth) + 1;
+        let depth = self.lineage_depth(&parent.meta()).saturating_add(1);
         let base = short_name_of(title, "task");
         SubsessionLink { started_by: parent.id.clone(), short_name: base, depth, offered: true }
     }
@@ -417,7 +428,8 @@ impl Hub {
         let mut depth: Option<(u32, Source)> = None;
         let mut running: Option<(u32, Source)> = None;
         let mut limits = m.subsession_limits.clone();
-        let mut parent = m.subsession.as_ref().map(|l| l.started_by.clone());
+        // Up the lineage (`lineage.rs`): a session `acpmux new` started inherits as a sub-session does.
+        let mut parent = self.lineage_of(m).map(|l| l.parent);
         let mut source = Source::Session;
         // Bounded: a link loop (a moved chat whose parent id came back) ends here.
         for _ in 0..=catalog().max_depth.max {
@@ -438,18 +450,9 @@ impl Hub {
                 break;
             }
             let Some(id) = parent.take() else { break };
-            let Some(up) = self
-                .sessions
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .get(&id)
-                .cloned()
-            else {
-                break;
-            };
-            let up = up.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(up) = self.session_meta_by_id(&id) else { break };
             limits = up.subsession_limits.clone();
-            parent = up.subsession.as_ref().map(|l| l.started_by.clone());
+            parent = self.lineage_of(&up).map(|l| l.parent);
             source = Source::Inherited;
         }
         let pick = |own: Option<(u32, Source)>, key: &str, max: u32, default: u32| {
@@ -580,7 +583,9 @@ impl Hub {
             return Err(RpcError::invalid_params("a closed session starts no sub-session"));
         }
         let limits = self.subsession_effective(&pm);
-        let depth = pm.subsession.as_ref().map_or(0, |l| l.depth) + 1;
+        // One depth for every way a session starts another (`lineage.rs`).
+        let lineage = self.lineage_under(&pm, super::lineage::start_tool_call(parent, &req.prompt));
+        let depth = lineage.depth;
         if depth > limits.max_depth {
             return Err(refused(
                 "subsessions.depth_limit",
@@ -607,7 +612,7 @@ impl Hub {
                 ));
             }
         };
-        let (child, reply, worktree) = self.start_reserved(parent, &pm, depth, req).await?;
+        let (child, reply, worktree) = self.start_reserved(parent, &pm, lineage, req).await?;
         slot.settle(&child);
         // A stop_session close:true of an ancestor that ran while this start
         // was in flight did not see the child: close it now, not orphaned
@@ -637,9 +642,10 @@ impl Hub {
         self: &Arc<Self>,
         parent: &Arc<Session>,
         pm: &SessionMeta,
-        depth: u32,
+        lineage: crate::store::Lineage,
         req: StartRequest,
     ) -> Result<(Arc<Session>, Value, Option<KeptWorktree>), RpcError> {
+        let depth = lineage.depth;
         let base = short_name_of(req.name.as_deref(), &req.prompt);
         let short = self.subsessions.claim_name(&parent.id, &base);
         let name = self.unique_name(&format!("{}/{short}", pm.name));
@@ -651,6 +657,21 @@ impl Hub {
         let model = req.model.as_deref();
         let decided =
             self.subsession_place_check(parent, pm, &folder, &harness, model, &short).await?;
+        // A sub-session is a new session: it needs room on this host (`admission.rs`).
+        // Before the worktree, so a refusal makes none.
+        let who = format!("session {}", parent.id);
+        let admitted = self
+            .admit_new(super::admission::Ask {
+                force: req.force_admit,
+                // Set by the server only where the caller may force (`server/requests.rs`).
+                can_force: req.force_admit,
+                person: false,
+                who: &who,
+                local: req.local,
+                // A child's name is made unique before this (`unique_name`).
+                name: None,
+            })
+            .await?;
         // Its worktree is made, and its harness spawns, only in the very folder checked.
         let (cwd, worktree) = if req.worktree {
             folder.still_here()?;
@@ -692,9 +713,10 @@ impl Hub {
                 depth,
                 offered: false,
             }),
+            lineage: Some(lineage),
             ..Default::default()
         };
-        let probe = self.new_session(request).await?;
+        let probe = admitted.run(self.new_session(request)).await?;
         // From here every refusal closes the child: it never runs unchecked.
         if let Err(e) = self.settle_subsession(parent, pm, &probe, &cwd, req.name.as_deref()).await
         {
@@ -949,7 +971,7 @@ impl Hub {
             "sessions": rows,
             "self": {
                 "sessionId": caller.id,
-                "depth": m.subsession.as_ref().map_or(0, |l| l.depth),
+                "depth": self.lineage_depth(&m),
                 "startedBy": m.subsession.as_ref().map(|l| &l.started_by),
                 "openChildren": self.subsessions.open_count(&caller.id),
                 "maxChildren": e.max_children,

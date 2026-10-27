@@ -36,6 +36,52 @@ fn disallowed_tools(meta: Option<&Value>) -> Result<Vec<String>, RpcError> {
     }
 }
 
+/// A create's admission ask (`hub/admission.rs`): `_meta.acpmux.forceAdmit`
+/// (`acpmux new --force-admit`), and whether the person asks here (proven, or
+/// this host's app pane; a peer's `via: app` is its client's word, not proof).
+pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::admission::Ask<'a> {
+    let can_force = can_force(conn.origin);
+    let force = can_force && force_asked(params);
+    let person = conn.is_person() || conn.origin == Origin::LocalApp;
+    // A Web client, here or through a peer, learns no host name or path.
+    let web =
+        super::remote_guard::control_of(conn.origin, conn.auth, params) == crate::hub::Control::Web;
+    let name = create_name(params);
+    crate::hub::admission::Ask { force, can_force, person, who, local: !web, name }
+}
+
+/// The create's name, as `session/new` and `session/fork` read it.
+fn create_name(params: &Value) -> Option<String> {
+    mux_meta(params)
+        .and_then(|m| m.get("name"))
+        .and_then(Value::as_str)
+        .or_else(|| params.get("name").and_then(Value::as_str))
+        .map(str::to_owned)
+}
+
+/// `_meta.acpmux.forceAdmit` is true.
+pub(super) fn force_asked(params: &Value) -> bool {
+    mux_meta(params)
+        .and_then(|m| m.get(crate::hub::admission::FORCE_FIELD))
+        .and_then(Value::as_bool)
+        == Some(true)
+}
+
+/// Whether this connection's `forceAdmit` is honoured: this host's unix socket
+/// or app, as for `--policy` and `--mode`; a Web client's or a peer's is not.
+pub(super) fn can_force(origin: Origin) -> bool {
+    !origin.web_class()
+}
+
+/// Who asks, for the admission log: the proven caller session, else the
+/// connection's origin and id.
+pub(super) fn who(conn: &Conn) -> String {
+    match conn.caller() {
+        Some(session) => format!("session {session}"),
+        None => format!("{:?} connection {}", conn.origin, conn.id),
+    }
+}
+
 /// Subscribe the connection to a session and, when that is new, count it
 /// as attached (remote sessions are not counted; their host does that).
 pub(super) fn attach(hub: &Hub, conn: &Conn, id: &str) {
@@ -428,8 +474,15 @@ async fn dispatch_brief(
         .pointer("/host_pressure/warning")
         .and_then(Value::as_str)
         .map(str::to_owned);
+    // Another host only when it has room: an overloaded pick is no better a place (`placement.rs`).
     let suggestion = match &pressure {
-        Some(_) => auto_host(hub, &brief).await.ok().flatten(),
+        Some(_) => {
+            let v = super::place::pick(hub, super::place::brief_work(&brief)).await;
+            let flag = |k: &str| v.get(k).and_then(Value::as_bool) == Some(true);
+            (!flag("overloaded") && !flag("local"))
+                .then(|| v.get("pick").and_then(Value::as_str).map(str::to_owned))
+                .flatten()
+        }
         None => None,
     }
     .filter(|host| row.get("host").and_then(Value::as_str) != Some(host));
@@ -567,7 +620,7 @@ async fn dispatch_request(
                 "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
-                    method::MUX_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE,
+                    method::MUX_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION,
                     method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
                     method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
@@ -721,6 +774,9 @@ async fn dispatch_request(
                 let mut p = params.clone();
                 if let Some(m) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
                     m.remove("peer");
+                    // A family lives on one daemon: this daemon's caller is no session there.
+                    m.remove(crate::hub::lineage::PARENT_FIELD);
+                    m.remove(crate::hub::lineage::TOOL_CALL_FIELD);
                     // The peer would tie it to this daemon's long-lived connection, never to the
                     // client's: the client's own kill purges it (`ephemeral.rs`).
                     m.remove("ephemeral");
@@ -765,6 +821,7 @@ async fn dispatch_request(
             let policy = pick("policy")
                 .map(|p| p.parse::<PermissionPolicy>().map_err(RpcError::invalid_params))
                 .transpose()?;
+            refuse_full_access_policy(hub, policy)?;
             let env = crate::session_env::parse(meta)?;
             let route = pick("route");
             if let Some(r) = &route
@@ -773,9 +830,30 @@ async fn dispatch_request(
                 return Err(RpcError::invalid_params(format!("route {r:?} is not a route id")));
             }
             let disallowed_tools = disallowed_tools(meta)?;
+            // Its parent is the session this connection proved it runs in (`hub/lineage.rs`):
+            // an agent's `acpmux new`. An adopted chat or an ephemeral run is nobody's child.
+            let parent_ask = crate::hub::lineage::parent_ask(meta)?;
+            let tool_call = crate::hub::lineage::tool_call_id(meta)?;
+            let lineage = if adopting || super::ephemeral::requested(&params) {
+                // It records none, but a parent it names is still one the caller owns.
+                if let crate::hub::lineage::ParentAsk::Named(id) = &parent_ask {
+                    hub.check_lineage_parent(conn.caller(), id)?;
+                }
+                None
+            } else {
+                hub.new_session_lineage(conn.caller(), parent_ask, tool_call)?
+            };
             let lane_parent = super::lane_parent(hub, conn, &params);
             let (asked_policy, agent) =
                 (policy.is_some(), conn.caller().filter(|_| !conn.is_person()));
+            // A new session needs room on this host (`hub/admission.rs`); an adopt that
+            // never forks is not checked. Before the worktree, so a refusal makes none;
+            // counted until the create ends.
+            let who = who(conn);
+            let admitted = match &adopt {
+                Some(a) if a.if_live != crate::adopt::IfLive::Fork => None,
+                _ => Some(hub.admit_new(ask(conn, &params, &who)).await?),
+            };
             // After the request checks above, so a request they refuse makes no worktree.
             let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
             let req = crate::hub::NewRequest {
@@ -795,10 +873,14 @@ async fn dispatch_request(
                 starter: hub.starter_of(conn.origin.web_class(), agent),
                 route,
                 subsession: None,
+                lineage,
                 disallowed_tools,
                 checked_cwd: None,
             };
-            let s = hub.new_session(req).await?;
+            let s = match &admitted {
+                Some(admitted) => admitted.run(hub.new_session(req)).await?,
+                None => hub.new_session(req).await?,
+            };
             if let Some(tags) = meta.and_then(|m| m.get("tags")).and_then(Value::as_object)
                 && !tags.is_empty()
             {
@@ -817,6 +899,7 @@ async fn dispatch_request(
                         cfg!(target_os = "macos"),
                         super::remote_guard::control_of(conn.origin, conn.auth, &params)
                             == crate::hub::Control::Peer,
+                        hub.approve_all_allowed(),
                     )
                 {
                     hub.set_policy(&s, crate::config::PermissionPolicy::ApproveAll).await;
@@ -838,6 +921,10 @@ async fn dispatch_request(
             let mut summary = hub.session_summary(&s);
             if let Some(w) = worktree {
                 summary.set("worktree", w);
+            }
+            // Started past the lane cap: the caller hears it (`hub/admission.rs`).
+            if let Some(w) = admitted.as_ref().and_then(|a| a.warning.clone()) {
+                summary.set("admission", w);
             }
             Ok(json!({
                 "sessionId": s.id,
@@ -1051,11 +1138,17 @@ async fn dispatch_request(
             let env = crate::session_env::parse(mux_meta(&params))?;
             let workspace_id = crate::session_env::workspace_id(mux_meta(&params), &env)?;
             let through = super::fork_through::through(&params);
-            let new = hub.fork(&s, name, cwd, env, workspace_id, through).await?;
+            let who = who(conn);
+            let admitted = hub.admit_new(ask(conn, &params, &who)).await?;
+            let new = admitted.run(hub.fork(&s, name, cwd, env, workspace_id, through)).await?;
             attach(hub, conn, &new.id);
             let meta = new.meta();
+            let mut summary = hub.session_summary(&new);
+            if let Some(w) = admitted.warning.clone() {
+                summary.set("admission", w);
+            }
             Ok(
-                json!({"sessionId": new.id, "modes": meta.modes, "configOptions": meta.config_options, "_meta": {"acpmux": hub.session_summary(&new)}}),
+                json!({"sessionId": new.id, "modes": meta.modes, "configOptions": meta.config_options, "_meta": {"acpmux": summary}}),
             )
         }
         method::SESSION_SET_MODE => {
@@ -1160,6 +1253,7 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("policy is required"))?
                 .parse()
                 .map_err(RpcError::invalid_params)?;
+            refuse_full_access_policy(hub, Some(policy))?;
             {
                 let mut cfg = hub.config.write().await;
                 cfg.permission_policy = policy;
@@ -1346,15 +1440,16 @@ async fn dispatch_request(
             let s = hub.resolve(session_key(&params)?)?;
             // After a restart the chat logs are read after the ready line; until
             // then the queue, the turn and the status are the session list's. Info
-            // waits for them (#22916), unless a caller that reads only what the
+            // waits for this chat's (#22916; read now if the background pass has not
+            // reached it, `hub/log_load.rs`), unless a caller that reads only what the
             // session list holds (its id, env, policy, rules, modes) asks with
             // `waitLogs: false`: it answers at once, with `logsLoading`.
             if params.get("waitLogs").and_then(Value::as_bool) != Some(false) {
-                hub.wait_logs().await;
+                hub.session_log(&s).await;
             }
             let mut detail = hub.session_detail(&s);
             if let Some(obj) = detail.as_object_mut() {
-                obj.insert("logsLoading".into(), json!(!hub.logs_loaded()));
+                obj.insert("logsLoading".into(), json!(!hub.session_log_loaded(&s)));
             }
             // The session env reaches the unix socket only: no summary or
             // event carries it, so a key added to the allowlist later never
@@ -1473,8 +1568,8 @@ async fn dispatch_request(
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
             // A restart reads the chat logs after its ready line: the queue, turn and status
-            // shown here come from them (`Hub::load_logs`).
-            hub.wait_logs().await;
+            // shown here come from this chat's (`hub/log_load.rs`).
+            hub.session_log(&s).await;
             let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
             let event_stream = params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
             let hidden = params.get("visible") == Some(&Value::Bool(false));
@@ -1541,7 +1636,7 @@ async fn dispatch_request(
         method::MUX_QUEUE_EDIT => {
             let s = hub.resolve(session_key(&params)?)?;
             // The queue a restart rebuilds from the logs.
-            hub.wait_logs().await;
+            hub.session_log(&s).await;
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
             // A peer read the prompt masked (`peer_text.rs`): it may move or send one
             // with a secret, not rewrite it.
@@ -1559,7 +1654,7 @@ async fn dispatch_request(
         }
         method::MUX_QUEUE_REMOVE => {
             let s = hub.resolve(session_key(&params)?)?;
-            hub.wait_logs().await;
+            hub.session_log(&s).await;
             let prompt_id = str_param(&params, "promptId")
                 .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
             // Again after the wait, right before the change (`full_access_hold`).
@@ -1626,6 +1721,7 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("policy is required"))?
                 .parse()
                 .map_err(RpcError::invalid_params)?;
+            refuse_full_access_policy(hub, Some(policy))?;
             hub.set_policy_unless_moving(&s, policy).await?;
             Ok(hub.session_summary(&s))
         }
@@ -1716,6 +1812,19 @@ async fn dispatch_request(
     }
 }
 
+/// MDM forces `sessions.allowFullAccess` off: a request for the approve-all policy (`approve-all`, `yolo`)
+/// on `session/new`, `_acpmux/set_policy` or `_acpmux/set_default_policy` is refused, as a
+/// switch into a full-access mode is (`full_access_off`). A stored approve-all runs as `ask`
+/// meanwhile (`Hub::policy_for`).
+fn refuse_full_access_policy(hub: &Hub, policy: Option<PermissionPolicy>) -> Result<(), RpcError> {
+    if policy.is_some_and(crate::hub::full_access_bound::policy_is_full_access)
+        && !hub.approve_all_allowed()
+    {
+        return Err(crate::hub::start_mode::full_access_off());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod dispatch_policy_tests {
     use super::peer_approve_all_allowed;
@@ -1735,5 +1844,33 @@ mod dispatch_policy_tests {
             true
         ));
         assert!(peer_approve_all_allowed(Some("ask"), None, false));
+    }
+}
+
+#[cfg(test)]
+mod admission_force_tests {
+    use super::*;
+
+    #[test]
+    fn force_admit_is_honoured_only_from_this_machine() {
+        let forced = json!({"_meta": {"acpmux": {"forceAdmit": true}}});
+        assert!(force_asked(&forced));
+        assert!(!force_asked(&json!({})));
+        assert!(can_force(Origin::Local), "the unix socket");
+        assert!(can_force(Origin::LocalApp), "the app");
+        assert!(!can_force(Origin::Web), "a Web client");
+        assert!(!can_force(Origin::Peer), "a peer");
+    }
+
+    #[test]
+    fn the_admission_name_is_the_one_the_create_takes() {
+        let name = |p: Value| create_name(&p);
+        assert_eq!(name(json!({"name": "top"})).as_deref(), Some("top"));
+        let both = json!({"name": "top", "_meta": {"acpmux": {"name": "meta"}}});
+        assert_eq!(name(both).as_deref(), Some("meta"));
+        // A `_meta` name that is not a string falls back to the top-level one, as the create does.
+        let null = json!({"name": "top", "_meta": {"acpmux": {"name": null}}});
+        assert_eq!(name(null).as_deref(), Some("top"));
+        assert_eq!(name(json!({})), None);
     }
 }

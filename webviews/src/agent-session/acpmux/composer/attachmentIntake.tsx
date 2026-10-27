@@ -561,11 +561,11 @@ export function AttachmentStrip({
       ))}
       {error && <output className="acpmux-attachment-note">{error}</output>}
       {onReorder && attachments.length > 1 && (
-        <span id={hint} className="visually-hidden">
+        <span id={hint} className="visually-hidden acpmux-attachment-voiceover-only">
           {t(ATTACHMENT_LABELS.reorderHint)}
         </span>
       )}
-      <output className="visually-hidden" aria-live="polite">
+      <output className="visually-hidden acpmux-attachment-voiceover-only" aria-live="polite">
         {announced}
       </output>
     </fieldset>

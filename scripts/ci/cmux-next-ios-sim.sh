@@ -28,6 +28,7 @@
 # benchmark's flood-bench.json, the app log, the test summary, SUMMARY.md, the
 # built app (zipped) and the PTY recordings with their replay rates.
 set -euo pipefail
+trap 'echo "cmux-next-ios-sim.sh: line $LINENO exited $? ($BASH_COMMAND)" >&2' ERR
 
 # shellcheck source-path=SCRIPTDIR source=../cmux-next/lib/fleet-only.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../cmux-next/lib/fleet-only.sh"
@@ -72,10 +73,14 @@ JOBS="${JOBS:-8}" bash cmux-next-ios/rust/scripts/build-xcframework.sh >"$work/f
   tail -60 "$work/ffi.log"; echo "error: CmuxMobileLinkFFI.xcframework build failed" >&2; exit 1; }
 (cd cmux-next-ios && xcodegen generate -q)
 dd="$work/dd"
+# Demo builds the Swift packages as Release (no DEBUG), so the flood benchmark
+# and terminal demo would be missing; the command-line conditions reach the
+# packages too (verify/terminal-flood.md, Reproducing).
 set +e
 xcodebuild -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Demo \
   -destination 'generic/platform=iOS Simulator' -derivedDataPath "$dd" \
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+  'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO' \
   build >"$work/build.log" 2>&1
 status=$?
 set -e
@@ -140,7 +145,21 @@ import json, sys
 d = json.load(sys.stdin)
 print("passed %s, failed %s, skipped %s" % (d.get("passedTests"), d.get("failedTests"), d.get("skippedTests")))
 ' || echo "no result bundle")"
-  grep -E "error:|failed|Test Suite .* (passed|failed)" "$work/test.log" | tail -30 > "$out/test-failures.txt" || true
+  # The failed test cases and their messages, from the result bundle.
+  xcrun xcresulttool get test-results tests --path "$work/kit.xcresult" --compact 2>/dev/null | python3 -c '
+import json, sys
+def walk(node, path):
+    if node.get("nodeType") == "Test Case" and node.get("result") == "Failed":
+        print("FAILED:", " / ".join(path))
+        for child in node.get("children", []):
+            if child.get("nodeType") == "Failure Message":
+                print("   ", child.get("name"))
+    for child in node.get("children", []):
+        walk(child, path + [child.get("name", "")])
+for root in json.load(sys.stdin).get("testNodes", []):
+    walk(root, [root.get("name", "")])
+' > "$out/test-failures.txt" 2>/dev/null || true
+  cat "$out/test-failures.txt"
   note "- CmuxMobileKit tests (iOS simulator): exit $test_status, $counts, $((SECONDS - t0)) s"
 fi
 
@@ -149,7 +168,9 @@ if [[ "$mode" == bench || "$mode" == all ]]; then
   corpus="$work/corpus"
   mkdir -p "$corpus"
   # A 6 MB real text file: this checkout's Swift sources.
-  git ls-files -z '*.swift' | xargs -0 cat 2>/dev/null | head -c 6000000 > "$corpus/big.txt"
+  # head closes the pipe early; the SIGPIPE upstream is expected (pipefail).
+  { git ls-files -z '*.swift' | xargs -0 cat 2>/dev/null | head -c 6000000 > "$corpus/big.txt"; } || true
+  [[ -s "$corpus/big.txt" ]] || { echo "error: empty benchmark corpus" >&2; exit 1; }
   # Record each workload through a real PTY at a phone-like grid (50 x 45).
   record() { # name, command...
     local name=$1; shift
@@ -182,8 +203,8 @@ VIM
   note ""
   note "## Flood benchmark (Demo build, in-app TerminalFloodBench, fake Mac daemon, real DaemonClient + Ghostty renderer)"
   note ""
-  note "| Workload | Bytes | Replay Mbit/s | Main CPU ms/s | App CPU ms/s | Frames/s | Frame p50 / p95 / max ms | Echo p50 / p90 / max ms | Drain ms |"
-  note "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+  note "| Workload | Bytes | Replay Mbit/s | Main CPU ms/s | App CPU ms/s | Frames/s | Frame p50 / p95 / max ms | Echo p50 / p90 / max ms | Idle echo p50 / p90 ms | Drain ms |"
+  note "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
   for name in cat vim top; do
     read -r mbps size _secs < "$corpus/$name.rate"
     simctl launch "$udid" "$bundle_id" -CmuxMobileFloodBench -CmuxMobileFloodBenchFile "$corpus/$name.typescript" \
@@ -197,14 +218,14 @@ VIM
     until [[ -s "$result" ]] || (( SECONDS > deadline )); do sleep 1; done
     simctl io "$udid" screenshot "$out/screens/$name-after.png" >/dev/null
     simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
-    if [[ ! -s "$result" ]]; then note "| $name | $size | $mbps | no result (timed out) | | | | | |"; continue; fi
+    if [[ ! -s "$result" ]]; then note "| $name | $size | $mbps | no result (timed out) | | | | | | |"; continue; fi
     cp "$result" "$out/bench/$name.json"
     python3 - "$out/bench/$name.json" "$name" "$size" "$mbps" >> "$summary" <<'PY'
 import json, sys
-s = json.load(open(sys.argv[1]))["summary"]; f = s["flood"]
+s = json.load(open(sys.argv[1]))["summary"]; f = s["flood"]; i = s.get("idle", {})
 print(f"| {sys.argv[2]} | {int(sys.argv[3]):,} | {float(sys.argv[4]):.2f} | {f['mainCPUmsPerSecondAvg']} | {f.get('processCPUmsPerSecondAvg', '-')} | "
       f"{f['presentsPerSecondAvg']:.0f} | {f.get('frameIntervalP50ms', '-')} / {f.get('frameIntervalP95ms', '-')} / {f.get('frameIntervalMaxms', '-')} | "
-      f"{f['echoP50ms']} / {f['echoP90ms']} / {f['echoMaxms']} | {s['drainAfterStopMs']:.0f} |")
+      f"{f['echoP50ms']} / {f['echoP90ms']} / {f['echoMaxms']} | {i.get('echoP50ms', '-')} / {i.get('echoP90ms', '-')} | {s['drainAfterStopMs']:.0f} |")
 PY
   done
   note ""

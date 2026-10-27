@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 697,
-    "mcp": 615
+    "verbs": 699,
+    "mcp": 617
   },
   "nouns": [
     {
@@ -237,7 +237,7 @@
         },
         {
           "command": "cmux agent toggle-acp-inspector",
-          "title": "Toggle Session Info",
+          "title": "Toggle Event Inspector",
           "id": "agentPane.toggleInspector",
           "mcp": true
         },
@@ -251,6 +251,12 @@
           "command": "cmux agent toggle-minimap",
           "title": "Toggle Thread Minimap",
           "id": "agentPane.toggleMinimap",
+          "mcp": true
+        },
+        {
+          "command": "cmux agent toggle-session-info",
+          "title": "Toggle Session Info",
+          "id": "agentPane.toggleSessionInfo",
           "mcp": true
         },
         {
@@ -1148,6 +1154,12 @@
           "command": "cmux cloud ssh",
           "title": "Open Cloud SSH Terminal",
           "id": "cloudSSH",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud start-session",
+          "title": "Start Agent Session on Cloud Machine…",
+          "id": "cloudStartSession",
           "mcp": true
         },
         {
