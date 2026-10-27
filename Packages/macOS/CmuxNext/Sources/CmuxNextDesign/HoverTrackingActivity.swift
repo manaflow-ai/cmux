@@ -9,4 +9,11 @@ extension NSTrackingArea.Options {
         // wakeup-allow: bounded only CMUX_NEXT_NO_ACTIVATE launches, which never activate the app, track while inactive
         WindowPlacement.noActivate ? .activeAlways : .activeInActiveApp
     }
+
+    /// The scope hears the pointer while another app is active (`.activeAlways`): its hover needs no
+    /// clearing when cmux resigns active.
+    var tracksWhileInactive: Bool {
+        // wakeup-allow: bounded reads a scope; it adds no tracking area
+        contains(.activeAlways)
+    }
 }
