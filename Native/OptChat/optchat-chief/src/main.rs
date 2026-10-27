@@ -179,7 +179,8 @@ fn main() -> std::process::ExitCode {
         Some(
             tool @ ("zoom" | "date" | "spawn" | "tell" | "peers" | "react" | "reply" | "send"
             | "stop" | "sleep" | "remember" | "transcript" | "control" | "profile"
-            | "chiefs" | "escalate-auth" | "escalate_auth"),
+            | "chiefs" | "escalate-auth" | "escalate_auth" | "cloud-workspace"
+            | "cloud_workspace"),
         ) => {
             let socket = flags
                 .value("socket")

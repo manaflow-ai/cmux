@@ -20,6 +20,8 @@ public struct CloudMachineRequest: Equatable, Sendable {
     public var bootstrapKind: CloudMachineBootstrap.Kind = .plain
     /// `--machine-config FILE` (``CloudMachineConfig``), absolute like ``bootstrapPath``.
     public var machineConfigPath: String?
+    /// `--repo OWNER/NAME[@REF]`, cloned before the script (or alone).
+    public var repo: CloudMachineRepo?
     /// One key per request: the creation's Retry sends it again, so a create that reached the
     /// server but whose answer was lost does not make a second machine.
     public var idempotencyKey = UUID().uuidString
@@ -43,16 +45,17 @@ public struct CloudMachineRequest: Equatable, Sendable {
     }
 
     public init(name: String? = nil, size: String? = nil, memoryMb: Int? = nil, persistent: Bool = false,
-                bootstrapPath: String? = nil, bootstrapKind: CloudMachineBootstrap.Kind = .plain) {
+                bootstrapPath: String? = nil, bootstrapKind: CloudMachineBootstrap.Kind = .plain, repo: CloudMachineRepo? = nil) {
         self.name = name
         self.size = size
         self.memoryMb = memoryMb
         self.persistent = persistent
         self.bootstrapPath = bootstrapPath
         self.bootstrapKind = bootstrapKind
+        self.repo = repo
     }
 
-    public var isDefault: Bool { name == nil && size == nil && !persistent && bootstrapPath == nil && machineConfigPath == nil }
+    public var isDefault: Bool { name == nil && size == nil && !persistent && bootstrapPath == nil && machineConfigPath == nil && repo == nil }
 
     /// A file this request names (``bootstrapPath``, ``machineConfigPath``) could not be read, is
     /// empty or is over its size limit.
@@ -60,10 +63,11 @@ public struct CloudMachineRequest: Equatable, Sendable {
         public var path: String
     }
 
-    /// The bootstrap script from ``bootstrapPath``, read on `work`'s files lane; nil without one.
+    /// The bootstrap script from ``bootstrapPath``, read on `work`'s files lane, with ``repo``; a
+    /// repo alone runs ``CloudMachineBootstrap/noScript``; nil with neither.
     public func loadScript(work: BackgroundWork) async throws -> CloudMachineBootstrap? {
-        guard let path = bootstrapPath else { return nil }
-        return CloudMachineBootstrap(kind: bootstrapKind, contents: try await Self.load(path, max: CloudMachineBootstrap.maxBytes, work: work))
+        guard let path = bootstrapPath else { return repo.map { CloudMachineBootstrap(kind: .plain, contents: CloudMachineBootstrap.noScript, repo: $0) } }
+        return CloudMachineBootstrap(kind: bootstrapKind, contents: try await Self.load(path, max: CloudMachineBootstrap.maxBytes, work: work), repo: repo)
     }
 
     /// The machine config from ``machineConfigPath``, read on `work`'s files lane; nil without one.

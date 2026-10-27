@@ -197,9 +197,21 @@ nonisolated enum CatalogArgument {
                        kind: .string, isRequired: false)
     }
 
+    /// `cloud new-machine --repo OWNER/NAME[@REF]`: the GitHub repository the machine clones.
+    static var repoString: ActionArgument {
+        ActionArgument(name: "repo", title: String(localized: "argument.repo", defaultValue: "Repository", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     /// The bootstrap script file on this Mac (the CLI makes a relative path absolute).
     static var bootstrapScriptString: ActionArgument {
         ActionArgument(name: "bootstrapScript", title: String(localized: "argument.bootstrapScript", defaultValue: "Bootstrap Script", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// `cloud deliver-secrets --repo OWNER/NAME`: whose repo-scoped secrets the machine gets.
+    static var secretRepoString: ActionArgument {
+        ActionArgument(name: "repo", title: String(localized: "argument.secretRepo", defaultValue: "Repository", bundle: .module),
                        kind: .string, isRequired: false)
     }
 
@@ -234,6 +246,12 @@ nonisolated enum CatalogArgument {
 
     static var keepBool: ActionArgument {
         ActionArgument(name: "keep", title: String(localized: "argument.keep", defaultValue: "Keep After Close", bundle: .module), kind: .bool)
+    }
+
+    /// Pin/Unpin's state: true pins, false unpins; left out, the action toggles.
+    static var pinnedBool: ActionArgument {
+        ActionArgument(name: "pinned", title: String(localized: "argument.pinned", defaultValue: "Pinned", bundle: .module), kind: .bool,
+                       isRequired: false)
     }
 
     static var onBool: ActionArgument {
