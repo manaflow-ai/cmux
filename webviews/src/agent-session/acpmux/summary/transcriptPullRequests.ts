@@ -236,11 +236,11 @@ function toolFindings(tool: Tool): Finding[] {
 function replyFindings(text: string): Finding[] {
   if (!text.includes("#") && !text.includes("/pull/") && !text.includes("/issues/")) return [];
   const found: Finding[] = [];
-  const mention = (ref: Ref, number: string, kind: "pullRequest" | "issue" = "pullRequest") =>
+  const mention = (ref: Ref, number: string, kind?: "pullRequest" | "issue") =>
     found.push({ how: "mentioned", ref, number: Number(number), kind });
   // Links and `owner/repo#N` first, then blanked so their numbers are not read again as `#N`.
   let rest = text.replace(PR_URL, (_, repo: string, number: string) => {
-    mention({ kind: "full", repo }, number);
+    mention({ kind: "full", repo }, number, "pullRequest");
     return " ";
   });
   rest = rest.replace(ISSUE_URL, (_, repo: string, number: string) => {
@@ -256,7 +256,7 @@ function replyFindings(text: string): Finding[] {
   rest = rest.replace(NAMED_REF, (_, name: string, space: string, number: string) => {
     const word = name.toLowerCase();
     // `PR #5`, `PR#5`: the folder's.
-    if (word === "pr" || word === "pull") mention({ kind: "folder" }, number);
+    if (word === "pr" || word === "pull") mention({ kind: "folder" }, number, "pullRequest");
     else mention({ kind: "name", name: word, orFolder: space === " " }, number);
     return " ";
   });
@@ -394,7 +394,7 @@ export function transcriptPullRequests(
     at: number,
     title?: string,
     changed = false,
-    kind: "pullRequest" | "issue" = "pullRequest",
+    kind?: "pullRequest" | "issue",
   ) => {
     if (number <= 0) return;
     const url = kind === "issue" ? issueUrlOf(repo, number) : urlOf(repo, number);
@@ -404,7 +404,7 @@ export function transcriptPullRequests(
         url,
         repo,
         number,
-        ...(kind === "issue" ? { kind } : {}),
+        ...(kind ? { kind } : how !== "mentioned" ? { kind: "pullRequest" as const } : {}),
         ...(title ? { title } : {}),
         state: "open",
         opened: how === "opened",
@@ -415,6 +415,8 @@ export function transcriptPullRequests(
       return;
     }
     pr.touched = at;
+    if (kind) pr.kind = kind;
+    else if (how !== "mentioned") pr.kind = "pullRequest";
     if (how !== "mentioned") delete pr.mentioned;
     if (how === "opened") pr.opened = true;
     if (changed || how === "opened") pr.changed = true;

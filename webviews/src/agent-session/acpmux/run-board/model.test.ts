@@ -94,7 +94,7 @@ describe("Run board human intent", () => {
   });
 
   test("attempt change summaries reuse real acpmux tool diffs", () => {
-    expect(sessionSummary(runBoardFixture.attempts[0]!.rows, undefined, "/").outputs.map((output) => output.path)).toEqual([
+    expect(sessionSummary(runBoardFixture.attempts[0]!.rows).outputs.map((output) => output.path)).toEqual([
       "src/workspace/Workspace.tsx",
       "src/workspace/styles.css",
     ]);
@@ -102,16 +102,19 @@ describe("Run board human intent", () => {
 
   test("summary Outputs exclude files outside the session project folder", () => {
     const rows = [
-      activity([
-        tool("Write project and scratch files", "edit", "completed", {
-          diffs: [
-            { path: "/work/project/src/main.ts", newText: "export {}" },
-            { path: "/tmp/m1076.txt", newText: "scratch" },
-            { path: "/work/project/../tmp/m1077.txt", newText: "scratch" },
-            { path: "m1078.txt", canonical: "/tmp/m1078.txt", newText: "scratch" },
-          ],
-        }),
-      ], 1),
+      activity(
+        [
+          tool("Write project and scratch files", "edit", "completed", {
+            diffs: [
+              { path: "/work/project/src/main.ts", newText: "export {}" },
+              { path: "/tmp/m1076.txt", newText: "scratch" },
+              { path: "/work/project/../tmp/m1077.txt", newText: "scratch" },
+              { path: "m1078.txt", canonical: "/tmp/m1078.txt", newText: "scratch" },
+            ],
+          }),
+        ],
+        1,
+      ),
     ];
     expect(sessionSummary(rows, undefined, "/work/project").outputs.map((output) => output.path)).toEqual([
       "/work/project/src/main.ts",

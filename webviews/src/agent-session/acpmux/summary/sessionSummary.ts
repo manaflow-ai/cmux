@@ -26,7 +26,7 @@ export type SummaryBackgroundTask = {
   startedAt?: number;
 };
 export type SessionSummary = {
-  /// The chat's project folder; absent means Outputs cannot establish membership.
+  /// The chat's project folder; absent means only project-relative Outputs can be included.
   cwd?: string;
   scheduled: SummaryWakeup[];
   pullRequests: SummaryPullRequest[];
@@ -93,7 +93,9 @@ const GITHUB_ISSUE_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+(
 const sourceKey = (source: SummarySource) => `${source.kind ?? "url"}:${source.url ?? source.label}`;
 let sourceCache: { revision: symbol; pullRequests: string; sources: SummarySource[] } | undefined;
 const pullRequestSourceKey = (pullRequests: readonly SummaryPullRequest[]) =>
-  pullRequests.map((pr) => `${pr.url}:${pr.opened ? 1 : 0}:${pr.changed ? 1 : 0}:${pr.mentioned ? 1 : 0}`).join("|");
+  pullRequests
+    .map((pr) => `${pr.url}:${pr.kind ?? ""}:${pr.opened ? 1 : 0}:${pr.changed ? 1 : 0}:${pr.mentioned ? 1 : 0}`)
+    .join("|");
 
 const normalizedPath = (path: string) => {
   const absolute = path.startsWith("/");
@@ -114,22 +116,17 @@ const normalizedPath = (path: string) => {
 /// Outputs belong to the chat's project folder. Relative tool paths are already rooted there;
 /// absolute paths must stay under `cwd`, so scratch files such as `/tmp/m1076.txt` never appear.
 export function projectPathAllowed(path: string, cwd?: string): boolean {
-  if (!cwd) return false;
-  if (path.startsWith("~")) return false;
-  const root = normalizedPath(cwd);
+  if (!path || path.startsWith("~")) return false;
   if (!path.startsWith("/")) return !path.split("/").includes("..");
+  if (!cwd) return false;
+  const root = normalizedPath(cwd);
   const normalized = normalizedPath(path);
   if (root === "/") return true;
   return normalized === root || normalized.startsWith(`${root}/`);
 }
 
 export function filesInProject(files: readonly TurnFile[], cwd?: string): TurnFile[] {
-  if (!cwd) return [];
-  const root = normalizedPath(cwd);
-  return files.filter((file) => {
-    const path = file.canonical ?? file.path;
-    return projectPathAllowed(path, root);
-  });
+  return files.filter((file) => projectPathAllowed(file.canonical ?? file.path, cwd));
 }
 
 /// Pages, files, MCP calls and read-only PR/issue references, in the order first encountered.
@@ -149,12 +146,15 @@ function sources(
     if (!seen.has(key)) seen.set(key, source);
   };
   for (const pr of pullRequests)
-    if (!pr.changed && !pr.opened)
+    if (!pr.changed && !pr.opened) {
+      const ambiguous = pr.mentioned && !pr.kind;
       add({
-        url: pr.url,
-        label: pr.title ?? `${pr.repo} #${pr.number}`,
-        kind: pr.kind === "issue" || pr.mentioned ? "issue" : "pullRequest",
+        // GitHub redirects /issues/N to the PR when N is a PR; a bare number proves neither kind.
+        url: ambiguous ? `https://github.com/${pr.repo}/issues/${pr.number}` : pr.url,
+        label: pr.title ?? (ambiguous ? `${pr.repo}#${pr.number}` : `${pr.repo} #${pr.number}`),
+        kind: ambiguous ? "url" : (pr.kind ?? "pullRequest"),
       });
+    }
   const addUrls = (text: string) => {
     for (const match of text.matchAll(/https?:\/\/[^\s"'<>)]+/g)) {
       const url = match[0]!.replace(/[.,;:!?]+$/, "");

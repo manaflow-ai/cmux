@@ -356,3 +356,29 @@ test("ambiguous shorthand Sources use neutral labels and redirect-safe URLs", ()
   const explicit = sessionSummary([assistant("See https://github.com/acme/app/pull/9", 1)], "acme/app").sources;
   expect(explicit[0]).toMatchObject({ url: "https://github.com/acme/app/pull/9", kind: "pullRequest" });
 });
+
+test("known PR evidence stays a PR when later referenced by shorthand", () => {
+  const rows = [activity([shell("gh pr view 7 -R acme/app")], 1), assistant("See acme/app#7", 0)];
+  expect(sessionSummary(rows, "acme/app").sources).toEqual([
+    { url: "https://github.com/acme/app/pull/7", label: "acme/app #7", kind: "pullRequest" },
+  ]);
+});
+
+test("without cwd only project-relative Outputs survive, including canonical-path checks", () => {
+  const rows = [
+    activity(
+      [
+        tool("Write files", "edit", "completed", {
+          diffs: [
+            { path: "src/main.ts", newText: "export {}" },
+            { path: "scratch.txt", canonical: "/tmp/scratch.txt", newText: "scratch" },
+            { path: "/tmp/m1076.txt", newText: "scratch" },
+            { path: "../outside.txt", newText: "scratch" },
+          ],
+        }),
+      ],
+      1,
+    ),
+  ];
+  expect(sessionSummary(rows).outputs.map((file) => file.path)).toEqual(["src/main.ts"]);
+});
