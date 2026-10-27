@@ -134,7 +134,7 @@ final class AccountsService: AccountsServices {
         return opened
     }
 
-    func runClaudeSetupToken() { if let showcaseMock { showcaseMock.runClaudeSetupToken() } else { Task { _ = await services.openLocalProviderLogin("claude setup-token") } } }
+    func runClaudeSetupToken() { if let showcaseMock { showcaseMock.runClaudeSetupToken() } else { runInTerminal("claude setup-token") } }
 
     func openConsole(_ url: URL) {
         if let showcaseMock { showcaseMock.openConsole(url); return }

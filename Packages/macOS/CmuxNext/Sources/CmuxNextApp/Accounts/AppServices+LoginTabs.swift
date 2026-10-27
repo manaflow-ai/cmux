@@ -1,4 +1,5 @@
 import CmuxNextAccounts
+import CmuxNextAppCore
 import Foundation
 
 // A provider's own login or logout, run where the person can see and answer
@@ -10,11 +11,14 @@ extension AppServices {
     /// window has no local pane. The command never targets a remote machine.
     func openLocalProviderLogin(_ line: String) async -> Bool {
         if inFrontPane({ $0.newTerminalTab(typing: line + "\r") }) { return true }
-        if let controller = windows.active,
-           let pane = controller.content?.flatMap({ Array($0.panes.values) }).first(where: { $0.daemon.isLocal }) {
-            pane.newTerminalTab(typing: line + "\r")
-            windows.bringToFront(controller)
-            return true
+        for controller in windows.controllers {
+            if let pane = LocalPanePick(focused: controller.focusedPane,
+                                        others: controller.content.map { Array($0.panes.values) } ?? [],
+                                        isLocal: { $0.daemon.isLocal }).pane {
+                pane.newTerminalTab(typing: line + "\r")
+                windows.bringToFront(controller)
+                return true
+            }
         }
         do {
             let windowID = UUID().uuidString.lowercased()
