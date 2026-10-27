@@ -457,7 +457,8 @@ final class AppServices {
                     self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
                 },
                 keyRouter: keyRouter, work: work, dialogs: .shared,
-                hangWork: features.isEnabled(.pageHangNotice) ? mainWork : nil, pushChannel: features.isEnabled(.pagePushChannel)),
+                hangWork: features.isEnabled(.pageHangNotice) ? mainWork : nil, pageChannel: features.isEnabled(.pageHostChannel),
+                pushChannel: features.isEnabled(.pagePushChannel)),
             openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, deadlines: mainDeadlines,
             processGroups: makeWebProcessGroups(), startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
             hoverFrameInput: hoverFrameInput, retirer: PageRetirer(deadlines: mainDeadlines))
@@ -747,7 +748,7 @@ final class AppServices {
         // In host mode one Chromium Host serves every tab of every profile (p01-process-080).
         let hostSupervisor = Self.chromiumHostSupervisor(work: work, mainWork: mainWork, features: launchFeatures)
         chromiumRuntime = ChromiumRuntimeService.make(work: work, hostSupervisor: hostSupervisor)
-        mobile = MobileHostService(displayName: { await MacName().displayName() }, work: work)
+        mobile = MobileHostService(displayName: { await MacName().displayName() }, work: work, mainWork: mainWork)
         let runTiming = SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys, crashKeyPage: traceBlackBox?.blackBox.crashKeys)
         #if DEBUG || CMUX_BENCH_HOOKS
         registry = ActionRegistry.standard(runTiming: runTiming,

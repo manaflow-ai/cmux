@@ -159,7 +159,9 @@ export function followCursorPlugin() {
       new Plugin({
         view(view) {
           const follow = (event: MouseEvent | KeyboardEvent) => view.dom.classList.toggle("md-follow", event.metaKey);
-          view.dom.addEventListener("mousemove", follow);
+          // Passive: the follow cursor only reads the Meta key. A class toggle to the same value
+          // changes nothing, so a move needs no frame coalescing.
+          view.dom.addEventListener("mousemove", follow, { passive: true });
           addEventListener("keydown", follow, true); // ui-allow: the follow cursor tracks the Meta key
           addEventListener("keyup", follow, true); // ui-allow: the follow cursor tracks the Meta key
           return {

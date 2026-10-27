@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7eb274630f633e9ac0d047904d92944dbb00b4f9dcb8b2c809d8a6871ce0a777. */
+/* cmux-tui mux protocol 12, IR 0099f55a8d73eeccd65a50020e3ff0c8be1ac82f5723a1d6b384ce58b5e9108c. */
 
 
 import type * as T from "./types.js";
@@ -615,6 +615,26 @@ export type ScrollChangedEvent = { event: "scroll-changed" } & {
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
+export type ServerDiagnosticSiteEvent = { event: "server-diagnostic-site" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
+  /** Blocking and inversion: the crate of the call site without its version, or other. Never a path. */
+  "crate"?: string;
+  /** blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold, or a holder-link frame or a journal commit past its hang tier. */
+  "family": "blocking" | "inversion" | "hang";
+  /** Blocking and inversion: 16 hex digits, FNV-1a of the file's path from the crate folder on. Never a path. */
+  "file_hash"?: string;
+  /** The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or for a hang its scope: request, holder-link or journal-writer. */
+  "kind": string;
+  /** Blocking: a work item's wait for other work. */
+  "lane_sync"?: boolean;
+  /** Blocking and inversion: the call site's line. */
+  "line"?: number;
+  /** Hang: what ran: the request's command or v2 operation name (a colon written as a dot), the holder frame kind (data, exit, ...) or commit-batch. */
+  "method"?: string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
 export type SettingsChangedEvent = { event: "settings-changed" } & {
   /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
   "cause"?: T.EventCause;
@@ -931,6 +951,7 @@ export type KnownCmuxEvent =
   | ScreenRenamedEvent
   | ScriptLogEvent
   | ScrollChangedEvent
+  | ServerDiagnosticSiteEvent
   | SettingsChangedEvent
   | SizeStateEvent
   | StatusEvent
@@ -1013,6 +1034,7 @@ export type KnownSubscribeEvent =
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | ServerDiagnosticSiteEvent
   | SettingsChangedEvent
   | SizeStateEvent
   | StatusEvent
