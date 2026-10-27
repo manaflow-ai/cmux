@@ -360,13 +360,13 @@ Applied by scripts/ci/build-rcodesign.sh with patch -p1 in the crate root.
  }
 --- a/src/macho_signing.rs
 +++ b/src/macho_signing.rs
-@@ -18,13 +18,14 @@
+@@ -18,13 +18,13 @@
          embedded_signature_builder::EmbeddedSignatureBuilder,
          entitlements::plist_to_executable_segment_flags,
          error::AppleCodesignError,
 -        macho::{semver_to_macho_target_version, MachFile, MachOBinary},
+-        macho_universal::create_universal_macho,
 +        macho::{semver_to_macho_target_version, MachFile, MachOBinary, Platform},
-         macho_universal::create_universal_macho,
          policy::derive_designated_requirements,
          signing_settings::{DesignatedRequirementMode, SettingsScope, SigningSettings},
      },
@@ -376,7 +376,7 @@ Applied by scripts/ci/build-rcodesign.sh with patch -p1 in the crate root.
          load_command::{
              CommandVariant, LinkeditDataCommand, SegmentCommand32, SegmentCommand64,
              LC_CODE_SIGNATURE, SIZEOF_LINKEDIT_DATA_COMMAND,
-@@ -37,6 +38,24 @@
+@@ -37,6 +37,24 @@
  };
  
  /// Derive a new Mach-O binary with new signature data.
@@ -401,7 +401,82 @@ Applied by scripts/ci/build-rcodesign.sh with patch -p1 in the crate root.
  fn create_macho_with_signature(
      macho: &MachOBinary,
      signature_data: &[u8],
-@@ -345,9 +364,21 @@
+@@ -313,8 +331,65 @@
+ pub struct MachOSigner<'data> {
+     /// Parsed Mach-O binaries.
+     machos: Vec<MachOBinary<'data>>,
++    /// The input, for its universal header's slice alignments.
++    data: &'data [u8],
+ }
+ 
++/// The slice alignments (log2) of a 32-bit universal header, in slice order.
++fn universal_alignments(data: &[u8], count: usize) -> Result<Vec<u32>, AppleCodesignError> {
++    let word = |offset: usize| -> Result<u32, AppleCodesignError> {
++        data.get(offset..offset + 4)
++            .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
++            .ok_or(AppleCodesignError::SignatureBuilder("truncated universal header"))
++    };
++    if word(0)? != 0xcafebabe || word(4)? as usize != count {
++        return Err(AppleCodesignError::SignatureBuilder(
++            "only 32-bit universal binaries can be re-signed",
++        ));
++    }
++    (0..count).map(|i| word(8 + 20 * i + 16)).collect()
++}
++
++/// A universal binary as lipo lays it out: each slice at the next multiple of
++/// its own alignment, the input's, so only the slices' signatures change.
++fn write_universal(
++    writer: &mut impl Write,
++    binaries: &[Vec<u8>],
++    alignments: &[u32],
++) -> Result<(), AppleCodesignError> {
++    let header_len = 8 + 20 * binaries.len();
++    let mut offset = header_len as u64;
++    let mut layout = vec![];
++    for (binary, &align) in binaries.iter().zip(alignments) {
++        if align > 15 {
++            return Err(AppleCodesignError::SignatureBuilder("universal slice alignment over 32 KiB"));
++        }
++        let unit = 1u64 << align;
++        offset = (offset + unit - 1) / unit * unit;
++        layout.push(offset);
++        offset += binary.len() as u64;
++    }
++    if offset > u32::MAX as u64 {
++        return Err(AppleCodesignError::SignatureBuilder("universal binary over 4 GiB"));
++    }
++    let mut out = Vec::with_capacity(offset as usize);
++    out.extend_from_slice(&0xcafebabeu32.to_be_bytes());
++    out.extend_from_slice(&(binaries.len() as u32).to_be_bytes());
++    for ((binary, &align), &at) in binaries.iter().zip(alignments).zip(&layout) {
++        // cputype and cpusubtype from the slice's own (little-endian) header.
++        let field = |o: usize| u32::from_le_bytes([binary[o], binary[o + 1], binary[o + 2], binary[o + 3]]);
++        for value in [field(4), field(8), at as u32, binary.len() as u32, align] {
++            out.extend_from_slice(&value.to_be_bytes());
++        }
++    }
++    for (binary, &at) in binaries.iter().zip(&layout) {
++        out.resize(at as usize, 0);
++        out.extend_from_slice(binary);
++    }
++    writer.write_all(&out)?;
++    Ok(())
++}
++
+ impl<'data> MachOSigner<'data> {
+     /// Construct a new instance from unparsed data representing a Mach-O binary.
+     ///
+@@ -323,7 +398,7 @@
+     pub fn new(macho_data: &'data [u8]) -> Result<Self, AppleCodesignError> {
+         let machos = MachFile::parse(macho_data)?.into_iter().collect::<Vec<_>>();
+ 
+-        Ok(Self { machos })
++        Ok(Self { machos, data: macho_data })
+     }
+ 
+     /// Write signed Mach-O data to the given writer using signing settings.
+@@ -345,9 +420,21 @@
                  let settings = settings
                      .as_universal_macho_settings(index, original_macho.macho.header.cputype());
  
@@ -424,7 +499,7 @@ Applied by scripts/ci/build-rcodesign.sh with patch -p1 in the crate root.
                  // Derive an intermediate Mach-O with placeholder NULLs for signature
                  // data so Code Directory digests over the load commands are correct.
                  let placeholder_signature_data = b"\0".repeat(signature_len);
-@@ -357,6 +388,7 @@
+@@ -357,6 +444,7 @@
  
                  // A nice side-effect of this is that it catches bugs if we write malformed Mach-O!
                  let intermediate_macho = MachOBinary::parse(&intermediate_macho_data)?;
@@ -432,7 +507,7 @@ Applied by scripts/ci/build-rcodesign.sh with patch -p1 in the crate root.
  
                  let mut signature_data = self.create_superblob(&settings, &intermediate_macho)?;
                  info!("total signature size: {} bytes", signature_data.len());
-@@ -369,9 +401,14 @@
+@@ -369,9 +457,14 @@
                      }
                      Ordering::Equal => {}
                      Ordering::Less => {
@@ -450,7 +525,17 @@ Applied by scripts/ci/build-rcodesign.sh with patch -p1 in the crate root.
                      }
                  }
  
-@@ -444,6 +481,35 @@
+@@ -380,7 +473,8 @@
+             .collect::<Result<Vec<_>, AppleCodesignError>>()?;
+ 
+         if binaries.len() > 1 {
+-            create_universal_macho(writer, binaries.iter().map(|x| x.as_slice()))?;
++            let alignments = universal_alignments(self.data, binaries.len())?;
++            write_universal(writer, &binaries, &alignments)?;
+         } else {
+             writer.write_all(&binaries[0])?;
+         }
+@@ -444,6 +538,35 @@
          builder.create_superblob()
      }
  
@@ -486,7 +571,7 @@ Applied by scripts/ci/build-rcodesign.sh with patch -p1 in the crate root.
      /// Create the `CodeDirectory` for the current configuration.
      ///
      /// This takes an explicit Mach-O to operate on due to a circular dependency
-@@ -500,7 +566,7 @@
+@@ -500,7 +623,7 @@
          };
  
          let platform = 0;
@@ -495,7 +580,7 @@ Applied by scripts/ci/build-rcodesign.sh with patch -p1 in the crate root.
  
          let (exec_seg_base, exec_seg_limit) = macho.executable_segment_boundary()?;
          let (exec_seg_base, exec_seg_limit) = (Some(exec_seg_base), Some(exec_seg_limit));
-@@ -694,10 +760,19 @@
+@@ -694,10 +817,19 @@
  
          res.push((CodeSigningSlot::RequirementSet, blob.into()));
  
@@ -518,7 +603,7 @@ Applied by scripts/ci/build-rcodesign.sh with patch -p1 in the crate root.
          }
  
          // The DER encoded entitlements weren't always present in the signature. The feature
-@@ -705,7 +780,7 @@
+@@ -705,7 +837,7 @@
          // macOS 12 "when signing for all platforms." `codesign` appears to add the DER
          // representation whenever entitlements are present, but only if the current binary is
          // an executable (.filetype == MH_EXECUTE).
@@ -527,7 +612,7 @@ Applied by scripts/ci/build-rcodesign.sh with patch -p1 in the crate root.
              if let Some(value) = settings.entitlements_plist(SettingsScope::Main) {
                  let blob = EntitlementsDerBlob::from_plist(value)?;
  
-@@ -754,11 +829,12 @@
+@@ -754,11 +886,12 @@
          let mut size = 1024 * code_directory_count;
  
          // Reserve room for the code digests, which are proportional to binary size.
