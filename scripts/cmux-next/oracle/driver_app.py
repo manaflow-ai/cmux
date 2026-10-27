@@ -37,6 +37,16 @@ not-comparable from the app); the `daemon` facet is read from the tag's own cmux
 `--headless` process, found by TagTeardown's bundle-path match) through the Python SDK, with the snapshot
 schema's capture rules. Every checkpoint of a case is canonicalized together by normalize.py.
 
+Trace (`run-case --trace DIR`, `trace` in the session context): each case result carries its invariants.py trace,
+the raw checkpoints plus the side channels of invariants I11-I15 (p15-oracle-217). Per step: `debug.blocking`,
+`debug.hangs` (`limit` 1) and `debug.action_budget` (`limit` 1) just before the step acts, the same three once it
+settled (hangs `after` the newest record seen before; runs `limit` 64), and `debug.wakeups` at the settle and
+again after the settled capture. A case with a turn checkpoint arms the turn recorder, whose reads cost each
+action's turn its budget: it reads none of them and the trace says `recorderArmed`. The tag daemon's descriptors,
+threads and children (resource_counts.py), with the liveObjects of its daemon facet, after the fixture setup and,
+when the case passed, after its fixture teardown, for I15. A refused method is recorded as {"error": ...}: that
+invariant is then not checked.
+
 Chrome reference (chromium/src):
 - ui/base/interaction/interactive_test.h, chrome/test/interaction/README.md (Kombucha): Action, WaitForState and
   Check verbs; a wait is a StateObserver on the producer's own signal, never a sleep.
@@ -46,8 +56,9 @@ Chrome reference (chromium/src):
 
 Usage:
   driver_app.py run-case --app "PATH/cmux DEV <tag>.app" CASE.json [--build bench] [--repeat N] [--out DIR]
+                         [--trace DIR]
       runs one case N times, each in a fresh launch and session root; prints each result's checkpoint
-      hashes; exit 1 when they differ
+      hashes; exit 1 when they differ. --trace writes DIR/<attempt>.trace.json for `invariants.py check`
   driver_app.py --selftest       the offline tests (driver_app_test.py)
 """
 
@@ -79,13 +90,20 @@ for _path in (str(HERE), str(SCRIPTS)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
-FACETS = ("topology", "daemon", "focus", "layout", "sidebar", "tabs", "overlays", "settings", "intents", "windows",
+import resource_counts  # noqa: E402 - sibling of this file (p15-oracle-217), invariant I15's daemon reading
+from invariants import SIDE_CHANNELS, TRACE_SCHEMA  # noqa: E402 - the trace invariants.py checks (I11-I15)
+
+FACETS =("topology", "daemon", "focus", "layout", "sidebar", "tabs", "overlays", "settings", "intents", "windows",
           "history", "notifications", "agents", "terminals", "webviews", "ax", "crashes", "liveObjects", "invariants",
           "switches")
 DAEMON = "daemon"
 # The app's control method names (CmuxNextControl OracleControl, OracleSettleControl, OracleRecorderControl).
 SNAPSHOT, SETTLE, WAIT_FOR = "debug.oracle.snapshot", "debug.oracle.settle", "debug.oracle.wait_for"
 RECORDER, TURNS = "debug.oracle.recorder", "debug.oracle.turns"
+# I11-I13's readings per step (sideChannels): the newest hang record and action run before the step are the
+# cursors of the after readings, which ask for at most these many of the newer ones (each hang record is
+# symbolicated when read).
+HANGS_AFTER_LIMIT, RUNS_AFTER_LIMIT = 32, 64
 # OracleSettleControl.defaultSettleMilliseconds and maxSettleMilliseconds; OracleWaitCondition.maxMilliseconds.
 DEFAULT_SETTLE_MS, MAX_SETTLE_MS, MAX_WAIT_MS = 5_000, 300_000, 30_000
 REQUEST_S = 30.0
@@ -318,6 +336,51 @@ def typed_error(namespace: str, error: Any) -> str:
     return f"{namespace}.failed"
 
 
+def arms_recorder(case: Mapping[str, Any]) -> bool:
+    """Whether a step of the case asks for a turn checkpoint, which arms debug.oracle.recorder."""
+    return any(isinstance(step, Mapping) and "turn" in (step.get("checkpoint") or ())
+               for step in case.get("steps") or ())
+
+
+def newest(reading: Any, member: str) -> int:
+    """The highest `sequence` of a side-channel reading's `member` list (0: none, or a refused reading)."""
+    rows = reading.get(member) if isinstance(reading, Mapping) else None
+    return max((int(row["sequence"]) for row in rows or () if isinstance(row, Mapping)
+                and isinstance(row.get("sequence"), int)), default=0)
+
+
+def app_trace(case_id: str, steps: Sequence[Any], captures: Sequence["Capture"],
+              side: Mapping[str, Mapping[str, Any]],
+              resources: Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]],
+              recorder_armed: bool) -> Optional[Dict[str, Any]]:
+    """The case's `cmux.oracle.trace/v1` document (invariants.py): each reached step's raw checkpoints (the last
+    turn of a step that ran several) and sideChannels, the tag daemon's counts after setup and at teardown, and
+    whether the case armed the turn recorder. None when no step captured or read anything."""
+    checkpoints: Dict[str, Dict[str, Any]] = {}
+    for capture in captures:
+        checkpoints.setdefault(capture.step, {})[capture.checkpoint] = capture.snapshot
+    records = []
+    for step in steps:
+        step_id = step.get("id") if isinstance(step, Mapping) else None
+        if step_id not in checkpoints and step_id not in side:
+            continue
+        record: Dict[str, Any] = {"id": step_id, "op": step["op"], "checkpoints": checkpoints.get(step_id, {})}
+        if step_id in side:
+            record["sideChannels"] = side[step_id]
+        records.append(record)
+    if not records:
+        return None
+    trace: Dict[str, Any] = {"schema": TRACE_SCHEMA, "case": case_id, "steps": records}
+    if recorder_armed:
+        trace["recorderArmed"] = True
+    setup, teardown = resources
+    if setup is not None:
+        trace["setup"] = {"daemonResources": setup}
+    if teardown is not None:
+        trace["teardown"] = {"daemonResources": teardown}
+    return trace
+
+
 def not_comparable(reason: str, task: Optional[str] = None) -> Dict[str, str]:
     out = {"status": "not-comparable", "reason": reason}
     if task:
@@ -411,13 +474,22 @@ class BenchAppPort:
 
     def daemon_socket(self) -> Optional[str]:
         """The `--socket` of the tag's `cmux-tui --headless` (TagTeardown matches it by bundle path)."""
+        found = self._daemon()
+        return found[1] if found else None
+
+    def daemon_pid(self) -> Optional[int]:
+        """The pid of the tag's `cmux-tui --headless` (invariant I15 reads its counts)."""
+        found = self._daemon()
+        return found[0] if found else None
+
+    def _daemon(self) -> Optional[Tuple[int, str]]:
         tui = os.path.join(self.bench.teardown.bin, "cmux-tui")
-        for _, command in self.bench.teardown.processes():
+        for pid, command in self.bench.teardown.processes():
             words = command.split()
             if command.startswith(tui + " --headless") and "--socket" in words:
                 index = words.index("--socket")
                 if index + 1 < len(words):
-                    return words[index + 1]
+                    return int(pid), words[index + 1]
         return None
 
     def stop(self) -> None:
@@ -493,6 +565,14 @@ class CaseRun:
         self.at: Optional[str] = None
         self.unchecked_receipts: Dict[str, str] = {}
         self.dirty = False
+        # A traced run (`trace` in the session context, `run-case --trace`) writes the case's invariants.py trace:
+        # each step's sideChannels (I11-I14; none for a case that arms the turn recorder, whose turn reads cost
+        # each action's turn its budget) and the tag daemon's counts after setup and at teardown (I15).
+        self.trace = session.trace
+        self.recorder_armed = arms_recorder(case)
+        self.perf = self.trace and not self.recorder_armed
+        self.side: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        self.resources: List[Optional[Dict[str, Any]]] = [None, None]
         self.ops: Dict[str, Callable[[int, Mapping[str, Any]], Tuple[Tuple[str, Any], Any]]] = {
             "action.run": self.op_action_run,
             "key": self.op_key,
@@ -533,6 +613,8 @@ class CaseRun:
             self.at = "setup"
             self.settle("sync", DEFAULT_SETTLE_MS, "setup")
             teardown = self.setup_fixture(fixture.get("setup"))
+            if self.trace:
+                self.resources[0] = self.session.daemon_resources()
             for index, step in enumerate(self.case.get("steps") or ()):
                 self.at = step.get("id") if isinstance(step, Mapping) else None
                 self.run_step(index, step)
@@ -547,6 +629,8 @@ class CaseRun:
                 except Exception as error:  # noqa: BLE001 - a fixture teardown failure fails the case
                     status = "Crash"
                     message = "; ".join(filter(None, [message, f"fixture teardown: {error!r}"]))
+            if self.trace and status == "Pass":
+                self.resources[1] = self.session.daemon_resources()
         result: Dict[str, Any] = {"status": status, "message": message, "checkpoints": []}
         if at:
             result["step"] = at
@@ -564,6 +648,9 @@ class CaseRun:
         for checkpoint in result["checkpoints"]:
             if checkpoint["step"] in self.unchecked_receipts:
                 checkpoint["uncertain"] = True
+        if self.trace:
+            result["trace"] = app_trace(self.case_id, self.case.get("steps") or (), self.state.captures, self.side,
+                                        (self.resources[0], self.resources[1]), self.recorder_armed)
         return result
 
     def rpc(self, method: str, params: Optional[Mapping[str, Any]] = None) -> Any:
@@ -600,6 +687,8 @@ class CaseRun:
             self.capture(index, step_id, "before", facets)
         wait = step.get("waitFor")
         since = self.wait_baseline(wait, step_id) if wait else None
+        if self.perf:
+            self.read_side_channels(step_id, "before")
         armed = self.arm(facets, step_id) if "turn" in checkpoints else None
         try:
             outcome, sequence = handler(index, step)
@@ -617,7 +706,14 @@ class CaseRun:
         if "settled" in checkpoints:
             if op != "settle":
                 self.settle(sequence, step.get("settleMaxMs") or DEFAULT_SETTLE_MS, step_id)
+            if self.perf:
+                self.read_side_channels(step_id, "after")
+                self.read_side(step_id, "wakeups", "settled", {})
             self.capture(index, step_id, "settled", facets)
+            if self.perf:
+                self.read_side(step_id, "wakeups", "idle", {})
+        elif self.perf:
+            self.read_side_channels(step_id, "after")
 
     def disarm_after(self, error: Exception, step: str) -> None:
         """Disarms the recorder after a step failed, keeping that failure as the case's result. After a Crash,
@@ -633,6 +729,30 @@ class CaseRun:
     def check_alive(self, step: str) -> None:
         if not self.app.alive():
             raise CaseError("Crash", "the app exited during the case", step)
+
+    # -- side channels (I11-I14)
+
+    def read_side(self, step: str, key: str, name: str, params: Mapping[str, Any]) -> Dict[str, Any]:
+        """One reading of `key`'s debug method into the step's sideChannels: its result, or {"error": ...} when
+        the build refuses it (invariants.py then does not check that invariant)."""
+        reply = self.call(SIDE_CHANNELS[key], params, step)
+        value = reply.get("result") if reply.get("ok") is True else {"error": reply.get("error")}
+        reading = value if isinstance(value, dict) else {"error": {"code": "not_an_object", "value": value}}
+        self.side.setdefault(step, {}).setdefault(key, {})[name] = reading
+        return reading
+
+    def read_side_channels(self, step: str, name: str) -> None:
+        """debug.blocking, debug.hangs and debug.action_budget `before` the step acts or `after` it (once it
+        settled). The after readings of hangs and runs start from the newest the before reading named."""
+        earlier = self.side.get(step, {})
+        self.read_side(step, "blocking", name, {})
+        if name == "before":
+            self.read_side(step, "hangs", name, {"limit": 1})
+            self.read_side(step, "actionBudget", name, {"limit": 1})
+            return
+        self.read_side(step, "hangs", name, {"after": newest(earlier.get("hangs", {}).get("before"), "records"),
+                                             "limit": HANGS_AFTER_LIMIT})
+        self.read_side(step, "actionBudget", name, {"limit": RUNS_AFTER_LIMIT})
 
     # -- barriers
 
@@ -951,7 +1071,8 @@ class AppSession:
                  canonicalizer: Optional[Tuple[Canonicalize, Dict[str, Any]]] = None,
                  run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
                  read_daemon: Callable[[str, Mapping[str, Any]], Dict[str, Any]] = read_daemon_facet,
-                 host: Callable[[], Dict[str, str]] = host_meta, root_base: Path = Path("/tmp/o")):
+                 host: Callable[[], Dict[str, str]] = host_meta, root_base: Path = Path("/tmp/o"),
+                 read_resources: Callable[[Optional[int]], Optional[Dict[str, Any]]] = resource_counts.read):
         app = session_ctx.get("binary")
         if not app:
             raise ValueError("the app driver needs --binary \"PATH/cmux DEV <tag>.app\" (a --config bench build)")
@@ -985,6 +1106,9 @@ class AppSession:
         self.app = (make_app or BenchAppPort)(app, out, self.environment())
         self.launched: Optional[LaunchSpec] = None
         self.armable: Tuple[str, ...] = ()
+        # `run-case --trace`: each case result carries its invariants.py trace (I11-I15).
+        self.trace = bool(session_ctx.get("trace"))
+        self.read_resources = read_resources
 
     def environment(self) -> Dict[str, str]:
         """The launch's own variables over bench_launch's: normalize.app_environment of the session's prefixes.
@@ -1044,6 +1168,24 @@ class AppSession:
         except Exception as error:  # noqa: BLE001 - an SDK or reply failure is this case's Crash
             raise CaseError("Crash", f"daemon facet from {socket_path}: {error!r}", step) from None
 
+    def daemon_resources(self) -> Optional[Dict[str, Any]]:
+        """The tag daemon's descriptors, threads and children now (I15), with the liveObjects of its daemon facet
+        (a debug or oracle daemon); None when no daemon of the tag runs or its counts cannot be read."""
+        try:
+            pid, socket_path = self.app.daemon_pid(), self.app.daemon_socket()
+        except (OSError, subprocess.SubprocessError, ValueError):
+            return None  # the process table could not be read: I15 is then not checked
+        reading = self.read_resources(pid) if pid is not None else None
+        if reading is not None and socket_path is not None:
+            try:
+                facet = self.read_daemon(socket_path, self.schema_doc)
+            except Exception:  # noqa: BLE001 - no live objects: I15 says it cannot tell, the case goes on
+                return reading
+            live = (facet.get("oracle") or {}).get("liveObjects")
+            if isinstance(live, dict):
+                reading["liveObjects"] = live
+        return reading
+
     def canonical(self, case_id: str, captures: Sequence[Capture]) -> List[Dict[str, Any]]:
         if not captures:
             return []
@@ -1074,20 +1216,27 @@ def open_session(session_ctx: Dict[str, Any]) -> Any:
 
 def run_repeats(ctx: Mapping[str, Any], case: Dict[str, Any], repeat: int,
                 open_session: Callable[[Dict[str, Any]], AppSession] = AppSession,
-                emit: Callable[[str], None] = print) -> int:
+                emit: Callable[[str], None] = print, trace_dir: Optional[Path] = None) -> int:
     """Runs `case` `repeat` times, each in its own session (a fresh launch, saved session and root), as
     oracle.py --repeat does: a run never starts from the state an earlier one left. 0 when every run passes
-    with equal checkpoint hashes."""
+    with equal checkpoint hashes. With `trace_dir`, each run's invariants.py trace is written there as
+    `<attempt>.trace.json` (`invariants.py check` reads it)."""
     import oracle
 
     case_id = f"{case.get('suite')}/{case.get('id')}"
     hashes = []
     for attempt in range(repeat):
-        session = open_session(dict(ctx))
+        session = open_session({**ctx, "trace": trace_dir is not None})
         try:
             result = session.run_case(case, {"case_id": case_id, "attempt": attempt})
         finally:
             session.close()
+        trace = result.pop("trace", None)
+        if trace_dir is not None and trace is not None:
+            trace_dir.mkdir(parents=True, exist_ok=True)
+            path = trace_dir / f"{attempt}.trace.json"
+            path.write_text(json.dumps(trace, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+            emit(f"driver_app: trace {path}")
         row = [oracle.snapshot_sha256(cp["snapshot"]) for cp in result["checkpoints"]]
         hashes.append((result["status"], row))
         emit(json.dumps({"attempt": attempt, "status": result["status"], "message": result["message"],
@@ -1102,7 +1251,8 @@ def cmd_run_case(args: argparse.Namespace) -> int:
     case = json.loads(Path(args.case).read_text(encoding="utf-8"))
     ctx = {"run_id": "run-case", "product": "app", "build": args.build, "binary": args.app, "ref": args.ref,
            "out_dir": args.out}
-    return run_repeats(ctx, case, args.repeat, emit=lambda line: print(line, flush=True))
+    return run_repeats(ctx, case, args.repeat, emit=lambda line: print(line, flush=True),
+                       trace_dir=Path(args.trace) if args.trace else None)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -1116,6 +1266,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     one.add_argument("--ref", help="the full SHA the app was built from (default: its CMUXCommit or CMUX_CI_SHA)")
     one.add_argument("--repeat", type=int, default=2)
     one.add_argument("--out", help="log folder (default: /tmp/o/logs, kept after the run)")
+    one.add_argument("--trace", help="write each run's invariants.py trace (raw checkpoints, the I11-I14 side "
+                                     "channels, I15's daemon counts) to DIR/<attempt>.trace.json")
     args = parser.parse_args(argv)
     if args.selftest:
         import unittest

@@ -475,6 +475,51 @@ class RestorePreviewTraceTests(unittest.TestCase):
                          [("I9", "/daemon/session/workspaces/0/name")])
 
 
+class DaemonResourcesTraceTests(unittest.TestCase):
+    """Invariant I15's input (p15-oracle-217): a traced case carries the daemon's counts after setup and at
+    teardown, each with its oracle-state liveObjects, and invariants.py compares them."""
+
+    def test_the_trace_carries_both_readings_and_i15_compares_them(self):
+        import invariants
+
+        snapshot = invariants._example()
+        reading = {"pid": 77, "fds": 12, "threads": 6, "children": 0, "source": "procfs",
+                   "liveObjects": {"workspaces": 1, "terminals": 0, "subscriptions": 1}}
+        steps = [{"id": "read", "op": "snapshot"}]
+        captures = [d.Capture("read", "settled", snapshot, None)]
+        trace = d.case_trace("t/i15", steps, captures, (reading, {**reading, "fds": 13}))
+        self.assertEqual(trace["setup"], {"daemonResources": reading})
+        report = invariants.check_trace(json.loads(json.dumps(trace)))
+        self.assertEqual([(v.invariant, v.where, v.pointer) for v in report.violations if v.invariant == "I15"],
+                         [("I15", "teardown", "/daemonResources/fds")])
+        self.assertIn("I6", [n.invariant for n in report.not_checked], "the trace lists no teardown processes")
+        self.assertNotIn("setup", d.case_trace("t/i15", steps, captures))
+
+    def test_the_reading_is_of_the_daemon_after_a_round_trip(self):
+        class Raw:
+            def request(self, cmd):
+                asked.append(cmd)
+                return {"ok": True, "data": {"liveObjects": {"terminals": 2}}}
+
+        class Proc:
+            pid = os.getpid()
+
+            @staticmethod
+            def poll():
+                return None
+
+        asked = []
+        run = d.CaseRun.__new__(d.CaseRun)
+        run.scale = 1.0
+        run.daemon = d.Daemon.__new__(d.Daemon)
+        run.daemon.proc, run.daemon.raw, run.daemon.identity = Proc(), Raw(), {"pid": os.getpid()}
+        run.daemon.request = lambda method, params, key, timeout: asked.append(method)
+        reading = run.daemon_resources("teardown")
+        self.assertEqual(asked, ["session.ping", d.ORACLE_STATE])
+        self.assertEqual(reading["pid"], os.getpid())
+        self.assertEqual(reading["liveObjects"], {"terminals": 2})
+
+
 def example_case() -> dict:
     """The schema's daemon example with the expectations of a headless daemon: it starts with no
     workspace, so one workspace is restored after the restart."""
@@ -570,6 +615,10 @@ class LiveTests(unittest.TestCase):
         report = invariants.check_trace(trace)
         self.assertEqual(report.checked.get("I9"), len(captured), [n for n in report.not_checked
                                                                     if n.invariant == "I9"])
+        # I15: both readings are there; the kill and restart give the teardown reading another pid.
+        setup, end = trace["setup"]["daemonResources"], trace["teardown"]["daemonResources"]
+        self.assertNotEqual(setup["pid"], end["pid"])
+        self.assertIn("a step restarted it", next(n.reason for n in report.not_checked if n.invariant == "I15"))
         steps = [step["id"] for step in trace["steps"]]
         before_kill = set(steps[:steps.index("kill-daemon")])
         others = [v for v in report.violations if v.invariant == "I9" and v.step in before_kill
