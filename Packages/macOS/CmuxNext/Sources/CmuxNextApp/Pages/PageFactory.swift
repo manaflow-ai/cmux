@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentIntegrations
 import CmuxNextAgentPane
 import CmuxNextApps
+import CmuxNextCredentialVault
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextMacScreen
@@ -235,6 +236,9 @@ struct PageFactory {
                       PageRoute(prefix: WebUpdatesPageProvider.prefix, provider: WebUpdatesPageProvider()),
                       // Chief > Voice input: the home.voiceInput tunable (DEV and NIGHTLY).
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),
+                      // Chief > Credential Vault: Add, Replace, Delete and who may use each secret (cmux issue 26412).
+                      PageRoute(prefix: CredentialVaultPageRoute.prefix, provider: CredentialVaultPageRoute(
+                          board: services.credentialVaultBoard, window: { [weak services] in services?.settingsWindow.window })),
                       // Settings > Server: Restart… (the toast's confirm) and Pair (the Server panel).
                       PageRoute(prefix: ServerSettingsPageRoute.prefix, provider: ServerSettingsPageRoute(
                           confirmRestart: { [weak services] in services?.serverUpdates.confirmRestart(kind: $0, host: $1) },

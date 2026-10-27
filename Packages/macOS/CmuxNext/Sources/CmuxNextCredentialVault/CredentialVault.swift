@@ -85,6 +85,8 @@ public nonisolated final class CredentialVault: Sendable {
     private let now: @Sendable () -> Date
     /// Serializes every read-modify-write of the index and the audit log.
     private let lock = Mutex(())
+    /// Called after every change to the index (a write or a use), off the lock, on the caller's thread.
+    private let observers = Mutex<[@Sendable () -> Void]>([])
 
     init(secrets: any CredentialVaultSecretStoring, folder: URL, now: @escaping @Sendable () -> Date = Date.init) {
         self.secrets = secrets
@@ -100,6 +102,16 @@ public nonisolated final class CredentialVault: Sendable {
             ?? URL(filePath: NSTemporaryDirectory())
         return CredentialVault(secrets: KeychainCredentialVaultSecrets(service: "\(bundle).credential-vault"),
                                folder: support.appending(path: bundle).appending(path: "CredentialVault", directoryHint: .isDirectory))
+    }
+
+    /// Runs `observer` after each change to the vault's names, scopes or use times (Settings'
+    /// card reloads from it); never with a value.
+    public func onChange(_ observer: @escaping @Sendable () -> Void) {
+        observers.withLock { $0.append(observer) }
+    }
+
+    private func changed() {
+        for observer in observers.withLock({ $0 }) { observer() }
     }
 
     var indexURL: URL { folder.appending(path: "vault.json") }
@@ -132,6 +144,7 @@ public nonisolated final class CredentialVault: Sendable {
         guard !value.isEmpty, value.utf8.count <= Self.maxValueBytes, !value.contains("\0") else { throw Failure.invalidValue(name) }
         if let note, note.count > Self.maxNoteCharacters { throw Failure.invalidNote }
         if let scope, scope.isEmpty { throw Failure.emptyScope }
+        defer { changed() }
         return try lock.withLock { _ in
             var index = try readIndex()
             let at = millis()
@@ -152,6 +165,7 @@ public nonisolated final class CredentialVault: Sendable {
     func setScope(_ name: String, scope: [Consumer], by caller: Caller) throws {
         guard caller.consumer == .user else { throw Failure.agentsMayNotWrite }
         guard !scope.isEmpty else { throw Failure.emptyScope }
+        defer { changed() }
         try lock.withLock { _ in
             var index = try readIndex()
             guard var entry = index[name] else { throw Failure.missing([name]) }
@@ -168,6 +182,7 @@ public nonisolated final class CredentialVault: Sendable {
     @discardableResult
     func remove(_ name: String, by caller: Caller) throws -> Bool {
         guard caller.consumer == .user else { throw Failure.agentsMayNotWrite }
+        defer { changed() }
         return try lock.withLock { _ in
             var index = try readIndex()
             try secrets.delete(name)
@@ -187,6 +202,7 @@ public nonisolated final class CredentialVault: Sendable {
         var seen = Set<String>()
         let names = names.filter { seen.insert($0).inserted }
         if let bad = names.first(where: { !Self.isValidName($0) }) { throw Failure.invalidName(bad) }
+        defer { changed() }
         return try lock.withLock { _ in
             var index = try readIndex()
             let at = millis()

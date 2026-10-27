@@ -72,5 +72,17 @@ nonisolated enum CredentialVaultStrings {
     static var entryValueLabel: String { text("credentialVault.entry.valueLabel", "Value") }
     static var entryAgentsCheck: String { text("credentialVault.entry.agentsCheck", "Agents may use it") }
     static var entrySave: String { text("credentialVault.entry.save", "Save") }
+    static var entryAddTitle: String { text("credentialVault.entry.addTitle", "Add a Credential") }
+    static var settingsCaller: String { text("credentialVault.caller.settings", "you, in Settings") }
+    static func alreadyThere(_ name: String) -> String {
+        String(format: text("credentialVault.error.exists", "The vault already has %@. Use its Replace to change the value."), name)
+    }
+    static func deleteTitle(_ name: String) -> String {
+        String(format: text("credentialVault.delete.title", "Delete %@ from the Credential Vault?"), name)
+    }
+    static var deleteLine: String {
+        text("credentialVault.delete.line", "Agents and commands that use it stop getting it. Its value leaves your Keychain.")
+    }
+    static var deleteButton: String { text("credentialVault.delete.button", "Delete") }
     static var entryCancel: String { text("credentialVault.entry.cancel", "Cancel") }
 }

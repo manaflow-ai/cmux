@@ -9,6 +9,7 @@ import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
 import { ChannelsCard } from "./ChannelsCard";
 import { CHIEFS_ROWS, ChiefsCard } from "./ChiefsCard";
 import { ComputerUseCard } from "./ComputerUseCard";
+import { CredentialVaultCard } from "./CredentialVaultCard";
 import { DevicesCard } from "./DevicesCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
 import { GroupList } from "./GroupList";
@@ -57,6 +58,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   channels: () => <ChannelsCard />,
   webUpdates: () => <WebUpdatesCard />,
   voiceInput: () => <VoiceInputCard />,
+  credentialVault: () => <CredentialVaultCard />,
   notices: () => <NoticesCard />,
   server: () => <ServerCard />,
 };

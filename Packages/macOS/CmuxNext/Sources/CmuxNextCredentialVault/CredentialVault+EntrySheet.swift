@@ -19,18 +19,29 @@ extension CredentialVault {
         EntryRequest(name: suggestedName, reason: nil, requester: CredentialVaultStrings.homeChat, replaces: false, pasted: value)
     }
 
+    /// Whether the sheet asks for the name: a pasted key (named by a guess from its shape) or Settings' Add.
+    static func asksName(_ request: EntryRequest) -> Bool {
+        !request.pasted.isEmpty || request.name.isEmpty
+    }
+
     public static func entrySheet(_ request: EntryRequest) -> CmuxDialogSpec {
         let pasted = !request.pasted.isEmpty
-        var lines = [pasted ? CredentialVaultStrings.entryFromMessage : CredentialVaultStrings.entryAsks(request.requester, request.name)]
+        var lines: [String] = []
+        if pasted {
+            lines.append(CredentialVaultStrings.entryFromMessage)
+        } else if !request.name.isEmpty, !request.requester.isEmpty {
+            lines.append(CredentialVaultStrings.entryAsks(request.requester, request.name))
+        }
         if let reason = request.reason, !reason.isEmpty { lines.append(CredentialVaultStrings.entryReason(reason)) }
         lines.append(CredentialVaultStrings.entryPrivacy)
         var fields: [CmuxDialogField] = []
         // A pasted key's name is the person's to choose (a guess from its shape); an agent's request names it.
-        if pasted { fields.append(.text(id: entryNameField, label: CredentialVaultStrings.entryNameLabel, initial: request.name, placeholder: nil, secure: false)) }
+        if asksName(request) { fields.append(.text(id: entryNameField, label: CredentialVaultStrings.entryNameLabel, initial: request.name, placeholder: nil, secure: false)) }
         fields += [.text(id: entryValueField, label: CredentialVaultStrings.entryValueLabel, initial: request.pasted, placeholder: nil, secure: true),
-                   .check(id: entryAgentsField, title: CredentialVaultStrings.entryAgentsCheck, on: true)]
+                   .check(id: entryAgentsField, title: CredentialVaultStrings.entryAgentsCheck, on: request.scope.contains(.agents))]
         return CmuxDialogSpec(
             title: pasted ? CredentialVaultStrings.entryPasteTitle
+                : request.name.isEmpty ? CredentialVaultStrings.entryAddTitle
                 : request.replaces ? CredentialVaultStrings.entryReplaceTitle(request.name) : CredentialVaultStrings.entryTitle(request.name),
             lines: lines,
             fields: fields,
@@ -44,10 +55,13 @@ extension CredentialVault {
     public static func entryAnswer(_ answer: CmuxDialogAnswer, request: EntryRequest) -> EntryAnswer? {
         guard !answer.isDismissal, answer.button == entrySaveButton,
               let value = answer.text(entryValueField), !value.isEmpty else { return nil }
-        let name = request.pasted.isEmpty ? request.name
+        let name = !asksName(request) ? request.name
             : (answer.text(entryNameField) ?? request.name).trimmingCharacters(in: .whitespacesAndNewlines)
         guard isValidName(name) else { return nil }
-        return EntryAnswer(name: name, value: value, scope: answer.isOn(entryAgentsField) ? [.user, .agents] : [.user])
+        // The box sets agents; the request's other consumers stay, and a scope left empty is the person's.
+        var scope = request.scope.filter { $0 != .agents }
+        if answer.isOn(entryAgentsField) { scope.append(.agents) }
+        return EntryAnswer(name: name, value: value, scope: scope.isEmpty ? [.user] : scope)
     }
 
     /// Asks on `window`. Ends with nil when the asking task is cancelled (the request's connection

@@ -21,19 +21,25 @@ extension CredentialVault {
     public struct EntryRequest: Equatable, Sendable {
         public var name: String
         public var reason: String?
-        /// Who asks, in the person's words ("the Chief", "agent session X").
+        /// Who asks, in the person's words ("the Chief", "agent session X"); empty when the person
+        /// asked themselves (Settings), so the sheet names no asker.
         public var requester: String
         public var replaces: Bool
         /// A key the person pasted in a message (the Home composer): the sheet shows it filled in
         /// and lets them rename it. Empty for a request from an agent.
         public var pasted: String
+        /// Who may use it now (a replaced secret's scope): the sheet's Agents box starts from it,
+        /// and the answer keeps its other consumers.
+        public var scope: [Consumer]
 
-        public init(name: String, reason: String?, requester: String, replaces: Bool, pasted: String = "") {
+        public init(name: String, reason: String?, requester: String, replaces: Bool, pasted: String = "",
+                    scope: [Consumer] = Consumer.allCases) {
             self.name = name
             self.reason = reason
             self.requester = requester
             self.replaces = replaces
             self.pasted = pasted
+            self.scope = scope
         }
     }
 
@@ -119,8 +125,10 @@ enum VaultControl {
                 let reason = try optionalText(call.params, "reason").map { String($0.prefix(CredentialVault.maxNoteCharacters)) }
                 let store = vault
                 let asker = try caller(call.params)
-                let replaces = try run { try store.list()[name] != nil }
-                let request = EntryRequest(name: name, reason: reason, requester: asker.label, replaces: replaces)
+                let existing = try run { try store.list()[name] }
+                let replaces = existing != nil
+                let request = EntryRequest(name: name, reason: reason, requester: asker.label, replaces: replaces,
+                                           scope: existing?.scope ?? CredentialVault.Consumer.allCases)
                 guard let answer = await askUntilClosed(request, ask: ask, connection: call.connection) else {
                     throw ControlError(code: "declined", message: CredentialVaultStrings.declined(name), data: ["name": .string(name)])
                 }

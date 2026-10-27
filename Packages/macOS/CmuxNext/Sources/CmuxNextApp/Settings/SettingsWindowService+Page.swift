@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextCredentialVault
 import CmuxNextDesign
 import CmuxNextImportCards
 import CmuxNextSettings
@@ -62,6 +63,8 @@ extension SettingsWindowService {
             "web_updates": WebUpdates.shared.pageJSON,
             // Chief > Voice input: home.voiceInput, null where the tunable does not exist (Release).
             "voice_input": ChiefVoiceInputPageRoute().hostJSON,
+            // Chief > Credential Vault: names, scopes and last uses, never a value (cmux issue 26412).
+            "credential_vault": services.credentialVaultBoard.hostJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
             "backdrops": backdropCatalog.catalog.pageRows,
             "derived": .object(pageDerivedNumbers()),

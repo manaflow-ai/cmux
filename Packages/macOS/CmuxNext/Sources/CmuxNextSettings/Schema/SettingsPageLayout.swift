@@ -23,6 +23,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case webUpdates
         /// Settings > Chief's Voice input row: the Debug toggle home.voiceInput, only where it exists.
         case voiceInput
+        /// Settings > Chief's Credential Vault: the secrets agents use by name, who may use each and
+        /// its last use, with Add, Replace and Delete (cmux issue 26412). Never a value.
+        case credentialVault
         /// Settings > Chief's Notices row: it opens Notifications, which holds the Chief's notices.
         case notices
         /// Settings > Server: each server's status, version line, Restart Recommended, socket and tailnet
@@ -187,8 +190,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
         // its editor (name, picture, backend; u2586); the Chief Pet card (ChatGPT's Mini & Pets)
         // draws the preview, Show/Hide and the characters from its group's two rows; then the
         // chat's look. Voice input (the message box's mic) shows only in builds with Debug Settings.
-        // Notices last: a row that opens Notifications (the Chief's notices are the app's
-        // notifications; their rows keep their one home there).
+        // Then the Credential Vault (the keys the Chief and agents use by name), and Notices last:
+        // a row that opens Notifications (the Chief's notices are the app's notifications; their
+        // rows keep their one home there).
         CategorySpec(
             id: "chief", title: SettingsText.keyed("settings.category.chief", "Chief"), symbol: "crown",
             groups: [
@@ -201,7 +205,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 // Whether a tapback on a Chief message can start a turn, and the classifier that decides (a416).
                 group("settings.group.chiefReactions"),
             ],
-            lead: [.chiefs, .chiefPet, .voiceInput], trail: [.notices]),
+            lead: [.chiefs, .chiefPet, .voiceInput], trail: [.credentialVault, .notices]),
         // A core cmux feature: banners, sounds, the attention ring and the
         // feed for agents, terminal programs and `cmux notify`.
         CategorySpec(
