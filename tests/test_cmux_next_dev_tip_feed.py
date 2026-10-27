@@ -187,6 +187,11 @@ check(runner_job["outputs"]["dmg_label"] == "${{ steps.pool.outputs.dmg_label }}
       and 'label="$(pick 2 --wait-owned)"' in pick["run"] and 'glaeda-*) dmg_label="$label" ;;' in pick["run"]
       and 'label="$(pick 1 --wait-owned)"' in pick["run"] and '--jobs "$1"' in pick["run"],
       "dmg_label is an owned pool with two machines free, or waited on when Blacksmith has no two free, moving slots")
+# The picker counts Blacksmith room only on the label these jobs fall back to (their runs-on).
+fallbacks = {job["runs-on"].rsplit("'", 2)[-2] for job in (build_job, jobs["verify"])}
+check(fallbacks == {pick["env"]["BLACKSMITH_LABELS"]}
+      and '--blacksmith-labels "$BLACKSMITH_LABELS"' in pick["run"],
+      "the pick counts Blacksmith room only on verify's and tip-dmg-build's own fallback label")
 build_steps = [step for step in build_job["steps"] if isinstance(step, dict)]
 fresh = [i for i, step in enumerate(build_steps) if 'rm -rf "$dir"' in str(step.get("run", ""))
          and '"$RUNNER_TEMP/' in str(step.get("run", ""))]

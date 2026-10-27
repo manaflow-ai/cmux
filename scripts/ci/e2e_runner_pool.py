@@ -570,6 +570,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                              "that many free (cmux-next-dev-daily.yml asks 2 for verify and tip-dmg-build)")
     parser.add_argument("--wait-owned", action="store_true",
                         help="an auto pick with nothing free waits on the owned fleet (ci.yml's rule)")
+    parser.add_argument("--blacksmith-labels", default="",
+                        help="comma-separated Blacksmith labels the caller's jobs can run on; an auto pick "
+                             "counts free room and returns a Blacksmith label only among these (default: all)")
     args = parser.parse_args(argv)
 
     # Auto choices use the shared live rule. Explicit labels retain the
@@ -591,11 +594,20 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         # pick. With no owned Mac free and no free, moving Blacksmith slot, a
         # same-repository run waits on the fleet, never on a stalled
         # Blacksmith queue. Other callers keep the old pick.
-        choice = simple_pool_picker.pick(simple_pool_picker.observe(
+        state = simple_pool_picker.observe(
             token=values.get("ROUTE_TOKEN") or values.get("GH_TOKEN") or "",
             repository=repository, jobs=max(1, args.jobs), env=values, fork=fork,
             wait_owned=args.wait_owned and not fork
-            and simple_pool_picker.wait_on_owned(values, head=head, repository=repository)))
+            and simple_pool_picker.wait_on_owned(values, head=head, repository=repository))
+        usable = {label.strip() for label in args.blacksmith_labels.split(",") if label.strip()}
+        if usable:
+            # --blacksmith-labels (cmux-next-dev-daily.yml: its macOS jobs fall back only to
+            # blacksmith-6vcpu-macos-26): a free slot on a label those jobs never run on (macOS 15)
+            # is no room for them, so it must not keep --wait-owned from waiting on the fleet
+            # (run 40449661622 queued on a stalled macOS 26 label behind a free macOS 15 one).
+            state = dataclasses.replace(state, blacksmith=tuple(
+                pool for pool in state.blacksmith if pool.label in usable))
+        choice = simple_pool_picker.pick(state)
         print(choice.label or args.variable or SMALL_RUNNER)
         return 0
     if args.retry_of is not None:
