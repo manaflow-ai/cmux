@@ -36,6 +36,7 @@ class NextCache(unittest.TestCase):
                 self.assertNotEqual(old['prefix'], other['prefix'])
                 self.assertNotEqual(old['spm_key'], other['spm_key'])
         self.assertNotEqual(old['spm_key'], self.plan(packages='lock-v2')['spm_key'])
+        self.assertNotEqual(old['prefix'], self.plan(packages='lock-v2')['prefix'])
 
     def test_only_fresh_clean_push_can_publish(self):
         self.assertEqual(self.plan()['clean'], 'true')

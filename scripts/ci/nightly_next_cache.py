@@ -34,7 +34,8 @@ def plan(root: Path, env: dict[str, str], identity: dict[str, str], packages: st
     clean = (restore and not reuse.clean_builder(product.builder(env, derived))
              and env.get('GITHUB_EVENT_NAME') == 'push'
              and env.get('GITHUB_REF') == 'refs/heads/nightly-next')
-    return {'prefix': 'next-clean-compilation-v1-' + digest({**identity, 'workspace': str(root.resolve())}) + '-',
+    return {'prefix': 'next-clean-compilation-v1-' + digest({**identity, 'workspace': str(root.resolve()),
+                                                          'packages': packages}) + '-',
             'spm_key': 'next-clean-spm-v1-' + digest({'toolchain': identity, 'packages': packages}),
             'restore': str(restore).lower(), 'clean': str(clean).lower()}
 
