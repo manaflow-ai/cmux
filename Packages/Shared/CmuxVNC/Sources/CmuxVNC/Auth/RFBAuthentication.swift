@@ -1,5 +1,8 @@
-import CommonCrypto
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
 
 /// Classic VNC authentication (security type 2, RFC 6143 section 7.2.2):
@@ -12,7 +15,7 @@ struct VNCPasswordAuthentication {
         var key = [UInt8](repeating: 0, count: 8)
         let reversed = password.utf8.prefix(8).map(Self.reverseBits)
         key.replaceSubrange(0 ..< reversed.count, with: reversed)
-        return CipherECB(algorithm: CCAlgorithm(kCCAlgorithmDES), key: key).encrypt(challenge)
+        return CipherECB(algorithm: .des, key: key).encrypt(challenge)
     }
 
     static func reverseBits(_ byte: UInt8) -> UInt8 {
@@ -51,7 +54,7 @@ struct AppleDHAuthentication {
         let shared = math.power(serverPublicKey, secret)
         let key = Array(Insecure.MD5.hash(data: Data(shared)))
         let credentials = Self.credentials(username: username, password: password, padding: padding)
-        guard let encrypted = CipherECB(algorithm: CCAlgorithm(kCCAlgorithmAES128), key: key).encrypt(credentials),
+        guard let encrypted = CipherECB(algorithm: .aes128, key: key).encrypt(credentials),
               encrypted.count == 128 else { return nil }
         return Response(encryptedCredentials: encrypted, clientPublicKey: clientPublic)
     }
@@ -74,26 +77,6 @@ struct AppleDHAuthentication {
     static func randomBytes(_ count: Int) -> [UInt8] {
         var generator = SystemRandomNumberGenerator()
         return (0 ..< max(count, 0)).map { _ in UInt8.random(in: .min ... .max, using: &generator) }
-    }
-}
-
-/// One-shot ECB encryption with CommonCrypto (no padding).
-struct CipherECB {
-    var algorithm: CCAlgorithm
-    var key: [UInt8]
-
-    func encrypt(_ plaintext: [UInt8]) -> [UInt8]? {
-        var output = [UInt8](repeating: 0, count: plaintext.count)
-        let capacity = output.count
-        var moved = 0
-        // SAFETY: CCCrypt reads key.count bytes of `key` and plaintext.count bytes of `plaintext`
-        // (the counts passed), takes no IV in ECB mode, writes at most `capacity` = output.count
-        // bytes into `output` and one Int into `moved`; Swift keeps every array and `moved` alive
-        // and in place for this call only, and CCCrypt keeps no pointer after it returns.
-        let status = unsafe CCCrypt(CCOperation(kCCEncrypt), algorithm, CCOptions(kCCOptionECBMode),
-                                    key, key.count, nil, plaintext, plaintext.count, &output, capacity, &moved)
-        guard status == kCCSuccess else { return nil }
-        return Array(output.prefix(moved))
     }
 }
 

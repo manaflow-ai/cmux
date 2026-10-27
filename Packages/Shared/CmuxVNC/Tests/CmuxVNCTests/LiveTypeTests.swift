@@ -1,3 +1,4 @@
+#if canImport(Network)
 import Foundation
 import Testing
 @testable import CmuxVNC
@@ -35,3 +36,4 @@ struct LiveTypeTests {
         await client.disconnect()
     }
 }
+#endif

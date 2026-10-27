@@ -1,3 +1,4 @@
+#if canImport(Network)
 import CmuxVNCDemoServer
 import Foundation
 import Testing
@@ -90,3 +91,4 @@ struct EndToEndTests {
         await client.disconnect()
     }
 }
+#endif

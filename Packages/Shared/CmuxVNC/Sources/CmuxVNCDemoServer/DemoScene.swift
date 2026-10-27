@@ -1,3 +1,4 @@
+#if canImport(CoreText)
 import CoreGraphics
 import CoreText
 import Foundation
@@ -229,3 +230,4 @@ final class DemoScene {
         return context.makeImage()
     }
 }
+#endif

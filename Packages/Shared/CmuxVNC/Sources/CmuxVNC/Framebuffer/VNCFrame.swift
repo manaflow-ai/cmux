@@ -1,3 +1,4 @@
+#if canImport(CoreVideo)
 import CoreGraphics
 import CoreVideo
 import Foundation
@@ -18,6 +19,24 @@ public struct VNCFrame: @unchecked Sendable {
     public let dirtyRect: CGRect
     /// `DispatchTime.now().uptimeNanoseconds` when the session published it.
     public var publishedAt: UInt64 = DispatchTime.now().uptimeNanoseconds
+
+    /// Calls `body` with the words per row and a reader of the BGRA word at
+    /// `y * rowPixels + x`, which `body` may ask only for x < width and
+    /// y < height; nil when the buffer cannot be read.
+    func withWords<Result>(_ body: (_ rowPixels: Int, _ word: (Int) -> UInt32) -> Result) -> Result? {
+        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+        // SAFETY: the buffer is locked until the defer, and every read below happens before it.
+        guard let base = unsafe CVPixelBufferGetBaseAddress(pixelBuffer) else { return nil }
+        let rowPixels = CVPixelBufferGetBytesPerRow(pixelBuffer) / 4
+        guard rowPixels >= width, CVPixelBufferGetHeight(pixelBuffer) >= height else { return nil }
+        return body(rowPixels) { index in
+            // SAFETY: `body` asks only for index = y * rowPixels + x with x < width <= rowPixels and
+            // y < height <= the buffer's rows (checked above), so the 4 bytes read lie inside the locked
+            // 32BGRA buffer's rowPixels * 4 * rows bytes; rows of 4-byte pixels keep the word aligned.
+            unsafe base.load(fromByteOffset: index * 4, as: UInt32.self)
+        }
+    }
 
     /// A `CGImage` over a copy of the pixels (for UIKit/AppKit views that
     /// do not take pixel buffers).
@@ -97,3 +116,4 @@ final class FramePublisher {
         return buffer
     }
 }
+#endif

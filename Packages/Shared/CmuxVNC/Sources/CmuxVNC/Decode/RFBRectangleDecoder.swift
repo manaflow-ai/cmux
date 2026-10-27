@@ -1,4 +1,6 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 import Foundation
 
 /// One `FramebufferUpdate` rectangle header.
@@ -249,7 +251,7 @@ struct ZRLEParser {
     }
 
     private mutating func decodeTile(width w: Int, height h: Int) throws {
-        let count = w * h
+        let count = max(0, w * h)
         tile.removeAll(keepingCapacity: true)
         let subencoding = try byte()
         switch subencoding {
@@ -279,7 +281,7 @@ struct ZRLEParser {
             while tile.count < count {
                 let color = try cpixel()
                 let length = try runLength()
-                guard tile.count + length <= count else { throw RFBError.protocolViolation("ZRLE run overflow") }
+                guard length > 0, tile.count + length <= count else { throw RFBError.protocolViolation("ZRLE run overflow") }
                 tile.append(contentsOf: repeatElement(color, count: length))
             }
         case 130 ... 255:
@@ -289,7 +291,7 @@ struct ZRLEParser {
                 let value = try byte()
                 let color = try paletteColour(palette, (value & 0x7F).widened)
                 let length = value & 0x80 != 0 ? try runLength() : 1
-                guard tile.count + length <= count else { throw RFBError.protocolViolation("ZRLE run overflow") }
+                guard length > 0, tile.count + length <= count else { throw RFBError.protocolViolation("ZRLE run overflow") }
                 tile.append(contentsOf: repeatElement(color, count: length))
             }
         default:

@@ -1,3 +1,4 @@
+#if canImport(Network)
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -103,4 +104,4 @@ struct LiveLatencyProbe {
         await client.disconnect()
     }
 }
-
+#endif

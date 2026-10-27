@@ -1,4 +1,6 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 import Foundation
 
 /// How a session connects.
@@ -73,11 +75,12 @@ public actor VNCClient {
     private var statistics = VNCSessionStats()
     private var advertised: [RFBEncoding] = []
 
-    /// `transport` defaults to TCP to `endpoint`.
-    public init(endpoint: VNCEndpoint, options: VNCSessionOptions = VNCSessionOptions(), transport: (any RFBTransport)? = nil) {
+    /// A session over `transport`; `init(endpoint:options:)` connects over TCP
+    /// on Apple platforms (NetworkRFBTransport.swift).
+    public init(endpoint: VNCEndpoint, options: VNCSessionOptions = VNCSessionOptions(), transport: any RFBTransport) {
         self.endpoint = endpoint
         self.options = options
-        self.transport = transport ?? NetworkRFBTransport(host: endpoint.host, port: endpoint.port)
+        self.transport = transport
         (events, eventSink) = AsyncStream.makeStream(of: VNCEvent.self, bufferingPolicy: .bufferingNewest(256))
         (frames, frameSink) = AsyncStream.makeStream(of: VNCFrame.self, bufferingPolicy: .bufferingNewest(1))
     }

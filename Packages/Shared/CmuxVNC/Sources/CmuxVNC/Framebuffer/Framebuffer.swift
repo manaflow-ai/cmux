@@ -1,4 +1,6 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 import Foundation
 
 /// The client's copy of the remote screen: row-major `0xAARRGGBB` words

@@ -1,5 +1,6 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
-import CoreVideo
+#endif
 import Foundation
 
 /// Finds the physical displays inside a framebuffer when the server does not
@@ -18,19 +19,9 @@ public struct VNCScreenLayout: Sendable {
 
     /// The displays in `frame`, left to right; empty for a single display.
     public func screens(in frame: VNCFrame) -> [CGRect] {
-        let buffer = frame.pixelBuffer
-        CVPixelBufferLockBaseAddress(buffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
-        // SAFETY: the buffer is locked until the defer, and every read below happens before it.
-        guard let base = unsafe CVPixelBufferGetBaseAddress(buffer) else { return [] }
-        let rowPixels = CVPixelBufferGetBytesPerRow(buffer) / 4
-        guard rowPixels >= frame.width, CVPixelBufferGetHeight(buffer) >= frame.height else { return [] }
-        return screens(width: frame.width, height: frame.height, rowPixels: rowPixels) { index in
-            // SAFETY: `screens` asks only for index = y * rowPixels + x with x < width <= rowPixels and
-            // y < height <= the buffer's rows (checked above), so the 4 bytes read lie inside the locked
-            // 32BGRA buffer's rowPixels * 4 * rows bytes; rows of 4-byte pixels keep the word aligned.
-            unsafe base.load(fromByteOffset: index * 4, as: UInt32.self)
-        }
+        frame.withWords { rowPixels, word in
+            screens(width: frame.width, height: frame.height, rowPixels: rowPixels, word: word)
+        } ?? []
     }
 
     /// BGRA words, `rowPixels` per row (tests and the fuzz suite).

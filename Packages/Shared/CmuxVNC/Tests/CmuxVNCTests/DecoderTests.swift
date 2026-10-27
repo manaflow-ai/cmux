@@ -1,4 +1,6 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 import Foundation
 import Testing
 @testable import CmuxVNC
@@ -84,12 +86,14 @@ struct DecoderTests {
         #expect(framebuffer.pixels == [0xFF00_0000, 0xFF00_0000])
     }
 
+#if canImport(CoreGraphics)
     /// The cursor image carries its words as little-endian B G R A bytes.
     @Test func cursorImageBytes() throws {
         let image = try #require(VNCCursor(width: 2, height: 1, hotspotX: 0, hotspotY: 0, pixels: [red, 0x8000_00FF]).makeImage())
         let bytes = try #require(image.dataProvider?.data as Data?)
         #expect([UInt8](bytes) == [0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x80])
     }
+#endif
 
     @Test func hextileBackgroundAndSubrects() async throws {
         let framebuffer = Framebuffer(width: 16, height: 16)
