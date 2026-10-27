@@ -192,10 +192,12 @@ final class AppControl {
                                                        }
                                                    }) ?? DebugInputScrollViews(rows: [])
                                                }],
+                                     // `hittest` (p04-input-098): one audit for the app, its hooks installed on request only.
                                      recorders: [hops.start(input: input),
                                                  InputDirtyRecorder(tap: services.inputTap) { [mainWork = services.mainWork] copy in
                                                      await mainWork.apply(.automation, owner: "debug.input.dirty") { copy() }
-                                                 }]).method])
+                                                 },
+                                                 HitTestAuditDebugRecorder(audit: HitTestAudit(input: services.inputTap))]).method])
         router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugDrainCostMethod])
     }
     #endif
