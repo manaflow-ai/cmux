@@ -33,9 +33,10 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/peer_snapshot",
         // A failed subagent's, sub-session's or turn's Retry (subagents/retryState.ts runRetry,
         // direct.ts retry; acpmux server/agent_messages.rs): acpmux runs the failed turn again, or
-        // resumes the failed subagent, now. It runs a turn, so it needs the click (``gestureRules``);
-        // a sub-session's names the child chat, which the click's scope credit brings in
-        // (``sourceScoped``). Only `sessionId` and `subagentId` (``knownParams``): never `_meta`,
+        // resumes the failed subagent, now. No gesture (``gestureRules``): it sends nothing new, only
+        // what acpmux already retries on its own after a transient failure, and the click's grant
+        // stays for runRetry's fallback send to a daemon without the method. A sub-session's names
+        // the child chat, which the click's scope credit brings in (``sourceScoped``). Only `sessionId` and `subagentId` (``knownParams``): never `_meta`,
         // which carries acpmux's control and trust-gate marks.
         "_acpmux/retry",
         "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
@@ -308,11 +309,12 @@ nonisolated enum AcpmuxPaneMethods {
         // Resume runs turns: the held messages go to both chats of the pair.
         "_acpmux/agent_pair_resume": .always,
         "_acpmux/app_reply": .always,
-        // A Retry runs the failed turn (or subagent) again.
-        "_acpmux/retry": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
         // Start begins is its session/prompt, which has one).
+        // _acpmux/retry: no gesture. It runs again only the turn or subagent that failed, which acpmux
+        // retries on its own anyway; the click's grant stays for runRetry's fallback (the prompt
+        // sent again, or the ask to the chat's agent, when the daemon lacks the method).
         // _acpmux/set_tools: no gesture. It only turns off, or back on, an MCP server the chat
         // already had from the person's own config; it adds none.
     ]

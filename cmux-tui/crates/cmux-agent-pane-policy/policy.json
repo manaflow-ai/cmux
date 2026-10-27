@@ -50,8 +50,7 @@
     "_acpmux/permission_group_respond": "when_decision_allows",
     "_acpmux/secret_submit": "always",
     "_acpmux/agent_pair_resume": "always",
-    "_acpmux/app_reply": "always",
-    "_acpmux/retry": "always"
+    "_acpmux/app_reply": "always"
   },
   "non_trusting_levels": ["untrusted", "unknown"],
   "setting_methods": ["session/set_mode", "session/set_config_option"],

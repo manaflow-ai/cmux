@@ -6,9 +6,10 @@ import Testing
 /// ``AgentPaneTransport``, out to acpmux; webviews subagents/retryState.ts `runRetry`, acpmux
 /// `_acpmux/retry`). The relay refused the method (`methodRefused`, as -32601), so `runRetry` read
 /// it as a daemon without it: a subagent fell back to asking the chat's agent, and a sub-session
-/// showed "retry failed". The Retry runs a turn, so it needs the click; it names the pane's chat
-/// (a subagent's, the chat's own turn) or a sub-session the pane shows only as a card, which takes
-/// the click's scope credit like an attach the person makes. Only `sessionId` and `subagentId`.
+/// showed "retry failed". It names the pane's chat (a subagent's, the chat's own turn), which needs
+/// no gesture: acpmux retries those on its own, and the click's grant stays for runRetry's fallback
+/// send. A sub-session's names the child chat the pane shows only as a card, which takes the click's
+/// scope credit like an attach the person makes. Only `sessionId` and `subagentId`.
 @Suite(.serialized)
 @MainActor
 struct AgentPaneRetryRelayTests {
@@ -34,11 +35,11 @@ struct AgentPaneRetryRelayTests {
             #expect(AcpmuxPaneMethods.breaksParamsRule(object(#"{"sessionId":"s",\#(extra)}"#), modeFields: []), "\(extra)")
         }
         #expect(AcpmuxPaneMethods.breaksParamsRule(object(#"["s"]"#), modeFields: []))
-        // It runs a turn: the click's grant, like a prompt.
-        #expect(AcpmuxPaneMethods.needsGesture(Self.frame(id: 1, params: #"{"sessionId":"s"}"#), options: AcpmuxPermissionOptions()))
+        // No grant: a fallback send after a daemon without the method still has the click's.
+        #expect(!AcpmuxPaneMethods.needsGesture(Self.frame(id: 1, params: #"{"sessionId":"s"}"#), options: AcpmuxPermissionOptions()))
     }
 
-    @Test(.timeLimit(.minutes(1))) func aRetryGoesOutWithTheClickForTheChatOrItsSubSession() async throws {
+    @Test(.timeLimit(.minutes(1))) func aRetryGoesOutForTheChatAndWithTheClickForItsSubSession() async throws {
         let server = AcpmuxStandInServer()
         try await server.start()
         defer { server.stop() }
@@ -55,28 +56,28 @@ struct AgentPaneRetryRelayTests {
             return try #require(object?["params"] as? [String: Any]) as NSDictionary
         }
 
-        #expect(await transport.send(connection: id, frames: [Self.frame(id: 1, params: #"{"sessionId":"s"}"#)]) == .gestureRequired,
-                "no click")
-        transport.gestures.record(click: true)
-        #expect(await transport.send(connection: id, frames: [Self.frame(id: 2, params: #"{"sessionId":"s","promptId":"p"}"#)]) == .intentInvalid,
+        #expect(await transport.send(connection: id, frames: [Self.frame(id: 1, params: #"{"sessionId":"s","promptId":"p"}"#)]) == .intentInvalid,
                 "a param the pane never sends")
+        #expect(await transport.send(connection: id, frames: [Self.frame(id: 2, params: #"{"sessionId":"child"}"#)]) == .gestureRequired,
+                "a chat outside the pane's scope, with no click")
         #expect(sent().isEmpty, "a refused retry reached acpmux: \(sent())")
 
-        // A failed subagent of the pane's chat.
-        transport.gestures.record(click: true)
+        // A failed subagent of the pane's chat, and the chat's own turn: no gesture needed.
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 3, params: #"{"sessionId":"s","subagentId":"a"}"#)]) == nil,
                 "the relay refused the Retry of the chat's subagent")
         _ = await inbox.frame(containing: #""id":3"#)
         #expect(try sent().map(params) == [["sessionId": "s", "subagentId": "a"] as NSDictionary])
 
-        // A sub-session's Retry names the child chat, which is not the pane's: the click brings it.
+        // A sub-session's Retry names the child chat, which is not the pane's: the click brings it,
+        // and leaves its grant for a fallback send.
         transport.gestures.record(click: true)
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 4, params: #"{"sessionId":"child"}"#)]) == nil,
                 "the relay refused the Retry of the chat's sub-session")
         _ = await inbox.frame(containing: #""id":4"#)
         #expect(try sent().dropFirst().map(params) == [["sessionId": "child"] as NSDictionary])
+        #expect(transport.gestures.isAvailable, "the Retry spent the click's grant")
 
-        // One click, one Retry: the next needs its own.
+        // One click brings one chat in: the next outside the scope needs its own.
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 5, params: #"{"sessionId":"other"}"#)]) == .gestureRequired)
         #expect(sent().count == 2, "\(sent())")
     }

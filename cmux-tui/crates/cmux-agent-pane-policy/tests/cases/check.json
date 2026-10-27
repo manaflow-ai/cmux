@@ -555,7 +555,7 @@
   }
  },
  {
-  "name": "retry of the scope's chat needs the click",
+  "name": "retry of the scope's chat is free",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"_acpmux/retry\",\"params\":{\"sessionId\":\"s1\",\"subagentId\":\"a\"}}",
   "state": {
    "first": false,
@@ -584,14 +584,14 @@
     "other_meta": false,
     "pick": null,
     "session_id": null,
-    "needs_gesture": true,
+    "needs_gesture": false,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
-    "free": false
+    "free": true
    }
   }
  },
@@ -624,7 +624,7 @@
     "other_meta": false,
     "pick": null,
     "session_id": null,
-    "needs_gesture": true,
+    "needs_gesture": false,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,

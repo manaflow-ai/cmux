@@ -291,7 +291,7 @@
   "needs": true
  },
  {
-  "name": "retry always",
+  "name": "retry never",
   "frame": {
    "jsonrpc": "2.0",
    "id": 1,
@@ -301,7 +301,7 @@
    }
   },
   "denies": [],
-  "needs": true
+  "needs": false
  },
  {
   "name": "btw always",
