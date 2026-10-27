@@ -19,7 +19,7 @@ import { awaitsPermission, toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
-import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
+import { AlertCircle, ArrowRight, ChevronRight } from "./icons";
 import {
   ForkButton,
   forkWithFeedback,
@@ -31,6 +31,7 @@ import {
   ROW_ICON,
 } from "./MessageActions";
 import { RetryModelMenu } from "./RetryModelMenu";
+import { MessageActionIcon, MessageActionRow } from "./MessageActionRow";
 import { useT } from "../i18n";
 import { failureCopy, failureKind, failureRecovery, type FailureRoute } from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
@@ -158,7 +159,12 @@ export function shouldFoldToolRun(row: AcpmuxRow, groups: readonly ToolGroup[]):
 /// more than one entry, so one card never leaves the whole run spread out as a list
 /// (Leo 2026-10-21: "it can consolidate a ton of these tool calls"). A run that is not folded
 /// (`foldRun`, the Codex-style runs) is one stretch that folds nothing.
-export type RunStretch = { from: number; groups: ToolGroup[]; items: AcpmuxActivity[]; fold: boolean };
+export type RunStretch = {
+  from: number;
+  groups: ToolGroup[];
+  items: AcpmuxActivity[];
+  fold: boolean;
+};
 
 export function runStretches(row: AcpmuxRow, groups: readonly ToolGroup[]): RunStretch[] {
   const stretches: RunStretch[] = [];
@@ -300,7 +306,8 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           retry={retry && prompt && row.retryRowId ? () => retry(row.retryRowId!, prompt) : undefined}
         />
       )}
-      <div
+      <MessageActionRow
+        as="div"
         className={
           failed
             ? "cv-turn-actions cv-turn-actions--failed"
@@ -336,7 +343,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               title={t("turn.retryLabel")}
               onClick={() => retry(row.retryRowId ?? "", prompt)}
             >
-              <Retry size={ROW_ICON} />
+              <MessageActionIcon name="retry" />
             </button>
           )}
           {failed && retry && prompt && retryWith && retryWith.models.length > 1 && (
@@ -364,12 +371,14 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
                 void transferCloudCredentials(row.retryRowId!, prompt).catch(() => undefined);
               }}
             >
-              {t("turn.transferCredentials", { harness: route?.name || route?.harness || t("turn.failure.theAgent") })}
+              {t("turn.transferCredentials", {
+                harness: route?.name || route?.harness || t("turn.failure.theAgent"),
+              })}
             </button>
           )}
         </span>
         <MessageTime at={row.at} className="cv-turn-time" />
-      </div>
+      </MessageActionRow>
     </>
   );
 }
