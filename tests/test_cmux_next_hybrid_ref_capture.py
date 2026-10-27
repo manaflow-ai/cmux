@@ -406,6 +406,42 @@ class NightlyProfile(unittest.TestCase):
             self.assertEqual(cap.capture(self.nightly_args(root, deadline=int(time.time()) - 1), env), 3)
             self.assertFalse((root / "out/manifest.json").exists())
 
+    def test_the_deadline_kills_what_the_upload_started(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pid_file = root / "helper.pid"
+            client = root / "cmux-ci"
+            client.write_text(f"#!/bin/sh\nsleep 60 &\necho $! > {pid_file}\nwait\n")
+            client.chmod(0o755)
+            env = dict(NIGHTLY_ENV, CMUX_CI_CLIENT=str(client))
+            # Room for the packing before the first upload starts its helper.
+            self.assertEqual(cap.capture(self.nightly_args(root, deadline=int(time.time()) + 6), env), 3)
+            helper = int(pid_file.read_text())
+
+            def alive() -> bool:
+                # Gone, or a zombie nothing has reaped yet (Linux: its /proc state is Z).
+                try:
+                    os.kill(helper, 0)
+                    stat = Path(f"/proc/{helper}/stat")
+                    return not (stat.exists() and stat.read_text().rsplit(")", 1)[1].split()[0] == "Z")
+                except (ProcessLookupError, FileNotFoundError):
+                    return False
+
+            gone = time.monotonic() + 5
+            while alive() and time.monotonic() < gone:
+                time.sleep(0.1)
+            self.assertFalse(alive(), "the upload's helper outlived the deadline")
+
+    def test_a_failed_upload_fails_the_capture(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            client = root / "cmux-ci"
+            client.write_text("#!/bin/sh\nexit 7\n")
+            client.chmod(0o755)
+            with self.assertRaises(subprocess.CalledProcessError):
+                cap.capture(self.nightly_args(root, deadline=None), dict(NIGHTLY_ENV, CMUX_CI_CLIENT=str(client)))
+            self.assertFalse((root / "out/manifest.json").exists())
+
     def test_a_linked_package_cache_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

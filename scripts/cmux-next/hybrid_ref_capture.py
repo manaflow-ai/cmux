@@ -246,6 +246,22 @@ class DeadlinePassed(Exception):
     pass
 
 
+def put(argv: list[str]) -> None:
+    """Run one upload in its own process group; anything that stops the wait (the deadline) kills the group."""
+    proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL, start_new_session=True)
+    try:
+        status = proc.wait()
+    except BaseException:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.wait()
+        raise
+    if status:
+        raise subprocess.CalledProcessError(status, argv)
+
+
 def capture(a: argparse.Namespace, environ=os.environ) -> int:
     deadline = getattr(a, "deadline", None)
     if deadline is None:
@@ -261,7 +277,7 @@ def capture(a: argparse.Namespace, environ=os.environ) -> int:
     previous = signal.signal(signal.SIGALRM, expire)
     signal.alarm(left)
     try:
-        # subprocess.run kills a running upload when the alarm's exception reaches it.
+        # put() kills a running upload's whole process group when the alarm's exception reaches it.
         return capture_now(a, environ)
     except DeadlinePassed:
         print(f"hybrid-ref capture: stopped at its deadline ({left} s); no manifest")
@@ -325,8 +341,7 @@ def capture_now(a: argparse.Namespace, environ=os.environ) -> int:
             for p in whole["parts"]:
                 if a.upload:
                     client = environ.get("CMUX_CI_CLIENT") or str(Path.home() / ".local/bin/cmux-ci")
-                    subprocess.run([client, "artifact-put", str(packs / p["name"]), "--sha256", p["sha256"],
-                                    "--lane", a.lane], check=True, stdout=subprocess.DEVNULL)
+                    put([client, "artifact-put", str(packs / p["name"]), "--sha256", p["sha256"], "--lane", a.lane])
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
     if environ.get("GITHUB_OUTPUT"):
         with open(environ["GITHUB_OUTPUT"], "a") as f:
