@@ -34,6 +34,10 @@ def env(name: str) -> str:
 
 def stamp(plist: dict) -> None:
     name, bundle_id, scheme = env("CHANNEL_APP_NAME"), env("CHANNEL_BUNDLE_ID"), env("CHANNEL_URL_SCHEME")
+    # PlistBuddy's Set fails on an entry that does not exist.
+    for key in ("CFBundleName", "CFBundleDisplayName", "CFBundleIdentifier", "CFBundleShortVersionString", "CFBundleVersion"):
+        if key not in plist:
+            fail(f"Info.plist has no {key}")
     plist["CFBundleName"] = name
     plist["CFBundleDisplayName"] = name
     plist["CFBundleIdentifier"] = bundle_id
@@ -49,17 +53,16 @@ def stamp(plist: dict) -> None:
     schemes[0] = scheme
     # A tagged nightly bundle id defaults to the stable `cmux` sign-in
     # callback; cmux NEXT signs in through its own scheme.
-    environment = plist.get("LSEnvironment")
+    # Add :LSEnvironment dict only when it is missing; PlistBuddy's later Add
+    # fails when an existing LSEnvironment is not a dictionary.
+    environment = plist.setdefault("LSEnvironment", {})
     if not isinstance(environment, dict):
-        environment = plist["LSEnvironment"] = {}
+        fail("Info.plist has an LSEnvironment that is not a dictionary")
     environment.pop("CMUX_AUTH_CALLBACK_SCHEME", None)
     environment["CMUX_AUTH_CALLBACK_SCHEME"] = scheme
     for key, value in (("SUPublicEDKey", env("SPARKLE_PUBLIC_KEY")), ("SUFeedURL", env("FEED_URL"))):
         plist.pop(key, None)
         plist[key] = value
-    for key in ("CFBundleShortVersionString", "CFBundleVersion"):
-        if key not in plist:
-            fail(f"Info.plist has no {key}")
     plist["CFBundleShortVersionString"] = env("NIGHTLY_MARKETING_VERSION")
     plist["CFBundleVersion"] = env("NIGHTLY_BUILD")
     plist.pop("CMUXCommit", None)

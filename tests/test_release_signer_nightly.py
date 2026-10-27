@@ -34,7 +34,8 @@ if argv[0] == "encode-app-store-connect-api-key":
 elif argv[0] == "notary-submit":
     key = json.load(open(argv[argv.index("--api-key-file") + 1]))
     subprocess.run(["openssl", "pkey", "-noout"], input=key["private_key"].encode(), check=True)
-    print("created submission ID: %s" % os.environ["FAKE_SUBMISSION"])
+    if os.environ["FAKE_SUBMISSION"]:
+        print("created submission ID: %s" % os.environ["FAKE_SUBMISSION"])
     status = os.environ.get("FAKE_STATUS", "Accepted")
     print("poll state after 3s: %s" % status)
     if status != "Accepted":
@@ -97,6 +98,20 @@ class IdentityTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("auth URL type", result.stderr)
 
+    def test_refuses_a_missing_entry_that_plistbuddy_would_only_set(self):
+        for key in ("CFBundleName", "CFBundleDisplayName", "CFBundleIdentifier", "CFBundleVersion"):
+            with self.subTest(key=key):
+                plist = dict(self.base)
+                del plist[key]
+                result = self.stamp(plist)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(key, result.stderr)
+
+    def test_refuses_a_launch_environment_that_is_not_a_dictionary(self):
+        result = self.stamp(dict(self.base, LSEnvironment="x"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("LSEnvironment", result.stderr)
+
     def test_refuses_an_empty_input(self):
         self.assertNotEqual(self.stamp(self.base, NIGHTLY_BUILD="").returncode, 0)
 
@@ -146,6 +161,12 @@ class NotarizeAppTests(unittest.TestCase):
         self.assertIn(f"submission_id={SUBMISSION}", result.stdout)
         self.assertIn("was not notarized", result.stderr)
         self.assertFalse((self.app / "Contents/CodeResources").exists())
+
+    def test_fails_when_the_log_names_no_submission(self):
+        result = self.run_script(FAKE_SUBMISSION="")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("no submission id", result.stderr)
 
     def test_refuses_a_path_that_is_not_a_bundle(self):
         result = subprocess.run(["bash", str(NOTARIZE_APP), str(self.tmp / "missing.app"), str(self.tmp / "l")],

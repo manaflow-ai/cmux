@@ -6,7 +6,7 @@
 # Submits the bundle to Apple's notary service, waits up to
 # NOTARY_MAX_WAIT_SECONDS (default 1200), fails unless Apple accepts it, then
 # staples the ticket into the bundle. The submission id goes to stdout as
-# submission_id=<uuid> (for $GITHUB_OUTPUT); the signer's output goes to
+# submission_id=<uuid> (for $GITHUB_OUTPUT), and a run without one fails; the signer's output goes to
 # <log-file> and stderr. Not used by any workflow yet.
 #
 # Env: ASC_API_KEY_ID, ASC_API_ISSUER_ID, ASC_API_KEY_P8_BASE64 (the notary API
@@ -45,7 +45,9 @@ run_signer "$R" notary-submit --config-file /dev/null --api-key-file "$secrets/a
   --max-wait-seconds "${NOTARY_MAX_WAIT_SECONDS:-1200}" --staple "$APP" > "$LOG" 2>&1 || rc=$?
 cat "$LOG" >&2
 id="$(grep -oiE 'submission id:? *[0-9a-f-]{36}' "$LOG" | grep -oE '[0-9a-f-]{36}' | head -n 1 || true)"
-echo "submission_id=$id"
+[[ -z "$id" ]] || echo "submission_id=$id"
 [[ "$rc" -eq 0 ]] || { echo "error: ${APP##*/} was not notarized and stapled (exit $rc, submission ${id:-none})" >&2; exit 1; }
+[[ "$id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] ||
+  { echo "error: the notary log names no submission id" >&2; exit 1; }
 [[ -f "$APP/Contents/CodeResources" ]] || { echo "error: no stapled ticket in ${APP##*/}" >&2; exit 1; }
 echo "==> ${APP##*/} is notarized and stapled (submission $id)" >&2
