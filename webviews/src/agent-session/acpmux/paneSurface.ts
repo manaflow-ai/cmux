@@ -40,9 +40,12 @@ type EscapeDismissOptions = {
 function escapeSurfaceOpen(document: Document): boolean {
   return [
     ...document.querySelectorAll<HTMLElement>(
-      '[role="menu"], [role="listbox"], [role="dialog"], .ui-popup, [aria-haspopup][data-popup-open]',
+      '[role="menu"], [role="listbox"], [role="dialog"], .ui-popup, [aria-haspopup][data-popup-open], ' +
+        '.acpmux-summary-card[data-placement="popover"], .acpmux-minimap__card:focus-within',
     ),
   ].some((element) => {
+    // Summary is a popover only in its narrow placement; the minimap claims Escape only while
+    // its preview has focus. Their inline or hover-only forms must not block status dismissal.
     // Base UI keeps closing surfaces mounted for their fade after their Escape owner has stopped.
     // They must not defer the next press to the composer or Quick Composer behind the card.
     if (element.closest('[hidden], [inert], [aria-hidden="true"], [data-closed], [data-ending-style]')) return false;
