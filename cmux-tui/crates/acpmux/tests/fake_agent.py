@@ -1434,14 +1434,14 @@ def main():
                      "options": [{"value": v, "name": n} for v, n in CLAUDE_MODELS]}]
             send({"jsonrpc": "2.0", "id": rid, "result": result})
         elif m == "session/set_mode":
+            # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change.
+            if os.environ.get("FAKE_SET_MODE_FAIL") == "1":
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "mode change refused"}})
+                continue
             # FAKE_SET_MODE_DELAY_MS: each mode change takes that long to answer.
             if os.environ.get("FAKE_SET_MODE_DELAY_MS"):
                 import time as pause  # main() binds `time` locally
                 pause.sleep(int(os.environ["FAKE_SET_MODE_DELAY_MS"]) / 1000)
-            # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change (after that delay).
-            if os.environ.get("FAKE_SET_MODE_FAIL") == "1":
-                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "mode change refused"}})
-                continue
             send({"jsonrpc": "2.0", "id": rid, "result": {}})
         elif m == "session/set_config_option":
             v = params.get("value")
@@ -1461,6 +1461,14 @@ def main():
             if CODEX_STORE:
                 target = codex_store_prompt
             threading.Thread(target=target, args=(rid, params), daemon=True).start()
+            # FAKE_ASK_HOLDS_STDIN=<path>: after an "ask:" prompt, read nothing more until that
+            # file exists: a long answer then waits in the agent host's stdin writer, as it does
+            # for a harness that stopped reading.
+            hold = os.environ.get("FAKE_ASK_HOLDS_STDIN")
+            if hold and "".join(b.get("text", "") for b in params.get("prompt", [])).startswith("ask:"):
+                import time as clock  # main() binds `time` locally
+                while not os.path.exists(hold):
+                    clock.sleep(0.02)
         elif m == "session/cancel":
             cancelled.add(params.get("sessionId"))
         elif rid is not None:
