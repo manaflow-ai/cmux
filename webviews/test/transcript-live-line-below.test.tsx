@@ -7,6 +7,7 @@
 // input; and a turn that had only streamed text drew no line at all. Before the first output it
 // read a bare "Thinking" with no time.
 import { expect, test } from "bun:test";
+import { fixedPageClock } from "../src/ui/fixedPageClock";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { configureLiveLineBelow, useLiveLineBelow } from "../src/agent-session/acpmux/liveLineBelow";
@@ -40,7 +41,7 @@ const text = (html: string) =>
     .trim();
 /// The line drawn 26s after the prompt.
 const drawn = (line: AcpmuxRow, prompt: AcpmuxRow) =>
-  renderToStaticMarkup(<WorkingFor row={line} now={() => prompt.at + 26_000} />);
+  renderToStaticMarkup(<WorkingFor row={line} clock={fixedPageClock(prompt.at + 26_000)} />);
 
 test("before any output, the last row reads Thinking with the turn's time", () => {
   const prompt = row("u", "user");
@@ -118,10 +119,12 @@ test("with the toggle off, the line sits over the work and holds while text stre
 });
 
 test("the first Thinking line ticks from the prompt; the start status has no time", () => {
-  expect(text(renderToStaticMarkup(<Thinking since={1_000} now={() => 13_000} />))).toBe("Thinking 12s");
-  expect(text(renderToStaticMarkup(<Thinking status="Starting Claude Code…" since={1_000} now={() => 13_000} />))).toBe(
-    "Starting Claude Code…",
-  );
+  expect(text(renderToStaticMarkup(<Thinking since={1_000} clock={fixedPageClock(13_000)} />))).toBe("Thinking 12s");
+  expect(
+    text(
+      renderToStaticMarkup(<Thinking status="Starting Claude Code…" since={1_000} clock={fixedPageClock(13_000)} />),
+    ),
+  ).toBe("Starting Claude Code…");
 });
 
 test("the toggle is on unless the host turns it off", () => {
