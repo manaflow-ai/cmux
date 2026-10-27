@@ -96,6 +96,8 @@ import type { SuggestionOrder } from "./suggestionOrder";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
+  /// Setup can start the pending chat with its newly available harness, keeping this draft.
+  onSetup?(continueWith: (harness: string) => void): void;
   /// Enter on a prompt: a chat with `harness` in `cwd` (the project picked on the page).
   /// `model`: the one the chip names, so the chat starts on what the page showed.
   /// `noProject`: Do not work in a project was picked, so the chat starts in no project.
@@ -392,6 +394,11 @@ export function NewTabScreen(props: Props) {
   }, []);
   const dropLandingTarget = useCallback(() => field.current?.parentElement ?? null, []);
   const submitNow = useRef(() => {});
+  const continueAfterSetup = useRef<(harness: string) => void>(() => {});
+  const openSetup = () => {
+    if (props.onSetup) props.onSetup((agent) => continueAfterSetup.current(agent));
+    else openHarnessesPage();
+  };
   const wholeSelection = useRef(false);
   const inlineCaret = useRef<number | undefined>(undefined);
   const composing = useRef(false);
@@ -789,7 +796,7 @@ export function NewTabScreen(props: Props) {
     // With no harness, a default text suggestion would search before setup can open. A row
     // explicitly selected with the keyboard, and navigation matches, keep their own actions.
     if (!harness && prompt && !isAddress(prompt, home) && row?.type === "search" && selected === undefined) {
-      openHarnessesPage();
+      openSetup();
       return;
     }
     if (row && keeps) return activate(row);
@@ -798,13 +805,13 @@ export function NewTabScreen(props: Props) {
       // A fresh install has no harness to ask yet. Return on the empty composer should take the
       // person to the same setup surface as the visible Add harness chip instead of silently doing
       // nothing; addresses still follow their normal New Tab path above.
-      if (!prompt && !harness) openHarnessesPage();
+      if (!prompt && !harness) openSetup();
       return;
     }
     // No agent to ask: the composer's chip says Add harness (ComposerPickers). Keep the draft in
     // place while the Harnesses page opens, so a successful setup can continue from this intent.
     if (!harness) {
-      openHarnessesPage();
+      openSetup();
       return;
     }
     askChat(harness, prompt, project, chipModel);
@@ -825,7 +832,7 @@ export function NewTabScreen(props: Props) {
     // The empty New chat action is another first-run entry point. It must open setup when no
     // harness is installed, rather than leaving the person on an inert page.
     if (!harness) {
-      openHarnessesPage();
+      openSetup();
       return;
     }
     if (created.current) return;
@@ -837,6 +844,14 @@ export function NewTabScreen(props: Props) {
       project,
       chipModel,
     );
+  };
+  continueAfterSetup.current = (agent) => {
+    // Setup may finish while an attachment is still loading. Resume the same draft only once
+    // its files are ready, reading the latest state rather than the setup-opening snapshot.
+    if (holdForAttachments(() => continueAfterSetup.current(agent)) || created.current) return;
+    created.current = true;
+    const prompt = shell ? "" : text.trim();
+    askChat(agent, prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "", project);
   };
   const send = () => {
     touch();

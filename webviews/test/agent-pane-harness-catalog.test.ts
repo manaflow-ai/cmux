@@ -6,7 +6,7 @@
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, type Browser } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -23,6 +23,8 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
   const webviews = path.resolve(import.meta.dir, "..");
 
   const CHAT = "0190a000-0000-7000-8000-0000000000c1";
+  const PROJECT = "/Users/you/src/atlas";
+  const DRAFT = "Implement a todo list from this screenshot";
   const START = Date.UTC(2026, 9, 12, 9, 0, 0);
   const session = {
     sessionId: CHAT,
@@ -102,7 +104,9 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     ],
   };
 
-  function answer(method: string, firstRun: boolean): unknown {
+  type DaemonState = { firstRun: boolean; installed: boolean };
+  function answer(method: string, state: DaemonState, params: Record<string, unknown> = {}): unknown {
+    const missing = state.firstRun && !state.installed;
     switch (method) {
       case "initialize":
         return {
@@ -112,21 +116,24 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
           },
         };
       case "_acpmux/watch":
-        return { sessions: firstRun ? [] : [session] };
+        return { sessions: state.firstRun ? [] : [session] };
       case "_acpmux/attach":
         return { session, lastSeq: events.length, events };
       case "_acpmux/events":
         return { events: [], hasMore: false, lastSeq: events.length };
       case "_acpmux/harnesses":
-        return firstRun ? { harnesses: {}, families: {} } : harnesses;
+        return missing ? { harnesses: {}, families: {} } : harnesses;
       case "_acpmux/models":
-        return firstRun ? { harnesses: [] } : models;
+        return missing ? { harnesses: [] } : models;
+      case "_acpmux/harness/health":
+        if (params.rescan) state.installed = true;
+        return { harnesses: state.installed ? [{ id: "claude", auth: "signedIn" }] : [] };
       default:
         return null;
     }
   }
 
-  let daemon: Bun.Server<{ firstRun: boolean }> | undefined;
+  let daemon: Bun.Server<DaemonState> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const url = () => {
@@ -135,25 +142,28 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${CHAT}`;
   };
   beforeAll(async () => {
-    daemon = Bun.serve<{ firstRun: boolean }>({
+    daemon = Bun.serve<DaemonState>({
       port: 0,
       hostname: "127.0.0.1",
       fetch(request, server) {
         const firstRun = new URL(request.url).pathname === "/first-run";
-        return server.upgrade(request, { data: { firstRun } }) ? undefined : new Response("acpmux", { status: 426 });
+        return server.upgrade(request, { data: { firstRun, installed: !firstRun } })
+          ? undefined
+          : new Response("acpmux", { status: 426 });
       },
       websocket: {
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as {
             id?: number;
             method: string;
+            params?: Record<string, unknown>;
           };
           if (message.id !== undefined)
             ws.send(
               JSON.stringify({
                 jsonrpc: "2.0",
                 id: message.id,
-                result: answer(message.method, ws.data.firstRun),
+                result: answer(message.method, ws.data, message.params),
               }),
             );
         },
@@ -190,7 +200,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
 
   async function firstRunPage() {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
-    await page.addInitScript((endpoint) => {
+    await page.addInitScript(({ endpoint, project }) => {
       const newTab = { kind: "agent", template: "default", home: "/Users/you", projects: [] };
       Object.assign(window, {
         __cmuxNewTabContext: newTab,
@@ -217,6 +227,15 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
                   case "project.list":
                     value = { projects: [] };
                     break;
+                  case "project.browse":
+                    value = { cwd: project };
+                    break;
+                  case "shell.run":
+                    value = { id: "install-claude" };
+                    break;
+                  case "shell.read":
+                    value = { exit: { code: 0 } };
+                    break;
                 }
                 return { ok: true, value };
               },
@@ -224,13 +243,35 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
           },
         },
       });
-    }, `ws://127.0.0.1:${daemon!.port}/first-run`);
+    }, { endpoint: `ws://127.0.0.1:${daemon!.port}/first-run`, project: PROJECT });
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
     await page.locator(".nt-field").waitFor();
     // Wait for the actual no-harness chip; the page may mount before the catalog arrives.
     await page.locator(".acpmux-add-harness").waitFor();
     return page;
+  }
+
+  async function prepareDraft(page: Page, noProject: boolean) {
+    await page
+      .locator(noProject ? '.nt-env .nt-stage-row[aria-pressed="false"]' : '[data-action="browse-project"]')
+      .click();
+    await page.locator('.nt-env .nt-stage-row[aria-pressed="true"]').waitFor();
+    const field = page.locator(".nt-field");
+    await field.fill(DRAFT);
+    await field.evaluate(async (target) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 8;
+      canvas.height = 8;
+      canvas.getContext("2d")!.fillRect(0, 0, 8, 8);
+      const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+      const data = new DataTransfer();
+      data.items.add(new File([blob], "first-chat.png", { type: "image/png" }));
+      target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    });
+    const image = page.locator(".acpmux-attachment-image img");
+    await image.waitFor();
+    return { field, image };
   }
 
   test.each(["", "Implement a todo list"])("first-run Return opens setup and returns to draft %j", async (draft) => {
@@ -252,21 +293,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
   test("first-run New chat setup preserves the typed draft, image and no-project choice", async () => {
     const page = await firstRunPage();
     try {
-      await page.locator('.nt-env .nt-stage-row[aria-pressed="false"]').click();
-      const field = page.locator(".nt-field");
-      await field.fill("Implement a todo list from this screenshot");
-      await field.evaluate(async (target) => {
-        const canvas = document.createElement("canvas");
-        canvas.width = 8;
-        canvas.height = 8;
-        canvas.getContext("2d")!.fillRect(0, 0, 8, 8);
-        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
-        const data = new DataTransfer();
-        data.items.add(new File([blob], "first-chat.png", { type: "image/png" }));
-        target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-      });
-      const image = page.locator(".acpmux-attachment-image img");
-      await image.waitFor();
+      const { field, image } = await prepareDraft(page, true);
       const source = await image.getAttribute("src");
       expect(source).toBeTruthy();
       await page.locator('[data-create="chat"]').click();
@@ -275,11 +302,61 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       expect(await image.isVisible()).toBe(false);
       await page.locator(".acpmux-harnesses-close").click();
       await field.waitFor();
-      expect(await field.inputValue()).toBe("Implement a todo list from this screenshot");
+      expect(await field.inputValue()).toBe(DRAFT);
       expect(await image.isVisible()).toBe(true);
       expect(await image.getAttribute("src")).toBe(source);
       expect(await page.locator('.nt-env .nt-stage-row[aria-pressed="true"]').count()).toBe(1);
       expect(await page.locator('[data-action="browse-project"]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test.each([false, true])("Start Chat after setup sends the draft and image with noProject=%s", async (noProject) => {
+    const page = await firstRunPage();
+    try {
+      await prepareDraft(page, noProject);
+      await page.locator('[data-create="chat"]').click();
+      const claude = page.locator('[data-harness-row="claude"]');
+      await page.locator('[data-harness-row="claude"][data-harness-status="notInstalled"]').waitFor();
+      await claude.locator(".acpmux-harness-action").click();
+      await page.locator('[data-harness-row="claude"][data-harness-status="ready"]').waitFor();
+      // Observe the App's actual action boundary, without starting a real agent process.
+      await page.evaluate(() => {
+        const calls: { method: string; params: Record<string, unknown> }[] = [];
+        Object.assign(window, { firstRunChatCalls: calls });
+        for (const method of ["chat.new", "chat.send"])
+          window.cmuxAcpmuxActions![method] = async (params) => {
+            calls.push({ method, params });
+            return "first-chat";
+          };
+      });
+      await claude.locator(".acpmux-harness-action").click();
+      await page.waitForFunction(() =>
+        (window as unknown as { firstRunChatCalls: { method: string }[] }).firstRunChatCalls.some(
+          (call) => call.method === "chat.send",
+        ),
+      );
+      const calls = await page.evaluate(
+        () =>
+          (window as unknown as { firstRunChatCalls: { method: string; params: Record<string, unknown> }[] })
+            .firstRunChatCalls,
+      );
+      expect(calls.map((call) => call.method)).toEqual(["chat.new", "chat.send"]);
+      expect(calls[0]!.params).toEqual(
+        noProject ? { harness: "claude", noProject: true } : { harness: "claude", cwd: PROJECT },
+      );
+      expect(calls[1]!.params).toEqual({
+        text: DRAFT,
+        attachments: [
+          expect.objectContaining({
+            kind: "image",
+            name: "first-chat.png",
+            mimeType: "image/png",
+            data: expect.stringMatching(/.+/),
+          }),
+        ],
+      });
     } finally {
       await page.close();
     }
