@@ -140,14 +140,13 @@ class Session:
         return hid_input.probe_rows(self.probe)
 
     def focused_kind(self):
-        snap = self.rpc("snapshot.get") or {}
-        topo = snap.get("topology") or snap
-        for w in topo.get("workspaces") or []:
-            for sc in w.get("screens") or []:
-                for p in sc.get("panes") or []:
-                    if p.get("focused"):
-                        return p.get("kind"), len(p.get("tabs") or [])
-        return None, 0
+        """The focused visible pane's kind and shown tab (debug.surfaces, which v1.1 and v2.1 both have)."""
+        reply = self.rpc("debug.surfaces") or {}
+        panes = [p for w in reply.get("windows") or [] for p in w.get("panes") or []]
+        for p in panes:
+            if p.get("focused") and p.get("visible", True):
+                return p.get("kind"), p.get("shown_tab") or p.get("selected_tab")
+        return None, None
 
     def ensure_terminal(self):
         kind, _ = self.focused_kind()
@@ -184,6 +183,7 @@ class Session:
     def trial(self, number):
         """One new terminal: its first --keys keys, then --keys keys after --idle s idle."""
         seen = self.ready_files()
+        _, before_tab = self.focused_kind()
         self.rpc("debug.hangs", {"clear": True})
         t0 = time.monotonic()
         reply = self.key("`", ("control",))
@@ -193,8 +193,8 @@ class Session:
         if not ready:
             note(f"trial {number}: no ready file in 10 s (ZDOTDIR not reaching the shell?); typing anyway "
                  f"(debug.key reply {json.dumps(reply)[:160]})")
-        kind, tabs = self.focused_kind()
-        created = {"kind": kind, "tabs": tabs}
+        kind, tab = self.focused_kind()
+        created = {"kind": kind, "new_tab": tab != before_tab}
         done_new, all_new, trips_new = self.type_batch(opts.keys)
         hangs_new = self.rpc("debug.hangs", {"limit": 8}, timeout=20)
         self.rpc("action.run", {"action": "terminal.sendText", "args": {"text": "\x15"}, "focus": True, "origin": "script"})
@@ -204,7 +204,7 @@ class Session:
         hangs_warm = self.rpc("debug.hangs", {"limit": 8}, timeout=20)
         self.rpc("action.run", {"action": "terminal.sendText", "args": {"text": "\x15"}, "focus": True, "origin": "script"})
         self.key("w", ("command",))
-        hid_input.wait(lambda: self.focused_kind()[1] < tabs or None, 5)
+        hid_input.wait(lambda: self.focused_kind()[1] == before_tab or None, 5)
         time.sleep(0.5)  # bench: the closed tab's pane settles before the next trial
         col = lambda rows, key: [float(r[key]) for r in rows if r.get(key)]
         hang = lambda h: {k: h.get(k) for k in ("count", "max_ms", "total_ms")} if isinstance(h, dict) else h
