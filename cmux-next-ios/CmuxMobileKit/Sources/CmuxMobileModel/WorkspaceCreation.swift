@@ -216,6 +216,10 @@ public protocol WorkspaceCreationBackend: AnyObject {
     /// Opens a copy of a tab next to it on the Mac (a terminal in its pane's folder,
     /// the same page in a browser tab) and returns it once the Mac lists it.
     func duplicateTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab
+    /// A web link tapped in a terminal: a cmux browser tab at `url` beside the terminal, in its
+    /// pane, as the Mac's Cmd-click opens it (`new-browser-tab {url, pane}`). Returns the tab
+    /// once the Mac lists it. Only `http` and `https` links reach the Mac.
+    func openLink(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab
     /// Moves a tab to the place of `target` (its pane and position there).
     func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws
     /// Move Tab to Workspace… (`destination`) or Move Tab to New Workspace (nil, named as the
@@ -274,6 +278,9 @@ extension WorkspaceCreationBackend {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
     public func duplicateTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func openLink(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
     public func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws {
@@ -681,6 +688,15 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
         try await settle()
         return WorkspaceTab(id: "t-\(UUID().uuidString.prefix(8).lowercased())", kind: tab.kind, title: tab.title,
                      subtitle: tab.subtitle, harness: tab.harness, url: tab.url)
+    }
+
+    /// Links a terminal opened in a browser tab, in order (tests).
+    public private(set) var openedLinks: [URL] = []
+
+    public func openLink(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await settle()
+        openedLinks.append(url)
+        return WorkspaceTab(id: "t-\(UUID().uuidString.prefix(8).lowercased())", kind: .browser, title: url.host() ?? url.absoluteString, url: url)
     }
 
     public func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws {

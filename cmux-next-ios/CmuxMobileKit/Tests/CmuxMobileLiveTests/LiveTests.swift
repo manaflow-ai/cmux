@@ -626,7 +626,7 @@ private struct LinkOf: MacLinkDialer {
             let object = try! JSONSerialization.jsonObject(with: Data(request)) as! [String: Any]
             let id = object["id"] as! String
             let cmd = (object["cmd"] as? String ?? "")
-            seen.append(cmd, object["name"] as? String)
+            seen.append(cmd, (object["name"] ?? object["url"]) as? String)
             let line: String
             switch cmd {
             case "new-workspace" where refuse:
@@ -692,6 +692,26 @@ private struct LinkOf: MacLinkDialer {
         #expect(log.contains("new-browser-tab"))
         let real = try #require(store.workspace(id: placeholder.id))
         #expect(store.openingTab(for: real)?.id == "s11")
+    }
+
+    /// A web link tapped in a terminal opens a cmux browser tab at that page beside it, in
+    /// the same workspace (the Mac's Cmd-click): `new-browser-tab {url, pane}`. Only web links.
+    @Test func aTappedLinkOpensABrowserTabBesideTheTerminal() async throws {
+        let log = CommandLog()
+        let (store, creator, _) = try await connected(false, log)
+        _ = try #require(creator.create())
+        await creator.settle()
+        let workspace = try #require(store.workspace(id: "wk2"))
+        let terminal = try #require(workspace.tabs.first { $0.id == "s10" })
+        let url = try #require(URL(string: "https://cmux.com/docs"))
+        let opened = try await creator.backend.openLink(url, besides: terminal, in: workspace)
+        #expect(log.names["new-browser-tab"] == "https://cmux.com/docs")
+        #expect(opened.id == "s11")
+        #expect(opened.kind == .browser)
+        let file = try #require(URL(string: "file:///etc/passwd"))
+        await #expect(throws: WorkspaceCreationError.self) {
+            _ = try await creator.backend.openLink(file, besides: terminal, in: workspace)
+        }
     }
 
     @Test func refusalRemovesThePlaceholder() async throws {

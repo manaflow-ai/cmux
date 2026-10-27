@@ -456,6 +456,23 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
+    public var clearsHistory: Bool { true }
+
+    /// The Mac's Clear Screen and Scrollback (`TerminalHandlers` "terminal.clear", the page
+    /// menu's path: no fallback key): `clear-history {surface}` on the attach channel. The
+    /// daemon erases the shell's rows above the prompt and the retained history, and every
+    /// attached view, this one too, gets the same erase in its output. A full-screen app is
+    /// left untouched, as on the Mac.
+    public func clearHistory() async throws {
+        guard attached, let client else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
+        let surface = surface
+        let reply = try await client.request("clear-history", params: ["surface": surface])
+        if let error = Self.error(in: reply) {
+            log.error("surface \(surface, privacy: .public): clear-history refused: \(error, privacy: .public)")
+            throw LinkError(code: "clear-history", message: error)
+        }
+    }
+
     /// The size state and own participant of an attach reply (shared sizing).
     nonisolated static func attachSizing(_ reply: Data) -> (TerminalSizeState?, String?) {
         guard let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],

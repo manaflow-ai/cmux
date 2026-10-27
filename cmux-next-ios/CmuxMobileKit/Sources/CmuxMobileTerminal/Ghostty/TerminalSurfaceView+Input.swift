@@ -57,6 +57,12 @@ extension TerminalSurfaceView {
     /// `mouse=a`, htop's header, mc, tmux panes). Ghostty encodes it in the
     /// app's mouse mode. Returns false, sending nothing, when no app
     /// captures the mouse.
+    /// An app on the screen asked for the mouse (a tap is its click, not a link's).
+    var capturesMouse: Bool {
+        guard let surface else { return false }
+        return ghostty_surface_mouse_captured(surface)
+    }
+
     @discardableResult
     func click(at point: CGPoint) -> Bool {
         guard let surface, ghostty_surface_mouse_captured(surface) else { return false }

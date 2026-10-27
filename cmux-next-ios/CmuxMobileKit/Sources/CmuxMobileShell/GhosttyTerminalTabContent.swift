@@ -182,6 +182,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             title: tab.title
         )
         model.uploader = live == nil ? nil : uploaderProvider?(tab, workspace.macID)
+        // The page shown already keeps opening links where it did (R1-0 swaps the host in place).
+        model.linkOpener = previous?.model.linkOpener
         var frame = lastFrames.removeValue(forKey: tab.id) ?? previous.flatMap { $0.model.snapshot ?? $0.model.coldFrame }
         if frame == nil, let data = frameStore?.load(tab.id) { frame = UIImage(data: data) }
         model.restoreLastFrame(frame)
@@ -255,6 +257,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         let host = host(for: tab, in: workspace)
         for id in warm.touch(tab.id) { cool(id) }
         let slot = slot(for: tab.id, host: host)
+        // A tapped web link opens beside the terminal, in this workspace (the Mac's Cmd-click).
+        host.model.linkOpener = context.openLink
         return AnyView(TerminalTabSlotPage(slot: slot, insets: context.safeAreaInsets, isInteractive: context.isInteractive))
     }
 
@@ -437,7 +441,12 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         return actions + [
             TerminalTabAction(title: "Files and Links", systemImage: "folder") { model.showFilesAndLinks() },
             TerminalTabAction(title: "Paste", systemImage: "doc.on.clipboard") { model.paste() },
-            TerminalTabAction(title: "Clear", systemImage: "clear") { model.sendControl("l") },
+            TerminalTabAction(title: "Find…", systemImage: "magnifyingglass") { model.showFind() },
+            // The Mac's Clear Screen and Scrollback: the Mac clears the terminal, scrollback
+            // included, on the Mac and every phone (`clear-history`), not a Ctrl-L to the shell.
+            TerminalTabAction(title: "Clear", systemImage: "clear", isEnabled: model.canClearScreenAndScrollback) {
+                model.clearScreenAndScrollback()
+            },
             TerminalTabAction(title: "Scroll to Bottom", systemImage: "arrow.down.to.line", isEnabled: model.isScrolledUp) { model.scrollToBottom() },
         ]
     }

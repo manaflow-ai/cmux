@@ -120,6 +120,16 @@ public struct TerminalScrollModel: Equatable, Sendable {
         state = .reading(anchor)
     }
 
+    /// Find revealed a match: the page reads from `row` (its top edge), unless a
+    /// finger owns the page. Output then never moves the match away.
+    public mutating func reveal(row: Int) {
+        guard !isInteracting else { return }
+        touchedBottom = false
+        movedUp = false
+        lastOffsetY = nil
+        state = .reading(Anchor(row: max(0, row), delta: 0))
+    }
+
     /// Ghostty pruned `-rows` of its oldest rows (`TerminalHistoryPrune`):
     /// the rows being read keep their identity under the new numbering.
     public mutating func shiftRows(by rows: Int) {

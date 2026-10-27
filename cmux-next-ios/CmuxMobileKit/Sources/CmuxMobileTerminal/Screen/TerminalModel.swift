@@ -2,7 +2,10 @@
 import CmuxMobileArtifacts
 import Foundation
 import Observation
+import OSLog
 import UIKit
+
+private let modelLog = Logger(subsystem: "dev.cmux.mobile", category: "terminal")
 
 /// The terminal screen's state, shared by the UIKit controller (surface,
 /// scrolling, keyboard tracking) and the SwiftUI chrome (toolbar, composer,
@@ -309,6 +312,43 @@ public final class TerminalModel {
     /// Ctrl-<letter> to the program (`c` interrupts, `l` clears).
     public func sendControl(_ letter: Character) {
         keyBar(.chord(letter))
+    }
+
+    /// Clear Screen and Scrollback can run now: on a Mac terminal while it is attached and
+    /// on its shell (the Mac's clear leaves a full-screen app as it is), else as Ctrl-L.
+    public var canClearScreenAndScrollback: Bool {
+        session.clearsHistory ? connectionState.isAttached && !isTUI : true
+    }
+
+    /// The Mac's Clear Screen and Scrollback (Cmd-K): the Mac's daemon clears the terminal,
+    /// so its scrollback goes on the Mac and on every phone (`clear-history`). A session
+    /// with no Mac behind it gets Ctrl-L.
+    public func clearScreenAndScrollback() {
+        guard session.clearsHistory else { return sendControl("l") }
+        let session = session
+        Task { @MainActor in
+            do {
+                try await session.clearHistory()
+            } catch {
+                modelLog.error("clear-history failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// A web link tapped in the terminal: a cmux browser tab beside it in the workspace
+    /// (the page sets it, like the Mac's Cmd-click); without one, Safari. Not observed: the
+    /// page sets it while SwiftUI builds it.
+    @ObservationIgnored public var linkOpener: (@MainActor (URL) -> Void)?
+
+    /// Opens a web link the person tapped: a cmux browser tab, or (`external`) Safari.
+    public func openLink(_ url: URL, external: Bool = false) {
+        if !external, let linkOpener { return linkOpener(url) }
+        UIApplication.shared.open(url)
+    }
+
+    /// Find… (the page menu, Cmd-F): the find bar over the terminal's rows.
+    public func showFind() {
+        controller?.presentFind()
     }
 
     #if DEBUG

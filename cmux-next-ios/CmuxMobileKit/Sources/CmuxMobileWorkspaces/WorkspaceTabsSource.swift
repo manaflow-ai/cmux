@@ -706,6 +706,33 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
     }
 
+    /// A web link tapped in a terminal tab (the Mac's Cmd-click): a cmux browser tab at `url`
+    /// beside the terminal on the Mac, shown here once the Mac lists it.
+    public func openLink(_ url: URL, fromTab id: TabsKitTab.ID) async {
+        guard let workspace, let creator, let tab = workspaceTab(id) else { return }
+        if let pending = pendingTabTitle {
+            show("Still opening \(pending). Try again once it's open.")
+            return
+        }
+        let title = WorkspaceTabsSource.option(.browser).title
+        pendingTabTitle = title
+        defer { pendingTabTitle = nil }
+        do {
+            let opened = try await creator.backend.openLink(url, besides: tab, in: workspace)
+            if store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == opened.id }) != true {
+                store.appendTab(opened, to: workspaceID)
+            }
+            activate(opened.id)
+            openedTab = opened.id
+        } catch let error as WorkspaceCreationError where error.isForPerson {
+            show(named(error.message))
+            CmuxMobileTheme.standard.haptics.error()
+        } catch {
+            show(TabNotice(action: .open(optionTitle: title), macName: macName, reason: Self.message(error)))
+            CmuxMobileTheme.standard.haptics.error()
+        }
+    }
+
     /// The Mac's wording (`terminal.restart.button`, `action.tab.restart`).
     public static let restartShellTitle = "Restart Shell Here"
 
@@ -1222,9 +1249,11 @@ struct WorkspaceTabPage: View {
 
     private var terminalContext: TerminalTabContext {
         let context = context
+        let tabID = tabID
         return TerminalTabContext(safeAreaInsets: context.safeAreaInsets, isInteractive: context.isInteractive,
                                   isZoomGestureActive: context.isZoomGestureActive,
-                                  reportScroll: { context.reportScroll(fingerDelta: $0) })
+                                  reportScroll: { context.reportScroll(fingerDelta: $0) },
+                                  openLink: { [weak source] url in Task { await source?.openLink(url, fromTab: tabID) } })
     }
 }
 
