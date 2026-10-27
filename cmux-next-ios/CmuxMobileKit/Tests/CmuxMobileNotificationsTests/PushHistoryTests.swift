@@ -141,4 +141,35 @@ import UserNotifications
         let terminal = PushPayload(mac: "m", kind: .terminal, notificationId: "n1", replyable: true)
         #expect(PushReply(payload: terminal, button: .terminalReply, text: "ls", attachments: ["p.png"])?.action == .text("ls", attachments: []))
     }
+
+    /// Review finding (9061d497): a file keeps its original date when copied or moved, so
+    /// one last edited days ago was pruned as expired before its Reply read it.
+    @Test func anAdoptedOldFileIsDatedNowAndSurvivesThePrune() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("push-adopt-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let outbox = PushOutbox(directory: dir.appendingPathComponent("outbox", isDirectory: true))
+        let old = Date().addingTimeInterval(-3 * 24 * 3600)
+        for name in ["report.pdf", "photo.jpg"] {
+            let source = dir.appendingPathComponent(name)
+            try Data("x".utf8).write(to: source)
+            try FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: source.path)
+        }
+        try outbox.adopt(dir.appendingPathComponent("report.pdf"), as: "a1-report.pdf", move: true)
+        try outbox.adopt(dir.appendingPathComponent("photo.jpg"), as: "b2-photo.jpg", move: false)
+        try outbox.stage(["a1-report.pdf", "b2-photo.jpg"], for: "request-1")
+        outbox.pruneAttachments()
+        #expect(outbox.takeStaged(for: "request-1") == ["a1-report.pdf", "b2-photo.jpg"])
+        // A name that is a path is refused.
+        #expect(throws: PushOutbox.Refused.self) { try outbox.adopt(dir.appendingPathComponent("x"), as: "../x", move: false) }
+    }
+
+    @Test func aStageNeverRepliedToIsPruned() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("push-prune-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let outbox = PushOutbox(directory: dir)
+        try outbox.stage(["a.png"], for: "dismissed")
+        outbox.pruneAttachments(now: Date().addingTimeInterval(PushOutbox.maxAge + 1))
+        #expect((try? FileManager.default.contentsOfDirectory(atPath: outbox.staged.path))?.isEmpty ?? true)
+    }
 }

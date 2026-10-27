@@ -132,7 +132,7 @@ final class NotificationContentModel {
         config.filter = .any(of: [.images, .screenshots])
         config.selectionLimit = 6
         let picker = PHPickerViewController(configuration: config)
-        let delegate = PickerDelegate(folder: outbox.attachments) { [weak self] item in self?.added(item) }
+        let delegate = PickerDelegate(outbox: outbox) { [weak self] item in self?.added(item) }
         pickerDelegate = delegate
         picker.delegate = delegate
         presentPicker(picker)
@@ -143,7 +143,7 @@ final class NotificationContentModel {
         guard let outbox else { return openApp() }
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
         picker.allowsMultipleSelection = true
-        let delegate = FilePickerDelegate(folder: outbox.attachments) { [weak self] result in
+        let delegate = FilePickerDelegate(outbox: outbox) { [weak self] result in
             switch result {
             case .success(let item): self?.added(item)
             case .failure: self?.failure = String(localized: "That file is too large to send from a notification.")
@@ -188,14 +188,14 @@ nonisolated func attachmentName(_ original: String) -> String {
     return String(UUID().uuidString.prefix(8)).lowercased() + "-" + String(clean.suffix(120))
 }
 
-/// Copies picked images into the outbox's attachments folder.
+/// Copies picked images into the outbox's attachments (`PushOutbox.adopt`).
 @MainActor
 private final class PickerDelegate: NSObject, PHPickerViewControllerDelegate {
-    let folder: URL
+    let outbox: PushOutbox
     let done: @MainActor @Sendable (PickedAttachment) -> Void
 
-    init(folder: URL, done: @escaping @MainActor @Sendable (PickedAttachment) -> Void) {
-        self.folder = folder
+    init(outbox: PushOutbox, done: @escaping @MainActor @Sendable (PickedAttachment) -> Void) {
+        self.outbox = outbox
         self.done = done
     }
 
@@ -218,21 +218,21 @@ private final class PickerDelegate: NSObject, PHPickerViewControllerDelegate {
     }
 }
 
-/// Moves files picked in Files into the outbox's attachments folder.
+/// Moves files picked in Files into the outbox's attachments (`PushOutbox.adopt`).
 @MainActor
 private final class FilePickerDelegate: NSObject, UIDocumentPickerDelegate {
     struct TooLarge: Error {}
 
-    let folder: URL
+    let outbox: PushOutbox
     let done: @MainActor (Result<PickedAttachment, TooLarge>) -> Void
 
-    init(folder: URL, done: @escaping @MainActor (Result<PickedAttachment, TooLarge>) -> Void) {
-        self.folder = folder
+    init(outbox: PushOutbox, done: @escaping @MainActor (Result<PickedAttachment, TooLarge>) -> Void) {
+        self.outbox = outbox
         self.done = done
     }
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        let folder = folder
+        let outbox = outbox
         Task { @MainActor in
             for url in urls {
                 let result = await Task.detached(priority: .userInitiated) { () -> Result<PickedAttachment, TooLarge>? in
