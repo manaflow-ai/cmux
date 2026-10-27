@@ -10,6 +10,15 @@ import CmuxTheme
 import Foundation
 import Testing
 
+private struct PlacementGalleryCaptured: Decodable, Sendable {
+    struct Write: Decodable, Sendable {
+        let workspace_key: String
+        let index: Int
+    }
+    let order: [String]
+    let writes: [Write]
+}
+
 /// Native gallery fixture, not a live-daemon recording. The actual production
 /// pending-placement path sends its commands to a scripted daemon; its writes
 /// are mirrored back and the real AppKit sidebar is saved without image edits.
@@ -25,16 +34,8 @@ struct PlacementStaleRowsGalleryTests {
         typealias Response = EmptyResponse
         static let command = "gallery-wait-for-write"
     }
-    private struct Captured: Decodable, Sendable {
-        struct Write: Decodable, Sendable {
-            let workspace_key: String
-            let index: Int
-        }
-        let order: [String]
-        let writes: [Write]
-    }
     private struct ReadCaptured: DaemonRequest {
-        typealias Response = Captured
+        typealias Response = PlacementGalleryCaptured
         static let command = "gallery-report"
     }
 
