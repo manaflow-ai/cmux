@@ -177,6 +177,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let rateClasses = services.features.isEnabled(.frameRateClasses)
         FrameScheduler.appDisplays.followsClientRates = rateClasses
         DesignSettings.shared.loopsFollowFrameRate = rateClasses
+        // Ambient steps (p14-energy-126): cmux pages draw their loops 15 frames a second.
+        DesignSettings.shared.pageAmbientSteps = services.features.isEnabled(.pageAmbientSteps)
         services.startEnergy()  // before any tab: WebKit, KeepAwake and the video wallpaper start from the inputs
         // VSyncHub (p03-rendering-014): each display's link on that display's vsync thread, one
         // coalesced main post per vsync. Off until the hop measurement is recorded (threading-model.md).

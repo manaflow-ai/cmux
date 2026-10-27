@@ -10,6 +10,7 @@ import "../../ui/wave.css";
 import { parseComputedColor } from "../../backdrop";
 import { experimentArm } from "../../experiments/experiment";
 import { installScrollers } from "../../scrollers";
+import { installAmbientStep } from "../../ui/ambientStep";
 import { chromiumGlassUnderlay } from "../../ui/glass/chromiumUnderlay.experiment";
 import { installBackdropFallback } from "../../ui/glass/glassState";
 import { installSpinnerClock } from "../../ui/spinnerClock";
@@ -65,6 +66,9 @@ export function installDesktopLayer(doc: Document = document): void {
   installSpinnerClock(doc);
   // RUNNING-WAVE: no wave runs while the page is hidden (ui/wave.ts).
   installWave(doc);
+  // AMBIENT-STEP: under `data-cmux-ambient="step"` those loops draw 15 frames a second from the page
+  // clock (ui/ambientStep.ts). After the two above: their listeners play a loop, this one pauses it.
+  installAmbientStep(doc);
   // CHROMIUM OVER THE WINDOW GLASS: the glass underlay's strength (chromiumUnderlay.experiment.ts).
   root.setAttribute(GLASS_UNDERLAY_ATTRIBUTE, experimentArm(chromiumGlassUnderlay));
   const view = doc.defaultView;

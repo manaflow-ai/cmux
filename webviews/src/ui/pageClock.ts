@@ -1,4 +1,5 @@
-// One clock per page for every label that shows the time or an elapsed time (p14-energy-060).
+// One clock per page for every label that shows the time or an elapsed time (p14-energy-060), and
+// for the steps of its ambient loops (p14-energy-126).
 //
 // Each granularity (a second, a minute) runs at most one setTimeout chain per page, however many
 // labels read it, and each wake lands on the wall-clock boundary of its period, so all labels on the
@@ -11,10 +12,19 @@
 
 import { type PageLifecycle, type PageLifecycleState, pageLifecycleFor } from "../pages/shared/pageLifecycle";
 
-/** How often a clock ticks: on each second or each minute of the wall clock. */
-export type ClockGranularity = "second" | "minute";
+/** How often a clock ticks: on each second or each minute of the wall clock, or on each ambient step,
+    the frame of a page's looping indicators (ui/ambientStep.ts). */
+export type ClockGranularity = "ambient" | "second" | "minute";
 
-const PERIOD_MS: Record<ClockGranularity, number> = { second: 1000, minute: 60_000 };
+/** Ambient steps per second: spinners, shimmer and the running wave draw this many frames, not one
+    per display refresh (p14-energy-126). */
+export const AMBIENT_STEPS_PER_SECOND = 15;
+
+const PERIOD_MS: Record<ClockGranularity, number> = {
+  ambient: 1000 / AMBIENT_STEPS_PER_SECOND,
+  second: 1000,
+  minute: 60_000,
+};
 
 /** The period of `granularity` in milliseconds. */
 export function clockPeriodMs(granularity: ClockGranularity): number {
@@ -83,8 +93,9 @@ class ClockChannel {
   private arm(now: number): void {
     const period = PERIOD_MS[this.granularity];
     // The next boundary strictly after now: a timeout that fires a little early still lands in the
-    // period it was armed for and re-arms for the boundary it missed by that margin.
-    const delay = clockFloor(now, this.granularity) + period - now;
+    // period it was armed for and re-arms for the boundary it missed by that margin. Rounded up, as
+    // setTimeout truncates a fraction and the ambient period is not whole milliseconds.
+    const delay = Math.ceil(clockFloor(now, this.granularity) + period - now);
     this.armed = true;
     this.handle = this.timers.after(delay, this.fire);
   }
@@ -128,6 +139,12 @@ export class PageClock {
    */
   now(): number {
     return clockFloor(this.timers.now(), "second");
+  }
+
+  /** The start of the current period of `granularity`: what a subscriber to it draws, so every
+      subscriber on the page draws the same instant until the next boundary. */
+  periodStart(granularity: ClockGranularity): number {
+    return clockFloor(this.timers.now(), granularity);
   }
 
   /** Calls `listener` on each boundary of `granularity` while the page is active; returns the

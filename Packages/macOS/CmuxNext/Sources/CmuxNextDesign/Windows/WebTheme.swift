@@ -48,6 +48,12 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// (chrome/browser/performance_manager/user_tuning/battery_saver_mode_manager.cc). Nil leaves
     /// the payload as it was and the bootstrap removes the attribute.
     public let energy: String?
+    /// `step` with feature `pageAmbientSteps` (``DesignSettings/pageAmbientSteps``), else nil:
+    /// `data-cmux-ambient` on `<html>`, under which a page's ambient loops (spinners, shimmer, the
+    /// running wave) draw 15 frames a second from its page clock, as Chrome steps an animated image
+    /// on its own frame times (cc/paint/image_animation_controller.cc). Nil leaves the payload as it
+    /// was and the bootstrap removes the attribute.
+    public let ambient: String?
 
     /// The terminal colors a page highlights code with: the scope's opaque background and
     /// readable foreground, and its ANSI palette as the theme names it (the page lifts each
@@ -149,6 +155,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         let webMotion = Motion.web.policy
         motion = Self.motionValue(webMotion)
         energy = Self.energyValue(webMotion)
+        ambient = Self.ambientValue(steps: DesignSettings.shared.pageAmbientSteps)
         self.glass = (glass ?? .current).rawValue
     }
 
@@ -166,8 +173,14 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         policy.energySaver ? "saver" : nil
     }
 
+    /// `data-cmux-ambient` for feature `pageAmbientSteps`: `step` when on, else nil (no attribute).
+    public static func ambientValue(steps: Bool) -> String? {
+        steps ? "step" : nil
+    }
+
     /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, workingLook, motion, glass}`
-    /// and `energy` under Energy Saver only (`terminal.fontFamily` is null when the terminal has no named face).
+    /// `energy` under Energy Saver only and `ambient` with feature `pageAmbientSteps` only (`terminal.fontFamily`
+    /// is null when the terminal has no named face).
     /// How the page's color variables move to new values (`appearance.colorTransition`, the same
     /// duration, curve and blend space as native): `{duration, easing, space}`.
     public let transition: [String: String]
@@ -177,6 +190,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
                                      "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators,
                                      "workingLook": workingLook, "motion": motion, "glass": glass]
         if let energy { object["energy"] = energy }
+        if let ambient { object["ambient"] = ambient }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json
@@ -319,6 +333,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           // Energy Saver: only under it does the payload carry `energy`, so its absence clears the mark.
           if (payload.energy) root.setAttribute('data-cmux-energy', payload.energy);
           else root.removeAttribute('data-cmux-energy');
+          // Feature pageAmbientSteps: ambient loops step on the page clock (webviews ui/ambientStep.ts).
+          if (payload.ambient) root.setAttribute('data-cmux-ambient', payload.ambient);
+          else root.removeAttribute('data-cmux-ambient');
           if (payload.glass) root.setAttribute('data-glass', payload.glass);
           window.cmuxTheme.current = payload;
           window.dispatchEvent(new CustomEvent('cmux-theme', { detail: payload }));

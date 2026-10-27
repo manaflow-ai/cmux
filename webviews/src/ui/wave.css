@@ -6,7 +6,8 @@
    back whole periods so it is never positive (no item waits at rest). Opacity only. It stops under
    Reduce Motion, the motion gate (`data-cmux-motion` off or reduced), Energy Saver
    (`data-cmux-energy`), static status indicators and a hidden page; a stopped item shows at full
-   strength. */
+   strength. Under `data-cmux-ambient="step"` the loop draws 15 frames a second from the page clock
+   (ui/ambientStep.ts). */
 :root {
   --cmux-wave-period: 1.6s;
   --cmux-wave-step: 120ms;

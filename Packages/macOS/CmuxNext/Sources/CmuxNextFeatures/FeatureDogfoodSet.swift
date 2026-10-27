@@ -82,6 +82,7 @@ public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
         "newTabParksHidden",
         "occludedWindowDiscard",
         "overlayTopLayer",
+        "pageAmbientSteps",
         "pageHangNotice",
         "pageLifecycle",
         "pageProcessGroups",
