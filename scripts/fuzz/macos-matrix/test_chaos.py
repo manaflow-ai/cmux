@@ -416,8 +416,8 @@ class QuitStorm(unittest.TestCase):
     def setUp(self):
         smoke.RFB = FakeVNC
         chaos.REPORT_DEADLINE = 0
-        self.saved = (chaos.QUIT_EXIT_DEADLINE, chaos.QUIT_ASK_WAIT, chaos.CHILD_EXIT_DEADLINE)
-        chaos.QUIT_EXIT_DEADLINE = chaos.QUIT_ASK_WAIT = chaos.CHILD_EXIT_DEADLINE = 0  # one look each
+        self.saved = (chaos.QUIT_EXIT_DEADLINE, chaos.QUIT_ASK_WAIT, chaos.CHILD_EXIT_DEADLINE, chaos.QUIT_POLL)
+        chaos.QUIT_EXIT_DEADLINE = chaos.QUIT_ASK_WAIT = chaos.CHILD_EXIT_DEADLINE = chaos.QUIT_POLL = 0  # one look each
         self.out = tempfile.mkdtemp(prefix="chaos-quit-")
         self.g = FakeGuest()
         self.c = chaos.Chaos(self.g, "127.0.0.1:5900:pw", self.out)
@@ -430,6 +430,15 @@ class QuitStorm(unittest.TestCase):
         self.ignores_quit = False
         self.status: int | None = None
         self.sheet = False
+        self.sheet_late = False  # the sheet shows only after the first debug.quit look
+        self.second_cmd_q_dropped = False  # the second Cmd-Q never reaches the app
+        self.probe_error = False  # debug.quit answers with an error once two Cmd-Qs went
+        self.forced_exit = False  # the app exits by QuitDeadline: status 0 after its app.quit fault
+        self.panes = 3
+        self.split_takes = True  # Cmd-D adds a pane (restored after the relaunch)
+        self.g.answers['category == "app.quit"'] = lambda: (json.dumps({
+            "eventMessage": "quit still running 15.0 s after the engines began to stop; ending the process",
+            "category": "app.quit", "messageType": "Fault"}) + "\n") if self.forced_exit else ""
         self.left_children: list[int] = []  # Chromium children still running after the exit
         self.ps = [(800, 4242, "/x/Chromium Helper --type=renderer"), (801, 4242, "/x/Chromium Helper --type=gpu-process")]
         self.relaunch_problems: dict = {}
@@ -445,21 +454,38 @@ class QuitStorm(unittest.TestCase):
         self.c.kill = lambda pids: self.keys.append("kill:" + ",".join(map(str, pids)))
 
     def tearDown(self):
-        chaos.QUIT_EXIT_DEADLINE, chaos.QUIT_ASK_WAIT, chaos.CHILD_EXIT_DEADLINE = self.saved
+        chaos.QUIT_EXIT_DEADLINE, chaos.QUIT_ASK_WAIT, chaos.CHILD_EXIT_DEADLINE, chaos.QUIT_POLL = self.saved
 
     def press(self, chord: str) -> None:
         self.keys.append(chord)
+        if chord == "cmd+d" and self.split_takes and self.status is None:
+            self.panes += 1
         if chord != "cmd+q" or self.ignores_quit:
             return
         if self.asks and not self.sheet and self.status is None and self.keys.count("cmd+q") == 1:
-            self.sheet = True
+            self.sheet, self.sheet_late = not self.sheet_late, self.sheet_late
             return
+        if self.second_cmd_q_dropped and self.keys.count("cmd+q") == 2:
+            return
+        self.exit_app()
+
+    def exit_app(self) -> None:
         self.sheet, self.status = False, self.exit_code
         self.ps = [row for row in self.ps if row[0] in self.left_children]
 
     def call(self, method: str, params: dict | None = None, timeout: float = 60) -> dict:
         if method == "debug.quit":
-            return {"asking": self.sheet, "quitting": self.sheet}
+            if (params or {}).get("press") == "quit" and self.sheet:
+                self.exit_app()
+                return {"pressed": "quit"}
+            if self.probe_error and self.keys.count("cmd+q") >= 2:
+                return {"error": "timed out"}
+            reply = {"asking": self.sheet, "quitting": self.sheet}
+            if self.sheet_late:  # shows right after this look
+                self.sheet, self.sheet_late = True, False
+            return reply
+        if method == "debug.focus":
+            return {"windows": [{"is_key": True, "topology": [f"p{i}" for i in range(self.panes)]}]}
         if method == "debug.daemon":
             return {"pid": 31, "connection": "connected"}
         return {}
@@ -486,11 +512,42 @@ class QuitStorm(unittest.TestCase):
         self.assertEqual(self.quits, [4242])
         self.assertIn("quit_state", detail)
 
-    def test_a_nonzero_exit_fails(self):
-        self.exit_code = 137  # the hard quit deadline's forced exit, or a crash
+    def test_a_sheet_that_shows_after_the_first_look_is_still_answered(self):
+        self.sheet_late = True
+        chaos.QUIT_EXIT_DEADLINE = 5
+        ok, detail = self.c.quit_storm()
+        self.assertTrue(ok, detail)
+        self.assertEqual((detail["sheet"], self.keys), ("cmd-q", ["cmd+q", "cmd+q"]))
+
+    def test_a_debug_quit_error_after_the_second_cmd_q_still_presses_the_default(self):
+        self.second_cmd_q_dropped = self.probe_error = True
+        ok, detail = self.c.quit_storm()
+        self.assertTrue(ok, detail)
+        self.assertEqual((detail["sheet"], detail["exit_status"]), ("press-default", 0))
+
+    def test_the_hard_quit_deadlines_forced_exit_fails(self):
+        self.forced_exit = True  # QuitDeadline: the app.quit fault, then _exit(0)
         ok, detail = self.c.quit_storm()
         self.assertFalse(ok)
-        self.assertEqual(detail["exit_status"], 137)
+        self.assertEqual(detail["exit_status"], 0)
+        self.assertEqual(len(detail["forced_exit"]), 1)
+        query = next(c for c in self.g.commands if c.startswith("log show"))
+        self.assertIn("--start '@", query)
+        self.assertIn("--end '@", query)
+
+    def test_a_forced_exit_fails_the_quit_fault_row(self):
+        self.forced_exit = True
+        self.g.app_pid = 5000  # the relaunched app
+        self.c.tabs = {"left": "tL"}
+        self.c.focus = lambda tab: {}
+        row = self.c.run_fault("quit-typing", "quit")
+        self.assertEqual(row["outcome"], "FAIL", row)
+
+    def test_a_crash_exit_fails(self):
+        self.exit_code = 139
+        ok, detail = self.c.quit_storm()
+        self.assertFalse(ok)
+        self.assertEqual(detail["exit_status"], 139)
 
     def test_a_chromium_child_left_after_the_exit_fails_and_is_killed(self):
         self.left_children = [801]
@@ -523,10 +580,23 @@ class QuitStorm(unittest.TestCase):
     def test_quit_split_animation_presses_cmd_d_right_before_cmd_q(self):
         self.c.tabs = {"left": "tL"}
         self.c.focus = lambda tab: {}
-        self.c.panes = lambda: 2
-        ok, _ = self.c.fault_quit_split_animation()
-        self.assertTrue(ok)
+        ok, detail = self.c.fault_quit_split_animation()
+        self.assertTrue(ok, detail)
         self.assertEqual(self.keys[:2], ["cmd+d", "cmd+q"])
+        self.assertEqual((detail["panes_before"], detail["panes_at_quit"], detail["panes_restored"]), (3, 4, 4))
+
+    def test_quit_split_animation_without_a_split_is_skip_never_ok(self):
+        self.split_takes = False
+        self.c.tabs = {"left": "tL"}
+        self.c.focus = lambda tab: {}
+        with self.assertRaises(chaos.Skip):
+            self.c.fault_quit_split_animation()
+        self.g.app_pid = 5000
+        self.c.app_pid = 4242
+        self.status, self.keys, self.panes = None, [], 3
+        row = self.c.run_fault("quit-split-animation", "quit")
+        self.assertEqual(row["outcome"], "skip", row)
+        self.assertIn("no split", row["detail"])
 
     def test_quit_page_load_opens_both_engines_on_a_server_that_never_answers(self):
         opened = []

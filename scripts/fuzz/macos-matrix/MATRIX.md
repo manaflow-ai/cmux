@@ -122,11 +122,13 @@ checked after recovery. Each fault has its own expected outcome:
 | `quit-page-load` | Cmd-Q (VNC keys) while a Chromium and a WebKit tab load from a guest server that accepts and never answers | the quit result (below) |
 | `quit-typing` | Cmd-Q in the middle of a line typed into a terminal (VNC keys); the rest typed after | the quit result |
 | `quit-daemon-restart` | SIGKILL the cmux-tui daemon, then Cmd-Q at once, while the app reconnects | the quit result |
-| `quit-split-animation` | Cmd-D, then Cmd-Q at once, while the new split animates | the quit result |
+| `quit-split-animation` | Cmd-D, then Cmd-Q at once, while the new split animates | the quit result; `skip` when neither the app at the quit (`debug.focus`) nor the relaunch's restored layout has the new pane |
 
-The quit storm (phase `quit`) answers a quit sheet with a second Cmd-Q (its default), and only if that leaves it
-open presses the default through `debug.quit`. The quit result: the app exits 0 within 30 s of the first Cmd-Q
-(its hard quit deadline is 15 s), every Chromium child it had ends within 10 s of the exit, and a relaunch
+The quit storm (phase `quit`) answers a quit sheet whenever it shows before the exit with a second Cmd-Q (its
+default), and only if that leaves it open, or `debug.quit` cannot say, presses the default through `debug.quit`.
+The quit result: the app exits 0 within 30 s of the first Cmd-Q and not by its hard quit deadline (15 s; it logs
+the `app.quit` fault "quit still running" and then exits 0, so that fault between the first Cmd-Q and the exit
+fails the fault), every Chromium child it had ends within 10 s of the exit, and a relaunch
 answers a ping and passes the tour (terminals, pages, an echo). A crash report of any cmux, daemon or acpmux
 process from the Cmd-Q through the relaunch's tour fails the fault. A quit fault has no pings while the app is
 down; its three pings and `app_pid_kept` are about the relaunched app.

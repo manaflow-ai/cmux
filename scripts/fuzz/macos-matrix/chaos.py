@@ -45,17 +45,21 @@ right before and right after every kill; the checked echo comes after recovery.
                      new workspace; it keeps working after the space is freed.
 
 The quit storm (phase `quit`) presses Cmd-Q as real keys over VNC while something is in flight, then
-relaunches. A quit sheet is answered by a second Cmd-Q (its default, QuitAlert.answerDefault), and only
-when that leaves it open by `debug.quit` pressing its default button. Each needs: the app exits with status 0 within
-30 s of the first Cmd-Q, every Chromium child it had (`--type=`) ends within 10 s of the exit, and a
-relaunch answers a ping and passes the tour (two terminals, the pages, a typed echo). Any crash report
-of a cmux, daemon or acpmux process in the window (the quit through the relaunch's tour) fails it.
+relaunches. A quit sheet, whenever it shows before the exit, is answered by a second Cmd-Q (its default,
+QuitAlert.answerDefault), and only when that leaves it open (or debug.quit cannot say) by `debug.quit`
+pressing its default button. Each needs: the app exits with status 0 within 30 s of the first Cmd-Q and
+not by its hard quit deadline (QuitDeadline logs the app.quit fault "quit still running" and then exits 0:
+that fault between the first Cmd-Q and the exit fails it), every Chromium child it had (`--type=`) ends
+within 10 s of the exit, and a relaunch answers a ping and passes the tour (two terminals, the pages, a
+typed echo). Any crash report of a cmux, daemon or acpmux process in the window (the quit through the
+relaunch's tour) fails it.
 
   quit-page-load     Cmd-Q while a Chromium and a WebKit tab load from a guest server that accepts and
                      never answers.
   quit-typing        Cmd-Q in the middle of a line typed into a terminal; the rest of it typed after.
   quit-daemon-restart Cmd-Q right after a SIGKILL of the cmux-tui daemon, while the app reconnects.
-  quit-split-animation Cmd-Q right after Cmd-D, while the new split animates.
+  quit-split-animation Cmd-Q right after Cmd-D, while the new split animates (skip when neither the app
+                     at the quit nor the relaunch's restored layout has the new pane).
 
 Every fault also needs: the app's pid unchanged, every main-thread ping answered within 10 s (one a
 second on a thread of its own while the fault and its recovery run, three after; their times are
@@ -106,15 +110,18 @@ HOME_MOUNT = "/tmp/cmux-chaos-home"
 BASE_ENV = "CMUX_NEXT_SOCKET_MODE=automation"
 PF_ANCHOR = "com.apple/cmux-chaos"  # /etc/pf.conf evaluates every com.apple/* anchor
 QUIT_EXIT_DEADLINE = 30  # s from the first Cmd-Q to the exit: the app's hard quit deadline is 15 s (QuitDeadline)
-QUIT_ASK_WAIT = 3  # s for the quit sheet to show, and then to close after the second Cmd-Q
+QUIT_ASK_WAIT = 3  # s for the quit sheet to close after the second Cmd-Q before debug.quit presses its default
+QUIT_POLL = 0.25  # s between looks at the exit and the quit sheet
 CHILD_EXIT_DEADLINE = 10  # s after the app's exit for its Chromium children to end
 TARPIT_PORT = 8740
 TARPIT_PID = "/tmp/cmux-chaos-tarpit.pid"
 # Accepts every connection and never answers, so a page that loads from it is still loading at the quit.
 PERL_TARPIT = ("my $s = IO::Socket::INET->new(LocalPort => shift, Listen => 64, ReuseAddr => 1) or die $!;"
                " my @held; while (my $c = $s->accept) { push @held, $c }")
-QUIT_EXPECTED = ("the app exits 0 within 30 s (a quit sheet answered by a second Cmd-Q); its Chromium children "
-                 "end; a relaunch tours and a typed echo runs; no crash report")
+QUIT_EXPECTED = ("the app exits 0 within 30 s (a quit sheet answered by a second Cmd-Q), not by its hard quit "
+                 "deadline; its Chromium children end; a relaunch tours and a typed echo runs; no crash report")
+# The app.quit fault QuitDeadline logs right before its forced exit, which is status 0 too.
+FORCED_QUIT_LINE = "quit still running"
 PF_RULES = ("pass quick on lo0 all\n"
             "pass in quick proto tcp from any to any port 22 flags any keep state\n"
             "pass out quick proto tcp from any port 22 to any flags any keep state\n"
@@ -144,7 +151,8 @@ FAULTS = {
     "quit-page-load": ("quit", "Cmd-Q while a Chromium and a WebKit page load: " + QUIT_EXPECTED),
     "quit-typing": ("quit", "Cmd-Q in the middle of keys typed into a terminal: " + QUIT_EXPECTED),
     "quit-daemon-restart": ("quit", "Cmd-Q right after the daemon is SIGKILLed: " + QUIT_EXPECTED),
-    "quit-split-animation": ("quit", "Cmd-Q right after Cmd-D, while the split animates: " + QUIT_EXPECTED),
+    "quit-split-animation": ("quit", "Cmd-Q right after Cmd-D, while the split animates (skip when the split never "
+                                     "came): " + QUIT_EXPECTED),
 }
 PHASES = {  # phase: (extra environment, shell prelude) of its launch
     "app": ("", ""),
@@ -740,38 +748,68 @@ class Chaos(Smoke):
         """Which of `pids` still run as a Chromium child (a reused pid runs something else)."""
         return sorted(pid for pid, _, args in self.procs() if pid in pids and "--type=" in args)
 
-    def answer_quit_sheet(self) -> str:
-        """`none` when the app quit without asking, `cmd-q` when a second Cmd-Q answered the sheet with its
-        default, `press-default` when debug.quit had to press it ("quit" is Keep on a sheet without Quit)."""
-        def state():
-            if self.exited() is not None:
-                return "exited"
-            return "asking" if self.call("debug.quit", timeout=5).get("asking") else None
-        if self.poll(state, QUIT_ASK_WAIT, 0.25) != "asking":
-            return "none"
-        self.press("cmd+q")
-        if self.poll(lambda: self.exited() is not None or not self.call("debug.quit", timeout=5).get("asking"),
-                     QUIT_ASK_WAIT, 0.25):
-            return "cmd-q"
-        self.call("debug.quit", {"press": "quit"}, timeout=5)
-        return "press-default"
+    def quit_sheet(self) -> str | None:
+        """`asking` or `closed` as debug.quit says; None when it did not answer, which is unknown, never closed."""
+        reply = self.call("debug.quit", timeout=5)
+        if "error" in reply:
+            return None
+        return "asking" if reply.get("asking") else "closed"
 
-    def quit_storm(self, before=None, after=None) -> tuple[bool, dict]:
+    def await_exit(self) -> tuple[int | None, str]:
+        """The exit status within QUIT_EXIT_DEADLINE (None: no exit), answering a quit sheet whenever it shows
+        before then. How it was answered: `none` (never asked), `cmd-q` (a second Cmd-Q, its default) or
+        `press-default` (still up or unknown QUIT_ASK_WAIT after that Cmd-Q: debug.quit pressed its default;
+        "quit" is Keep on a sheet without Quit). A look that acts is always followed by another."""
+        deadline = time.time() + QUIT_EXIT_DEADLINE
+        sheet, answered_at, closed = "none", 0.0, False
+        while True:
+            status = self.exited()
+            if status is not None:
+                return status, sheet
+            state = self.quit_sheet()
+            acted = False
+            if sheet == "none" and state == "asking":
+                self.press("cmd+q")
+                sheet, answered_at, acted = "cmd-q", time.time(), True
+            elif sheet == "cmd-q":
+                closed = state == "closed" or (closed and state is None)
+                if not closed and time.time() - answered_at >= QUIT_ASK_WAIT:
+                    self.call("debug.quit", {"press": "quit"}, timeout=5)
+                    sheet, acted = "press-default", True
+            if not acted and time.time() >= deadline:
+                return self.exited(), sheet
+            time.sleep(QUIT_POLL)
+
+    def forced_quits(self, since: float, until: float) -> list[str]:
+        """QuitDeadline's "quit still running" faults logged in [since, until] (guest clock)."""
+        out = self.g.sh(f"log show --style ndjson --start '@{int(since)}' --end '@{int(until) + 1}' --predicate "
+                        "'category == \"app.quit\" AND messageType == fault' 2>/dev/null | tail -50", timeout=120).stdout
+        found = []
+        for line in out.splitlines():
+            try:
+                message = json.loads(line).get("eventMessage", "") if line.startswith("{") else ""
+            except ValueError:
+                continue
+            if FORCED_QUIT_LINE in message:
+                found.append(message)
+        return found
+
+    def quit_storm(self, before=None, after=None, relaunched=None) -> tuple[bool, dict]:
         """Cmd-Q (real keys) between `before` and `after`; then the exit, the Chromium children and a
-        relaunch with the tour. Leaves the relaunched app as self.app_pid."""
+        relaunch (`relaunched` runs before its tour) with the tour. Leaves the relaunched app as self.app_pid."""
         old = self.app_pid
         children = self.chromium_children()
         self.g.refocus()
+        quit_from = self.guest_time()
         if before:
             before()
         self.press("cmd+q")
         if after:
             after()
         clock = time.time()
-        sheet = self.answer_quit_sheet()
-        self.poll(lambda: self.exited() is not None, max(0.0, QUIT_EXIT_DEADLINE - (time.time() - clock)))
-        status = self.exited()
-        detail = {"old_pid": old, "sheet": sheet, "exit_status": status,
+        status, sheet = self.await_exit()
+        forced = self.forced_quits(quit_from, self.guest_time())
+        detail = {"old_pid": old, "sheet": sheet, "exit_status": status, "forced_exit": forced,
                   "quit_seconds_vm": round(time.time() - clock, 1), "chromium_children": children}
         if status is None:
             detail["quit_state"] = self.call("debug.quit", timeout=10)
@@ -784,9 +822,11 @@ class Chaos(Smoke):
         self.app_pid = None
         if not self.launch("quit"):
             return False, {**detail, "relaunch": f"no ping within {LAUNCH_DEADLINE} s"}
+        if relaunched:
+            relaunched()
         problems = self.tour()
         detail.update(new_pid=self.app_pid, relaunch_tour=problems or "ok")
-        return status == 0 and not left and not problems, detail
+        return status == 0 and not forced and not left and not problems, detail
 
     def fault_quit_page_load(self):
         pages = self.tabs.get("cef") or self.missing("cef")
@@ -819,11 +859,26 @@ class Chaos(Smoke):
         ok, detail = self.quit_storm(before=lambda: self.kill([int(old)]))
         return ok, {"killed_daemon": old, **detail}
 
+    def pane_count(self, timeout: float) -> int:
+        """Smoke.panes with a bound: a quitting app may not answer."""
+        windows = self.call("debug.focus", timeout=timeout).get("windows") or []
+        window = next((w for w in windows if w.get("is_key")), windows[0] if windows else {})
+        return len(window.get("topology") or [])
+
     def fault_quit_split_animation(self):
         self.focus(self.tabs.get("left") or self.missing("left"))
-        panes = self.panes()
-        ok, detail = self.quit_storm(before=lambda: self.press("cmd+d"))  # Ghostty's split right
-        return ok, {"panes_before": panes, **detail}
+        before = self.pane_count(STEP_DEADLINE)
+        seen = {}
+
+        def restored():  # the relaunch's restored layout, before the tour adds panes
+            seen["restored"] = self.wait(lambda: (lambda n: n if n > before else None)(self.pane_count(5)), 10) or 0
+        ok, detail = self.quit_storm(before=lambda: self.press("cmd+d"),  # Ghostty's split right
+                                     after=lambda: seen.update(at_quit=self.pane_count(3)), relaunched=restored)
+        detail = {"panes_before": before, "panes_at_quit": seen.get("at_quit"),
+                  "panes_restored": seen.get("restored"), **detail}
+        if ok and max(seen.values(), default=0) <= before:
+            raise Skip(f"Cmd-D made no split before the quit: {json.dumps(detail)[:600]}")
+        return ok, detail
 
     def missing(self, role: str):
         raise RuntimeError(f"the tour has no {role} tab")
