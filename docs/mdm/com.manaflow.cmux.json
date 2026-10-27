@@ -4825,6 +4825,17 @@
       "title" : "Titlebar Buttons",
       "type" : "string"
     },
+    "workspaceColors.indicatorStyle" : {
+      "default" : "dot",
+      "description" : "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.",
+      "enum" : [
+        "dot",
+        "leftRail",
+        "fill"
+      ],
+      "title" : "Workspace Color Style",
+      "type" : "string"
+    },
     "workspaces.autoArchive.idleDays" : {
       "default" : 3,
       "description" : "A workspace counts as idle when you have not opened it and nothing in it changed for this many days. Pinned workspaces, running commands and workspaces that need you never archive.",

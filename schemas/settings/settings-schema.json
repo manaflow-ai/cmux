@@ -493,6 +493,7 @@
               "sidebar.detailedStatusIcons",
               "sidebar.showTimestamps",
               "sidebar.showColors",
+              "workspaceColors.indicatorStyle",
               "sidebar.showLocalMachine",
               "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount",
@@ -23244,6 +23245,88 @@
       "title" : {
         "key" : "settings.sidebar.showColors",
         "text" : "Show Workspace Colors"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "dot",
+        "leftRail",
+        "fill"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.workspaceColorDot",
+            "text" : "Dot"
+          },
+          "value" : "dot"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.workspaceColorLeftRail",
+            "text" : "Left Rail"
+          },
+          "value" : "leftRail"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.workspaceColorFill",
+            "text" : "Fill Row"
+          },
+          "value" : "fill"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "dot",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.workspaceColors.indicatorStyle.help",
+        "text" : "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaceColors.indicatorStyle",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "color",
+        "colour",
+        "tint",
+        "fill",
+        "row",
+        "background",
+        "rail",
+        "bar",
+        "dot",
+        "highlight",
+        "indicator",
+        "review",
+        "ready"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "workspaceColors",
+        "indicatorStyle"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.workspaceColors.indicatorStyle",
+        "text" : "Workspace Color Style"
       },
       "validation" : "portable"
     },

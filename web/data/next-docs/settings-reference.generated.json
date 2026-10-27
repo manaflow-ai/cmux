@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 510,
+  "count": 511,
   "sections": [
     {
       "id": "general",
@@ -3803,6 +3803,19 @@
             "max": 160,
             "unit": "points"
           }
+        },
+        {
+          "key": "workspaceColors.indicatorStyle",
+          "title": "Workspace Color Style",
+          "help": "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.",
+          "kind": "choice",
+          "default": "dot",
+          "group": "Sidebar",
+          "values": [
+            "dot",
+            "leftRail",
+            "fill"
+          ]
         }
       ]
     },
