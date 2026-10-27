@@ -1642,4 +1642,36 @@ mod fence_tests {
         let _ = release.send(());
         agent.kill().await;
     }
+
+    /// Review 87 of #23322: an agent whose leader exited and left a descendant holding its
+    /// stdin: a cut of the message its writer has stops that writer, so nothing more of the
+    /// message reaches the descendant after the cut.
+    #[tokio::test]
+    async fn a_cut_stops_the_writer_of_a_stdin_a_descendant_kept() {
+        let out = std::env::temp_dir().join(format!("acpmux-kept-{}", std::process::id()));
+        let _ = std::fs::remove_file(&out);
+        // A background job gets /dev/null for stdin unless it is passed on explicitly; the
+        // descendant leaves the agent's process group, so only a stopped writer keeps it out.
+        let copy = "import os, time; os.setsid(); time.sleep(3); os.execvp('cat', ['cat'])";
+        let script =
+            format!("exec 3<&0; python3 -c \"{copy}\" <&3 3<&- > '{}' & exit 0", out.display());
+        let argv = serde_json::json!({"argv": ["/bin/sh", "-c", script]});
+        let profile: HarnessProfile = serde_json::from_value(argv).unwrap();
+        let (inbound, _rx) = mpsc::channel(16);
+        let tap: Tap = Arc::new(|_, _, _| true);
+        let agent = ChildAgent::spawn("kept", &profile, &std::env::temp_dir(), inbound, tap)
+            .await
+            .expect("the agent starts");
+        let fence = Fence::default();
+        let line = "x".repeat(1 << 20);
+        let note = Message::notification("note", serde_json::json!({"text": line}));
+        agent.write_fenced(&note, Some(&fence)).await.unwrap();
+        // The pipe is full and its leader is gone.
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        assert!(fence.cut_or_end(std::time::Duration::from_secs(1)).await, "the cut is proven");
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        let read = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
+        let _ = std::fs::remove_file(&out);
+        assert!(read < (1 << 20), "a cut message reached the agent after the cut ({read} bytes)");
+    }
 }

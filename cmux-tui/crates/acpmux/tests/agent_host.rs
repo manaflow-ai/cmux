@@ -539,15 +539,23 @@ fn big_line() -> Value {
     json!({"jsonrpc": "2.0", "method": "note", "params": {"text": "x".repeat(1 << 20)}})
 }
 
-/// Review 85 of #23322: a host killed while it still writes a fenced answer (no `Exit`, no
-/// receipt) settles that answer once its death is proven, so nothing waits on it forever.
-#[tokio::test]
-async fn a_fenced_answer_settles_once_its_host_is_killed() {
-    let dir = scratch("fenced-killed");
-    let record = link::spawn(&launcher(), &slow_reader(&dir, "s-fenced-killed")).await.unwrap();
-    let lock = live_lock(&dir, &record);
-    let (inbound, _inbound) = tokio::sync::mpsc::channel(64);
-    let tap: acpmux::agent::Tap = std::sync::Arc::new(|_, _, _| true);
+/// A harness that never reads its stdin.
+fn never_reader(dir: &Path, session: &str) -> SpawnSpec {
+    let idle = dir.join("agent");
+    write_executable(&idle, "#!/bin/sh\nexec sleep 60\n");
+    let mut launch = spec(dir, session);
+    launch.program = idle.to_string_lossy().into_owned();
+    launch.args.clear();
+    launch
+}
+
+/// An agent on `record`'s host, whose log takes every entry (`logs`) or none.
+async fn hosted_agent(
+    record: &HostRecord,
+    logs: bool,
+) -> std::sync::Arc<acpmux::agent::ChildAgent> {
+    let (inbound, _) = tokio::sync::mpsc::channel(64);
+    let tap: acpmux::agent::Tap = std::sync::Arc::new(move |_, _, _| logs);
     let attached = acpmux::agent::ChildAgent::attach_hosted(
         "fake",
         record.clone(),
@@ -561,6 +569,51 @@ async fn a_fenced_answer_settles_once_its_host_is_killed() {
     let acpmux::agent::Attached::Ready(agent, ..) = attached else {
         panic!("the host refused its controller")
     };
+    agent
+}
+
+/// Review 87 of #23322: a fenced request whose connection another controller took is answered
+/// here with this side's own "agent process closed", which proves nothing about its line: it
+/// stays unsettled, also past any fixed wait, until its host's death is proven.
+#[tokio::test]
+async fn a_fenced_request_cut_off_by_a_new_controller_settles_only_with_its_host() {
+    let dir = scratch("fenced-taken");
+    let record = link::spawn(&launcher(), &never_reader(&dir, "s-fenced-taken")).await.unwrap();
+    let lock = live_lock(&dir, &record);
+    let agent = hosted_agent(&record, true).await;
+    let fence = acpmux::agent::Fence::default();
+    let request = {
+        let (agent, fence) = (agent.clone(), fence.clone());
+        tokio::spawn(async move {
+            let params = json!({"text": "x".repeat(1 << 20)});
+            agent.request_with_hook("note", params, Some(&fence), || {}).await
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let (_second, _) = connected(&record, 0).await;
+    let answered = tokio::time::timeout(Duration::from_secs(10), request).await;
+    assert!(answered.expect("the request ends").unwrap().is_err());
+    assert!(!fence.is_settled(), "a line its host still has counted written");
+    tokio::time::sleep(Duration::from_secs(7)).await;
+    assert!(!fence.is_settled(), "a line its living host still has settled");
+    // SAFETY: the host this test spawned; its live lock is held, so the pid is its own.
+    unsafe { libc::kill(record.host_pid as i32, libc::SIGKILL) };
+    wait_dead(lock).await;
+    tokio::time::timeout(Duration::from_secs(10), fence.settled())
+        .await
+        .expect("the line settles once its host is gone");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review 85 of #23322: a host killed while it still writes a fenced answer (no `Exit`, no
+/// receipt) settles that answer once its death is proven, so nothing waits on it forever; also
+/// when its controller stopped reading because an entry could not be logged (review 87).
+#[tokio::test]
+async fn a_fenced_answer_settles_once_its_host_is_killed() {
+    let dir = scratch("fenced-killed");
+    let record = link::spawn(&launcher(), &never_reader(&dir, "s-fenced-killed")).await.unwrap();
+    let lock = live_lock(&dir, &record);
+    let agent = hosted_agent(&record, false).await;
     let fence = acpmux::agent::Fence::default();
     let answer = Ok(json!({"text": "x".repeat(1 << 20)}));
     agent.respond_fenced(json!(1), answer, Some(&fence)).await.unwrap();
