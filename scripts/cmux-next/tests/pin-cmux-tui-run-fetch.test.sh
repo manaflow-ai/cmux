@@ -60,8 +60,8 @@ cat > "$TMP/bin/git" <<SHIM
 for arg; do
   if [[ "\$arg" == fetch ]]; then
     printf '%s\n' "\$*" >> "$TMP/fetches.log"
-    # A hanging transport child that keeps the inherited stdout and stderr open.
-    [[ -z "\${SLOW_FETCH:-}" ]] || { bash -c 'sleep 30; :' & wait; }
+    # A hanging transport child, its PID recorded: the limiter must kill it too.
+    [[ -z "\${SLOW_FETCH:-}" ]] || { bash -c 'echo \$\$ >> "$TMP/children"; sleep 30; :' & wait; }
     break
   fi
 done
@@ -147,6 +147,12 @@ took=$((SECONDS - started))
 [[ "$status" == 0 && -n "$state" ]] || fail "(c) the probe wrote no state (exit $status)" "$out"
 (( took < 20 )) || fail "(c) a hanging run-commit fetch held the probe ${took}s past a 2 s budget" "$out"
 grep -qF "7 active run commits were not fetched within 2s" <<<"$out" || fail "(c) the unread runs were not reported" "$out"
+[[ -s "$TMP/children" ]] || fail "(c) the hanging fetch recorded no child" "$out"
+# An orphan is reaped a moment after it dies: allow that moment, never 30 s.
+while read -r child; do
+  for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$child" 2>/dev/null || break; sleep 0.2; done
+  ! kill -0 "$child" 2>/dev/null || fail "(c) the hanging fetch's child $child outlived the deadline" "$out"
+done < "$TMP/children"
 
 # (d) The batch fails at once (one run commit is gone from every remote) and
 # the last single fetch is cut off by the deadline: that run is unread, so the
