@@ -587,9 +587,9 @@ fn read_probe(r: &dyn Remote, stdout: &str) -> Result<Probe> {
 /// serves the daemon, `None` when acpmux's own does. Only a probe that ran
 /// to its end and found an acpmux answers: the binaries' list closed (the
 /// `\0`), and the script exited 0, or failed with nothing after the list
-/// (its last command, `cat` of a config the host may not have). Anything
-/// else is an error, never "acpmux's own", so the step installs nothing
-/// beside cmux's daemon.
+/// (its last command, `cat` of a config the host may not have), and a
+/// daemon answered its status. Anything else is an error, never "acpmux's
+/// own", so the step installs nothing beside cmux's daemon.
 fn daemon_owner(r: &dyn Remote) -> Result<Option<String>> {
     let out = r.exec(&probe_script(), None)?;
     let rest = out.stdout.split_once('\0').map(|(_, rest)| rest);
@@ -598,7 +598,9 @@ fn daemon_owner(r: &dyn Remote) -> Result<Option<String>> {
         None => false,
     };
     anyhow::ensure!(whole, "the host did not answer in full");
-    let in_use = read_probe(r, &out.stdout)?.in_use();
+    let probe = read_probe(r, &out.stdout)?;
+    anyhow::ensure!(probe.running.is_some(), "no daemon answered its status");
+    let in_use = probe.in_use();
     let in_use = in_use.ok_or_else(|| anyhow::anyhow!("no acpmux found"))?;
     Ok(in_use.app.then_some(in_use.path))
 }

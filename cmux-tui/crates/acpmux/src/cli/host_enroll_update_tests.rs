@@ -173,6 +173,11 @@ fn a_drop_in_found_under_the_lock_stops_the_install() {
     assert_eq!(r.state, StepState::Warn, "{r:?}");
     assert!(r.detail.contains("acpmux did not write"), "{r:?}");
     assert_eq!(host.fenced.borrow().len(), 1);
+    // XDG_CONFIG_HOME set in between: the same.
+    let mut host = Host::new(&["os=Linux", "systemd"]);
+    host.install_out = "ACPMUX_AU=xdg";
+    let r = update(&host, true, None);
+    assert!(r.detail.starts_with("this host sets XDG_CONFIG_HOME"), "{r:?}");
     let script = guarded_install_script();
     assert!(script.starts_with("au_probe() {"), "{script}");
     assert!(script.contains(&hosts::install_script()), "{script}");
@@ -254,10 +259,15 @@ mod probe_in_a_shell {
         /// ~/.config/systemd/user), `dotdot` (that one, spelled from /usr).
         type_drop_in: Option<&'static str>,
         /// The `analyzed_drop_in_dir`, its files and its unit path are
-        /// read-only to this user.
+        /// read-only to this user (who still owns them).
         read_only: bool,
         /// `XDG_CONFIG_HOME` in the probe's shell (`home`: ~/.config).
         xdg: Option<&'static str>,
+        /// `XDG_CONFIG_HOME` in the user manager's environment.
+        manager_xdg: Option<&'static str>,
+        /// A drop-in directory in a unit path only the running manager names
+        /// (`UnitPath`); `fails`: reading `UnitPath` fails.
+        manager_drop_in_dir: Option<&'static str>,
         /// The files in ~/.config/systemd/user: acpmux's text, another's, or none.
         service: Option<&'static str>,
         timer: Option<&'static str>,
@@ -276,6 +286,8 @@ mod probe_in_a_shell {
         type_drop_in: None,
         read_only: false,
         xdg: None,
+        manager_xdg: None,
+        manager_drop_in_dir: None,
         service: Some(hosts::UPDATE_SERVICE),
         timer: Some(hosts::UPDATE_TIMER),
         drop_in_dir: None,
@@ -290,6 +302,8 @@ mod probe_in_a_shell {
         type_drop_in: None,
         read_only: false,
         xdg: None,
+        manager_xdg: None,
+        manager_drop_in_dir: None,
         service: None,
         timer: None,
         drop_in_dir: None,
@@ -346,6 +360,16 @@ mod probe_in_a_shell {
             }
         };
         read_only(0o444, 0o555);
+        let manager = root.join("manager-units");
+        let unit_path = match u.manager_drop_in_dir {
+            Some("fails") => "FAIL".to_owned(),
+            Some(name) => {
+                fs::create_dir_all(manager.join(name)).unwrap();
+                fs::write(manager.join(name).join("o.conf"), OTHER_TEXT).unwrap();
+                manager.display().to_string()
+            }
+            None => String::new(),
+        };
         let analyze = bin.join("systemd-analyze");
         fs::write(&analyze, format!("#!/bin/sh\necho {}\n", extra.display())).unwrap();
         fs::set_permissions(&analyze, fs::Permissions::from_mode(0o755)).unwrap();
@@ -354,10 +378,11 @@ mod probe_in_a_shell {
             r#"#!/bin/sh
 [ "$1" = --user ] || exit 2; shift
 case "$1" in
-show-environment) exit 0 ;;
+show-environment) [ -z "{manager_xdg}" ] || echo "XDG_CONFIG_HOME={manager_xdg}"; exit 0 ;;
 is-enabled) echo "{enabled}" ;;
 is-active) exit {active} ;;
-show) case "$4" in
+show) [ "$2" = -p ] && [ "$3" = UnitPath ] && {{ [ "{unit_path}" = FAIL ] && exit 1; echo "{unit_path}"; exit 0; }}
+  case "$4" in
   LoadState) echo {load} ;;
   FragmentPath) [ {load} = loaded ] && echo "{frag}/$2" || echo ;;
   DropInPaths) d=; [ -z "{type_dir}" ] || d="{type_dir}/${{2##*.}}.d/10-timeout-abort.conf"
@@ -371,6 +396,8 @@ esac
             load = if u.loaded { "loaded" } else { "not-found" },
             drop_in = u.drop_in.unwrap_or("-"),
             type_dir = type_dir,
+            manager_xdg = u.manager_xdg.unwrap_or(""),
+            unit_path = unit_path,
         );
         let systemctl = bin.join("systemctl");
         fs::write(&systemctl, fake).unwrap();
@@ -424,9 +451,6 @@ esac
         let system = Some("system");
         assert_eq!(kind(&probe(Units { type_drop_in: system, ..OWN })), "timer");
         assert_eq!(kind(&probe(Units { type_drop_in: system, active: false, ..OWN })), "stopped");
-        // On disk, in a unit path this user cannot change.
-        let ro = Units { analyzed_drop_in_dir: Some("timer.d"), read_only: true, ..OWN };
-        assert_eq!(kind(&probe(ro)), "timer");
         // Beside one for this unit, that one still makes it foreign.
         let both = Units { type_drop_in: system, drop_in: Some("acpmux-update.timer"), ..OWN };
         assert_eq!(kind(&probe(both)), "foreign");
@@ -440,6 +464,8 @@ esac
                 Units { type_drop_in: Some("dotdot"), ..u },
                 Units { drop_in_dir: Some("service.d"), ..u },
                 Units { analyzed_drop_in_dir: Some("timer.d"), ..u },
+                // Theirs though read-only: they can make it writable again.
+                Units { analyzed_drop_in_dir: Some("timer.d"), read_only: true, ..u },
             ] {
                 assert_eq!(kind(&probe(found)), "foreign");
             }
@@ -447,10 +473,37 @@ esac
     }
 
     #[test]
-    fn another_xdg_config_home_is_read_from_the_shell() {
+    fn another_xdg_config_home_is_read_from_the_shell_and_the_manager() {
         assert!(probe(Units { xdg: Some("/srv/leo-config"), ..NONE }).xdg);
+        assert!(probe(Units { manager_xdg: Some("/srv/leo-config"), ..NONE }).xdg);
         assert!(!probe(Units { xdg: Some("home"), ..NONE }).xdg);
         assert!(!probe(NONE).xdg);
+    }
+
+    /// The running manager reads units from a path this shell's
+    /// `systemd-analyze` does not name: a drop-in there, for a unit not
+    /// written yet, is found; and a manager that cannot say its paths
+    /// counts as one with a drop-in.
+    #[test]
+    fn the_running_managers_unit_paths_are_read() {
+        for u in [OWN, NONE] {
+            let there = Units { manager_drop_in_dir: Some("acpmux-update.service.d"), ..u };
+            assert_eq!(kind(&probe(there)), "foreign");
+            let typewide = Units { manager_drop_in_dir: Some("service.d"), ..u };
+            assert_eq!(kind(&probe(typewide)), "foreign");
+        }
+        for u in [OWN, NONE] {
+            assert_eq!(kind(&probe(Units { manager_drop_in_dir: Some("fails"), ..u })), "foreign");
+        }
+    }
+
+    /// The probe again under the lock also refuses another XDG_CONFIG_HOME.
+    #[test]
+    fn the_install_writes_nothing_under_another_xdg_config_home() {
+        let (out, written) =
+            run(Units { manager_xdg: Some("/srv/leo-config"), ..NONE }, &guarded_install_script());
+        assert!(parse(&out).xdg, "{out}");
+        assert!(!written, "no unit written");
     }
 
     /// The install runs the probe again under the lock: a drop-in there

@@ -160,14 +160,16 @@ fn an_update_step_that_cannot_tell_whose_daemon_runs_writes_nothing() {
     };
     let both: &[(&str, &str)] = &[(LOCAL_BIN, "old"), (APP_BIN, crate::hub::BUILD)];
     let app = host_with(both, Some((crate::hub::BUILD, true)), APP_EXE, crate::hub::BUILD);
-    // The second answer: a standalone daemon's, so a guess would install.
+    // Nothing; a standalone daemon's, so a guess would install; and a whole
+    // answer in which no daemon says what it is.
     let standalone =
         probe_out_with(&[(LOCAL_BIN, "old")], Some(("old", false)), LOCAL_BIN, Some(false));
-    for answer in [String::new(), standalone] {
+    let silent = probe_out_with(both, None, "", None);
+    for (ok, answer) in [(false, String::new()), (false, standalone), (true, silent)] {
         let dropped = std::cell::Cell::new(false);
         let fake = Fake::new(|script, stdin| {
             if dropped.get() && script == probe_script().as_str() {
-                RemoteOut { ok: false, stdout: answer.clone(), stderr: "Connection reset".into() }
+                RemoteOut { ok, stdout: answer.clone(), stderr: "Connection reset".into() }
             } else {
                 (app.answer)(script, stdin)
             }
@@ -179,7 +181,8 @@ fn an_update_step_that_cannot_tell_whose_daemon_runs_writes_nothing() {
             .0;
         assert!(results[2].detail.starts_with("cmux's own daemon runs"), "{results:?}");
         assert_eq!((results[3].step, results[3].state), (Step::Update, StepState::Warn));
-        assert!(results[3].detail.contains("did not answer in full"), "{:?}", results[3]);
+        let detail = &results[3].detail;
+        assert!(detail.starts_with("could not tell which acpmux runs the daemon"), "{detail}");
         assert!(!ran.get(), "the update step never ran on a guess");
         assert_read_only(&fake);
     }

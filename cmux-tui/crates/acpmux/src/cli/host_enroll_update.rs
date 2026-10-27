@@ -23,10 +23,13 @@ const MARK: &str = "ACPMUX_AU=";
 /// manager lists, and a `NAME.d` or `acpmux-.TYPE.d` directory in any user
 /// unit path (`systemd-analyze --user unit-paths`, and the defaults when it
 /// cannot say). A drop-in for every service or timer (`service.d`) counts
-/// too, on disk or in the manager's `DropInPaths`, unless this user can
-/// change neither it, its directory nor the directory above: then the
+/// too, on disk or in the manager's `DropInPaths`, unless this user neither
+/// owns nor can write it, its directory or the directory above: then the
 /// system's administrator put it there (a distribution ships them: Fedora's
-/// `10-timeout-abort.conf`), whatever the path says. They are
+/// `10-timeout-abort.conf`), whatever the path says. The paths are
+/// `systemd-analyze`'s, the running manager's `UnitPath` (whose environment
+/// may differ from this shell's; not reading it counts as foreign) and the
+/// defaults. They are
 /// acpmux's own only when each file there holds acpmux's own text, each unit
 /// the manager knows loads from there, and no drop-in exists for either;
 /// any other is someone else's (`foreign`), which runs what it likes. An
@@ -46,10 +49,12 @@ pub(super) fn probe_script() -> String {
 if systemctl --user show-environment >/dev/null 2>&1; then echo {MARK}systemd
 au_m=$(systemctl --user show-environment 2>/dev/null | sed -n 's/^XDG_CONFIG_HOME=//p')
 for au_v in "${{XDG_CONFIG_HOME:-}}" "$au_m"; do [ -z "$au_v" ] || [ "$au_v" = "$HOME/.config" ] || echo {MARK}xdg; done
-au_mine() {{ [ -w "$1" ] || [ -w "${{1%/*}}" ]; }}
+au_mine() {{ [ -O "$1" ] || [ -w "$1" ] || [ -O "${{1%/*}}" ] || [ -w "${{1%/*}}" ]; }}
 au_d=$HOME/.config/systemd/user; au_there=; au_own=1; au_all=1
 au_c=${{XDG_CONFIG_HOME:-$HOME/.config}}; au_r=${{XDG_RUNTIME_DIR:-/run/user/$(id -u)}}; au_l=${{XDG_DATA_HOME:-$HOME/.local/share}}
+au_u=$(systemctl --user show -p UnitPath --value 2>/dev/null) || {{ au_there=1; au_own=; }}
 au_paths="$(systemd-analyze --user unit-paths 2>/dev/null)
+$(printf %s "$au_u" | tr ' ' '\n')
 $au_d
 $au_c/systemd/user.control
 $au_c/systemd/user
@@ -94,11 +99,12 @@ fi"#
 }
 
 /// [`hosts::install_script`], run only when [`probe_script`], run again
-/// under the update lock, finds no unit or drop-in acpmux did not write
-/// (else it prints `foreign` and writes nothing).
+/// under the update lock, finds no unit or drop-in acpmux did not write and
+/// no other `XDG_CONFIG_HOME` (else it prints `foreign` or `xdg` and writes
+/// nothing).
 pub(super) fn guarded_install_script() -> String {
     format!(
-        "au_probe() {{\n{probe}\n}}\ncase \"$(au_probe)\" in *{MARK}foreign*) echo {MARK}foreign ;; *)\n{install}\n;; esac",
+        "au_probe() {{\n{probe}\n}}\ncase \"$(au_probe)\" in *{MARK}foreign*) echo {MARK}foreign ;; *{MARK}xdg*) echo {MARK}xdg ;; *)\n{install}\n;; esac",
         probe = probe_script(),
         install = hosts::install_script(),
     )
@@ -202,10 +208,7 @@ pub(super) fn update(r: &dyn Remote, fix: bool, cmux_own: Option<&str>) -> StepR
         );
     }
     if found.xdg {
-        return warn(
-            "this host sets XDG_CONFIG_HOME, so systemd reads user units from there, and acpmux writes acpmux-update.timer only in ~/.config/systemd/user; cmux moves it to your Mac's build each time it connects",
-            None,
-        );
+        return xdg();
     }
     if !fix {
         let (detail, verb) = if found.stopped {
@@ -228,8 +231,12 @@ fn install(r: &dyn Remote, host: &str) -> StepResult {
         Ok(out) => out,
         Err(e) => return warn(format!("installing acpmux-update.timer failed: {e:#}"), Some(host)),
     };
-    if parse(&out).foreign {
+    let again = parse(&out);
+    if again.foreign {
         return foreign(host);
+    }
+    if again.xdg {
+        return xdg();
     }
     if let Some(why) = hosts::take_auto_update_off(&out).1 {
         return warn(why, None);
@@ -242,6 +249,14 @@ fn install(r: &dyn Remote, host: &str) -> StepResult {
         ),
         _ => warn("acpmux-update.timer was installed but is not running", Some(host)),
     }
+}
+
+/// Another `XDG_CONFIG_HOME`: nothing is written.
+fn xdg() -> StepResult {
+    warn(
+        "this host sets XDG_CONFIG_HOME, so systemd reads user units from there, and acpmux writes acpmux-update.timer only in ~/.config/systemd/user; cmux moves it to your Mac's build each time it connects",
+        None,
+    )
 }
 
 /// A unit or drop-in acpmux did not write: nothing is written.
