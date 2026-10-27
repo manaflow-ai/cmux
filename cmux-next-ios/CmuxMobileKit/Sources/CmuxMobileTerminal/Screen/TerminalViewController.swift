@@ -272,6 +272,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var keyRowCollapsed: NSLayoutConstraint!
     /// The composer is closed or hidden: its height is 0.
     private var composerCollapsed: NSLayoutConstraint!
+    /// Counts dock reflows: only the last one's completion fades the key row in.
+    private var dockReflow = 0
     /// The gap between the key row and the composer: 8 pt while both show,
     /// else 0. Always active (only its constant changes), so the stack's
     /// height stays fully determined.
@@ -897,11 +899,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // motion: allow UIKit dock reflow, one bounded 0.25 s pass like classic's band; Reduce Motion applies it at once.
         let animate = view.window != nil && !UIAccessibility.isReduceMotionEnabled
         if animate {
+            dockReflow += 1
+            let reflow = dockReflow
             UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]) {
                 self.view.layoutIfNeeded()
             } completion: { _ in
-                // motion: allow the same gate as the reflow above (Reduce Motion skips it).
-                UIView.animate(withDuration: 0.15) { self.keyBarClip.alpha = 1 }
+                // A newer reflow is still moving the slot: its completion fades the row in.
+                if reflow == self.dockReflow {
+                    // motion: allow the same gate as the reflow above (Reduce Motion skips it).
+                    UIView.animate(withDuration: 0.15) { self.keyBarClip.alpha = 1 }
+                }
                 self.keyboardDidChange()
             }
         } else {
