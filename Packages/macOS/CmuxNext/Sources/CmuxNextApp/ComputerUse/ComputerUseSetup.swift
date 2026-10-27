@@ -196,13 +196,23 @@ final class ComputerUseSetup {
     /// request only raised macOS's "would like to control this computer"
     /// alert on top of the drag panel that already guides the person.
     func open(_ pane: ComputerUsePermissionPane) {
-        if pane == .screenRecording, phase == .ready, driver == .legacy, let configuration = configuration() {
+        if Self.asksHelper(pane, accessibility: permissions.accessibility, phase: phase, driver: driver),
+           let configuration = configuration() {
             let requestGrant = requestGrant
             // task-owner: one host request to the helper; the next read (app activation, trust change) shows the answer.
             Task { await requestGrant(configuration, pane) }
         }
         guard let url = Self.settingsURL(pane) else { return }
         openURL(url)
+    }
+
+    /// Whether Allow on `pane` first asks the running helper for the grant: Screen Recording only,
+    /// with the legacy helper ready, and only once Accessibility is on. With it off, the helper's
+    /// capture request also raised macOS's "would like to control this computer" alert (seen
+    /// 2026-10-28 on macOS 26.6).
+    nonisolated static func asksHelper(_ pane: ComputerUsePermissionPane, accessibility: Bool, phase: Phase,
+                                       driver: ComputerUseDriver) -> Bool {
+        pane == .screenRecording && accessibility && phase == .ready && driver == .legacy
     }
 
     /// One `request_system_permission` to the helper with the host token.

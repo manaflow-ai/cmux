@@ -247,6 +247,16 @@ struct ComputerUseSetupTests {
         }
     }
 
+    /// With Accessibility off, the helper's capture request also raised macOS's Accessibility
+    /// alert: Allow on Screenshots then only opens System Settings.
+    @Test func screenshotsAllowAsksTheHelperOnlyOnceAccessibilityIsOn() {
+        #expect(!ComputerUseSetup.asksHelper(.screenRecording, accessibility: false, phase: .ready, driver: .legacy))
+        #expect(ComputerUseSetup.asksHelper(.screenRecording, accessibility: true, phase: .ready, driver: .legacy))
+        #expect(!ComputerUseSetup.asksHelper(.accessibility, accessibility: true, phase: .ready, driver: .legacy))
+        #expect(!ComputerUseSetup.asksHelper(.screenRecording, accessibility: true, phase: .off, driver: .legacy))
+        #expect(!ComputerUseSetup.asksHelper(.screenRecording, accessibility: true, phase: .ready, driver: .upstream))
+    }
+
     actor GrantRequestsStore {
         var panes: [ComputerUsePermissionPane] = []
         func add(_ pane: ComputerUsePermissionPane) { panes.append(pane) }
