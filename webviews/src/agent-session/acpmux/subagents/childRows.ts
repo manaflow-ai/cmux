@@ -48,6 +48,7 @@ export function childRows(
         at: existing?.at ?? event.at,
         kind: "assistant",
         text: `${existing?.text ?? ""}${text}`,
+        streaming: agents.get(id)?.state === "running",
       });
       reply = rowId;
       activity = undefined;
