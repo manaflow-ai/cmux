@@ -1023,10 +1023,12 @@ EOF
 }
 
 check_no_github_hosted_runners() {
-  # Nightly workflows (*nightly*.yml, *notarization*.yml) may name these
-  # GitHub-hosted images: they never route to Blacksmith (user decision
-  # 2026-10-19, tests/test_ci_nightly_off_blacksmith.py).
-  local nightly_hosted="(^|[^A-Za-z0-9_-])'?(ubuntu-24[.]04(-arm)?|macos-(15|26)|windows-2025)'?([^A-Za-z0-9_.-]|$)"
+  # Nightly workflows (*nightly*.yml, *notarization*.yml) may still name these
+  # GitHub-hosted macOS and Windows images (tests/test_ci_no_github_hosted_macos.py
+  # holds macOS on its own). Hosted Ubuntu is no longer exempt there: nightly
+  # Linux jobs take Blacksmith like every other Linux job (Leo, 2026-10-27:
+  # "just put it on blacksmith / 16vcpu blacksmiths do exist").
+  local nightly_hosted="(^|[^A-Za-z0-9_-])'?(macos-(15|26)|windows-2025)'?([^A-Za-z0-9_.-]|$)"
   # A GitHub billing block or a GitHub-hosted outage must never stop CI, so no
   # job in manaflow-ai may select a GitHub-hosted runner (ubuntu-*, macos-*,
   # windows-*). Jobs run on Blacksmith labels, the CI_TRUSTED_RUNNER selector
@@ -1049,6 +1051,9 @@ check_no_github_hosted_runners() {
   local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)"
   local trusted_list='fromJSON[(]'"'"'[[]"ubuntu-24[.]04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
   # "<workflow>:<line content>" -> why it stays GitHub-hosted. Exact lines only.
+  # This is the whole allowlist: every other Linux job takes a Blacksmith label
+  # sized to the job (Leo, 2026-10-27: "just put it on blacksmith / 16vcpu
+  # blacksmiths do exist"), with LINUX_RUNNER or the overflow switch behind it.
   local -a exceptions=(
     # npm trusted publishing and --provenance accept only GitHub-hosted runners.
     "sdk-bootstrap-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
@@ -1060,20 +1065,15 @@ check_no_github_hosted_runners() {
     "coderouter-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner"
     # PyPI trusted publishing accepts only GitHub-hosted runners too.
     "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
+    # The packages' attestations are verified with --deny-self-hosted-runners,
+    # so they must be signed on a GitHub-hosted runner.
     "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
-    # A 3-second advisory lint (a159); the free hosted runner, not Blacksmith.
-    "cmux-next-web.yml:    runs-on: ubuntu-24.04 # github-hosted-required: small advisory lint on the free hosted runner"
-    # The NEXT nightly path (promotion requests and the tick) never waits on Blacksmith.
-    "cmux-next.yml:    runs-on: ubuntu-latest # github-hosted-required: nightly path never waits on Blacksmith"
-    "cmux-tui-artifacts.yml:    runs-on: ubuntu-latest # github-hosted-required: nightly path never waits on Blacksmith"
     # Detects a Blacksmith outage, so it must run where Blacksmith is not.
     "ci-cloud-overflow-probe.yml:    runs-on: ubuntu-24.04 # github-hosted-required: must run while Blacksmith starts nothing"
-    # validate-cla-policy.rb pins these to ubuntu-24.04 until #17453 lands.
+    # validate-cla-policy.rb pins these to ubuntu-24.04 until #17453 lands: a
+    # pull_request_target write token on fork pull requests (trust policy).
     "cla.yml:    runs-on: ubuntu-24.04 # github-hosted-required: write token on fork pull requests"
     "cla-policy-guard.yml:    runs-on: ubuntu-24.04"
-    # Registry provenance and trusted publishing accept only GitHub-hosted runners.
-    "coderouter-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner"
-    "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
     # Dispatch-only Intel compatibility leg; Blacksmith has no Intel macOS image.
     # GitHub retired macos-14, so it is no longer an exception (#17068).
     "ci-macos-compat.yml:          - os: macos-15-intel"
@@ -1104,18 +1104,10 @@ check_no_github_hosted_runners() {
     file="${line%%:*}"
     content="${line#*:*:}"
     [[ "$content" =~ ^[[:space:]]*# ]] && continue
-    # Nightly workflows never run on Blacksmith (user decision 2026-10-19,
-    # tests/test_ci_nightly_off_blacksmith.py): compiles stay on the trusted
-    # minis, everything else takes an ephemeral GitHub-hosted image.
+    # Nightly workflows may name hosted macOS and Windows images (above);
+    # their Linux jobs take Blacksmith.
     if [[ "$(basename "$file")" == *nightly*.yml || "$(basename "$file")" == *notarization*.yml ]]; then
       content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
-    fi
-    # test-ios.yml's cmux-next lane (feat-cmux-next pushes and pull requests
-    # into it) never runs on Blacksmith either (user decision 2026-10-20): its
-    # small Linux helper jobs take hosted ubuntu-24.04, its Mac jobs the owned
-    # minis. Only this exact selector is read as allowed.
-    if [[ "$(basename "$file")" == test-ios.yml ]]; then
-      content="${content//"(github.event_name == 'push' || github.base_ref == 'feat-cmux-next') && 'ubuntu-24.04' || "/}"
     fi
     # Fork-only matrix rows: read only through the fork branch above.
     [[ "$content" =~ (^|[^A-Za-z_])\"?hosted_runner\"?:[[:space:]] ]] && continue
@@ -1128,7 +1120,7 @@ check_no_github_hosted_runners() {
     [[ "$allowed" -eq 1 ]] && continue
     echo "FAIL: GitHub-hosted runner label: ${line#"$ROOT_DIR"/}" | cut -c1-260
     failed=1
-  done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]\"](os|runner|runs_on|runs-on|macos_runner|linux_runner|windows_runner)\"?:[[:space:]]|[A-Za-z_]*RUNNER[A-Za-z_]*:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$|^[[:space:]]+default:[[:space:]])" "$ROOT_DIR/.github/workflows")
+  done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]\"](os|runs_on|runs-on|[A-Za-z0-9_]*runner)\"?:[[:space:]]|[A-Za-z0-9_]*RUNNER[A-Za-z0-9_]*:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$|^[[:space:]]+default:[[:space:]])" "$ROOT_DIR/.github/workflows")
   # The capability map's manaflow-ai fleet feeds runs-on through resolve-runners.yml.
   local owner_fleet fleet_hits
   owner_fleet="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["owners"]["manaflow-ai"])' "$ROOT_DIR/.github/runners.json")"
