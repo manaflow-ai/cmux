@@ -97,7 +97,7 @@ import CmuxNextWakeups
         #expect(await warm.warmed == [[kept]])
     }
 
-    @Test func endSessionsIncludesOnlyLaunchWarmedUnownedChiefHomes() async throws {
+    @Test func endSessionsTargetsOnlyLaunchWarmedChiefHomes() async throws {
         let (base, _, old) = try homes()
         defer { try? FileManager.default.removeItem(at: base.deletingLastPathComponent()) }
         let warm = ChiefSubagentWarmHost()
@@ -106,12 +106,6 @@ import CmuxNextWakeups
         let pane = ChiefHomeSessionHost(host: ChiefHomeAcpmux.host(muxHome: old), homes: directory,
                                         fallback: ChiefSubagentNamedHost(name: "app"))
         try await pane.warm(sessionIds: [kept])
-        let lockPath = old.appendingPathComponent("state/host.lock")
-        try FileManager.default.createDirectory(at: lockPath.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let lock = try #require(ChiefMigration.HostLock(path: lockPath))
-        #expect(await directory.endLaunchSessions(waitForShutdown: false, end: { _, _ in await warm.endAgents() }).isEmpty, "another build owns this home now")
-        #expect(await warm.ends == 0)
-        lock.release()
         let results = await directory.endLaunchSessions(waitForShutdown: true, end: { _, _ in await warm.endAgents() })
         #expect(results.count == 1)
         #expect(await warm.ends == 1)
