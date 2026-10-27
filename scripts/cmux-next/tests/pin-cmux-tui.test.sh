@@ -41,7 +41,9 @@ git_q -C "$TMP/mirror" fetch origin "$tip"
 git_q -C "$TMP/mirror" worktree add --detach "$TMP/job" "$tip"
 [[ "$(git -C "$TMP/mirror" rev-parse origin/feat-cmux-next)" != "$tip" ]] || { echo "setup: mirror refs are not stale" >&2; exit 1; }
 
-offline=(env -u GITHUB_ACTIONS -u CI_JOB_DIR -u GH_TOKEN -u CMUX_NEXT_TUI_ALLOW_DIRTY CMUX_TUI_PIN_BASE=https://127.0.0.1:9/cmux-tui
+# The CI job's own event and tree settings would change which path fetch takes.
+offline=(env -u GITHUB_ACTIONS -u CI_JOB_DIR -u GH_TOKEN -u CMUX_NEXT_TUI_ALLOW_DIRTY -u GITHUB_EVENT_NAME -u GITHUB_REF
+  -u CMUX_TUI_TREE_PUBLISHER_SHA -u CMUX_TUI_TREE_KEY -u CMUX_TUI_TREE_DISPATCH CMUX_TUI_PIN_BASE=https://127.0.0.1:9/cmux-tui
   GITHUB_API_URL=https://127.0.0.1:9 CMUX_TUI_PUBLIC_GIT_URL="$TMP/no-public-repo.git" CMUX_TUI_TREE_WAIT_SECONDS=0)
 run() { # <tree> -> fetch output
   (cd "$1" && "${offline[@]}" bash scripts/cmux-next/pin-cmux-tui.sh fetch 2>&1) || true
@@ -82,10 +84,11 @@ not_shallow "before the unpushed commit"
 out=$(run "$TMP/job")
 grep -q 'on no remote branch' <<<"$out" || { printf 'an unpushed commit was not refused:\n%s\n' "$out" >&2; exit 1; }
 
-# A same-tree run whose commit neither this clone nor origin has is fetched from
-# the public repository, and that fetch keeps a full clone full (it once passed
-# --depth=1, which made the clone shallow and so skipped the refusal above). A
-# stub curl answers the runs list with one active run on that commit.
+# An active artifacts run whose commit neither this clone nor origin has is
+# fetched from the public repository to compare its tree, and that fetch keeps a
+# full clone full (it once passed --depth=1, which made the clone shallow and so
+# skipped the refusal above). A stub curl answers the runs list with one active
+# run on that commit; its tree differs, so it never extends the wait.
 git_q clone --bare "$TMP/origin.git" "$TMP/public.git"
 git_q clone "$TMP/public.git" "$TMP/public-work"
 echo elsewhere > "$TMP/public-work/cmux-tui/a"
