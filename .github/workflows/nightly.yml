@@ -2261,7 +2261,7 @@ jobs:
           scripts/cmux-next/build-web-bundles.sh --force
 
       - name: Finish fetching the Chromium engine
-        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
+        if: inputs.nightly_next_unsigned_run == ''
         run: python3 scripts/ci/background_build.py join --state "$RUNNER_TEMP/nightly-helper-builds" chromium-engine
 
       - name: Build nightly app (Release)
