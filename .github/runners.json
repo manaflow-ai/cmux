@@ -216,10 +216,8 @@
     "nightly.yml#refresh-compilation-cache": "apple-app-build",
     "nightly.yml#refresh-test-compilation-cache": "apple-app-build",
     "nightly.yml#sign-nightly-identity-legacy": "apple-signing-release",
-    "nightly.yml#verify-final-dmg-nightly": "apple-signing-release",
     "nightly.yml#verify-nightly-identity-legacy": "apple-signing-release",
     "nightly.yml#verify-recovered-nightly-next": "apple-signing-release",
-    "nightly.yml#verify-signed-nightly": "apple-signing-release",
     "relay-publish-npm.yml#smoke": "macos-runtime-tests",
     "relay-tls.yml#diagnostic-presentation": {
       "class": "apple-swift-tests",
