@@ -103,7 +103,7 @@ public actor ChiefHomeDirectory {
         }
         var results: [AcpmuxQuit.EndResult] = []
         for host in launchHomes.sorted() {
-            guard let own = await ownAcpmux(of: host), await own.starting.hasWarmedSessions else { continue }
+            guard let own = await ownAcpmux(of: host) else { continue }
             let home = own.home
             guard let mayEnd = try? await work.run(.userVisible, mayBlock: .files, {
                 if let attached = excludingAttachedHome,
