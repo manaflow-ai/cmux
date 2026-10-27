@@ -64,7 +64,8 @@ struct ChromiumPageHostPushTests {
         #expect(order == ["script", "push"])
     }
 
-    /// A main-frame call's reply is a push of `{"r": seq, "v": reply}`; the only DevTools call is the sender check.
+    /// A main-frame call's reply is a push of `{"r": seq, "d": doc, "v": reply}` naming the sender's
+    /// document; the only DevTools call is the sender check.
     @Test func aReplyOnTheChannelIsAPush() async {
         let page = FakeChromiumPage()
         page.pushChannel = true
@@ -72,11 +73,49 @@ struct ChromiumPageHostPushTests {
         bridge.install { _ in ["ok": true] }
         let reply: String? = await PageTestWait.value("reply") { done in
             page.onPush = { done(page.pushes.last ?? "") }
-            bridge.receive(devToolsMessage: FakeChromiumPage.bindingCall(["name": "cmuxPage", "seq": 4, "body": ["op": "ping"]]))
+            bridge.receive(devToolsMessage: FakeChromiumPage.bindingCall(["name": "cmuxPage", "seq": 4, "doc": "d-1", "body": ["op": "ping"]]))
         }
-        #expect(reply == #"{"r":4,"v":{"ok":true}}"#)
+        #expect(reply == #"{"r":4,"d":"d-1","v":{"ok":true}}"#)
         #expect(page.calls.map { $0.params["expression"] as? String } == ["[location.href, window === window.top]"])
         #expect(bridge.answered == 1)
+    }
+
+    /// A reply still goes out when a new document commits while it waits in the FIFO: only the old
+    /// document's envelope runs are dropped, and the reply names its own document.
+    @Test func aQueuedReplySurvivesANewDocument() async {
+        let page = FakeChromiumPage()
+        page.pushChannel = true
+        let bridge = ChromiumPageHostBridge(page: page)
+        bridge.install { _ in ["ok": true] }
+        let reply: String? = await PageTestWait.value("reply") { done in
+            page.onCall = {
+                // The sender check is in flight: queue a script so the reply waits behind it, then commit.
+                guard page.calls.count == 1 else { return }
+                bridge.evaluate("slow()")
+                bridge.rebind()
+            }
+            page.onPush = { if let last = page.pushes.last, last.hasPrefix(#"{"r":"#) { done(last) } }
+            bridge.receive(devToolsMessage: FakeChromiumPage.bindingCall(["name": "cmuxPage", "seq": 1, "doc": "new", "body": ["op": "ping"]]))
+        }
+        #expect(reply == #"{"r":1,"d":"new","v":{"ok":true}}"#)
+    }
+
+    /// A call without a document token gets its reply as a script into its own context, never as a push.
+    @Test func aReplyWithoutADocumentTokenStaysAScript() async {
+        let page = FakeChromiumPage()
+        page.pushChannel = true
+        let bridge = ChromiumPageHostBridge(page: page)
+        bridge.install { _ in ["ok": true] }
+        let resolve: String? = await PageTestWait.value("resolve") { done in
+            page.onCall = {
+                guard let expression = page.calls.last?.params["expression"] as? String,
+                      expression.contains(ChromiumPageHostBridge.resolveName) else { return }
+                done(expression)
+            }
+            bridge.receive(devToolsMessage: FakeChromiumPage.bindingCall(["name": "cmuxPage", "seq": 2, "body": ["op": "ping"]]))
+        }
+        #expect(resolve == ChromiumPageHostWire.resolveExpression(seq: 2, reply: ["ok": true]))
+        #expect(page.pushes.isEmpty)
     }
 
     /// A new document drops the pushes still queued for the old one (the router dropped their envelopes).
@@ -131,9 +170,49 @@ struct ChromiumPageHostPushTests {
         #expect(context.evaluateScript("listened").toBool())
         #expect(!context.evaluateScript("again").toBool())
         let seq = context.evaluateScript("posted[0].seq").toInt32()
-        context.evaluateScript("hostReceiver(\(ChromiumPageHostWire.jsonString(ChromiumPageHostWire.replyPush(seq: Int(seq), reply: ["ok": true]))))")
+        let doc = try #require(context.evaluateScript("posted[0].doc").toString())
+        context.evaluateScript("hostReceiver(\(ChromiumPageHostWire.jsonString(ChromiumPageHostWire.replyPush(seq: Int(seq), doc: doc, reply: ["ok": true]))))")
         // The promise's continuation runs once the script returns (JavaScriptCore drains microtasks then).
         #expect(context.evaluateScript("settled && settled.ok").toBool())
+    }
+
+    /// An old document's reply carries the old token: the new document's call with the same seq stays
+    /// pending, and its own reply settles it.
+    @Test func aReplyForAnotherDocumentDoesNotSettleTheSameSeq() throws {
+        let context = try #require(JSContext())
+        var exception: String?
+        context.exceptionHandler = { _, value in exception = value?.toString() }
+        context.evaluateScript("""
+        var posted = [];
+        var __cmuxPageHost = function (text) { posted.push(JSON.parse(text)); };
+        var hostReceiver = null;
+        Object.defineProperty(this, "cmuxPageListen", { value: function (fn) { hostReceiver = fn; return true; } });
+        var setTimeout = function (fn) { fn(); };
+        """)
+        context.evaluateScript(ChromiumPageHostBridge.pageScript(handlers: []))
+        context.evaluateScript("""
+        var settled = null;
+        webkit.messageHandlers.cmuxPage.postMessage({op: "subscribe"}).then(function (r) { settled = r; });
+        """)
+        #expect(exception == nil)
+        let seq = Int(context.evaluateScript("posted[0].seq").toInt32())
+        let doc = try #require(context.evaluateScript("posted[0].doc").toString())
+        #expect(!doc.isEmpty && doc != "undefined")
+        let stale = ChromiumPageHostWire.replyPush(seq: seq, doc: doc + "-old", reply: ["sub": 99])
+        context.evaluateScript("hostReceiver(\(ChromiumPageHostWire.jsonString(stale)))")
+        #expect(context.evaluateScript("settled === null").toBool(), "a stale document's reply settled the call")
+        let own = ChromiumPageHostWire.replyPush(seq: seq, doc: doc, reply: ["sub": 7])
+        context.evaluateScript("hostReceiver(\(ChromiumPageHostWire.jsonString(own)))")
+        #expect(context.evaluateScript("settled && settled.sub").toInt32() == 7)
+        #expect(exception == nil)
+    }
+
+    /// The token rides in every replying call and is JSON-escaped in the reply push.
+    @Test func theWireCarriesTheDocumentToken() throws {
+        let message = try #require(ChromiumPageHostWire.Message(payload: #"{"name":"cmuxPage","seq":3,"doc":"a\"b","body":{}}"#))
+        #expect(message.doc == "a\"b")
+        #expect(ChromiumPageHostWire.replyPush(seq: 3, doc: "a\"b", reply: nil) == #"{"r":3,"d":"a\"b","v":null}"#)
+        #expect(ChromiumPageHostWire.Message(payload: #"{"name":"cmuxPage","seq":3,"body":{}}"#)?.doc == nil)
     }
 
     /// A frame without `cmuxPageListen` (a child frame, a fork without the channel) gets no push receiver.

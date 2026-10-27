@@ -22,11 +22,14 @@ nonisolated struct ChromiumPageHostWire {
         }
     }
 
-    /// The page script's payload: `{name, seq?, body}`.
+    /// The page script's payload: `{name, seq?, doc?, body}`.
     struct Message {
         var name: String
         /// Set for the replying handler.
         var seq: Int?
+        /// The sending document's token. Every document numbers its calls from 1, so a reply push
+        /// names the document it answers.
+        var doc: String?
         var body: Any
 
         init?(payload: String) {
@@ -36,6 +39,7 @@ nonisolated struct ChromiumPageHostWire {
             if let seq, seq <= 0 { return nil }
             self.name = name
             self.seq = seq
+            doc = object["doc"] as? String
             self.body = body
         }
     }
@@ -105,10 +109,12 @@ nonisolated struct ChromiumPageHostWire {
         "globalThis.\(ChromiumPageHostBridge.resolveName)?.(\(seq), \(replyJSON(reply)));"
     }
 
-    /// The reply as a page push (``ChromiumPageHostBridge/pushReceiverScript``): `{"r":seq,"v":reply}`,
-    /// with the reply's JSON as ``resolveExpression(seq:reply:)`` writes it.
-    static func replyPush(seq: Int, reply: Any?) -> String {
-        #"{"r":\#(seq),"v":\#(replyJSON(reply))}"#
+    /// The reply as a page push (``ChromiumPageHostBridge/pushReceiverScript``):
+    /// `{"r":seq,"d":doc,"v":reply}`, with the reply's JSON as ``resolveExpression(seq:reply:)``
+    /// writes it. `doc` is the token of the document that sent the call; any other document's
+    /// receiver ignores the reply.
+    static func replyPush(seq: Int, doc: String, reply: Any?) -> String {
+        #"{"r":\#(seq),"d":\#(jsonString(doc)),"v":\#(replyJSON(reply))}"#
     }
 
     /// `reply` as JSON: `null` for none, the host's failure envelope for a value that is not JSON.

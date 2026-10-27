@@ -46,18 +46,26 @@ public final class ChromiumPageHostBridge: PageHostPushing {
     /// One thing to send to the page, in order.
     private enum Outgoing {
         case script(String)
-        case push(String)
+        /// A run of the router's envelopes.
+        case envelopes(String)
+        /// A reply push. It names the document it answers, so it never needs dropping: the
+        /// receiver of any other document ignores it.
+        case reply(String)
 
-        var isPush: Bool {
-            guard case .push = self else { return false }
+        var isEnvelopes: Bool {
+            guard case .envelopes = self else { return false }
             return true
+        }
+
+        var pushText: String? {
+            switch self {
+            case .script: nil
+            case .envelopes(let text), .reply(let text): text
+            }
         }
     }
     private var outgoing: [Outgoing] = []
     private var draining = false
-    /// The document the bridge serves: one more at every ``rebind()``. A reply goes only to the
-    /// document whose message it answers, as a DevTools reply goes only to its execution context.
-    private var document: UInt64 = 0
     /// Number of messages answered (tests wait on it).
     public private(set) var answered = 0
 
@@ -92,10 +100,9 @@ public final class ChromiumPageHostBridge: PageHostPushing {
     }
 
     /// A new document committed: the binding goes in again (a no-op where it is still there), and
-    /// pushes still queued for the old document are dropped (the router dropped their envelopes too).
+    /// envelope runs still queued for the old document are dropped (the router dropped them too).
     public func rebind() {
-        document &+= 1
-        outgoing.removeAll(where: \.isPush)
+        outgoing.removeAll(where: \.isEnvelopes)
         guard let page else { return }
         // task-owner: one idempotent call on a page that may already be gone
         Task { _ = try? await page.devTools("Runtime.addBinding", params: ["name": Self.bindingName]) }
@@ -111,12 +118,12 @@ public final class ChromiumPageHostBridge: PageHostPushing {
     /// One run of the router's envelopes as their JSON array (``PageRouter/receiveManyData(_:)``),
     /// after everything sent before it. The page script hands it to the page's receiver.
     public func push(envelopes json: String) {
-        send(.push(json))
+        send(.envelopes(json))
     }
 
     /// A push with nothing ahead of it goes in this turn; anything else waits its turn in the FIFO.
     private func send(_ item: Outgoing) {
-        if case .push(let text) = item, !draining, outgoing.isEmpty, let page {
+        if let text = item.pushText, !draining, outgoing.isEmpty, let page {
             page.push(text)
             return
         }
@@ -134,7 +141,7 @@ public final class ChromiumPageHostBridge: PageHostPushing {
                 outgoing.removeAll()
                 return
             }
-            if case .push(let text) = outgoing[0] {
+            if let text = outgoing[0].pushText {
                 outgoing.removeFirst()
                 page.push(text)
                 continue
@@ -195,7 +202,6 @@ public final class ChromiumPageHostBridge: PageHostPushing {
 
     private func answer(_ message: ChromiumPageHostWire.Message, context: Int) async {
         guard let page else { return }
-        let document = document
         let senderJSON = try? await page.devTools("Runtime.evaluate", params: [
             "expression": "[location.href, window === window.top]",
             "contextId": context, "returnByValue": true, "silent": true,
@@ -214,9 +220,10 @@ public final class ChromiumPageHostBridge: PageHostPushing {
         guard self.handler != nil else { return }
         // On the push channel the reply follows the envelopes the host sent before it, in the one FIFO;
         // only the main frame's document has the receiver, so a child frame's reply stays a script.
-        if pushesEnvelopes, request.isMainFrame {
-            guard document == self.document else { return }
-            send(.push(ChromiumPageHostWire.replyPush(seq: seq, reply: reply)))
+        // The push names the sender's document: a document that loaded since ignores it, as a
+        // script for a context that is gone fails.
+        if pushesEnvelopes, request.isMainFrame, let doc = message.doc {
+            send(.reply(ChromiumPageHostWire.replyPush(seq: seq, doc: doc, reply: reply)))
         } else {
             let expression = ChromiumPageHostWire.resolveExpression(seq: seq, reply: reply)
             _ = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "contextId": context, "silent": true])
@@ -246,6 +253,13 @@ public final class ChromiumPageHostBridge: PageHostPushing {
           const pending = new Map();
           const queue = [];
           let next = 1;
+          // This document's token: every document counts seq from 1, so a reply push names its document.
+          const doc = (() => {
+            const c = globalThis.crypto;
+            if (typeof c?.randomUUID === "function") return c.randomUUID();
+            if (typeof c?.getRandomValues === "function") return Array.from(c.getRandomValues(new Uint32Array(4)), (n) => n.toString(36)).join("-");
+            return Math.random().toString(36).slice(2) + "-" + Date.now().toString(36);
+          })();
           let retries = 0;
           const flush = () => {
             const binding = globalThis.\(bindingName);
@@ -271,7 +285,7 @@ public final class ChromiumPageHostBridge: PageHostPushing {
                 return new Promise((resolve) => {
                   const seq = next++;
                   pending.set(seq, resolve);
-                  send(JSON.stringify({ name, seq, body }));
+                  send(JSON.stringify({ name, seq, doc, body }));
                 });
               },
             };
@@ -288,7 +302,7 @@ public final class ChromiumPageHostBridge: PageHostPushing {
     /// cmux-page document, fork API 38) it registers the document's one receiver. A push is JSON:
     /// an array is one run of envelopes for the page's receiver (pageClient.ts registers it with
     /// ``listenName``; until it does, the runs wait here, at most ``maximumHeldPushes``), and
-    /// `{"r": seq, "v": reply}` is a reply.
+    /// `{"r": seq, "d": doc, "v": reply}` is a reply, settled only when `doc` is this document's token.
     nonisolated static let pushReceiverScript = """
           if (typeof globalThis.cmuxPageListen === "function") {
             let receiver = null;
@@ -301,7 +315,7 @@ public final class ChromiumPageHostBridge: PageHostPushing {
             globalThis.cmuxPageListen((text) => {
               const message = JSON.parse(text);
               if (Array.isArray(message)) toPage(message);
-              else if (message && typeof message.r === "number") resolve(message.r, message.v);
+              else if (message && typeof message.r === "number" && message.d === doc) resolve(message.r, message.v);
             });
             Object.defineProperty(globalThis, "\(listenName)", {
               value: (fn) => {

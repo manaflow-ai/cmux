@@ -1081,7 +1081,8 @@ keep their order with the frame's scripts; the renderer defines `cmuxPageListen`
 cmux-page main frame and keeps pushes until the receiver registers or a frozen page runs again. The shim export
 `cmux_shim_tab_page_push` is a host-mode post; `CEFForkFeatures.pagePush` needs it and API 38. Default-off feature
 `pagePushChannel`: the bridge's FIFO (`ChromiumPageHostBridge`) carries scripts and pushes in order, a run of
-envelopes is its JSON array (`PageRouter.receiveManyData`) and a main-frame reply is `{"r":seq,"v":reply}`; the
+envelopes is its JSON array (`PageRouter.receiveManyData`) and a main-frame reply is `{"r":seq,"d":doc,"v":reply}` (`doc`: the sending document's token, since every
+document counts seq from 1; another document's receiver ignores the reply); the
 page script's receiver hands runs to pageClient's `__cmuxPageHostListen` receiver (held until it registers). Page
 to host stays the DevTools binding until 013. Bench: `bench-webui.py push` with and without
 `--enable-feature pagePushChannel` (`debug.page ping` round trips, page renderer CPU per 1,000 deliveries,
