@@ -88,9 +88,8 @@ export type HostListRow = {
   /** The key a machine's pick is under in `appearance.machineColors` (its name, trimmed and lowercased). */
   color_key?: string;
   /**
-   * A Cloud machine the Cloud API says the signed-in caller owns: its "Dedicated agent machine" switch
-   * (acpmux vmHost), once the machine answered. Absent on every other machine (team VMs, personal and
-   * SSH machines never have it). `busy`: a set is
+   * A Cloud machine cmux made: its "Dedicated agent machine" switch (acpmux vmHost), once the machine
+   * answered. Absent on every other machine (personal and SSH machines never have it). `busy`: a set is
    * running or the machine is not reachable now; the switch is disabled.
    */
   vm_host?: { on: boolean; busy: boolean; error: string | null };

@@ -7227,127 +7227,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "On: agents your Mac runs here through your own link skip the sandbox and may act without asking; the VM is the boundary. Off: they keep the sandbox."
+            "value": "Agents here run without the sandbox and don't ask first. The machine is the boundary."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "オン: あなたのリンク経由でこの Mac が動かすエージェントはサンドボックスなしで動き、確認せずに操作することがあります。VM が境界です。オフ: サンドボックスを使います。"
+            "value": "ここではエージェントがサンドボックスなしで動作し、事前に確認しません。マシン自体が境界になります。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تشغيل: الوكلاء الذين يشغّلهم جهاز Mac هنا عبر رابطك الخاص يعملون بلا بيئة معزولة وقد يتصرفون دون سؤال؛ الجهاز الافتراضي هو الحد. إيقاف: تبقى البيئة المعزولة."
+            "value": "يعمل الوكلاء هنا بلا بيئة معزولة ولا يسألون أولًا. الجهاز هو الحد."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uključeno: agenti koje vaš Mac ovdje pokreće preko vaše veze rade bez sandboxa i mogu djelovati bez pitanja; granica je VM. Isključeno: zadržavaju sandbox."
+            "value": "Agenti ovdje rade bez sandboxa i ne pitaju prije. Granica je sam računar."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Til: agenter, din Mac kører her via dit eget link, kører uden sandkasse og kan handle uden at spørge; VM'en er grænsen. Fra: de beholder sandkassen."
+            "value": "Agenter her kører uden sandkasse og spørger ikke først. Maskinen er grænsen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ein: Agenten, die dein Mac hier über deine eigene Verbindung ausführt, laufen ohne Sandbox und handeln eventuell ohne Rückfrage; die VM ist die Grenze. Aus: Sie behalten die Sandbox."
+            "value": "Agenten laufen hier ohne Sandbox und fragen nicht vorher. Der Rechner ist die Grenze."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activado: los agentes que tu Mac ejecuta aquí por tu propio enlace van sin sandbox y pueden actuar sin preguntar; la VM es el límite. Desactivado: mantienen el sandbox."
+            "value": "Aquí los agentes se ejecutan sin sandbox y no preguntan antes. La máquina es el límite."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activé : les agents que votre Mac exécute ici par votre propre lien tournent sans bac à sable et peuvent agir sans demander ; la VM est la limite. Désactivé : ils gardent le bac à sable."
+            "value": "Ici, les agents s’exécutent sans bac à sable et ne demandent pas avant. La machine est la limite."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Attivo: gli agenti che il tuo Mac esegue qui tramite il tuo collegamento funzionano senza sandbox e possono agire senza chiedere; il confine è la VM. Disattivo: mantengono la sandbox."
+            "value": "Qui gli agenti funzionano senza sandbox e non chiedono prima. Il confine è la macchina."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បើក៖ ភ្នាក់ងារដែល Mac របស់អ្នកដំណើរការនៅទីនេះតាមតំណផ្ទាល់ខ្លួនរបស់អ្នក ដំណើរការដោយគ្មាន sandbox ហើយអាចធ្វើសកម្មភាពដោយមិនសួរ។ VM គឺជាព្រំដែន។ បិទ៖ ពួកវារក្សា sandbox។"
+            "value": "ភ្នាក់ងារនៅទីនេះដំណើរការដោយគ្មាន sandbox ហើយមិនសួរមុនទេ។ ម៉ាស៊ីនគឺជាព្រំដែន។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "켜짐: 내 링크를 통해 이 Mac이 여기서 실행하는 에이전트는 샌드박스 없이 실행되며 묻지 않고 작업할 수 있습니다. VM이 경계입니다. 꺼짐: 샌드박스를 유지합니다."
+            "value": "여기서는 에이전트가 샌드박스 없이 실행되며 먼저 묻지 않습니다. 머신 자체가 경계입니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "På: agenter din Mac kjører her via din egen lenke, kjører uten sandkasse og kan handle uten å spørre; VM-en er grensen. Av: de beholder sandkassen."
+            "value": "Agenter her kjører uten sandkasse og spør ikke først. Maskinen er grensen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Włączone: agenci uruchamiani tu przez Twojego Maca przez Twoje własne połączenie działają bez piaskownicy i mogą działać bez pytania; granicą jest VM. Wyłączone: zachowują piaskownicę."
+            "value": "Agenci działają tu bez piaskownicy i nie pytają najpierw. Granicą jest sama maszyna."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ativado: os agentes que seu Mac executa aqui pelo seu próprio link rodam sem sandbox e podem agir sem perguntar; a VM é o limite. Desativado: eles mantêm o sandbox."
+            "value": "Aqui os agentes rodam sem sandbox e não perguntam antes. A máquina é o limite."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вкл.: агенты, которые ваш Mac запускает здесь через вашу собственную связь, работают без песочницы и могут действовать без вопросов; граница — VM. Выкл.: песочница сохраняется."
+            "value": "Здесь агенты работают без песочницы и не спрашивают заранее. Граница — сама машина."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เปิด: เอเจนต์ที่ Mac ของคุณเรียกใช้ที่นี่ผ่านลิงก์ของคุณเองจะทำงานโดยไม่มีแซนด์บ็อกซ์และอาจทำงานโดยไม่ถาม VM คือขอบเขต ปิด: ยังคงใช้แซนด์บ็อกซ์"
+            "value": "เอเจนต์ที่นี่ทำงานโดยไม่มีแซนด์บ็อกซ์และไม่ถามก่อน เครื่องนี้คือขอบเขต"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Açık: Mac'inizin kendi bağlantınız üzerinden burada çalıştırdığı ajanlar korumalı alan olmadan çalışır ve sormadan işlem yapabilir; sınır VM'dir. Kapalı: korumalı alanı korurlar."
+            "value": "Burada ajanlar korumalı alan olmadan çalışır ve önce sormaz. Sınır makinenin kendisidir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Увімк.: агенти, які ваш Mac запускає тут через ваше власне з'єднання, працюють без пісочниці й можуть діяти без запитань; межа — VM. Вимк.: пісочниця зберігається."
+            "value": "Тут агенти працюють без пісочниці й не питають заздалегідь. Межа — сама машина."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bật: các tác nhân mà Mac của bạn chạy ở đây qua liên kết của chính bạn sẽ chạy không có sandbox và có thể hành động mà không hỏi; VM là ranh giới. Tắt: chúng giữ sandbox."
+            "value": "Tác nhân ở đây chạy không có sandbox và không hỏi trước. Ranh giới là chính máy này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "开启：你的 Mac 通过你自己的连接在此运行的智能体不使用沙盒，并可能不经询问就执行操作；虚拟机即边界。关闭：保留沙盒。"
+            "value": "这里的智能体不使用沙盒运行，也不会事先询问。机器本身就是边界。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "開啟：你的 Mac 透過你自己的連線在此執行的代理不使用沙盒，並可能不經詢問就執行操作；虛擬機即邊界。關閉：保留沙盒。"
+            "value": "這裡的代理不使用沙盒執行，也不會事先詢問。機器本身就是邊界。"
           }
         }
       }
