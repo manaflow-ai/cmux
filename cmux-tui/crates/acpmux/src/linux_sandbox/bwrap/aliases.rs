@@ -396,7 +396,7 @@ mod tests {
             (
                 "2 1 8:1 / /work/cache rw - ext4 root rw\n",
                 &[
-                    "/work is also visible at /work/cache",
+                    "/work is also visible at /work/cache/work",
                     "/work/cache is a bind mount inside the writable folder /work",
                 ][..],
             ),
