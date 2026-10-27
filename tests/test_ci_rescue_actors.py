@@ -76,6 +76,18 @@ class ScriptsAcceptBothBots(unittest.TestCase):
             self.assertTrue(cascade.bot_rerun({"GITHUB_RUN_ATTEMPT": "2", "GITHUB_TRIGGERING_ACTOR": actor}))
         self.assertFalse(cascade.bot_rerun({"GITHUB_RUN_ATTEMPT": "2", "GITHUB_TRIGGERING_ACTOR": "teamleaderleo"}))
 
+    def test_a_cmux_bot_attempt_3_is_not_re_run_again(self):
+        # classify_failures re-runs a machine failure once; the bot's attempt 3 is already on Blacksmith.
+        classify = load("classify_failures")
+        report = {"run_id": 42, "attempt": 3, "head_sha": "a" * 40, "conclusion": "failure",
+                  "jobs": [{"name": "job 0", "verdict": classify.MACHINE}]}
+        for actor in BOTS:
+            latest = {"run_attempt": 3, "status": "completed", "triggering_actor": {"login": actor}}
+            self.assertFalse(classify.rerun_decision(report, latest)[0], actor)
+        # A person's attempt 3 that a mini failed is still re-run, by the bot, onto Blacksmith.
+        person = {"run_attempt": 3, "status": "completed", "triggering_actor": {"login": "teamleaderleo"}}
+        self.assertTrue(classify.rerun_decision(report, person)[0])
+
 
 if __name__ == "__main__":
     unittest.main()
