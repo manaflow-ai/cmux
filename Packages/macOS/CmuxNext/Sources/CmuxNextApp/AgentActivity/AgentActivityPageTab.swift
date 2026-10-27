@@ -36,8 +36,10 @@ final class AgentActivityPageTab: BrowserTab {
     /// Takes the picture away at the stand-in's cap when the document never painted.
     @ObservationIgnored let standInCap: MainDeadline
 
-    init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, source: any AgentActivitySource, webUI: WebUIHost,
-         deadlines: MainDeadlineScheduler) {
+    /// - Parameter openPage: Opens the Activity page on the page host (the app's `WebUIHost.open`); nil when the host has
+    ///   no root for it. A test passes its own, so the process-wide page roots do not decide what it sees.
+    init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, source: any AgentActivitySource,
+         openPage: @MainActor (PageOpenRequest) -> PageWebView?, deadlines: MainDeadlineScheduler) {
         self.id = id
         standInCap = MainDeadline(owner: "AgentActivityPageTab.standIn", workClass: .visible, scheduler: deadlines)
         self.engineKind = engine
@@ -46,7 +48,7 @@ final class AgentActivityPageTab: BrowserTab {
         model.layout = AgentActivityTunables.layout.value
         self.model = model
         let provider = AgentActivityPageProvider(requests: AgentActivityRequests(model: model, source: source), mainWork: deadlines.work)
-        let page = webUI.open(PageOpenRequest(descriptor: .agentActivity,
+        let page = openPage(PageOpenRequest(descriptor: .agentActivity,
                                               routes: [PageRoute(prefix: AgentActivityPageProvider.prefix, provider: provider)]))
         var state = BrowserTabState(url: AgentActivityPageAddress.url, title: AgentActivityPaneStrings.title)
         state.phase = page == nil ? .failed(Self.missingPage) : .finished
@@ -56,10 +58,13 @@ final class AgentActivityPageTab: BrowserTab {
     }
 
     /// The failure a tab shows, on the browser pane's load error page, when the page host has no root for the
-    /// Activity page (its files are missing from the bundle).
+    /// Activity page (its files are missing from the bundle). Not retryable: the page roots are fixed at launch,
+    /// so another open finds none either, and the error page shows no Try Again.
     static var missingPage: BrowserLoadError {
-        BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorFileDoesNotExist, message: AgentActivityPaneStrings.pageMissing,
-                         failingURL: AgentActivityPageAddress.url)
+        var error = BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorFileDoesNotExist,
+                                     message: AgentActivityPaneStrings.pageMissing, failingURL: AgentActivityPageAddress.url)
+        error.retryable = false
+        return error
     }
 
     func load(_ url: URL) {
