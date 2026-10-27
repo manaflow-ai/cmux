@@ -98,6 +98,11 @@ def focus_sample():
 
 def focus_timeline(index):
     """newSurface, then debug.focus back to back: each change of the first responder or the focus model, with its time."""
+    marker = f"lag2-timeline-{index}"
+    try:
+        CONTROL.rpc("debug.journal", {"marker": marker, "last": 1}, timeout=20)
+    except Exception as error:  # an app without the journal: the timeline still runs
+        note(f"  journal marker: {error!r}")
     t0 = time.perf_counter()
     reply = CONTROL.action("newSurface", focus=True)
     reply_ms = round((time.perf_counter() - t0) * 1000, 2)
@@ -110,12 +115,31 @@ def focus_timeline(index):
         if brief != last:
             changes.append({"ms": round((r0 - t0) * 1000, 1), "read_ms": round((time.perf_counter() - r0) * 1000, 1), **sample})
             last = brief
-    entry = {"tab": index, "reply_ms": reply_ms, "reply": json.dumps(reply)[:200], "reads": reads, "changes": changes}
+    journal = []
+    try:
+        got = CONTROL.rpc("debug.journal", {"last": 4000}, timeout=20) or {}
+        entries = got.get("entries") or []
+        start = next((i for i, e in enumerate(entries) if marker in json.dumps(e.get("kind"))), None)
+        if start is not None:
+            base_ns = entries[start].get("uptimeNanos") or 0
+            for e in entries[start + 1:]:
+                kind = json.dumps(e.get("kind"), separators=(",", ":"))
+                if "debug.focus" in kind:
+                    continue
+                journal.append({"ms": round(((e.get("uptimeNanos") or 0) - base_ns) / 1e6, 2), "kind": kind[:300]})
+        else:
+            journal.append({"ms": None, "kind": f"marker not found in {len(entries)} entries; stats {json.dumps(got.get('stats'))[:200]}"})
+    except Exception as error:
+        journal.append({"ms": None, "kind": repr(error)})
+    entry = {"tab": index, "reply_ms": reply_ms, "reply": json.dumps(reply)[:200], "reads": reads, "changes": changes,
+             "journal": journal}
     result.setdefault("timeline", []).append(entry)
     note(f"  timeline {index}: reply {reply_ms} ms, {reads} reads")
     for change in changes:
         note(f"    +{change['ms']:7.1f} ms (read {change['read_ms']} ms) fr={change['fr']} resolved={change['resolved']} tab={change['tab']} "
              f"exp={change['exp']} key={change['key']} layout={change['layout']} ghostty={change['ghostty']} ev={change['events'][-2:]}")
+    for item in journal[:80]:
+        note(f"    J {item['ms']} {item['kind']}")
     CONTROL.action("closeTab")
     time.sleep(1.0)
 
