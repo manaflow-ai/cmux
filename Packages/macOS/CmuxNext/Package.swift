@@ -285,6 +285,7 @@ let package = Package(
                 "CmuxNextSettingsWindow",
                 "CmuxNextSignposts",
                 "CmuxNextCloud",
+                "CmuxNextCloudUI",
                 "CmuxNextRemote",
                 "CmuxNextMobile",
                 "CmuxNextMobileHost",
