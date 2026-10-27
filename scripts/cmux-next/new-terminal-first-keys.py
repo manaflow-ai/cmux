@@ -46,6 +46,7 @@ parser.add_argument("--focus-timeline", type=int, default=0,
                     help="before the keyed tabs: N new tabs with no key, debug.focus read back to back for --timeline-ms after "
                          "the newSurface reply; prints when the first responder and the focus model change (SCRATCH)")
 parser.add_argument("--timeline-ms", type=float, default=1500)
+parser.add_argument("--journal-lost", action="store_true", help="print the input journal of each tab that lost a key (SCRATCH)")
 opts, _unknown = parser.parse_known_args()
 
 OUT = os.path.abspath(opts.out)
@@ -144,6 +145,26 @@ def focus_timeline(index):
     time.sleep(1.0)
 
 
+def journal_since(marker):
+    """The input journal after `marker` (ms from it), debug.focus reads left out."""
+    out = []
+    try:
+        got = CONTROL.rpc("debug.journal", {"last": 4000}, timeout=20) or {}
+        entries = got.get("entries") or []
+        start = next((i for i, e in enumerate(entries) if marker in json.dumps(e.get("kind"))), None)
+        if start is None:
+            return [{"ms": None, "kind": "marker not found"}]
+        base_ns = entries[start].get("uptimeNanos") or 0
+        for e in entries[start + 1:]:
+            kind = json.dumps(e.get("kind"), separators=(",", ":"))
+            if "debug.focus" in kind or '"resize:' in kind:
+                continue
+            out.append({"ms": round(((e.get("uptimeNanos") or 0) - base_ns) / 1e6, 2), "kind": kind[:260]})
+    except Exception as error:
+        out.append({"ms": None, "kind": repr(error)})
+    return out[:90]
+
+
 def first_key_ms(rows, base):
     """The first typed key's key-to-frame: the probe row of press `base` (each launch numbers presses from 0)."""
     for row in rows:
@@ -180,6 +201,12 @@ def main():
             before = hid_input.probe_rows(PROBE)
             base = max([int(r["index"]) for r in before if (r.get("index") or "").isdigit()], default=-1) + 1
             t0 = time.perf_counter()
+            marker = f"lag2-keys-{index}"
+            if opts.journal_lost:
+                try:
+                    CONTROL.rpc("debug.journal", {"marker": marker, "last": 1}, timeout=20)
+                except Exception:
+                    pass
             reply = CONTROL.action("newSurface", focus=True)
             reply_ms = round((time.perf_counter() - t0) * 1000, 2)
             answers = []
@@ -188,7 +215,7 @@ def main():
                 answer = poster.key(typed[key])
                 if isinstance(answer, dict):
                     answers.append({"at_ms": round((k0 - t0) * 1000, 1), "handled_by": answer.get("handled_by"),
-                                    "trace": (answer.get("trace") or [])[:3]})
+                                    "trace": (answer.get("trace") or [])[:12]})
                 rest = opts.interval - (time.perf_counter() - k0)
                 if rest > 0 and key + 1 < opts.keys:
                     time.sleep(rest)  # one key in flight, at a typist's pace
@@ -201,7 +228,10 @@ def main():
             note(f"  tab {index}: {'ok  ' if tab['all'] else 'LOST'} {line[-40:]!r} first key {tab['first_key_ms']} ms keys {tab['keys_ms']}")
             if not tab["all"]:
                 for answer in answers:
-                    note(f"      key at +{answer['at_ms']} ms: {answer['handled_by']} {answer['trace'][:2]}")
+                    note(f"      key at +{answer['at_ms']} ms: {answer['handled_by']} {answer['trace']}")
+                if opts.journal_lost:
+                    for item in journal_since(marker):
+                        note(f"      J {item['ms']} {item['kind']}")
             CONTROL.action("terminal.sendText", {"text": "\x15"})
             CONTROL.action("closeTab")
             time.sleep(1.0)  # the close settles
