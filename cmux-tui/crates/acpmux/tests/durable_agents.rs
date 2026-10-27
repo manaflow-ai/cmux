@@ -2712,6 +2712,48 @@ async fn a_left_host_whose_log_ends_in_a_torn_record_ends_under_mdm_off() {
     );
 }
 
+/// Review 69 of #23322: under MDM's off, a full-access mode the harness reported counts as soon as
+/// it is logged, before the inbound loop applies it (the debug seam `ACPMUX_TEST_UPDATE_DELAY_MS`
+/// holds it there): the next prompt never reaches that agent, through `child_for`'s fast path or
+/// any other.
+#[tokio::test]
+async fn a_full_access_report_counts_before_it_is_applied_under_mdm_off() {
+    let delay = [("ACPMUX_TEST_UPDATE_DELAY_MS", "1500")];
+    let mut daemon = Daemon::with_env("mdmunapplied", "ask", &delay);
+    daemon.sigterm();
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let config =
+        json!({"harnesses": {"fake": fake}, "defaultHarness": "fake", "permissionPolicy": "ask"});
+    std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    // The turn ends; the harness reports full access 300 ms later, outside any turn, and the
+    // inbound loop applies that report 1.5 s after it is logged.
+    let later = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "set-mode-after: 300 full-access"}]});
+    rpc.call("session/prompt", later).await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    let next = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.reply("session/prompt", next).await;
+    // From the agent's full-access report to the next `host_started`, no prompt was written.
+    let mut reported = false;
+    for e in daemon.events(&session) {
+        match (e["dir"].as_str(), e["kind"].as_str()) {
+            (Some("in"), Some("current_mode_update")) => {
+                reported = e["msg"]["params"]["update"]["currentModeId"] == "full-access";
+            }
+            (Some("mux"), Some("host_started")) => reported = false,
+            (Some("out"), Some("session/prompt")) => {
+                assert!(!reported, "a prompt reached the agent after it reported full access: {e}")
+            }
+            _ => {}
+        }
+    }
+}
+
 /// #24337 review: a prompt the next daemon adopts carries acpmux's own display line, worked out
 /// again, never one its log held (an older daemon's record, or a line the agent forged).
 #[tokio::test]

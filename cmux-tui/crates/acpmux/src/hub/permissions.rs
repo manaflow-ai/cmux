@@ -31,6 +31,18 @@ impl Hub {
                     ..
                 } => {
                     if m == method::SESSION_UPDATE {
+                        // Debug builds only: `ACPMUX_TEST_UPDATE_DELAY_MS` holds each update
+                        // before it is applied (the log has it already), as a busy inbound loop
+                        // does, so the daemon's integration tests can reach an agent first.
+                        // Bounded; release builds have no seam.
+                        #[cfg(debug_assertions)]
+                        if let Some(ms) = std::env::var("ACPMUX_TEST_UPDATE_DELAY_MS")
+                            .ok()
+                            .and_then(|v| v.parse::<u64>().ok())
+                        {
+                            tokio::time::sleep(std::time::Duration::from_millis(ms.min(2_000)))
+                                .await;
+                        }
                         // A /context breakdown or usage limits from an agent that was replaced
                         // (a failover's dying primary answering late) are not the chat's now. The
                         // child lock is held while it is applied: a failover takes it to retire
