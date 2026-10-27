@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 import Testing
 import CmuxNextCompat
@@ -14,7 +18,12 @@ struct ChildSignalDefaultsTests {
     private func childDispositions() throws -> [String: String] {
         var fds: [Int32] = [0, 0]
         guard pipe(&fds) == 0 else { throw POSIXError(.EIO) }
+        #if canImport(Darwin)
         var actions: posix_spawn_file_actions_t?
+        #else
+        // Glibc's file actions are a struct, not Darwin's opaque pointer.
+        var actions = posix_spawn_file_actions_t()
+        #endif
         posix_spawn_file_actions_init(&actions)
         posix_spawn_file_actions_adddup2(&actions, fds[1], STDOUT_FILENO)
         posix_spawn_file_actions_addclose(&actions, fds[0])

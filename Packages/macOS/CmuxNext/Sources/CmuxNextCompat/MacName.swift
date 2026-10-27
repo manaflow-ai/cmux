@@ -1,5 +1,9 @@
 import Foundation
+#if canImport(SystemConfiguration)
 import SystemConfiguration
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 /// This Mac's names, read without DNS. `Host.current().localizedName` and
 /// `ProcessInfo.hostName` resolve every local name through DNS/mDNS and
@@ -12,9 +16,7 @@ public struct MacName: Sendable {
     /// from the local configuration store, read off the main actor. Falls
     /// back to the host name, then "Mac".
     public func computerName() async -> String {
-        await Self.resolve {
-            SCDynamicStoreCopyComputerName(nil, nil) as String?
-        }
+        await Self.resolve { Self.systemComputerName() }
     }
 
     /// The name cmux shows for this Mac: the computer name, unless it is
@@ -83,10 +85,29 @@ public struct MacName: Sendable {
     /// Reads the local host name and keeps it for `hostName()`. It waits on
     /// configd, so only off-main code (`@concurrent`) calls it.
     private nonisolated static func readLocalHostName() -> String? {
-        let name = SCDynamicStoreCopyLocalHostName(nil) as String?
+        let name = systemLocalHostName()
         localHost.withLock { $0 = (true, name) }
         return name
     }
+
+    #if canImport(SystemConfiguration)
+    /// The computer name in the local configuration store (configd IPC).
+    private nonisolated static func systemComputerName() -> String? {
+        SCDynamicStoreCopyComputerName(nil, nil) as String?
+    }
+
+    /// The local (Bonjour) host name in the local configuration store (configd IPC).
+    private nonisolated static func systemLocalHostName() -> String? {
+        SCDynamicStoreCopyLocalHostName(nil) as String?
+    }
+    #else
+    /// Linux has no configuration store: the kernel host name is the machine's name, as Chromium names a
+    /// Linux device (components/sync_device_info/local_device_info_util_linux.cc, `net::GetHostName()`).
+    private nonisolated static func systemComputerName() -> String? { nil }
+
+    /// Linux has no Bonjour local host name; ``hostName()`` uses the kernel's.
+    private nonisolated static func systemLocalHostName() -> String? { nil }
+    #endif
 
     /// `cmux-<host>`, as the old app named its Cloud link device (moved from
     /// CloudService). Reads the kernel hostname: `ProcessInfo.hostName`

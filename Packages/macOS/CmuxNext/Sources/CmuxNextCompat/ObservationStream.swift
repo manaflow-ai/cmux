@@ -1,6 +1,12 @@
+#if canImport(Darwin)
 internal import Darwin
+#elseif canImport(Glibc)
+internal import Glibc
+#endif
 internal import Observation
+#if canImport(os)
 internal import os
+#endif
 internal import class CmuxSafeConcurrency.OnceContinuation
 internal import enum CmuxSafeConcurrency.OnceContinuationError
 internal import func CmuxSafeConcurrency.withOnceContinuation

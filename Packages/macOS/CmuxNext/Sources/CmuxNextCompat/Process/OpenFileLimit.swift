@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 package import Darwin
+#elseif canImport(Glibc)
+package import Glibc
+#endif
 import Foundation
 
 /// The app's open-file limit (RLIMIT_NOFILE).
@@ -27,14 +31,15 @@ package struct OpenFileLimit {
     package var read: () -> (soft: rlim_t, hard: rlim_t)? = {
         var limit = rlimit()
         // SAFETY: getrlimit writes one rlimit into `limit`, a local.
-        return unsafe getrlimit(RLIMIT_NOFILE, &limit) == 0 ? (limit.rlim_cur, limit.rlim_max) : nil
+        return unsafe getrlimit(OpenFileLimit.resource, &limit) == 0 ? (limit.rlim_cur, limit.rlim_max) : nil
     }
     /// Sets the soft limit under `hard` (setrlimit); true when it took.
     package var write: (_ soft: rlim_t, _ hard: rlim_t) -> Bool = { soft, hard in
         var limit = rlimit(rlim_cur: soft, rlim_max: hard)
         // SAFETY: setrlimit reads one rlimit from `limit`, a local.
-        return unsafe setrlimit(RLIMIT_NOFILE, &limit) == 0
+        return unsafe setrlimit(OpenFileLimit.resource, &limit) == 0
     }
+    #if canImport(Darwin)
     /// `kern.maxfilesperproc`: setrlimit refuses a soft limit above it, even under an unlimited
     /// hard limit. `OPEN_MAX` (10240) when it cannot be read.
     package var perProcessCap: () -> rlim_t = {
@@ -44,6 +49,19 @@ package struct OpenFileLimit {
         // Int32) into `value` and the size it wrote into `size`; both are locals.
         return unsafe sysctlbyname("kern.maxfilesperproc", &value, &size, nil, 0) == 0 && value > 0 ? rlim_t(value) : 10_240
     }
+
+    /// RLIMIT_NOFILE as getrlimit and setrlimit take it.
+    private static let resource = RLIMIT_NOFILE
+    #else
+    /// Linux has no per-process cap under the hard limit: setrlimit takes any soft limit up to it
+    /// (`fs.nr_open` bounds only the hard limit), as Chromium's base::IncreaseFdLimitTo assumes
+    /// (base/process/process_metrics_posix.cc).
+    package var perProcessCap: () -> rlim_t = { rlim_t.max }
+
+    /// RLIMIT_NOFILE as getrlimit and setrlimit take it: Glibc imports the resource as an enum
+    /// (`__rlimit_resource`) and the functions take its raw value (`__rlimit_resource_t`).
+    private static let resource = __rlimit_resource_t(RLIMIT_NOFILE.rawValue)
+    #endif
 
     package init() {}
 

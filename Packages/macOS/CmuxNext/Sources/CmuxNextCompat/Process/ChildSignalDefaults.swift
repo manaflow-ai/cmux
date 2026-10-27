@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 package import Darwin
+#elseif canImport(Glibc)
+internal import Glibc
+#endif
 
 /// A caught signal returns to its default action in every program the
 /// process execs; an ignored one stays ignored there.
@@ -26,7 +30,13 @@ package struct ChildSignalDefaults {
     /// Call once at launch, before any socket or pipe exists.
     package static func installAppSignalPolicy() {
         var action = sigaction()
+        #if canImport(Darwin)
         action.__sigaction_u.__sa_handler = caughtAndDropped
+        #else
+        // SAFETY: Glibc's handler union holds one C function pointer; this writes its `sa_handler` member, the
+        // one `sa_flags` selects (no SA_SIGINFO).
+        unsafe action.__sigaction_handler.sa_handler = caughtAndDropped
+        #endif
         action.sa_flags = SA_RESTART
         // SAFETY: sigemptyset writes one sigset_t into the local's field; sigaction reads one struct sigaction from
         // `action` and writes none (nil).
@@ -37,12 +47,21 @@ package struct ChildSignalDefaults {
             // SAFETY: sigaction reads none (nil) and writes the current disposition, one struct sigaction, into
             // `current`, a local.
             unsafe sigaction(signal, nil, &current)
+            #if canImport(Darwin)
             // SIG_IGN is the handler value 1 (<sys/signal.h>).
             // SAFETY: __sigaction_u is a union of two C function pointers, one pointer wide like Int; the cast copies
             // its bits and calls nothing.
             if unsafe unsafeBitCast(current.__sigaction_u, to: Int.self) == 1 {
                 _ = Darwin.signal(signal, SIG_DFL)
             }
+            #else
+            // SIG_IGN is the handler value 1 (<bits/signum-generic.h>).
+            // SAFETY: __sigaction_handler is a union of two C function pointers, one pointer wide like Int; the cast
+            // copies its bits and calls nothing.
+            if unsafe unsafeBitCast(current.__sigaction_handler, to: Int.self) == 1 {
+                _ = Glibc.signal(signal, SIG_DFL)
+            }
+            #endif
         }
     }
 }
