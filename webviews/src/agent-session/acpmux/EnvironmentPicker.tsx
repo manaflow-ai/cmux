@@ -572,7 +572,7 @@ export function EnvironmentPicker({
           autoHighlight
           inline
         />
-        {query.trim() !== "" && shown.length === 0 && savedShown.length === 0 && (
+        {query.trim() !== "" && shown.length === 0 && savedShown.length === 0 && !sandboxFace && (
           <div className="acpmux-location-empty">{t("composer.environmentNone")}</div>
         )}
       </Popover>

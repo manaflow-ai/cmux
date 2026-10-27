@@ -887,6 +887,8 @@ test("Labs: Sandboxed is New Cloud Machine's other face, shown while ⌥ is held
   await openPicker();
   await type("sandbox");
   expect(doc().querySelector('.acpmux-env-popover [data-mode="sandboxed"]')).toBeTruthy();
+  // It is a match: no "no environment" line over it.
+  expect(doc().querySelector(".acpmux-location-empty")).toBeNull();
 });
 
 test("Labs: with Sandboxed picked the control names it, no machine is checked, and a machine pick goes back to Persistent", async () => {
