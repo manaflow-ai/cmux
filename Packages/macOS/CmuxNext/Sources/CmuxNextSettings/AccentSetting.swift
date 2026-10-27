@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 import Foundation
 
 /// `appearance.accent` in cmux.json: where the chrome's accent (selection, focus ring, the action

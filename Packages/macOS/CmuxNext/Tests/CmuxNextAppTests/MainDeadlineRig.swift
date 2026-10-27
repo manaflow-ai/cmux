@@ -9,7 +9,8 @@ final class MainDeadlineRig {
     let deadlines: MainDeadlineScheduler
     private let timer: HandFiredWakeUpTimer
     private let uptime: RigUptime
-    private let queue: MainWakeUpQueue
+    /// The rig's wake-up queue: a page's keyed waits (`MockBrowserEngine(waitDeadlines:)`) put their timeouts on it.
+    let queue: MainWakeUpQueue
     /// The rig's scheduler: its posted work runs at ``frame()``.
     let work: MainWorkScheduler
     private let budgetClock: RigUptime

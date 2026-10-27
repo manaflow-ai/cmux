@@ -30,7 +30,8 @@ public final class MotionClock {
 
     private var entries: [ObjectIdentifier: Entry] = [:]
     private var order: [ObjectIdentifier] = []
-    private lazy var client = FrameClient(owner: "Motion.clock", scheduler: resolveScheduler) { [weak self] tick in
+    // frame-client: the window's one chrome spring clock (motion.md P4), on main while an animator moves
+    private lazy var client = FrameClient(owner: "Motion.clock", rate: .motion, scheduler: resolveScheduler) { [weak self] tick in
         self?.tick(tick) ?? false
     }
     /// The scheduler the clock ticks on: its window's (``FrameScheduler/app`` for the app clock).
@@ -56,14 +57,14 @@ public final class MotionClock {
         resolveScheduler = resolve
     }
 
-    private static var associationKey: UInt8 = 0
+    private static let clocks = ObjectAssociation<MotionClock>()
     private static let app = MotionClock(window: nil)
 
     /// `window`'s clock, created on first use and kept by the window.
     public static func forWindow(_ window: NSWindow) -> MotionClock {
-        if let clock = objc_getAssociatedObject(window, &associationKey) as? MotionClock { return clock }
+        if let clock = clocks.value(on: window) { return clock }
         let clock = MotionClock(window: window)
-        objc_setAssociatedObject(window, &associationKey, clock, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        clocks.set(clock, on: window)
         return clock
     }
 
@@ -75,7 +76,7 @@ public final class MotionClock {
     /// The clocks that can step an animator now: those `windows` already have (none is created) and the app
     /// clock window-less views share.
     public static func existing(in windows: [NSWindow]) -> [MotionClock] {
-        windows.compactMap { objc_getAssociatedObject($0, &associationKey) as? MotionClock } + [app]
+        windows.compactMap { clocks.value(on: $0) } + [app]
     }
 
     /// Steps `animator` every frame until it reports rest. `trace` names its

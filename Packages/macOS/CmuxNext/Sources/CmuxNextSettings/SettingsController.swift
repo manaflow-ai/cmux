@@ -134,8 +134,10 @@ public final class SettingsController {
     /// on this thread) and starts watching it; the watches are armed off this thread, then reload
     /// once. After ``adoptLaunchRead()`` it only arms the watches and reloads once off this
     /// thread, so an edit made since the launch read applies. With `events` (the app's notices),
-    /// the app also tells the person about a value it ignores (`SettingsDiagnosticToasts`); tests leave it off.
-    public func start(announcingDiagnosticsOn events: AppEvents? = nil) {
+    /// the app also tells the person about a value it ignores (`SettingsDiagnosticToasts`), sending
+    /// them to its Settings row only while `availability` says the page draws it; tests leave it off.
+    public func start(announcingDiagnosticsOn events: AppEvents? = nil,
+                      availability: @escaping @MainActor () -> SettingsAvailability = { SettingsAvailability() }) {
         guard watcher == nil else { return }
         let watcher = ConfigFileWatcher(url: file.url) { [weak self, mainWork] in
             mainWork.postFromAnyThread(.visible, owner: "Settings.fileChanged") { [weak self] in self?.requestReload() }
@@ -146,7 +148,7 @@ public final class SettingsController {
         if loadCount == 0 { loadNow() } else { requestReload() }
         if let events, diagnosticToasts == nil {
             // After the first load: the toasts' first read is the loaded file, never the empty state before it.
-            let toasts = SettingsDiagnosticToasts(registry: applier.registry, events: events)
+            let toasts = SettingsDiagnosticToasts(registry: applier.registry, events: events, availability: availability)
             diagnosticToasts = toasts
             toasts.follow(self)
         }

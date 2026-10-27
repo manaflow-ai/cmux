@@ -323,8 +323,12 @@ THREAD_MARKS = (FIRST_FRAME_THREADS, FIRST_FRAME_RUNTIME_THREADS, FIRST_FRAME_GH
 # How long a launch that reached its content waits for the thread counts, sent from a cpu lane after the committed
 # first frame (never at a missed reveal deadline); a build without them, or a launch that drew no frame, costs this.
 THREAD_MARKS_WAIT_S = 1.0
+# p08-startup-092 (LaunchValueMarks): the main thread's wait for the warm-up thread's action catalog build at the
+# registry's read (target 0 in every run), and its whole time in that read; microseconds.
+ACTION_CATALOG_MAIN_WAIT = "launch.action_catalog_main_wait_us"
+ACTION_CATALOG_MAIN_READ = "launch.action_catalog_main_read_us"
 VALUE_MARKS = (TEMPERATURE, PAGEINS_RUN_LOOP, PAGEINS, MAIN_CPU, INTERRUPTED, SIDEBAR_ROWS_BUILT, SIDEBAR_ROWS_VISIBLE,
-               VIEWS_BUILT, *THREAD_MARKS)
+               VIEWS_BUILT, *THREAD_MARKS, ACTION_CATALOG_MAIN_WAIT, ACTION_CATALOG_MAIN_READ)
 # Percentiles printed after p50 (perf_stats.summary).
 PERCENTILES = (95, 99)
 
@@ -1101,6 +1105,8 @@ def run_values(marks):
     if any(mark in marks for mark in THREAD_MARKS):
         total, runtime, ghostty = (count_or_missing(marks.get(mark)) for mark in THREAD_MARKS)
         shown.append(f"threads at first frame {total} (runtime {runtime}, ghostty {ghostty})")
+    if is_number(marks.get(ACTION_CATALOG_MAIN_WAIT)):
+        shown.append(f"action catalog wait {marks[ACTION_CATALOG_MAIN_WAIT] / 1000:.2f} ms")
     reason = completion_reason(marks)
     if reason is not None:
         shown.append(f"startup complete {reason}")
@@ -1158,6 +1164,7 @@ def value_summary(runs, temperature=None):
         lines.append(f"  {VIEWS_BUILT}: {cells}  n {len(built)} (== the visible panes)")
     lines += sidebar_rows_summary(runs)
     lines += first_frame_threads_summary(runs)
+    lines += action_catalog_summary(runs)
     lines.append(completion_summary(runs))
     stopped = [str(index + 1) for index, run in enumerate(runs) if interrupted(run)]
     lines.append(f"  {INTERRUPTED}: " + (f"runs {', '.join(stopped)} ({len(stopped)} of {total})" if stopped
@@ -1200,6 +1207,25 @@ def first_frame_threads_summary(runs):
     if missing:
         lines.append(f"  {FIRST_FRAME_RUNTIME_THREADS}: missing in runs {', '.join(missing)} ({len(missing)} of {len(runs)})")
     return lines
+
+
+def action_catalog_summary(runs):
+    """p08-startup-092: `action_catalog_main_wait_ms` 0 in how many runs, the waits as a spread in ms, and the read's
+    time on main. A run that sent no wait is missing, never 0. No line when no run sent one (an older build)."""
+    if not any(ACTION_CATALOG_MAIN_WAIT in run for run in runs):
+        return []
+    waits = [run[ACTION_CATALOG_MAIN_WAIT] / 1000 for run in runs if is_number(run.get(ACTION_CATALOG_MAIN_WAIT))]
+    cells = "  ".join(f"{column} {value:.2f}" for column, value in spread(waits).items())
+    line = (f"  action_catalog_main_wait_ms: 0 in {sum(wait == 0 for wait in waits)} of {len(runs)} runs; "
+            f"{cells}  n {len(waits)}")
+    missing = len(runs) - len(waits)
+    if missing:
+        line += f" ({missing} without it)"
+    reads = [run[ACTION_CATALOG_MAIN_READ] / 1000 for run in runs if is_number(run.get(ACTION_CATALOG_MAIN_READ))]
+    if not reads:
+        return [line]
+    cells = "  ".join(f"{column} {value:.2f}" for column, value in spread(reads).items())
+    return [line, f"  action_catalog_main_read_ms: {cells}  n {len(reads)}"]
 
 
 def classified_not_cold(run):
