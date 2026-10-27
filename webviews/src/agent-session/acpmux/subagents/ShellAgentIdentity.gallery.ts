@@ -83,7 +83,7 @@ export default agentPaneEntry({
   title: "Shell calls and tracked sessions",
   area: "Agent pane",
   height: 680,
-  covers: ["agent-session/acpmux/subagents/subagentFold.ts"],
+  covers: ["agent-session/acpmux/subagents/AgentRunCard.tsx"],
   variants: {
     running: {
       note: "Bash stays a shell row. Only the explicit child-session record supplies the Codex card.",
