@@ -50,6 +50,7 @@ extension HomeService {
 
     /// The paired server's name for a placed Chief (its host id while the server is not paired here).
     func serverName(of chief: CloudChief?) -> String? {
+        guard let services else { return nil }
         guard let host = chief?.brainPlace?.host else { return nil }
         return services.machines.servers.first { $0.reach.hostID == host }?.name ?? host
     }

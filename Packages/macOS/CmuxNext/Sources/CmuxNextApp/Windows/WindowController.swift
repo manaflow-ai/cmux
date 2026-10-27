@@ -93,7 +93,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         sidebar.container.sidebarView.onTurnOffEnergySaver = { [weak registry = services.registry] in
             _ = registry?.perform("energy.saver.turnOffForNow", invocation: ActionInvocation(origin: .user))
         }
-        root = WindowRootView(sidebar: sidebar.container, revealDeadlines: services.mainDeadlines, signals: services.appearance, slideHoldsContent: WindowRootView.slideHoldsContent(in: services.features))
+        root = WindowRootView(sidebar: sidebar.container, revealDeadlines: services.mainDeadlines, signals: services.appearance, slideHoldsContent: WindowRootView.slideHoldsContent(in: services.features),
+                              rendersMotionOnServer: { LayoutTunables.motionRenderServer.value })
         root.contentHost.hiddenDetach = services.makeHiddenWorkspaceDetach()
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
@@ -200,7 +201,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     /// The local daemon's first connection, connecting or unavailable, until a workspace shows.
     private func showConnecting() {
-        let view = connectingView ?? DaemonConnectingView(frame: .zero, recovery: services.daemon.recovery)
+        let view = connectingView ?? DaemonConnectingView(frame: .zero, recovery: services.daemon.recovery, node: visibility, on: services.mainWork,
+                                                          deadlines: services.mainDeadlines)
         if connectingView == nil { DebugTimings.markLaunch("connecting_view_shown") }
         connectingView = view
         root.show(view)

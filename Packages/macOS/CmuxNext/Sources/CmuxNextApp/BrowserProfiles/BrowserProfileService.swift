@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextCompat
@@ -24,7 +25,9 @@ final class BrowserProfileService {
     private(set) var book = BrowserProfileBook()
     /// False until the file was read (a launch reads it off the main thread).
     private(set) var isLoaded = false
-    @ObservationIgnored unowned let services: AppServices
+    @ObservationIgnored private let servicesReference: OwnerReference<AppServices>
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    var services: AppServices? { servicesReference.resolve() }
     /// Nil until `load` (tests and a service that never loaded write nothing).
     @ObservationIgnored private(set) var file: BrowserProfileBookFile?
     /// The onboarding import's saved data (nil: no import migration).
@@ -41,7 +44,7 @@ final class BrowserProfileService {
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser-profiles")
 
     init(services: AppServices) {
-        self.services = services
+        servicesReference = OwnerReference(services: services)
     }
 
     /// `<Application Support>/<bundle id>/BrowserProfiles`.
@@ -55,6 +58,7 @@ final class BrowserProfileService {
     /// earlier run and moves pre-profile imports (in `importStore`) into
     /// their own profiles.
     func load(directory: URL, importStore: ImportedDataStore? = nil) {
+        guard let services else { return }
         let file = BrowserProfileBookFile(url: directory.appending(path: "profiles.json"))
         self.file = file
         self.importStore = importStore
@@ -93,7 +97,7 @@ final class BrowserProfileService {
     /// Profiles in order: the home daemon's once they moved there
     /// (`browser-profiles-v1`), else this Mac's file.
     var ordered: [BrowserProfileRecord] {
-        guard usesDaemonRecords else { return book.ordered }
+        guard usesDaemonRecords, let services else { return book.ordered }
         return services.machines.local.store.personal.browserProfiles.map(Self.record(from:))
     }
 
@@ -118,6 +122,7 @@ final class BrowserProfileService {
     }
 
     private func save() {
+        guard let services else { return }
         guard let file else { return }
         let snapshot = book, previous = saving, logger = logger
         // task-owner: chained single-file saves; each waits for the previous. R-hop: off main on the file's actor;
@@ -138,6 +143,7 @@ final class BrowserProfileService {
     /// The engine store of a tab: an incognito window's session, else the
     /// profile its record names (fixed at creation), else the default one.
     func engineProfile(forTab key: String) -> BrowserProfileID {
+        guard let services else { return book.engineProfile(for: nil) }
         if case let windows = services.windows, let incognito = windows.browserProfile(forWorkspace: services.workspaceID(ofTab: key)) {
             return incognito
         }

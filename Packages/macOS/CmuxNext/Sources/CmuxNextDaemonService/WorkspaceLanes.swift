@@ -80,7 +80,8 @@ public final class WorkspaceLanes {
     @discardableResult
     public func run(in window: String?, _ body: @escaping @MainActor () async -> ActionWorkFailure?) -> ActionWork {
         let task = enqueue(window ?? "") { await body() }
-        return Task { (try? await task.value) ?? nil }
+        // Off main: it only forwards the lane task's result.
+        return Task { @concurrent in (try? await task.value) ?? nil }
     }
 
     /// A close pressed in `window`: takes its newest outstanding create, if
@@ -124,13 +125,16 @@ public final class WorkspaceLanes {
         if creates[lane]?.isEmpty == true { creates[lane] = nil }
     }
 
-    private func enqueue<T>(_ lane: String, _ body: @escaping @MainActor () async throws -> T) -> Task<T, Error> {
+    /// Queues `body` after the lane's last operation. The lane's wait runs off main; `body`, a main-actor action
+    /// step (a create's records, a close's restore), runs its main-thread parts there (recipe R-hop).
+    private func enqueue<T: Sendable>(_ lane: String, _ body: @escaping @MainActor () async throws -> T) -> Task<T, Error> {
         let previous = tails[lane]
-        let task = Task { @MainActor () async throws -> T in
+        let task = Task { @concurrent () async throws -> T in
             await previous?.value
             return try await body()
         }
-        tails[lane] = Task { _ = try? await task.value }
+        // Off main: the lane's tail only waits for the task.
+        tails[lane] = Task { @concurrent in _ = try? await task.value }
         return task
     }
 }

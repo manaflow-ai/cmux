@@ -13,12 +13,12 @@ struct FeatureListDaemonHelloTests {
     }
 
     @Test func onlyDaemonAndBothFeaturesAreSentWithTheAppsValues() {
-        let overrides = FeatureOverrides(environment: [FeatureOverrides.enableVariable: "terminalHolder"])
+        let overrides = FeatureOverrides(environment: [FeatureOverrides.disableVariable: "terminalHolder"])
         let list = FeatureList(registry: FeatureRegistry(), channel: .release, overrides: overrides)
         let values = list.daemonValues
         let daemonSide = FeatureRegistry().features.filter { $0.process == .daemon || $0.process == .both }
         #expect(values.map(\.name) == daemonSide.map(\.name))
-        #expect(values.first { $0.name == "terminalHolder" }?.isEnabled == true)
+        #expect(values.first { $0.name == "terminalHolder" }?.isEnabled == false)
         #expect(list.daemonValuesHash == FeatureList.daemonValuesHash(values))
         #expect(list.daemonValuesHash != FeatureList(registry: FeatureRegistry(), channel: .release).daemonValuesHash)
     }

@@ -27,7 +27,7 @@ extension BrowserHibernation {
                              capturing: busy.capturing, webAudio: busy.audio, beforeUnload: busy.beforeUnload,
                              unloadHandler: busy.unloadHandler, webRTC: busy.webRTC,
                              connectedDevice: busy.connectedDevice, unreadableFrame: busy.unreadableFrame,
-                             audible: object["sound"] == true || busy.audio)
+                             audible: object["sound"] == true || busy.audio, heldWebLock: busy.webLock, openIndexedDB: busy.indexedDB)
         } catch {
             return unanswered(tab)
         }

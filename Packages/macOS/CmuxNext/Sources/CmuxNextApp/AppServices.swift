@@ -38,6 +38,7 @@ import CmuxNextPhone
 import CmuxNextPhoneAccess
 import CmuxNextServer
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import CmuxNextSidebar
 import CmuxNextSignposts
 import CmuxNextTerminal
@@ -59,7 +60,7 @@ final class AppServices {
     /// The recovery-draft backstop of unsaved documents (R96).
     private(set) lazy var recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory, deadlines: mainDeadlines)
     /// The quit hook's unsaved-document participants; drafts go to ``recoveryDrafts``.
-    private(set) lazy var quitUnsaved = QuitUnsavedRegistry(drafts: recoveryDrafts)
+    private(set) lazy var quitUnsaved = QuitUnsavedRegistry(deadlines: .on(mainDeadlines), drafts: recoveryDrafts)  // each save's limit is a userBlocking deadline
     /// The open files' quit documents, shared by the markdown and editor pages.
     private(set) lazy var fileQuitDocuments = FileQuitDocuments(drafts: recoveryDrafts, registry: quitUnsaved)
     let environment: AppEnvironment; let agentPaneEnvironment: [String: String]?
@@ -101,7 +102,7 @@ final class AppServices {
     /// app's control socket starts; nil while it has none (tests, socket off).
     var restartControlListener: (@MainActor () throws -> Void)?
     /// Agents' and scripts' Cloud machine creates waiting on the person in every window's sidebar card.
-    let machineAsks = SidebarAsks()
+    private(set) lazy var machineAsks = SidebarAsks(mainWork: mainWork)
     /// The account's sign-in, apart from ``cloud`` so its launch readers (the managed team, Home, a sign-in callback) build no
     /// CloudService. Its first token or restore reader starts the session restore (`CloudAuth.start`); a sign-in starts Cloud.
     private(set) lazy var cloudAuth: CloudAuth = CloudAuth(configuration: CloudConfiguration.current(isDebugBuild: ControlService.isDebugBuild), workspaceQueries: workspaceQueries)
@@ -128,6 +129,8 @@ final class AppServices {
     let machineHealth = MachineHealthStore()
     /// Layout passes and tree changes of off-screen workspaces, all windows (`debug.layout_counters`).
     let hiddenLayoutWork = HiddenLayoutWork()
+    /// What the visibility tree ran for what shows (`appearance_applies`); every root the app makes counts here.
+    let visibilityWorkCounts = VisibilityWorkCounts()
     /// The app's one fan-out of app-wide notices (`AppEvents`, p06-scheduler-021): every window's
     /// key tracker and later adopters subscribe here, one observer per name for the whole app.
     let appEvents = AppEvents(center: .default)
@@ -212,7 +215,7 @@ final class AppServices {
     let signInCallbacks = CEFSignInCallbacks()
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
     let resizes = ResizeCoordinator()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap), terminalPointerFrames: terminalPointerFrames, mainWork: mainWork, deadlines: mainDeadlines, appEvents: appEvents, imageCaches: ImageCacheShares(.forThisMac(gpuResidentAvailable: false), budgeted: features.isEnabled(.memoryImageCaches), purgeable: features.isEnabled(.purgeableImageCaches)), gpuResidency: features.isEnabled(.terminalGPURelease) ? GhosttyGPUResidency(deadlines: mainDeadlines) : nil, webKitProcessReuse: AppMemoryConsumers(services: self).webKitProcessReuse)  // first read in init (no IUO); its Chromium engine at its first read
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap), terminalPointerFrames: terminalPointerFrames, mainWork: mainWork, deadlines: mainDeadlines, appEvents: appEvents, imageCaches: ImageCacheShares(.forThisMac(gpuResidentAvailable: false), budgeted: features.isEnabled(.memoryImageCaches), purgeable: features.isEnabled(.purgeableImageCaches)), gpuResidency: features.isEnabled(.terminalGPURelease) ? GhosttyGPUResidency(deadlines: mainDeadlines) : nil, webKitProcessReuse: AppMemoryConsumers(services: self).webKitProcessReuse, terminalExternalCursor: features.isEnabled(.terminalCursorLayer))  // first read in init (no IUO); its Chromium engine at its first read
     /// What the Now Playing card shows and drives: the player while it plays, else the playing tab,
     /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out)
     /// while `sidebar.nowPlaying.otherApps` is on (off by default: only what plays in cmux). Its
@@ -319,7 +322,7 @@ final class AppServices {
     private(set) lazy var keybindingsFile = KeybindingsFileService(services: self)
     /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
     private(set) lazy var apps = AppsService(services: self)
-    private(set) lazy var sidebarCustomization = SidebarCustomizationService(client: apps.client) { [weak self] in self?.apps.presence.isPresented($0) == true }
+    private(set) lazy var sidebarCustomization = SidebarCustomizationService(client: apps.client, mainWork: mainWork) { [weak self] in self?.apps.presence.isPresented($0) == true }
     /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).
     private(set) lazy var tasks = TasksPageService(services: self)
     /// Phone tabs: iOS simulators, Android emulators and real phones, recordings, feedback to Chief
@@ -773,7 +776,9 @@ final class AppServices {
         (self.launchStartup, self.crashKeys) = (launchStartup, crashKeys)
         // Estimated presents read the key display's last tick; no link starts for them.
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board, displays: FrameScheduler.appDisplays)
-        (mainDeadlines, appVisibility) = (MainDeadlineScheduler(work: mainWork), AppVisibilitySource(appEvents: appEvents, workspaceEvents: workspaceEvents, isAppHidden: NSApp?.isHidden ?? false))
+        (mainDeadlines, appVisibility) = (MainDeadlineScheduler(work: mainWork),
+                                          AppVisibilitySource(appEvents: appEvents, workspaceEvents: workspaceEvents,
+                                                              isAppHidden: NSApp?.isHidden ?? false, workCounts: visibilityWorkCounts))
         updater = UpdaterService(work: work, deadlines: mainDeadlines, checkNode: appVisibility.node)
         let launchFeatures = features ?? Self.launchFeatures(environment)
         // In host mode one Chromium Host serves every tab of every profile (p01-process-080).
@@ -797,7 +802,7 @@ final class AppServices {
         inputDispatch = InputDispatchContext(discreteInput: { [mainWork] in mainWork.noteDiscreteInput(expectsFrame: $0) },
                                              discreteDispatch: { [mainWork] in mainWork.noteDiscreteDispatch(began: $0) })
         daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork, wireStats: wireStats,
-                               hangWatch: hangWatch, crashKeys: crashKeys)
+                               hangWatch: hangWatch, crashKeys: crashKeys, deadlines: mainDeadlines, appEvents: appEvents)
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile, saved: environment.sidebarSnapshot ?? environment.sidebarSnapshotFile?.startLaunchRead(on: work))
         let contextMenus = BrowserContextMenuBuilder.shared
@@ -901,6 +906,7 @@ final class AppServices {
         let inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputLatency = inputLatency
+        popups.textInputStage = inputLatency.textInput
         #if DEBUG || CMUX_BENCH_HOOKS
         cache.webKit.pageInputTiming = WebPageInputTiming(tracker: inputLatency.tracker)  // WebKit pages' presented stage (p04-input-099)
         #endif

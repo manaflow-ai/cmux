@@ -1,6 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextWakeups
 import Foundation
+import WebKit
 
 /// Watches a driven tab, no polling:
 /// - its navigation events (`WebKitTab.observeNavigationEvents`) go to the
@@ -38,12 +39,24 @@ final class TabWatcher {
         // Commits, finishes and failures, keyed by navigation (LoadWaits).
         navigationObserver = tab.observeNavigationEvents { [weak session] event in session?.waits.navigationEvent(event) }
         // A load that never started a navigation ended: same-document (LoadWaits).
-        loadingObservation = tab.webView.observe(\.isLoading, options: [.new]) { @Sendable [weak self] webView, _ in
-            MainDelivery().run { if !webView.isLoading { self?.session?.waits.loadingEnded() } }
+        loadingObservation = watch(tab.webView, \.isLoading) { watcher, webView in
+            if !webView.isLoading { watcher.session?.waits.loadingEnded() }
         }
         // Same-document navigations change only the web view's URL.
-        urlObservation = tab.webView.observe(\.url, options: [.new]) { @Sendable [weak self] webView, _ in
-            MainDelivery().run { self?.urlChanged(webView.url, loading: webView.isLoading) }
+        urlObservation = watch(tab.webView, \.url) { watcher, webView in watcher.urlChanged(webView.url, loading: webView.isLoading) }
+    }
+
+    /// One KVO of the driven tab's web view, delivered to `changed` on the main thread. It is the load waits' model
+    /// (an agent drives tabs nobody sees), so it applies shown or hidden, in order with the navigation events.
+    private func watch<Value>(_ webView: WKWebView, _ property: KeyPath<WKWebView, Value>,
+                              _ changed: @escaping @MainActor @Sendable (TabWatcher, WKWebView) -> Void) -> NSKeyValueObservation {
+        // raw-observer-allow: WKWebView reports isLoading and its URL only through KVO (no notice); it is the driven tab's own web view, no window's or app's
+        webView.observe(property, options: [.new]) { @Sendable [weak self] webView, _ in
+            // main-hop-allow: WebKit changes these on the main thread, so the change applies inline in that turn, in order with the navigation events LoadWaits keys by (a posted task would let a commit pass the load end it follows); only an off-main change hops
+            MainDelivery().run {
+                guard let self else { return }
+                changed(self, webView)
+            }
         }
     }
 
