@@ -5201,8 +5201,8 @@ function AcpmuxPane() {
   );
   // The Inspector's running-limit stepper (inspector/SubagentLimitStepper.tsx).
   const setRunningLimit = useCallback(
-    (sessionId: string, maxRunning: number | null) =>
-      directClient.current?.setRunningLimit(sessionId, maxRunning) ?? Promise.reject(new Error()),
+    (sessionId: string, maxRunning: number | null, from?: number) =>
+      directClient.current?.setRunningLimit(sessionId, maxRunning, from) ?? Promise.reject(new Error()),
     [],
   );
   const reconnectMcp = useCallback(
