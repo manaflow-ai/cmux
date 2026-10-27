@@ -47,12 +47,12 @@ public struct HomeSecretScan: Sendable {
     public func findings(in text: String) -> [Finding] {
         guard text.utf8.count >= 16 else { return [] }
         let range = NSRange(text.startIndex..., in: text)
+        let ns = text as NSString
         var found: [(NSRange, Finding)] = []
         for shape in Self.shapes {
             for match in shape.regex.matches(in: text, range: range) {
-                guard !found.contains(where: { NSIntersectionRange($0.0, match.range).length > 0 }),
-                      let swiftRange = Range(match.range, in: text) else { continue }
-                found.append((match.range, Finding(value: String(text[swiftRange]), suggestedName: shape.name)))
+                guard !found.contains(where: { NSIntersectionRange($0.0, match.range).length > 0 }) else { continue }
+                found.append((match.range, Finding(value: ns.substring(with: match.range), suggestedName: shape.name)))
             }
         }
         var seen = Set<String>()
