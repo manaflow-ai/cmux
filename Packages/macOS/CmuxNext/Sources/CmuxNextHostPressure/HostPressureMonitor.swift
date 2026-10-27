@@ -116,9 +116,9 @@ public actor HostPressureMonitor {
     /// Where the level changes are traced (the app's runtime; tests pass their own).
     private let trace: TraceRuntime
     /// `host.pressure`: the level's counter track.
-    static let levelCounter = TraceRuntime.InternedName("host.pressure", categoryBit: hangCategoryBit)
+    private let levelCounter = TraceRuntime.InternedName("host.pressure", categoryBit: HostPressureMonitor.hangCategoryBit)
     /// `host.pressure.change`: one instant per level change.
-    static let levelChange = TraceRuntime.InternedName("host.pressure.change", categoryBit: hangCategoryBit)
+    private let levelChange = TraceRuntime.InternedName("host.pressure.change", categoryBit: HostPressureMonitor.hangCategoryBit)
     /// The `hang` category's bit (plans/cmux-next/trace.md, "Release trace ring: category bits").
     static let hangCategoryBit = UInt8(TraceCategories.hang.rawValue.trailingZeroBitCount)
 
@@ -232,8 +232,8 @@ public actor HostPressureMonitor {
 
     /// The counter and the instant of one level change.
     private func traceChange(from previous: HostPressureLevel, to level: HostPressureLevel, verdict: HostBudgetVerdict) {
-        trace.write(Self.levelCounter, phase: .counter, arg0: UInt64(level.rawValue))
-        trace.write(Self.levelChange, phase: .instant, arg0: UInt64(level.rawValue),
+        trace.write(levelCounter, phase: .counter, arg0: UInt64(level.rawValue))
+        trace.write(levelChange, phase: .instant, arg0: UInt64(level.rawValue),
                     arg1: Self.changeDetail(previous: previous, verdict: verdict))
     }
 
