@@ -174,6 +174,7 @@ final class AppControl {
         if let wireStats = services.wireStats { router.register([DaemonWireControl(stats: wireStats).method]) }
         router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap), DebugCEF.pumpInputSource(services.cache.chromium),
                                                IntentPrewarmDebugSource { [weak services] in services?.cache.hibernation?.intentPrewarm?.service },
+                                               MainJobGateDebugSource { (NSApp as? CmuxApplication)?.jobGate?.gate },
                                                ScrollViewAuditSource { [mainWork = services.mainWork] in
                                                    // A job the scheduler dropped audits nothing.
                                                    (try? await withOnceContinuation { (continuation: OnceContinuation<DebugInputScrollViews, OnceContinuationError>) in

@@ -2,11 +2,12 @@ import CmuxNextCompat
 import CmuxNextDaemonService
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// Serves the Chief view gallery's `cmux.chief_views.*` ops (webviews/src/pages/chief-views/types.ts):
 /// - `agents` → every agent row (``ChiefViewsAgent``); stream `agents_changed` → the rows again
-///   whenever one changes (Observation, no timer);
+///   whenever one changes (a ServiceObservation on the app's scheduler, no timer);
 /// - `fleet` → the CI dashboard's machines, or `fleet_unavailable` with `details.configured`;
 ///   `set_fleet_url {url}` names the dashboard (the person's click only);
 /// - `landing` → the repository's open and merged-today pull requests (GitHub search, kept 90 s
@@ -36,6 +37,8 @@ final class ChiefViewsPageProvider: PageProvider {
     /// What the provider reads and does; the app passes the live ones, tests pass their own.
     struct Host {
         var agents: @MainActor () -> [ChiefViewsAgent]
+        /// The app's one main-thread scheduler: `agents_changed` follows ``agents`` on it.
+        var mainWork: MainWorkScheduler
         /// One GET; throws on a transport error or a status other than 200.
         var fetch: @Sendable (URL) async throws -> Data
         var defaults: UserDefaults
@@ -94,19 +97,17 @@ final class ChiefViewsPageProvider: PageProvider {
     func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard stream == Self.agentsChanged else { throw PageError.unknownOp(stream) }
-        let agents = host.agents
-        // task-owner: lives as long as the page's subscription; event-driven (Observation)
-        let task = Task { @MainActor in
-            var last: [ChiefViewsAgent]?
-            for await rows in ObservationStream({ agents() }) {
-                guard !Task.isCancelled else { return }
-                if rows == last { continue }
-                // The first value is what the page reads with `agents`; only changes are events.
-                if last != nil { onEvent(Self.reply(rows)) }
-                last = rows
-            }
+        // The event goes to the page's router, not to a view, so this is a service observation; the router
+        // holds it for a hidden or frozen page (``agentsChangedFrozenDelivery``). A burst of row changes
+        // flushes once, in `visible`, a person's own change in userBlocking. The first value is what the
+        // page reads with `agents`; only changes are events (a value equal to the last is dropped).
+        var started = false
+        let observation = ServiceObservation(.visible, owner: "ChiefViewsPage.agentsChanged", on: host.mainWork,
+                                             read: host.agents) { rows in
+            if started { onEvent(Self.reply(rows)) }
         }
-        return PageSubscription(frozenDelivery: Self.agentsChangedFrozenDelivery) { task.cancel() }
+        started = true
+        return PageSubscription(frozenDelivery: Self.agentsChangedFrozenDelivery) { observation.cancel() }
     }
 
     // MARK: Fleet
