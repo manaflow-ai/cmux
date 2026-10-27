@@ -18,6 +18,7 @@ import CmuxNextPalette
 import CmuxNextPhoneAccess
 import CmuxNextPopups
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import CmuxNextSignposts
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -97,9 +98,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let startup = order.mainWork.startup
         let reveal = LaunchReveal(onRevealed: { [startup] in startup.noteFirstFrame() })
         // The restore ref and one ref per visible pane (p08-startup-013): one instance, on the launch's scheduler.
-        let paneRefs = VisiblePaneRefs(startup: order.startup, phase: startup)
+        let paneRefs = VisiblePaneRefs(startup: order.startup, mainWork: order.mainWork, phase: startup)
         (launchReveal, launchSettle) = (reveal, LaunchSettle(reveal: reveal, paneRefs: paneRefs))
-        startupReferences = StartupReferences(startup: startup, reveal: reveal, paneRefs: paneRefs)
+        startupReferences = StartupReferences(startup: startup, reveal: reveal, mainWork: order.mainWork, paneRefs: paneRefs)
         (self.mainWork, self.inputTap) = (order.mainWork, inputTap)
         let control = AppControl(mainWork: order.mainWork, input: inputTap)
         #if CMUX_PGO_PROFILE
@@ -171,10 +172,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.services = services
         controlSocket = AppControl.beginBind(features: services.features, settingsRead: settingsRead, launch: environment.launch,
                                              work: launchReads.work, mainWork: mainWork)  // p08-startup-019: on a lane
-        TooltipPresenter.shared.appEvents = services.appEvents  // its inactive-app dismissal shares the app's one observer
+        TooltipPresenter.shared.follow(appEvents: services.appEvents, deadlines: .on(services.mainDeadlines))  // the app's one observer and wake-up queue
+        CmuxToastCenter.shared.deadlines = .on(services.mainDeadlines)  // toasts' times are classed deadlines, behind input
         BrowserExternalApps.shared.queries = services.workspaceQueries  // a page's app links ask Launch Services on the system lane
-        // Frame rate classes (p03-rendering-013): links at their clients' rate, loops at 30 Hz.
-        let rateClasses = services.features.isEnabled(.frameRateClasses)
+        let rateClasses = services.features.isEnabled(.frameRateClasses)  // links at their clients' rate, loops at 30 Hz (p03-rendering-013)
         FrameScheduler.appDisplays.followsClientRates = rateClasses
         DesignSettings.shared.loopsFollowFrameRate = rateClasses
         services.startEnergy()  // before any tab: WebKit, KeepAwake and the video wallpaper start from the inputs
@@ -217,7 +218,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TerminalHooks(services: services).install()
         // The terminal key path's input-source switch keys, read off main now and on each activation.
         GhosttyRuntime.shared.inputSources.start(runner: services.work)
-        GhosttyRuntime.shared.traceHook.deliverGPUCompletions(on: services.mainWork, to: FrameScheduler.appDisplays.presents)
+        GhosttyRuntime.shared.traceHook.connect(on: services.mainWork, presents: FrameScheduler.appDisplays.presents)
         // Renderer-presented terminal frames pass through no `setContents:` hook: they count in the app's RenderStats.
         GhosttyRuntime.shared.traceHook.countPresentedFrames(in: control.renderStats.presentedFrames)
         GhosttyRuntime.shared.attach(to: services.mainWork, holdsHiddenActions: services.features.isEnabled(.terminalHiddenActionHold))
@@ -249,7 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             services?.crashRecovery.showRestartNotice(on: controller.window)
         }
         DebugTimings.markLaunch("dfl.daemon_cloud_updater")
-        services.windows.onFirstWindow = { [weak services, startup = order.startup] _ in
+        services.windows.onFirstWindow = { [weak services, startup = order.startup] first in
             #if DEBUG || CMUX_BENCH_HOOKS
             if let services, services.environment.showcase { _ = DebugShowcase.seed(["focus": .bool(false)], services: services) }
             #endif
@@ -259,8 +260,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let services, let window = services.windows.active?.window {
                 RecoveryNotice.post(store: services.recoveryDrafts, in: window, on: startup, work: services.work, mainWork: services.mainWork)
             }
-            CATransaction.setMainCompletion { [weak self] in
+            CATransaction.setMainCompletion { [weak self, weak services, weak first] in
                 DebugTimings.markLaunch("first_window_frame_committed")
+                #if DEBUG || CMUX_BENCH_HOOKS
+                // Before the gate: its later-tab warm-ups build panes. Structure only; the threads are read off main.
+                if let services {
+                    self?.control.startupReport.firstFrameCommitted(
+                        contentSubviews: first?.window?.contentView?.subviews,
+                        viewsBuilt: services.windows.controllers.reduce(0) { built, controller in
+                            controller.mountedContents.reduce(built) { $0 + $1.panes.count }
+                        },
+                        readThreads: StartupReportRecorder.threadRead(on: services.work, replyOn: services.mainWork))
+                }
+                #endif
                 self?.order.startup.firstFrameCommitted()
             }
         }
@@ -382,9 +394,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LaunchServicePosts.browserFollows(historyDaemonSync: { [weak services] in services?.history.startDaemonSync(settings: settings) },
                                           locationTrailScope: { [weak services] in services?.locationTrail.watchScope(settings: settings) }).post(on: order.startup)
         // The file watches and the diagnostic toasts; the launch read is applied above, and the start reloads once.
+        let diagnosticPresenter = SettingsDiagnosticToastPresenter(events: services.appEvents, toasts: .shared)
         // A diagnostic's Show in Settings follows the same availability as the page and `openSettings`.
-        order.startup.post(.afterFirstFrame, "Settings.start", on: .main) { [weak settings, weak services, events = services.appEvents] in
-            settings?.start(announcingDiagnosticsOn: events,
+        order.startup.post(.afterFirstFrame, "Settings.start", on: .main) { [weak settings, weak services, diagnosticPresenter] in
+            settings?.start(announcingDiagnostics: diagnosticPresenter,
                             availability: { [weak services] in services?.settingsAvailability ?? SettingsAvailability() })
         }
         AppProcessRoot.shared.hangReports?.recordUserWrites(of: settings)  // the person's own consent, from the first write on

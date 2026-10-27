@@ -1100,6 +1100,7 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-threads",
  "core-foundation 0.10.1",
  "core-foundation-sys",
  "jsonschema",
@@ -1165,6 +1166,10 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "cmux-ffi-guard"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-flow-trace"
@@ -1361,6 +1366,7 @@ dependencies = [
 name = "cmux-palette-ranker"
 version = "0.1.0"
 dependencies = [
+ "cmux-ffi-guard",
  "serde",
  "serde_json",
  "unicode-general-category",
@@ -1716,6 +1722,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-agent-pane-policy",
+ "cmux-api-compat",
  "cmux-blocking",
  "cmux-build-identity",
  "cmux-config",
