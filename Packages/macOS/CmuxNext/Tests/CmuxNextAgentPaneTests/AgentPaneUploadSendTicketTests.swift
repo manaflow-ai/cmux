@@ -37,14 +37,14 @@ struct AgentPaneUploadSendTicketTests {
         return (gestures, ticket, ended)
     }
 
-    /// Advances `clock` by `seconds`, the upload reporting progress every 30 s as its chunks land.
-    private func upload(_ gestures: AgentPaneUserGestures, _ upload: String, for seconds: TimeInterval, clock: Clock) {
+    /// Advances `clock` by `seconds`, each upload reporting progress every 30 s as its chunks land.
+    private func upload(_ gestures: AgentPaneUserGestures, _ uploads: String..., for seconds: TimeInterval, clock: Clock) {
         var left = seconds
         while left > 0 {
             let step = min(30, left)
             clock.now += step
             left -= step
-            #expect(gestures.uploadProgressed(upload), "an upload in progress lost its hold")
+            for upload in uploads { #expect(gestures.uploadProgressed(upload), "an upload in progress lost its hold") }
         }
     }
 
@@ -78,7 +78,7 @@ struct AgentPaneUploadSendTicketTests {
         let (gestures, ticket, ended) = try reserved(clock)
         #expect(gestures.holdForUpload(ticket, upload: "u-1", connection: 1, sessionId: "s-1", promptId: "p-1"))
         #expect(gestures.holdForUpload(ticket, upload: "u-2", connection: 1, sessionId: "s-1", promptId: "p-1"))
-        upload(gestures, "u-1", for: AgentPaneUserGestures.heldPromptLifetime + 600, clock: clock)
+        upload(gestures, "u-1", "u-2", for: AgentPaneUserGestures.heldPromptLifetime + 600, clock: clock)
         #expect(gestures.releaseUpload("u-1"))
         upload(gestures, "u-2", for: 3600, clock: clock)
         #expect(gestures.releaseUpload("u-2"))
