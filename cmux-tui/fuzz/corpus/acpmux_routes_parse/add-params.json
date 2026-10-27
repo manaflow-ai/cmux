@@ -1,0 +1,1 @@
+{"kind":"custom-anthropic","name":"Proxy","anthropicBaseUrl":"https://proxy.example.com","auth":"api-key","secret":"keychain:proxy","families":["claude"],"headers":{"x-a":"b"},"autoFallback":true}

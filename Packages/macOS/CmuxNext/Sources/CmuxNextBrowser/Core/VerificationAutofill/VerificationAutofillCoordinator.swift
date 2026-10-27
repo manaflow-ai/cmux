@@ -1,4 +1,4 @@
-import CmuxNextWakeups
+public import CmuxNextWakeups
 public import Foundation
 
 /// Runs email verification AutoFill for the app's browser tabs
@@ -8,14 +8,14 @@ public import Foundation
 /// fills the code into the page or opens the link in the same tab.
 ///
 /// Mail has no change signal cmux can subscribe to, so while a page waits (at most the 10-minute
-/// window) the source is read every `pollInterval` on the injected clock, each read a one-shot
-/// ``DemandTimer`` deadline armed after the last one; the reads end when no page waits or the
+/// window) the source is read every `pollInterval`, each read a one-shot `visible`
+/// ``MainDeadline`` armed after the last one ends; the reads end when no page waits or the
 /// feature turns off.
 ///
 /// ```swift
 /// let coordinator = VerificationAutofillCoordinator(
 ///     inbox: VerificationInbox(policy: VerificationOfferPolicy(publicSuffixes: list)),
-///     source: MailAppVerificationSource(), isEnabled: { setting.enabled })
+///     source: MailAppVerificationSource(), isEnabled: { setting.enabled }, deadlines: deadlines)
 /// ```
 public final class VerificationAutofillCoordinator {
     private let inbox: VerificationInbox
@@ -23,7 +23,8 @@ public final class VerificationAutofillCoordinator {
     private let isEnabled: () -> Bool
     private let now: () -> Date
     private let pollInterval: Duration
-    private let pollTimer: DemandTimer
+    /// The next read: `visible` (its offer shows in the page's prompt bar), flexible (a person waits on it).
+    let pollTimer: MainDeadline
 
     private var tabs: [BrowserTabID: WeakTab] = [:]
     private var shown: [BrowserTabID: (prompt: BrowserPrompt, emailID: String)] = [:]
@@ -40,17 +41,16 @@ public final class VerificationAutofillCoordinator {
     ///   - source: The mail source the person chose.
     ///   - isEnabled: Reads `browser.verificationAutofill.enabled`.
     ///   - now: The current time (tests pass a fixed one).
-    ///   - clock: Paces the reads while a page waits.
+    ///   - deadlines: The app's one deadline placer: it paces the reads while a page waits.
     ///   - pollInterval: Time between reads while a page waits.
     public init(inbox: VerificationInbox, source: any VerificationEmailSource, isEnabled: @escaping () -> Bool,
-                now: @escaping () -> Date = Date.init, clock: any Clock<Duration> = ContinuousClock(),
-                pollInterval: Duration = .seconds(3)) {
+                now: @escaping () -> Date = Date.init, deadlines: MainDeadlineScheduler, pollInterval: Duration = .seconds(3)) {
         self.inbox = inbox
         self.source = source
         self.isEnabled = isEnabled
         self.now = now
         self.pollInterval = pollInterval
-        self.pollTimer = DemandTimer(owner: "VerificationAutofill.poll", clock: clock)
+        pollTimer = MainDeadline(owner: "VerificationAutofill.poll", workClass: .visible, scheduler: deadlines)
     }
 
     /// The tab's detector reported that its top frame waits for a verification email.
@@ -107,9 +107,16 @@ public final class VerificationAutofillCoordinator {
     /// (an older read finishing last would replace a newer offer).
     private func schedulePoll() {
         guard !polling else { return }
-        pollTimer.scheduleIfIdle(after: pollInterval) { @MainActor [weak self] in
+        pollTimer.scheduleIfIdle(after: pollInterval) { [weak self] in self?.startPoll() }
+    }
+
+    /// One read, in the poll deadline's task; the next is armed when it ends.
+    private func startPoll() {
+        polling = true
+        // task-owner: one read at a time (`polling`), ended by the read.
+        // main-hop-allow: pollOnce awaits the mail source (osascript, off main) and offers on the tabs' main-actor prompts between its checks; the task only runs it and arms the next read
+        Task { [weak self] in
             guard let self else { return }
-            self.polling = true
             await self.pollOnce()
             self.polling = false
             guard self.inbox.hasWaitingPages, self.isEnabled() else { return }
@@ -156,6 +163,7 @@ public final class VerificationAutofillCoordinator {
             guard let url = tab.state.url,
                   let offer = inbox.take(for: tab.id, emailID: emailID, currentURL: url, now: now()) else { return }
             if response == .accept, let code = offer.code {
+                // main-hop-allow: the person's Fill Code: fillVerificationCode is the tab's main-actor async script call (the fill runs in the page); the task only sends it
                 responses.append(Task { _ = await tab.fillVerificationCode(code) })
             } else if let link = offer.link {
                 tab.load(link)

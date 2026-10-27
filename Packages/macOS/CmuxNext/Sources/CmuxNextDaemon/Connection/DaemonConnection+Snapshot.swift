@@ -2,13 +2,19 @@ import Foundation
 
 extension DaemonConnection {
     /// Fetches the first snapshot now, off the main thread, for the launch's
-    /// prestart: the store's first resync takes it instead of asking again
+    /// prestart and the connection the startup attaches: the store's first resync takes it instead of asking again
     /// once the main thread is free. Events stay buffered meanwhile, and
     /// those past its barrier still apply, so it is as current as a later one.
-    public func prefetchSnapshot() {
+    /// `onReceived` runs once the read answered (the launch's `daemon.snapshot_received`); a call while a prefetch
+    /// runs does nothing.
+    public func prefetchSnapshot(onReceived: (@Sendable () -> Void)? = nil) {
         guard prefetchedSnapshot == nil, let serial = ready?.serial else { return }
         // task-owner: one read per connection, taken (or dropped) by the first snapshot()
-        prefetchedSnapshot = (serial, Task { try await self.fetchSnapshot() })
+        prefetchedSnapshot = (serial, Task {
+            let snapshot = try await self.fetchSnapshot()
+            onReceived?()
+            return snapshot
+        })
     }
 
     /// `list-workspaces` plus the sequence of the last event it supersedes.
@@ -38,16 +44,16 @@ extension DaemonConnection {
         if personal { lines.append(PipelinedLine(ListPersonalRequest())) }
         var replies = await ready.transport.pipeline(lines, timeout: configuration.snapshotTimeout)[...]
         let response = try replies.removeFirst().get()
-        var tree = try WireCoding.decodeResponse(DaemonTree.self, from: response.line)
+        var tree = try WireCoding.decodeResponse(DaemonTree.self, from: response)
         if savedGroups {
-            let saved = try WireCoding.decodeResponse(ListSavedTabGroupsRequest.Response.self, from: replies.removeFirst().get().line)
+            let saved = try WireCoding.decodeResponse(ListSavedTabGroupsRequest.Response.self, from: replies.removeFirst().get())
             if tree.savedTabGroups.isEmpty {
                 tree.savedTabGroups = saved.savedGroups
                 tree.linkSavedTabGroups()
             }
         }
         if personal {
-            tree.personal = try WireCoding.decodeResponse(ListPersonalRequest.Response.self, from: replies.removeFirst().get().line)
+            tree.personal = try WireCoding.decodeResponse(ListPersonalRequest.Response.self, from: replies.removeFirst().get())
         }
         return (tree, DaemonEventEnvelope.sequence(serial: ready.serial, index: response.eventBarrier))
     }

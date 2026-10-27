@@ -20,7 +20,8 @@ extension TerminalSession: TerminalFindTarget {
 
     public func clearSelection() {
         guard let surface = surfaceView.surface else { return }
-        _ = ghostty_surface_clear_selection(surface)
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        _ = unsafe ghostty_surface_clear_selection(surface)
     }
 
     /// Copy mode owns the selection while it is active (find opened with

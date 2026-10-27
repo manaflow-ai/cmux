@@ -1,0 +1,16 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "memoryOpenPanelOnFirstUse",
+  "owner": "PL-memory",
+  "description": "The system file picker and its panel service start on the first file picker click instead of at launch, and the kept picker is released after it goes unused so its service can exit; the first click of a session, and the first after a release, opens a little slower.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [
+    { "name": "releaseAfter", "type": "duration", "default": 300, "min": 30, "max": 3600,
+      "description": "How long after its last use the kept file picker is released while no sheet shows it." }
+  ],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

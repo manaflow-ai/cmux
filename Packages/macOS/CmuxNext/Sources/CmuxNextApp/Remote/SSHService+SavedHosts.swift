@@ -23,6 +23,7 @@ extension SSHService {
     /// Records `session`'s host (or its new transport) before it connects.
     func rememberHost(_ session: SSHMachineSession) {
         let id = session.machineID, transport = Self.fields(Self.transport(session)) ?? [:]
+        // wall-clock: the saved-hosts file keeps Unix ms.
         let now = UInt64(Date().timeIntervalSince1970 * 1000)
         writeSavedHosts("save") { $0.upsert(id: id, transport: transport, nowMs: now) }
     }

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Owns one browser pane's page info bubble (Chromium's `PageInfoBubbleView`)
 /// and the windows it opens (certificate viewer, site settings, on-device
@@ -32,11 +33,15 @@ public final class PageInfoController {
     private var pageHadFocus = false
     /// Card size for the rendered page.
     private var cardSize = CGSize.zero
-    var windows = PageInfoWindows()
+    var windows: PageInfoWindows
+    /// The app's one main-thread scheduler: the open bubble's live rows follow on it.
+    let mainWork: MainWorkScheduler
 
-    init(tab: @escaping () -> (any BrowserTab)?, anchor: @escaping () -> NSView?) {
+    init(tab: @escaping () -> (any BrowserTab)?, anchor: @escaping () -> NSView?, mainWork: MainWorkScheduler) {
         tabSource = tab
         anchorSource = anchor
+        self.mainWork = mainWork
+        windows = PageInfoWindows(mainWork: mainWork)
         let panel = PageInfoPanel()
         popup = NativePopupHost(panel: panel)
         panel.adoptPopupStyle(card: card)
@@ -102,7 +107,7 @@ public final class PageInfoController {
         guard site.kind != .empty else { return }
         if !isShown {
             openedURL = tab.state.url
-            pageHadFocus = Self.pageHasFocus(tab, in: window)
+            pageHadFocus = tab.holdsKeyboard(in: window, keyWindow: NSApp.keyWindow)
             model.site = site
             model.needsReload = false
             model.siteData = nil
@@ -159,12 +164,6 @@ public final class PageInfoController {
         if view.identifier == identifier { return view }
         for child in view.subviews { if let hit = find(identifier, in: child) { return hit } }
         return nil
-    }
-
-    private static func pageHasFocus(_ tab: any BrowserTab, in window: NSWindow) -> Bool {
-        if let view = window.firstResponder as? NSView, view.isDescendant(of: tab.contentView) { return true }
-        // A Chromium page is a key child window of `window`.
-        return tab.presentation == .childWindow && (NSApp.keyWindow?.parent === window)
     }
 
     // MARK: Keyboard

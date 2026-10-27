@@ -28,7 +28,15 @@ public struct PasswordCSVHeader: Equatable, Sendable {
 
     static let longestName = 40
 
-    public static func read(_ bytes: UnsafeRawBufferPointer) -> PasswordCSVHeader? {
+    public static func read(_ file: SecretBytes) -> PasswordCSVHeader? {
+        file.withUnsafeBytes { raw in
+            // SAFETY: the view lives only for this closure, while `file` lends its bytes; the header
+            // holds copied names only.
+            read(unsafe ByteView(raw))
+        }
+    }
+
+    static func read(_ bytes: ByteView) -> PasswordCSVHeader? {
         var records = PasswordCSVReader.records(in: bytes)
         guard !records.isEmpty else { return nil }
         let names = records.removeFirst().map { PasswordCSVReader.text($0, in: bytes).trimmingCharacters(in: .whitespaces) }
@@ -37,7 +45,7 @@ public struct PasswordCSVHeader: Equatable, Sendable {
         // A website column in the data, whose header field is a name (checked above), not a website.
         // Checked on the bytes in place: a data field (maybe a password) never becomes a String.
         let websiteColumn = names.indices.contains { column in
-            rows.contains { column < $0.count && looksLikeWebsite(UnsafeRawBufferPointer(rebasing: bytes[$0[column].range])) }
+            rows.contains { row in column < row.count && (bytes.view(row[column].range).map { looksLikeWebsite($0) } ?? false) }
         }
         guard websiteColumn else { return nil }
         return PasswordCSVHeader(names: names, rows: rows.count)
@@ -49,15 +57,15 @@ public struct PasswordCSVHeader: Equatable, Sendable {
 
     /// "https://…", "www.…", or a dotted word with no space ("example.com").
     private static func looksLikeWebsite(_ text: String) -> Bool {
-        Array(text.trimmingCharacters(in: .whitespaces).utf8).withUnsafeBytes(looksLikeWebsite)
+        looksLikeWebsite(Array(text.trimmingCharacters(in: .whitespaces).utf8))
     }
 
-    private static func looksLikeWebsite(_ field: UnsafeRawBufferPointer) -> Bool {
+    private static func looksLikeWebsite<Bytes: RandomAccessCollection<UInt8>>(_ field: Bytes) -> Bool where Bytes.Index == Int {
         let dot = UInt8(ascii: "."), space = UInt8(ascii: " "), colon = UInt8(ascii: ":"), slash = UInt8(ascii: "/")
         var start = field.startIndex, end = field.endIndex
         while start < end, field[start] == space { start += 1 }
         while end > start, field[end - 1] == space { end -= 1 }
-        let value = UnsafeRawBufferPointer(rebasing: field[start..<end])
+        let value = field[start..<end]
         var hasDot = false, hasSpace = false
         for index in value.indices {
             switch value[index] {

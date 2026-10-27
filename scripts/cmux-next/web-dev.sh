@@ -266,7 +266,7 @@ cat >"$index_dir/index.html" <<EOF
 $(if [[ "$gallery_enabled" -eq 1 ]]; then printf '  <li><a href="%s/gallery/">Gallery</a> (manual inspection; matrix captures run remotely)</li>\n' "$gallery_origin"; fi)
   <li><a href="$base_origin/history/?mock">History (mock provider)</a> · <a href="$base_origin/apps/?mock">Apps (mock provider)</a> · <a href="$base_origin/cloud/?mock">Cloud (mock provider)</a> · <a href="$base_origin/keybindings/?mock">Keyboard shortcuts (mock provider)</a></li>
 </ul>
-<p>These page links use in-memory providers. For the real Swift host, use a tagged app with hot reload: <code>CMUX_NEXT_PAGES_DEV_URL=$pages_origin/ CMUX_NEXT_AGENT_PANE_DEV_URL=$agent_origin/ ./scripts/reload.sh --tag &lt;tag&gt;</code></p>
+<p>These page links use in-memory providers. For the real Swift host, use a tagged app with hot reload: <code>CMUX_NEXT_PAGES_DEV_URL=$pages_origin/ ./scripts/reload.sh --tag &lt;tag&gt;</code> (the agent pane too, from its <code>/agent-pane/</code>)</p>
 <p><small>Measured React edit → Vite HMR update: <strong>$hmr_seconds</strong>. ACPMUX iteration: fleet build + artifact fetch <strong>$fleet_seconds</strong>, daemon readiness <strong>$daemon_seconds</strong>.</small></p>
 EOF
 python3 -m http.server "$index_port" --bind 127.0.0.1 --directory "$index_dir" >"$work_dir/index.log" 2>&1 &
@@ -278,7 +278,7 @@ echo "cmux-next web dev ready"
 if [[ "$gallery_enabled" -eq 1 ]]; then echo "GALLERY_URL=$gallery_origin/gallery/"; fi
 echo "INDEX_URL=$index_origin/"
 echo "INDEX_TOKEN=$index_token"
-echo "app hot reload: CMUX_NEXT_PAGES_DEV_URL=$pages_origin/ CMUX_NEXT_AGENT_PANE_DEV_URL=$agent_origin/"
+echo "app hot reload (pages and the agent pane): CMUX_NEXT_PAGES_DEV_URL=$pages_origin/"
 echo "timing: React edit -> Vite HMR update $hmr_seconds (visible change is normally about 1 s)"
 echo "timing: acpmux fleet build + fetch $fleet_seconds; daemon restart/readiness $daemon_seconds"
 echo "Press Ctrl-C to stop Vite, the index server, and this ACPMUX_HOME daemon."

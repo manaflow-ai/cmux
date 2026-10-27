@@ -125,6 +125,7 @@ impl Mux {
     /// `move-column`: the column holding `pane` trades places with its
     /// neighbor in `direction`. Focus, widths and every pane stay as they
     /// are; only the column order changes.
+    #[track_caller]
     pub fn move_column_as(
         self: &Arc<Self>,
         actor: &Actor,

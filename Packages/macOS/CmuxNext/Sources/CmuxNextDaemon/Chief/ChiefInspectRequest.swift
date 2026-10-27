@@ -7,7 +7,7 @@ public import Foundation
 /// splice); everything else is refused with `origin.forbidden`.
 public struct ChiefInspectRequest: DaemonRequest {
     public typealias Response = ChiefInspectResult
-    public static let command = "chief-inspect"
+    public static let commandName: DaemonCommandName = "chief-inspect"
     /// One of the seven `/api/...` paths.
     public var path: String
     public var query: [String: String]

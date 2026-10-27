@@ -33,6 +33,7 @@ impl ScreenMetaUpdate {
 }
 
 /// Replace the screen rows in the caller's transaction.
+#[track_caller]
 pub(crate) fn write_screen_rows(
     transaction: &Transaction<'_>,
     state: &ScreenPresentationState,

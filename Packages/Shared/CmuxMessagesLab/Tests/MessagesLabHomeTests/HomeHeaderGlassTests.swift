@@ -19,15 +19,14 @@ import Testing
         guard let mask = host.below.root.mask else { return ys.map { _ in 1 } }
         let size = host.below.bounds.size
         let w = max(1, Int(size.width)), h = max(1, Int(size.height))
-        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+        guard let ctx = CGContext.ownedBitmap(width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                                   space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return ys.map { _ in 1 } }
         ctx.translateBy(x: 0, y: CGFloat(h))
         ctx.scaleBy(x: 1, y: -1)
         ctx.translateBy(x: -mask.frame.minX, y: -mask.frame.minY)
         mask.render(in: ctx)
-        guard let data = ctx.data else { return ys.map { _ in 1 } }
-        let px = data.bindMemory(to: UInt8.self, capacity: w * h * 4)
+        guard let px = ctx.bitmapBytes() else { return ys.map { _ in 1 } }
         return ys.map { y in
             let row = min(h - 1, max(0, Int(y)))
             return CGFloat(px[row * w * 4 + (w / 2) * 4 + 3]) / 255

@@ -1,5 +1,8 @@
 import CmuxNextCompat
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Foundation
 
 /// One short connection to this app's acpmux for a few requests, proven as the person the way
@@ -12,7 +15,7 @@ public final class AcpmuxPersonLine {
     private let line: AcpmuxCheckedLine
     private let timer = DemandTimer(owner: "acpmux.person-line")
     private var nextID = 10
-    private var waiters: [Int: CheckedContinuation<ResultBox?, Never>] = [:]
+    private var waiters: [Int: OnceContinuation<ResultBox?, OnceContinuationError>] = [:]
     private var closed = false
     /// acpmux took the person proof: this connection may allow.
     public private(set) var isPerson = false
@@ -26,7 +29,7 @@ public final class AcpmuxPersonLine {
     public static func open(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(5)) async -> AcpmuxPersonLine? {
         guard FileManager.default.fileExists(atPath: environment.socketPath) else { return nil }
         let connection = AcpmuxPersonLine(environment: environment)
-        connection.timer.schedule(after: deadline) { @MainActor [weak connection] in connection?.close() }
+        connection.timer.scheduleOnMain(after: deadline) { [weak connection] in connection?.close() }
         guard let initialized = await connection.start() else {
             connection.close()
             return nil
@@ -45,7 +48,7 @@ public final class AcpmuxPersonLine {
         nextID += 1
         let id = nextID
         let frame = AcpmuxPermissionPrompt.frame(id: id, method: method, params: params)
-        let reply: ResultBox? = await withCheckedContinuation { waiter in
+        let reply: ResultBox? = try? await withOnceContinuation { (waiter: OnceContinuation<ResultBox?, OnceContinuationError>) in
             waiters[id] = waiter
             line.send(frame)
         }
@@ -79,7 +82,7 @@ public final class AcpmuxPersonLine {
             for reply in drain.values { waiters.removeValue(forKey: reply.id)?.resume(returning: reply.result) }
             if drain.overflowed || drain.closed { close() }
         }
-        let reply: ResultBox? = await withCheckedContinuation { waiter in
+        let reply: ResultBox? = try? await withOnceContinuation { (waiter: OnceContinuation<ResultBox?, OnceContinuationError>) in
             waiters[1] = waiter
             line.start(send: frame,
                        onLine: { data in if let reply = Self.decode(data) { batch.submit(reply) } },
@@ -96,7 +99,7 @@ public final class AcpmuxPersonLine {
 
     /// Decodes one line on the line's queue; nil for a line that is not a reply.
     nonisolated static func decode(_ data: Data) -> Reply? {
-        guard let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+        guard let message = (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any],
               let id = (message["id"] as? NSNumber)?.intValue else { return nil }
         return Reply(id: id, result: message["error"] == nil ? ResultBox(message["result"] as? [String: Any] ?? [:]) : nil)
     }

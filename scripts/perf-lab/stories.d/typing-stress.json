@@ -1,0 +1,26 @@
+{
+  "id": "typing-stress",
+  "tier": "T1",
+  "description": "The typing story in the STRESS session (perf-stress-session.py: 60 workspaces, the measured one a 4x3 grid of 6-tab panes, Chromium pages, 10 printing terminals): terminal, Home composer, docked Home and Chromium omnibar key to frame, idle and under load; the key-frame target's STRESS row (T1 until the layout snapshot importer, task 111, lets STRESS key->frame run in T0).",
+  "command": ["scripts/cmux-next/typing-frame-bench.py", "--story", "typing-stress", "--sessions", "stress",
+              "--engine", "chromium"],
+  "session": "stress",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "terminal\\.key_to_frame", "unit": "ms", "better": "lower",
+     "target_ref": {"target": "key-frame.stress"}},
+    {"name": "terminal\\.load\\.key_to_frame", "unit": "ms", "better": "lower"},
+    {"name": "(home|omnibar)\\.(idle|load)\\.key_to_frame", "unit": "ms", "better": "lower"},
+    {"name": "dock\\.idle\\.key_to_frame", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": ["debug:debug.key", "debug:debug.focus", "debug:debug.frames", "debug:debug.hangs", "debug:debug.timings",
+            "debug:debug.view_churn", "debug:debug.home", "debug:debug.home.drive",
+            "debug:debug.home_native_fixture.open", "debug:debug.omnibar", "debug:debug.agent_pane",
+            "env:CMUX_NEXT_TYPING_PROBE"],
+  "hot_paths": ["terminal-key", "home-key", "omnibar-key"],
+  "owner": "PL-typing",
+  "component": "Input>Typing"
+}

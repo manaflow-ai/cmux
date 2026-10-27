@@ -8,10 +8,9 @@ import Foundation
 /// so each app keeps its historical defaults key and tests use an in-memory
 /// store.
 ///
-/// `@unchecked Sendable`: the only state is the injected key-value store and
-/// an immutable key; the production backing (`UserDefaults`) is
-/// Apple-documented thread-safe.
-public final class CMUXAuthSessionCache: @unchecked Sendable {
+/// Not `Sendable`: the cache belongs to the one isolation domain that owns it
+/// (the main-actor `AuthCoordinator`), like ``CMUXAuthIdentityStore``.
+public final class CMUXAuthSessionCache {
     private let keyValueStore: CMUXAuthKeyValueStore
     private let key: String
 

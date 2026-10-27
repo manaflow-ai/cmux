@@ -388,6 +388,43 @@ fn status_run_and_terminal_owners_clear_through_a_real_daemon() {
     assert_cleared(&server, &workspace, &key, "its owner terminal closed");
 }
 
+/// `status run` is a transparent wrapper: the command reads a descriptor the
+/// caller's shell opened (`5<file`, as `diff <(a) <(b)` passes `/dev/fd/63`)
+/// and keeps the SIGQUIT its caller ignores (as a non-interactive shell does
+/// for a background job). On macOS a spawn without `inherit_like_std` closed
+/// fd 5 (`CLOEXEC_DEFAULT`) and reset SIGQUIT (`SETSIGDEF`), and the
+/// forwarding handler replaced the ignore everywhere. (SIGHUP under `nohup`
+/// is not checked: `main` catches it for every CLI command.)
+#[test]
+fn status_run_passes_the_callers_open_descriptors_and_ignored_signals() {
+    let server = HeadlessServer::start("status-run-fds");
+    state_cli(&server, None, &["workspace", "create", "--name", "fds", "--empty"]);
+    let workspace = workspace_id_named(&server, "fds");
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("input");
+    fs::write(&input, "through fd 5\n").unwrap();
+    // The outer shell ignores SIGQUIT, opens fd 5 and execs `cmux ...`.
+    let output = Command::new("/bin/sh")
+        .args(["-c", "trap '' QUIT; exec \"$0\" \"$@\" 5<\"$STATUS_RUN_INPUT\"", bin()])
+        .arg("--socket")
+        .arg(&server.socket)
+        .args(["status", "run", "--label", "Fds", "--target", &workspace, "--"])
+        .args(["/bin/sh", "-c", "cat <&5 && ps -o sigignore= -p $$"])
+        .env("STATUS_RUN_INPUT", &input)
+        .env("LC_ALL", "C")
+        .env_remove("CMUX_TUI_SOCKET")
+        .env_remove("CMUX_TUI_TERMINAL_ID")
+        .output()
+        .unwrap();
+    assert_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut lines = stdout.lines();
+    assert_eq!(lines.next(), Some("through fd 5"), "{stdout}");
+    let ignored = lines.next().map(str::trim).and_then(|mask| u64::from_str_radix(mask, 16).ok());
+    let sigquit = 1 << (libc::SIGQUIT - 1);
+    assert_eq!(ignored.map(|mask| mask & sigquit), Some(sigquit), "SIGQUIT not ignored: {stdout}");
+}
+
 /// The daemon refuses an owner it cannot verify, and stores nothing: a
 /// terminal of no session it runs, a process that is not running, and a
 /// process id the CLI rejects outright.

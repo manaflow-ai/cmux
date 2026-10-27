@@ -1,5 +1,3 @@
-import Darwin
-
 /// A numeric IP socket address used for a required Iroh UDP bind.
 public struct CmxIrohBindAddress: Equatable, Sendable {
     /// The unbracketed IPv4 or IPv6 literal.
@@ -39,22 +37,14 @@ public struct CmxIrohBindAddress: Equatable, Sendable {
             throw CmxIrohBindAddressError.invalidIPAddress
         }
 
-        var ipv4 = in_addr()
-        let isIPv4 = ipAddress.withCString {
-            inet_pton(AF_INET, $0, &ipv4) == 1
-        }
-        if isIPv4 {
+        if CmxIrohIPLiteral(ipAddress, family: .ipv4) != nil {
             self.ipAddress = ipAddress
             self.port = port
             socketAddress = "\(ipAddress):\(port)"
             return
         }
 
-        var ipv6 = in6_addr()
-        let isIPv6 = ipAddress.withCString {
-            inet_pton(AF_INET6, $0, &ipv6) == 1
-        }
-        guard isIPv6 else {
+        guard CmxIrohIPLiteral(ipAddress, family: .ipv6) != nil else {
             throw CmxIrohBindAddressError.invalidIPAddress
         }
         self.ipAddress = ipAddress

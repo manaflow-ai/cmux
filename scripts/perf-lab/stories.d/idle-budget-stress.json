@@ -1,0 +1,29 @@
+{
+  "id": "idle-budget-stress",
+  "tier": "T2",
+  "description": "The idle-budget story's rows in STRESS (perf-stress-session.py: 60 workspaces, a 12-pane grid of 6 tabs each, Chromium pages elsewhere, its busy terminals stopped before the settle), with its pages animated and served static (idle-budget.py --sessions stress-static,stress, shipping measurement mode): idle wakeups, threads, energy, GPU, disk, network and log lines per process kind and their sums, and each session's failed count, stress session.",
+  "command": ["scripts/cmux-next/idle-budget.py", "--sessions", "stress-static,stress"],
+  "session": "stress",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "idle_budget\\.(stress|stress-static)\\..+\\.(wakeups_per_s|wakeups_max|main_wakes_per_s)",
+     "unit": "per_s", "better": "lower"},
+    {"name": "idle_budget\\.(stress|stress-static)\\..+\\.(threads|threads_max|log_lines)", "unit": "count",
+     "better": "lower"},
+    {"name": "idle_budget\\.(stress|stress-static)\\..+\\.(energy_mw_billed|energy_mw_cpu)", "unit": "mW",
+     "better": "lower"},
+    {"name": "idle_budget\\.(stress|stress-static)\\..+\\.gpu_ms_per_s", "unit": "ms", "better": "lower"},
+    {"name": "idle_budget\\.(stress|stress-static)\\..+\\.disk_bytes_per_s", "unit": "bytes_per_s", "better": "lower"},
+    {"name": "idle_budget\\.(stress|stress-static)\\..+\\.network_bytes", "unit": "bytes", "better": "lower"},
+    {"name": "idle_budget\\.(stress|stress-static)\\.failed", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": ["debug:debug.cef", "debug:debug.energy", "debug:debug.hangs", "debug:debug.layers",
+            "debug:debug.shipping_mode", "debug:debug.wakeups", "debug:debug.webui", "debug:debug.window_list",
+            "debug:debug.screens", "debug:debug.window_frame", "file:scripts/cmux-next/idle-budget.json",
+            "file:scripts/cmux-next/perf-stress-session.py", "file:scripts/cmux-next/tab_pages.py"],
+  "owner": "Performance Lead",
+  "component": "Energy>Idle"
+}

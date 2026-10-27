@@ -117,7 +117,8 @@ public final class SystemCrashForwarder: Sendable {
     private func watch() {
         // macOS creates the folder at the first crash report; watch it from now on.
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let descriptor = open(directory.path, O_EVTONLY | O_CLOEXEC)
+        // SAFETY: open reads the NUL-terminated copy of the path made for the call.
+        let descriptor = unsafe open(directory.path, O_EVTONLY | O_CLOEXEC)
         guard descriptor >= 0 else { return }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.write, .rename],
                                                                queue: queue)

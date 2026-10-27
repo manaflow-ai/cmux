@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Reads new messages from Mail.app over Apple Events, through `osascript` (JXA)
@@ -60,7 +61,7 @@ public nonisolated struct MailAppVerificationSource: VerificationEmailSource {
             throw failure.message.contains("-1743") || failure.message.localizedCaseInsensitiveContains("not authorized")
                 ? Failure.notAuthorized : Failure.scriptFailed(failure.message)
         }
-        guard let rows = try? JSONSerialization.jsonObject(with: Data(output.utf8)) as? [[String: Any]] else {
+        guard let rows = try? JSONSerialization.blockingJSONObject(with: Data(output.utf8)) as? [[String: Any]] else {
             throw Failure.unreadableOutput
         }
         return rows.compactMap(Self.email)

@@ -3,14 +3,16 @@ import CmuxNextControl
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSettingsWindow
-import Observation
+import CmuxNextWakeups
 
 extension PageDescriptor {
     /// Debug Settings (cmux-page://cmux.debug-settings/, DEV and NIGHTLY builds): every tunable of
     /// the registry, drawn from data. The page writes the pasteboard for its two exports.
     static let debugSettings = PageDescriptor(
-        id: "cmux.debug-settings", resource: "debug-settings", namespaces: ["cmux.debug.tunables."],
-        nativeOps: [PageNativeOp.clipboardWrite], ownsSearchField: true)
+        id: "cmux.debug-settings", resource: "debug-settings", processGroup: .privileged, namespaces: ["cmux.debug.tunables."],
+        nativeOps: [PageNativeOp.clipboardWrite], ownsSearchField: true,
+        opTables: [PageOpTable(namespace: "cmux.debug.tunables.", read: ["state", "view.set", "export", "hangs.copy", "changed"],
+                               act: ["set", "reset", "hangs.reveal"])])
 }
 
 /// The `cmux.debug.tunables.*` ops of the Debug Settings page, over the one ``DebugSettingsModel``
@@ -28,13 +30,22 @@ final class DebugSettingsPageProvider: PageProvider {
     /// The watchdog's hang files, listed in the state's `hangs`.
     private let hangs: HangEpisodeRecorder?
     private var listeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
-    private var watching = false
+    private let work: MainWorkScheduler
+    /// Follows the store, the view state and the theme while a page listens (``watch()``).
+    private var stateWatch: FrameObservation<Void>?
     /// Follows ``HangEpisodeRecorder/changes()`` while a page listens.
     private var hangWatch: Task<Void, Never>?
+    /// `changed` events sent to each listener (tests).
+    private(set) var events = 0
 
-    init(model: DebugSettingsModel, hangs: HangEpisodeRecorder?) {
+    /// - Parameters:
+    ///   - model: The one Debug Settings model.
+    ///   - hangs: The watchdog's hang files.
+    ///   - work: The app's main-thread scheduler (its visible class sends the change events).
+    init(model: DebugSettingsModel, hangs: HangEpisodeRecorder?, on work: MainWorkScheduler) {
         self.model = model
         self.hangs = hangs
+        self.work = work
     }
 
     /// Defense only: ends the hang watch of a provider released while a caller still listens
@@ -90,46 +101,47 @@ final class DebugSettingsPageProvider: PageProvider {
         guard stream == "cmux.debug.tunables.changed" else { throw PageError.unknownOp(stream) }
         let id = UUID()
         listeners[id] = onEvent
-        if !watching { watch() }
+        watch()
         if hangWatch == nil, let changes = hangs?.changes() { // subscribed now: no later change is missed
-            // task-owner: one change event per hang file change; the last listener leaving (the page closed) cancels it
-            hangWatch = Task { @MainActor [weak self] in
-                for await _ in changes { if let self { emit() } else { return } } // gone: the stream ends
+            let work = work
+            // task-owner: one change event per hang file change; the last listener leaving (the page closed) cancels it.
+            // The stream is read off main; each change is one posted `visible` task (the page shows the list).
+            hangWatch = Task { @concurrent [weak self] in
+                for await _ in changes {
+                    guard self != nil else { return } // gone: the stream ends
+                    work.postFromAnyThread(.visible, owner: "DebugSettingsPage.hangs") { [weak self] in self?.emit() }
+                }
             }
         }
-        return PageSubscription { [weak self] in self?.unsubscribe(id) }
+        // Each event carries the whole page state (``emit()``): the newest replaces the rest.
+        return PageSubscription(frozenDelivery: .latest) { [weak self] in self?.unsubscribe(id) }
     }
 
-    /// The last listener leaving stops following the hang files (the Observation watch ends at
-    /// its next change, ``watch()``).
+    /// The last listener leaving stops following the model and the hang files.
     private func unsubscribe(_ id: UUID) {
         listeners.removeValue(forKey: id)
-        guard listeners.isEmpty, let hangWatch else { return }
-        hangWatch.cancel()
-        self.hangWatch = nil
+        guard listeners.isEmpty else { return }
+        stateWatch?.cancel()
+        stateWatch = nil
+        hangWatch?.cancel()
+        hangWatch = nil
     }
 
-    /// Observation, re-armed after each change while a page listens; changes in one main-actor
-    /// turn coalesce into one event.
+    /// Follows the page state's inputs while a page listens: the changes before one delivery send one event.
     private func watch() {
-        guard !listeners.isEmpty else {
-            watching = false
-            return
+        guard stateWatch == nil else { return }
+        let model = model
+        // node-free: the provider serves the model's page in its window and in tabs, and has no node of its own.
+        stateWatch = FrameObservation(owner: "debug-settings.page", delivery: .visible(nil), on: work) {
+            model.touchPageState()
+        } onChange: { [weak self] _ in
+            self?.emit()
         }
-        watching = true
-        withObservationTracking { model.touchPageState() } onChange: { [weak self] in
-            // task-owner: one coalesced change event; the provider re-arms its observation there
-            Task { @MainActor in self?.changed() }
-        }
-    }
-
-    private func changed() {
-        emit()
-        watch()
     }
 
     private func emit() {
         guard !listeners.isEmpty else { return }
+        events += 1
         let event: JSONValue = ["state": state()]
         for listener in listeners.values { listener(event) }
     }

@@ -27,6 +27,7 @@ use super::ResourceWorkerAdmissionError;
 use super::ResourceWorkerPermit;
 use super::SHARED_SIZING_CAPABILITY;
 use super::SIZING_VIEW_DETACH_CAPABILITY;
+use super::SizeStateReader;
 use super::TERMINAL_COLOR_OVERRIDES_CAPABILITY;
 use super::TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY;
 use super::TERMINAL_PENDING_SEQUENCE_CAPABILITY;
@@ -34,6 +35,7 @@ use super::VIEW_ATTACHMENT_DETACH_CAPABILITY;
 use super::VIEW_ATTACHMENT_LEASE_CAPABILITY;
 #[cfg(unix)]
 use super::agent_session_attach;
+use super::connection_scheduler::connection_qos::ConnectionClassCell;
 use super::sanitize_window_title;
 use super::size_state_event_json;
 use super::{
@@ -49,6 +51,8 @@ use crate::resource::StreamPublicId;
 use crate::sizing_policy::TerminalSizingState;
 use crate::{SurfaceId, panic_free::RecoverPoison};
 use base64::Engine;
+use cmux_threads::sync::Condvar;
+use cmux_threads::sync::Mutex;
 use serde_json::Value;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -56,8 +60,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::Condvar;
-use std::sync::Mutex;
 use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
@@ -312,10 +314,10 @@ pub(super) struct ClientRegistryState {
 
 pub(crate) struct ClientRegistry {
     /// Called when a surface loses its last attached client (the idle-close
-    /// reaper starts that terminal's unattached period).
-    pub(super) detach_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+    /// reaper and the cold-scrollback worker start that terminal's period).
+    pub(super) detach_wakers: Mutex<Vec<Box<dyn Fn() + Send + Sync>>>,
     /// Called after any client connects or leaves (orphan_shutdown.rs).
-    pub(super) client_presence_observer: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+    pub(super) client_presence_observers: Mutex<Vec<Box<dyn Fn() + Send + Sync>>>,
     pub(super) url_opens: url_open::URLRequests,
     pub(crate) clipboard_reads: clipboard_read::ClipboardReads,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
@@ -323,6 +325,8 @@ pub(crate) struct ClientRegistry {
     /// Connection-scoped browser hosts (`browser-runtime-v1`).
     #[cfg(unix)]
     pub(super) browser_runtimes: super::browser_runtime::BrowserRuntimes,
+    /// Chief engine-file writes queued by registry commits (chief_engine_mirror.rs).
+    pub(super) engine_mirror: super::chief_engine_mirror::EngineMirror,
     /// Size leases of connections with `size-lease-v1` (size_lease.rs).
     pub(super) size_leases: Arc<super::size_lease::SizeLeases>,
     /// Connection-scoped agent session attachments (`agent-session-attach-v1`).
@@ -340,6 +344,8 @@ pub(crate) struct ClientRegistry {
     pub(super) next_id: AtomicU64,
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
+    /// The framed IPC transports this daemon serves (capabilities.rs).
+    pub(super) ipc_transports: super::capabilities::IpcTransports,
     pub(super) state: Mutex<ClientRegistryState>,
 }
 
@@ -381,14 +387,15 @@ fn validate_resource_client_label(
 impl ClientRegistry {
     pub(crate) fn new() -> Self {
         Self {
-            detach_waker: Mutex::new(None),
-            client_presence_observer: Mutex::new(None),
+            detach_wakers: Mutex::new(Vec::new()),
+            client_presence_observers: Mutex::new(Vec::new()),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
             clipboard_reads: Default::default(),
             loopback: loopback_forward::LoopbackForwarder::default(),
             #[cfg(unix)]
             browser_runtimes: Default::default(),
+            engine_mirror: Default::default(),
             size_leases: Default::default(),
             #[cfg(unix)]
             agent_sessions: Default::default(),
@@ -407,6 +414,7 @@ impl ClientRegistry {
                 RESOURCE_WAITS_PER_CLIENT_CAPACITY,
                 RESOURCE_WAITS_SERVER_CAPACITY,
             ),
+            ipc_transports: super::capabilities::IpcTransports::default(),
             state: Mutex::new(ClientRegistryState::default()),
         }
     }
@@ -447,8 +455,11 @@ impl ClientRegistry {
                 writer,
                 origin: Default::default(),
                 person: false,
+                connection_class: Arc::default(),
                 #[cfg(unix)]
                 machine_catalog: None,
+                #[cfg(test)]
+                subscribe_probe: Arc::default(),
             },
         );
         drop(state);
@@ -458,6 +469,14 @@ impl ClientRegistry {
 
     pub(super) fn client_ids(&self) -> Vec<u64> {
         self.state.lock().recover_poison().clients.keys().copied().collect()
+    }
+
+    /// The probe of `client`'s `subscribe` stream (a fresh one for an
+    /// unknown client, which no stream reports to).
+    #[cfg(test)]
+    pub(super) fn subscribe_probe(&self, client: u64) -> Arc<super::cmd_subscribe::SubscribeProbe> {
+        let state = self.state.lock().recover_poison();
+        state.clients.get(&client).map(|record| record.subscribe_probe.clone()).unwrap_or_default()
     }
 
     #[cfg(test)]
@@ -644,9 +663,15 @@ impl ClientRegistry {
         if let Some(kind) = kind {
             record.kind = Some(clamp_client_label(kind));
         }
+        // A new revision may have ended framed IPC grants: remove them before
+        // anything counts them as held.
+        super::capabilities::revoke_lapsed_ipc_grants(record, &self.ipc_transports);
         if let Some(capabilities) = capabilities {
+            let ipc =
+                super::capabilities::IpcGrant::of(record, &capabilities, &self.ipc_transports);
             record.capabilities.extend(capabilities.into_iter().filter(|capability| {
-                capability == GUARDED_BROWSER_POINTER_CAPABILITY
+                ipc.allows(capability)
+                    || capability == GUARDED_BROWSER_POINTER_CAPABILITY
                     || capability == VIEW_ATTACHMENT_LEASE_CAPABILITY
                     || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
                     || capability == SHARED_SIZING_CAPABILITY
@@ -674,10 +699,13 @@ impl ClientRegistry {
                     || capability == crate::state::sidebar_doc_store::CAPABILITY
                     || capability == super::participant_avatars::PARTICIPANT_AVATARS_CAPABILITY
                     || capability == super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY
+                    || capability == crate::event_cause::CAPABILITY
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }
-        Ok((record.name.clone(), record.kind.clone()))
+        let named = (record.name.clone(), record.kind.clone());
+        state.classify(client);
+        Ok(named)
     }
 
     /// The client's declared API revision (server/api_revision_wire.rs).
@@ -715,7 +743,22 @@ impl ClientRegistry {
         let mut state = self.state.lock().recover_poison();
         if let Some(record) = state.clients.get_mut(&client) {
             record.remote_device = true;
+            state.classify(client);
         }
+    }
+
+    /// The client class cell of `client`'s connection, which its threads
+    /// follow (connection_qos.rs); a cell that stays unclassified for a
+    /// client the registry does not hold.
+    pub(super) fn connection_class(&self, client: u64) -> Arc<ConnectionClassCell> {
+        let state = self.state.lock().recover_poison();
+        state.clients.get(&client).map(|record| record.connection_class.clone()).unwrap_or_default()
+    }
+
+    /// Classes `client`'s connection now: its hello window has closed, so
+    /// its origin is final (connection_qos.rs).
+    pub(super) fn classify_connection(&self, client: u64) {
+        self.state.lock().recover_poison().classify(client);
     }
 
     /// The connection's identity for shared sizing. Without explicit
@@ -742,6 +785,7 @@ impl ClientRegistry {
         surface: SurfaceId,
         runtime: SurfaceId,
         size_state: &TerminalSizingState,
+        scheme: crate::mux::ParticipantScheme,
     ) {
         let targets = {
             let state = self.state.lock().recover_poison();
@@ -759,15 +803,15 @@ impl ClientRegistry {
                     }
                     let open = record.capabilities.contains(OPEN_DEVICE_KINDS_CAPABILITY);
                     Some((
-                        (*client, open),
+                        SizeStateReader { client: *client, open, scheme },
                         record.writer.clone(),
                         Self::event_streams(record, surface),
                     ))
                 })
                 .collect::<Vec<_>>()
         };
-        for (client, writer, streams) in targets {
-            let event = size_state_event_json(surface, runtime, size_state, Some(client));
+        for (reader, writer, streams) in targets {
+            let event = size_state_event_json(surface, runtime, size_state, Some(reader));
             for stream in streams {
                 let _ = writer.send_stream(&event, &stream);
             }
@@ -852,7 +896,9 @@ impl ClientRegistry {
         if let Some(kind) = kind {
             record.kind = kind;
         }
-        Ok((record.name.clone(), record.kind.clone()))
+        let named = (record.name.clone(), record.kind.clone());
+        state.classify(client);
+        Ok(named)
     }
 
     pub(super) fn resource_records(&self) -> Vec<ResourceClientRecord> {
@@ -897,12 +943,9 @@ impl ClientRegistry {
     }
 
     pub(crate) fn supports_capability(&self, client: u64, capability: &str) -> bool {
-        self.state
-            .lock()
-            .recover_poison()
-            .clients
-            .get(&client)
-            .is_some_and(|record| record.capabilities.contains(capability))
+        self.state.lock().recover_poison().clients.get(&client).is_some_and(|record| {
+            super::capabilities::holds(record, &self.ipc_transports, capability)
+        })
     }
 
     pub(super) fn surface_attachment_is_current_or_retired(

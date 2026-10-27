@@ -13,12 +13,14 @@
 //! and the socket get `origin.forbidden`. Clipboard text is never logged or
 //! kept: it goes straight to the host connection.
 
+use cmux_threads::sync::Mutex;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{MutexGuard, PoisonError};
 
 use ghostty_vt::{ClipboardLocation, MAX_CLIPBOARD_READ_BYTES};
 use serde_json::{Value, json};
 
+use super::terminal_io_wire::{TerminalClipboardReplyParams, TerminalClipboardSubscribeParams};
 use super::{Command, MessageWriter, Mux};
 use crate::SurfaceId;
 use crate::request_origin::{ORIGIN_FORBIDDEN, RequestOrigin};
@@ -273,11 +275,11 @@ pub(super) fn handle(
     require_frontend_user(mux, client)?;
     let reads = &mux.control_clients.clipboard_reads;
     match cmd {
-        Command::TerminalClipboardSubscribe { terminal_ids } => {
+        Command::TerminalClipboardSubscribe(TerminalClipboardSubscribeParams { terminal_ids }) => {
             reads.subscribe(client, terminal_ids, writer.clone())?;
             Ok(json!({"clipboard_read_ready": true}))
         }
-        Command::TerminalClipboardReply { request_id, text } => {
+        Command::TerminalClipboardReply(TerminalClipboardReplyParams { request_id, text }) => {
             Ok(reads.reply(client, &request_id, text))
         }
         _ => anyhow::bail!("not a clipboard-read command"),

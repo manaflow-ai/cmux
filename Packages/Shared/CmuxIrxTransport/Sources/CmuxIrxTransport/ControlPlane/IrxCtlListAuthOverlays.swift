@@ -1,16 +1,5 @@
 public import Foundation
 
-// Generated wire values contain only immutable value types; make that fact
-// explicit so the actor's handler closures can receive decoded directory
-// payloads without changing the schema-generated source.
-extension Binding: @unchecked Sendable {}
-extension CTLDirectory: @unchecked Sendable {}
-extension CTLDirectoryPayload: @unchecked Sendable {}
-extension GrantVerificationKey: @unchecked Sendable {}
-extension PurpleMinimumSupportedVersion: @unchecked Sendable {}
-extension ReleaseTrack: @unchecked Sendable {}
-extension Status: @unchecked Sendable {}
-
 // Hand-written OVERLAY models for the list-auth control-plane additions.
 //
 // The generated `CtlWireModels.swift` is owned by the schema pipeline and did

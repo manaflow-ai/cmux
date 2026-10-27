@@ -1,0 +1,23 @@
+{
+  "id": "incremental-build",
+  "tier": "builder",
+  "description": "The edit loop on a builder: a warm Debug build (swift build --target CmuxNextApp in a new scratch path, cargo build -p cmux-tui), then per leaf (CmuxNextCompat file, CmuxNextSidebar view, CmuxNextApp handler, cmux-panic-log crate) a one-comment edit, the timed rebuild, the restore and an untimed rebuild, interleaved rounds; the rebuilt-module list and the slow type-check queue (MQ15) are attached.",
+  "command": ["scripts/measure/incremental-build.sh"],
+  "session": "light",
+  "engine": "none",
+  "config": "debug",
+  "metrics": [
+    {"name": "build\\.incremental\\.[a-z0-9_]+_s", "unit": "s", "better": "lower",
+     "target_ref": {"target": "incremental-build"}},
+    {"name": "build\\.incremental\\.[a-z0-9_]+\\.rebuilt_modules", "unit": "count", "better": "lower"},
+    {"name": "build\\.typecheck\\.slow_functions", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 3000,
+  "needs": ["file:Packages/macOS/CmuxNext/Sources/CmuxNextCompat/MacName.swift",
+            "file:Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/PresenceDotsView.swift",
+            "file:Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/AppearanceHandlers.swift",
+            "file:cmux-tui/crates/cmux-panic-log/src/lib.rs"],
+  "owner": "Performance Lead",
+  "component": "Build>Incremental"
+}

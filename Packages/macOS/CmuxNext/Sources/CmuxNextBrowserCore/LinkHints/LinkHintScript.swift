@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The page side of link hints, run in the tab's isolated world (never the
@@ -116,7 +117,7 @@ public nonisolated extension LinkHintSession {
     /// anything else.
     package static func targets(from value: BrowserJSValue) -> [LinkHintTarget] {
         guard case .string(let json) = value,
-              let targets = try? JSONDecoder().decode([LinkHintTarget].self, from: Data(json.utf8)) else { return [] }
+              let targets = try? JSONDecoder().blockingDecode([LinkHintTarget].self, from: Data(json.utf8)) else { return [] }
         return targets
     }
 }

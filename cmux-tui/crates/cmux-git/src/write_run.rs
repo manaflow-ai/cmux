@@ -13,11 +13,10 @@
 
 use std::io::{ErrorKind, Read, Write};
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
-use wait_timeout::ChildExt;
+use cmux_process::{Child, Command, Stdio};
 
 use crate::run::{GitFailure, GitOutput, Override, deny_transports, set_overrides};
 
@@ -52,49 +51,12 @@ impl WriteGit<'_> {
         bound: Bound,
         max_stdout: usize,
     ) -> Result<GitOutput, GitFailure> {
-        let mut command = Command::new(crate::run::PROGRAM);
-        for (name, _) in std::env::vars_os() {
-            if name.as_encoded_bytes().starts_with(b"GIT_") {
-                command.env_remove(name);
-            }
-        }
-        let mut hooks = std::ffi::OsString::from("core.hooksPath=");
-        hooks.push(self.hooks.as_os_str());
-        command.args(["-c", "core.fsmonitor=false", "-c", "core.quotePath=false", "-c"]);
-        command.arg(hooks);
-        command.args(["-c", "commit.gpgSign=false", "-c", "gc.auto=0"]);
-        command.args(["-c", "maintenance.auto=false"]);
-        // Temporary index files stay whole, plain index files.
-        command.args(["-c", "core.splitIndex=false", "-c", "index.skipHash=false"]);
-        set_overrides(&mut command, self.overrides);
-        deny_transports(&mut command);
-        command
-            .args(arguments)
-            .current_dir(self.root)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .env("GIT_OPTIONAL_LOCKS", "0")
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .env("GIT_PAGER", "cat")
-            .env("GIT_LITERAL_PATHSPECS", "1")
-            .env("GIT_AUTHOR_NAME", "cmux")
-            .env("GIT_AUTHOR_EMAIL", "cmux@localhost")
-            .env("GIT_COMMITTER_NAME", "cmux")
-            .env("GIT_COMMITTER_EMAIL", "cmux@localhost")
-            .env("LC_ALL", "C");
-        if let Some(index) = index {
-            command.env("GIT_INDEX_FILE", index);
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            command.process_group(0);
-        }
-        let mut child =
-            command.spawn().map_err(|error| GitFailure::Unavailable(error.to_string()))?;
-        // All three are piped above; a missing one is a spawn failure, not a
-        // panic.
+        let mut child = self
+            .command(index, arguments)
+            .spawn()
+            .map_err(|error| GitFailure::Unavailable(error.to_string()))?;
+        // All three are piped by `command`; a missing one is a spawn
+        // failure, not a panic.
         let (Some(mut input), Some(stdout), Some(stderr)) =
             (child.stdin.take(), child.stdout.take(), child.stderr.take())
         else {
@@ -137,6 +99,48 @@ impl WriteGit<'_> {
             return Err(GitFailure::Exit(String::from_utf8_lossy(&stderr).trim().to_string()));
         }
         Ok(GitOutput { stdout, truncated })
+    }
+
+    /// The confined write git [`WriteGit::run`] spawns: in its own process
+    /// group, at [`cmux_threads::HELPER_CHILD`] rather than the class of the
+    /// thread that runs it.
+    fn command(&self, index: Option<&Path>, arguments: &[&std::ffi::OsStr]) -> Command {
+        let mut command = Command::new(crate::run::PROGRAM);
+        for (name, _) in std::env::vars_os() {
+            if name.as_encoded_bytes().starts_with(b"GIT_") {
+                command.env_remove(name);
+            }
+        }
+        let mut hooks = std::ffi::OsString::from("core.hooksPath=");
+        hooks.push(self.hooks.as_os_str());
+        command.args(["-c", "core.fsmonitor=false", "-c", "core.quotePath=false", "-c"]);
+        command.arg(hooks);
+        command.args(["-c", "commit.gpgSign=false", "-c", "gc.auto=0"]);
+        command.args(["-c", "maintenance.auto=false"]);
+        // Temporary index files stay whole, plain index files.
+        command.args(["-c", "core.splitIndex=false", "-c", "index.skipHash=false"]);
+        set_overrides(&mut command, self.overrides);
+        deny_transports(&mut command);
+        command
+            .args(arguments)
+            .current_dir(self.root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .env("GIT_OPTIONAL_LOCKS", "0")
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env("GIT_PAGER", "cat")
+            .env("GIT_LITERAL_PATHSPECS", "1")
+            .env("GIT_AUTHOR_NAME", "cmux")
+            .env("GIT_AUTHOR_EMAIL", "cmux@localhost")
+            .env("GIT_COMMITTER_NAME", "cmux")
+            .env("GIT_COMMITTER_EMAIL", "cmux@localhost")
+            .env("LC_ALL", "C");
+        if let Some(index) = index {
+            command.env("GIT_INDEX_FILE", index);
+        }
+        command.process_group(0).qos_ceiling(cmux_threads::HELPER_CHILD);
+        command
     }
 }
 

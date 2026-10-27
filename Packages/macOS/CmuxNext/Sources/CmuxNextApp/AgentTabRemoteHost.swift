@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -157,7 +158,7 @@ nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
 
     /// A daemon push as the pane's event: the record or request object, or the close reason.
     static func event(_ name: String, _ line: Data) -> AgentSessionRemoteEvent {
-        let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] ?? [:]
+        let object = (try? JSONSerialization.blockingJSONObject(with: line)) as? [String: Any] ?? [:]
         let member = { (key: String) -> Data in
             guard let value = object[key], JSONSerialization.isValidJSONObject(value),
                   let data = try? JSONSerialization.data(withJSONObject: value) else { return Data("{}".utf8) }

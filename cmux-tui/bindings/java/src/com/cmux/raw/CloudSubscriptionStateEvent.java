@@ -13,6 +13,8 @@ import java.util.Objects;
 /** Immutable cloud-subscription-state event. Protocol v12; streams: subscribe. */
 public final class CloudSubscriptionStateEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
     private final Field<String> account;
+    /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+    private final Field<EventCause> cause;
     private final Field<String> conversation;
     private final Field<String> reason;
     private final String scope;
@@ -20,6 +22,7 @@ public final class CloudSubscriptionStateEvent implements WireValue, DeltaStream
 
     private CloudSubscriptionStateEvent(Builder builder) {
         this.account = builder.account;
+        this.cause = builder.cause;
         this.conversation = builder.conversation;
         this.reason = builder.reason;
         if (!builder.scopeSet) throw new IllegalArgumentException("scope is required");
@@ -31,6 +34,7 @@ public final class CloudSubscriptionStateEvent implements WireValue, DeltaStream
     public static Builder builder() { return new Builder(); }
 
     public Field<String> account() { return account; }
+    public Field<EventCause> cause() { return cause; }
     public Field<String> conversation() { return conversation; }
     public Field<String> reason() { return reason; }
     public String scope() { return scope; }
@@ -44,6 +48,10 @@ public final class CloudSubscriptionStateEvent implements WireValue, DeltaStream
         Object rawAccount = Wire.optional(object, "account");
         if (!Wire.isMissing(rawAccount)) {
             builder.account(Wire.string(rawAccount, "CloudSubscriptionStateEvent.account"));
+        }
+        Object rawCause = Wire.optional(object, "cause");
+        if (!Wire.isMissing(rawCause)) {
+            builder.cause(EventCause.fromWire(rawCause));
         }
         Object rawConversation = Wire.optional(object, "conversation");
         if (!Wire.isMissing(rawConversation)) {
@@ -65,6 +73,7 @@ public final class CloudSubscriptionStateEvent implements WireValue, DeltaStream
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         object.put("event", "cloud-subscription-state");
         Wire.put(object, "account", account);
+        Wire.put(object, "cause", cause);
         Wire.put(object, "conversation", conversation);
         Wire.put(object, "reason", reason);
         Wire.put(object, "scope", scope);
@@ -75,17 +84,18 @@ public final class CloudSubscriptionStateEvent implements WireValue, DeltaStream
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CloudSubscriptionStateEvent that)) return false;
-        return Objects.equals(account, that.account) && Objects.equals(conversation, that.conversation) && Objects.equals(reason, that.reason) && Objects.equals(scope, that.scope) && Objects.equals(state, that.state);
+        return Objects.equals(account, that.account) && Objects.equals(cause, that.cause) && Objects.equals(conversation, that.conversation) && Objects.equals(reason, that.reason) && Objects.equals(scope, that.scope) && Objects.equals(state, that.state);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(account, conversation, reason, scope, state); }
+    public int hashCode() { return Objects.hash(account, cause, conversation, reason, scope, state); }
 
     @Override
     public String toString() { return "CloudSubscriptionStateEvent" + toWire(); }
 
     public static final class Builder {
         private Field<String> account = Field.omitted();
+        private Field<EventCause> cause = Field.omitted();
         private Field<String> conversation = Field.omitted();
         private Field<String> reason = Field.omitted();
         private String scope;
@@ -95,6 +105,10 @@ public final class CloudSubscriptionStateEvent implements WireValue, DeltaStream
 
         public Builder account(String value) {
             this.account = Field.of(value);
+            return this;
+        }
+        public Builder cause(EventCause value) {
+            this.cause = Field.of(value);
             return this;
         }
         public Builder conversation(String value) {

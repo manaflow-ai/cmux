@@ -5,14 +5,14 @@ import Foundation
 
 public struct ListPersonalRequest: DaemonRequest {
     public typealias Response = PersonalState
-    public static let command = "list-personal"
+    public static let commandName: DaemonCommandName = "list-personal"
     public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
     public init() {}
 }
 
 public struct SetProfileFollowsRequest: DaemonRequest {
     public typealias Response = ProfileResult
-    public static let command = "set-profile-follows"
+    public static let commandName: DaemonCommandName = "set-profile-follows"
     public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
     public var profile: ProfileID
     public var sessionIDs: [String]

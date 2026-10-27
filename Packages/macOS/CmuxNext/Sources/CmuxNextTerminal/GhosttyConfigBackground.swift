@@ -17,17 +17,7 @@ public struct GhosttyConfigBackground {
         self.blur = blur
     }
 
-    /// The values of the last load of the user's config (tests set it).
+    /// The values of the last load of the user's config, recorded on the main
+    /// actor when its build is applied (tests set it).
     public static var loaded = GhosttyConfigBackground()
-
-    /// The lines that put cmux.json's window background over a config load's
-    /// values; a load of the user's own config (no `theme`) also records them.
-    static func overrideLines(configuredOpacity: Double, configuredBlur: Int, theme: String?) -> [String] {
-        if theme == nil {
-            loaded = GhosttyConfigBackground(opacity: configuredOpacity, blur: configuredBlur)
-            GhosttyConfigFontFamily.recordLoad()
-        }
-        return GhosttyRuntime.backgroundOverrideLines(GhosttyRuntime.backgroundOverride,
-                                                      configuredOpacity: configuredOpacity, configuredBlur: configuredBlur)
-    }
 }

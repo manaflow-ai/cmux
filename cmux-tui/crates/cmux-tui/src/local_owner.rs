@@ -25,9 +25,9 @@
 use std::io;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use cmux_process::{Command, Stdio};
 use cmux_tui_core::platform::{self, transport};
 use serde_json::Value;
 
@@ -633,7 +633,7 @@ fn identify(stream: Box<dyn transport::Stream>, deadline: Instant) -> Result<Val
 
 /// Spawn the headless owner detached from this process's terminal.
 struct OwnerProcessState {
-    child: std::sync::Mutex<Option<std::process::Child>>,
+    child: std::sync::Mutex<Option<cmux_process::Child>>,
     #[cfg(not(unix))]
     wake: std::sync::Condvar,
     #[cfg(not(unix))]
@@ -687,25 +687,18 @@ impl SpawnedOwner {
     }
 }
 
+/// The descriptor number the owner gets its readiness pipe's write end at.
+#[cfg(unix)]
+const OWNER_READY_FD: std::os::fd::RawFd = 3;
+
 /// The readiness pipe: the read end stays here, the write end goes to the
-/// owner only (both are close-on-exec; `pre_exec` clears the flag on the
-/// owner's copy).
+/// owner only, as `OWNER_READY_FD` (`Command::inherit_fd`).
 #[cfg(unix)]
 fn ready_pipe(command: &mut Command) -> io::Result<(std::fs::File, io::PipeWriter)> {
-    use std::os::fd::{AsRawFd, OwnedFd};
-    use std::os::unix::process::CommandExt;
+    use std::os::fd::{AsFd, OwnedFd};
     let (reader, writer) = io::pipe()?;
-    let write_fd = writer.as_raw_fd();
-    command.arg(OWNER_READY_FD_ARG).arg(write_fd.to_string());
-    // SAFETY: fcntl is async-signal-safe and touches only this descriptor.
-    unsafe {
-        command.pre_exec(move || {
-            if libc::fcntl(write_fd, libc::F_SETFD, 0) != 0 {
-                return Err(io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
+    command.arg(OWNER_READY_FD_ARG).arg(OWNER_READY_FD.to_string());
+    command.inherit_fd(writer.as_fd(), OWNER_READY_FD)?;
     Ok((std::fs::File::from(OwnedFd::from(reader)), writer))
 }
 
@@ -758,6 +751,10 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     if let Some(dirs) = cmux_tui_core::first_party_dir::apps_dirs() {
         command.env(cmux_tui_core::first_party_dir::DIRS_ENV, dirs);
     }
+    // So is the owning app's pid (startup_env.rs): only that owner gets it.
+    if let Some(pid) = crate::startup_env::owner_app_pid() {
+        command.env(crate::startup_env::OWNER_APP_PID_ENV, pid);
+    }
     #[cfg(unix)]
     let (ready, ready_writer) = ready_pipe(&mut command)?;
     #[cfg(unix)]
@@ -777,20 +774,9 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         command.arg(install_key::OWNER_INSTALL_KEY_STDIN_ARG).stdin(Stdio::piped());
     }
     #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        // SAFETY: setsid(2) is async-signal-safe and touches no Rust state
-        // in the post-fork child. A freshly forked child is not a
-        // process-group leader, so failure is a real launch error.
-        unsafe {
-            command.pre_exec(|| {
-                if libc::setsid() < 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
-            });
-        }
-    }
+    command.new_session();
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
         const DETACHED_PROCESS: u32 = 0x0000_0008;
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
@@ -799,7 +785,8 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     install_key::keep_std_handles_from_children();
     #[cfg_attr(not(windows), allow(unused_mut))]
     let mut child = command.spawn()?;
-    // Only the owner holds the write end now, so end of file means it exited.
+    // Only the owner holds the write end now (the builder's copy went to the
+    // spawn), so end of file means it exited.
     #[cfg(unix)]
     drop(ready_writer);
     #[cfg(windows)]
@@ -878,7 +865,8 @@ fn reap_on_tick(state: &OwnerProcessState) {
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
-    use std::process::Command;
+
+    use cmux_process::Command;
 
     use super::configure_detached_owner_environment;
 

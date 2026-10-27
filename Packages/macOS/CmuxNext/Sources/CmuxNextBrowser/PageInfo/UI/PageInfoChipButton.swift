@@ -37,7 +37,7 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         density.update { [weak self] in self?.apply() }
-        density.start()
+        density.start(in: self)
         hover = PointerHover(self) { [weak self] _ in self?.refreshFill(animated: true) }
         hover?.isHoverable = { [weak self] in self?.indicator.isTriggerable ?? false }
     }
@@ -103,11 +103,13 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    // visibility-walk-allow: the hover's own hit test and input state (PointerHover), not hidden-dirty view work: a hidden chip drops its hover now, as the omnibar's other hover owners do
     override func viewDidHide() {
         super.viewDidHide()
         hover?.refresh()
     }
 
+    // visibility-walk-allow: the hover's own hit test and input state (PointerHover): a shown chip under a still pointer hovers now
     override func viewDidUnhide() {
         super.viewDidUnhide()
         hover?.refresh()
@@ -130,6 +132,7 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
     }
 
     /// Chrome: dragging the location icon drags the page out as a link.
+    // local-monitor-allow: a 3 pt threshold test, then the drag session, which beginDraggingSession must start from this event; a drag is unbuffered until mouseUp (p06-scheduler.md section E)
     override func mouseDragged(with event: NSEvent) {
         guard isPressed, let start = pressLocation, let item = dragItem?() else { return }
         let moved = hypot(event.locationInWindow.x - start.x, event.locationInWindow.y - start.y)
@@ -199,6 +202,7 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
         }
     }
 
+    // visibility-walk-allow: the chip's layer fill and border color and two tints (refreshFill, applyTint), no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refreshFill()

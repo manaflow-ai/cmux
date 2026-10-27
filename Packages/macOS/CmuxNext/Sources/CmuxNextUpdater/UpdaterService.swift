@@ -19,8 +19,7 @@ import Observation
 @Observable
 public final class UpdaterService {
     public let identity: UpdateBuildIdentity
-    /// The blocking-work lanes the kept-versions listing runs on (the app's one, AppServices; tests and
-    /// previews get lanes of their own).
+    /// The blocking-work lanes the kept-versions listing runs on: the process's one, from AppServices.
     let work: BackgroundWork
     public let log: UpdateLogBuffer
     /// The Sparkle driver; nil when Sparkle cannot run in this build.
@@ -197,6 +196,7 @@ public final class UpdaterService {
     ///   release identity (tests, demos).
     /// - Parameter recordsUpdates: false neither writes nor reads the update
     ///   record What's New shows after an update (tests, demos).
+    /// - Parameter work: the process's one set of lanes (`AppServices.work`); a test passes its own.
     public init(identity: UpdateBuildIdentity = .main(),
                 policy: ManagedUpdatePolicy = .live(),
                 prober: UpdateProber = UpdateProber(),
@@ -206,7 +206,7 @@ public final class UpdaterService {
                 recordsUpdates: Bool = true,
                 now: @escaping () -> Date = Date.init,
                 clock: any Clock<Duration> = ContinuousClock(),
-                work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.updater")) {
+                work: BackgroundWork) {
         self.now = now
         self.work = work
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)

@@ -199,3 +199,76 @@ fn feature_flags_a_document_with_a_bad_signature_is_never_used() {
     assert!(!dir.join("state").join("flags.json").exists(), "a rejected document was cached");
     let _ = fs::remove_dir_all(&dir);
 }
+
+/// A document with the `Features*` keys (schemas/features/flags-document.md), still version 1.
+fn features_document(serial: u64) -> String {
+    format!(
+        r#"{{
+  "version": 1,
+  "default": {{ "Features": {{ "cefLayerHosting": "off" }}, "FeaturesSerial": {serial} }},
+  "cohorts": {{
+    "linux-wave-1": {{ "DisabledFeatures": ["cloud-vm"], "Features": {{ "cefLayerHosting": "on" }} }}
+  }}
+}}"#
+    )
+}
+
+fn signed(document: &str) -> BTreeMap<String, Vec<u8>> {
+    BTreeMap::from([
+        ("/notes/flags.json".to_string(), document.as_bytes().to_vec()),
+        ("/notes/flags.json.sig".to_string(), signature(document.as_bytes())),
+    ])
+}
+
+#[test]
+fn feature_flags_a_document_with_features_keys_is_cached_and_keeps_disabled_features() {
+    let base = serve(signed(&features_document(3)));
+    let dir = temp_dir("features");
+    let owner = Owner::start(&dir, &base, "ff-features");
+    let outcome = owner.outcome();
+    assert!(outcome.contains("feature-flags: updated"), "{outcome}");
+    drop(owner);
+
+    let report = version_json(&dir, &base);
+    assert_eq!(report["disabled_features"], serde_json::json!(["cloud-vm"]), "{report}");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn feature_flags_one_changed_byte_in_a_features_document_is_rejected() {
+    let document = features_document(3);
+    let mut tampered = document.clone().into_bytes();
+    let at = document.find(r#""on""#).unwrap() + 2;
+    tampered[at] = b'f';
+    let files = BTreeMap::from([
+        ("/notes/flags.json".to_string(), tampered),
+        ("/notes/flags.json.sig".to_string(), signature(document.as_bytes())),
+    ]);
+    let base = serve(files);
+    let dir = temp_dir("byte");
+    let owner = Owner::start(&dir, &base, "ff-byte");
+    let outcome = owner.outcome();
+    assert!(outcome.contains("feature-flags: rejected (bad signature)"), "{outcome}");
+    drop(owner);
+    assert!(!dir.join("state").join("flags.json").exists(), "a tampered document was cached");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn feature_flags_a_replayed_document_with_a_lower_serial_keeps_the_cache() {
+    let dir = temp_dir("serial");
+    let newer = features_document(5);
+    let owner = Owner::start(&dir, &serve(signed(&newer)), "ff-serial-new");
+    let outcome = owner.outcome();
+    assert!(outcome.contains("feature-flags: updated"), "{outcome}");
+    drop(owner);
+    fs::remove_file(dir.join("client.log")).unwrap();
+
+    let owner = Owner::start(&dir, &serve(signed(&features_document(4))), "ff-serial-old");
+    let outcome = owner.outcome();
+    assert!(outcome.contains("feature-flags: rejected (older FeaturesSerial"), "{outcome}");
+    drop(owner);
+    let cached = fs::read_to_string(dir.join("state").join("flags.json")).unwrap();
+    assert_eq!(cached, newer, "the replayed document replaced the cache");
+    let _ = fs::remove_dir_all(&dir);
+}

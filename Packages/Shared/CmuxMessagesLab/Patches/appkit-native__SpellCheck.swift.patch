@@ -1,0 +1,23 @@
+--- a/Sources/MessagesLabHome/Vendor/appkit-native/SpellCheck.swift
++++ b/Sources/MessagesLabHome/Vendor/appkit-native/SpellCheck.swift
+@@ -19,8 +19,9 @@
+ /// Ignore and Learn from the context menu use the view's spell document tag.
+ ///
+ /// `--appkit-spell`: AppKit's own continuous checking (A/B).
++@MainActor  // cmux: its field's, main only; the spell server's reply comes back to main
+ final class DeferredSpellChecker {
+-    static let useAppKit = ProcessInfo.processInfo.arguments.contains("--appkit-spell")
++    nonisolated static let useAppKit = ProcessInfo.processInfo.arguments.contains("--appkit-spell")  // cmux: read by ComposeView
+     /// The text above this length is checked around the caret only (a paste stress
+     /// must not mark a megabyte on main).
+     static let fullCheckLimit = 20_000
+@@ -82,7 +83,8 @@
+         let count = changeCount, end = typingEnd
+         DeferredSpellChecker.checks += 1
+         NSSpellChecker.shared.requestChecking(of: text, range: range, types: NSTextCheckingResult.CheckingType.spelling.rawValue,
+-                                              options: nil, inSpellDocumentWithTag: v.spellCheckerDocumentTag) { [weak self] _, results, _, _ in
++                                              options: nil, inSpellDocumentWithTag: v.spellCheckerDocumentTag) { @Sendable [weak self] _, results, _, _ in
++            // cmux: the spell server replies off main: only the ranges (values) go back to main.
+             let found = results.filter { $0.resultType == .spelling }.map(\.range)
+             DispatchQueue.main.async { [weak self] in
+                 // A newer change has its own check pending.

@@ -3,7 +3,7 @@ import Foundation
 /// Renames a tab. Empty name clears it.
 public struct RenameTabRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "rename-surface"
+    public static let commandName: DaemonCommandName = "rename-surface"
     public var surface: SurfaceID
     public var name: String
     public init(surface: SurfaceID, name: String) {
@@ -14,7 +14,7 @@ public struct RenameTabRequest: DaemonRequest {
 
 public struct RenamePaneRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "rename-pane"
+    public static let commandName: DaemonCommandName = "rename-pane"
     public var pane: PaneID
     public var name: String
     public init(pane: PaneID, name: String) {
@@ -25,7 +25,7 @@ public struct RenamePaneRequest: DaemonRequest {
 
 public struct RenameScreenRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "rename-screen"
+    public static let commandName: DaemonCommandName = "rename-screen"
     public var screen: ScreenID
     public var name: String
     public init(screen: ScreenID, name: String) {

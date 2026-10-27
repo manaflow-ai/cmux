@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "cmuxPageRendererSharing",
+  "owner": "PL-memory",
+  "description": "Chromium puts the open instances of a shareable cmux page (New Tab and every agent chat) in one live renderer of up to 8 pages, as Chrome does for New Tab Pages; different pages share only once their hosts carry their group. Needs fork API 32 and renderer paths.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["home-idle"],
+  "sticky": false,
+  "runtimeMutable": false
+}

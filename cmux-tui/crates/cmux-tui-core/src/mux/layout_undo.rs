@@ -19,6 +19,7 @@ impl Mux {
     /// The preview is read only. The caller must retry with its exact current
     /// layout revision and `confirm_close=true`; structural or created-pane tab
     /// membership changes advance that revision before the retry can commit.
+    #[track_caller]
     pub fn undo_layout_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -131,6 +132,7 @@ impl Mux {
         Ok(LayoutUndoResult::Undone { screen, revision })
     }
 
+    #[track_caller]
     pub(super) fn undo_layout_with_confirmation_token_for_resource_effect(
         &self,
         pane: PaneId,

@@ -39,6 +39,7 @@ extension SidebarBridge {
     /// The tab `ref` names: a tab with that id, else `<session>:<id>`
     /// looked up in that session's daemon.
     func pinnedTab(_ ref: String) -> (TabModel, PaneModel)? {
+        // view-observation-allow: locateTab is one MachineTabIndex lookup (R-index's target), not an observation
         if let found = services.locateTab(ref) { return found }
         guard let colon = ref.firstIndex(of: ":") else { return nil }
         let session = String(ref[..<colon]), id = String(ref[ref.index(after: colon)...])

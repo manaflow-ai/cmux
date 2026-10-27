@@ -9,7 +9,7 @@ struct AgentCLIJobCarrierTests {
 
     private struct Calls: DaemonRequest {
         typealias Response = JSONValue
-        static let command = "test-job-calls"
+        static let commandName: DaemonCommandName = "test-job-calls"
     }
 
     private var good: String {

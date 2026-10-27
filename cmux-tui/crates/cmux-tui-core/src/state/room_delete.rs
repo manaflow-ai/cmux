@@ -47,6 +47,7 @@ struct Plan {
 
 /// Delete `room` in `transaction` and announce its closed group
 /// (`closed_id`, carrying the room's record). Returns the public changes.
+#[track_caller]
 fn delete_in(
     transaction: &Transaction<'_>,
     room: &str,
@@ -63,6 +64,7 @@ fn delete_in(
 }
 
 impl Mux {
+    #[track_caller]
     fn room_delete_plan(&self, room: &str) -> anyhow::Result<Plan> {
         let live = self.with_state(|state| {
             state
@@ -128,6 +130,7 @@ impl Mux {
 
     /// Delete `room`, closing its workspaces, as one closed group with id
     /// `closed_id`. A retry with the same key replays.
+    #[track_caller]
     pub(crate) fn state_room_delete(
         &self,
         mutation: &WorkspaceMutation,

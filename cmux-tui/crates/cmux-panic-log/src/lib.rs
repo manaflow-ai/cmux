@@ -13,7 +13,14 @@
 //! Each line is a JSON object with these keys, plus every key in `fields`:
 //! `message`, `location` (`file:line:col`), `thread`, `at_ms`, `test`
 //! (true for a debug test panic, which the app never sends) and
-//! `backtrace` (at most [`MAX_BACKTRACE_BYTES`]).
+//! `backtrace` (at most [`MAX_BACKTRACE_BYTES`]), and `crash_keys` (the
+//! process's [`crash_keys`] at the panic) when any key is set.
+//!
+//! The hang log beside it ([`hang`]) gets one JSON line per watched scope
+//! that runs past its hang deadline, with the hung thread's stack.
+
+pub mod crash_keys;
+pub mod hang;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -52,7 +59,12 @@ pub fn install_with_opener(
         let location = info.location().map(ToString::to_string).unwrap_or_default();
         let backtrace = std::backtrace::Backtrace::force_capture().to_string();
         let test = is_test_thread(&thread);
-        append_opened(&opener, &record(&fields, &message, &location, &thread, test, backtrace));
+        let mut line = record(&fields, &message, &location, &thread, test, backtrace);
+        let keys = crash_keys::snapshot();
+        if let (false, serde_json::Value::Object(object)) = (keys.is_empty(), &mut line) {
+            object.insert("crash_keys".into(), keys.to_json());
+        }
+        append_opened(&opener, &line);
         previous(info);
     }));
 }

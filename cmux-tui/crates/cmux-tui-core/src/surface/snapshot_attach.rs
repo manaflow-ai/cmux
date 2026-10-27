@@ -47,7 +47,9 @@ impl SnapshotStreamPosition {
     /// of the grid (resize, host replay) starts a new generation.
     pub(super) fn observe_frame(&self, frame: &AttachFrame) {
         match frame {
-            AttachFrame::Output(output) | AttachFrame::OutputWithColors { output, .. } => {
+            AttachFrame::Output(output)
+            | AttachFrame::FlowOutput { output, .. }
+            | AttachFrame::OutputWithColors { output, .. } => {
                 self.add_output(output.len());
             }
             AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. } => {
@@ -410,7 +412,7 @@ impl PtySurface {
         match frame {
             Some(frame) => taps.retain(|tap| tap.try_send_resize(frame.clone(), local.as_ref())),
             None => {
-                for tap in &*taps {
+                for tap in taps.iter() {
                     tap.resync_snapshot_at_cut(local.as_ref());
                 }
             }

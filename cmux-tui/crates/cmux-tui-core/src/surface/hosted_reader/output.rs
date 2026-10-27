@@ -14,17 +14,19 @@ impl HostedReader {
     ) -> Flow {
         let mux = self.mux.clone();
         if let Some(delay) = self.output_apply_delay {
-            std::thread::sleep(delay);
+            crate::request_path::sleep(delay);
         }
-        let (output, colors) = match transition {
-            HostedTransition::Output(output) => (output, None),
-            HostedTransition::OutputWithColors { output, colors } => (output, Some(colors)),
+        // `flow`: the key press this output echoes, as the host stamped its PTY read.
+        let (output, colors, flow) = match transition {
+            HostedTransition::Output(output) => (output, None, 0),
+            HostedTransition::FlowOutput { output, flow } => (output, None, flow),
+            HostedTransition::OutputWithColors { output, colors } => (output, Some(colors), 0),
             _ => unreachable!(),
         };
         if crate::debug_spans::following() {
             follow_marks(pty, &output);
         }
-        cmux_flow_trace::hop("daemon.output.host", 0, pty.flow_terminal_id());
+        cmux_flow_trace::hop("daemon.output.host", flow, pty.flow_terminal_id());
         let mut scroll_changed = None;
         let mut title_update = None;
         let terminal_notifications;
@@ -82,13 +84,14 @@ impl HostedReader {
             // see the Output or ColorsChanged callback.
             let journal_output = if colors.is_some() {
                 let journal_output = journal_enabled.then(|| output.clone());
-                pty.broadcast_attach_frame(AttachFrame::OutputWithColors {
+                pty.broadcast_attach_frame(AttachFrame::output_with_colors(
                     output,
-                    colors: Box::new(pty.terminal_colors_locked(&term, defaults)),
-                });
+                    Box::new(pty.terminal_colors_locked(&term, defaults)),
+                    flow,
+                ));
                 journal_output
             } else {
-                pty.broadcast_attach_output(&output);
+                pty.broadcast_attach_output_flow(&output, flow);
                 journal_enabled.then_some(output)
             };
             if self.title_changed.swap(false, Ordering::Relaxed) {

@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextCompat
 import Foundation
 import os
 
@@ -54,7 +55,7 @@ final class BrowserDownloadHistory {
         return await Task.detached(priority: .userInitiated) {
             // concurrency-allow: runs in a detached task, off the main actor
             guard let data = try? storage.read(),
-                  let document = try? JSONDecoder().decode(Document.self, from: data) else { return [Row]() }
+                  let document = try? JSONDecoder().blockingDecode(Document.self, from: data) else { return [Row]() }
             return document.downloads
         }.value
     }
@@ -66,6 +67,7 @@ final class BrowserDownloadHistory {
         let storage = storage, logger = logger
         let data = try? JSONEncoder().encode(Document(downloads: rows))
         let previous = lastWrite
+        // priority-allow: only tests await lastWrite (waitForPendingWrites); no person waits for a save
         lastWrite = Task.detached(priority: .utility) {
             await previous?.value
             do {

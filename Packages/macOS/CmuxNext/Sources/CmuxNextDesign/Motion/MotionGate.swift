@@ -14,13 +14,18 @@ public import CmuxNextDesignTokens
 /// ```swift
 /// Motion.sidebar.animate(.move, in: row) { row.animator().frame = target }
 /// Motion.tabs.set(layer, "opacity", to: 1, fade: .hover)
-/// if let spin = Motion.indicators.spinAnimation() { layer.add(spin, forKey: "spin") }
+/// loops.attach(layer, key: "spin") { Motion.indicators.spinAnimation() } // a LoopVisibility
 /// ```
 ///
 /// With its category off (or the master switch off) the gate answers like
 /// speed "off": `animatesMovement`, `animatesFades` and `animatesLoops` are
 /// false, every duration is 0 and every helper applies its change in one
 /// frame. Code that must work with no animation at all gets that for free.
+///
+/// Under Energy Saver (``DesignSettings/energySaver``) only `animatesLoops` turns false: the loop
+/// helpers (`spinAnimation`, `pulseAnimation`, ...) return nil and their layers keep the static
+/// frame, as under Reduce Motion. Moves, fades, the attention blink, `flashAnimation` and edit
+/// mode's `wiggleAnimation` keep their normal-mode timing, so motion the person starts never changes.
 public nonisolated struct MotionGate: Sendable, Equatable {
     /// The area this gate decides for.
     public let category: MotionCategory
@@ -31,7 +36,7 @@ public nonisolated struct MotionGate: Sendable, Equatable {
     }
 
     /// The live policy for this category: the master switch, the category
-    /// switch, `ui.animationSpeed`, Reduce Motion and a live resize.
+    /// switch, `ui.animationSpeed`, Reduce Motion, a live resize and Energy Saver.
     @MainActor public var policy: MotionPolicy { Motion.basePolicy.for(category) }
 
     /// ``policy`` with no live resize: for values a page or a cache keeps after a drag ends.

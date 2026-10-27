@@ -1,5 +1,6 @@
 import Darwin
 public import CmuxNextWakeups
+public import CmuxNextSignposts
 
 /// The always-on per-action budget: every timed action run's perform-to-commit time, keyed by
 /// action id and entrypoint, against the 10 ms budget (plans/cmux-next/zero-latency.md, "Native
@@ -21,6 +22,12 @@ public import CmuxNextWakeups
 /// - An over-budget run, or every run while a reader asked for every run (the Debug latency HUD),
 ///   goes to the sample readers (``samples(everyRun:)``) at once: the reporter's Debug log line
 ///   with the watchdog's main-thread sample, the HUD's rows.
+///
+/// - With a vsync source (``newestFrame``), each committed run also records its estimated present
+///   (``recordPresentEstimate(_:start:commitEnd:inputAgeMilliseconds:)``, the `action.presented_estimate`
+///   event): the target timestamp of the first display-link tick after the commit, on the grid of the last tick
+///   of the key window's display (the person acts in the key window). No link starts for it and nothing waits
+///   for a frame.
 ///
 /// ```swift
 /// let budget = ActionBudgetMonitor()
@@ -60,6 +67,13 @@ public final class ActionBudgetMonitor {
     /// run past ``budgetNanos`` and records it, with its stack, as an `over_budget` task named by the
     /// action id. Nil publishes nothing.
     public let board: MainTaskBoard?
+    /// The vsync grid an estimated present is placed on (the key display's, `DisplayClock.newestFrame()`); nil records
+    /// no estimate.
+    public let newestFrame: (@MainActor () -> DisplayFrameSample?)?
+    /// Where each estimate goes (the `action.presented_estimate` signpost).
+    private let presentEstimates: @MainActor (ActionPresentSignpostMessage) -> Void
+    /// Estimated presents recorded since launch.
+    public private(set) var presentEstimateCount: UInt64 = 0
     /// Each interned action's owner index on ``board``, by monitor index.
     private var owners: [UInt32] = [0]
     /// Runs before this sequence were handed to the batch reader (or had none to go to).
@@ -82,14 +96,30 @@ public final class ActionBudgetMonitor {
     ///   - capacity: The runs kept for ``recent(_:)``, rounded up to a power of two, at least 2 (256
     ///     covers the HUD and a socket read after a burst, and makes a batch every 128 runs).
     ///   - board: The main-thread task board runs are published on (``board``), or nil.
-    public init(budget: Duration = defaultBudget, capacity: Int = 256, board: MainTaskBoard? = nil) {
+    ///   - newestFrame: The vsync grid for estimated presents (``newestFrame``), or nil for none.
+    ///   - presentEstimates: Where each estimate goes; the `action.presented_estimate` signpost by default.
+    public init(budget: Duration = defaultBudget, capacity: Int = 256, board: MainTaskBoard? = nil,
+                newestFrame: (@MainActor () -> DisplayFrameSample?)? = nil,
+                presentEstimates: (@MainActor (ActionPresentSignpostMessage) -> Void)? = nil) {
         self.board = board
+        self.newestFrame = newestFrame
+        self.presentEstimates = presentEstimates ?? { Signposter.action.presentEstimate($0) }
         let (seconds, attoseconds) = budget.components
         budgetNanos = UInt64(clamping: max(seconds, 0)) &* 1_000_000_000 &+ UInt64(clamping: max(attoseconds, 0) / 1_000_000_000)
         ring = ActionSampleRing(capacity: max(capacity, 2))
         self.capacity = ring.capacity
         batchSize = ring.capacity / 2
         batchMask = UInt64(batchSize - 1)
+    }
+
+    /// The app's monitor: runs published on `board`, each committed run's estimated present placed on the grid of
+    /// the key window's display (``DisplayClock/newestFrame()``, read only: no link starts for it).
+    ///
+    /// - Parameters:
+    ///   - board: The main-thread task board runs are published on (``board``).
+    ///   - displays: The app's display clock.
+    public convenience init(board: MainTaskBoard?, displays: DisplayClock) {
+        self.init(board: board, newestFrame: { displays.newestFrame() })
     }
 
     /// `CLOCK_UPTIME_RAW` nanoseconds: the clock of ``ActionTimingSample/startUptimeNanos``, the
@@ -129,6 +159,35 @@ public final class ActionBudgetMonitor {
         if over { overBudgetCount &+= 1 }
         guard !readers.isEmpty, over || everyRunReaders > 0 else { return }
         deliver(sample(at: runCount &- 1), over: over)
+    }
+
+    /// Records when the committed run of action `index` is estimated to be shown (`action.presented_estimate`):
+    /// the target timestamp of the first display-link tick after `commitEnd`, on the vsync grid of
+    /// ``newestFrame`` (``DisplayFrameSample/presentEstimate(afterCommit:from:)``). Called after
+    /// ``record(_:_:start:end:inputAgeMilliseconds:outcome:span:)`` at the same commit boundary, never for a missed
+    /// commit or a nested loop; off the 0.2 us record path. No effect without ``newestFrame``.
+    ///
+    /// - Parameters:
+    ///   - index: The action's interned index.
+    ///   - start: ``now()`` at the run's start.
+    ///   - commitEnd: ``now()`` at the end of its commit.
+    ///   - inputAgeMilliseconds: The person's input event's age at the start, or -1.
+    /// - Returns: The recorded estimate, or nil.
+    @discardableResult @MainActor
+    public func recordPresentEstimate(_ index: UInt32, start: UInt64, commitEnd: UInt64,
+                                      inputAgeMilliseconds: Double) -> ActionPresentSignpostMessage? {
+        guard let newestFrame else { return nil }
+        // CACurrentMediaTime and CLOCK_UPTIME_RAW count the same mach ticks: seconds versus nanoseconds.
+        let estimate = DisplayFrameSample.presentEstimate(afterCommit: Double(commitEnd) / 1e9, from: newestFrame())
+        let estimateNanos = UInt64(max(estimate.time, 0) * 1e9)
+        let message = ActionPresentSignpostMessage(
+            id: Int(index) < names.count ? names[Int(index)].rawValue : "", actionIndex: index,
+            presentMilliseconds: Double(estimateNanos > start ? estimateNanos - start : 0) / 1e6,
+            commitMilliseconds: Double(commitEnd > start ? commitEnd - start : 0) / 1e6,
+            inputAgeMilliseconds: inputAgeMilliseconds, phase: estimate.phase, estimateUptimeNanos: estimateNanos)
+        presentEstimateCount &+= 1
+        presentEstimates(message)
+        return message
     }
 
     /// The index `id`'s runs are recorded under, interned on first use. Called when an action is

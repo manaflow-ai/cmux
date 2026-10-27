@@ -1,0 +1,17 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "memoryBackdropImages",
+  "owner": "PL-memory",
+  "description": "Decoded window backdrop pictures join the memory coordinator: at most four stay decoded, fewer at memory warning and only the ones windows show at critical; a picture picked again later is read back from its saved copy.",
+  "defaults": {
+    "dev": false,
+    "nightly": false,
+    "release": false
+  },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

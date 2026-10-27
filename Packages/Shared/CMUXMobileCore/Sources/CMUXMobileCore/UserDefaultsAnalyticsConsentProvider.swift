@@ -8,8 +8,12 @@ public import Foundation
 /// sync with the fallback here), and every access reads the store again so
 /// live setting changes apply without rebuilding consumers.
 ///
+/// It keeps the defaults domain's name, not a `UserDefaults` object (which is
+/// not `Sendable`), and opens the domain at each read; nil is the app's
+/// standard domain.
+///
 /// ```swift
-/// let consent = UserDefaultsAnalyticsConsentProvider(defaults: .standard)
+/// let consent = UserDefaultsAnalyticsConsentProvider()
 /// if consent.isTelemetryEnabled {
 ///     // Start telemetry infrastructure.
 /// }
@@ -18,19 +22,19 @@ public struct UserDefaultsAnalyticsConsentProvider: AnalyticsConsentProviding {
     /// The `UserDefaults` key shared with the anonymous-telemetry setting.
     public static let telemetryKey = "sendAnonymousTelemetry"
 
-    // UserDefaults is Apple-documented thread-safe; OK to hold nonisolated.
-    private nonisolated(unsafe) let defaults: UserDefaults
+    private let suiteName: String?
 
-    /// Creates a consent provider over the given defaults store.
+    /// Creates a consent provider over the given defaults domain.
     ///
-    /// - Parameter defaults: The store holding the opt-out flag. Inject a
-    ///   suite-scoped store in tests; the app uses `.standard`.
-    public init(defaults: UserDefaults) {
-        self.defaults = defaults
+    /// - Parameter suiteName: The domain holding the opt-out flag, or nil for
+    ///   the app's standard domain. Tests pass their own suite.
+    public init(suiteName: String? = nil) {
+        self.suiteName = suiteName
     }
 
     /// Whether anonymous product telemetry is enabled in the defaults store.
     public var isTelemetryEnabled: Bool {
-        defaults.object(forKey: Self.telemetryKey) as? Bool ?? true
+        let defaults = suiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard
+        return defaults.object(forKey: Self.telemetryKey) as? Bool ?? true
     }
 }

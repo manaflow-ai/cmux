@@ -1,5 +1,6 @@
 import AppKit
-import CmuxNextDesign
+import CmuxNextCompat
+public import CmuxNextDesign
 import CmuxNextResources
 import QuartzCore
 
@@ -26,6 +27,8 @@ enum TabHoverCardContent: Equatable {
 @MainActor
 final class TabHoverCardController: HoverCardSource {
     weak var previewProvider: (any TabPreviewProvider)?
+    /// Says which hidden tabs use high energy and discards one (`TabHoverCard+Energy.swift`); nil asks nothing.
+    weak var energy: (any TabEnergySource)?
     /// The strip whose targets these are.
     weak var strip: TabStripView?
     /// Samples CPU and memory of the hovered tab while its card shows (first
@@ -68,30 +71,15 @@ final class TabHoverCardController: HoverCardSource {
     /// The next card opens from hidden, not by a retarget: a tab whose thumbnail is not
     /// known yet gets the empty frame its thumbnail fades into.
     private var opensFresh = true
-    private var memoryPressure: (any DispatchSourceMemoryPressure)?
+    /// The thumbnails and samples as one memory consumer (the `MemoryConsumer` extension
+    /// below). The App registers it through the strip; it unregisters when this controller goes.
+    var memoryRegistration: MemoryConsumerRegistration?
 
     init(coordinator: HoverCardCoordinator = HoverCardCoordinator()) {
         self.coordinator = coordinator
         #if DEBUG
         HoverCardGallery.register("tabs") { TabHoverCardGallery.cards() }
         #endif
-        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
-        source.setEventHandler { [weak self] in
-            Task { @MainActor in
-                self?.thumbnails.removeAll()
-                self?.lastReports.removeAll()
-            }
-        }
-        source.activate()
-        memoryPressure = source
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            memoryPressure?.cancel()
-        }
     }
 
     /// The image the card body shows now (`debug.hover_sweep`).
@@ -102,10 +90,7 @@ final class TabHoverCardController: HoverCardSource {
     }
 
     /// The strip's tab id for a target id of this strip.
-    private func tabID(_ id: HoverTargetID) -> TabID? {
-        let raw = id.rawValue
-        return raw.hasPrefix("tab:") ? TabID(String(raw.dropFirst(4))) : nil
-    }
+    private func tabID(_ id: HoverTargetID) -> TabID? { TabID(hoverCardTarget: id) }
 
     /// This strip's tab or chip whose card shows now.
     var shownID: TabID? {
@@ -158,6 +143,8 @@ final class TabHoverCardController: HoverCardSource {
         // Compact previews (Debug Settings `tabs.hoverPreviews`) show the facts without a thumbnail.
         let full = TabTunables.hoverPreviews.value == .full
         if case .tab = content {
+            // Before the sample: its render draws the energy row too.
+            body.setHighEnergy(usesHighEnergy(tab, card: id)) { [weak self] in self?.discard(tab) }
             body.setResources(resources.report ?? lastReport(for: tab))
             // On a retarget, a tab whose thumbnail is not known yet keeps what the card
             // shows (the last tab's picture, or no frame) until its own lands: never an
@@ -181,7 +168,9 @@ final class TabHoverCardController: HoverCardSource {
         // Once per card, not on every content refresh (resource samples).
         if newCard, full, case .tab = content { loadThumbnail(for: tab) }
         if newCard, case .tab = content { startSampling(tab, card: id) }
-        return HoverCardBody(view: body, placement: Self.placement(for: DesignSettings.shared.tabBarPosition), themeAnchor: strip) { [weak body] in body?.applyColors() }
+        // Discard is a button: only then does the card take clicks.
+        return HoverCardBody(view: body, placement: Self.placement(for: DesignSettings.shared.tabBarPosition), themeAnchor: strip,
+                             interactive: body.offersDiscard) { [weak body] in body?.applyColors() }
     }
 
     func hoverCardActivated(_ id: HoverTargetID) {
@@ -232,10 +221,12 @@ final class TabHoverCardController: HoverCardSource {
     }
 
     /// Keeps a sample that measured the tab: a zero or unavailable one would make a
-    /// hibernated page claim it was using nothing.
-    private func rememberReport(_ report: ResourceReport, for tab: TabID) {
-        guard let row = report.tabs.first(where: { $0.id == tab.rawValue }), TabHoverCardLines.measured(row) else { return }
-        if lastReports[tab] == nil, lastReports.count >= thumbnails.maxCount { lastReports.removeAll() }
+    /// hibernated page claim it was using nothing. It keeps samples of as many tabs as
+    /// thumbnails (`thumbnails.countLimit`, which the memory limit scales).
+    func rememberReport(_ report: ResourceReport, for tab: TabID) {
+        guard let row = report.tabs.first(where: { $0.id == tab.rawValue }), TabHoverCardLines.measured(row),
+              thumbnails.countLimit > 0 else { return }
+        if lastReports[tab] == nil, lastReports.count >= thumbnails.countLimit { lastReports.removeAll() }
         lastReports[tab] = (report, now())
     }
 
@@ -296,5 +287,64 @@ extension TabHoverCardController {
     /// pane, above one at the bottom (`tabs.barPosition`, R109).
     static func placement(for position: TabBarPosition) -> HoverCardPlacement {
         position == .bottom ? .above : .below
+    }
+}
+
+/// The thumbnails and the last samples are one small, lossless consumer: both come back on
+/// the next hover, so dropping them loses nothing (Chrome's consumer contract,
+/// base/memory_coordinator/memory_consumer.h). The limit scales how many tabs both keep. A new
+/// limit frees nothing; `releaseMemory(within:)` frees down to it, least recently used first.
+/// A card on screen keeps its picture: only the caches behind it shrink.
+extension TabHoverCardController: MemoryConsumer {
+    /// Nothing to read or write back and cheap to fetch again, so warning pressure shrinks it.
+    static let memoryTraits = MemoryConsumerTraits(
+        estimatedUsage: .small,
+        dataAccess: .none,
+        retention: .lossless,
+        recreateCost: .cheap,
+        releaseCPUCost: .low,
+        isStateful: true,
+        supportsMemoryLimit: true
+    )
+
+    /// The name of every strip's consumer in the memory report.
+    static let memoryConsumerName = "tab-hover-cards"
+
+    func updateMemoryLimit(_ limit: MemoryLimit) {
+        thumbnails.setLimits(count: limit.scale(thumbnails.maxCount), bytes: limit.scale(thumbnails.maxBytes))
+    }
+
+    /// Drops least recently used thumbnails, then the oldest samples, one at a time until the
+    /// slice's limit holds or its time is up.
+    func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
+        updateMemoryLimit(slice.limit)
+        while thumbnails.isOverLimits {
+            if slice.isExpired { return .more }
+            thumbnails.removeOldest()
+        }
+        while lastReports.count > thumbnails.countLimit {
+            if slice.isExpired { return .more }
+            guard let oldest = lastReports.min(by: { $0.value.at < $1.value.at })?.key else { break }
+            lastReports[oldest] = nil
+        }
+        return .done
+    }
+
+    /// Thumbnail pixels (bytes per row x height each). A sample is a few hundred bytes and
+    /// counts as an entry only.
+    var memoryUsage: MemoryUsage? {
+        MemoryUsage(footprintBytes: thumbnails.bytes, entries: thumbnails.count + lastReports.count)
+    }
+
+    /// How many tabs' samples it keeps now (tests).
+    var rememberedReportCount: Int { lastReports.count }
+}
+
+public extension TabID {
+    /// The tab or chip of a strip's hover card target (`TabHoverCardController.targetID(_:)`); nil for any other
+    /// target.
+    nonisolated init?(hoverCardTarget id: HoverTargetID) {
+        guard id.rawValue.hasPrefix("tab:") else { return nil }
+        self.init(String(id.rawValue.dropFirst("tab:".count)))
     }
 }

@@ -141,16 +141,13 @@ extension SidebarViewComponents {
                       list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
                 // A click moves no row (Leo 2026-10-20): it draws its selection, and rows that changed with it
                 // wait under the pointer like any change nobody asked for.
-                if list.showModelChange(animates: false) { SidebarNewRowTimer.shared.drew(model.sections, in: window) }
+                list.showModelChange(animates: false)
             } else if selectionChanged, rowsChanged || !list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
                 // A new selection shows now, wherever the pointer is (it is the user's, or asks to be seen).
                 list.reload(animated: Self.animatesReload(from: previous, to: model.sections) && model.followsUserIntent, fromModel: true)
-                if rowsChanged { SidebarNewRowTimer.shared.drew(model.sections, in: window) }
             } else if rowsChanged {
                 // Only a change the user asked for moves rows; others show in place, after the pointer leaves (calm-sidebar-movement).
-                if list.showModelChange(animates: Self.animatesReload(from: previous, to: model.sections)) {
-                    SidebarNewRowTimer.shared.drew(model.sections, in: window)
-                }
+                list.showModelChange(animates: Self.animatesReload(from: previous, to: model.sections))
             }
             lastSections = model.sections
         }

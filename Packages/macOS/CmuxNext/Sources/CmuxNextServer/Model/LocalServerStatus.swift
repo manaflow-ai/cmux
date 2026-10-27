@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Maps the bundled CLI's `cmux server status --json` and `cmux host roles
@@ -17,9 +18,9 @@ public nonisolated struct LocalServerStatus {
     public struct NotServerStatus: Error, Equatable {}
 
     public static func snapshot(status: Data, roles: Data?, hostName: String) throws -> ServerSnapshot {
-        guard let root = try? JSONSerialization.jsonObject(with: status) as? [String: Any] else { throw Malformed() }
+        guard let root = try? JSONSerialization.blockingJSONObject(with: status) as? [String: Any] else { throw Malformed() }
         guard root["enabled"] != nil || root["service"] != nil else { throw NotServerStatus() }
-        let processRoles = roles.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let processRoles = roles.flatMap { try? JSONSerialization.blockingJSONObject(with: $0) as? [String: Any] }
         let service = root["service"] as? [String: Any]
         let mode = string(root["mode"]).flatMap(ServerInstallMode.init(rawValue:)) ?? .user
         let enabled = bool(root["enabled"]) ?? bool(service?["installed"]) ?? false

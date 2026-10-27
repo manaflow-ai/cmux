@@ -2,9 +2,11 @@
 //! terminal hosts, template terminals, and scheduling adoption work.
 
 use super::*;
+use cmux_threads::checked::fs as checked_files;
 
 impl Mux {
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn restored_terminal_binding(
         &self,
         terminal_id: &str,
@@ -73,6 +75,7 @@ impl Mux {
     }
 
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn adopt_terminal_hosts(self: &Arc<Self>) -> anyhow::Result<()> {
         let options = self.surface_options.lock().unwrap().clone();
         let exit_records = match options.terminal_host_root.as_deref() {
@@ -384,6 +387,7 @@ impl Mux {
     /// answers anyone, then bind the warm shell to its new identity. A host
     /// that does not answer yet keeps adopting on its own thread.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     fn adopt_template_terminal_inline(
         self: &Arc<Self>,
         options: &SurfaceOptions,
@@ -416,6 +420,7 @@ impl Mux {
     /// abort startup nor leave the terminal without its public placement and
     /// binding.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn ensure_template_adoption_completed(self: &Arc<Self>, terminal_id: &str) {
         let Err(error) = self.complete_template_adoption(terminal_id) else {
             return;
@@ -428,7 +433,7 @@ impl Mux {
             .spawn(move || {
                 let mut delay = Duration::from_millis(100);
                 loop {
-                    std::thread::sleep(delay);
+                    crate::request_path::sleep(delay);
                     if mux.shutting_down.load(Ordering::Acquire) {
                         break;
                     }
@@ -455,6 +460,7 @@ impl Mux {
     /// written only after the commit, so the first `terminal.list` after it
     /// appears includes the terminal it names.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn complete_template_adoption(&self, terminal_id: &str) -> anyhow::Result<()> {
         let terminal = self.workspace_registry.lock().unwrap().terminal_record(terminal_id)?;
         // A recovered terminal (cx-0tgl LC) is placed the same way; only a
@@ -485,6 +491,7 @@ impl Mux {
     /// finish_terminal_adoption gives it a new placement with fresh public
     /// ids. The ordinary adoption handshake follows.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn claim_template_terminal(
         &self,
         options: &SurfaceOptions,
@@ -553,11 +560,11 @@ impl Mux {
             terminal_public_id.as_str()
         );
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+            checked_files::create_dir_all(parent)?;
         }
         let temporary = path.with_extension("tmp");
-        std::fs::write(&temporary, contents)?;
-        std::fs::rename(&temporary, path)?;
+        checked_files::write(&temporary, contents)?;
+        checked_files::rename(&temporary, path)?;
         Ok(())
     }
 
@@ -566,6 +573,7 @@ impl Mux {
     /// when it left one) and detaches the terminal's tabs only when that
     /// receipt proves a process end; a host loss leaves them dead.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn mark_terminal_ended(
         self: &Arc<Self>,
         terminal_id: &str,
@@ -623,6 +631,7 @@ impl Mux {
     }
 
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn finish_terminal_adoption(
         &self,
         terminal_id: &str,
@@ -796,6 +805,7 @@ impl Mux {
     }
 
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn schedule_terminal_adoption(
         self: &Arc<Self>,
         options: SurfaceOptions,
@@ -813,6 +823,7 @@ impl Mux {
     /// Adopts a surviving host on its own thread, first after `first_delay` (zero:
     /// at a start, once the owner says ready), then retrying with backoff. At most ``ADOPTION_SLOTS`` hosts replay at once, so a
     /// start with hundreds of hosts does not hold every replay in memory together.
+    #[track_caller]
     pub(super) fn schedule_terminal_adoption_after(
         self: &Arc<Self>,
         options: SurfaceOptions,
@@ -845,7 +856,7 @@ impl Mux {
                         && !mux.shutting_down.load(Ordering::Acquire)
                         && Instant::now() < deadline
                     {
-                        std::thread::sleep(Duration::from_millis(5));
+                        crate::request_path::sleep(Duration::from_millis(5));
                     }
                 }
                 // Test hook (fault injection, debug builds): the adoption starts
@@ -855,7 +866,7 @@ impl Mux {
                     .ok()
                     .and_then(|ms| ms.parse::<u64>().ok())
                 {
-                    std::thread::sleep(Duration::from_millis(ms));
+                    crate::request_path::sleep(Duration::from_millis(ms));
                 }
                 let mut delay = first_delay;
                 let mut refusals = pending_terminals::RefusalStreak::default();
@@ -863,7 +874,7 @@ impl Mux {
                     if mux.shutting_down.load(Ordering::Acquire) {
                         break;
                     }
-                    std::thread::sleep(delay);
+                    crate::request_path::sleep(delay);
                     // Retries back off from 100 ms, also after an immediate first try.
                     delay = delay.max(Duration::from_millis(50));
                     if mux.shutting_down.load(Ordering::Acquire) {
@@ -1089,11 +1100,13 @@ impl Mux {
             if left.is_zero() {
                 break;
             }
-            adoptions = self
-                .terminal_adoption_ended
-                .wait_timeout(adoptions, left)
-                .unwrap_or_else(PoisonError::into_inner)
-                .0;
+            adoptions = cmux_threads::checked::sync::wait_timeout(
+                &self.terminal_adoption_ended,
+                adoptions,
+                left,
+            )
+            .unwrap_or_else(PoisonError::into_inner)
+            .0;
         }
         drop(adoptions);
         self.terminal_adoptions_now
@@ -1106,6 +1119,7 @@ impl Mux {
     /// new view instead of a new process. A restarted owner answers before it
     /// adopted its surviving terminals (#23561): a terminal that still adopts
     /// is waited for (at most `REOPEN_ADOPTION_WAIT`), not taken for gone.
+    #[track_caller]
     pub(crate) fn resolve_running_terminal(&self, terminal_id: &str) -> Option<TerminalResolution> {
         let resolution = self.resolve_terminal(terminal_id).ok().flatten()?;
         let resolution = if resolution.terminal.lifecycle == TerminalLifecycle::Adopting {
@@ -1138,7 +1152,8 @@ impl AdoptionSlot {
     fn take() -> Self {
         let mut in_flight = ADOPTIONS_IN_FLIGHT.lock().unwrap_or_else(PoisonError::into_inner);
         while *in_flight >= ADOPTION_SLOTS {
-            in_flight = ADOPTION_SLOT_FREED.wait(in_flight).unwrap_or_else(PoisonError::into_inner);
+            in_flight = cmux_threads::checked::sync::wait(&ADOPTION_SLOT_FREED, in_flight)
+                .unwrap_or_else(PoisonError::into_inner);
         }
         *in_flight += 1;
         AdoptionSlot

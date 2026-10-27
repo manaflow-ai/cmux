@@ -11,7 +11,7 @@ public enum PaneDirection: String, Sendable, Hashable, Codable {
 
 public struct SwapPaneRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "swap-pane"
+    public static let commandName: DaemonCommandName = "swap-pane"
     public var pane: PaneID
     public var target: SwapTarget
     public init(pane: PaneID, target: SwapTarget) {

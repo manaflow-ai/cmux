@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import CmuxNextWakeups
 
@@ -51,10 +52,10 @@ public nonisolated struct GitHubCLIClient: GitHubFeedAPI {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         if listKey != nil {
-            let object = try decoder.decode(GitHubSearchResponse<Value>.self, from: result.body)
+            let object = try decoder.blockingDecode(GitHubSearchResponse<Value>.self, from: result.body)
             return GitHubAPIResponse(value: object.items, etag: result.etag)
         }
-        return GitHubAPIResponse(value: try decoder.decode([Value].self, from: result.body), etag: result.etag)
+        return GitHubAPIResponse(value: try decoder.blockingDecode([Value].self, from: result.body), etag: result.etag)
     }
 
     private struct CommandResult: Sendable {

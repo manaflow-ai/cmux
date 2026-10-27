@@ -6,7 +6,7 @@ import Foundation
 /// `CloudConversationOp.acceptRequest` or `.dismissRequest(block:)`.
 public struct CloudMessageRequestsRequest: DaemonRequest {
     public typealias Response = CloudMessageRequests
-    public static let command = "cloud-requests-list"
+    public static let commandName: DaemonCommandName = "cloud-requests-list"
     public init() {}
 }
 

@@ -1,5 +1,6 @@
 //! The process's thread registry: one row per cmux thread, with its name,
-//! declared QoS, desired-QoS slot, effective QoS and native ids.
+//! declared QoS, desired-QoS slot, effective QoS, scheduler priority and
+//! native ids.
 //!
 //! A thread's row lives in a thread-local of this crate and is removed when
 //! the thread deregisters (at the end of [`crate::spawn`], or by its
@@ -94,6 +95,13 @@ impl Row {
         self.effective.store(qos.map_or(NOT_APPLIED, |qos| qos as u8), Ordering::Relaxed);
     }
 
+    /// The class the thread runs at by its own changes: the last one that
+    /// succeeded, else the class it was registered with (a refused change
+    /// still says what it wants).
+    pub(crate) fn class(&self) -> ThreadQos {
+        self.effective().unwrap_or(self.declared)
+    }
+
     pub(crate) fn record_refusal(&self) {
         self.refused.fetch_add(1, Ordering::Relaxed);
     }
@@ -116,6 +124,12 @@ impl QosSlot {
         ThreadQos::from_u8(self.0.desired.load(Ordering::Relaxed))
     }
 
+    /// The QoS the thread was registered with: its own class, whatever it
+    /// was asked for since.
+    pub fn declared(&self) -> ThreadQos {
+        self.0.declared
+    }
+
     /// The owning thread's name.
     pub fn name(&self) -> &str {
         &self.0.name
@@ -135,6 +149,9 @@ pub struct ThreadInfo {
     pub effective: Option<ThreadQos>,
     /// What the kernel reports now.
     pub live: LiveQos,
+    /// The scheduler priority the thread runs at now (macOS `pth_curpri`,
+    /// Linux 20 + nice), `None` when it could not be read.
+    pub priority: Option<i32>,
     /// QoS changes the kernel or the Linux nice rule refused.
     pub refused_changes: u32,
     /// The kernel thread id (Linux tid, macOS pthread_threadid_np).
@@ -168,6 +185,13 @@ pub(crate) fn with_current<R>(f: impl FnOnce(&Row) -> R) -> Option<R> {
         .try_with(|current| current.borrow().as_ref().map(|registered| f(&registered.0)))
         .ok()
         .flatten()
+}
+
+/// The QoS the calling thread runs at: the class it last applied, else the
+/// one it declared. `None` when the thread is not registered.
+#[cfg(debug_assertions)]
+pub(crate) fn current_qos() -> Option<ThreadQos> {
+    with_current(|row| row.effective().unwrap_or(row.declared))
 }
 
 /// Registers the calling thread as `name` and sets its QoS to `qos`. For
@@ -229,6 +253,7 @@ pub fn snapshot() -> Vec<ThreadInfo> {
             desired: ThreadQos::from_u8(row.desired.load(Ordering::Relaxed)),
             effective: row.effective(),
             live: qos::live_of(&row.native),
+            priority: qos::priority_of(&row.native),
             refused_changes: row.refused.load(Ordering::Relaxed),
             tid: row.native.tid(),
         })

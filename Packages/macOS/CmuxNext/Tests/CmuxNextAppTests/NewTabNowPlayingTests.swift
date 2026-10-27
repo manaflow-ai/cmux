@@ -138,7 +138,7 @@ import UniformTypeIdentifiers
         var nowPlaying: SidebarNowPlaying?
         @ObservationIgnored var running = false
         func perform(_ command: SidebarNowPlayingCommand) {}
-        func run(_ on: Bool) { running = on }
+        func run(_ need: NowPlayingNeed) { running = need != .off }
     }
 
     static func until(_ condition: () -> Bool, within timeout: Duration = .seconds(5)) async throws {

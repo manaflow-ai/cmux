@@ -317,6 +317,7 @@ pub(crate) fn write_changes(
 /// The one-time migration (at registry open): the old layout, personal
 /// order, pinned groups and pin flags become the document; the old tables
 /// stay. A second open finds the flag and does nothing.
+#[track_caller]
 pub(crate) fn migrate_at_open(connection: &Connection) -> anyhow::Result<()> {
     // Another process (an older binary) may have written the rows since this
     // process cached them: read them again. A commit that holds the

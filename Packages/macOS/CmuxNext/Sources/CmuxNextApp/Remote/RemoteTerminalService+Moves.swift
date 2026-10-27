@@ -19,7 +19,7 @@ extension RemoteTerminalService {
     /// Moves `tab` from `source` into `workspace` on `destination` (another
     /// session). `completion` gets whether it moved.
     func move(_ tab: TabModel, from source: DaemonService, to workspace: WorkspaceModel, on destination: DaemonService,
-              completion: @escaping (Bool) -> Void) {
+              completion: @escaping TabMoves.Completion) {
         let registry = services.registry
         guard let target = Self.landingPane(in: workspace) else {
             // An empty workspace (no pane yet) cannot hold the tab.

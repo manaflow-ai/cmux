@@ -3,8 +3,9 @@
 
   scripts/cmux-next/browser-idle-cost-live.py --app PATH --tabs 5 [--out DIR] [--budget FILE]
 
-A local server serves the pages. The tagged app opens --tabs Chromium tabs of a static page and a
-static front tab that stays shown (until the chatty phase), then runs these phases, each one adding a tab:
+The shared page server (tab_pages.py) serves the pages. The tagged app opens --tabs Chromium tabs of a
+static page and a static front tab that stays shown (until the chatty phase), then runs these phases,
+each one adding a tab:
 
   static   only the static tabs;
   loading  one more tab whose load never ends (an image request the server keeps open);
@@ -20,103 +21,58 @@ where the budget file names them.
 
 With --budget, a breach of any limit in the file (see browser-idle-cost-budget.json) is a FAIL.
 `sample` output of the GPU process and the app for 3 s per phase goes to the artifacts.
-Quits the app through the socket, then ends the tag's daemons (TagTeardown).
+
+The app launches and stops through bench_launch.BenchApp (the bench env, a fresh saved session, debug.quit of its
+own PID, then the tag's daemons). A run that measured every phase also writes cmux-perf-result/v1 into --out
+(story browser-idle-cost, idle_burst_bench_report.browser_idle_series): per phase and class its idle CPU %,
+wakeups/s, footprint and disk bytes; per phase the total CPU % and cef.log bytes/s; the console lines on disk and
+the FAIL count.
 """
-import argparse, glob, http.server, importlib.util, json, os, plistlib, subprocess, sys, tempfile, threading, time
+import argparse, importlib.util, json, os, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from tag_teardown import TagTeardown  # noqa: E402
+from bench_launch import BenchApp, bundle_id  # noqa: E402
+import idle_burst_bench_report as results_v1  # noqa: E402
+from tab_pages import PERF100_CLASSES, TabPages, chromium_children, process_table, process_type_kind  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("browser_engine_bench", os.path.join(HERE, "..", "perf", "browser_engine_bench.py"))
 bench = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(bench)
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--app", required=True, help="tagged .app")
-parser.add_argument("--tabs", type=int, default=5)
-parser.add_argument("--settle-s", type=float, default=40)
-parser.add_argument("--idle-s", type=float, default=60)
-parser.add_argument("--phases", default="static,loading,chatty")
-parser.add_argument("--budget", help="JSON limits; a breach is a FAIL")
-parser.add_argument("--no-sample", action="store_true")
-parser.add_argument("--env", action="append", default=[], help="KEY=VALUE for the app, e.g. CMUX_NEXT_CEF_EXTRA_SWITCHES=process-per-site")
-parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="browser-idle-cost-"))
-opts = parser.parse_args()
-PHASES = opts.phases.split(",")
-if not set(PHASES) <= {"static", "loading", "chatty"}:
-    parser.error(f"unknown phase in {opts.phases}")
-if any("=" not in item for item in opts.env):
-    parser.error("--env takes KEY=VALUE")
-os.makedirs(opts.out, exist_ok=True)
 
-APP = os.path.realpath(opts.app)
-with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
-    INFO = plistlib.load(f)
-BINARY = os.path.join(APP, "Contents/MacOS", INFO["CFBundleExecutable"])
-CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
-TAG = INFO["CFBundleIdentifier"].rsplit(".", 1)[-1]
-SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
-CEF_LOG = os.path.expanduser(f"~/Library/Application Support/{INFO['CFBundleIdentifier']}/Chromium/cef.log")
-SCRATCH = tempfile.mkdtemp(prefix="browser-idle-cost-")
-CONFIG = os.path.join(SCRATCH, "cmux.json")
-EMPTY_GHOSTTY = os.path.join(SCRATCH, "ghostty-config")
-BASE_ENV = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
-CLI_ENV = {**BASE_ENV, "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"}
-RUN = os.urandom(4).hex()
-MARKER = f"cmux-idle-cost-{RUN}"
+def parse(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--app", required=True, help="tagged .app")
+    parser.add_argument("--tag")  # the story runner passes it; the bundle carries the tag
+    parser.add_argument("--tabs", type=int, default=5)
+    parser.add_argument("--settle-s", type=float, default=40)
+    parser.add_argument("--idle-s", type=float, default=60)
+    parser.add_argument("--phases", default="static,loading,chatty")
+    parser.add_argument("--budget", help="JSON limits; a breach is a FAIL")
+    parser.add_argument("--no-sample", action="store_true")
+    parser.add_argument("--env", action="append", default=[],
+                        help="KEY=VALUE for the app, e.g. CMUX_NEXT_CEF_EXTRA_SWITCHES=process-per-site")
+    parser.add_argument("--story", default=results_v1.BROWSER_IDLE_STORY, help="result-v1 story")
+    parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS"), help="artifacts and result-v1 (default: a new "
+                        "temporary folder)")
+    opts = parser.parse_args(argv)
+    if not set(opts.phases.split(",")) <= {"static", "loading", "chatty"}:
+        parser.error(f"unknown phase in {opts.phases}")
+    if any("=" not in item for item in opts.env):
+        parser.error("--env takes KEY=VALUE")
+    return opts
+
+
+def bench_app(opts):
+    """The tagged app as this lane launches it (bench_launch.BenchApp: the bench env, a fresh saved session, the tag
+    teardown), on the last screen, with --env on top."""
+    return BenchApp(opts.app, out=opts.out, env=dict(item.split("=", 1) for item in opts.env), config={},
+                    screen="last", log_name="app.log")
+
+
+opts = LAUNCHER = pages = CEF_LOG = MARKER = ORIGIN = None
 failures = []
-stop_serving = threading.Event()
-loaded = set()
-ticks = [0]  # the chatty page's console.log calls, in fours
-visibility = {}  # static page -> its latest document.visibilityState  # the chatty page's console.log calls, in fours
-
-PAGES = {
-    "static": "<title>static {n}</title><body style='font:16px system-ui'><h1>Static page {n}</h1><p>Nothing runs here.</p>"
-              "<script>fetch('/loaded/{n}',{{method:'POST'}});const v=()=>fetch('/vis/{n}/'+document.visibilityState,{{method:'POST'}});"
-              "v();document.addEventListener('visibilitychange',v)</script>",
-    "loading": "<title>loading</title><body><h1>This load never ends</h1><img src='/never'>"
-               "<script>fetch('/loaded/loading',{{method:'POST'}})</script>",
-    "chatty": "<title>chatty</title><body><h1>Console chatter</h1><script>let i=0;"
-              "setInterval(()=>{{console.log('" + MARKER + " ' + (i++));if(i%4==0)fetch('/tick',{{method:'POST'}})}}, 250);fetch('/loaded/chatty',{{method:'POST'}})</script>",
-}
-
-
-class Handler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):  # noqa: N802
-        if self.path == "/never":
-            stop_serving.wait(3600)  # keeps the page loading; ends with the run
-            return
-        kind, _, n = self.path.strip("/").partition("-")
-        if kind not in PAGES:
-            self.send_error(404)
-            return
-        body = PAGES[kind].format(n=n).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_POST(self):  # noqa: N802
-        if self.path == "/tick":
-            ticks[0] += 4
-        elif self.path.startswith("/vis/"):
-            parts = self.path.split("/", 3)
-            if len(parts) == 4:
-                visibility[parts[2]] = parts[3]
-        loaded.add(self.path.removeprefix("/loaded/"))
-        self.send_response(204)
-        self.end_headers()
-
-    def log_message(self, *args):
-        pass
-
-
-server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-threading.Thread(target=server.serve_forever, daemon=True).start()
-ORIGIN = f"http://127.0.0.1:{server.server_port}"
 
 
 def check(ok, what):
@@ -125,22 +81,10 @@ def check(ok, what):
         failures.append(what)
 
 
-def write(path, text):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        f.write(text)
-
-
 def rpc(method, params=None, timeout=30):
-    try:
-        r = subprocess.run([CLI, "--app-socket", SOCKET, "--json", "app", "call", method, json.dumps(params or {})],
-                           capture_output=True, text=True, timeout=timeout, env=CLI_ENV)
-    except subprocess.TimeoutExpired:
-        return {"error": f"{method} timed out"}
-    try:
-        return json.loads(r.stdout)
-    except ValueError:
-        return {"error": (r.stdout + r.stderr).strip()}
+    """One request on the launched app's socket (BenchApp.rpc): its result, or {"error": ...}."""
+    reply = LAUNCHER.rpc(method, params, timeout)
+    return reply if isinstance(reply, dict) else {}
 
 
 def wait_for(predicate, what, seconds=20):
@@ -155,26 +99,9 @@ def wait_for(predicate, what, seconds=20):
 
 
 def processes(app_pid):
-    """{pid: class} for the app and every Chromium helper it started (by --type)."""
-    out = subprocess.run(["ps", "-axww", "-o", "pid=,ppid=,command="], capture_output=True, text=True).stdout
-    rows = {}
-    for line in out.splitlines():
-        parts = line.strip().split(None, 2)
-        if len(parts) == 3 and int(parts[1]) == app_pid:
-            command = parts[2]
-            if "--type=gpu-process" in command:
-                kind = "gpu"
-            elif "--type=renderer" in command:
-                kind = "extension-renderer" if "--extension-process" in command else "renderer"
-            elif "--type=utility" in command:
-                kind = "utility"
-            elif "--type=" in command:
-                kind = "other-helper"
-            else:
-                continue  # daemons and other children are not this lane's
-            rows[int(parts[0])] = kind
-    rows[app_pid] = "app"
-    return rows
+    """{pid: class} for the app and every child of it with a --type (tab_pages.process_type_kind); its other
+    children (daemons, the Chromium Host) are not this lane's."""
+    return {**chromium_children(app_pid, process_table(), PERF100_CLASSES, process_type_kind), app_pid: "app"}
 
 
 def snapshot(pids):
@@ -196,7 +123,7 @@ def log_size():
 
 def measure(app_pid, phase):
     rows = processes(app_pid)
-    before, log_before, t0, ticks_before = snapshot(rows), log_size(), time.monotonic(), ticks[0]
+    before, log_before, t0, ticks_before = snapshot(rows), log_size(), time.monotonic(), pages.ticks
     time.sleep(opts.idle_s)  # the measured idle window itself
     after, log_after, seconds = snapshot(rows), log_size(), time.monotonic() - t0
     classes = {}
@@ -220,8 +147,8 @@ def measure(app_pid, phase):
           and not any(rows[pid] in ("gpu", "renderer") for pid in dropped),
           f"{phase}: the GPU process and renderers are measured ({sorted(classes)}, unmeasured pids {dropped})")
     result = {"phase": phase, "seconds": round(seconds, 1), "classes": classes, "unmeasured_pids": dropped,
-              "console_calls": ticks[0] - ticks_before,
-              "pages_visible": sorted(n for n, state in visibility.items() if state == "visible"),
+              "console_calls": pages.ticks - ticks_before,
+              "pages_visible": sorted(n for n, state in pages.visibility.items() if state == "visible"),
               "cef_log_bytes_per_min": round((log_after - log_before) * 60 / seconds),
               "total_cpu_percent": round(sum(c["cpu_percent"] for c in classes.values()), 3)}
     for name in ("debug.cef", "debug.wakeups"):
@@ -240,7 +167,7 @@ def measure(app_pid, phase):
 
 def open_tab(url, key):
     rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True})
-    wait_for(lambda: key in loaded, f"page {key} loads", 60)
+    wait_for(lambda: key in pages.loaded, f"page {key} loads", 60)
 
 
 def show(url):
@@ -251,74 +178,87 @@ def show(url):
         rpc("action.run", {"action": "tab.focus", "target": f"tab:{tab['id']}", "focus": True})
 
 
-write(CONFIG, "{}\n")
-write(EMPTY_GHOSTTY, "")
-teardown = TagTeardown(APP)
-teardown.install()
-app = None
-results = {"tabs": opts.tabs, "app": APP, "env": opts.env, "phases": []}
-try:
-    if os.path.exists(SOCKET):
-        os.unlink(SOCKET)
-    app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
-                                          "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": EMPTY_GHOSTTY,
-                                          **dict(item.split("=", 1) for item in opts.env)},
-                           stdout=open(os.path.join(opts.out, "app.log"), "a"), stderr=subprocess.STDOUT)
-    print(f"app pid {app.pid}, origin {ORIGIN}, out {opts.out}, cef.log {CEF_LOG}", flush=True)
-    wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
+def judge(results, lines):
+    """The --budget file's limits on this run's results (each breach a FAIL)."""
+    with open(opts.budget) as f:
+        budget = json.load(f)
+    limit = budget.get("console_marker_lines_on_disk")
+    if limit is not None and "chatty" in opts.phases.split(","):
+        check(lines <= limit, f"page console lines in cef.log: {lines} <= {limit}")
+    for phase in results["phases"]:
+        limits = budget.get("phases", {}).get(phase["phase"], {})
+        for kind, cap in limits.get("cpu_percent", {}).items():
+            got = phase["classes"].get(kind, {}).get("cpu_percent", 0)
+            check(got <= cap, f"{phase['phase']}: {kind} idle CPU {got}% <= {cap}%")
+        cap = limits.get("cef_log_bytes_per_min")
+        if cap is not None:
+            check(phase["cef_log_bytes_per_min"] <= cap, f"{phase['phase']}: cef.log {phase['cef_log_bytes_per_min']} B/min <= {cap}")
+
+
+def run(results):
+    phases = opts.phases.split(",")
+    LAUNCHER.launch(timeout=120)
+    app_pid = LAUNCHER.process.pid
+    print(f"app pid {app_pid}, origin {ORIGIN}, out {opts.out}, cef.log {CEF_LOG}", flush=True)
     rpc("action.run", {"action": "workspace.selectFirst"})
     rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
     for n in range(opts.tabs):
         open_tab(f"{ORIGIN}/static-{n}", str(n))
     front = f"{ORIGIN}/static-front"
     open_tab(front, "front")
-    for phase in PHASES:
+    for phase in phases:
         if phase in ("loading", "chatty"):
             open_tab(f"{ORIGIN}/{phase}-x", phase)
             # The chatty page stays shown, as an extension's background page never freezes;
             # the loading page is hidden behind the front tab.
             show(f"{ORIGIN}/chatty-x" if phase == "chatty" else front)
         time.sleep(opts.settle_s)  # past the hidden-tab freeze, so the window is steady idle
-        results["phases"].append(measure(app.pid, phase))
+        results["phases"].append(measure(app_pid, phase))
     lines = 0
     check(os.path.exists(CEF_LOG), f"cef.log exists at {CEF_LOG}")
     for path in (CEF_LOG, CEF_LOG.replace("cef.log", "cef.previous.log")):
         if os.path.exists(path):
             with open(path, errors="replace") as f:
                 lines += sum(1 for line in f if MARKER in line)
-    if "chatty" in PHASES:
+    if "chatty" in phases:
         chatty = next(p for p in results["phases"] if p["phase"] == "chatty")
         check(chatty["console_calls"] >= 3 * opts.idle_s, f"the chatty page logs while measured ({chatty['console_calls']} calls)")
     results["console_marker_lines_on_disk"] = lines
     print(f"cef.log lines with the page's console marker: {lines}", flush=True)
     if opts.budget:
-        with open(opts.budget) as f:
-            budget = json.load(f)
-        limit = budget.get("console_marker_lines_on_disk")
-        if limit is not None and "chatty" in PHASES:
-            check(lines <= limit, f"page console lines in cef.log: {lines} <= {limit}")
-        for phase in results["phases"]:
-            limits = budget.get("phases", {}).get(phase["phase"], {})
-            for kind, cap in limits.get("cpu_percent", {}).items():
-                got = phase["classes"].get(kind, {}).get("cpu_percent", 0)
-                check(got <= cap, f"{phase['phase']}: {kind} idle CPU {got}% <= {cap}%")
-            cap = limits.get("cef_log_bytes_per_min")
-            if cap is not None:
-                check(phase["cef_log_bytes_per_min"] <= cap, f"{phase['phase']}: cef.log {phase['cef_log_bytes_per_min']} B/min <= {cap}")
-finally:
-    with open(os.path.join(opts.out, f"browser-idle-cost-{opts.tabs}.json"), "w") as f:
-        json.dump(results, f, indent=1, default=str)
-    if app and app.poll() is None:
-        rpc("action.run", {"action": "quitEndSessions"})
-        try:
-            app.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            app.kill()  # the PID launched above, never a pattern
-            app.wait()
-    stop_serving.set()
-    teardown.end()
-    server.shutdown()
-    server.server_close()
+        judge(results, lines)
 
-print(f"{len(failures)} failure(s); artifacts in {opts.out}")
-sys.exit(1 if failures else 0)
+
+def record(results):
+    """The run's series as cmux-perf-result/v1 in --out (BenchApp.record), once every phase measured. A run cut short
+    (the launch or a phase raised) writes none: a missing run, never a partial one that reads as a pass."""
+    written = results_v1.record_all(LAUNCHER, results_v1.browser_idle_series(results, failures, story=opts.story))
+    kept = sum(1 for v in written.values() if not v.startswith("not recorded"))
+    print(f"result-v1: {kept} of {len(written)} series written to {opts.out}", flush=True)
+
+
+def main(argv=None):
+    global opts, LAUNCHER, pages, CEF_LOG, MARKER, ORIGIN
+    opts = parse(argv)
+    opts.out = opts.out or tempfile.mkdtemp(prefix="browser-idle-cost-")
+    os.makedirs(opts.out, exist_ok=True)
+    LAUNCHER = bench_app(opts)
+    CEF_LOG = os.path.expanduser(f"~/Library/Application Support/{bundle_id(LAUNCHER.app)}/Chromium/cef.log")
+    MARKER = f"cmux-idle-cost-{os.urandom(4).hex()}"
+    pages = TabPages(marker=MARKER)  # the static, loading and chatty pages, and what they report
+    ORIGIN = pages.origin
+    results = {"tabs": opts.tabs, "app": LAUNCHER.app, "env": opts.env, "phases": []}
+    try:
+        run(results)
+        record(results)
+    finally:
+        with open(os.path.join(opts.out, f"browser-idle-cost-{opts.tabs}.json"), "w") as f:
+            json.dump(results, f, indent=1, default=str)
+        LAUNCHER.stop()  # debug.quit of the PID it started, then the tag's daemons (TagTeardown)
+        pages.close()
+    print(f"{len(failures)} failure(s); artifacts in {opts.out}")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -17,7 +17,8 @@ extension NotificationCenterService {
                         owner: { path, body in try await principal.call(path, body) },
                         isSignedIn: { feed?.isSignedIn ?? false },
                         ownInstall: { await principal.ensureInstallID() },
-                        presenceKeys: { try await principal.presenceKeys() })
+                        presenceKeys: { try await principal.presenceKeys() },
+                        work: services.work, deadlines: services.mainDeadlines)
                     self.permissionBridge = bridge
                     feed?.onConfirmedItems = { [weak bridge] items in bridge?.itemsChanged(items) }
                     bridge.start()

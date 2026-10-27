@@ -16,6 +16,7 @@ public final class ThemedPopUpButton: NSPopUpButton {
         applyTheme()
     }
 
+    // visibility-walk-allow: one bezel color store; cheaper than a deferral
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTheme()

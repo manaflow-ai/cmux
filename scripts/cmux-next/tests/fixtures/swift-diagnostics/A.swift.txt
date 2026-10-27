@@ -1,0 +1,9 @@
+@available(*, deprecated, message: "old")
+public func old() {}
+public func f() {
+  old()
+  var unused = 1
+  let p = UnsafeMutablePointer<Int>.allocate(capacity: 1)
+  p.pointee = 3
+  p.deallocate()
+}

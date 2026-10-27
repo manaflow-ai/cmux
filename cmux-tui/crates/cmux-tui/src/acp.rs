@@ -197,7 +197,7 @@ fn installed_exe(exe: &Path) -> Result<PathBuf, String> {
 /// blocking.
 #[cfg(unix)]
 fn run_acp_daemon(exe: &Path, home: &Path, socket: &Path, args: &[&str]) -> Result<(), String> {
-    let mut command = std::process::Command::new(exe);
+    let mut command = cmux_process::Command::new(exe);
     // acpmux and every agent it starts outlive this call: none of them
     // may claim the terminal this daemon was started from.
     for name in TERMINAL_IDENTITY_ENV {
@@ -209,9 +209,9 @@ fn run_acp_daemon(exe: &Path, home: &Path, socket: &Path, args: &[&str]) -> Resu
         .env(acpmux::launch_credential::SESSION_SOCKET_ENV, socket)
         .args(["acp", "daemon"])
         .args(args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
         .status()
         .map_err(|error| format!("{what}: {error}"))?;
     if status.success() { Ok(()) } else { Err(format!("{what} exited with {status}")) }

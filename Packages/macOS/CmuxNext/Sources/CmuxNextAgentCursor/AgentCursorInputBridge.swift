@@ -1,4 +1,5 @@
 public import CmuxAgentCursor
+import CmuxNextCompat
 public import Foundation
 import os
 
@@ -109,7 +110,7 @@ public final class AgentCursorInputBridge {
     /// does not know yet), and the typing; a `typing` the schema rejects
     /// rejects the event, as the decoder rejects any other bad field.
     static func splitTyping(_ data: Data) throws -> (data: Data, typing: AgentTyping?) {
-        guard var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        guard var object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
               let raw = object.removeValue(forKey: "typing") else {
             return (data, nil)
         }

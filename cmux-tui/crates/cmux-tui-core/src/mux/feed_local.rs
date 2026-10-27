@@ -79,6 +79,7 @@ impl Mux {
     /// `notification` event follow a successful commit only, so a client
     /// that acknowledges on the event reads the committed item.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn commit_notification_effect(
         &self,
         actor: &crate::Actor,
@@ -119,7 +120,7 @@ impl Mux {
         let notification_id = notification.id.as_str().to_string();
         let created_at_ms = notification.created_at_ms;
         let write: crate::workspace_registry::OwnedTransactionWrite =
-            Box::new(move |tx: &rusqlite::Transaction<'_>| {
+            Box::new(move |tx: &crate::workspace_registry::RegistryTransaction<'_>| {
                 write_feed_local_changes(tx, &changes)?;
                 match &folded_into {
                     Some(item) => {
@@ -244,6 +245,7 @@ impl Mux {
     /// unread marker (`tab-changed` per placement), and its retained ledger
     /// entries are acknowledged in the same transaction, so a restart does
     /// not bring the ring back.
+    #[track_caller]
     pub fn feed_local_read(&self, ids: &[String]) -> anyhow::Result<Vec<Item>> {
         let mut feed = lock(&self.feed_local);
         let mut next = (*feed).clone();
@@ -307,7 +309,9 @@ impl Mux {
             })
             .map(|entry| entry.id.as_str().to_string())
             .collect();
-        let write = |tx: &rusqlite::Transaction<'_>| write_feed_local_changes(tx, &changes);
+        let write = |tx: &crate::workspace_registry::RegistryTransaction<'_>| {
+            write_feed_local_changes(tx, &changes)
+        };
         self.workspace_registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -343,22 +347,26 @@ impl Mux {
 
     /// `feed-local-handoff-begin`: freeze an item before the app sends
     /// `feed.adopt` with key `adopt:<item>` (section 5 rule 3a).
+    #[track_caller]
     pub fn feed_local_handoff_begin(&self, id: &str) -> anyhow::Result<Item> {
         self.feed_local_handoff(|feed| feed.handoff_begin(id, now_ms()))
     }
 
     /// `feed-local-handoff-abort`: `feed.adopt.cancel` answered `cancelled:
     /// true`, so the item is owned here again. Repeating it is a no-op.
+    #[track_caller]
     pub fn feed_local_handoff_abort(&self, id: &str) -> anyhow::Result<Item> {
         self.feed_local_handoff(|feed| feed.handoff_abort(id, now_ms()))
     }
 
     /// `feed-local-handoff-done`: the new owner committed the item; it moves
     /// to `home` (section 5 rule 3d). Repeating it is a no-op.
+    #[track_caller]
     pub fn feed_local_handoff_done(&self, id: &str, home: &str) -> anyhow::Result<Item> {
         self.feed_local_handoff(|feed| feed.handoff_done(id, home, now_ms()))
     }
 
+    #[track_caller]
     fn feed_local_handoff(
         &self,
         op: impl FnOnce(&mut Feed) -> Result<(Item, Changes), FeedError>,
@@ -409,7 +417,9 @@ impl Mux {
         }
         let mut next = (*feed).clone();
         let (changes, _owned_elsewhere) = next.read_where(now_ms(), &matches);
-        let write = |tx: &rusqlite::Transaction<'_>| write_feed_local_changes(tx, &changes);
+        let write = |tx: &crate::workspace_registry::RegistryTransaction<'_>| {
+            write_feed_local_changes(tx, &changes)
+        };
         let wrote = !changes.is_empty();
         if commit(wrote.then_some(&write), &next)? {
             *feed = next;
@@ -419,6 +429,7 @@ impl Mux {
     }
 
     /// Write feed reads (an extra write) in their own registry transaction.
+    #[track_caller]
     fn write_feed_reads(
         &self,
         extra: Option<crate::workspace_registry::RegistryTransactionWrite<'_>>,
@@ -430,6 +441,7 @@ impl Mux {
 
     /// A closed terminal: read its open items and drop its ring, in one step
     /// under the feed lock.
+    #[track_caller]
     pub(crate) fn close_terminal_feed_items(&self, terminal: &TerminalPublicId) {
         let of_terminal = |item: &Item| item.context.terminal.as_deref() == Some(terminal.as_str());
         let result = self.read_feed_items_in(of_terminal, |extra, _| {
@@ -444,6 +456,7 @@ impl Mux {
     /// A closed placement: read the open items of tabs without a terminal
     /// (a browser tab) that are gone, and drop its ring, under the feed lock.
     /// Terminal items follow the terminal (`close_terminal_feed_items`).
+    #[track_caller]
     pub(crate) fn close_placement_feed_items(&self, surface: SurfaceId) {
         let live: HashSet<String> = self.with_state(|state| {
             state.resource_indexes.tab_ids.values().map(|tab| tab.as_str().to_string()).collect()
@@ -474,6 +487,7 @@ impl Mux {
     /// then clear the tab's marker. Returns whether a marker cleared, whether
     /// `ids` were acked (not while an unread item is left), and the unread
     /// items it could not read (owned elsewhere).
+    #[track_caller]
     pub(crate) fn ack_notifications_and_feed(
         &self,
         ids: &[String],
@@ -498,7 +512,9 @@ impl Mux {
         // Rings follow unread items (9.1 rule 6): an item another owner holds
         // stays unread here, and so does its ring.
         let unread_left = next.items().iter().any(|item| item.is_unread() && of_tab(item));
-        let write = |tx: &rusqlite::Transaction<'_>| write_feed_local_changes(tx, &changes);
+        let write = |tx: &crate::workspace_registry::RegistryTransaction<'_>| {
+            write_feed_local_changes(tx, &changes)
+        };
         let extra: Option<crate::workspace_registry::RegistryTransactionWrite<'_>> =
             (!changes.is_empty()).then_some(&write);
         // An unread item left keeps its ring, also after a restart: the tab's

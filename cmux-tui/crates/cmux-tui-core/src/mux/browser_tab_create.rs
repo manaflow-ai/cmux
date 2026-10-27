@@ -111,6 +111,7 @@ fn insertion_index(
 impl Mux {
     /// The `tab.create_browser` effect in an existing pane: the URL and
     /// [`ACTIVATE_FIELD`] come from the operation's fields.
+    #[track_caller]
     pub(super) fn new_browser_tab_for_effect(
         self: &Arc<Self>,
         fields: &Map<String, Value>,
@@ -144,6 +145,7 @@ impl Mux {
     /// inside a new workspace or screen delta gets a `tab-added` carrying it
     /// after that delta.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn new_browser_tab_reserved(
         self: &Arc<Self>,
         url: String,
@@ -166,6 +168,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     fn new_browser_tab_with_resource_identity(
         self: &Arc<Self>,
         url: String,

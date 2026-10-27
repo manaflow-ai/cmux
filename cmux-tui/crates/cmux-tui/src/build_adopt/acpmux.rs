@@ -202,14 +202,14 @@ fn quiesce(home: &Path, exe: Option<&Path>, steps: &mut Steps) -> Result<Vec<Fil
         };
         steps
             .step(format!("an acpmux daemon runs in {}: stopping it, agents kept", home.display()));
-        let status = std::process::Command::new(exe)
+        let status = cmux_process::Command::new(exe)
             .args(["acp", "daemon", "shutdown", "--keep-agents"])
             .env("ACPMUX_HOME", home)
             .env_remove("ACPMUX_SOCKET")
             .env(super::CHILD_ENV, "1")
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stdin(cmux_process::Stdio::null())
+            .stdout(cmux_process::Stdio::null())
+            .stderr(cmux_process::Stdio::null())
             .status();
         if !super::wait_free(&daemon_lock, STOP_WAIT) {
             return Err(format!(

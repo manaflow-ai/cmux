@@ -23,8 +23,17 @@ public struct PasswordCSVReader: Sendable {
 
     /// `columns`: the person's match for a header with no known names (the column sheet); nil
     /// reads the header's names.
-    public func read(_ bytes: UnsafeRawBufferPointer,
+    public func read(_ file: SecretBytes,
                      columns: PasswordCSVColumns? = nil) throws(Failure) -> (logins: [ImportedLogin], skipped: LoginSkipCounts) {
+        try file.withUnsafeBytes { (raw) throws(Failure) in
+            // SAFETY: the view lives only for this closure, while `file` lends its bytes; what read
+            // returns is copied out of it.
+            try read(unsafe ByteView(raw), columns: columns)
+        }
+    }
+
+    func read(_ bytes: ByteView,
+              columns: PasswordCSVColumns?) throws(Failure) -> (logins: [ImportedLogin], skipped: LoginSkipCounts) {
         var records = Self.records(in: bytes)
         guard !records.isEmpty else { throw .noPasswordColumns }
         let header = records.removeFirst().map { Self.text($0, in: bytes).trimmingCharacters(in: .whitespaces).lowercased() }
@@ -54,7 +63,7 @@ public struct PasswordCSVReader: Sendable {
                 continue
             }
             let password = Self.secret(record[passwordColumn], in: bytes)
-            guard password.withUnsafeBytes({ $0.isValidUTF8 }) else {
+            guard password.isValidUTF8 else {
                 skipped.undecryptable += 1
                 continue
             }
@@ -105,7 +114,7 @@ public struct PasswordCSVReader: Sendable {
     }
 
     /// Every record's fields. A UTF-8 byte order mark is skipped; CRLF and LF both end a record.
-    static func records(in bytes: UnsafeRawBufferPointer) -> [[Field]] {
+    static func records(in bytes: ByteView) -> [[Field]] {
         var records: [[Field]] = []
         var fields: [Field] = []
         var index = bytes.starts(with: [0xEF, 0xBB, 0xBF]) ? 3 : 0
@@ -148,19 +157,21 @@ public struct PasswordCSVReader: Sendable {
     }
 
     /// A field that is not secret, as text.
-    static func text(_ field: Field, in bytes: UnsafeRawBufferPointer) -> String {
-        let slice = UnsafeRawBufferPointer(rebasing: bytes[field.range])
-        guard field.escaped else { return String(decoding: slice, as: UTF8.self) }
-        return String(decoding: slice, as: UTF8.self).replacingOccurrences(of: "\"\"", with: "\"")
+    static func text(_ field: Field, in bytes: ByteView) -> String {
+        let text = bytes.view(field.range)?.text ?? ""
+        guard field.escaped else { return text }
+        return text.replacingOccurrences(of: "\"\"", with: "\"")
     }
 
     /// The password field, copied (doubled quotes undone) into its own locked buffer.
-    static func secret(_ field: Field, in bytes: UnsafeRawBufferPointer) -> SecretBytes {
+    static func secret(_ field: Field, in bytes: ByteView) -> SecretBytes {
         SecretBytes(capacity: field.range.count) { out in
             var written = 0
             var index = field.range.lowerBound
             while index < field.range.upperBound {
-                out[written] = bytes[index]
+                // SAFETY: each pass writes one byte and moves `index` on by at least one, so
+                // written < field.range.count <= out.count (the capacity asked for).
+                unsafe out[written] = bytes[index]
                 written += 1
                 index += field.escaped && bytes[index] == UInt8(ascii: "\"") ? 2 : 1
             }

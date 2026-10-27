@@ -111,7 +111,7 @@ extension DaemonStore {
         for surface in snapshotMemo.dirtyTabs {
             guard let tab = index.tabsBySurface[surface], let pane = index.pane(holding: tab), let screen = index.screen(holding: pane),
                   let workspace = index.workspace(holding: screen), !reapplied.contains(workspace.id),
-                  let memoWorkspace = snapshotMemo.applied[workspace.id] else { continue }
+                  let memoWorkspace = snapshotMemo.workspace(workspace.id) else { continue }
             let paneSnapshot = memoWorkspace.screens.first(where: { $0.id == screen.handle })?.panes.first(where: { $0.id == pane.handle })
             if let snapshot = paneSnapshot?.tabs.first(where: { $0.surface == surface }) {
                 tab.update(snapshot)

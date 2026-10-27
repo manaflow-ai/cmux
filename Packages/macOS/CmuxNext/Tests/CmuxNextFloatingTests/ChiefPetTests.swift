@@ -94,21 +94,31 @@ import Testing
         #expect(capsule.surface.cornerRadius == ChiefPetBubblePanel.pillHeight / 2)
     }
 
-    /// One press through the view: down at `from`, dragged through `path`, up.
-    /// `onCharacter` false presses the rail's background instead.
+    /// One press through the view: down on the character (or, `onCharacter` false, the rail's
+    /// background), dragged through `path`, up. Each event carries its own screen point: `from`
+    /// is where the down is, and each drag moves that far from it.
     private func press(_ pet: ChiefPetView, from: CGPoint, path: [CGPoint], onCharacter: Bool = true) {
-        var pointer = from
-        pet.pointer = { pointer }
         pet.layoutSubtreeIfNeeded()
         let spot = onCharacter ? CGPoint(x: pet.characterFrame.midX, y: pet.characterFrame.midY) : CGPoint(x: 2, y: 2)
-        let event = NSEvent.mouseEvent(with: .leftMouseDown, location: pet.convert(spot, to: nil), modifierFlags: [], timestamp: 0,
-                                       windowNumber: pet.window?.windowNumber ?? 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
-        pet.mouseDown(with: event)
+        let down = Self.screenPoint(of: spot, in: pet)
+        pet.mouseDown(with: Self.event(.leftMouseDown, at: down))
         for point in path {
-            pointer = point
-            pet.mouseDragged(with: event)
+            pet.mouseDragged(with: Self.event(.leftMouseDragged, at: CGPoint(x: down.x + point.x - from.x, y: down.y + point.y - from.y)))
         }
-        pet.mouseUp(with: event)
+        pet.mouseUp(with: Self.event(.leftMouseUp, at: down))
+    }
+
+    /// `point` (the pet's coordinates) on screen, where the panel is now.
+    static func screenPoint(of point: CGPoint, in pet: ChiefPetView) -> CGPoint {
+        let inWindow = pet.convert(point, to: nil)
+        return pet.window?.convertPoint(toScreen: inWindow) ?? inWindow
+    }
+
+    /// A mouse event at `point` on screen. It has no window, so its location is that screen point
+    /// whatever the panel does after it is made, as the window server's location of a real one.
+    static func event(_ type: NSEvent.EventType, at point: CGPoint) -> NSEvent {
+        NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                           eventNumber: 0, clickCount: 1, pressure: 1)!
     }
 
     @Test func clickRunsOnClickAndDoesNotMove() {
@@ -281,20 +291,15 @@ import Testing
         panel.setFrameOrigin(start)
         controller.render(animated: false)
         #expect(bubble.frame.maxX == panel.frame.maxX)
-        var pointer = CGPoint(x: start.x + 10, y: start.y + 10)
-        panel.pet.pointer = { pointer }
         panel.pet.layoutSubtreeIfNeeded()
-        let spot = CGPoint(x: panel.pet.characterFrame.midX, y: panel.pet.characterFrame.midY)
-        let event = NSEvent.mouseEvent(with: .leftMouseDown, location: panel.pet.convert(spot, to: nil), modifierFlags: [], timestamp: 0,
-                                       windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
-        panel.pet.mouseDown(with: event)
-        pointer.x -= visible.width / 2 + 200
-        panel.pet.mouseDragged(with: event)
+        let down = Self.screenPoint(of: CGPoint(x: panel.pet.characterFrame.midX, y: panel.pet.characterFrame.midY), in: panel.pet)
+        panel.pet.mouseDown(with: Self.event(.leftMouseDown, at: down))
+        panel.pet.mouseDragged(with: Self.event(.leftMouseDragged, at: CGPoint(x: down.x - (visible.width / 2 + 200), y: down.y)))
         #expect(panel.frame.midX < visible.midX)
         #expect(bubble.frame.minX == panel.frame.minX, "mid-drag the notices already open to the right")
         #expect(bubble.isVisible, "the notices stay up through the drag")
         let beforeDrop = bubble.frame
-        panel.pet.mouseUp(with: event)
+        panel.pet.mouseUp(with: Self.event(.leftMouseUp, at: down))
         #expect(bubble.frame == beforeDrop, "the drop does not move the notices")
         #expect(bubble.isVisible)
     }

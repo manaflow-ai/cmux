@@ -3,7 +3,7 @@ public nonisolated struct MachineAgentInventoryAdmissionRequest: DaemonRequest {
     /// The same canonical owner/lease/revision receipt as legacy enable.
     public typealias Response = AgentInventoryWatchReceipt
     /// Existing owner watch command; the opt-in field requires its own capability.
-    public static let command = "agent-inventory-watch"
+    public static let commandName: DaemonCommandName = "agent-inventory-watch"
     /// Guarantees an atomic absence proof on eligible temporary refusals.
     public static let requiredCapability: String? = "agent-inventory-watch-admission-v1"
     /// The currently admitted canonical owner, never a route selector.
@@ -16,4 +16,8 @@ public nonisolated struct MachineAgentInventoryAdmissionRequest: DaemonRequest {
     /// Creates the capability-negotiated enable request.
     /// - Parameter expectedMachineID: The exact owner of the captured ready transport.
     public init(expectedMachineID: ResourceID) { self.expectedMachineID = expectedMachineID }
+
+    enum CodingKeys: String, CodingKey {
+        case expectedMachineID = "expected_machine_id", enabled, admissionReceipt = "admission_receipt"
+    }
 }

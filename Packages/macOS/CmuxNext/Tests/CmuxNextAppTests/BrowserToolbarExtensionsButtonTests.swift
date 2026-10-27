@@ -4,6 +4,7 @@ import CmuxNextIcons
 @testable import CmuxNextBrowser
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// Every Chromium tab shows the Extensions (puzzle) button, as Chrome does, extensions installed
 /// or pinned or not (Lawrence 2026-10-18, on the Home workspace's browser tab: "we need to show
@@ -22,7 +23,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        let chrome = BrowserChromeView(tab: tab)
+        let chrome = BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         chrome.frame = window.contentLayoutRect
         window.contentView = chrome
         chrome.layoutSubtreeIfNeeded()

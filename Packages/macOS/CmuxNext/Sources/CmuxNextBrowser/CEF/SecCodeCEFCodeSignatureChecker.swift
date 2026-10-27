@@ -23,10 +23,12 @@ struct SecCodeCEFCodeSignatureChecker: CEFCodeSignatureChecking {
 
     private nonisolated func isValid(_ item: URL, teamID: String) -> Bool {
         var code: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(item as CFURL, [], &code) == errSecSuccess, let code else { return false }
+        // SAFETY: the call writes one retained SecStaticCode reference into `code`, an optional of that type.
+        guard unsafe SecStaticCodeCreateWithPath(item as CFURL, [], &code) == errSecSuccess, let code else { return false }
         var requirement: SecRequirement?
         let text = "anchor apple generic and certificate leaf[subject.OU] = \"\(teamID)\""
-        guard SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess,
+        // SAFETY: the call writes one retained SecRequirement reference into `requirement`, an optional of that type.
+        guard unsafe SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess,
               let requirement else { return false }
         let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
         return SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess

@@ -1,9 +1,14 @@
+import CmuxNextCompat
 import CmuxNextCrashReporting
+import CmuxNextMetrics
+import CmuxNextTrace
+import CmuxNextWakeups
 import Darwin
 import Foundation
 import os
 
 /// Descriptor the fatal-signal handler writes the signal number into.
+// crash-allow: signal-handler state, an aligned Int32 with a constant initial value (an Atomic would run its lazy initializer in the handler); set on the main thread before installHandlers, then cleared once by the handler or a clean exit.
 nonisolated(unsafe) private var fatalSignalDescriptor: Int32 = -1
 
 /// Writes the signal number ("11\n") with one async-signal-safe write(2),
@@ -21,7 +26,8 @@ nonisolated(unsafe) private var fatalSignalDescriptor: Int32 = -1
 ///
 /// First `fatalSignalBegan` gives back Sentry's Mach exception ports (the
 /// fault that runs again must reach the system's handler) and starts the
-/// crash deadline (2026-10-20 freezes).
+/// crash deadline (2026-10-20 freezes). The crash keys (`run.crashkeys`)
+/// are written after the signal number.
 private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__siginfo>?, UnsafeMutableRawPointer?) -> Void = { signal, info, context in
     CrashReporter.fatalSignalBegan()
     var bytes: (UInt8, UInt8, UInt8) = (UInt8(48 + (signal / 10) % 10), UInt8(48 + signal % 10), 10)
@@ -30,10 +36,15 @@ private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__si
         // Only the first signal is recorded (abort() may follow a raise).
         fatalSignalDescriptor = -1
         // concurrency-allow: signal handler context (the process is ending), one 3-byte write to a local file.
-        _ = withUnsafeBytes(of: &bytes) { Darwin.write(descriptor, $0.baseAddress, 3) }
+        // SAFETY: the view covers the 3-byte local tuple for the closure, and write(2) reads exactly those 3 bytes.
+        _ = unsafe withUnsafeBytes(of: &bytes) { unsafe Darwin.write(descriptor, $0.baseAddress, 3) }
     }
+    // After run.signal: a fault in here re-runs under SIG_DFL and still leaves the signal recorded.
+    CrashReporter.recordCrashKeys()
     _ = Darwin.signal(signal, SIG_DFL)
-    let sentBySoftware = info.map { $0.pointee.si_code == SI_USER || $0.pointee.si_code == SI_QUEUE } ?? true
+    // SAFETY: with SA_SIGINFO the kernel passes a siginfo_t (or none) and the thread's ucontext_t, both live on
+    // the signal stack for the handler's run; they are only read here.
+    let sentBySoftware = unsafe info.map { unsafe $0.pointee.si_code == SI_USER || $0.pointee.si_code == SI_QUEUE } ?? true
         || arrivedOnASystemCall(context)
     let fault = signal == SIGSEGV || signal == SIGBUS || signal == SIGILL || signal == SIGFPE || signal == SIGTRAP || signal == SIGSYS
     if sentBySoftware || !fault { _ = raise(signal) }
@@ -44,12 +55,18 @@ private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__si
 /// word is read with `vm_read_overwrite` and a failed read is a fault. No context re-raises.
 nonisolated func arrivedOnASystemCall(_ context: UnsafeMutableRawPointer?) -> Bool {
     #if arch(arm64)
-    guard let state = context?.assumingMemoryBound(to: ucontext_t.self).pointee.uc_mcontext else { return true }
-    guard state.pointee.__es.__esr >> 26 == 0x15 else { return false }
-    let pc = UInt(state.pointee.__ss.__pc)
+    // SAFETY: `context` is the ucontext_t the kernel passed the SA_SIGINFO handler, live for its run, and
+    // its uc_mcontext points at the thread's saved state in the same frame; both are only read.
+    guard let state = unsafe context?.assumingMemoryBound(to: ucontext_t.self).pointee.uc_mcontext else { return true }
+    guard unsafe state.pointee.__es.__esr >> 26 == 0x15 else { return false }
+    let pc = unsafe UInt(state.pointee.__ss.__pc)
     guard pc >= 4 else { return false }
     var word: UInt32 = 0, read: vm_size_t = 0
-    let result = withUnsafeMutablePointer(to: &word) { vm_read_overwrite(mach_task_self_, vm_address_t(pc - 4), 4, vm_address_t(UInt(bitPattern: $0)), &read) }
+    // SAFETY: vm_read_overwrite copies at most the 4 bytes asked for into `word`, a local of 4 bytes live for the
+    // call, and writes the count into `read`; an unmapped pc fails the read instead of faulting.
+    let result = unsafe withUnsafeMutablePointer(to: &word) {
+        unsafe vm_read_overwrite(mach_task_self_, vm_address_t(pc - 4), 4, vm_address_t(UInt(bitPattern: $0)), &read)
+    }
     return result == KERN_SUCCESS && read == 4 && word == 0xD400_1001
     #else
     return false
@@ -79,13 +96,20 @@ final class AppRunMarker {
     /// The ticket of the newest submitted write.
     private var lastTicket: UInt64 = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
-    private var survivalTask: Task<Void, Never>?
+    /// Marks the run survived once it lived past the quick-crash window (``armSurvivalWindow(on:now:)``).
+    private var survival: MainDeadline?
 
     /// How this launch follows the previous run.
     let recovery: LaunchRecovery
-
+    /// How the previous run ended when it did not quit as asked (stability.unclean_exit, task 109); nil after a
+    /// normal or requested quit, or on a first launch.
+    let previousExit: HistogramID.UncleanExit?
     private var signalFile: URL { directory.appending(path: "run.signal") }
     private var exceptionFile: URL { directory.appending(path: "run.exception") }
+    private var crashKeysFile: URL { directory.appending(path: "run.crashkeys") }
+    /// The previous run's `run.crashkeys`, moved aside at launch so this run's crash path gets an empty file;
+    /// read off the main thread (``readCrashKeys(_:)``).
+    var previousCrashKeysFile: URL { directory.appending(path: "run.crashkeys.previous") }
 
     /// The app's marker folder for `bundleID`.
     static func standardDirectory(bundleID: String?) -> URL {
@@ -95,19 +119,33 @@ final class AppRunMarker {
     }
 
     /// Reads the previous run's marker in `directory`, then marks this run
-    /// live and installs the fatal signal handlers.
-    init(directory root: URL, now: Date = Date()) {
+    /// live and installs the fatal signal handlers. `bootSession` is this
+    /// boot's id, stored in the marker (tests pass their own).
+    init(directory root: URL, now: Date = Date(), bootSession: String? = AppRunMarker.currentBootSession()) {
         self.directory = root
         file = RunMarkerFile(url: root.appending(path: "run.json"), signalURL: root.appending(path: "run.signal"))
         let previous = Self.readPrevious(marker: root.appending(path: "run.json"), signal: root.appending(path: "run.signal"),
                                          exception: root.appending(path: "run.exception"))
-        recovery = LaunchRecovery.decide(previous: previous)
-        marker = PreviousRun(pid: getpid(), launched: now, recovery: LaunchRecovery.watchesForLoop(previous: previous),
-                             survived: false, signal: nil)
+        previousExit = previous?.uncleanExit(bootSession: bootSession)
+        let recovered = previous?.forRecovery(bootSession: bootSession)
+        recovery = LaunchRecovery.decide(previous: recovered)
+        marker = PreviousRun(pid: getpid(), launched: now, recovery: LaunchRecovery.watchesForLoop(previous: recovered),
+                             survived: false, signal: nil, bootSession: bootSession)
         start()
     }
 
+    /// This boot's id, `kern.bootsessionuuid` as 32 hex digits; nil when the kernel does not give it.
+    nonisolated static func currentBootSession() -> String? {
+        let bytes = TraceBlackBox.ProcessFacts.current().bootSessionUUID
+        guard !bytes.isEmpty else { return nil }
+        return bytes.map { String(format: "%02x", $0) }.joined()
+    }
+
     private func start() {
+        // First, before any crash handler is installed (the uncaught-exception recorder below, the crash deadline,
+        // the fatal-signal handlers) and whether or not the files below open: the crash keys' block, which those
+        // handlers read (CrashKeys).
+        CrashReporter.prepareCrashKeysBlock()
         do {
             // concurrency-allow: once at launch; a stat when the folder exists (every launch after the first).
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -117,21 +155,39 @@ final class AppRunMarker {
         }
         writeMarker()
         // The previous run's exception was read in init; this run records its own.
-        unlink(exceptionFile.path)
+        // SAFETY: unlink reads the NUL-terminated copy of the path Swift makes for the call.
+        unsafe unlink(exceptionFile.path)
         UncaughtExceptionRecorder.install(writingTo: exceptionFile)
         // concurrency-allow: once at launch; truncates a file of at most 3 bytes, no fsync.
-        let descriptor = open(signalFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
+        // SAFETY: open reads the NUL-terminated copy of the path Swift makes for the call.
+        let descriptor = unsafe open(signalFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { return }
         fatalSignalDescriptor = descriptor
+        // The crash path writes this run's crash keys here (CrashKeys); the previous run's move aside, to be read
+        // off the main thread (CrashRecoveryService). No previous file: an older one aside is not this launch's.
+        // concurrency-allow: once at launch, as run.signal's open above; a rename in one folder, no fsync.
+        // blocking-allow: the crash path needs this run's file open before the handlers are installed, at launch
+        // on main like run.signal's open above; no seam runs earlier.
+        // SAFETY: rename, unlink and open read the NUL-terminated copies of the paths Swift makes for each call.
+        if unsafe rename(crashKeysFile.path, previousCrashKeysFile.path) != 0 { unsafe unlink(previousCrashKeysFile.path) }
+        // concurrency-allow: once at launch, as run.signal's open above; creates an empty file, no fsync.
+        // blocking-allow: as the rename above (the descriptor the crash path writes to, before its handlers).
+        let keysDescriptor = unsafe open(crashKeysFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
+        if keysDescriptor >= 0 { CrashReporter.prepareCrashKeysRecord(descriptor: keysDescriptor) }
         CrashReporter.installCrashDeadline()
         CrashReporter.installCrashWatcher(sampleFile: directory.appending(path: "crash-watcher-sample.txt").path)
         installHandlers()
-        let window = LaunchRecovery.quickCrashWindow
-        survivalTask = Task { [weak self] in
-            // wakeup-allow: one-shot quick-crash window after launch; fires once
-            do { try await Task.sleep(for: window) } catch { return }
-            self?.markSurvived()
-        }
+    }
+
+    /// Starts the quick-crash window: the run is marked survived once it has lived
+    /// ``LaunchRecovery/quickCrashWindow`` since its launch. One background deadline on the app's scheduler (nobody
+    /// waits on it, and a crash before it fires leaves the run unsurvived); a clean exit cancels it. Armed once.
+    func armSurvivalWindow(on deadlines: MainDeadlineScheduler, now: Date = Date()) {
+        guard survival == nil else { return }
+        let deadline = MainDeadline(owner: "AppRunMarker.survival", workClass: .background, scheduler: deadlines)
+        survival = deadline
+        let lived = Duration.seconds(max(0, now.timeIntervalSince(marker.launched)))
+        deadline.schedule(after: max(.zero, LaunchRecovery.quickCrashWindow - lived)) { [weak self] in self?.markSurvived() }
     }
 
     /// Installs the fatal signal handlers. Call again after CefInitialize:
@@ -149,10 +205,13 @@ final class AppRunMarker {
         let signals = QuitSignal.isInstalled ? fatal : fatal + LaunchRecovery.requestedQuitSignals.sorted()
         for signal in signals {
             var action = sigaction()
-            action.__sigaction_u.__sa_sigaction = fatalSignalHandler
+            // SAFETY: the handler is a C function of the SA_SIGINFO signature, set in the union member that
+            // SA_SIGINFO selects; sigemptyset and sigaction read and write `action`, a local live for the calls,
+            // and the kernel copies it (no old action asked for).
+            unsafe action.__sigaction_u.__sa_sigaction = fatalSignalHandler
             action.sa_flags = SA_RESETHAND | SA_SIGINFO | SA_ONSTACK
-            sigemptyset(&action.sa_mask)
-            sigaction(signal, &action, nil)
+            unsafe sigemptyset(&action.sa_mask)
+            unsafe sigaction(signal, &action, nil)
         }
         QuitSignal.reclaim()
     }
@@ -186,12 +245,13 @@ final class AppRunMarker {
 
     /// A normal quit: the next launch is clean.
     func markCleanExit() {
-        survivalTask?.cancel()
+        survival?.cancel()
         let descriptor = fatalSignalDescriptor
         fatalSignalDescriptor = -1
         if descriptor >= 0 { close(descriptor) }
         UncaughtExceptionRecorder.uninstall()
-        unlink(exceptionFile.path)
+        // SAFETY: unlink reads the NUL-terminated copy of the path Swift makes for the call.
+        unsafe unlink(exceptionFile.path)
         file.close()
     }
 
@@ -205,12 +265,18 @@ final class AppRunMarker {
         }
     }
 
+    /// The crash keys a run's crash path wrote (`url`: ``previousCrashKeysFile``); nil when that run ended with no
+    /// crash path (a normal quit, SIGKILL, power loss). Off the main thread.
+    nonisolated static func readCrashKeys(_ url: URL) -> CrashKeys? {
+        (try? String(blockingContentsOf: url, encoding: .utf8)).flatMap { CrashKeys(record: $0) }
+    }
+
     nonisolated static func readPrevious(marker: URL, signal: URL, exception: URL? = nil) -> PreviousRun? {
         // concurrency-allow: once at launch before the first window, a file of about 150 bytes in Application Support.
         guard let data = try? Data(contentsOf: marker) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .secondsSince1970
-        guard var run = try? decoder.decode(PreviousRun.self, from: data) else { return nil }
+        guard var run = try? decoder.blockingDecode(PreviousRun.self, from: data) else { return nil }
         // concurrency-allow: once at launch before the first window, a file of at most 3 bytes.
         if let text = try? String(contentsOf: signal, encoding: .utf8),
            let first = text.split(whereSeparator: \.isNewline).first,
@@ -219,5 +285,28 @@ final class AppRunMarker {
         }
         if let exception { run.exception = UncaughtExceptionRecorder.read(exception) }
         return run
+    }
+}
+
+extension PreviousRun {
+    /// How this run ended, seen from a launch in boot `current`; nil when it quit as asked. A handler's record
+    /// is a crash whatever the boot: the fault ended the run before any restart did. No handler and another
+    /// boot is a system shutdown (power loss, a kernel panic, a forced restart); no handler in this boot is a
+    /// kill (`kill -9`, jetsam, Force Quit).
+    ///
+    /// Chrome's model: the clean-exit beacon (components/metrics/clean_exit_beacon.cc) says only that a run did
+    /// not end cleanly; an unclean exit while the system session ended is counted apart
+    /// (components/metrics/stability_metrics_provider.cc). Here the session is `kern.bootsessionuuid`.
+    nonisolated func uncleanExit(bootSession current: String?) -> HistogramID.UncleanExit? {
+        if endedAsAsked { return nil }
+        if crashed { return .crash }
+        if let bootSession, let current, bootSession != current { return .systemShutdown }
+        return .killed
+    }
+
+    /// The run `LaunchRecovery` decides on from boot `current`: none when the machine's restart ended it, which
+    /// is neither a crash nor a restart loop.
+    nonisolated func forRecovery(bootSession current: String?) -> PreviousRun? {
+        uncleanExit(bootSession: current) == .systemShutdown ? nil : self
     }
 }

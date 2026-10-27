@@ -35,7 +35,7 @@ public struct FrontendProjection: Decodable, Sendable, Equatable {
 
 public struct GetFrontendProjectionRequest: DaemonRequest {
     public typealias Response = FrontendProjection
-    public static let command = "get-frontend-projection"
+    public static let commandName: DaemonCommandName = "get-frontend-projection"
     public var frontend: String
     public var scope: ProjectionScope
     public var subjectKey: String
@@ -43,5 +43,9 @@ public struct GetFrontendProjectionRequest: DaemonRequest {
         self.frontend = frontend
         self.scope = scope
         self.subjectKey = subjectKey
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case frontend, scope, subjectKey = "subject_key"
     }
 }

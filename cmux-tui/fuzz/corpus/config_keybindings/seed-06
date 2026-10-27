@@ -1,0 +1,11 @@
+ctrl+k t	terminal.setTheme	
+// keybindings.json
+[
+  {
+    "key": "ctrl+k t",
+    "command": "terminal.setTheme",
+    "args": {
+      "theme": "Builtin Dark"
+    }
+  }
+]

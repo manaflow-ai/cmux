@@ -8,6 +8,7 @@ use super::*;
 use crate::state::app_workspaces::{APP_WORKSPACE_FIELD, APP_WORKSPACE_NAME_FIELD};
 
 impl Mux {
+    #[track_caller]
     pub(super) fn resource_topology_effect_intent(
         &self,
         operation: ResourceOperation,
@@ -195,6 +196,7 @@ impl Mux {
         Ok(intent)
     }
 
+    #[track_caller]
     pub(super) fn execute_resource_topology_effect(
         self: &Arc<Self>,
         actor: &Actor,
@@ -648,6 +650,7 @@ impl Mux {
         Ok(TabResourceIdentity::persisted_browser(tab_id, browser_id))
     }
 
+    #[track_caller]
     pub(super) fn effect_create_workspace_terminal(
         self: &Arc<Self>,
         intent: &Value,
@@ -675,6 +678,7 @@ impl Mux {
         self.effect_create_terminal_in_workspace(intent, placement.workspace, options)
     }
 
+    #[track_caller]
     pub(super) fn effect_create_terminal_in_workspace(
         self: &Arc<Self>,
         intent: &Value,
@@ -726,6 +730,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn effect_add_terminal_tab(
         self: &Arc<Self>,
         intent: &Value,
@@ -843,6 +848,7 @@ impl Mux {
         Ok(())
     }
 
+    #[track_caller]
     pub(super) fn effect_add_pane(
         self: &Arc<Self>,
         intent: &Value,

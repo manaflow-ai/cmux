@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// shows the full-page interstitial instead: Back to Safety is the default
 /// (prominent, and Return on the page), and Proceed for that host shows
 /// only after Show Details (Chrome, Safari).
-final class LoadErrorView: NSView {
+final class LoadErrorView: ChromeFrameView {
     var onRetry: (() -> Void)?
     var onBack: (() -> Void)?
     var onProceed: (() -> Void)?
@@ -30,29 +30,29 @@ final class LoadErrorView: NSView {
         detailsButton.action = #selector(toggleDetails)
         detailsButton.target = self
         detailsLabel.alignment = .center
-        let stack = NSStackView(views: [titleLabel, messageLabel, retry, back, detailsButton, detailsLabel, proceed])
-        stack.orientation = .vertical
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.centerXAnchor.constraint(equalTo: centerXAnchor),
-            density.bind(stack.centerYAnchor.constraint(equalTo: centerYAnchor)) { -BrowserMetrics.toolbarHeight },
-            density.bind(stack.widthAnchor.constraint(lessThanOrEqualToConstant: 0)) { BrowserMetrics.promptMaxWidth },
-        ])
-        density.update { [titleLabel, messageLabel, detailsLabel] in
+        for view in [titleLabel, messageLabel, retry, back, detailsButton, detailsLabel, proceed] as [NSView] {
+            view.translatesAutoresizingMaskIntoConstraints = true
+            addSubview(view)
+        }
+        density.update { [weak self] in
+            guard let self else { return }
             titleLabel.font = BrowserMetrics.errorTitleFont
             messageLabel.font = BrowserMetrics.bodyFont
-            messageLabel.preferredMaxLayoutWidth = BrowserMetrics.promptMaxWidth
             detailsLabel.font = BrowserMetrics.bodyFont
-            detailsLabel.preferredMaxLayoutWidth = BrowserMetrics.promptMaxWidth
-            stack.spacing = BrowserMetrics.overlayPadding
+            needsLayout = true // invalidate: a design token changed the sizes the column lays out
         }
-        density.start()
+        density.start(in: self)
         updateColors()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func layout() {
+        super.layout()
+        let column: [NSView] = [titleLabel, messageLabel, retryButton, backButton, detailsButton, detailsLabel, proceedButton]
+        PageMessageLayout.statusPage(rightToLeft: laysOutRightToLeft).layout(column, in: bounds)
+    }
 
     func show(_ error: BrowserLoadError) {
         let host = error.failingURL?.host()
@@ -66,7 +66,7 @@ final class LoadErrorView: NSView {
             titleLabel.stringValue = Strings.loadFailedTitle
             messageLabel.stringValue = error.message
         }
-        retryButton.isHidden = isCertificateInterstitial
+        retryButton.isHidden = isCertificateInterstitial || !error.retryable
         backButton.isHidden = !isCertificateInterstitial
         showsDetails = false
         applyDetails()
@@ -74,6 +74,7 @@ final class LoadErrorView: NSView {
         updateColors()
     }
 
+    // visibility-walk-allow: four color stores (a layer color, three text colors) in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateColors()
@@ -89,7 +90,7 @@ final class LoadErrorView: NSView {
         }
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// The title and message shown (`debug.browser.page_status`).
     var debugText: String { "\(titleLabel.stringValue)\n\(messageLabel.stringValue)" }
     #endif
@@ -109,6 +110,7 @@ final class LoadErrorView: NSView {
         detailsButton.title = showsDetails ? Strings.certificateHideDetails : Strings.certificateShowDetails
         detailsLabel.isHidden = !(isCertificateInterstitial && showsDetails)
         proceedButton.isHidden = detailsLabel.isHidden
+        needsLayout = true // invalidate: the shown buttons, details or texts changed the column
     }
 
     /// Return on the interstitial goes Back to Safety. A key handler on the

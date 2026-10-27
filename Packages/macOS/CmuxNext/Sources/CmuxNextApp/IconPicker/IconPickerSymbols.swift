@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CoreText
 import CmuxNextDesign
 import CmuxNextPages
@@ -39,10 +40,16 @@ final class IconPickerSymbols: PageDynamicResourceSource {
 
     /// The newest Emoji version (times 10) the system emoji font draws, so the picker hides
     /// emoji that would show as empty boxes: one new single code point per version, newest first.
-    static func maxEmojiVersion(font: CTFont = CTFontCreateWithName("AppleColorEmoji" as CFString, 16, nil)) -> Int {
+    static func maxEmojiVersion(font: CTFont = emojiFont()) -> Int {
         let sentinels: [(Int, UInt32)] = [(180, 0x1FAEB), (170, 0x1FAEA), (160, 0x1FAE9), (150, 0x1FAE8), (140, 0x1FAE0), (130, 0x1F978)]
         for (version, scalar) in sentinels where draws(scalar, font: font) { return version }
         return 120
+    }
+
+    /// The system emoji font at 16 points.
+    static func emojiFont() -> CTFont {
+        // SAFETY: the matrix pointer is nil (the identity), so Core Text reads no caller memory.
+        unsafe CTFontCreateWithName("AppleColorEmoji" as CFString, 16, nil)
     }
 
     private static func draws(_ scalar: UInt32, font: CTFont) -> Bool {
@@ -50,7 +57,9 @@ final class IconPickerSymbols: PageDynamicResourceSource {
         var units = Array(String(Character(character)).utf16)
         var glyphs = [CGGlyph](repeating: 0, count: units.count)
         // A surrogate pair maps to one glyph in the first slot.
-        return CTFontGetGlyphsForCharacters(font, &units, &glyphs, units.count) && glyphs[0] != 0
+        // SAFETY: Core Text reads units.count UTF-16 units and writes as many glyphs, and both arrays have
+        // exactly that many elements, live for the call.
+        return unsafe CTFontGetGlyphsForCharacters(font, &units, &glyphs, units.count) && glyphs[0] != 0
     }
 
     /// The symbol and mode a request names (`<name>.png` is monochrome, `<mode>/<name>.png`
@@ -89,9 +98,7 @@ final class IconPickerSymbols: PageDynamicResourceSource {
             return nil
         }
         let side = Int(pointSize * 1.25)
-        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8,
-                                            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
-                                            bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+        guard let bitmap = NSBitmapImageRep.ownedRGBA(width: side, height: side) else { return nil }
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)

@@ -39,9 +39,9 @@ import Testing
     }
 
     /// Runs `body` with the stack cap set to `cap` (nil: the default), then clears it. The store is
-    /// active without a file, so nothing is written. Each set is followed by the tunables watch's
-    /// refresh, which the app runs one main-actor hop later: the rows `body` draws in this same turn
-    /// would otherwise read the values cached for a row another suite drew earlier.
+    /// active without a file, so nothing is written. Each set is followed by a drop of the tunables
+    /// watch's kept values, which the app's sidebar look watch does in the next frame: the rows `body`
+    /// draws in this same turn would otherwise read the values cached for a row another suite drew earlier.
     private static func withCap(_ cap: SidebarRowBadgeStackCap?, _ body: () throws -> Void) throws {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
@@ -51,10 +51,10 @@ import Testing
         } else {
             TunableStore.shared.set(key, nil)
         }
-        SidebarTunablesWatch.shared.changed()
+        SidebarTunablesWatch.shared.drop()
         defer {
             TunableStore.shared.set(key, nil)
-            SidebarTunablesWatch.shared.changed()
+            SidebarTunablesWatch.shared.drop()
         }
         try body()
     }

@@ -193,7 +193,7 @@ fn host_binary() -> PathBuf {
             // target/<profile>/deps/<test> -> target/<profile>
             let exe = std::env::current_exe().unwrap();
             let profile_dir = exe.parent().unwrap().parent().unwrap().to_path_buf();
-            let mut command = std::process::Command::new(env!("CARGO"));
+            let mut command = cmux_process::Command::new(env!("CARGO"));
             command
                 .args(["build", "-p", "cmux-browser-host", "--bin", "cmux-browser-host"])
                 .current_dir(env!("CARGO_MANIFEST_DIR"));

@@ -1,3 +1,4 @@
+import CmuxNextIPC
 import Foundation
 
 extension StateResourceClient {
@@ -55,9 +56,12 @@ extension StateResourceClient {
     ///   unknown, or a refusal when an id names Home's pinned pane.
     @discardableResult
     public func closeBulk(_ level: BulkCloseLevel, ids: [ResourceID], endTerminals: Bool = false) async throws -> BulkClosed {
-        try await stateMutation("layout.bulk", [
-            "verb": .string("close"), "level": .string(level.rawValue), "selector": .string("selection"),
-            "ids": Self.ids(ids), "end_terminals": .bool(endTerminals),
-        ], as: BulkClosed.self)
+        try await stateMutation(Self.bulkCloseRequest(level, ids: ids, endTerminals: endTerminals), as: BulkClosed.self)
+    }
+
+    /// The `layout.bulk` close of the objects `ids` names (selector `selection`).
+    static func bulkCloseRequest(_ level: BulkCloseLevel, ids: [ResourceID], endTerminals: Bool) -> V2LayoutBulkRequest {
+        V2LayoutBulkRequest(endTerminals: endTerminals, ids: ids.map(\.rawValue),
+                            level: V2LayoutBulkRequest.Level(rawValue: level.rawValue), selector: .selection, verb: .close)
     }
 }

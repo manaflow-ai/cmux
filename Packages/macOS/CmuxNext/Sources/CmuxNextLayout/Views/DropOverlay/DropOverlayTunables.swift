@@ -138,10 +138,21 @@ public nonisolated enum LayoutTunables {
     // terminal and page shows its content at exactly that frame's size, no frozen content, no
     // snapshot and no resize once at landing. Off by default; on brings back Leo's 2026-10-20 hold
     // (content keeps the larger of its starting and final size until the spring lands) to compare.
+    /// The developer's local override of the feature `paneHoldsContentInMotion`
+    /// (`schemas/features/features.d/paneHoldsContentInMotion.json`, which `replaces` this key):
+    /// nothing in the layout reads it. The App reads it from the tunables file at launch
+    /// (`FeatureLaunchLocalOverrides`), so a change applies at the next start, on DEV and NIGHTLY.
     public static let holdsContentInMotion = Tunable<Bool>.toggle(
         "motion.pane.holdContent", .springs, "Hold content size in pane motion",
-        help: "While a split, close or zoom springs, each pane's page or terminal keeps the larger of its starting and final size, clipped, and lays out once when the spring lands. Off (default): content resizes live on every frame.",
+        help: "Overrides the feature paneHoldsContentInMotion from the next launch: while a split, close or zoom springs, each pane's page or terminal keeps the larger of its starting and final size, clipped, and lays out once when the spring lands. Off (the feature's default): content resizes live on every frame.",
         default: false, code: "LayoutTunables.holdsContentInMotion")
+    /// Layout motion on the render server (`MotionBackends`): each motion kind with a render-server
+    /// variant sets its views at rest once and lets Core Animation run its springs. Off (default): every
+    /// kind steps on the main thread as before.
+    public static let motionRenderServer = Tunable<Bool>.toggle(
+        "motion.renderServer", .springs, "Layout motion on the render server",
+        help: "Splits, closes, zooms and camera moves that have a render-server variant lay out once at rest and spring in Core Animation, with no main-thread work per frame. Off (default): the main thread steps every motion frame.",
+        default: false, code: "LayoutTunables.motionRenderServer")
     public static let prototypeDockEdge = Tunable<LayoutPrototypeDockEdge>.choice(
         "layout.prototype.dockEdge", .panes, "Prototype dock edge", help: "Frame prototype: the edge the right docked column sits on.",
         default: .bottom, code: "LayoutTunables.prototypeDockEdge")
@@ -158,7 +169,7 @@ public nonisolated enum LayoutTunables {
 
     public static var all: [TunableDescriptor] {
         [prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor, prototypeDockMode.descriptor,
-         paneMotionVariant.descriptor, holdsContentInMotion.descriptor] + MainPaneLayout.all + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, dropZoneHysteresis, newColumnDropWidth, inactivePaneDimming,
+         paneMotionVariant.descriptor, holdsContentInMotion.descriptor, motionRenderServer.descriptor] + MainPaneLayout.all + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, dropZoneHysteresis, newColumnDropWidth, inactivePaneDimming,
                                    minimumContentWidth, minimumContentHeight, focusRingAlpha, focusGlowAlpha, focusGlowRadiusFactor].map(\.descriptor)
     }
 }

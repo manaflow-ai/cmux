@@ -11,11 +11,12 @@ import CmuxNextSettings
 /// appear as child windows. `titlebar_band: true` adds `NSWindow.titlebarBandMap`.
 /// Each shown Chromium page counts the `CALayerHost` layers (the class Chromium shows its
 /// GPU output with) in three trees: the pane's own (`hosted_layer_hosts`: only the app's
-/// `CEFHostedPageView` host, so it proves nothing about the fork), the context that host shows
+/// `ChromiumHostPageView` host, so it proves nothing about the fork), the context that host shows
 /// (`hosted_context_layer_hosts`: the hosted `CAContext` lives in this process, so its layers are
 /// readable; null when the pane shows no context or QuartzCore has no `allContexts`), and the
 /// page window's (`page_window_layer_hosts`). A page the fork really hosts has >= 1 in the hosted
 /// context (Chromium's GPU output, there once Chromium drew) and 0 in its page window.
+/// `frame_sources: true` adds the frame sources no FrameScheduler sees (``frameSources(services:)``).
 enum DebugLayers {
     static func report(services: AppServices, params: [String: JSONValue] = [:]) -> JSONValue {
         let windows = services.windows.controllers.compactMap { controller -> JSONValue? in
@@ -23,11 +24,31 @@ enum DebugLayers {
             return report(controller: controller, window: window)
         }
         let band = params["titlebar_band"]?.boolValue == true ? services.windows.controllers.first?.window?.titlebarBandMap() : nil
-        return .object([
+        var fields: [String: JSONValue] = [
             "windows": .array(windows),
             "consistent": .bool(windows.allSatisfy { $0["consistent"]?.boolValue == true }),
             "layout_passes": layoutPasses(),
-        ].merging(band.flatMap { JSONValue(foundation: $0) }.map { ["titlebar_band": $0] } ?? [:]) { $1 })
+        ]
+        if let band = band.flatMap({ JSONValue(foundation: $0) }) { fields["titlebar_band"] = band }
+        if params["frame_sources"]?.boolValue == true { fields["frame_sources"] = frameSources(services: services) }
+        return .object(fields)
+    }
+
+    /// `frame_sources: true`: what ticks with no FrameScheduler client in the
+    /// app's windows and their child windows, per owner view: infinite Core
+    /// Animation loops and playing video layers (``RenderStats/loopingAnimations(in:)``).
+    static func frameSources(services: AppServices) -> JSONValue {
+        var windows: [NSWindow] = []
+        var pending = services.windows.controllers.compactMap(\.window)
+        while let window = pending.popLast() {
+            windows.append(window)
+            pending += window.childWindows ?? []
+        }
+        let counts: ([String: Int]) -> JSONValue = { owners in .object(owners.mapValues { .number(Double($0)) }) }
+        return .object([
+            "looping_animations": counts(RenderStats.loopingAnimations(in: windows)),
+            "playing_videos": counts(RenderStats.playingVideoLayers(in: windows)),
+        ])
     }
 
     /// `LayoutPassGuard`: the most layout calls one view had in one
@@ -98,6 +119,7 @@ enum DebugLayers {
                 "presentation": .string(entry.tab.presentation == .childWindow ? "child_window" : "in_view"),
                 "content_in_window": .bool(content.window === window),
             ]
+            // visibility-walk-allow: the report checks AppKit's own view state against the page windows; a node would hide the mismatch it looks for
             if entry.tab.presentation == .childWindow, content.window === window, !content.isHiddenOrHasHiddenAncestor {
                 // The page window must cover the host view exactly, in
                 // screen coordinates, whatever moved the window.
@@ -146,9 +168,13 @@ enum DebugLayers {
             "interactive_rects_in_window": .array(layer.interactiveRects.map(rect)),
             "divider_areas_in_window": .array(layer.dividerAreas.map { rect($0.rect) }),
             "sidebar_resize_area_in_window": layer.sidebarResizeArea.map { rect($0.rect) } ?? .null,
-            "divider_catchers_in_window": .array(layer.catchers.framesInWindow.sorted { $0.key < $1.key }.map { rect($0.value) }),
-            "divider_catcher_updates": .number(Double(layer.catchers.panelUpdates)),
+            "divider_catchers_in_window": .array((layer.catchers?.framesInWindow ?? [:]).sorted { $0.key < $1.key }.map { rect($0.value) }),
+            "divider_catcher_updates": .number(Double(layer.catchers?.panelUpdates ?? 0)),
+            "page_windows_take_mouse": .bool(layer.pageWindowsTakeMouse),
             "reorders": .number(Double(layer.reorderCount)),
+            // p03-rendering-052: overlays in the window's own top layer, and whether a panel was ever made.
+            "overlay_top_layer_in_window": .bool(WindowOverlayHost.existingHost(for: window)?.isTopLayerInWindow == true),
+            "overlay_panel_made": .bool(WindowOverlayHost.existingHost(for: window)?.madePanel != nil),
             "child_window_violations": .array(ChildWindowPolicy.violations.map(JSONValue.string)),
             "pages_in_sync": .bool(pagesInSync),
             "rings_in_sync": .bool(ringsInSync),
@@ -165,23 +191,29 @@ enum DebugLayers {
     }
 
     /// `CALayerHost` layers in the context the first `CALayerHost` under `layer` shows (the pane's
-    /// `CEFHostedPageView`); nil without one, or when that context is not in this process. Every
+    /// `ChromiumHostPageView`); nil without one, or when that context is not in this process. Every
     /// QuartzCore SPI message (``QuartzLayerHostingSPI``) is sent only after `responds(to:)` proved the
     /// receiver implements it, so an OS without it gives nil, never an unrecognized selector.
     private static func hostedContextLayerHostCount(_ layer: CALayer?) -> Int? {
         let contextIdGetter = #selector(getter: QuartzLayerHostingSPI.contextId)
         let rootLayerGetter = #selector(getter: QuartzLayerHostingSPI.layer)
         guard let host = firstLayerHost(layer), host.responds(to: contextIdGetter) else { return nil }
-        let id = unsafeBitCast(host, to: QuartzLayerHostingSPI.self).contextId
+        // SAFETY: an @objc protocol existential is the object pointer alone, so the cast changes no layout;
+        // only `contextId`, which `responds(to:)` proved the layer implements, is sent through it.
+        let id = unsafe unsafeBitCast(host, to: QuartzLayerHostingSPI.self).contextId
+        // SAFETY: `+allContexts` is answered (checked first) and returns an autoreleased NSArray at +0, so
+        // taking it unretained is its ownership; the cast to [NSObject] copies it into a Swift array.
         guard id != 0, let contextClass: AnyClass = NSClassFromString("CAContext"),
               (contextClass as AnyObject).responds(to: #selector(QuartzLayerHostingSPI.allContexts)),
-              let contexts = (contextClass as AnyObject).perform(#selector(QuartzLayerHostingSPI.allContexts))?
+              let contexts = unsafe (contextClass as AnyObject).perform(#selector(QuartzLayerHostingSPI.allContexts))?
                   .takeUnretainedValue() as? [NSObject] else { return nil }
         for context in contexts {
             // Two checks, not one `&&`: its autoclosure would capture the non-Sendable context.
             guard context.responds(to: contextIdGetter) else { continue }
             guard context.responds(to: rootLayerGetter) else { continue }
-            let spi = unsafeBitCast(context, to: QuartzLayerHostingSPI.self)
+            // SAFETY: as for the host: the existential is the object pointer, and only `contextId` and `layer`,
+            // both proved answered just above, are sent through it.
+            let spi = unsafe unsafeBitCast(context, to: QuartzLayerHostingSPI.self)
             guard spi.contextId == id else { continue }
             return layerHostCount(spi.layer)
         }

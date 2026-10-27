@@ -4,6 +4,7 @@ import AppKit
 /// to a new place, or drag a row into the grid to pin it there). A host without it gets no
 /// pin drags. The host changes its order and calls `reloadData()`, in the same turn for the
 /// smoothest landing.
+@MainActor // Swift 6: the controller calls it on the main actor
 protocol SidebarPinPlacing: AnyObject {
     /// Put `id` at `index` of the grid's order (an index after `id` left its old place), pinning it if it was a row.
     func sidebar(_ sidebar: SidebarController, place id: ConversationID, at index: Int)

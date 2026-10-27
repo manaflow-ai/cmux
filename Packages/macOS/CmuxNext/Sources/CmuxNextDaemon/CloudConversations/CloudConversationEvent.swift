@@ -67,35 +67,9 @@ public enum CloudConversationsEvent: Sendable, Hashable {
     /// Someone started or stopped typing (`cloud-conversation-typing-v1`).
     case typing(CloudConversationTyping)
 
-    public static let eventNames: Set<String> = [
-        "cloud-conversation-changed", "cloud-conversation-resynced", "cloud-inbox-changed", "cloud-inbox-reset",
-        "cloud-subscription-state", "cloud-session-needed", "cloud-conversation-live", "cloud-conversation-run-changed",
-        "cloud-host-replica-needed", "cloud-conversation-typing",
-    ]
-
-    private struct InboxReset: Decodable {
+    /// `cloud-inbox-reset`'s fields; DaemonEvent's decoding table makes them ``inboxReset(seq:account:)``.
+    struct InboxReset: Decodable {
         var seq: UInt64?
         var account: String?
-    }
-
-    private static func reset(from reset: InboxReset) -> CloudConversationsEvent {
-        .inboxReset(seq: reset.seq ?? 0, account: reset.account)
-    }
-
-    /// Decodes one `cloud-*` event line; throws on a malformed payload.
-    static func decode(name: String, line: Data, decoder: JSONDecoder) throws -> CloudConversationsEvent? {
-        switch name {
-        case "cloud-conversation-changed": .changed(try decoder.decode(CloudConversationChanged.self, from: line))
-        case "cloud-conversation-resynced": .resynced(try decoder.decode(CloudConversationResynced.self, from: line))
-        case "cloud-inbox-changed": .inboxChanged(try decoder.decode(CloudInboxChanged.self, from: line))
-        case "cloud-inbox-reset": try reset(from: decoder.decode(InboxReset.self, from: line))
-        case "cloud-subscription-state": .subscriptionState(try decoder.decode(CloudSubscriptionState.self, from: line))
-        case "cloud-session-needed": .sessionNeeded(try decoder.decode(CloudSessionNeeded.self, from: line))
-        case "cloud-conversation-live": .live(try decoder.decode(ConversationLive.self, from: line))
-        case "cloud-conversation-run-changed": .runChanged(try decoder.decode(ConversationRunChanged.self, from: line))
-        case "cloud-host-replica-needed": .hostReplicaNeeded(try decoder.decode(CloudHostReplicaNeeded.self, from: line))
-        case "cloud-conversation-typing": .typing(try decoder.decode(CloudConversationTyping.self, from: line))
-        default: nil
-        }
     }
 }

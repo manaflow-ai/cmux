@@ -1,3 +1,5 @@
+public import CmuxNextWakeups
+
 /// The canonical action catalog: one descriptor per row of the old app's
 /// action inventory (plans/cmux-next/inventory.md section 1) plus the tab
 /// group and workspace group families (plans/cmux-next/architecture.md
@@ -162,6 +164,8 @@ public nonisolated enum ActionCatalog {
         PaletteKeyActionCatalog.self,
         ImportActionCatalog.self,
         HangReportsActionCatalog.self,
+        EnergyActionCatalog.self,
+        MemorySaverActionCatalog.self,
     ]
 
     private static func makeAll() -> [ActionDescriptor] {
@@ -186,16 +190,56 @@ extension ActionRegistry {
     ///
     /// - Parameter runTiming: Times every run (the App passes ``SignpostActionRunTiming``).
     public static func standard(runTiming: any ActionRunTiming) -> ActionRegistry {
-        ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases, runTiming: runTiming)
+        standard(runTiming: runTiming, turnObserver: nil)
     }
 
-    /// A registry seeded with the catalog `launch` built off the main thread, and the legacy aliases.
+    /// A registry seeded with the full cmux catalog and legacy aliases whose perform turns
+    /// `turnObserver` hears (the App's oracle recorder in DEV and bench builds).
     ///
     /// - Parameters:
-    ///   - launch: The launch's catalog build (``ActionCatalogLaunch/descriptors()`` times this read).
+    ///   - runTiming: Times every run.
+    ///   - turnObserver: Hears the end of every outermost perform turn, or nil.
+    public static func standard(runTiming: any ActionRunTiming, turnObserver: (any ActionRunObserver)?) -> ActionRegistry {
+        ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases, runTiming: runTiming,
+                       turnObserver: turnObserver)
+    }
+
+    /// ``standard(runTiming:turnObserver:)`` whose handler runs take their origin's cause in `causes`
+    /// (``ActionRegistry/causes``).
+    public static func standard(runTiming: any ActionRunTiming, turnObserver: (any ActionRunObserver)? = nil,
+                                causes: ObservationCauses) -> ActionRegistry {
+        let registry = standard(runTiming: runTiming, turnObserver: turnObserver)
+        registry.causes = causes
+        return registry
+    }
+
+    /// ``standard(runTiming:turnObserver:causes:)`` on the app's one main-thread scheduler: handler
+    /// runs take their origin's cause in its ``MainWorkScheduler/causes``, and a person's run
+    /// completes as its userBlocking work (``ActionRegistry/mainWork``).
+    public static func standard(runTiming: any ActionRunTiming, turnObserver: (any ActionRunObserver)? = nil,
+                                mainWork: MainWorkScheduler) -> ActionRegistry {
+        let registry = standard(runTiming: runTiming, turnObserver: turnObserver, causes: mainWork.causes)
+        registry.mainWork = mainWork
+        return registry
+    }
+
+    /// ``standard(runTiming:turnObserver:mainWork:)`` seeded with the catalog `launch` built off the main
+    /// thread: the App's registry, whose read of the catalog ``ActionCatalogLaunch/descriptors()`` times.
+    ///
+    /// - Parameters:
+    ///   - launch: The launch's catalog build.
     ///   - runTiming: Times every run (the App passes ``SignpostActionRunTiming``).
+    ///   - turnObserver: Hears the end of every outermost perform turn, or nil.
+    ///   - mainWork: The app's one main-thread scheduler (``ActionRegistry/mainWork``), or nil (tests).
     @MainActor
-    public static func standard(launch: ActionCatalogLaunch, runTiming: any ActionRunTiming) -> ActionRegistry {
-        ActionRegistry(catalog: launch.descriptors(), aliases: ActionCatalog.legacyAliases, runTiming: runTiming)
+    public static func standard(launch: ActionCatalogLaunch, runTiming: any ActionRunTiming,
+                                turnObserver: (any ActionRunObserver)? = nil, mainWork: MainWorkScheduler? = nil) -> ActionRegistry {
+        let registry = ActionRegistry(catalog: launch.descriptors(), aliases: ActionCatalog.legacyAliases, runTiming: runTiming,
+                                      turnObserver: turnObserver)
+        if let mainWork {
+            registry.causes = mainWork.causes
+            registry.mainWork = mainWork
+        }
+        return registry
     }
 }

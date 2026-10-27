@@ -17,14 +17,28 @@ one pane holds that many tabs of that kind (plus the workspace's first terminal)
 
 Kinds: terminal, chromium, webkit, markdown, file (code editor page), chat (New Tab page / agent pane).
 
+Percentiles (p50, p90, p95, p99) come from scripts/perf-lab/perf_stats.py (linear interpolation). With --story
+<id>, each scenario's raw per-switch samples go to --out as cmux-perf-result/v1 through BenchApp.record:
+  tab_switch.<kind>.<count>.{e2e,apply,commit}           Ctrl-Tab (the perf-budgets tab_switch row)
+  tab_switch.<kind>.<count>.<input>.{e2e,apply,commit}   cmd_shift_bracket and click
+  tab_switch.<kind>.<count>.content_frame                Ctrl-Tab, the page's own first frame (page kinds)
+Only the series that stories.d/<id>.json declares are recorded, all under that story's engine (one engine per
+story run); the others are reported as not recorded. Without --story nothing is recorded.
+
 Usage: tab-switch-matrix.py --tag <tag> --app PATH [--kinds terminal,chromium,...] [--counts 2,10,30,60]
        [--switches 60] [--interval 0.12] [--idle 5] [--json PATH] [--out DIR] [--budget-ms 16.7]
+       [--story tab-switch] [--session light]
+Importing the module reads no arguments: configure() does, then main().
 """
-import argparse, glob, json, os, re, signal, socket, statistics, subprocess, sys, tempfile, time
+import argparse, json, os, re, signal, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_idle import classify, usage  # noqa: E402
-from bench_launch import launch_app, bundle_id  # noqa: E402
+from bench_launch import BenchApp, PERF_LAB, RecordError, bundle_id, load_by_path  # noqa: E402
+
+perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
+perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
+pct = perf_stats.pct
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--matrix", action="store_true", help="(accepted for the tab-switch-stages.py entry)")
@@ -39,21 +53,58 @@ parser.add_argument("--budget-ms", type=float, default=16.7, help="end-to-end p9
 parser.add_argument("--json", help="write the report here")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--profile", default="", help="kind:count scenarios (comma list) whose Ctrl-Tab phase runs under a Time Profiler")
-opts, _unknown = parser.parse_known_args()
-TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
-BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
-SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
-CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
-BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
-SCRATCH = tempfile.mkdtemp(prefix=f"tsmatrix-{TAG}-")
-open(os.path.join(SCRATCH, "ghostty"), "w").close()
-CONFIG = os.path.join(SCRATCH, "cmux.json")
-open(CONFIG, "w").write("{}\n")
+parser.add_argument("--story", help="the lab story (stories.d/<id>.json) to record result-v1 for; none: no result-v1")
+parser.add_argument("--session", choices=["light", "stress"], default="light", help="result-v1 session")
+# Set by configure() from the command line (main); unset while a test imports the module.
+opts = TAG = APP = BUNDLE_ID = SOCKET = CLI = SCRATCH = CONFIG = None
+STORY = None  # the Story that --story names, or None (nothing is recorded)
 STAGES = ["input", "focus", "strip", "withdraw", "content", "reveal", "stripSync", "view", "present", "record", "apply", "commit"]
 COLORS = ["#c0392b", "#27ae60", "#2980b9", "#8e44ad", "#d35400", "#16a085", "#2c3e50", "#f39c12", "#7f8c8d", "#e84393"]
 ROWS, LAUNCHED = [], []
 PAGE_TABS = []
+INPUTS = ("ctrl_tab", "cmd_shift_bracket", "click")
+RECORDED_STAGES = ("e2e", "apply", "commit")
 app = None
+bench = None  # the BenchApp that launched `app`: it writes the result-v1 files
+
+
+class Story:
+    """A lab story's result-v1 contract (stories.d/<id>.json): every result of one run and story carries the story's
+    one engine (perf-lab ingest groups by run and story and refuses a mixed engine), and a run records only the
+    metrics that the story declares."""
+
+    def __init__(self, story_id, engine, patterns):
+        self.id, self.engine, self.patterns = story_id, engine, [re.compile(p) for p in patterns]
+
+    @classmethod
+    def load(cls, story_id, directory=os.path.join(PERF_LAB, "stories.d")):
+        """Raises SystemExit with the reason when the story file is missing or has no engine or metrics."""
+        path = os.path.join(directory, f"{story_id}.json")
+        try:
+            with open(path) as handle:
+                story = json.load(handle)
+            return cls(story_id, story["engine"], [metric["name"] for metric in story["metrics"]])
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            raise SystemExit(f"tab-switch-matrix: --story {story_id}: {path} is not a story file ({error!r})")
+
+    def declares(self, metric):
+        return any(pattern.fullmatch(metric) for pattern in self.patterns)
+
+
+def configure(argv=None):
+    """Reads the command line and makes the scratch config folder (the empty Ghostty config and cmux.json)."""
+    global opts, TAG, APP, BUNDLE_ID, SOCKET, CLI, SCRATCH, CONFIG, STORY
+    opts, _unknown = parser.parse_known_args(argv)
+    TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
+    BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
+    SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
+    CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
+    STORY = Story.load(opts.story) if opts.story else None
+    SCRATCH = tempfile.mkdtemp(prefix=f"tsmatrix-{TAG}-")
+    open(os.path.join(SCRATCH, "ghostty"), "w").close()
+    CONFIG = os.path.join(SCRATCH, "cmux.json")
+    with open(CONFIG, "w") as handle:
+        handle.write("{}\n")
 
 
 def run(*args, timeout=30):
@@ -127,9 +178,9 @@ def row(check, expected, observed, ok):
     print(f"{'PASS' if ok else 'FAIL'} | {check} | {expected} | {observed}", flush=True)
 
 
-def pct(values, q):
-    values = sorted(values)
-    return values[min(len(values) - 1, int(len(values) * q))] if values else None
+def stat(values):
+    """{p50, p90, p95, p99, max} ms of non-empty `values`, rounded to the µs."""
+    return {**{f"p{q}": round(pct(values, q / 100), 3) for q in (50, 90, 95, 99)}, "max": round(max(values), 3)}
 
 
 # Each test page notes the first animation frame after it turns visible (epoch ms): the time its own
@@ -292,14 +343,16 @@ def time_switches(label, step, count, profile=None):
         for stage in STAGES + ["e2e"]:
             values = [r[stage + "_ms"] for r in rows if stage + "_ms" in r]
             if values:
-                line[stage] = {"p50": round(pct(values, 0.5), 3), "p90": round(pct(values, 0.9), 3), "p95": round(pct(values, 0.95), 3), "max": round(max(values), 3)}
+                line[stage] = stat(values)
         late = [r.get("late_vsyncs", 0) for r in rows]
         line["late_switches"] = sum(1 for v in late if v > 0)
         line["late_max"] = max(late) if late else 0
         table[kind] = line
-        cells = " ".join(f"{st}={line[st]['p50']}/{line[st]['p90']}/{line[st]['p95']}" for st in ("input", "apply", "commit", "e2e") if st in line)
-        print(f"  {label:<14} {kind:<10} n={len(rows):<3} p50/p90/p95 ms: {cells} late={line['late_switches']}/{len(rows)} max={line['late_max']}", flush=True)
-    stalls = {"count": hangs.get("count"), "max_ms": hangs.get("max_ms")}
+        cells = " ".join(f"{st}={line[st]['p50']}/{line[st]['p90']}/{line[st]['p95']}/{line[st]['p99']}"
+                         for st in ("input", "apply", "commit", "e2e") if st in line)
+        print(f"  {label:<14} {kind:<10} n={len(rows):<3} p50/p90/p95/p99 ms: {cells} late={line['late_switches']}/{len(rows)} max={line['late_max']}", flush=True)
+    stalls = {"count": hangs.get("count"), "max_ms": hangs.get("max_ms"),
+              "count250": hangs.get("count250")}  # stalls >= 250 ms since the clear (perf-cron prints the sum)
     for record in (hangs.get("records") or [])[-3:]:
         frames = [f for f in record.get("frames", []) if "CmuxNext" in f or "Ghostty" in f][:8]
         print(f"    stall {record.get('duration_ms', 0):.1f} ms: " + " < ".join(str(f)[:90] for f in frames), flush=True)
@@ -307,7 +360,8 @@ def time_switches(label, step, count, profile=None):
     got = [f for f in frames if f is not None]
     content = None
     if frames:
-        content = {"switches": len(frames), "framed": len(got), "p50": pct(got, 0.5), "p90": pct(got, 0.9), "p95": pct(got, 0.95), "max": max(got) if got else None}
+        content = {"switches": len(frames), "framed": len(got), "p50": pct(got, 0.5), "p90": pct(got, 0.9), "p95": pct(got, 0.95),
+                   "p99": pct(got, 0.99), "max": max(got) if got else None, "samples": got}
         print(f"  {label:<14} page content frame: {content}", flush=True)
     return {"table": table, "switches": switches, "stalls": stalls, "cpu_percent_during": round(cpu, 1), "content_frame_ms": content,
             "timed": len(switches), "asked": count, "profile": profiled}
@@ -370,9 +424,49 @@ def scenario(kind, count, baseline):
         e2e = (line.get("e2e") or line.get("commit") or {}).get("p90")
         if e2e is not None:
             row(f"{name}: {input_kind} e2e p90", f"<= {opts.budget_ms} ms", f"{e2e}", e2e <= opts.budget_ms)
+    result["results"] = record_scenario(result, bench, STORY)
     run("workspace", ws, "close")
     time.sleep(2.0)  # test harness: the workspace's content goes
     return result
+
+
+def scenario_series(result):
+    """(metric, raw samples) of one scenario: the switches of the scenario's own kind, per input and stage."""
+    kind, count = result["kind"], result["count"]
+    series = []
+    for input_kind in INPUTS:
+        part = result.get(input_kind)
+        if not part:
+            continue
+        rows = [s for s in part["switches"] if s.get("kind", "?") == kind]
+        infix = "" if input_kind == "ctrl_tab" else f".{input_kind}"
+        for stage in RECORDED_STAGES:
+            series.append((f"tab_switch.{kind}.{count}{infix}.{stage}", [r[stage + "_ms"] for r in rows if stage + "_ms" in r]))
+    content = (result.get("ctrl_tab") or {}).get("content_frame_ms")
+    if content:
+        series.append((f"tab_switch.{kind}.{count}.content_frame", content["samples"]))
+    return series
+
+
+def record_scenario(result, recorder, story):
+    """Writes the scenario's series that `story` (a Story, or None: nothing) declares as result-v1 under the story's
+    engine (`recorder` is the BenchApp); returns {metric: path or "not recorded: why"}."""
+    written = {}
+    if story is None:
+        return written
+    for metric, samples in scenario_series(result):
+        if not story.declares(metric):
+            written[metric] = f"not recorded: story {story.id} declares no such metric"
+            continue
+        if not samples:
+            written[metric] = "not recorded: no samples"
+            continue
+        try:
+            written[metric] = str(recorder.record(story.id, metric, "ms", samples, better="lower", engine=story.engine))
+        except (RecordError, perf_result.ResultError) as error:
+            written[metric] = f"not recorded: {error}"
+        print(f"  result-v1 {metric}: {written[metric]}", flush=True)
+    return written
 
 
 def cleanup():
@@ -405,7 +499,7 @@ def started(process):
 
 
 def main():
-    global app, SOCKET
+    global app, bench, SOCKET
     if os.path.exists(SOCKET):
         os.remove(SOCKET)
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
@@ -413,7 +507,11 @@ def main():
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900"}
     # One launch path (bench_launch.py): socket in the state folder, bench env, the reason when it does not come up.
-    app, SOCKET = launch_app(APP, env, os.path.join(opts.out, f"app-{TAG}.log"), timeout=120, on_start=started)
+    # This script keeps its own env and cleanup (window, screen and teardown are its own).
+    bench = BenchApp(APP, out=opts.out, env=env, window=None, screen=None, log_name=f"app-{TAG}.log", teardown=False,
+                     perf_session=opts.session)
+    bench.launch(timeout=120, on_start=started)
+    app, SOCKET = bench.process, bench.socket
     print(f"launched pid {app.pid}", flush=True)
     time.sleep(5)  # test harness: launch work settles before the baseline
     baseline = footprint()
@@ -441,9 +539,11 @@ def main():
                       f"per-tab {s['per_tab']['footprint_mb']} MB {s['per_tab']['cpu_percent']}%", flush=True)
 
 
-try:
-    main()
-finally:
-    cleanup()
-    print("\nRESULT", "PASS" if ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")
-    sys.exit(0 if ROWS and all(r[3] for r in ROWS) else 1)
+if __name__ == "__main__":
+    configure()
+    try:
+        main()
+    finally:
+        cleanup()
+        print("\nRESULT", "PASS" if ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")
+        sys.exit(0 if ROWS and all(r[3] for r in ROWS) else 1)

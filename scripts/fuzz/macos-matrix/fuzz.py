@@ -7,9 +7,26 @@ the guest's bundled `cmux` over SSH; GUI-only actions run by their shortcut or
 by typing their title into the Cmd+Shift+P palette. Every step is logged to
 steps.jsonl; `--replay steps.jsonl` repeats a run step for step.
 
+The plan comes from the build's own action schema (`cmux action list --json`), the way
+ClusterFuzz's structure-aware fuzzers draw inputs from a grammar (Chromium
+testing/libfuzzer/libprotobuf-mutator.md): every argument gets a value of its declared kind
+(enum choices, ints at and inside their min/max, target-kind arguments resolved against the
+live object lists at run time). The run has three parts: the feature tour, a coverage pass
+that runs every eligible action once (seeded order, valid arguments), then the seeded random
+walk. The same seed and the same build give the same steps. --minutes bounds the whole run;
+--coverage-minutes bounds the tour and coverage pass inside it. summary.json reports each
+action's runs and outcomes, `actions_eligible`, `actions_covered` (a run reached the handler:
+not refused with a code in REFUSALS), `actions_refused` and why each other action was left
+out. `--plan-only` writes the plan from a saved `action list --json` with no VM, to check a
+plan offline.
+
 After every step it pings the app (a hang is a ping over --hang-ms) and checks
 for new crash reports. On a hang it samples the main thread; on a crash it
 copies the .ips, takes a VNC screenshot and relaunches the app.
+
+With --diag NAME (diag.py: gmalloc, scribble, probguard, mtc, coop-strict, asan, tsan, ubsan) the
+app runs under that check; summary.json's "diag" records the launch environment, the Chromium
+state, the app's malloc zones and the reports the check wrote.
 
 Example (vm.sh does this for you):
   fuzz.py --ssh admin@192.168.64.5 --vnc 127.0.0.1:5901:secret \
@@ -19,6 +36,7 @@ Example (vm.sh does this for you):
 from __future__ import annotations
 
 import argparse
+import hashlib
 import itertools
 import json
 import os
@@ -27,8 +45,10 @@ import shlex
 import subprocess
 import sys
 import time
+from typing import Callable, Iterator
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import diag  # noqa: E402
 from rfb import RFB  # noqa: E402
 
 # Shortcuts the user named, sent as real keys whatever the action table says.
@@ -62,6 +82,9 @@ class Guest:
         self.cli = f"{app}/Contents/Resources/bin/cmux"
         self.binary = ""
         self.env = "CMUX_NEXT_SOCKET_MODE=automation"
+        # A diag's factor on launch and ping deadlines (diag.Diag.slowdown).
+        self.slowdown = 1
+        self.launch_failure = ""
         self.socket = ""
         self.ctl = f"/tmp/fuzz-ssh-{os.getpid()}"
         self.base = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
@@ -193,15 +216,21 @@ class Guest:
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "winfo.js")).read()
         subprocess.run(self.base + ["cat > /tmp/fuzz-winfo.js"], input=src, text=True, capture_output=True, timeout=30)
 
-    def launch(self, deadline: float = 180, exit_file: str | None = None) -> bool:
+    def launch(self, deadline: float = 180, exit_file: str | None = None, until: float | None = None) -> bool:
         """Start the app with the automation socket open to SSH clients; wait for a ping.
 
         With `exit_file`, the guest shell waits for the app and writes its exit status there
-        (128 + the signal for a signal death), so a caller can tell a clean quit from a crash.
+        (128 + the signal for a signal death), so a caller can tell a clean quit from a crash, and
+        the wait ends as soon as the app exits. The wait is `deadline` times the diag's slowdown,
+        never past `until` (the run's end). On False, `launch_failure` says why.
         """
         plist = self.sh(f"/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' {shlex.quote(self.app + '/Contents/Info.plist')}")
         self.binary = f"{self.app}/Contents/MacOS/{plist.stdout.strip()}"
         before = time.time()
+        end = before + deadline * self.slowdown
+        if until is not None:
+            end = min(end, until)
+        self.launch_failure = ""
         # Not `nohup`: dyld strips DYLD_* variables from SIP-protected binaries and their
         # children, so the shell exports them and starts the app itself (ignoring SIGHUP).
         run = (f"{shlex.quote(self.binary)} >>/tmp/cmux-fuzz-app.log 2>&1 </dev/null; echo $? >{shlex.quote(exit_file)}"
@@ -209,64 +238,190 @@ class Guest:
         if exit_file:
             self.sh(f"rm -f {shlex.quote(exit_file)}")
         self.sh(f"( trap '' HUP; export {self.env}; {run} ) & disown; true")
-        while time.time() - before < deadline:
-            r = self.sh("ls -t /tmp/cmux-*.sock 2>/dev/null | head -1")
-            self.socket = r.stdout.strip()
-            ms = self.ping_ms(3) if self.socket else None
+        # One round trip per poll: the exit status (once the app has exited), then the newest socket.
+        probe = "ls -t /tmp/cmux-*.sock 2>/dev/null | head -1"
+        if exit_file:
+            probe = f"sed 's/^/exit=/' {shlex.quote(exit_file)} 2>/dev/null; {probe}"
+        while time.time() < end:
+            lines = self.sh(probe).stdout.splitlines()
+            status = next((l[len("exit="):].strip() for l in lines if l.startswith("exit=")), None)
+            if status is not None:
+                self.launch_failure = f"the app exited during launch (status {status})"
+                return False
+            self.socket = next((l.strip() for l in lines if l.strip()), "")
+            ms = self.ping_ms(3 * self.slowdown) if self.socket else None
             # A ping that ran into its timeout is a hung app, not a launched one.
-            if ms is not None and ms < 3000:
+            if ms is not None and ms < 3000 * self.slowdown:
                 # Bring the window forward so VNC keys reach it.
                 self.sh(f"open -a {shlex.quote(self.app)}")
                 return True
             time.sleep(2)
+        self.launch_failure = ("no ping before the run's end" if until is not None and end == until
+                               else f"no ping within {deadline * self.slowdown:g} s")
         return False
 
 
-def load_actions(g: Guest) -> list[dict]:
+def exclusion_reason(a: dict) -> str | None:
+    """Why the fuzz never runs `a` (None: it is eligible)."""
+    if a.get("debug_only"):
+        return "debug-only"
+    if (a.get("surfaces") or {}).get("mcp") == "endsApp":
+        return "ends-app"
+    if a.get("bound") is False:
+        return "not-bound"
+    if a.get("unavailable_reason"):
+        return "unavailable-in-build"  # bound as unavailable: every run answers `unavailable`
+    if a.get("category") in ("cloud", "remote"):
+        return f"category:{a['category']}"
+    ident = (a["id"] + " " + a.get("cli_name", "")).lower().replace(".", "")
+    word = next((w for w in SKIP_WORDS if w in ident), None)
+    if word:
+        return f"skip-word:{word}"
+    for arg in a.get("arguments") or []:
+        kind = arg.get("target_kind") or ""
+        if arg.get("kind") == "target" and arg.get("required") and kind not in TARGET_LISTS and kind not in TARGET_FIXED:
+            # No list command names such an object, so every run would be refused for the argument.
+            return f"unresolvable-target:{kind}"
+    return None
+
+
+def classify_actions(listed: list[dict]) -> tuple[list[dict], dict[str, str]]:
+    """The eligible actions sorted by id (the plan must not depend on the list's order) and
+    the reason for each one left out."""
+    eligible: list[dict] = []
+    excluded: dict[str, str] = {}
+    for a in sorted(listed, key=lambda x: x["id"]):
+        reason = exclusion_reason(a)
+        if reason:
+            excluded[a["id"]] = reason
+        else:
+            eligible.append(a)
+    return eligible, excluded
+
+
+ACTION_LIST_KEYS = ("id", "title", "cli_name", "arguments", "targets", "requires", "bound", "debug_only",
+                    "destructive", "waits_for_person")
+
+
+def checked_action_list(doc: object) -> list[dict]:
+    """The actions of a `cmux --json action list` reply (ControlActionInfo.json). Raises ValueError
+    for any other document, such as plans/cmux-next/action-surfaces.json, which has no argument
+    schema, so a plan made from it would test none of the argument generators."""
+    actions = doc.get("actions") if isinstance(doc, dict) else None
+    if not isinstance(actions, list) or not actions:
+        raise ValueError("not a `cmux --json action list` reply: no `actions` list")
+    for a in actions:
+        missing = [k for k in ACTION_LIST_KEYS if not isinstance(a, dict) or k not in a]
+        if missing:
+            ident = a.get("id") if isinstance(a, dict) else a
+            raise ValueError(f"not a `cmux --json action list` reply: action {ident!r} has no {', '.join(missing)}")
+    return actions
+
+
+def load_actions(g: Guest) -> tuple[list[dict], dict[str, str]]:
     r = g.cmux(["action", "list"], timeout=30)
-    acts = json.loads(r.stdout)["actions"]
-    keep = []
-    for a in acts:
-        ident = (a["id"] + " " + a.get("cli_name", "")).lower().replace(".", "")
-        if a.get("debug_only") or a["surfaces"].get("mcp") == "endsApp":
-            continue
-        if a.get("category") in ("cloud", "remote") or any(w in ident for w in SKIP_WORDS):
-            continue
-        keep.append(a)
-    return keep
+    return classify_actions(checked_action_list(json.loads(r.stdout)))
 
 
-def random_args(rng: random.Random, a: dict) -> list[str] | None:
-    out: list[str] = []
-    for arg in a.get("arguments", []):
-        kind, req = arg.get("kind"), arg.get("required")
-        if kind == "enum" and arg.get("choices") and (req or rng.random() < 0.5):
-            out += [f"--{arg['name']}", str(rng.choice(arg["choices"])["value"])]
-        elif kind in ("string", "text") and (req or rng.random() < 0.3):
-            out += [f"--{arg['name']}", rng.choice(["fuzz", "a", "Ω≈ç", "x" * 80])]
-        elif kind in ("int", "integer", "number") and (req or rng.random() < 0.3):
-            out += [f"--{arg['name']}", str(rng.choice([0, 1, 2, -1, 999]))]
-        elif kind == "bool" and rng.random() < 0.3:
-            out += [f"--{arg['name']}", rng.choice(["true", "false"])]
-        elif req:
-            return None
+STRING_VALUES = ("fuzz", "a", "", "Ω≈ç 🙂 ünïcødé", "x" * 300, "../../../etc/passwd", "\u202erlt", "%s%n{}$(true)")
+# Under /tmp only: a destructive action runs confirmed, and must never take the guest home with it.
+PATH_VALUES = ("/tmp/cmux-fuzz", "/tmp/cmux-fuzz/new.md", "/tmp/cmux fuzz/ünï.txt", "/tmp/cmux-fuzz/../cmux-fuzz-up", "/nonexistent/x")
+URL_VALUES = ("https://example.com", "about:blank", "http://127.0.0.1:9/", "not a url", "file:///tmp/")
+INT_VALUES = (0, 1, 2, -1, 999, 2**31 - 1, -(2**31))
+
+
+def string_value(rng: random.Random, name: str) -> str:
+    n = name.lower()
+    if any(w in n for w in ("path", "file", "dir", "folder", "cwd", "out")):
+        return rng.choice(PATH_VALUES)
+    if any(w in n for w in ("url", "link", "href")):
+        return rng.choice(URL_VALUES)
+    return rng.choice(STRING_VALUES)
+
+
+def int_value(rng: random.Random, arg: dict, valid_only: bool) -> int:
+    lo, hi = arg.get("min"), arg.get("max")
+    if lo is None or hi is None:
+        return rng.choice(INT_VALUES)
+    if not valid_only and rng.random() < 0.1:
+        return rng.choice([lo - 1, hi + 1])  # the app's range check
+    return rng.choice([lo, hi, (lo + hi) // 2, min(lo + 1, hi), max(hi - 1, lo), rng.randint(lo, hi)])
+
+
+def arg_value(rng: random.Random, a: dict, arg: dict, valid_only: bool) -> str | dict:
+    """A value of the argument's declared kind; a target-kind argument gets a placeholder that
+    `resolve_target` turns into a live object at run time."""
+    kind, name = arg.get("kind"), arg["name"]
+    if name == "confirm" and a.get("destructive"):
+        return "true"
+    if kind == "enum" and arg.get("choices"):
+        if not valid_only and rng.random() < 0.05:
+            return "fuzz-no-such-choice"
+        return str(rng.choice(arg["choices"])["value"])
+    if kind == "int":
+        return str(int_value(rng, arg, valid_only))
+    if kind == "bool":
+        return rng.choice(["true", "false"])
+    if kind == "target":
+        return {"kind": arg.get("target_kind") or "", "n": rng.randrange(1 << 16)}
+    return string_value(rng, name)
+
+
+def plan_args(rng: random.Random, a: dict, valid_only: bool) -> list[list]:
+    """[name, value] pairs: every required argument, the confirmation of a destructive action,
+    and a seeded choice of the optional ones."""
+    out: list[list] = []
+    for arg in a.get("arguments") or []:
+        if not arg.get("name"):
+            continue
+        needed = arg.get("required") or (arg["name"] == "confirm" and a.get("destructive"))
+        if needed or rng.random() < (0.5 if valid_only else 0.35):
+            out.append([arg["name"], arg_value(rng, a, arg, valid_only)])
     return out
+
+
+def plan_action(rng: random.Random, a: dict, valid_only: bool) -> dict:
+    step = {"kind": "action", "id": a["id"], "args": plan_args(rng, a, valid_only)}
+    kinds = [t for t in a.get("targets") or [] if t in TARGET_LISTS or t in TARGET_FIXED]
+    # In the coverage pass an action that needs context always names its object: a target stands
+    # in for the focused window's context (`available_with_target`), which the pass does not set up.
+    if kinds and ((valid_only and a.get("requires")) or rng.random() < 0.7):
+        # Resolved against the live list in UI order at run time (n modulo its length), so a replay
+        # with the same seed and build picks the same object.
+        step["target"] = {"kind": rng.choice(kinds), "n": rng.randrange(1 << 16)}
+    if a.get("waits_for_person"):
+        step["wait"] = False  # nobody answers its dialog; the step dismisses it instead
+    return step
+
+
+def plan_coverage(rng: random.Random, actions: list[dict]) -> list[dict]:
+    """Every eligible action once, in a seeded order, with valid arguments."""
+    order = list(actions)
+    rng.shuffle(order)
+    return [plan_action(rng, a, valid_only=True) for a in order]
+
+
+def plan_run(seed: int, actions: list[dict], tour: bool, coverage: bool,
+             count: int | None) -> tuple[int, Iterator[dict]]:
+    """The planned steps (the tour, the coverage pass, then the walk) and how many come before
+    the walk.
+
+    The walk is drawn lazily from the same seeded generator after the coverage pass, so the
+    same seed and build give the same sequence however long the run is; `count` None walks
+    until the caller stops.
+    """
+    rng = random.Random(seed)
+    prefix = [{"kind": "palette", "title": t} for t in TOUR] if tour else []
+    if coverage:
+        prefix += plan_coverage(rng, actions)
+    walk = (plan_step(rng, actions) for _ in (itertools.count() if count is None else range(count)))
+    return len(prefix), itertools.chain(prefix, walk)
 
 
 def plan_step(rng: random.Random, actions: list[dict]) -> dict:
     r = rng.random()
     if r < 0.30:
-        a = rng.choice([x for x in actions if x.get("cli")] or actions)
-        args = random_args(rng, a)
-        if a.get("cli") and args is not None:
-            step = {"kind": "action", "id": a["id"], "args": args}
-            kinds = [t for t in a.get("targets", []) if t in TARGET_LISTS]
-            if kinds and rng.random() < 0.8:
-                # Resolved against the live list in UI order at run time (n modulo its length), so a replay
-                # with the same seed and build picks the same object.
-                step["target"] = {"kind": rng.choice(kinds), "n": rng.randrange(1 << 16)}
-            return step
-        return {"kind": "palette", "title": a["title"]}
+        return plan_action(rng, rng.choice(actions), valid_only=False)
     if r < 0.40:
         a = rng.choice(actions)
         return {"kind": "palette", "title": a["title"]}
@@ -292,31 +447,122 @@ def plan_step(rng: random.Random, actions: list[dict]) -> dict:
 TARGET_LISTS = {  # action target kind -> CLI list command
     "workspace": ["workspace", "list"], "tab": ["tab", "list"], "pane": ["pane", "list"],
     "screen": ["screen", "list"], "workspace-group": ["workspace", "group", "list"],
+    "window": ["window", "list"], "tab-group": ["tab", "group", "list"],
+    "screen-group": ["screen", "group", "list"], "bookmark": ["bookmark", "list"],
+}
+TARGET_FIXED = {  # target kinds that always have these objects (ActionTargetKind)
+    "machine": ["machine:local"], "room": ["room:default"], "browser-profile": ["browser-profile:default"],
+    "sidebar-item": ["sidebar-item:home"],
 }
 
 
+def list_ids(items: object) -> list[str]:
+    """Object ids of a `<noun> list --json` reply: a list, or an object holding one."""
+    if isinstance(items, dict):
+        items = next((v for v in items.values() if isinstance(v, list)), [])
+    if not isinstance(items, list):
+        return []
+    return [str(x["id"]) for x in items if isinstance(x, dict) and "id" in x]
+
+
 def resolve_target(g: Guest, pick: dict) -> str | None:
-    try:
-        items = json.loads(g.cmux(TARGET_LISTS[pick["kind"]]).stdout)
-    except (ValueError, TypeError, KeyError):
+    """`kind:id` of the pick's object, n modulo the live list in UI order; None when none exists."""
+    kind = pick.get("kind", "")
+    if kind in TARGET_FIXED:
+        ids = TARGET_FIXED[kind]
+    elif kind in TARGET_LISTS:
+        try:
+            ids = list_ids(json.loads(g.cmux(TARGET_LISTS[kind]).stdout))
+        except (ValueError, TypeError):
+            return None
+    else:
         return None
-    ids = [x["id"] for x in items if isinstance(x, dict) and "id" in x] if isinstance(items, list) else []
-    return ids[pick["n"] % len(ids)] if ids else None
+    if not ids:
+        return None
+    ident = ids[pick["n"] % len(ids)]
+    return ident if ":" in ident else f"{kind}:{ident}"
 
 
-def run_step(step: dict, g: Guest, vnc: RFB) -> str:
+def action_cli_args(step: dict, resolve: Callable[[dict], str | None]) -> list[str]:
+    """`cmux action run ID` arguments for an action step, its target placeholders resolved.
+
+    Arguments go as `--arg name=value`: the schema's exact name, never mistaken for one of the
+    CLI's own flags (`--target`, `--wait`, `--focus`).
+    """
+    raw = step.get("args") or []
+    if all(isinstance(x, str) for x in raw):
+        tokens = list(raw)  # steps.jsonl written before schema-driven arguments
+    else:
+        tokens = []
+        for name, value in raw:
+            if isinstance(value, dict):
+                value = resolve(value)
+                if value is None:
+                    continue
+            tokens += ["--arg", f"{name}={value}"]
+    target = resolve(step["target"]) if step.get("target") else None
+    if target:
+        tokens = ["--target", target, *tokens]
+    if step.get("wait") is False:
+        tokens.append("--no-wait")
+    return tokens
+
+
+# Error codes with which the app or the CLI refuses a run before its handler acts (ControlError+ActionRun,
+# ControlRouter+Validation, PublicIDTargetResolver, the CLI's usage errors); `transport`: the step broke off.
+REFUSALS = frozenset(("invalid_params", "invalid_request", "usage.invalid", "parse_error", "method_not_found",
+                      "unavailable", "not_bound", "disabled", "feature.disabled", "confirmation_required",
+                      "not_found", "ambiguous", "transport"))
+
+
+def reached_handler(outcome: str) -> bool:
+    """Whether an action step's outcome shows its handler ran: `ok`, a `timeout`, or an error code
+    that is not a refusal. `rc:<n>` (the CLI failed with no error code) does not."""
+    if outcome in ("ok", "timeout"):
+        return True
+    return outcome.startswith("error:") and outcome[len("error:"):] not in REFUSALS
+
+
+def action_outcome(r: subprocess.CompletedProcess) -> str:
+    """`ok`, `timeout`, `error:<code>` from the CLI's JSON error on stderr, or `rc:<exit status>`."""
+    if r.returncode == 0:
+        return "ok"
+    if r.returncode == 124 and r.stderr == "timeout":
+        return "timeout"
+    for line in reversed((r.stderr or "").strip().splitlines()):
+        try:
+            code = json.loads(line).get("code")
+        except (ValueError, AttributeError):
+            continue
+        if code:
+            return f"error:{code}"
+    return f"rc:{r.returncode}"
+
+
+def run_step(step: dict, g: Guest, vnc: RFB) -> tuple[str, str | None]:
+    """Runs one step; the note for the log and, for an action step, its outcome."""
     k = step["kind"]
     if k == "action":
-        target = resolve_target(g, step["target"]) if step.get("target") else None
-        r = g.cmux(["action", "run", step["id"], *(["--target", target] if target else []), *step["args"]], timeout=20)
-        return f"rc={r.returncode} {(r.stdout or r.stderr).strip()[:160]}"
+        cache: dict[str, str | None] = {}
+
+        def resolve(pick: dict) -> str | None:
+            key = json.dumps(pick, sort_keys=True)
+            if key not in cache:
+                cache[key] = resolve_target(g, pick)
+            return cache[key]
+
+        r = g.cmux(["action", "run", step["id"], *action_cli_args(step, resolve)], timeout=20)
+        if step.get("wait") is False:
+            time.sleep(0.5)
+            vnc.chord("esc")  # the dialog the action opened waits for a person
+        return f"rc={r.returncode} {(r.stdout or r.stderr).strip()[:160]}", action_outcome(r)
     if k == "palette":
         vnc.chord("cmd+shift+p")
         time.sleep(0.3)
         vnc.type_text(step["title"][:40])
         time.sleep(0.3)
         vnc.chord("return")
-        return "palette"
+        return "palette", None
     if k == "key":
         vnc.chord(step["chord"])
     elif k == "type":
@@ -324,7 +570,7 @@ def run_step(step: dict, g: Guest, vnc: RFB) -> str:
     elif k in ("click", "drag", "scroll"):
         rect = g.window_rect_px(vnc)
         if rect is None:
-            return "no window"
+            return "no window", None
         x, y, w, h = rect
         px = lambda fx: int(x + fx * w)  # noqa: E731
         py = lambda fy: int(y + fy * h)  # noqa: E731
@@ -339,7 +585,7 @@ def run_step(step: dict, g: Guest, vnc: RFB) -> str:
             vnc.scroll(px(step["fx"]), py(step["fy"]), step["down"])
     elif k == "esc":
         vnc.chord("esc")
-    return "ok"
+    return "ok", None
 
 
 def workspace_count(g: Guest) -> int:
@@ -451,16 +697,116 @@ def minimize(steps: list[dict], g: Guest, vnc: RFB, out: str) -> list[dict]:
     return result
 
 
+class Coverage:
+    """Per-action runs and outcomes for summary.json. An action counts as covered only when one of
+    its runs reached the handler (``reached_handler``); an action that was only refused stays in
+    `actions_uncovered` and is listed in `actions_refused` with its outcomes."""
+
+    def __init__(self, eligible: list[dict], excluded: dict[str, str]):
+        self.eligible = [a["id"] for a in eligible]
+        self.excluded = excluded
+        self.runs: dict[str, dict[str, int]] = {}
+
+    def record(self, action: str, outcome: str) -> None:
+        tally = self.runs.setdefault(action, {})
+        tally[outcome] = tally.get(outcome, 0) + 1
+
+    def summary(self) -> dict:
+        covered = {a for a in self.eligible if any(reached_handler(o) for o in self.runs.get(a, {}))}
+        return {
+            "actions_known": len(self.eligible) + len(self.excluded),
+            "actions_eligible": len(self.eligible),
+            "actions_covered": len(covered),
+            "actions_ok": sum(1 for a in covered if self.runs[a].get("ok")),
+            "actions_uncovered": [a for a in self.eligible if a not in covered],
+            "actions_refused": {a: sorted(self.runs[a]) for a in self.eligible if a in self.runs and a not in covered},
+            "actions_excluded": self.excluded,
+            "action_outcomes": {a: {"runs": sum(t.values()), "outcomes": dict(sorted(t.items()))}
+                                for a, t in sorted(self.runs.items())},
+        }
+
+
+def run_deadlines(start: float, minutes: float, coverage_minutes: float) -> tuple[float | None, float]:
+    """(run_end, prefix_end). --minutes bounds the whole run, tour and coverage pass included, as
+    vm.sh and os-matrix.sh expect; the coverage pass ends at --coverage-minutes or at the run's
+    end, whichever comes first."""
+    run_end = start + minutes * 60 if minutes > 0 else None
+    prefix_end = start + coverage_minutes * 60
+    return run_end, prefix_end if run_end is None else min(prefix_end, run_end)
+
+
+def step_gate(i: int, prefix_len: int, now: float, run_end: float | None, prefix_end: float) -> str:
+    """`run` step i, `skip` it (a coverage-pass step past the pass's bound), or `stop` the run."""
+    if run_end is not None and now >= run_end:
+        return "stop"
+    if i < prefix_len and now >= prefix_end:
+        return "skip"
+    return "run"
+
+
+def plan_digest(steps: list[dict]) -> str:
+    return hashlib.sha256("\n".join(json.dumps(s, sort_keys=True) for s in steps).encode()).hexdigest()
+
+
+def write_plan(actions_json: str, seed: int, tour: bool, walk: int, out: str) -> dict:
+    """--plan-only: the plan for a saved `cmux --json action list`, no VM. Writes plan.jsonl
+    and returns its digest and coverage."""
+    with open(actions_json) as f:
+        eligible, excluded = classify_actions(checked_action_list(json.load(f)))
+    prefix_len, steps = plan_run(seed, eligible, tour=tour, coverage=True, count=walk)
+    planned = list(steps)
+    with open(os.path.join(out, "plan.jsonl"), "w") as f:
+        for st in planned:
+            f.write(json.dumps({"step": st}) + "\n")
+    covered = {st["id"] for st in planned[:prefix_len] if st["kind"] == "action"}
+    return {"seed": seed, "steps": len(planned), "prefix_steps": prefix_len,
+            "plan_sha256": plan_digest(planned[:prefix_len]), "actions_eligible": len(eligible),
+            "actions_planned_in_coverage": len(covered), "actions_excluded": len(excluded)}
+
+
+def apply_diag(g: Guest, d: diag.Diag | None, dylibs: list[str], hang_ms: int) -> tuple[dict[str, str], int]:
+    """The app's launch environment (the diag's, or the inserted dylibs alone), exported through
+    `g.env`, and --hang-ms scaled by the diag's slowdown."""
+    env = diag.launch_env(d, dylibs) if d else ({"DYLD_INSERT_LIBRARIES": ":".join(dylibs)} if dylibs else {})
+    g.env += "".join(f" {k}={shlex.quote(v)}" for k, v in env.items())
+    if d:
+        g.slowdown = d.slowdown
+        hang_ms *= d.slowdown
+    return env, hang_ms
+
+
+def diag_summary(g: Guest, d: diag.Diag, env: dict[str, str], runtime_left: list[str], snapshots: list[dict],
+                 reports: diag.Reports, zones_tool: str, launched: bool = True) -> dict:
+    """summary.json's diag keys at the end of the run: a last snapshot of a live app, the check's
+    reports, the record, and `invalid` when the record says the run proves nothing."""
+    if g.pid() is not None:
+        snapshots.append({"at": "end", **diag.snapshot(g, zones_tool)})
+    reports.harvest_stderr(g, "end")
+    reports.collect_files(g)
+    rec = diag.record(d, env, runtime_left, snapshots, reports, launched=launched)
+    keys = {"diag": rec, "diag_reports": rec["reports"]["count"]}
+    if rec["invalid"]:
+        keys["invalid"] = rec["invalid"]
+    return keys
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ssh", required=True, help="guest user@ip")
-    ap.add_argument("--vnc", required=True, help="host:port[:password]")
+    ap.add_argument("--ssh", help="guest user@ip (required unless --plan-only)")
+    ap.add_argument("--vnc", help="host:port[:password] (required unless --plan-only)")
     ap.add_argument("--app", default="/Applications/cmux NIGHTLY.app")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--steps", type=int, default=None,
                     help="random steps after the tour (default 1000; with --minutes: as many as the time allows)")
     ap.add_argument("--minutes", type=float, default=0,
-                    help="stop the walk after this many minutes (0: run every step); the run's time bound")
+                    help="stop the run after this many minutes (0: run every step); the run's time bound, "
+                         "tour and coverage pass included")
+    ap.add_argument("--no-coverage", action="store_true", help="skip the pass that runs every eligible action once")
+    ap.add_argument("--coverage-minutes", type=float, default=60,
+                    help="time bound on the tour and coverage pass (default 60), inside --minutes; "
+                         "summary.json lists what it left")
+    ap.add_argument("--plan-only", metavar="ACTIONS_JSON",
+                    help="write plan.jsonl for a saved `cmux --json action list` and exit (no VM)")
     ap.add_argument("--hang-ms", type=int, default=1000)
     ap.add_argument("--out", required=True)
     ap.add_argument("--replay", help="steps.jsonl from an earlier run")
@@ -469,36 +815,70 @@ def main() -> int:
     ap.add_argument("--minimize", action="store_true", help="with --replay: delta-debug the steps to a minimal crash")
     ap.add_argument("--shot-every", type=int, default=50, help="VNC screenshot every N steps (0: never)")
     ap.add_argument("--ssh-opt", action="append", default=[], help="extra ssh option (repeatable)")
-    ap.add_argument("--insert-dylib", help="guest path of a diagnostic dylib to load (DYLD_INSERT_LIBRARIES); "
+    ap.add_argument("--insert-dylib", action="append", default=[],
+                    help="guest path of a diagnostic dylib to load (DYLD_INSERT_LIBRARIES; repeatable); "
                     "the app must be signed without the hardened runtime")
+    ap.add_argument("--diag", choices=sorted(diag.DIAGS), help="run the app under this check (diag.py)")
+    ap.add_argument("--zones-tool", default="", help="guest path of malloc-zones (vm.sh --diag puts it there)")
     o = ap.parse_args()
+    d = diag.DIAGS.get(o.diag) if o.diag else None
 
     os.makedirs(o.out, exist_ok=True)
+    if o.plan_only:
+        walk = o.steps if o.steps is not None else 1000
+        try:
+            print(json.dumps(write_plan(o.plan_only, o.seed, not o.no_tour, walk, o.out)))
+        except ValueError as e:
+            ap.error(f"--plan-only {o.plan_only}: {e}")
+        return 0
+    if not o.ssh or not o.vnc:
+        ap.error("--ssh and --vnc are required")
     host, port, *pw = o.vnc.split(":")
     vnc = RFB(host, int(port), pw[0] if pw else None)
     g = Guest(o.ssh, o.app, o.ssh_opt)
-    if o.insert_dylib:
-        g.env += f" DYLD_INSERT_LIBRARIES={shlex.quote(o.insert_dylib)}"
+    env, o.hang_ms = apply_diag(g, d, o.insert_dylib, o.hang_ms)
     osver = g.sh("sw_vers -productVersion").stdout.strip()
     if g.sh(f"test -d {shlex.quote(o.app)}").returncode != 0:
         sys.exit(f"no app at {o.app!r} in the guest")
     g.install_helpers()
     if o.minimize:
         g.snapshot_state()
+    runtime_left: list[str] = []
+    diag_reports = diag.Reports(d, o.out) if d else None
+    snapshots: list[dict] = []
+    if d:
+        diag.prepare_guest(g, d)
+        runtime_left = diag.runtime_in_bundle(g, o.app) if d.chromium_off else []
     exit_file = f"/tmp/cmux-fuzz-exit-{os.getpid()}"
-    if not g.launch(exit_file=exit_file):
-        sys.exit("the app did not answer a ping within the launch deadline")
-    actions = load_actions(g)
-    rng = random.Random(o.seed)
+    # From before the launch: --minutes bounds the whole run, a slow diag launch included.
+    run_end, prefix_end = run_deadlines(time.time(), o.minutes, o.coverage_minutes)
+    if not g.launch(exit_file=exit_file, until=run_end):
+        if d and diag_reports:
+            # The check may have stopped the app at launch: its reports and the record are the finding.
+            summary = {"os": osver, "seed": o.seed, "steps": 0, "crashes": 0, "hangs": 0, "relaunches": 0,
+                       "launch_failed": g.launch_failure,
+                       **diag_summary(g, d, env, runtime_left, snapshots, diag_reports, o.zones_tool, launched=False)}
+            json.dump(summary, open(os.path.join(o.out, "summary.json"), "w"), indent=2)
+            print(json.dumps(summary))
+        sys.exit(f"the app did not launch: {g.launch_failure}")
+    if d:
+        snapshots.append({"at": "launch", **diag.snapshot_after_launch(g, o.zones_tool)})
+        print("diag launch:", json.dumps(snapshots[-1]), flush=True)
+    actions, excluded = load_actions(g)
+    coverage = Coverage(actions, excluded)
+    steps: Iterator[dict]
     if o.replay:
-        steps = [json.loads(l)["step"] for l in open(o.replay) if l.strip()]
+        with open(o.replay) as f:
+            replayed = [json.loads(l)["step"] for l in f if l.strip()]
+        # No coverage prefix: a replay repeats every step, bounded only by --minutes.
+        prefix_len, steps, plan_sha = 0, iter(replayed), plan_digest(replayed)
     else:
-        tour = [] if o.no_tour else [{"kind": "palette", "title": t} for t in TOUR]
-        # Planned lazily from the seeded generator: the same seed gives the same sequence however
-        # long the run is. --minutes without --steps runs until the time is up.
+        # --minutes without --steps walks until the time is up.
         count = o.steps if o.steps is not None else (None if o.minutes > 0 else 1000)
-        walk = (plan_step(rng, actions) for _ in (itertools.count() if count is None else range(count)))
-        steps = itertools.chain(tour, walk)
+        prefix_len, planned = plan_run(o.seed, actions, tour=not o.no_tour, coverage=not o.no_coverage, count=count)
+        prefix = list(itertools.islice(planned, prefix_len))
+        plan_sha = plan_digest(prefix)
+        steps = itertools.chain(prefix, planned)
 
     summary_input = check_input(g, vnc)
     print("input check:", json.dumps(summary_input), flush=True)
@@ -510,14 +890,16 @@ def main() -> int:
     if o.probe_keys:
         return 0 if summary_input["ok"] else 1
     if o.minimize:
-        minimize(steps, g, vnc, o.out)
+        if not o.replay:
+            sys.exit("--minimize needs --replay")
+        minimize(replayed, g, vnc, o.out)
         return 0
     log = open(os.path.join(o.out, "steps.jsonl"), "w")
     findings = open(os.path.join(o.out, "findings.jsonl"), "a")
     seen: set[str] = set()
     t0 = time.time() - 5
     summary = {"os": osver, "seed": o.seed, "steps": 0, "crashes": 0, "hangs": 0, "relaunches": 0,
-               "actions_known": len(actions), "input": summary_input}
+               "plan_sha256": plan_sha, "prefix_steps": prefix_len, "input": summary_input}
 
     def finding(kind: str, i: int, step: dict, extra: dict) -> None:
         rec = {"kind": kind, "os": osver, "seed": o.seed, "index": i, "step": step, "t": time.time(), **extra}
@@ -528,27 +910,53 @@ def main() -> int:
         except Exception as e:  # screenshot is best effort
             rec["screenshot_error"] = str(e)
 
-    walk_end = time.time() + o.minutes * 60 if o.minutes > 0 else None
+    executed = 0
+    # Prefix steps (tour and coverage pass) not run, and the wall time of the coverage-pass action
+    # steps that ran, ping and report checks included: the data behind the --coverage-minutes default.
+    coverage_skipped = coverage_steps = 0
+    coverage_seconds = 0.0
+    coverage_started: float | None = None
     run_id = os.getpid()  # in live-sample names: a reused guest never matches an older file
     last_pid = g.pid()
     for i, step in enumerate(steps):
-        if walk_end is not None and time.time() >= walk_end:
-            summary["stopped"] = f"--minutes {o.minutes:g} reached after {i} steps"
+        now = time.time()
+        if coverage_started is not None:
+            coverage_seconds += now - coverage_started
+            coverage_started = None
+        gate = step_gate(i, prefix_len, now, run_end, prefix_end)
+        if gate == "stop":
+            if i < prefix_len:
+                summary.setdefault("coverage_stopped", f"--minutes {o.minutes:g} reached at step {i}")
+                coverage_skipped += prefix_len - i
+            summary["stopped"] = f"--minutes {o.minutes:g} reached after {executed} steps"
             break
-        started = time.time()
+        if gate == "skip":
+            # The rest of the pass is skipped, not run late: actions_uncovered lists it.
+            summary.setdefault("coverage_stopped", f"--coverage-minutes {o.coverage_minutes:g} reached at step {i}")
+            coverage_skipped += 1
+            continue
+        started = now
+        if i < prefix_len and step["kind"] == "action":
+            coverage_started = started
+            coverage_steps += 1
+        # Before action steps too: an action's availability follows the focused window's context,
+        # and the Esc that dismisses a waiting action's dialog goes to the frontmost app.
         if g.refocus():
             summary["refocus"] = summary.get("refocus", 0) + 1
         try:
-            note = run_step(step, g, vnc)
+            note, outcome = run_step(step, g, vnc)
         except (ConnectionError, OSError) as e:
-            note = f"vnc error {e}"
+            note, outcome = f"vnc error {e}", None
             vnc = RFB(host, int(port), pw[0] if pw else None)
+        if step["kind"] == "action":
+            coverage.record(step["id"], outcome or "error:transport")
         live_sample = f"/tmp/fuzz-live-sample-{run_id}-{i}.txt"
         ms = g.ping_ms(timeout=max(5, o.hang_ms / 1000 * 5), sample_after_ms=o.hang_ms, sample_file=live_sample)
-        log.write(json.dumps({"i": i, "step": step, "note": note, "ping_ms": ms,
+        log.write(json.dumps({"i": i, "step": step, "note": note, "outcome": outcome, "ping_ms": ms,
                               "dt": round(time.time() - started, 3)}) + "\n")
         log.flush()
-        summary["steps"] = i + 1
+        executed += 1
+        summary["steps"] = executed
         if o.shot_every and i % o.shot_every == 0:
             try:
                 open(os.path.join(o.out, f"step-{i:05d}.png"), "wb").write(vnc.screenshot_png())
@@ -627,13 +1035,33 @@ def main() -> int:
                                   ' OR (subsystem == "com.cmuxterm.app.next" AND category == "app.quit")')
                     + " 2>/dev/null | tail -400", timeout=120).stdout)
             finding("dead", i, step, died)
+            if diag_reports:
+                diag_reports.harvest_stderr(g, f"dead-{i}")
             g.sh(": >/tmp/cmux-fuzz-app.log", timeout=20)
-            g.launch(exit_file=exit_file)
+            if not g.launch(exit_file=exit_file, until=run_end):
+                # Each further step would relaunch again, a whole deadline each: the walk ends here.
+                summary["relaunch_failed"] = {"index": i, "why": g.launch_failure}
+                finding("relaunch-failed", i, step, {"why": g.launch_failure})
+                break
+            if d:
+                snapshots.append({"at": f"relaunch-{i}", **diag.snapshot_after_launch(g, o.zones_tool)})
+
+    if coverage_started is not None:
+        coverage_seconds += time.time() - coverage_started
+    if coverage_skipped:
+        summary["coverage_skipped"] = coverage_skipped
+    if coverage_steps:
+        summary["coverage_steps_run"] = coverage_steps
+        summary["coverage_seconds"] = round(coverage_seconds, 1)
+        summary["coverage_s_per_step"] = round(coverage_seconds / coverage_steps, 2)
 
     faults = g.sh(f"log show --style ndjson --start '@{int(t0)}' --predicate "
                   "'(process CONTAINS \"cmux\") AND (messageType == fault)' 2>/dev/null | tail -500", timeout=120)
     open(os.path.join(o.out, "faults.ndjson"), "w").write(faults.stdout)
     summary["faults"] = sum(1 for l in faults.stdout.splitlines() if l.startswith("{"))
+    summary.update(coverage.summary())
+    if d and diag_reports:
+        summary.update(diag_summary(g, d, env, runtime_left, snapshots, diag_reports, o.zones_tool))
     json.dump(summary, open(os.path.join(o.out, "summary.json"), "w"), indent=2)
     print(json.dumps(summary))
     return 0

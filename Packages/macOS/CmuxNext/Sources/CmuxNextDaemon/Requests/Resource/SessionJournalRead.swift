@@ -8,6 +8,8 @@ import CmuxNextCompat
 /// connection, so the control connection never carries a long replay.
 public struct SessionJournalRead: Sendable {
     public static let shared = Self()
+    /// The v2 operation the read sends.
+    private static let subscribe: DaemonCommandName = "session.journal.subscribe"
     public struct Result: Sendable {
         /// Each record's JSON (the stream item), in journal order.
         public var records: [Data]
@@ -20,12 +22,13 @@ public struct SessionJournalRead: Sendable {
     }
 
     /// Reads records of `kinds` after `cursor` (nil: from the beginning),
-    /// at most `limit` of them, giving up after `deadline`.
-    public func read(socketPath: String, kinds: [String], cursor: (generation: String, sequence: UInt64)?,
+    /// at most `limit` of them, giving up after `deadline`. The connection counts into `wireStats`
+    /// (the endpoint's ``DaemonEndpoint/wireStats``).
+    public func read(socketPath: String, wireStats: DaemonWireStats?, kinds: [String], cursor: (generation: String, sequence: UInt64)?,
                             limit: Int = 20_000, deadline: Duration = .seconds(5)) async throws -> Result {
-        let transport = try LineTransport(path: socketPath)
+        let transport = try LineTransport(path: socketPath, role: .journalRead, stats: wireStats)
         let streamID = "stream_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
-        let collector = Collector(limit: limit)
+        let collector = Collector(limit: limit, decoder: transport.decoder)
         let (ended, endContinuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         transport.setStreamHandler { id, line in
             guard id == streamID else { return }
@@ -43,14 +46,14 @@ public struct SessionJournalRead: Sendable {
             params["start"] = .string("beginning")
         }
         let request = params
-        let response = try await transport.request(cmd: "session.journal.subscribe", timeout: deadline) { id in
+        let response = try await transport.request(cmd: Self.subscribe, timeout: deadline) { id in
             let envelope = JSONValue.object([
                 "protocol": .string("cmux.protocol/2"), "type": .string("request"), "id": .string(String(id)),
-                "operation": .string("session.journal.subscribe"), "params": .object(request),
+                "operation": .string(Self.subscribe.wire), "params": .object(request),
             ])
             return try JSONEncoder().encode(envelope)
         }
-        let opened = try? JSONDecoder().decode(OpenResponse.self, from: response.line)
+        let opened = try? WireCoding.decoder(response.recorder).decode(OpenResponse.self, from: response.line)
         let timer = DemandTimer(owner: "SessionJournalRead.shared.deadline")
         timer.schedule(after: deadline) { endContinuation.finish() }
         for await _ in ended {}
@@ -83,12 +86,17 @@ public struct SessionJournalRead: Sendable {
 
         private let state = Mutex(State())
         private let limit: Int
+        /// The connection's decoder (reader thread), which counts each decode of a line.
+        private let decoder: WireDecoder
 
-        init(limit: Int) { self.limit = limit }
+        init(limit: Int, decoder: WireDecoder) {
+            self.limit = limit
+            self.decoder = decoder
+        }
 
         /// Takes one stream line; true once the stream is over.
         func accept(_ line: Data) -> Bool {
-            guard let parsed = try? JSONDecoder().decode(Line.self, from: line) else { return false }
+            guard let parsed = try? decoder.decode(Line.self, from: line) else { return false }
             return state.withLock { state in
                 guard !state.done else { return true }
                 if let generation = parsed.cursor?.generation { state.generation = generation }
@@ -117,6 +125,7 @@ public struct SessionJournalRead: Sendable {
         }
 
         private func item(of line: Data) -> Data? {
+            decoder.recorder?.decoded()  // the line is parsed again for its item
             guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any], let item = object["item"],
                   JSONSerialization.isValidJSONObject(item) else { return nil }
             return try? JSONSerialization.data(withJSONObject: item)

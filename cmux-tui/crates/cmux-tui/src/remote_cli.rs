@@ -7,7 +7,6 @@ use std::io::{self, BufRead, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -15,6 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, anyhow};
 use base64::Engine;
 use cmux_build_identity::BUILD_IDENTITY;
+use cmux_process::{Child, Command, Stdio};
 #[cfg(test)]
 use cmux_remote::admin::UnixPeerAuthError;
 use cmux_remote::admin::{AdminRequest, AdminResponse, call_admin, call_admin_with_peer_exit};
@@ -2794,16 +2794,7 @@ fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> io::Result<bool>
 }
 
 fn configure_detached_process(command: &mut Command) {
-    use std::os::unix::process::CommandExt;
-
-    unsafe {
-        command.pre_exec(|| {
-            if libc::setsid() < 0 {
-                return Err(io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
+    command.new_session();
 }
 
 fn open_mux_monitor(path: &Path) -> anyhow::Result<UnixStream> {

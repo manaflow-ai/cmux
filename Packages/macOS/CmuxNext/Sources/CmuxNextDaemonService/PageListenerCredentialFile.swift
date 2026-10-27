@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// A daemon page listener's credential file, `<socket>.websocket.json` (cmux-tui
@@ -17,7 +18,7 @@ public nonisolated struct PageListenerCredentialFile: Decodable, Sendable, Equat
         guard (attributes?[.ownerAccountID] as? NSNumber)?.uint32Value == getuid(),
               (attributes?[.posixPermissions] as? NSNumber)?.intValue == 0o600,
               let data = FileManager.default.contents(atPath: path),
-              let file = try? JSONDecoder().decode(PageListenerCredentialFile.self, from: data),
+              let file = try? JSONDecoder().blockingDecode(PageListenerCredentialFile.self, from: data),
               file.pid > 0, kill(file.pid, 0) == 0,
               file.url.hasPrefix("ws://127.0.0.1:") || file.url.hasPrefix("ws://[::1]:")
         else { return nil }

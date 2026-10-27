@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+public import CmuxNextWakeups
 
 /// The tool window (Import from Browser, Computer Use setup): a transparent
 /// window whose screen draws its own Liquid Glass or opaque surface, with
@@ -8,7 +9,8 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
     public let model: OnboardingModel
     /// Called once when the window has closed.
     public var onClose: (() -> Void)?
-    public init(model: OnboardingModel) {
+    /// `mainWork` is the app's one main-thread scheduler: the window's screen draws at its frames.
+    public init(model: OnboardingModel, mainWork: MainWorkScheduler) {
         self.model = model
         let window = OnboardingWindow(
             contentRect: NSRect(origin: .zero, size: OnboardingMetrics.windowSize),
@@ -32,7 +34,7 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         // Kind `.onboarding`: a clear window with only a close button; each
         // variant's surface draws its own glass or opaque background
         // (`OnboardingSurfaceView`).
-        window.install(kind: .onboarding, content: OnboardingHostView(model: model), scope: .app)
+        window.install(kind: .onboarding, content: OnboardingHostView(model: model, mainWork: mainWork), scope: .app)
         window.onKey = { [weak model] key in
             switch key {
             case .next: model?.next()

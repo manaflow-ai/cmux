@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
 @testable import CmuxNextTerminal
+import CmuxNextWakeups
 import Testing
 
 /// A link clicked in a lone agent chat (Leo 2026-10-21, screenshots): the chat docks left in a new
@@ -38,8 +39,8 @@ struct ChatDockLinkSplitMotionTests {
                 self.page = page
                 return page
             case .terminal:
-                _ = GhosttyRuntime.shared
-                let session = TerminalSession(io: io)
+                GhosttyRuntime.startedForTests()
+                let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
                 terminal = session
                 return session.view
             }
@@ -71,7 +72,7 @@ struct ChatDockLinkSplitMotionTests {
             provider = Panes(content)
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: ChatDockLinkSplitMotionTests.lone)],
                                 activeScreenID: "s", focusedPane: ChatDockLinkSplitMotionTests.anchor)
-            root = LayoutRootView(model: model, contentProvider: provider)
+            root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             // Pins the pane springs on: the shared settings stay untouched.
             root.context.reduceMotionOverride = false
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
@@ -109,13 +110,13 @@ struct ChatDockLinkSplitMotionTests {
             func window(_ x: CGFloat) -> NSPoint { view.convert(CGPoint(x: x, y: start.y), to: nil) }
             view.handleDrag(kind: kind, event: .began(window(start.x)))
             for move in 1...moves {
-                view.handleDrag(kind: kind, event: .moved(window(start.x + dx * CGFloat(move) / CGFloat(moves))))
+                view.handleDrag(kind: kind, event: .moved(window(start.x + dx * CGFloat(move) / CGFloat(moves)), time: CACurrentMediaTime()))
                 root.syncWithModel()
                 step()
                 root.layoutSubtreeIfNeeded()
                 check("drag \(move)")
             }
-            view.handleDrag(kind: kind, event: .ended(window(start.x + dx)))
+            view.handleDrag(kind: kind, event: .ended(window(start.x + dx), time: CACurrentMediaTime()))
             root.syncWithModel()
             root.layoutSubtreeIfNeeded()
             check("release 0")
@@ -128,8 +129,9 @@ struct ChatDockLinkSplitMotionTests {
         }
     }
 
-    /// The part of `host` its strip mask shows (own coordinates): all of it with no mask.
-    static func shown(_ host: PaneHostView) -> CGRect { host.layer?.mask?.frame ?? host.bounds }
+    /// The part of `host` the strip shows (own coordinates): its bounds cut by the strip container's
+    /// clip and its own mask; all of it with neither.
+    static func shown(_ host: PaneHostView) -> CGRect { host.stripShownRect }
 
     /// The part of `host` (own coordinates) inside the strip's clip range: the strip shows a pane
     /// right of a left dock from the dock's edge to the strip's right edge, whatever its x.
@@ -357,27 +359,27 @@ struct ChatDockLinkSplitMotionTests {
         #expect(wrong.isEmpty, "the terminal's pane mask is off the strip: \(wrong.prefix(8).joined(separator: "; "))")
     }
 
-    /// `clipToStrip` on a host away from the screen's origin: a strip clip and a pane in front, in
-    /// the screen's coordinates, cut the host's mask where they meet it in its own coordinates.
-    @Test func aStripClipMeetsAHostAtItsOwnPlace() throws {
+    /// The strip's clip beside a docked chat is layer structure (p03-rendering-023): the link's pane
+    /// sits in the strip container, whose frame is the strip's range and whose layer masks to its
+    /// bounds; the host carries no mask, and the chat's pane is a sibling stacked above the container.
+    @Test func theStripContainerClipsAHostAtItsOwnPlace() throws {
         let screen = Screen()
         screen.show(Self.docked)
         for _ in 1...120 { screen.step() }
-        let link = try #require(screen.host(Self.anchor)), view = try #require(screen.screen)
+        let link = try #require(screen.host(Self.anchor)), chat = try #require(screen.host(Self.dock))
+        let view = try #require(screen.screen)
         let frame = link.frame
         #expect(frame.minX > 100, "the pane is not right of the dock: \(frame)")
-        // All of the host inside the clip: no mask.
-        view.clipToStrip(link, scrolls: true, clip: frame.insetBy(dx: -50, dy: -50), above: [:], force: true)
-        #expect(link.layer?.mask == nil, "a clip around the whole host masked it: \(Self.shown(link))")
-        // The clip ends 100 pt before the host's right edge: the mask is the host's left part.
-        let clip = CGRect(x: 0, y: frame.minY, width: frame.maxX - 100, height: frame.height)
-        view.clipToStrip(link, scrolls: true, clip: clip, above: [:], force: true)
-        #expect(Self.sameX(Self.shown(link), CGRect(x: 0, y: 0, width: frame.width - 100, height: frame.height)),
-                "the mask is not the host's left part: \(Self.shown(link)) of \(frame)")
-        // A pane in front over the host's left 60 pt narrows it from the left.
-        let cover = CGRect(x: frame.minX - 20, y: frame.minY, width: 80, height: frame.height)
-        view.clipToStrip(link, scrolls: true, clip: clip, above: [ObjectIdentifier(link): [cover]], force: true)
-        #expect(Self.sameX(Self.shown(link), CGRect(x: 60, y: 0, width: frame.width - 160, height: frame.height)),
-                "the cover did not cut the host's left: \(Self.shown(link)) of \(frame)")
+        #expect(link.superview === view.stripContainer, "the strip pane is not in the strip container")
+        #expect(chat.superview === view, "the docked pane is not in the screen above the strip container")
+        #expect(link.layer?.mask == nil, "the strip pane carries a mask: \(Self.shown(link))")
+        #expect(view.stripContainer.layer?.masksToBounds == true, "the strip container does not clip")
+        let g = view.geometry
+        #expect(abs(view.stripContainer.frame.minX - g.clipMinX) < 0.5 && abs(view.stripContainer.frame.maxX - g.clipMaxX) < 0.5,
+                "the strip container is not the strip's range: \(view.stripContainer.frame), strip \(g.clipMinX)...\(g.clipMaxX)")
+        // The container's coordinates are the screen's: the host's frame is where it shows.
+        #expect(view.convert(link.bounds, from: link) == frame, "the host's frame is off the screen's coordinates")
+        #expect(Self.sameX(Self.shown(link), Self.expectedShown(link, in: view)),
+                "the host shows \(Self.shown(link)), the strip \(Self.expectedShown(link, in: view))")
     }
 }

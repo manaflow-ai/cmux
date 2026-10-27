@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextSidebar
+import CmuxNextWakeups
 import Testing
 
 /// A double-click on empty titlebar space runs the user's titlebar action once (Leo, cosmic-gray
@@ -12,7 +13,7 @@ import Testing
     func shownRoot() throws -> (ShellWindow, WindowRootView) {
         _ = NSApplication.shared
         let screen = try #require(NSScreen.main, "zooming needs a screen")
-        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel()))
+        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())))
         let window = ShellWindow(contentRect: root.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                  backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -52,7 +53,7 @@ import Testing
     /// clicks and moved the window under its own drag).
     @Test func aPressOnTheSidebarResizeHandleInTheTopRowStaysWithTheHandle() throws {
         _ = NSApplication.shared
-        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel()))
+        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())))
         let window = ShellWindow(contentRect: root.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                  backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

@@ -10,6 +10,7 @@ impl WorkspaceRegistry {
     /// (LAST-TAB-CLOSES-WORKSPACE). The mux installs the matching runtime projection
     /// only after this method returns successfully.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn close_terminal_with_resource_patch(
         &mut self,
         mutation: &WorkspaceMutation,

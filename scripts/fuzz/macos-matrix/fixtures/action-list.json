@@ -1,0 +1,1020 @@
+{
+ "actions": [
+  {
+   "id": "openSettings",
+   "title": "Settings…",
+   "category": "window",
+   "category_title": "Window",
+   "cli_name": "app settings",
+   "noun": "app",
+   "verb": "settings",
+   "symbol": "gearshape",
+   "keywords": [],
+   "shortcut": "⌘,",
+   "shortcut_config": "cmd+,",
+   "arguments": [],
+   "targets": [],
+   "requires": [],
+   "available": true,
+   "bound": true,
+   "debug_only": false,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": false,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "main_menu": "app",
+   "surfaces": {
+    "palette": "offered",
+    "cli": "guiOnly",
+    "context_menu": "noObject",
+    "mcp": "guiOnly",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "newTab",
+   "title": "New Workspace",
+   "category": "workspace",
+   "category_title": "Workspace",
+   "cli_name": "workspace new",
+   "noun": "workspace",
+   "verb": "new",
+   "symbol": "plus.square",
+   "keywords": [],
+   "shortcut": "⌘N",
+   "shortcut_config": "cmd+n",
+   "arguments": [],
+   "targets": [],
+   "requires": [],
+   "available": true,
+   "bound": true,
+   "debug_only": false,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "main_menu": "file",
+   "surfaces": {
+    "palette": "offered",
+    "cli": "ownerVerb",
+    "context_menu": "offered",
+    "mcp": "ownerVerb",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "closeWorkspace",
+   "title": "Close Workspace",
+   "category": "workspace",
+   "category_title": "Workspace",
+   "cli_name": "workspace close",
+   "noun": "workspace",
+   "verb": "close",
+   "symbol": "xmark.square",
+   "keywords": [],
+   "shortcut": "⇧⌘W",
+   "shortcut_config": "cmd+shift+w",
+   "arguments": [
+    {
+     "name": "confirm",
+     "title": "Confirm",
+     "kind": "bool",
+     "required": false
+    }
+   ],
+   "targets": [
+    "workspace"
+   ],
+   "requires": [],
+   "available": true,
+   "bound": true,
+   "debug_only": false,
+   "destructive": true,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "main_menu": "file",
+   "surfaces": {
+    "palette": "offered",
+    "cli": "ownerVerb",
+    "context_menu": "offered",
+    "mcp": "ownerVerb",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "openFolder",
+   "title": "Open Folder…",
+   "category": "workspace",
+   "category_title": "Workspace",
+   "cli_name": "workspace open-folder",
+   "noun": "workspace",
+   "verb": "open-folder",
+   "symbol": "folder",
+   "keywords": [],
+   "shortcut": "⌘O",
+   "shortcut_config": "cmd+o",
+   "arguments": [
+    {
+     "name": "path",
+     "title": "Folder",
+     "kind": "string",
+     "required": false
+    }
+   ],
+   "targets": [],
+   "requires": [],
+   "available": true,
+   "bound": true,
+   "debug_only": false,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "main_menu": "file",
+   "surfaces": {
+    "palette": "offered",
+    "cli": "offered",
+    "context_menu": "offered",
+    "mcp": "offered",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "quit",
+   "title": "Quit cmux",
+   "category": "app",
+   "category_title": "App",
+   "cli_name": "app quit",
+   "noun": "app",
+   "verb": "quit",
+   "symbol": "power",
+   "keywords": [],
+   "shortcut": "⌘Q",
+   "shortcut_config": "cmd+q",
+   "arguments": [],
+   "targets": [],
+   "requires": [],
+   "available": true,
+   "bound": true,
+   "debug_only": false,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "main_menu": "app",
+   "surfaces": {
+    "palette": "offered",
+    "cli": "offered",
+    "context_menu": "noObject",
+    "mcp": "endsApp",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "quitKeepSessions",
+   "title": "Quit and Keep Sessions",
+   "category": "app",
+   "category_title": "App",
+   "cli_name": "app quit-keep-sessions",
+   "noun": "app",
+   "verb": "quit-keep-sessions",
+   "symbol": "power",
+   "keywords": [],
+   "shortcut": null,
+   "shortcut_config": null,
+   "arguments": [],
+   "targets": [],
+   "requires": [],
+   "available": true,
+   "bound": true,
+   "debug_only": false,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "surfaces": {
+    "palette": "offered",
+    "cli": "offered",
+    "context_menu": "noObject",
+    "mcp": "endsApp",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "openDebugSettings",
+   "title": "Open Debug Settings",
+   "category": "debug",
+   "category_title": "Debug",
+   "cli_name": "debug open-settings",
+   "noun": "debug",
+   "verb": "open-settings",
+   "symbol": "ladybug",
+   "keywords": [],
+   "shortcut": null,
+   "shortcut_config": null,
+   "arguments": [],
+   "targets": [],
+   "requires": [],
+   "available": false,
+   "bound": true,
+   "debug_only": true,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "surfaces": {
+    "palette": "offered",
+    "cli": "devOnly",
+    "context_menu": "devOnly",
+    "mcp": "devOnly",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "resizePaneLeft",
+   "title": "Resize Pane Left",
+   "category": "pane",
+   "category_title": "Pane",
+   "cli_name": "pane resize-left",
+   "noun": "pane",
+   "verb": "resize-left",
+   "symbol": "arrow.left",
+   "keywords": [],
+   "shortcut": "⌃⌘←",
+   "shortcut_config": "ctrl+cmd+left",
+   "arguments": [],
+   "targets": [
+    "pane"
+   ],
+   "requires": [],
+   "available": true,
+   "bound": true,
+   "debug_only": false,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "surfaces": {
+    "palette": "offered",
+    "cli": "stepAdjust",
+    "context_menu": "stepAdjust",
+    "mcp": "stepAdjust",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "tabGroup.collapse",
+   "title": "Collapse Tab Group",
+   "category": "tab",
+   "category_title": "Tab",
+   "cli_name": "tab-group collapse",
+   "noun": "tab-group",
+   "verb": "collapse",
+   "symbol": "chevron.right",
+   "keywords": [],
+   "shortcut": null,
+   "shortcut_config": null,
+   "arguments": [],
+   "targets": [
+    "tab-group"
+   ],
+   "requires": [],
+   "available": true,
+   "bound": true,
+   "debug_only": false,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "surfaces": {
+    "palette": "offered",
+    "cli": "offered",
+    "context_menu": "familyMember",
+    "mcp": "offered",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "tabGroup.moveToWorkspace",
+   "title": "Move Tab Group to Workspace…",
+   "category": "tab",
+   "category_title": "Tab",
+   "cli_name": "tab-group move-to-workspace",
+   "noun": "tab-group",
+   "verb": "move-to-workspace",
+   "symbol": "arrow.right.square",
+   "keywords": [],
+   "shortcut": null,
+   "shortcut_config": null,
+   "arguments": [
+    {
+     "name": "workspace",
+     "title": "Workspace",
+     "kind": "target",
+     "required": true,
+     "target_kind": "workspace"
+    }
+   ],
+   "targets": [
+    "tab-group"
+   ],
+   "requires": [],
+   "available": true,
+   "bound": true,
+   "debug_only": false,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "surfaces": {
+    "palette": "offered",
+    "cli": "offered",
+    "context_menu": "offered",
+    "mcp": "offered",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "screenGroup.close",
+   "title": "Close Screen Group",
+   "category": "screen",
+   "category_title": "Screen",
+   "cli_name": "screen-group close",
+   "noun": "screen-group",
+   "verb": "close",
+   "symbol": "xmark",
+   "keywords": [],
+   "shortcut": null,
+   "shortcut_config": null,
+   "arguments": [
+    {
+     "name": "confirm",
+     "title": "Confirm",
+     "kind": "bool",
+     "required": false
+    }
+   ],
+   "targets": [
+    "screen-group"
+   ],
+   "requires": [],
+   "available": true,
+   "bound": true,
+   "debug_only": false,
+   "destructive": true,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "surfaces": {
+    "palette": "offered",
+    "cli": "offered",
+    "context_menu": "offered",
+    "mcp": "offered",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "bookmark.move",
+   "title": "Move Bookmark…",
+   "category": "browser",
+   "category_title": "Browser",
+   "cli_name": "bookmark move",
+   "noun": "bookmark",
+   "verb": "move",
+   "symbol": "arrow.up.arrow.down",
+   "keywords": [],
+   "shortcut": null,
+   "shortcut_config": null,
+   "arguments": [
+    {
+     "name": "query",
+     "title": "Bookmark",
+     "kind": "string",
+     "required": false
+    },
+    {
+     "name": "folder",
+     "title": "Folder",
+     "kind": "string",
+     "required": false
+    },
+    {
+     "name": "index",
+     "title": "Position",
+     "kind": "int",
+     "required": false,
+     "min": 0,
+     "max": 100000
+    }
+   ],
+   "targets": [
+    "bookmark"
+   ],
+   "requires": [],
+   "available": true,
+   "bound": true,
+   "debug_only": false,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "surfaces": {
+    "palette": "offered",
+    "cli": "offered",
+    "context_menu": "offered",
+    "mcp": "offered",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "bookmark.remove",
+   "title": "Delete Bookmark",
+   "category": "browser",
+   "category_title": "Browser",
+   "cli_name": "bookmark remove",
+   "noun": "bookmark",
+   "verb": "remove",
+   "symbol": "trash",
+   "keywords": [],
+   "shortcut": null,
+   "shortcut_config": null,
+   "arguments": [
+    {
+     "name": "query",
+     "title": "Bookmark",
+     "kind": "string",
+     "required": false
+    }
+   ],
+   "targets": [
+    "bookmark"
+   ],
+   "requires": [],
+   "available": true,
+   "bound": true,
+   "debug_only": false,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "surfaces": {
+    "palette": "offered",
+    "cli": "offered",
+    "context_menu": "offered",
+    "mcp": "offered",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "workspaceGroup.addToSection",
+   "title": "Add Group to Section…",
+   "category": "workspace",
+   "category_title": "Workspace",
+   "cli_name": "workspace-group add-to-section",
+   "noun": "workspace-group",
+   "verb": "add-to-section",
+   "symbol": "rectangle.stack",
+   "keywords": [],
+   "shortcut": null,
+   "shortcut_config": null,
+   "arguments": [
+    {
+     "name": "section",
+     "title": "Section",
+     "kind": "target",
+     "required": true,
+     "target_kind": "sidebar-section"
+    }
+   ],
+   "targets": [
+    "workspace-group"
+   ],
+   "requires": [],
+   "available": true,
+   "bound": true,
+   "debug_only": false,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "surfaces": {
+    "palette": "offered",
+    "cli": "offered",
+    "context_menu": "offered",
+    "mcp": "offered",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "sidebar.section.setGap",
+   "title": "Set Section Spacing…",
+   "category": "sidebar",
+   "category_title": "Sidebar",
+   "cli_name": "sidebar set-section-gap",
+   "noun": "sidebar",
+   "verb": "set-section-gap",
+   "symbol": "arrow.left.and.right",
+   "keywords": [],
+   "shortcut": null,
+   "shortcut_config": null,
+   "arguments": [
+    {
+     "name": "gap",
+     "title": "Spacing (points)",
+     "kind": "int",
+     "required": true,
+     "min": 0,
+     "max": 32
+    }
+   ],
+   "targets": [
+    "sidebar-section"
+   ],
+   "requires": [],
+   "available": true,
+   "bound": true,
+   "debug_only": false,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "surfaces": {
+    "palette": "offered",
+    "cli": "offered",
+    "context_menu": "offered",
+    "mcp": "offered",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "sidebar.section.setColumns",
+   "title": "Set Grid Columns…",
+   "category": "sidebar",
+   "category_title": "Sidebar",
+   "cli_name": "sidebar set-section-columns",
+   "noun": "sidebar",
+   "verb": "set-section-columns",
+   "symbol": "square.grid.3x2",
+   "keywords": [],
+   "shortcut": null,
+   "shortcut_config": null,
+   "arguments": [
+    {
+     "name": "columns",
+     "title": "Columns (0 = as many as fit)",
+     "kind": "int",
+     "required": true,
+     "min": 0,
+     "max": 12
+    }
+   ],
+   "targets": [
+    "sidebar-section"
+   ],
+   "requires": [],
+   "available": true,
+   "bound": true,
+   "debug_only": false,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "surfaces": {
+    "palette": "offered",
+    "cli": "offered",
+    "context_menu": "offered",
+    "mcp": "offered",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "sidebar.section.setAlignment",
+   "title": "Set Section Alignment…",
+   "category": "sidebar",
+   "category_title": "Sidebar",
+   "cli_name": "sidebar set-section-alignment",
+   "noun": "sidebar",
+   "verb": "set-section-alignment",
+   "symbol": "text.alignleft",
+   "keywords": [],
+   "shortcut": null,
+   "shortcut_config": null,
+   "arguments": [
+    {
+     "name": "align",
+     "title": "Alignment",
+     "kind": "enum",
+     "required": true,
+     "choices": [
+      {
+       "value": "leading",
+       "title": "Leading"
+      },
+      {
+       "value": "center",
+       "title": "Center"
+      },
+      {
+       "value": "trailing",
+       "title": "Trailing"
+      },
+      {
+       "value": "fill",
+       "title": "Fill"
+      }
+     ]
+    }
+   ],
+   "targets": [
+    "sidebar-section"
+   ],
+   "requires": [],
+   "available": true,
+   "bound": true,
+   "debug_only": false,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "surfaces": {
+    "palette": "offered",
+    "cli": "offered",
+    "context_menu": "offered",
+    "mcp": "offered",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "sidebar.priority.snooze",
+   "title": "Snooze Chat for 1 Hour…",
+   "category": "sidebar",
+   "category_title": "Sidebar",
+   "cli_name": "action sidebar-priority-snooze",
+   "noun": "action",
+   "verb": "sidebar-priority-snooze",
+   "symbol": "moon.zzz",
+   "keywords": [],
+   "shortcut": null,
+   "shortcut_config": null,
+   "arguments": [
+    {
+     "name": "chat",
+     "title": "Chat",
+     "kind": "target",
+     "required": true,
+     "target_kind": "agent-chat"
+    }
+   ],
+   "targets": [
+    "agent-chat"
+   ],
+   "requires": [],
+   "available": true,
+   "bound": true,
+   "debug_only": false,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": false,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "surfaces": {
+    "palette": "offered",
+    "cli": "guiOnly",
+    "context_menu": "offered",
+    "mcp": "guiOnly",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "browser.importCookies",
+   "title": "Import Cookies from Browser…",
+   "category": "browser",
+   "category_title": "Browser",
+   "cli_name": "browser import-cookies",
+   "noun": "browser",
+   "verb": "import-cookies",
+   "symbol": "square.and.arrow.down",
+   "keywords": [],
+   "shortcut": null,
+   "shortcut_config": null,
+   "arguments": [
+    {
+     "name": "from",
+     "title": "From Browser",
+     "kind": "string",
+     "required": true
+    },
+    {
+     "name": "domain",
+     "title": "Sites",
+     "kind": "string",
+     "required": false
+    },
+    {
+     "name": "reason",
+     "title": "Reason",
+     "kind": "string",
+     "required": false
+    }
+   ],
+   "targets": [],
+   "requires": [],
+   "available": true,
+   "bound": true,
+   "debug_only": false,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": true,
+   "waits_for_person": true,
+   "focuses": false,
+   "surfaces": {
+    "palette": "offered",
+    "cli": "offered",
+    "context_menu": "noObject",
+    "mcp": "offered",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "openBrowser",
+   "title": "New Browser Tab",
+   "category": "tab",
+   "category_title": "Tab",
+   "cli_name": "tab new-browser",
+   "noun": "tab",
+   "verb": "new-browser",
+   "symbol": "globe.badge.chevron.backward",
+   "keywords": [],
+   "shortcut": "⇧⌘L",
+   "shortcut_config": "cmd+shift+l",
+   "arguments": [
+    {
+     "name": "url",
+     "title": "URL",
+     "kind": "string",
+     "required": false
+    },
+    {
+     "name": "engine",
+     "title": "Engine",
+     "kind": "enum",
+     "required": false,
+     "choices": [
+      {
+       "value": "chromium",
+       "title": "Chromium"
+      },
+      {
+       "value": "webkit",
+       "title": "Webkit"
+      }
+     ]
+    },
+    {
+     "name": "profile",
+     "title": "Browser Profile",
+     "kind": "string",
+     "required": false
+    }
+   ],
+   "targets": [
+    "tab"
+   ],
+   "requires": [],
+   "available": true,
+   "bound": true,
+   "debug_only": false,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "surfaces": {
+    "palette": "offered",
+    "cli": "offered",
+    "context_menu": "offered",
+    "mcp": "offered",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "terminal.clear",
+   "title": "Clear Screen and Scrollback",
+   "category": "terminal",
+   "category_title": "Terminal",
+   "cli_name": "terminal clear",
+   "noun": "terminal",
+   "verb": "clear",
+   "symbol": "clear",
+   "keywords": [],
+   "shortcut": "⌘K",
+   "shortcut_config": "cmd+k",
+   "arguments": [],
+   "targets": [
+    "tab"
+   ],
+   "requires": [
+    "terminalFocused"
+   ],
+   "available": false,
+   "bound": true,
+   "debug_only": false,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "surfaces": {
+    "palette": "offered",
+    "cli": "offered",
+    "context_menu": "offered",
+    "mcp": "offered",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "cloudMove",
+   "title": "Move to Cloud",
+   "category": "cloud",
+   "category_title": "Cloud",
+   "cli_name": "cloud move",
+   "noun": "cloud",
+   "verb": "move",
+   "symbol": "icloud.and.arrow.up",
+   "keywords": [],
+   "shortcut": null,
+   "shortcut_config": null,
+   "arguments": [],
+   "targets": [
+    "workspace"
+   ],
+   "requires": [],
+   "available": true,
+   "bound": true,
+   "debug_only": false,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "unavailable_reason": "Sign in to use cmux Cloud.",
+   "surfaces": {
+    "palette": "offered",
+    "cli": "offered",
+    "context_menu": "offered",
+    "mcp": "offered",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "palette.checkForUpdates",
+   "title": "Check for Updates…",
+   "category": "settings",
+   "category_title": "Settings",
+   "cli_name": "settings check-for-updates",
+   "noun": "settings",
+   "verb": "check-for-updates",
+   "symbol": "arrow.down.circle",
+   "keywords": [],
+   "shortcut": null,
+   "shortcut_config": null,
+   "arguments": [],
+   "targets": [],
+   "requires": [],
+   "available": true,
+   "bound": true,
+   "debug_only": false,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "main_menu": "app",
+   "surfaces": {
+    "palette": "offered",
+    "cli": "offered",
+    "context_menu": "noObject",
+    "mcp": "offered",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "workspace.moveToSpace",
+   "title": "Move Workspace to Space…",
+   "category": "workspace",
+   "category_title": "Workspace",
+   "cli_name": "workspace move-to-space",
+   "noun": "workspace",
+   "verb": "move-to-space",
+   "symbol": "arrow.right.circle",
+   "keywords": [],
+   "shortcut": null,
+   "shortcut_config": null,
+   "arguments": [
+    {
+     "name": "space",
+     "title": "Space",
+     "kind": "target",
+     "required": true,
+     "target_kind": "room"
+    }
+   ],
+   "targets": [
+    "workspace"
+   ],
+   "requires": [],
+   "available": true,
+   "bound": true,
+   "debug_only": false,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "surfaces": {
+    "palette": "offered",
+    "cli": "offered",
+    "context_menu": "offered",
+    "mcp": "offered",
+    "context_menus": []
+   }
+  },
+  {
+   "id": "macScreen.open",
+   "title": "New Mac Screen Tab",
+   "category": "tab",
+   "category_title": "Tab",
+   "cli_name": "tab new-mac-screen",
+   "noun": "tab",
+   "verb": "new-mac-screen",
+   "symbol": "display",
+   "keywords": [],
+   "shortcut": null,
+   "shortcut_config": null,
+   "arguments": [],
+   "targets": [
+    "pane"
+   ],
+   "requires": [],
+   "available": false,
+   "bound": false,
+   "debug_only": false,
+   "destructive": false,
+   "starts_terminal": false,
+   "cli": true,
+   "waits_for_result": false,
+   "waits_for_person": false,
+   "focuses": false,
+   "main_menu": "file",
+   "surfaces": {
+    "palette": "offered",
+    "cli": "offered",
+    "context_menu": "offered",
+    "mcp": "offered",
+    "context_menus": []
+   }
+  }
+ ]
+}

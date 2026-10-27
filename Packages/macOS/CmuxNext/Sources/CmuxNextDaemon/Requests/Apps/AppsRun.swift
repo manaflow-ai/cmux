@@ -8,7 +8,7 @@ import Foundation
 /// (`apps-server-event`, ``AppServerEvent``).
 public struct AppsRunRequest: DaemonRequest {
     public typealias Response = AppsRunResult
-    public static let command = "apps-run"
+    public static let commandName: DaemonCommandName = "apps-run"
 
     /// The request origin. `user` needs the verified cmux app connection.
     public enum Origin: String, Encodable, Sendable {
@@ -30,10 +30,9 @@ public struct AppsRunRequest: DaemonRequest {
         self.origin = origin
     }
 
-    /// `args` is the app's own JSON: sent verbatim (`verbatimFields`), not
-    /// through the snake case key strategy.
+    /// `args` is the app's own JSON: sent verbatim (`verbatimFields`).
     enum CodingKeys: String, CodingKey {
-        case app, op, idempotencyKey, origin
+        case app, op, idempotencyKey = "idempotency_key", origin
     }
 }
 
@@ -65,14 +64,14 @@ public struct AppsRunResult: Decodable, Sendable, Equatable {
 /// link (`cmux.host.link.changed`). Answers `{servers: N}`.
 public struct AppsLinkChangedRequest: DaemonRequest {
     public typealias Response = JSONValue
-    public static let command = "apps-link-changed"
+    public static let commandName: DaemonCommandName = "apps-link-changed"
 
     public init() {}
 }
 
 public struct AppsTerminalLinksRequest: DaemonRequest {
     public typealias Response = JSONValue
-    public static let command = "apps-terminal-links"
+    public static let commandName: DaemonCommandName = "apps-terminal-links"
 
     public init() {}
 }

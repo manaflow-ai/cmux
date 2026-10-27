@@ -85,6 +85,7 @@ impl WorkspaceRegistry {
     /// Deletes up to one batch of each ledger's rows past its capacity,
     /// oldest first. A corrupt page in one ledger is reported and does not
     /// stop the others.
+    #[track_caller]
     pub(crate) fn prune_mutation_ledgers(&mut self) -> anyhow::Result<LedgerPrune> {
         let connection = self.connection.get();
         let mut prune = LedgerPrune::default();
@@ -103,6 +104,7 @@ impl WorkspaceRegistry {
     /// Renames a corrupt ledger aside and recreates it empty from its own
     /// schema, in one transaction. Neither step reads the table's pages.
     /// Returns the name the damaged table now has.
+    #[track_caller]
     pub(crate) fn quarantine_mutation_ledger(&mut self, table: &str) -> anyhow::Result<String> {
         anyhow::ensure!(
             MUTATION_LEDGERS.iter().any(|ledger| ledger.table == table),

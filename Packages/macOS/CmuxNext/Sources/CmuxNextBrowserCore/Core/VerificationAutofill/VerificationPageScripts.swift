@@ -1,3 +1,4 @@
+import CmuxNextCompat
 package import Foundation
 
 /// The page side of email verification AutoFill
@@ -100,7 +101,7 @@ package nonisolated struct VerificationPageScripts {
     /// detector report.
     package static func isWaitingReport(_ body: Any) -> Bool {
         if let text = body as? String, let data = text.data(using: .utf8) {
-            return isWaitingReport((try? JSONSerialization.jsonObject(with: data)) as Any)
+            return isWaitingReport((try? JSONSerialization.blockingJSONObject(with: data)) as Any)
         }
         return (body as? [String: Any])?["waiting"] as? Bool == true
     }

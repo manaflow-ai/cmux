@@ -7,7 +7,9 @@
 // the namespace instead. No page file changes.
 
 import { holdPaintForClaim } from "./paintGate";
+import { PARKED_NAME, pageLifecycleFor } from "./pageLifecycle";
 import { installNativeMenu, NATIVE_MENU_OP } from "../../ui/nativeMenu";
+import { serveOracleState } from "../../protocol/oracle-state";
 
 export interface PageError extends Error {
   code: string;
@@ -45,6 +47,12 @@ export interface PageCallOptions {
 export interface PageEventMeta {
   /** Decision 31: the opid of the call that caused the event. */
   opid?: string;
+  /**
+   * Decisions 15 and 32: the host dropped events of this stream before this one (the page was
+   * hidden or frozen and the stream keeps only its newest). The seq does not skip; read the state
+   * again instead of applying this event on top of what the page has.
+   */
+  gap?: true;
 }
 
 export interface PageClient {
@@ -58,6 +66,13 @@ export interface PageClient {
   ): Promise<() => void>;
   /** Serves an op the host calls on the page (both peers may call). Returns the unregister function. */
   handle(op: string, handler: PageHandler): () => void;
+  /**
+   * The restore the host handed this document when it came back after a discard
+   * (`takePageRestore`), taken when the client was made, before any page code renders; null (or
+   * absent, for a mock) when the document was not discarded. A page applies `state` to its store
+   * before its first render.
+   */
+  readonly restore?: PageRestore | null;
 }
 
 type Envelope =
@@ -65,7 +80,8 @@ type Envelope =
   | { t: "ok"; id: number; value?: unknown }
   | { t: "err"; id: number; code: string; message: string; retryable?: boolean; details?: unknown }
   | { t: "sub"; id: number; stream: string; filter?: Record<string, unknown> }
-  | { t: "ev"; sub: number; seq: number; data: unknown; opid?: string }
+  | { t: "ev"; sub: number; seq: number; data: unknown; opid?: string; gap?: boolean }
+  | { t: "evs"; events: unknown[] }
   | { t: "unsub"; sub: number }
   | { t: "cancel"; id: number };
 
@@ -75,13 +91,11 @@ export interface ReplyHandler {
 }
 
 export const RECEIVE_NAME = "__cmuxPageReceive";
+/** The batch form: the host sends one frame's envelopes as one script (PageScriptPipeline). */
+export const RECEIVE_MANY_NAME = "__cmuxPageReceiveMany";
 
-/**
- * Set to `true` by the host before page code runs when the document loads in a parked pooled host
- * (the prewarmed spare, PageWebView's pooled recipe). The spare has no routes yet, so the client
- * holds every call and subscription until the host claims the document for a page.
- */
-export const PARKED_NAME = "__cmuxPageParked";
+/** The parked-document flag (pageLifecycle.ts); the client holds calls until the claim. */
+export { PARKED_NAME };
 
 /**
  * The host's claim of a parked document (`{route?}`): the claim's routes are bound, so the client
@@ -90,6 +104,73 @@ export const PARKED_NAME = "__cmuxPageParked";
  * `cmux.page.not_parked`, and the host reloads it.
  */
 export const CLAIM_OP = "cmux.page.claim";
+
+/**
+ * Built in for every page (p13-webui-032): `{reason, on}` sets or ends one of the page's own keep
+ * reasons, which keep it from being frozen or discarded while hidden. The host refuses any other
+ * reason; the page can only add reasons, and they end with its document (reload, crash).
+ */
+export const KEEP_ALIVE_OP = "cmux.page.keepAlive";
+
+/**
+ * The keep reasons a page may set (the host's `PageKeepReasons.pageSettable`): what only its
+ * document knows. The host observes the rest itself (a drop it reads, dictation, Web Inspector).
+ */
+export type PageKeepReason = "user_edits" | "form_interaction" | "before_unload" | "draft" | "capture";
+
+/**
+ * The page's keep reasons as it last told the host: `set` sends `cmux.page.keepAlive` only when a
+ * reason starts or ends, so a store may call it on every state change (no IPC per keystroke). A
+ * host without the op (an older app) answers `unknown_op`, which is ignored.
+ */
+export class PageKeepAlive {
+  private readonly held = new Set<PageKeepReason>();
+
+  constructor(private readonly client: PageClient | null) {}
+
+  /** Whether the page last said `reason` holds. */
+  has(reason: PageKeepReason): boolean {
+    return this.held.has(reason);
+  }
+
+  set(reason: PageKeepReason, on: boolean): void {
+    if (this.held.has(reason) === on) return;
+    if (on) this.held.add(reason);
+    else this.held.delete(reason);
+    this.client?.call<unknown>(KEEP_ALIVE_OP, { reason, on }).catch((error: unknown) => {
+      if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op")) console.warn("cmux keepAlive", error);
+    });
+  }
+}
+
+/**
+ * Set by the host before page code runs when the document comes back after a discard
+ * (PageWebView+Discard.swift): `{wasDiscarded: true, state}`, where `state` is what the page saved
+ * when it hid (null when it saved none). Chrome's `document.wasDiscarded` plus the page's own state.
+ * The host also puts that state back in sessionStorage, so `readPageState` (pageLifecycle.ts) reads it.
+ */
+export const RESTORE_NAME = "__cmuxPageRestore";
+
+/** What a document that comes back after a discard gets (`takePageRestore`). */
+export interface PageRestore {
+  wasDiscarded: true;
+  /** The state the page saved when it hid; null when it saved none. */
+  state: unknown;
+}
+
+/**
+ * The restore the host handed this document, once. The bridge client takes it when it is made
+ * (`BridgePageClient.restore`), which every page does before its first render. Null when the
+ * document is not a restored one or the restore was taken already.
+ */
+export function takePageRestore(
+  target: Record<string, unknown> = globalThis as unknown as Record<string, unknown>,
+): PageRestore | null {
+  const value = target[RESTORE_NAME] as { wasDiscarded?: unknown; state?: unknown } | null | undefined;
+  delete target[RESTORE_NAME];
+  if (!value || value.wasDiscarded !== true) return null;
+  return { wasDiscarded: true, state: value.state ?? null };
+}
 
 /** How many not-yet-registered subscriptions, and events per subscription, the client holds. */
 const EARLY_SUBS = 16;
@@ -110,7 +191,8 @@ interface ClaimLocation {
 
 /**
  * The bridge client: the page posts envelopes and awaits the reply; the host pushes events and its
- * own calls through `window.__cmuxPageReceive(envelope)`. Every page that boots through it serves
+ * own calls through `window.__cmuxPageReceive(envelope)`, or one frame's envelopes through
+ * `window.__cmuxPageReceiveMany(envelopes)`. Every page that boots through it serves
  * the pooled host's claim (`CLAIM_OP`); no page code takes part.
  */
 export class BridgePageClient implements PageClient {
@@ -124,13 +206,16 @@ export class BridgePageClient implements PageClient {
   private parked: boolean;
   private held: Held[] = [];
   private readonly location: ClaimLocation | undefined;
+  readonly restore: PageRestore | null;
 
   constructor(
     private readonly handler: ReplyHandler,
-    target: Record<string, unknown> = globalThis as unknown as Record<string, unknown>,
+    private readonly target: Record<string, unknown> = globalThis as unknown as Record<string, unknown>,
   ) {
     target[RECEIVE_NAME] = (message: unknown) => this.receive(message);
+    target[RECEIVE_MANY_NAME] = (messages: unknown) => this.receiveMany(messages);
     this.parked = target[PARKED_NAME] === true;
+    this.restore = takePageRestore(target);
     this.location = target.location as ClaimLocation | undefined;
   }
 
@@ -225,6 +310,8 @@ export class BridgePageClient implements PageClient {
     if (typeof route === "string" && route.startsWith("#") && this.location && this.location.hash !== route)
       this.location.replace(route);
     this.parked = false;
+    // A parked document is hidden to its timers (pageLifecycle.ts) until this claim.
+    pageLifecycleFor(this.target).claimed();
     const held = this.held;
     this.held = [];
     for (const { envelope, resolve, reject } of held) this.handler.postMessage(envelope).then(resolve, reject);
@@ -284,17 +371,40 @@ export class BridgePageClient implements PageClient {
     this.early.set(sub, held);
   }
 
+  /**
+   * Host to page, one frame's envelopes in send order (`window.__cmuxPageReceiveMany`). A listener
+   * that throws does not stop the envelopes after it, as when each was its own script.
+   */
+  receiveMany(messages: unknown): void {
+    if (!Array.isArray(messages)) return;
+    for (const message of messages) {
+      try {
+        this.receive(message);
+      } catch (error) {
+        console.error(error);
+      }
+    }
+  }
+
   /** Host to page. Exposed for tests; the host calls it through `window.__cmuxPageReceive`. */
   receive(message: unknown): void {
     const envelope = message as Partial<Envelope> | null;
+    if (envelope?.t === "evs") {
+      // Decision 32: events the host held while the page was hidden, in send order.
+      const { events } = envelope as { events?: unknown };
+      if (Array.isArray(events)) for (const event of events) this.receive(event);
+      return;
+    }
     if (envelope?.t === "ev") {
-      const { sub, seq, data, opid } = envelope as {
+      const { sub, seq, data, opid, gap } = envelope as {
         sub: number;
         seq: number;
         data: unknown;
         opid?: unknown;
+        gap?: unknown;
       };
       const meta: PageEventMeta = typeof opid === "string" ? { opid } : {};
+      if (gap === true) meta.gap = true;
       const listener = this.listeners.get(sub);
       if (!listener) {
         this.hold(sub, { data, seq, meta });
@@ -347,6 +457,8 @@ export function createPageClient(fallback?: () => PageClient): PageClient | null
     const client = new BridgePageClient(handler);
     // The page's right-click menus are the app's native menus (ui/nativeMenu.ts).
     installNativeMenu((request) => client.call(NATIVE_MENU_OP, request));
+    // The refactor oracle's page state, in developer builds only (protocol/oracle-state.ts).
+    serveOracleState(client);
     return client;
   }
   return fallback ? fallback() : null;

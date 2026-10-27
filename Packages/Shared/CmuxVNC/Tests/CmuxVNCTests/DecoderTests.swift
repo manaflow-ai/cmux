@@ -1,13 +1,13 @@
+import CoreGraphics
 import Foundation
 import Testing
-import zlib
 @testable import CmuxVNC
 @testable import CmuxVNCDemoServer
 
-/// Feeds one rectangle body through the decoder from scripted bytes.
+/// Feeds one rectangle body through the decoder from scripted bytes, `chunk` bytes per receive.
 func decode(_ header: RFBRectangleHeader, body: [UInt8], into framebuffer: Framebuffer,
-            decoder: RFBRectangleDecoder = RFBRectangleDecoder()) async throws -> RFBRectangleEffect {
-    try await decoder.decode(header, reader: RFBReader(transport: ScriptedTransport(body, chunk: 5)), into: framebuffer)
+            decoder: RFBRectangleDecoder = RFBRectangleDecoder(), chunk: Int = 5) async throws -> RFBRectangleEffect {
+    try await decoder.decode(header, reader: RFBReader(transport: ScriptedTransport(body, chunk: chunk)), into: framebuffer)
 }
 
 func bgrx(_ pixel: UInt32) -> [UInt8] {
@@ -18,24 +18,9 @@ func cpixel(_ pixel: UInt32) -> [UInt8] {
     Array(bgrx(pixel).prefix(3))
 }
 
-/// zlib-compresses with a sync flush, as RFB servers do per rectangle.
+/// zlib-compresses with a sync flush, as RFB servers do per rectangle (a fresh stream).
 func zlibCompress(_ input: [UInt8]) -> [UInt8] {
-    var stream = z_stream()
-    deflateInit_(&stream, Z_DEFAULT_COMPRESSION, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
-    defer { deflateEnd(&stream) }
-    var source = input
-    var output = [UInt8](repeating: 0, count: input.count * 2 + 64)
-    let capacity = output.count
-    source.withUnsafeMutableBufferPointer { inBuffer in
-        output.withUnsafeMutableBufferPointer { outBuffer in
-            stream.next_in = inBuffer.baseAddress
-            stream.avail_in = uInt(inBuffer.count)
-            stream.next_out = outBuffer.baseAddress
-            stream.avail_out = uInt(capacity)
-            deflate(&stream, Z_SYNC_FLUSH)
-        }
-    }
-    return Array(output.prefix(capacity - Int(stream.avail_out)))
+    Deflater().deflate(input)
 }
 
 struct DecoderTests {
@@ -52,10 +37,58 @@ struct DecoderTests {
     @Test func copyRectOverlapping() async throws {
         let framebuffer = Framebuffer(width: 4, height: 1)
         var pixels: [UInt32] = [red, green, blue, 0xFF00_0000]
-        pixels.withUnsafeBufferPointer { framebuffer.blit(x: 0, y: 0, width: 4, height: 1, pixels: $0) }
+        framebuffer.blit(x: 0, y: 0, width: 4, height: 1, pixels: pixels[...])
         _ = try await decode(RFBRectangleHeader(x: 1, y: 0, width: 3, height: 1, encoding: 1), body: [0, 0, 0, 0], into: framebuffer)
         pixels = [red, red, green, blue]
         #expect(framebuffer.pixels == pixels)
+    }
+
+    /// Raw rows arrive as slices of the reader's buffer at a nonzero start: one receive
+    /// buffers the whole body, so row 2 is the slice 8..<16 (no compaction between rows).
+    /// The blit indexes from the slice's start, not from 0.
+    @Test func rawRowsFromBufferSlices() async throws {
+        let framebuffer = Framebuffer(width: 2, height: 2)
+        _ = try await decode(RFBRectangleHeader(x: 0, y: 0, width: 2, height: 2, encoding: 0),
+                             body: bgrx(red) + bgrx(green) + bgrx(blue) + bgrx(red), into: framebuffer, chunk: 64)
+        #expect(framebuffer.pixels == [red, green, blue, red])
+    }
+
+    /// A Hextile raw tile follows its one-byte subencoding mask, so its pixels are the
+    /// slice 1..<9 of the reader's buffer (one receive, no compaction).
+    @Test func hextileRawTileFromBufferSlice() async throws {
+        let framebuffer = Framebuffer(width: 2, height: 1)
+        _ = try await decode(RFBRectangleHeader(x: 0, y: 0, width: 2, height: 1, encoding: 5),
+                             body: [UInt8(1)] + bgrx(green) + bgrx(blue), into: framebuffer, chunk: 64)
+        #expect(framebuffer.pixels == [green, blue])
+    }
+
+    /// CopyRect moving left inside one row, and down over its own rows: no word is read
+    /// after the copy overwrote it.
+    @Test func copyRectOverlappingLeftAndDown() async throws {
+        let black: UInt32 = 0xFF00_0000
+        let row = Framebuffer(width: 4, height: 1)
+        row.blit(x: 0, y: 0, width: 4, height: 1, pixels: [black, red, green, blue][...])
+        _ = try await decode(RFBRectangleHeader(x: 0, y: 0, width: 3, height: 1, encoding: 1), body: [0, 1, 0, 0], into: row)
+        #expect(row.pixels == [red, green, blue, blue])
+
+        let column = Framebuffer(width: 1, height: 3)
+        column.blit(x: 0, y: 0, width: 1, height: 3, pixels: [red, green, black][...])
+        _ = try await decode(RFBRectangleHeader(x: 0, y: 1, width: 1, height: 2, encoding: 1), body: [0, 0, 0, 0], into: column)
+        #expect(column.pixels == [red, red, green])
+    }
+
+    /// A blit source shorter than the rectangle draws nothing (the guard, not a read past it).
+    @Test func shortBlitSourceIsIgnored() {
+        let framebuffer = Framebuffer(width: 2, height: 1)
+        framebuffer.blit(x: 0, y: 0, width: 2, height: 1, pixels: [red][...])
+        #expect(framebuffer.pixels == [0xFF00_0000, 0xFF00_0000])
+    }
+
+    /// The cursor image carries its words as little-endian B G R A bytes.
+    @Test func cursorImageBytes() throws {
+        let image = try #require(VNCCursor(width: 2, height: 1, hotspotX: 0, hotspotY: 0, pixels: [red, 0x8000_00FF]).makeImage())
+        let bytes = try #require(image.dataProvider?.data as Data?)
+        #expect([UInt8](bytes) == [0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x80])
     }
 
     @Test func hextileBackgroundAndSubrects() async throws {
@@ -113,7 +146,7 @@ struct DecoderTests {
 
     @Test func desktopSizeKeepsOverlap() async throws {
         let framebuffer = Framebuffer(width: 2, height: 1)
-        [red, blue].withUnsafeBufferPointer { framebuffer.blit(x: 0, y: 0, width: 2, height: 1, pixels: $0) }
+        framebuffer.blit(x: 0, y: 0, width: 2, height: 1, pixels: [red, blue][...])
         let effect = try await decode(RFBRectangleHeader(x: 0, y: 0, width: 3, height: 2, encoding: -223), body: [], into: framebuffer)
         #expect(effect == .resized)
         #expect(framebuffer.width == 3 && framebuffer.height == 2)

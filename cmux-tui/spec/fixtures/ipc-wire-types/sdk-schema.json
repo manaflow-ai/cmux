@@ -1,0 +1,96 @@
+{
+  "$comment": "Wire-type fixture (p05-ipc-020): the shapes CmuxNextWireGen's TypeEmitter writes, read by CmuxNextWireGenTests TypeEmitterTests and compared with TypeEmitterGolden. tab-read's result makes Tab, TabState, DeviceKind, Node and Entry decoded (extensible); SendMode and Bundle only reach requests (closed); FlashStyle reaches a request and the tab-flashed event, so it is decoded too. FlashOrigin only an event reaches: it is read but not written. cli-dump has no macos client, so CLIOnly is never written.",
+  "families": {
+    "tabs": { "id": 7, "description": "Tabs." },
+    "tab-events": { "id": 194, "description": "Tab events." }
+  },
+  "types": {
+    "Id": { "kind": "alias", "target": { "kind": "scalar", "name": "uint64" } },
+    "ColorHex": { "kind": "alias", "target": { "kind": "scalar", "name": "string" } },
+    "JsonValue": { "kind": "opaque_json", "reason": "Frontend-authored." },
+    "TabState": { "kind": "enum", "values": ["idle", "busy-wait", "unknown"] },
+    "DeviceKind": { "kind": "enum", "values": ["mac", "unknown"], "fallback": "unknown" },
+    "SendMode": { "kind": "enum", "values": ["paste", "default"] },
+    "FlashStyle": { "kind": "enum", "values": ["pulse", "glow"] },
+    "FlashOrigin": { "kind": "object", "additional_properties": false, "fields": {
+      "pane": { "type": { "kind": "ref", "name": "Id" }, "presence": "required", "nullable": false } } },
+    "Tab": {
+      "kind": "object",
+      "additional_properties": false,
+      "fields": {
+        "surface": { "type": { "kind": "ref", "name": "Id" }, "presence": "required", "nullable": false },
+        "kind": { "type": { "kind": "literal", "value": "tab" }, "presence": "required", "nullable": false },
+        "title": { "type": { "kind": "scalar", "name": "string" }, "presence": "required", "nullable": true,
+                   "description": "Shown in the tab." },
+        "pinned": { "type": { "kind": "scalar", "name": "boolean" }, "presence": "optional", "nullable": false, "default": false },
+        "state": { "type": { "kind": "ref", "name": "TabState" }, "presence": "optional", "nullable": true, "default": "idle" },
+        "protocol": { "type": { "kind": "scalar", "name": "uint32" }, "presence": "optional", "nullable": true, "default": null },
+        "terminal_id": { "type": { "kind": "scalar", "name": "string" }, "presence": "optional", "nullable": false,
+                         "omit_nil": true, "aliases": ["terminal"] }
+      }
+    },
+    "Node": {
+      "kind": "tagged_union",
+      "tag": "type",
+      "variants": {
+        "leaf": { "kind": "object", "additional_properties": false, "fields": {
+          "type": { "type": { "kind": "literal", "value": "leaf" }, "presence": "required", "nullable": false },
+          "pane": { "type": { "kind": "ref", "name": "Id" }, "presence": "required", "nullable": false } } },
+        "split": { "kind": "object", "additional_properties": false, "fields": {
+          "type": { "type": { "kind": "literal", "value": "split" }, "presence": "required", "nullable": false },
+          "a": { "type": { "kind": "ref", "name": "Node" }, "presence": "required", "nullable": false },
+          "b": { "type": { "kind": "ref", "name": "Node" }, "presence": "required", "nullable": false } } }
+      }
+    },
+    "Entry": { "kind": "untagged_union", "variants": [ { "kind": "ref", "name": "LiveEntry" }, { "kind": "ref", "name": "DeadEntry" } ] },
+    "LiveEntry": { "kind": "object", "additional_properties": false, "fields": {
+      "name": { "type": { "kind": "scalar", "name": "string" }, "presence": "required", "nullable": false } } },
+    "DeadEntry": { "kind": "object", "additional_properties": false, "fields": {
+      "dead": { "type": { "kind": "literal", "value": true }, "presence": "required", "nullable": false } } },
+    "Bundle": {
+      "kind": "object",
+      "additional_properties": false,
+      "fields": {
+        "items": { "type": { "kind": "array", "items": { "kind": "object", "additional_properties": false, "fields": {
+          "mode": { "type": { "kind": "enum", "values": ["coarse", "fine"] }, "presence": "optional", "nullable": false, "default": "coarse" } } } },
+          "presence": "required", "nullable": false },
+        "labels": { "type": { "kind": "map", "values": { "kind": "ref", "name": "ColorHex" } }, "presence": "optional", "nullable": false, "default": {} },
+        "panes": { "type": { "kind": "array", "items": { "kind": "ref", "name": "Id" } }, "presence": "required", "nullable": false },
+        "raw": { "type": { "kind": "ref", "name": "JsonValue" }, "presence": "optional", "nullable": true, "default": null }
+      }
+    },
+    "CLIOnly": { "kind": "object", "additional_properties": false, "fields": {} }
+  },
+  "commands": {
+    "tab-read": {
+      "method_id": 1792, "clients": ["macos"],
+      "request": { "kind": "object", "additional_properties": false, "fields": {
+        "mode": { "type": { "kind": "ref", "name": "SendMode" }, "presence": "required", "nullable": false } } },
+      "result": { "kind": "object", "additional_properties": false, "fields": {
+        "tab": { "type": { "kind": "ref", "name": "Tab" }, "presence": "required", "nullable": false },
+        "device": { "type": { "kind": "ref", "name": "DeviceKind" }, "presence": "required", "nullable": false },
+        "tree": { "type": { "kind": "ref", "name": "Node" }, "presence": "required", "nullable": false },
+        "entry": { "type": { "kind": "ref", "name": "Entry" }, "presence": "required", "nullable": false } } }
+    },
+    "tab-write": {
+      "method_id": 1793,
+      "request": { "kind": "object", "additional_properties": false, "fields": {
+        "bundle": { "type": { "kind": "ref", "name": "Bundle" }, "presence": "required", "nullable": false },
+        "flash": { "type": { "kind": "ref", "name": "FlashStyle" }, "presence": "optional", "nullable": true } } },
+      "result": { "kind": "object", "additional_properties": false, "fields": {} }
+    },
+    "cli-dump": {
+      "method_id": 1794, "clients": ["cli"],
+      "request": { "kind": "object", "additional_properties": false, "fields": {} },
+      "result": { "kind": "ref", "name": "CLIOnly" }
+    }
+  },
+  "events": {
+    "tab-flashed": {
+      "event_id": 49664,
+      "payload": { "kind": "object", "additional_properties": false, "fields": {
+        "style": { "type": { "kind": "ref", "name": "FlashStyle" }, "presence": "required", "nullable": false },
+        "origin": { "type": { "kind": "ref", "name": "FlashOrigin" }, "presence": "required", "nullable": false } } }
+    }
+  }
+}

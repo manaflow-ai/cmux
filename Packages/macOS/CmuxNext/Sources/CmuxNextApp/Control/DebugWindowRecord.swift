@@ -4,11 +4,9 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextWakeups
-import ImageIO
-import UniformTypeIdentifiers
 
 /// DEBUG ONLY. `debug.window_record` {dir, seconds (at most 12), window?}:
-/// the window as the window server composited it (`compositedSnapshot`,
+/// the window as the window server composited it (`compositedImage`,
 /// as `debug.window_snapshot`, plus the app's panels over it that are not
 /// its children, such as the palette opened with no key window), once per display frame of its screen (a
 /// FrameClient of the window's FrameScheduler, 120 Hz on ProMotion), as JPEG frames
@@ -45,21 +43,18 @@ enum DebugWindowRecord {
     @MainActor
     private final class Recorder {
         let window: NSWindow
-        let dir: URL
         let seconds: Double
         let done: () -> Void
         private var client: FrameClient?
         private var start0: CFTimeInterval?
-        private var times: [Double] = []
-        private let encoder = DispatchQueue(label: "debug.window_record", qos: .userInitiated)
-        /// Per-frame brightness, touched only on `encoder`.
-        private let brightness = Brightness()
+        /// The frames: captured, measured and written off the main thread.
+        private let frames: WindowRecording
 
         init(window: NSWindow, dir: URL, seconds: Double, done: @escaping () -> Void) {
             self.window = window
-            self.dir = dir
             self.seconds = seconds
             self.done = done
+            frames = WindowRecording(dir: dir)
         }
 
         func start() {
@@ -70,28 +65,14 @@ enum DebugWindowRecord {
             client.activate()
         }
 
-        /// One frame; false once the recording is over.
+        /// One frame; false once the recording is over. Main reads only the window numbers and the frame:
+        /// the capture waits for the window server, so it runs on the recording's queue.
         private func tick(_ tick: FrameTick) -> Bool {
             let now = tick.timestamp
             let t0 = start0 ?? now
             start0 = t0
             guard now - t0 <= seconds else { finish(); return false }
-            guard let image = window.compositedSnapshot(adding: overlayPanels()) else { return true }
-            let index = times.count
-            times.append(now - t0)
-            let url = dir.appendingPathComponent(String(format: "frame-%05d.jpg", index))
-            let brightness = brightness
-            encoder.async {
-                // Off the main thread, beside the encode: this is a frame of a
-                // recording other scenarios read for motion proof, so the
-                // display-link tick must not grow by a resample per frame. The
-                // queue is serial, so the two arrays stay in frame order and
-                // `finish`, queued last, sees all of them.
-                brightness.measure(image)
-                guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return }
-                CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
-                CGImageDestinationFinalize(dest)
-            }
+            if let plan = window.compositedCapturePlan(adding: overlayPanels()) { frames.record(plan, at: now - t0) }
             return true
         }
 
@@ -107,67 +88,8 @@ enum DebugWindowRecord {
 
         /// The client goes idle when `tick` returns false.
         private func finish() {
-            let index = dir.appendingPathComponent("frames.json")
-            let times = self.times
-            let brightness = brightness
-            encoder.async {
-                let series = brightness.series
-                let frames: [String: [Double]] = ["times": times, "luminance": series.means, "peak": series.peaks]
-                if let data = try? JSONSerialization.data(withJSONObject: frames) { try? data.write(to: index) }
-            }
+            frames.finish()
             done()
-        }
-    }
-
-    /// Each frame's brightness, in frame order. The recorder's `encoder` queue
-    /// is serial, so the order is the frames' order.
-    private final class Brightness: Sendable {
-        nonisolated struct Series: Sendable {
-            var means: [Double] = []
-            var peaks: [Double] = []
-        }
-
-        private let samples = Mutex(Series())
-
-        /// What every frame measured so far, in frame order.
-        /// Nonisolated, like every member here: the module's default isolation
-        /// is MainActor, and the encoder queue is the only caller.
-        nonisolated var series: Series { samples.withLock { $0 } }
-
-        nonisolated func measure(_ image: CGImage) {
-            let reading = Self.brightness(of: image)
-            samples.withLock {
-                $0.means.append(reading.mean)
-                $0.peaks.append(reading.peak)
-            }
-        }
-
-        /// How bright `image` is: `mean`, its mean Rec. 709 luminance, and
-        /// `peak`, the brightest of its 64 cells, so a white flash over part
-        /// of the window shows even when the mean stays low. Core Graphics
-        /// resamples the frame down to 8x8, which averages every pixel into a
-        /// cell. Both are 0...1, and 0 when the draw fails.
-        nonisolated static func brightness(of image: CGImage) -> (mean: Double, peak: Double) {
-            let side = 8
-            var pixels = [UInt8](repeating: 0, count: side * side * 4)
-            guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return (0, 0) }
-            let drawn = pixels.withUnsafeMutableBytes { bytes -> Bool in
-                guard let context = CGContext(data: bytes.baseAddress, width: side, height: side, bitsPerComponent: 8,
-                                              bytesPerRow: side * 4, space: space,
-                                              bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return false }
-                context.interpolationQuality = .high
-                context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
-                return true
-            }
-            guard drawn else { return (0, 0) }
-            var total = 0.0, peak = 0.0
-            for cell in 0..<(side * side) {
-                func channel(_ offset: Int) -> Double { Double(pixels[cell * 4 + offset]) / 255 }
-                let luminance = 0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2)
-                total += luminance
-                peak = max(peak, luminance)
-            }
-            return (total / Double(side * side), peak)
         }
     }
 }

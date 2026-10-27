@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 public import Foundation
+import CmuxNextHibernation
 
 /// What a native confirmation sheet asks before a page call that grants or removes something
 /// (install, uninstall, update, grant; delete, billing, firewall, publication for other pages).
@@ -117,6 +118,10 @@ public final class DialogPageConfirmationPresenter: PageConfirmationPresenter {
 
     public func confirm(_ confirmation: PageConfirmation, anchor: NSView?) async -> Bool {
         let scope: CmuxDialogScope = anchor?.window.map { .window($0) } ?? .app
+        // The sheet waits on the person: the page it asks for keeps its `confirmation` reason.
+        let page = anchor.flatMap { sequence(first: $0, next: \.superview).lazy.compactMap { $0 as? PageWebView }.first }
+        page?.keepReasons.begin(.confirmation)
+        defer { page?.keepReasons.end(.confirmation) }
         return await center.present(Self.spec(confirmation), in: scope).button == "confirm"
     }
 }

@@ -17,8 +17,7 @@ public final class MobileAutoConnectMigrationStore {
     /// The versioned resolution key for the Mac compatibility introduction.
     public static let resolutionKey = "dev.cmux.mobile.autoConnectIntroduction.v2"
 
-    // UserDefaults is Apple-documented thread-safe; OK to hold nonisolated.
-    private nonisolated(unsafe) let defaults: UserDefaults
+    private let defaults: UserDefaults
 
     /// The immutable eligibility snapshot or its later acknowledgement.
     public private(set) var resolution: MobileAutoConnectMigrationResolution

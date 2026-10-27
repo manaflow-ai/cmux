@@ -58,6 +58,7 @@ final class FileExplorerModel {
         watched = folders
         watching?.cancel()
         let changes = watcher.changes(under: folders)
+        // main-hop-allow: each burst of changes relists through the model's main-actor async reload, whose listing and git run off main
         watching = Task { [weak self] in
             for await _ in changes {
                 guard let self else { return }

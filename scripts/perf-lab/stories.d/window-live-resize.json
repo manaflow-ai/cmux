@@ -1,0 +1,18 @@
+{
+  "id": "window-live-resize",
+  "tier": "T1",
+  "description": "Window live resize (resize-frames-live.py): the bottom-right corner dragged one debug.mouse event per 120 Hz frame, out by 300 x 150 points and back twice, over the sidebar, a terminal and a New Tab page (a web view) side by side; display-frame intervals, main-thread busy ms per frame, each drag event's round trip, missed vsyncs and the rounds that did not resize, light session.",
+  "command": ["scripts/cmux-next/resize-frames-live.py", "--story", "window-live-resize"],
+  "session": "light",
+  "engine": "webkit",
+  "config": "bench",
+  "metrics": [
+    {"name": "window_resize\\.(frame_interval|main_busy|event_rpc)", "unit": "ms", "better": "lower"},
+    {"name": "window_resize\\.(missed|not_resized)", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 90,
+  "needs": ["debug:debug.focus", "debug:debug.layers", "debug:debug.mouse", "debug:debug.frames"],
+  "owner": "PL-motion-core",
+  "component": "Layout>Resize"
+}

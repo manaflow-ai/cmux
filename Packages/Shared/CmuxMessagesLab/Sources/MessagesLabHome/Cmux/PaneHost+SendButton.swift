@@ -10,12 +10,10 @@ extension ChatController {
         let compose = demo.compose
         let slot = ComposeSendSlot(field: compose.fieldRect, text: compose.text, attachments: compose.attachmentCount)
         let button = host.sendButton
-        if button.frame != slot.frame {
-            button.frame = slot.frame
-            button.window?.invalidateCursorRects(for: button)
-        }
+        // A layer move; the controls view's cursor, tool tip and hover rects follow (ComposeChromeView).
+        button.frame = slot.frame
         button.setLight(Fixture.lightAppearance)
-        let animate = animated && button.window != nil && !MessagesLabHomeView.reducesMotion
+        let animate = animated && host.composeChrome.window != nil && !MessagesLabHomeView.reducesMotion
         // cmux: while dictating the finish and mic buttons stand there instead.
         button.set(shown: slot.shown && !voice.isActive, enabled: slot.enabled, animated: animate)
         placeVoiceControls()

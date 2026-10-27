@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextTerminal
+import CmuxNextWakeups
 import IOSurface
 import Testing
 
@@ -59,13 +60,14 @@ import Testing
     @Test(arguments: Resync.allCases)
     func aRevealedTerminalShowsItsContentFromTheFirstFrame(_ resync: Resync) async throws {
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
         // The runner's window may report itself occluded (an app never in front): draw anyway, as
         // automation launches do. Hidden and suspended surfaces still pause.
         let drew = WindowDrawPolicy.drawsWhenOccluded
         WindowDrawPolicy.drawsWhenOccluded = true
         defer { WindowDrawPolicy.drawsWhenOccluded = drew }
         let io = ScriptedTerminalIO()
-        let session = TerminalSession(io: io)
+        let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         try #require(session.surfaceView.surface != nil, "libghostty created no surface")
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 480, height: 240), styleMask: [.borderless],
                               backing: .buffered, defer: false)

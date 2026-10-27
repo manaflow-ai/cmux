@@ -11,6 +11,7 @@
 //! swapped for a symlink between the look and the open fails the open
 //! (`ELOOP`/`ENOTDIR`), so there is no check-then-use window.
 
+use cmux_threads::checked::fs as files;
 use std::collections::VecDeque;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::path::{Path, PathBuf};
@@ -61,7 +62,7 @@ impl Roots {
     pub fn new(paths: impl IntoIterator<Item = PathBuf>) -> Self {
         let mut roots: Vec<Root> = Vec::new();
         for path in paths {
-            let Ok(canonical) = std::fs::canonicalize(&path) else { continue };
+            let Ok(canonical) = files::canonicalize(&path) else { continue };
             // The file system root is never served (a daemon with HOME=/).
             if !canonical.is_dir() || canonical.parent().is_none() {
                 continue;

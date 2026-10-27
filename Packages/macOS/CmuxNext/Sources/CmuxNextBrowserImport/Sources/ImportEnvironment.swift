@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxNextCompat
 
 /// What detection needs from the system: a home directory (a fixture folder
 /// in tests and test launches) and a way to find installed apps.
@@ -43,11 +44,14 @@ public struct ImportEnvironment: Sendable {
 
     /// The real home, or the fixture home from the environment (DEBUG
     /// builds). With a fixture home, apps are not looked up, so the result
-    /// does not depend on what this Mac has installed.
+    /// does not depend on what this Mac has installed. By default apps are
+    /// found through Launch Services' checked seam
+    /// (`WorkspaceQuerying.application(withBundleIdentifier:)`): detection
+    /// runs off the main thread.
     public static func live(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         allowsFixtures: Bool = fixturesAllowed,
-        locateApp: @escaping @Sendable (String) -> URL?
+        locateApp: @escaping @Sendable (String) -> URL? = { SystemWorkspaceQuerying().application(withBundleIdentifier: $0) }
     ) -> ImportEnvironment {
         if allowsFixtures, let fixture = environment[fixtureHomeKey], !fixture.isEmpty {
             return ImportEnvironment(homeDirectory: URL(fileURLWithPath: fixture, isDirectory: true), locateApp: { _ in nil })
@@ -81,7 +85,8 @@ public enum FileAccess: Sendable, Equatable {
     /// read. `access(2)` is not enough: it reports success for files that
     /// privacy protection (TCC) still blocks.
     public static func probe(_ url: URL) -> FileAccess {
-        let fd = open(url.path, O_RDONLY)
+        // SAFETY: the path is a NUL-terminated copy Swift keeps alive for the call; open only reads it.
+        let fd = unsafe open(url.path, O_RDONLY)
         if fd >= 0 {
             close(fd)
             return .readable

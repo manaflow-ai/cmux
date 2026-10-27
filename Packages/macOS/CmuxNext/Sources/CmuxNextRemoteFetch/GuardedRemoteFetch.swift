@@ -1,4 +1,8 @@
 public import Foundation
+import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// A host fetch for page content whose URL is untrusted (markdown remote images; agent pane reply
 /// images and media). Every hop: https only, no URL credentials, no `localhost`, `.local` or
@@ -37,7 +41,7 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
     /// (``isListed(_:in:)``); a hop anywhere else fails the fetch before it connects.
     public var hosts: Set<String>?
 
-    public init(maximumBytes: Int, timeout: Duration, accept: String, resolver: any RemoteAddressResolving = SystemRemoteResolver(),
+    public init(maximumBytes: Int, timeout: Duration, accept: String, resolver: any RemoteAddressResolving,
                 transport: any RemoteFetchTransport = PinnedTLSTransport(), clock: any Clock<Duration> = ContinuousClock()) {
         self.maximumBytes = maximumBytes
         self.timeout = timeout
@@ -82,17 +86,20 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
         let clock = clock
         let timeout = timeout
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            // A race dropped without an answer is a failed fetch.
+            (try? await withOnceContinuation {
+                (continuation: OnceContinuation<Result<RemoteFetchResponse, RemoteFetchFailure>, OnceContinuationError>) in
                 race.arm(continuation)
                 // task-owner: the fetch; the race resumes the caller with whichever ends first
                 let work = Task { race.finish(await follow(url)) }
                 // task-owner: the deadline; it cancels the fetch when it fires first
                 let deadline = Task {
-                    do { try await clock.sleep(for: timeout) } catch { return } // wakeup-allow: bounded remote fetch deadline
+                    // wakeup-allow: deadline of one remote fetch: one side of the fetch's race (`race` owns both tasks), not a DemandTimer
+                    do { try await clock.sleep(for: timeout, tolerance: WakeLeeway.window(delay: timeout).tolerance) } catch { return }
                     race.finish(.failure(.failed))
                 }
                 race.own(work, deadline)
-            }
+            }) ?? .failure(.failed)
         } onCancel: {
             race.finish(.failure(.failed))
         }

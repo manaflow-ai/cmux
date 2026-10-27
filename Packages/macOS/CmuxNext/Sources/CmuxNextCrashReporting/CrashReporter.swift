@@ -1,3 +1,4 @@
+public import CmuxNextTrace
 public import CmuxSentryReporting
 public import Darwin
 public import Foundation
@@ -18,7 +19,26 @@ import CmuxNextCompat
 /// them after its report. Chromium resets every signal action at its start;
 /// call ``reassertSignalHandlers()`` after the run marker installs its
 /// handlers again.
+///
+/// Start cost (p08-startup-032). `SentrySDK.start` on main installs every
+/// integration in that call; the SDK (sentry-cocoa 9.28) has no public API
+/// to install one later. Session tracking already does its file I/O on the
+/// SDK's own queue, and network breadcrumbs stay on for the whole run. So
+/// ``StartProfile/handlersFirst`` changes no option: it only pauses app-hang
+/// reports until ``resumeAfterStartup()``. The app's `crash.sentry_start`
+/// and `crash.sentry_started` launch marks bound the call
+/// (`LaunchSignposts.Interval.sentryStart`).
 public final class CrashReporter: Sendable {
+    /// What `SentrySDK.start` turns on at launch.
+    public nonisolated enum StartProfile: Sendable, Equatable {
+        /// Every integration the options allow, reporting from the start.
+        case standard
+        /// The same integrations, but app-hang reports wait for startup (feature `sentryHandlersFirst`):
+        /// paused until ``CrashReporter/resumeAfterStartup()``; the main-thread watchdog reports launch
+        /// hangs. Crash capture, sessions and breadcrumbs are as in ``standard``.
+        case handlersFirst
+    }
+
     /// The DSN of the macOS app's Sentry project (`manaflow/cmuxterm-macos`),
     /// as in the main app; cmux-next events are told apart by
     /// ``CrashEventLabels``.
@@ -72,22 +92,33 @@ public final class CrashReporter: Sendable {
 
     /// Starts Sentry when the policy allows it. Call once, on the main
     /// thread, after the run marker's handlers are installed.
+    /// - Parameter profile: With ``StartProfile/handlersFirst``, call
+    ///   ``resumeAfterStartup()`` once startup completes.
     /// - Returns: whether Sentry started.
     @discardableResult
-    public func start() -> Bool {
+    public func start(profile: StartProfile = .standard) -> Bool {
         guard policy.shouldStart, !isStarted else { return false }
         // The main app's startup race (#836): Sentry's init thread reads the
         // environment while the main thread first builds the locale.
         _ = Locale.current
         _ = NSLocale.preferredLanguages
         let appOwned = SignalActions(capturing: Self.appOwnedSignals)
-        TaskExceptionPorts.captureBeforeSentry()
+        let exceptionPorts = TaskExceptionPorts.captureBeforeSentry()
         SentrySDK.start(options: options())
-        TaskExceptionPorts.noteSentryStarted()
+        if profile == .handlersFirst { SentrySDK.pauseAppHangTracking() }
+        TaskExceptionPorts.noteSentryStarted(exceptionPorts)
         appOwned.restore()
         let handlers = SignalActions(capturing: Self.fatalSignals)
         sentryHandlers.withLock { $0 = handlers }
         return true
+    }
+
+    /// The part of a ``StartProfile/handlersFirst`` start that waits for
+    /// startup: app-hang reports resume. Call once, on main, after startup
+    /// completes; does nothing while Sentry is off.
+    public func resumeAfterStartup() {
+        guard isStarted else { return }
+        SentrySDK.resumeAppHangTracking()
     }
 
     /// Puts Sentry's fatal-signal handlers back after something reset them
@@ -124,6 +155,8 @@ public final class CrashReporter: Sendable {
     /// A crash has begun: the process ends within ``CrashDeadline/seconds``
     /// even if the crash path blocks, and within ``CrashWatcher/defaultSeconds``
     /// even if every thread of the app is suspended. Async-signal-safe.
+    /// Each crash path then writes its own record, then the crash keys
+    /// (``recordCrashKeys()``).
     public static func beginCrashDeadline() {
         CrashDeadline.arm()
         CrashWatcher.arm()
@@ -136,10 +169,12 @@ public final class CrashReporter: Sendable {
     /// ``CrashWatcher`` can end the process.
     public static func blockWithDeadlineSuspended() -> Never {
         beginCrashDeadline()
+        recordCrashKeys()
         CrashDeadline.suspendThread()
         // A semaphore nothing signals: the blocked crash path the watcher must end.
         var never = semaphore_t(0)
-        _ = semaphore_create(mach_task_self_, &never, SYNC_POLICY_FIFO, 0)
+        // SAFETY: semaphore_create writes one semaphore name into `never`, a local live for the call.
+        _ = unsafe semaphore_create(mach_task_self_, &never, SYNC_POLICY_FIFO, 0)
         // concurrency-allow: crash-gate debug verb; blocking forever is the crash it simulates.
         _ = semaphore_wait(never)
         abort()
@@ -162,6 +197,7 @@ public final class CrashReporter: Sendable {
                                        record: (NSException) -> Void, report: () -> Void) {
         if crashes { beginCrashDeadline() }
         record(exception)
+        if crashes { recordCrashKeys() }
         reportingSurvivableException.store(!crashes, ordering: .releasing)
         defer { reportingSurvivableException.store(false, ordering: .releasing) }
         report()
@@ -171,8 +207,10 @@ public final class CrashReporter: Sendable {
     /// crash has begun, unless Sentry's reportException: hook calls it for
     /// an exception AppKit survives. Then `record`.
     public static func uncaughtException(_ exception: NSException, then record: (NSException) -> Void) {
-        if !(Thread.isMainThread && reportingSurvivableException.load(ordering: .acquiring)) { beginCrashDeadline() }
+        let crashes = !(Thread.isMainThread && reportingSurvivableException.load(ordering: .acquiring))
+        if crashes { beginCrashDeadline() }
         record(exception)
+        if crashes { recordCrashKeys() }
     }
 
     /// `debug.crash.app {"signal": "frozen"}`: starts the crash path, then
@@ -181,9 +219,12 @@ public final class CrashReporter: Sendable {
     /// 2026-10-20 freezes); only the crash deadline ends it.
     public func freezeNextTrap() {
         Self.beginCrashDeadline()
+        // The frozen trap never reaches a signal handler: the keys go now.
+        Self.recordCrashKeys()
         let task = mach_task_self_
         var port = mach_port_t(0)
-        guard mach_port_allocate(task, MACH_PORT_RIGHT_RECEIVE, &port) == KERN_SUCCESS,
+        // SAFETY: mach_port_allocate writes one port name into `port`, a local live for the call.
+        guard unsafe mach_port_allocate(task, MACH_PORT_RIGHT_RECEIVE, &port) == KERN_SUCCESS,
               mach_port_insert_right(task, port, port, mach_msg_type_name_t(MACH_MSG_TYPE_MAKE_SEND)) == KERN_SUCCESS else { return }
         _ = task_set_exception_ports(task, exception_mask_t(EXC_MASK_BREAKPOINT), port,
                                      exception_behavior_t(EXCEPTION_DEFAULT), thread_state_flavor_t(THREAD_STATE_NONE))
@@ -220,6 +261,16 @@ public final class CrashReporter: Sendable {
         event.tags = tags
         event.extra = extra
         SentrySDK.capture(event: event)
+    }
+
+    /// The previous run's black box as the crash event's `blackbox.txt` (p09-observability-128): nil without
+    /// the hang-reports opt-in, and never a key-timing, per-key PTY or flow record (``TraceBlackBoxUpload``).
+    /// The caller passes it through the scrubber like every other attachment.
+    public func blackboxAttachment(_ records: [TraceBlackBoxUpload.Record], hangReportsOptIn: Bool) -> Attachment? {
+        guard let text = TraceBlackBoxUpload().crashAttachmentText(records, hangReportsOptIn: hangReportsOptIn) else {
+            return nil
+        }
+        return Attachment(data: Data(text.utf8), filename: "blackbox.txt", contentType: "text/plain")
     }
 
     /// Tags the current scope so a crash this process causes on purpose

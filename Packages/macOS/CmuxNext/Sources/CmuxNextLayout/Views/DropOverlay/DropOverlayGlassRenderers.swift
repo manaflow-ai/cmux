@@ -14,16 +14,9 @@ final class GlassFillRenderer: DropOverlayRenderer {
     init(style: DropOverlayStyle, material: OverlayMaterial?) {
         self.style = style
         surface = OverlaySurfaceView(material: material)
-        let content = surface.contentView
         label.font = Typography.bodyEmphasized
         label.alignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(label)
-        NSLayoutConstraint.activate([
-            label.centerXAnchor.constraint(equalTo: content.centerXAnchor),
-            label.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-            label.leadingAnchor.constraint(greaterThanOrEqualTo: content.leadingAnchor, constant: Metrics.space3),
-        ])
+        surface.contentView.addSubview(label)
         view.addSubview(surface)
     }
 
@@ -36,6 +29,9 @@ final class GlassFillRenderer: DropOverlayRenderer {
         label.font = Typography.bodyEmphasized
         if label.stringValue != frame.label { label.stringValue = frame.label }
         label.isHidden = !frame.showsLabel || frame.label.isEmpty || frame.finalTarget.width < CGFloat(DropOverlayTunables.labelMinWidth.value)
+        // Centered in the glass, at least `space3` from its sides.
+        DropOverlayRenderers.placeRow([label], flexible: label, insets: ChipLayout.Insets(horizontal: Metrics.space3, vertical: 0),
+                                      in: CGRect(origin: .zero, size: frame.target.size), centered: true, direction: view.userInterfaceLayoutDirection)
     }
 
     func applyTheme() {
@@ -98,19 +94,10 @@ final class InsetCardRenderer: DropOverlayRenderer {
     init(material: OverlayMaterial?) {
         card = OverlaySurfaceView(material: material)
         view.layer?.addSublayer(tint)
-        let stack = NSStackView(views: [icon, label])
-        stack.orientation = .horizontal
-        stack.spacing = Metrics.space3
-        stack.translatesAutoresizingMaskIntoConstraints = false
         label.font = Typography.bodyEmphasized
         label.lineBreakMode = .byTruncatingTail
-        let content = card.contentView
-        content.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.centerXAnchor.constraint(equalTo: content.centerXAnchor),
-            stack.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-            stack.leadingAnchor.constraint(greaterThanOrEqualTo: content.leadingAnchor, constant: Metrics.space4),
-        ])
+        card.contentView.addSubview(icon)
+        card.contentView.addSubview(label)
         view.addSubview(card)
     }
 
@@ -134,6 +121,10 @@ final class InsetCardRenderer: DropOverlayRenderer {
         label.font = Typography.bodyEmphasized
         if label.stringValue != frame.label { label.stringValue = frame.label }
         label.isHidden = !frame.showsLabel || frame.label.isEmpty || rect.width < CGFloat(DropOverlayTunables.labelMinWidth.value)
+        // The glyph then the label, centered in the card, at least `space4` from its sides.
+        DropOverlayRenderers.placeRow([icon, label], flexible: label, spacing: Metrics.space3,
+                                      insets: ChipLayout.Insets(horizontal: Metrics.space4, vertical: 0),
+                                      in: CGRect(origin: .zero, size: rect.size), centered: true, direction: view.userInterfaceLayoutDirection)
     }
 
     func applyTheme() {

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Chromium's password save and update prompts (fork API 20, passwords.md
@@ -19,7 +20,7 @@ struct CEFPasswordPrompts {
     let tab: CEFTab
 
     func arrived(promptID: Int32, json: String) {
-        guard let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+        guard let object = try? JSONSerialization.blockingJSONObject(with: Data(json.utf8)) as? [String: Any],
               let kind = object["kind"] as? String else { return }
         let runtime = tab.runtime
         guard kind == "save" || kind == "update" else {

@@ -1,5 +1,4 @@
 public import Foundation
-@preconcurrency public import Sparkle
 
 /// Error classification and presentation for the update flow.
 ///
@@ -49,7 +48,7 @@ extension UpdateStateModel {
         if isUpdaterAgentConnectionFailure(nsError) {
             return String(localized: "update.error.installerAgent.title", defaultValue: "Couldn’t Start Updater")
         }
-        if nsError.domain == SUSparkleErrorDomain {
+        if nsError.domain == UpdateStateModel.sparkleErrorDomain {
             switch nsError.code {
             case 4005:
                 return String(localized: "update.error.permissionError.title", defaultValue: "Updater Permission Error")
@@ -110,7 +109,7 @@ extension UpdateStateModel {
                 defaultValue: "macOS didn’t start cmux’s updater helper in time. Security software can delay it. Retry once; if it still fails, restart your Mac or download and install the latest version below."
             )
         }
-        if nsError.domain == SUSparkleErrorDomain {
+        if nsError.domain == UpdateStateModel.sparkleErrorDomain {
             switch nsError.code {
             case 2001:
                 return String(localized: "update.error.feedDownload.message", defaultValue: "cmux couldn't download the update feed. Check your connection and try again.")
@@ -143,7 +142,7 @@ extension UpdateStateModel {
 /// is emitted specifically when ``Autoupdate``'s 18-second agent-connection deadline expires, so
 /// endpoint-security guidance must require that signal rather than code 10 alone.
 private func isUpdaterAgentStartupTimeout(_ error: NSError) -> Bool {
-    guard error.domain == SUSparkleErrorDomain, error.code == 4005 else { return false }
+    guard error.domain == UpdateStateModel.sparkleErrorDomain, error.code == 4005 else { return false }
     let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError
     return [error, underlying].compactMap { $0 }.contains { candidate in
         let text = [
@@ -159,18 +158,18 @@ private func isUpdaterAgentStartupTimeout(_ error: NSError) -> Bool {
 ///
 /// The login session's launchd domain can wedge into on-demand-only mode after a very long
 /// uptime, so launchd refuses to spawn Sparkle's installer/progress agent and the install times
-/// out ("agent connection was never initiated"). This surfaces as ``SUAgentInvalidationError``
-/// (4010), or as ``SUInstallationError`` (4005) wrapping Sparkle's internal installer-helper error
+/// out ("agent connection was never initiated"). This surfaces as `SUAgentInvalidationError`
+/// (4010), or as `SUInstallationError` (4005) wrapping Sparkle's internal installer-helper error
 /// (code 10) or carrying agent-connection text in its trace. This broad classification is suitable
 /// for the title; use ``isUpdaterAgentStartupTimeout(_:)`` for cause-specific recovery guidance.
 private func isUpdaterAgentConnectionFailure(_ error: NSError) -> Bool {
-    guard error.domain == SUSparkleErrorDomain else { return false }
+    guard error.domain == UpdateStateModel.sparkleErrorDomain else { return false }
     if error.code == 4010 { return true }
     guard error.code == 4005 else { return false }
     let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError
     // Sparkle uses code 10 for installer-helper errors. Keep the existing broad title
     // classification, but do not use this code alone for cause-specific recovery guidance.
-    if let underlying, underlying.domain == SUSparkleErrorDomain, underlying.code == 10 {
+    if let underlying, underlying.domain == UpdateStateModel.sparkleErrorDomain, underlying.code == 10 {
         return true
     }
     return mentionsAgentConnectionFailure(error)

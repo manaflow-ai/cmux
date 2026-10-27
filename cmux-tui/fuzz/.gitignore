@@ -1,0 +1,6 @@
+# What `cargo fuzz run` writes when called by hand. rust-fuzz.sh writes its
+# corpora, artifacts and logs under its --out directory instead. corpus/ is
+# not ignored: it holds the checked-in seeds of each target.
+/target/
+/artifacts/
+/coverage/

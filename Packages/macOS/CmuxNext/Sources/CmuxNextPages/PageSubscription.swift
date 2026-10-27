@@ -3,9 +3,13 @@ public import Foundation
 /// A live subscription; ``cancel()`` ends it (idempotent).
 @MainActor
 public final class PageSubscription {
+    /// What the router keeps of this stream's events while the page's delivery is held (the page is
+    /// hidden or frozen). Each stream declares it where it starts; there is no default.
+    public let frozenDelivery: PageFrozenDelivery
     private var onCancel: (() -> Void)?
 
-    public init(onCancel: @escaping () -> Void) {
+    public init(frozenDelivery: PageFrozenDelivery, onCancel: @escaping () -> Void) {
+        self.frozenDelivery = frozenDelivery
         self.onCancel = onCancel
     }
 

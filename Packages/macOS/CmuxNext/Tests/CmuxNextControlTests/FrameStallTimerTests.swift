@@ -57,11 +57,48 @@ import Testing
         #expect(ticks == ticksBefore + 1, "the clients ticked without the link")
         spring.deactivate()
     }
+
+    /// A stalled frame's BeginFrame args (p03-rendering-012): it is shown one link interval after it
+    /// starts, as Chrome's synthetic sources set `deadline = frame_time + interval`
+    /// (components/viz/common/frame_sinks/begin_frame_source.cc), keeps a nil refresh interval (the
+    /// stall mark) and takes the next sequence number.
+    @Test func aStalledFrameIsShownOneLinkIntervalLaterWithTheNextSequence() async throws {
+        let media = MediaTime()
+        let clock = StallClock()
+        let scheduler = FrameScheduler.testing(clock: clock, mediaTime: media.read) { _ in StallFakeLink() }
+        var ticks: [FrameTick] = []
+        let spring = FrameClient(owner: "spring", on: scheduler) { tick in ticks.append(tick); return true }
+        spring.activate()
+        try await clock.waitForSleeper()
+        let interval = 1.0 / 120
+        for _ in 0..<6 {
+            media.advance(seconds: interval)
+            clock.advance(by: .seconds(interval))
+            scheduler.frameDidFire(timestamp: media.now, refreshInterval: interval, targetTimestamp: media.now + interval)
+        }
+        let lastLinkTick = try #require(ticks.last)
+        try await clock.waitForSleeper()
+        media.advance(seconds: 0.06)
+        clock.advance(by: .milliseconds(60))
+        try await clock.waitForSleeper()
+        media.advance(seconds: 0.045)
+        clock.advance(by: .milliseconds(45))
+        try await clock.waitForSleeper()
+        spring.deactivate()
+        try #require(scheduler.lastStall != nil, "105 ms after the last frame is a stall")
+        try #require(ticks.count == 7, "\(ticks.count) ticks")
+        let stalled = ticks[6]
+        #expect(stalled.refreshInterval == nil)
+        #expect(stalled.timestamp == media.now)
+        #expect(abs(stalled.targetTimestamp - (media.now + interval)) < 1e-9,
+                "target \(stalled.targetTimestamp), now \(media.now)")
+        #expect(stalled.sequence == lastLinkTick.sequence + 1)
+    }
 }
 
 /// `CACurrentMediaTime` for tests.
 @MainActor
-private final class MediaTime {
+final class MediaTime {
     private(set) var now: CFTimeInterval = 1000
     // Strong, as MainFrameBudgetTests' BudgetClock: a stall timer can read it after its test returned.
     var read: @MainActor () -> CFTimeInterval { { [self] in self.now } }
@@ -75,7 +112,7 @@ private final class StallFakeLink: FrameLink {
 }
 
 /// A clock that moves only when the test advances it.
-private final class StallClock: Clock, Sendable {
+final class StallClock: Clock, Sendable {
     struct Instant: InstantProtocol {
         var offset: Duration
         func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }

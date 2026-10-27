@@ -3,6 +3,7 @@
 use super::*;
 
 impl Mux {
+    #[track_caller]
     pub(super) fn resource_focus_workspace(
         self: &Arc<Self>,
         selectors: ResourceSelectors,
@@ -60,6 +61,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(super) fn resource_rename_screen(
         self: &Arc<Self>,
         selectors: ResourceSelectors,
@@ -111,6 +113,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(super) fn resource_rename_pane(
         self: &Arc<Self>,
         selectors: ResourceSelectors,
@@ -156,6 +159,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(super) fn resource_rename_tab(
         self: &Arc<Self>,
         selectors: ResourceSelectors,
@@ -211,6 +215,7 @@ impl Mux {
         Ok(commit)
     }
 
+    #[track_caller]
     pub(super) fn resource_focus_screen(
         self: &Arc<Self>,
         selectors: ResourceSelectors,
@@ -278,6 +283,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(super) fn resource_focus_pane(
         self: &Arc<Self>,
         selectors: ResourceSelectors,
@@ -295,6 +301,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(super) fn resource_focus_pane_direction(
         self: &Arc<Self>,
         selectors: ResourceSelectors,
@@ -314,6 +321,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn resource_focus_pane_impl(
         self: &Arc<Self>,
         operation: &'static str,
@@ -362,6 +370,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(super) fn resource_focus_tab(
         self: &Arc<Self>,
         selectors: ResourceSelectors,
@@ -379,6 +388,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(in crate::mux) fn commit_ordinary_tab_selection(
         self: &Arc<Self>,
         actor: &Actor,
@@ -402,6 +412,7 @@ impl Mux {
     /// `workspace.open_url` reuses a browser tab: it becomes its pane's
     /// selected tab, and the keyboard focus stays where it is (the person
     /// keeps typing in the chat). Keyed by `mutation`, so a retry replays.
+    #[track_caller]
     pub(crate) fn commit_tab_selection_keeping_focus(
         self: &Arc<Self>,
         selectors: ResourceSelectors,
@@ -427,6 +438,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn resource_select_tab_impl(
         self: &Arc<Self>,
         operation: &'static str,

@@ -6,6 +6,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -95,6 +96,7 @@ struct DaemonRestartTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
         // As the app's launcher: bundled (so `--restore-progress`) with page origins (`--ws-loopback`).
         let launcher = DaemonLauncher(
+            work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state"),
                                  binaryIsBundled: true, webSocketPageOrigins: ["http://127.0.0.1:1"]),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin"] })
@@ -103,7 +105,7 @@ struct DaemonRestartTests {
         let services = AppServices(environment: environment)
         services.windows.ordersWindowsIn = false
         let prestart = DaemonPrestart(launcher: launcher, configuration: DaemonConnection.Configuration(terminalEnvironment: nil))
-        services.daemon.start(launch: environment.launch, terminalEnvironment: [:], terminalEnvironmentProvider: { [:] },
+        services.daemon.start(work: services.work, launch: environment.launch, terminalEnvironment: [:], terminalEnvironmentProvider: { [:] },
                               prestart: prestart)
         services.windows.restoreWhenLoaded()
         return Launched(services: services, standIn: standIn)

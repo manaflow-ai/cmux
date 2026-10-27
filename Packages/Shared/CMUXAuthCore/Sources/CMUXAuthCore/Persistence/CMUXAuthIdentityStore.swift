@@ -7,10 +7,10 @@ import Foundation
 /// ``CMUXAuthKeyValueStore`` under a caller-chosen key (JSON-encoded), so each
 /// app keeps its historical defaults key and tests use an in-memory store.
 ///
-/// `@unchecked Sendable`: the injected key-value store (production:
-/// `UserDefaults`) is Apple-documented thread-safe, and the JSON coders are
-/// stateless between calls.
-public final class CMUXAuthIdentityStore: @unchecked Sendable {
+/// Not `Sendable`: the store belongs to the one isolation domain that owns it
+/// (the main-actor `AuthCoordinator`), the way Chromium's `PrefService` is bound
+/// to the sequence that created it (components/prefs/pref_service.h).
+public final class CMUXAuthIdentityStore {
     private let keyValueStore: CMUXAuthKeyValueStore
     private let key: String
     private let decoder = JSONDecoder()

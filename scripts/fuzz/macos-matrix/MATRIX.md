@@ -35,8 +35,10 @@ cmux worktree, with a done fleet DEV build job (`cmux-ci build cmux --ref SHA --
 
 ```bash
 scripts/cmux-next/os-matrix.sh --build JOB_ID --os 14,15                         # smoke, about 3 min a major
+scripts/cmux-next/os-matrix.sh --build JOB_ID --os 14,15 --suite threads         # p02-threads RUN-10
 scripts/cmux-next/os-matrix.sh --build JOB_ID --os 15 --suite fuzz --seed 7 --minutes 20
 scripts/cmux-next/os-matrix.sh --build JOB_ID --os 14 --suite repro:incognito-close-14
+scripts/cmux-next/os-matrix.sh --build JOB_ID --os 14,15,26 --suite chaos             # one row per fault
 ```
 
 It submits one `cmux-ci run --class vm --script scripts/fuzz/macos-matrix/vm.sh` step with one `tart-<digest>`
@@ -77,6 +79,57 @@ under the router's 2 s request deadline),
 Site Information opens its panel), `settings` (Settings opens and paints), `alive`, `quit`
 (`quitEndEverything` ends the process within 30 s; else a `sample` and a kill). A crash report fails the run.
 
+### Threads suite
+
+`os-matrix.sh --build JOB --os 14,15 --suite threads` runs `threads.py` (the smoke's plumbing, a DEV build of
+perf/chrome-parity or later): chrome-parity p02-threads RUN-10. The blocking detector tells the shared pool from a
+dedicated queue by libdispatch's queue label (`com.apple.root.`), which is not API (risk 6 of
+plans/cmux-next/chrome-parity/p02-threads.md), so the suite checks it on each macOS. Steps: `launch`, `window`,
+then `debug.pool_context`'s cases: `pool_task` (a seam call in a `Task.detached` is `pool`), `pool_global` (in a
+`DispatchQueue.global` block, `pool`), `lane_files` (in a `.files` lane item, `lane`), `lane_cpu` (in a `.cpu`
+item, `cpu-lane`); `recorded` (`debug.blocking` lists the pool and cpu-lane calls' sites in those contexts and not
+the `.files` one); `raise` (`WorkHandle.raise` of a running best-effort item lifts its thread's `pth_curpri` while
+its requested QoS stays utility: `pthread_override_qos_class_start_np` on this macOS); `threads` (`debug.threads`
+reads the main thread at user-interactive, dispatch labels and the task role); `alive`, `quit`. `result.json`'s
+`labels` keeps each case's queue label, to compare majors; `debug.threads`' QoS audit counts are a finding, not the
+verdict (RUN-3 judges them). A case that gets the wrong context on one major is a fix to p02-threads-005's
+`BlockingContext` (the fallback: the thread's task-local mark plus "not a registered queue").
+
+### Chaos suite
+
+`os-matrix.sh --build JOB --os 14,15,26 --suite chaos` (by hand: `vm.sh --suite chaos [--faults a,b] BUILD`) runs
+`chaos.py`, which drives the guest like the smoke (SSH `cmux app call`, VNC screenshots; needs a DEV build). The
+tour makes two terminal panes (a split) and a third pane with a Chromium tab and a WebKit tab on a page served in
+the guest, so each terminal stays its pane's selected tab (`debug.surfaces` reads only that one). Then one
+fault at a time. Keys are typed into a terminal right before and right after each fault, and a typed echo is
+checked after recovery. Each fault has its own expected outcome:
+
+| Fault | Injection | Expected |
+|-------|-----------|----------|
+| `terminal-host` | SIGKILL the host pid `debug.surfaces` names for a terminal | the daemon respawns it: new host pid, same terminal id, link connected, an echo runs |
+| `chromium-renderer` | SIGKILL the app's `--type=renderer` children | the crash page with Reload (`debug.browser.page_status`); Reload brings the page back |
+| `chromium-gpu` | SIGKILL `--type=gpu-process` | a new GPU process; the page answers (after Reload if it crashed) |
+| `chromium-utility` | SIGKILL `--type=utility` (network service and the rest) | new utility processes; a reload loads the page |
+| `webkit-webcontent` | SIGKILL the WebKit tab's `page_pid` | the crash page with Reload; Reload loads it in a new WebContent |
+| `agent-webcontent` | SIGKILL an agent page's WebContent (`debug.agent_pane`) | the page reloads in a new process by itself |
+| `acpmux` | SIGKILL the app's acpmux daemon | the app answers; terminals work |
+| `daemon` | SIGKILL the cmux-tui daemon (`debug.daemon` pid) | a new daemon connects; every terminal pane re-attaches; an echo runs |
+| `memory-pressure` | `sudo memory_pressure -S -l critical` for 15 s; `skip` when the level never reads critical (4) | the app answers; an echo runs |
+| `network-off` | a pf anchor drops all but loopback and SSH, for at most 45 s (the guest turns it off by itself) | the app answers; an echo runs; an unreachable page shows a load error (`page_status` `error` or `enginePage`), not the crash page; the local page answers |
+| `holder` | relaunch with `CMUX_TUI_TERMINAL_HOST_MODEL=holder`, SIGKILL the holder (`cmux-holder`, or `__holder` in cmux-tui-host) whose child is the left terminal's shell | the app stays up; each pane of that holder shows the ended state with "Restart Shell Here" (`debug.surfaces` `status_text`, `restart_offered`) and Restart (`tab.restart`, the button's action) brings its shell back, or kept the same shell while a new holder runs (it adopted the masters); other holders and their shells are untouched |
+| `fd-limit` | relaunch under `ulimit -n 256` (soft and hard), then 12 workspaces and 8 pages | the app stays up (refusals are errors, recorded); an echo runs |
+| `full-disk` | relaunch with HOME on a 512 MB sparse image, then the image filled | a new workspace, a split and Settings with a full home volume (`skip` when 1 MB or more stayed free), none refused; an echo runs in the new workspace; the app answers after the space is freed |
+
+Every fault also needs the same app pid, every main-thread ping answered within 10 s (one a second on a thread
+of its own while the fault and its recovery run, three after; their times are labeled "VM, not comparable") and
+no crash report (`.ips`) of a cmux process in its window. A report counts at its crash time (its `captureTime`,
+not when ReportCrash wrote it), and every window is in the guest's clock. A crash in a launch, a tour or a quit
+is no fault's (`crashes_outside_faults` names the stretch) and fails the run. `result.json` has one row per
+fault: `fault`, `expected`, `outcome` (`ok`, `FAIL` or `skip`), `detail` (what was killed and what was observed),
+`window`, `app_pid_kept`, `ping_ms_vm` and `crash_reports`. A fault the guest cannot inject (no passwordless sudo,
+no holder process, no acpmux, a pressure level or a full volume that never came) is `skip` with its reason; a skip makes the major NO-VERDICT, never PASS. The suite never pulls an image,
+and the guest is deleted after the run, so pf, the pressure level and the home image never outlive it.
+
 ### Exec suite (OS probes)
 
 `os-matrix.sh --build JOB --os 14,15,26 --suite exec:NAME` runs one OS probe, `probes/NAME.swift`, in each guest.
@@ -97,6 +150,10 @@ has the exit code, stdout, stderr, the runner commit (`runner_ref`) and the sour
 - Probes: `url-root-parent` (issue #4529): `"/.."` on 14.8.7 and 15.7.7, `"/"` on 26.6.2 (2026-10-24).
 - `key-change-cost` (issue #24913): ms of one key-window change between a window and its child window, with
   0-120 hidden workspace-like view trees in the window and out of it (does a hidden tree cost a key change?).
+- `render-motion-survival` (spike p03-rendering-016, rendering-DESIGN.md "Spike 016"): whether an additive
+  render-server spring on a pane's backing layer, and on a motion container around it, survives AppKit layout,
+  an ancestor resize, `wantsLayer`, a new backing layer, a window style change and full screen. FAIL when the
+  motion container loses its spring.
 
 ### cmux-unit and xctrace in the guest
 
@@ -165,6 +222,49 @@ build gives the same steps. `fuzz.py --replay … --minimize` delta-debugs a cra
 (`minimal.jsonl`). At each death the fuzzer saves the app's stderr (`dead-N.stderr.txt`): the Swift runtime's
 fatal-error text is not in the `.ips`. For allocator bugs, `FUZZ_DYLIB=<dylib>` loads a diagnostic dylib into the
 app (the guest copy is re-signed ad hoc without the hardened runtime).
+
+### Diagnostic variants (`--diag`)
+
+`os-matrix.sh --build JOB --os 26 --suite fuzz --minutes 15 --diag NAME` (or `vm.sh --diag NAME`, with
+`--suite fuzz` or `repro`) runs the same walk with a check in the app. `diag.py` defines each variant:
+
+| NAME | What the app runs with | Chromium | Reports |
+| --- | --- | --- | --- |
+| `gmalloc` | `DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib` (Guard Malloc) | off | crash `.ips` |
+| `scribble` | `MallocScribble=1 MallocGuardEdges=1` | off | crash `.ips` |
+| `probguard` | `MallocProbGuard=1` (sampled guard pages, Apple's GWP-ASan) | off | crash `.ips` |
+| `mtc` | the host Xcode's `libMainThreadChecker.dylib`, copied into the guest | on | `mtc-stderr.txt` |
+| `coop-strict` | `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1` (one-thread Swift concurrency pool) | on | crash `.ips`, hangs |
+| `asan`, `tsan`, `ubsan` | a sanitizer app (`reload.sh --config asan\|tsan\|ubsan`, bundle id suffix `.asan` and so on), `*SAN_OPTIONS=log_path=/tmp/fuzz-san/NAME` | off | `NAME-reports.txt` |
+
+Every variant re-signs the guest copy of the app ad hoc (as `FUZZ_DYLIB` does): dyld then accepts inserted
+libraries, and `malloc-zones` can read the app's task. The launch and hang deadlines scale with the check's
+slowdown: 2x for ASan and TSan (Chromium's `kTimeoutMultiplier`, `base/test/test_timeouts.cc`), and our own,
+not yet measured, estimates of 10x for Guard Malloc and 2x for MallocScribble. A launch stops waiting when the
+app exits and never waits past the run's `--minutes`; a relaunch that fails ends the walk (`relaunch_failed`).
+An app that exits during its first launch under a check still writes `summary.json`, with `launch_failed` and the
+check's reports: a FAIL.
+
+**Chromium off.** In-process CEF replaces the default malloc zone with PartitionAlloc, which these checks do not
+see: they would cover nothing or report false bad frees (`plans/cmux-next/chrome-parity/p10-stability.md`, risk 8).
+For the malloc and sanitizer variants, `vm.sh` removes the CEF framework, the CEF shim and `cef-runtime.json` (the
+pin for an on-demand download) from the guest copy, and the app starts with `browser.defaultEngine` `webkit`.
+After the launch, after each relaunch and at the end, `fuzz.py` records the app's malloc zones in registration
+order with `malloc-zones` (`malloc-zones.c`, compiled on the Tart host: `malloc_get_all_zones` over the app's task
+port, as `heap(1)` reads it) and whether the CEF framework is mapped. `zones[0]` is the default zone: the one
+`malloc()` uses. The app normally puts the forwarding `DelegatingDefaultZoneForPartitionAlloc` zone there first
+thing in `main` (`CmuxNextMallocZone/early_zone.c`, Chromium's `EarlyMallocZoneRegistration`); the zone list does
+not say which zone that one forwards to. So these variants start the app with `CMUX_NEXT_SKIP_EARLY_MALLOC_ZONE=1`,
+which skips it, and `zones[0]` is then the check's zone (`GuardMalloc`, a sanitizer's) or the system one.
+
+A Chromium-off run is **invalid** (NO-VERDICT, `INVALID: ...` on its line) when PartitionAlloc holds a zone, the
+early zone is still the default zone, the CEF framework is mapped, the runtime is still in the bundle, or no
+snapshot could show the zones or the mapped images (an app that exited during its first launch has no snapshot;
+the bundle check alone decides for it). A check's report fails the run like a crash. `summary.json` has `diag`
+(`name`, `env`, `chromium`, `launched`, `zones`, `default_zone`, `early_zone`, `partition_alloc`,
+`chromium_mapped`, `snapshots`, `reports`, `invalid`) and `diag_reports` (the report count). `diag.fuzz_verdict`
+is the verdict `vm.sh` gives each major. Test the variants offline with
+`python3 -m unittest scripts/fuzz/macos-matrix/test_diag.py`.
 
 The guest helpers use `/usr/bin/perl` and `osascript`, not `python3`: a guest without the Command Line Tools has
 only the `python3` stub.

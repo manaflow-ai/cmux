@@ -214,8 +214,11 @@ export class SettingsStore {
     const stopTransport = await this.transport.subscribe({
       changed: (event) => {
         if (this.disposed) return;
-        // Another writer changed these keys: an older refusal no longer applies.
-        if (event.keys.some((key) => this.ui.errors.has(key))) {
+        // Another writer changed these keys: an older refusal no longer applies. After a gap the
+        // dropped events' keys are unknown, so no refusal is known to still apply.
+        if (event.gap === true) {
+          if (this.ui.errors.size > 0) this.updateUi({ errors: new Map() });
+        } else if (event.keys.some((key) => this.ui.errors.has(key))) {
           const errors = new Map(this.ui.errors);
           for (const key of event.keys) errors.delete(key);
           this.updateUi({ errors });
@@ -522,6 +525,13 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Experimental > Feature Flags: a feature on, off or back to no choice (null) for the next launch, then re-read
+   * the host lists. */
+  async setLocalFeature(name: string, on: boolean | null): Promise<void> {
+    await this.request("cmux.settings.features.set", { name, on });
+    await this.refreshHost();
+  }
+
   /** One Accounts gesture; answers the failure text of a Keychain save, else null. */
   async runAccounts(run: AccountsRun): Promise<string | null> {
     const reply = await this.request("cmux.settings.accounts.run", run);
@@ -809,6 +819,15 @@ export class SettingsStore {
 
   previewEnd(key: string): void {
     void this.request("cmux.settings.preview.end", { key });
+  }
+
+  /**
+   * Tells the host whether the form `form` holds typed values it has not saved. The host keeps a
+   * Settings tab with such a form when it would otherwise let a hidden tab's page go (Chrome's
+   * kUserEdits), since a page built again would lose them.
+   */
+  setUnsavedForm(form: string, unsaved: boolean): void {
+    void this.request("cmux.settings.editing", { form, editing: unsaved });
   }
 
   /** Opens cmux.json in the editor (the palette's action). The Swift Settings window is gone (R82). */

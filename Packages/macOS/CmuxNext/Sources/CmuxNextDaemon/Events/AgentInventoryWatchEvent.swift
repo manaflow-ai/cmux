@@ -30,11 +30,11 @@ public nonisolated enum AgentInventoryWatchEvent: Sendable, Hashable {
     }
 
     /// Decodes before generic JSON's Double representation can round UInt64.
-    static func decode(name: String, line: Data) -> Self? {
-        if name == "agent-inventory-changed", let receipt = try? WireCoding.decoder().decode(AgentInventoryWatchReceipt.self, from: line) {
+    static func decode(name: String, line: Data, decoder: WireDecoder = WireCoding.decoder()) -> Self? {
+        if name == "agent-inventory-changed", let receipt = try? decoder.decode(AgentInventoryWatchReceipt.self, from: line) {
             return .changed(receipt)
         }
-        guard name == "agent-inventory-watch-ended", let end = try? WireCoding.decoder().decode(Ended.self, from: line) else { return nil }
+        guard name == "agent-inventory-watch-ended", let end = try? decoder.decode(Ended.self, from: line) else { return nil }
         return endedNotice(machine: end.machine, watchID: end.watchID, reason: end.reason)
     }
 

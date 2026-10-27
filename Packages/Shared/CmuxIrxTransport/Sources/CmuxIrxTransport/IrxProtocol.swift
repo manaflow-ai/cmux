@@ -288,8 +288,10 @@ public struct IrxFrameCodec: Sendable {
             throw IrxFrameCodecError.frameTooLarge(body.count)
         }
         var data = Data(capacity: 4 + body.count)
-        var length = bodyLength.bigEndian
-        withUnsafeBytes(of: &length) { data.append(contentsOf: $0) }
+        // The body length, four bytes big-endian.
+        for shift in [24, 16, 8, 0] {
+            data.append(UInt8(truncatingIfNeeded: bodyLength >> shift))
+        }
         data.append(body)
         return data
     }

@@ -18,6 +18,7 @@
 //! 100 MB) and in total (`terminal.persistence.maxTotalBytes`, default
 //! 2 GB). Past a cap the oldest files go first.
 
+use cmux_threads::checked::fs as files;
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -71,7 +72,7 @@ fn terminal_directory(directory: &Path, terminal_id: &TerminalPublicId) -> PathB
 /// The segment files of one generation, oldest first: (first offset, path).
 fn generation_files(terminal_directory: &Path, generation: &str) -> Vec<(u64, PathBuf)> {
     let key = generation_key(generation);
-    let Ok(entries) = fs::read_dir(terminal_directory) else { return Vec::new() };
+    let Ok(entries) = files::read_dir(terminal_directory) else { return Vec::new() };
     let mut files = entries
         .flatten()
         .filter_map(|entry| {
@@ -137,13 +138,11 @@ fn append_frame(
     start: u64,
     bytes: &[u8],
 ) -> anyhow::Result<()> {
-    fs::create_dir_all(terminal_directory)?;
-    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
-    encoder.write_all(bytes)?;
-    let compressed = encoder.finish()?;
+    files::create_dir_all(terminal_directory)?;
+    let frame = encode_frame(start, bytes)?;
     let file = match generation_files(terminal_directory, generation).last() {
         Some((_, path))
-            if fs::metadata(path).map(|metadata| metadata.len()).unwrap_or(u64::MAX)
+            if files::metadata(path).map(|metadata| metadata.len()).unwrap_or(u64::MAX)
                 < SEGMENT_FILE_BYTES =>
         {
             path.clone()
@@ -152,25 +151,37 @@ fn append_frame(
             terminal_directory.join(format!("{}-{start:020}.{SUFFIX}", generation_key(generation)))
         }
     };
+    files::open_with(fs::File::options().create(true).append(true), &file)?.write_all(&frame)?;
+    Ok(())
+}
+
+/// One frame: start offset, compressed length, raw length, gzip of `bytes`.
+pub(crate) fn encode_frame(start: u64, bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+    encoder.write_all(bytes)?;
+    let compressed = encoder.finish()?;
     let mut frame = Vec::with_capacity(FRAME_HEADER_BYTES + compressed.len());
     frame.extend_from_slice(&start.to_le_bytes());
     frame.extend_from_slice(&u32::try_from(compressed.len())?.to_le_bytes());
     frame.extend_from_slice(&u32::try_from(bytes.len())?.to_le_bytes());
     frame.extend_from_slice(&compressed);
-    fs::OpenOptions::new().create(true).append(true).open(&file)?.write_all(&frame)?;
-    Ok(())
+    Ok(frame)
 }
 
 /// Frames of a segment file in order: (start offset, raw bytes). Stops at a
 /// cut or corrupt frame.
 fn frames(path: &Path) -> Vec<(u64, Vec<u8>)> {
-    let Ok(contents) = fs::read(path) else { return Vec::new() };
+    files::read(path).map(|contents| decode_frames(&contents)).unwrap_or_default()
+}
+
+/// The frames of a segment file's `contents`, up to the first cut or corrupt one.
+pub(crate) fn decode_frames(contents: &[u8]) -> Vec<(u64, Vec<u8>)> {
     let mut out = Vec::new();
     let mut at = 0;
     use crate::terminal_host_protocol::{wire_u32, wire_u64};
     while contents.len().saturating_sub(at) >= FRAME_HEADER_BYTES {
         let (Some(start), Some(compressed), Some(raw)) =
-            (wire_u64(&contents, at), wire_u32(&contents, at + 8), wire_u32(&contents, at + 12))
+            (wire_u64(contents, at), wire_u32(contents, at + 8), wire_u32(contents, at + 12))
         else {
             break;
         };
@@ -285,7 +296,7 @@ pub(super) fn rebuild(
 }
 
 fn segment_files(directory: &Path) -> Vec<(std::time::SystemTime, u64, PathBuf)> {
-    let Ok(entries) = fs::read_dir(directory) else { return Vec::new() };
+    let Ok(entries) = files::read_dir(directory) else { return Vec::new() };
     entries
         .flatten()
         .filter(|entry| entry.path().extension().is_some_and(|extension| extension == SUFFIX))
@@ -306,7 +317,7 @@ fn delete_oldest(mut files: Vec<(std::time::SystemTime, u64, PathBuf)>, cap: u64
         if total <= cap {
             break;
         }
-        if fs::remove_file(&path).is_ok() {
+        if files::remove_file(&path).is_ok() {
             total -= len;
         }
     }
@@ -317,7 +328,7 @@ fn enforce_terminal_cap(terminal_directory: &Path, cap: u64) {
 }
 
 fn enforce_total_cap(directory: &Path, cap: u64) {
-    let Ok(entries) = fs::read_dir(directory) else { return };
+    let Ok(entries) = files::read_dir(directory) else { return };
     let files = entries
         .flatten()
         .filter(|entry| entry.path().is_dir())
@@ -328,15 +339,15 @@ fn enforce_total_cap(directory: &Path, cap: u64) {
 
 /// Remove one terminal's segments.
 pub(super) fn remove(directory: &Path, terminal_id: &TerminalPublicId) {
-    let _ = fs::remove_dir_all(terminal_directory(directory, terminal_id));
+    let _ = files::remove_dir_all(terminal_directory(directory, terminal_id));
 }
 
 /// Remove every terminal's segments (the mode is no longer `full`).
 pub(super) fn remove_all(directory: &Path) {
-    let Ok(entries) = fs::read_dir(directory) else { return };
+    let Ok(entries) = files::read_dir(directory) else { return };
     for entry in entries.flatten() {
         if entry.path().is_dir() {
-            let _ = fs::remove_dir_all(entry.path());
+            let _ = files::remove_dir_all(entry.path());
         }
     }
 }

@@ -135,7 +135,14 @@ public actor CloudMachineLink {
         environment["CMUX_REMOTE_STATE_DIR"] = paths.linkState.path
         guard FileManager.default.isExecutableFile(atPath: binary.path) else { throw ChildProcessError.missingBinary(binary.path) }
         let child = ChildProcess(executable: binary, arguments: arguments, environment: environment)
-        try child.start()
+        try await child.start()
+        do {
+            // A stop or suspend during the launch found no child to end.
+            try checkGeneration(generation)
+        } catch {
+            child.terminate()
+            throw error
+        }
         self.child = child
         do {
             let socketTask = Task {

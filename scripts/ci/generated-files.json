@@ -27,6 +27,20 @@
       "status": "build"
     },
     {
+      "id": "ipc-wire-rust",
+      "generator": "cmux-tui/crates/cmux-ipc/build.rs",
+      "outputs": ["cmux-tui/target/**/build/cmux-ipc-*/out/**"],
+      "inputs": ["cmux-tui/spec/sdk-schema.json", "cmux-tui/spec/resource-operations-v2.json", "cmux-tui/crates/cmux-ipc/src/schema_digest.rs", "cmux-tui/crates/cmux-ipc/build-support/method_tables.rs", "cmux-tui/crates/cmux-ipc/build-support/client_requests.rs", "cmux-tui/crates/cmux-ipc/build-support/server_families.rs", "cmux-tui/crates/cmux-ipc/server-families.json", "cmux-tui/spec/fixtures/ipc-method-tables/**"],
+      "status": "build"
+    },
+    {
+      "id": "ipc-wire-swift",
+      "generator": "Packages/macOS/CmuxNext/Sources/CmuxNextWireGen/main.swift",
+      "outputs": ["Packages/macOS/CmuxNext/.build/plugins/outputs/**/CmuxNextWireGenPlugin/**"],
+      "inputs": ["cmux-tui/spec/sdk-schema.json", "cmux-tui/spec/resource-operations-v2.json", "Packages/macOS/CmuxNext/Plugins/CmuxNextWireGenPlugin/**", "Packages/macOS/CmuxNext/Sources/CmuxNextWireGen/**", "Packages/macOS/CmuxNext/Sources/CmuxNextWireDigest/**"],
+      "status": "build"
+    },
+    {
       "id": "settings-sources",
       "generator": "scripts/cmux-next/gen-settings-sources.py",
       "outputs": [

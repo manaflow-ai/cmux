@@ -7,6 +7,7 @@ impl Mux {
     /// Commit the full public topology of `state` as one revision of
     /// `actor`, for a legacy path that changed the live tree while it already
     /// holds both writer locks (registry, then state).
+    #[track_caller]
     pub(super) fn commit_full_resource_projection_locked(
         &self,
         registry: &mut WorkspaceRegistry,

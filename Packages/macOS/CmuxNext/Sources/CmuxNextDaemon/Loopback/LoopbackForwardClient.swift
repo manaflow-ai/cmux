@@ -102,7 +102,8 @@ public actor LoopbackForwardClient {
         }
         let transport: LineTransport
         do {
-            transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
+            transport = try await LineTransport.open(path: endpoint.socketPath, bridge: endpoint.bridge, role: .loopbackForward,
+                                                     stats: endpoint.wireStats)
         } catch {
             throw LoopbackForwardError.unavailable(error.description)
         }
@@ -111,9 +112,10 @@ public actor LoopbackForwardClient {
         let table = LoopbackStreamTable()
         self.table = table
         let logger = logger
+        let decoder = transport.decoder
         transport.start(
             onEvent: { name, line, _ in
-                guard let event = LoopbackForwardEvent.decode(name: name, line: line) else { return }
+                guard let event = LoopbackForwardEvent.decode(name: name, line: line, decoder: decoder) else { return }
                 table.stream(event.stream)?.deliver(event)
             },
             onClose: { reason in

@@ -5,6 +5,7 @@ import CmuxNextAgentPane
 import CmuxNextDesign
 @testable import CmuxNextTabs
 import Testing
+import CmuxNextWakeups
 
 /// cx-pd83 (nxdog89-v1): the browser import card ("Import bookmarks, history and passwords from
 /// Google Chrome") stayed at the bottom of the pane after Cmd-T showed a New Tab page in it. The
@@ -39,8 +40,8 @@ import Testing
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
-            pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("browser"), title: "Example")]),
-                                   reveal: LaunchReveal(deadline: .zero))
+            pane = PaneContentView.testing(stripModel: TabStripModel(tabs: [TabItem(id: TabID("browser"), title: "Example")]),
+                                           reveal: LaunchReveal(deadline: .zero))
             // The tab bar above the toolbar (the default): no header band, so a switch to a page
             // that has not painted holds the browser on screen (`PaneContentView.show`).
             pane.barOrder = .aboveToolbar
@@ -48,7 +49,7 @@ import Testing
             window.contentView = pane
             window.orderFrontRegardless()
             page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
-            chrome = BrowserChromeView(tab: page)
+            chrome = BrowserChromeView(tab: page, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
             pane.show(chrome)
             pane.layoutSubtreeIfNeeded()
         }

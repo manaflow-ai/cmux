@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 
 /// Moving and duplicating a tab into another browser profile. A page's
@@ -25,15 +26,18 @@ extension BrowserProfileService {
 
     /// The engine adapter half of a move: whenever a live web page's store differs from the one its tab
     /// record names (the daemon moved the tab), the page is re-made in the record's store
-    /// (`TabContentCache.recreatePage`). Event-driven: tab records and page installs are observed.
+    /// (`TabContentCache.recreatePage`). Event-driven: tab records and page installs are observed, by a
+    /// ``ServiceObservation`` in the visible class (it re-makes pages of hidden tabs too; a person's move
+    /// flushes as the rest of their action).
     func followRecordProfiles() {
         recordProfileObservation?.cancel()
-        recordProfileObservation = Task { [weak self] in
-            for await stale in ObservationStream({ [weak self] in self?.pagesInOtherStores() ?? [] }) {
-                for (key, profile, url) in stale {
-                    self?.logger.info("browser profile store change \(key, privacy: .public): re-making its page")
-                    self?.services.cache.recreatePage(key, in: profile, url: url)
-                }
+        recordProfileObservation = ServiceObservation(.visible, owner: "BrowserProfiles.recordProfiles", on: services.mainWork) { [weak self] in
+            self?.pagesInOtherStores() ?? []
+        } apply: { [weak self] stale in
+            guard let self else { return }
+            for (key, profile, url) in stale {
+                logger.info("browser profile store change \(key, privacy: .public): re-making its page")
+                services.cache.recreatePage(key, in: profile, url: url)
             }
         }
     }
@@ -72,6 +76,7 @@ extension BrowserProfileService {
         // The pane is not on screen: create the tab there directly.
         let browserTabs = services.cache.browserTabs
         guard case .open(let choice) = browserTabs.resolve(requested: nil, inherited: tab.browserEngine) else { return }
+        // main-hop-allow: the action's tracked work awaits the browser tabs' main-actor open (its daemon send), and closes the original in its one resume
         services.registry.track(Task {
             do {
                 let surface = try await browserTabs.open(choice, in: pane, url: url, profile: profile, notice: notice)

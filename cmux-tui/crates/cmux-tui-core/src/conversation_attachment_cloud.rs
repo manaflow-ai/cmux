@@ -6,7 +6,7 @@
 //! the cloud owner. Nothing of a cloud upload becomes a local record, and
 //! cloud downloads go through short-lived signed URLs kept here for reuse.
 
-use std::fs;
+use cmux_threads::checked::fs as files;
 use std::io::Read;
 use std::time::{Duration, Instant};
 
@@ -45,9 +45,8 @@ impl CloudUpload {
                 Sink::File { path, file } => {
                     drop(file);
                     let mut bytes = Vec::new();
-                    let read =
-                        fs::File::open(&path).and_then(|mut file| file.read_to_end(&mut bytes));
-                    let _ = fs::remove_file(&path);
+                    let read = files::open(&path).and_then(|mut file| file.read_to_end(&mut bytes));
+                    let _ = files::remove_file(&path);
                     match read {
                         Ok(_) if failure.is_none() => out.push((kind, bytes)),
                         Ok(_) => {}

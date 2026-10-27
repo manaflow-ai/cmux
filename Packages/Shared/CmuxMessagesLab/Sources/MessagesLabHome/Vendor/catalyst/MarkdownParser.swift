@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 // Markdown for message bubbles (shared/MARKDOWN.md). CommonMark block and inline
 // structure plus the GFM extensions (tables, task lists, strikethrough, extended
@@ -47,21 +48,27 @@ struct MDSpan: Hashable {
 /// The parser applies it to every link it makes; the hosts check it again at click time.
 enum MarkdownLinkPolicy {
     static let builtInSchemes: Set<String> = ["http", "https", "mailto"]
-    private static let lock = NSLock()
-    private static var extra: Set<String> = []
+    /// The host's additions: set on the main thread at launch, read by every parser thread.
+    private struct HostPolicy: Sendable {
+        var schemes: Set<String> = []
+        var rule: (@Sendable (URL) -> Bool)?
+    }
+    private static let lock = OSAllocatedUnfairLock(initialState: HostPolicy())
     /// Extra schemes the host app allows (lowercase, without ":"; empty by default). Set it at
     /// launch, before the first message is parsed: parsed documents and layouts are cached.
     static var extraSchemes: Set<String> {
-        get { lock.lock(); defer { lock.unlock() }; return extra }
-        set { lock.lock(); extra = Set(newValue.map { $0.lowercased() }); lock.unlock() }
+        get { lock.withLock { $0.schemes } }
+        set {
+            let lowered = Set(newValue.map { $0.lowercased() })
+            lock.withLock { $0.schemes = lowered }
+        }
     }
     // cmux: one exact link form of a scheme that is not allowed whole (Home's Chief subagent
     // links, `URL.isChiefSubagentLink`): a URL of another scheme is a link only when this rule allows it.
     // Set at launch with `extraSchemes`; nil allows nothing more.
-    private static var rule: (@Sendable (URL) -> Bool)?
     static var extraRule: (@Sendable (URL) -> Bool)? {
-        get { lock.lock(); defer { lock.unlock() }; return rule }
-        set { lock.lock(); rule = newValue; lock.unlock() }
+        get { lock.withLock { $0.rule } }
+        set { lock.withLock { $0.rule = newValue } }
     }
 
     /// The URL string to use for a link destination, or nil (not a link). Leading and trailing
@@ -174,7 +181,7 @@ struct MDDocument: Hashable {
 
 enum Markdown {
     /// Off for one run with `--no-markdown` (A/B and the diff harness's plain baseline).
-    static var enabled = !ProcessInfo.processInfo.arguments.contains("--no-markdown")
+    static let enabled = !ProcessInfo.processInfo.arguments.contains("--no-markdown")
 
     /// Cheap pre-check (no allocation): could this text contain markdown syntax?
     /// False means the plain path for sure.

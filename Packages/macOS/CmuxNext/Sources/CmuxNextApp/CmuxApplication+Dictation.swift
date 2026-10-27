@@ -11,8 +11,11 @@ extension CmuxApplication {
     @objc(startDictation:) func startDictation(_ sender: Any?) {
         if AgentPaneView.takeStartDictation(in: keyWindow, sender: sender) { return }
         let action = #selector(startDictation(_:))
-        guard let method = class_getInstanceMethod(NSApplication.self, action) else { return }
         typealias StartDictation = @convention(c) (NSApplication, Selector, Any?) -> Void
-        unsafeBitCast(method_getImplementation(method), to: StartDictation.self)(self, action, sender)
+        // SAFETY: the method is NSApplication's own `startDictation:` (looked up on NSApplication, not on
+        // this subclass), whose IMP takes (self, _cmd, id) and returns void: StartDictation is that
+        // signature, so the cast changes no argument or return layout, and `self` is an NSApplication.
+        guard let method = unsafe class_getInstanceMethod(NSApplication.self, action) else { return }
+        unsafe unsafeBitCast(method_getImplementation(method), to: StartDictation.self)(self, action, sender)
     }
 }

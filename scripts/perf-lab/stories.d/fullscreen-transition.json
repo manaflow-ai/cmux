@@ -1,0 +1,23 @@
+{
+  "id": "fullscreen-transition",
+  "tier": "T1",
+  "description": "Full screen enter and exit in a real window (fullscreen-transition.py): a busy workspace with three terminals and a WebKit page plus ten parked workspaces, three rounds per trigger (the action, Ctrl-Cmd-F and the green button); per transition the time to didEnter or didExit and to the last resize or layout pass, layout pass time, resizes, missed frames and hangs, and the failed layout rows, light session.",
+  "command": ["scripts/cmux-next/fullscreen-transition.py"],
+  "session": "light",
+  "engine": "webkit",
+  "config": "bench",
+  "metrics": [
+    {"name": "fullscreen\\.(action|key|zoom)\\.(enter|exit)\\.(did|settle|after_did|layout_total|layout_max)", "unit": "ms",
+     "better": "lower"},
+    {"name": "fullscreen\\.(action|key|zoom)\\.(enter|exit)\\.(resizes|layout_passes|missed|hangs)", "unit": "count",
+     "better": "lower"},
+    {"name": "fullscreen\\.(action|key|zoom)\\.(enter|exit)\\.[a-z_]+\\.missed_runs", "unit": "count", "better": "lower"},
+    {"name": "fullscreen\\.failed_rows", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 240,
+  "needs": ["debug:debug.window_transition", "debug:debug.frames", "debug:debug.hangs", "debug:debug.tab_drag",
+            "debug:debug.key", "debug:debug.window_snapshot"],
+  "owner": "PL-motion-core",
+  "component": "Window>FullScreen"
+}

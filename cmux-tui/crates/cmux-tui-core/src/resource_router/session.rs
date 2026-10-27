@@ -240,6 +240,7 @@ mod tests {
                 params: json!({}),
                 idempotency_key: Some(idempotency_key.to_string()),
                 origin: None,
+                priority: None,
                 credential: None,
             },
             selectors: crate::ResourceSelectors {

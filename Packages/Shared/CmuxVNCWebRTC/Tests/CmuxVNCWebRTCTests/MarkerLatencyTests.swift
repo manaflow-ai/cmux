@@ -45,13 +45,24 @@ struct MarkerLatencyTests {
                 let pixels = buffer.pixelBuffer
                 CVPixelBufferLockBaseAddress(pixels, .readOnly)
                 defer { CVPixelBufferUnlockBaseAddress(pixels, .readOnly) }
-                guard let base = CVPixelBufferGetBaseAddressOfPlane(pixels, 0) else { return nil }
+                // SAFETY: plane 0 of the buffer locked until the defer; `sample` reads it before then.
+                guard let base = unsafe CVPixelBufferGetBaseAddressOfPlane(pixels, 0) else { return nil }
                 let stride = CVPixelBufferGetBytesPerRowOfPlane(pixels, 0)
-                let bytes = base.assumingMemoryBound(to: UInt8.self)
-                return sample { x, y in bytes[y * stride + x] }
+                let width = CVPixelBufferGetWidthOfPlane(pixels, 0), height = CVPixelBufferGetHeightOfPlane(pixels, 0)
+                return sample { x, y in
+                    guard x >= 0, y >= 0, x < width, y < height else { return 0 }
+                    // SAFETY: (x, y) is inside plane 0 (checked above): byte y * stride + x of the locked plane.
+                    return unsafe base.load(fromByteOffset: y * stride + x, as: UInt8.self)
+                }
             }
             let i420 = frame.buffer.toI420()
-            return sample { x, y in i420.dataY[y * Int(i420.strideY) + x] }
+            let width = Int(i420.width), height = Int(i420.height)
+            return sample { x, y in
+                guard x >= 0, y >= 0, x < width, y < height else { return 0 }
+                // SAFETY: (x, y) is inside the Y plane (checked above), strideY >= width bytes a row,
+                // and `i420` keeps the plane alive for this closure.
+                return unsafe i420.dataY[y * Int(i420.strideY) + x]
+            }
         }
     }
 

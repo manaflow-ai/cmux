@@ -2,6 +2,7 @@ import CmuxNextBookmarks
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 
 /// The home daemon side (`bookmarks-v1`): fetches on demand, refetches on
@@ -11,30 +12,62 @@ extension BookmarkService {
     /// Follows the home daemon's capability: when it appears, copy the file
     /// over and switch every tree to the daemon's; when it goes (an older
     /// daemon after a downgrade), fall back to the file.
+    ///
+    /// A trigger: a daemon restart that still serves bookmarks resets and
+    /// fetches again. `visible`: the bars and stars show the trees it loads.
     func observeHome() {
-        // task-owner: lives as long as the service; event-driven (Observation)
-        homeObservation = Task { [weak self] in
-            // A trigger: a daemon restart that still serves bookmarks resets and fetches again.
-            for await serves in ObservationStream({ [weak self] in ObservationTrigger(self?.usesDaemon ?? false) }) {
-                let serves = serves.value
-                guard let self else { return }
-                fetched.removeAll()
-                loadedFromDaemon.removeAll()
-                homeSettled = false
-                if serves {
-                    await migrateFileToDaemon()
-                    homeSettled = true
-                    // A read started during the copy saw part of it: read again.
-                    for profile in Set(trees.keys).union([BrowserProfileRecord.defaultID]) {
-                        await fetching[profile]?.value
-                        fetch(profile)
-                    }
-                } else if fileLoaded {
-                    trees = fileTrees.mapValues(BookmarkTree.init(ordered:))
-                    changed(profiles: Set(trees.keys))
-                }
+        homeObservation = ServiceObservation(.visible, owner: "BookmarkService.home", on: services.mainWork) { [weak self] in
+            ObservationTrigger(self?.usesDaemon ?? false)
+        } apply: { [weak self] serves in
+            self?.switchHome(serves: serves.value)
+        }
+    }
+
+    /// One switch at a time, in order: the copy and the reads run off main, each main step is one posted task, and
+    /// a step of a switch a later change replaced does nothing.
+    func switchHome(serves: Bool) {
+        homeGeneration &+= 1
+        let generation = homeGeneration, previous = homeSwitch, mainWork = services.mainWork
+        // task-owner: the service's one switch at a time; each waits for the one before it
+        homeSwitch = Task { @concurrent [weak self] in
+            await previous?.value
+            guard let self else { return }
+            let copies = await mainWork.apply(.visible, owner: "BookmarkService.homeReset") { () -> Bool in
+                self.resetHome(serves: serves, generation: generation)
+            }
+            guard copies else { return }
+            await self.copyFileToDaemon()
+            let reading = await mainWork.apply(.visible, owner: "BookmarkService.homeSettled") { () -> [Task<Void, Never>]? in
+                guard generation == self.homeGeneration else { return nil }
+                self.homeSettled = true
+                return Array(self.fetching.values)
+            }
+            guard let reading else { return }
+            // A read started during the copy saw part of it: read again once it ends.
+            for read in reading { await read.value }
+            await mainWork.apply(.visible, owner: "BookmarkService.homeRefetch") { () -> Void in
+                guard generation == self.homeGeneration else { return }
+                for profile in Set(self.trees.keys).union([BrowserProfileRecord.defaultID]) { self.fetch(profile) }
             }
         }
+    }
+
+    /// The switch's copy step: ``homeCopy`` when set, else ``migrateFileToDaemon()``.
+    private func copyFileToDaemon() async {
+        if let homeCopy { await homeCopy() } else { await migrateFileToDaemon() }
+    }
+
+    /// Forgets the daemon's reads for a capability change; true when the file copies into the daemon next.
+    private func resetHome(serves: Bool, generation: UInt64) -> Bool {
+        guard generation == homeGeneration else { return false }
+        fetched.removeAll()
+        loadedFromDaemon.removeAll()
+        homeSettled = false
+        if !serves, fileLoaded {
+            trees = fileTrees.mapValues(BookmarkTree.init(ordered:))
+            changed(profiles: Set(trees.keys))
+        }
+        return serves
     }
 
     /// Reads `profile`'s tree from the daemon (one request in flight per profile).

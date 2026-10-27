@@ -15,12 +15,26 @@ extension ScreenContentView {
     }
 
     func rowOffset(of kind: DividerHandleView.Kind) -> CGFloat {
-        let column: ColumnID? = switch kind {
+        rowColumn(of: kind).flatMap { rowScrolls[$0]?.state.spring.value } ?? 0
+    }
+
+    /// The vertical offset `pane`'s host is laid out at: its row's pan base while a pan shows on the
+    /// row's container (p04-input-050), else ``rowOffset(of:)``.
+    func rowLayoutOffset(of pane: PaneID) -> CGFloat {
+        baseGeometry.rowColumnOfPane[pane].flatMap { rowScrolls[$0]?.layoutOffset } ?? 0
+    }
+
+    func rowLayoutOffset(of kind: DividerHandleView.Kind) -> CGFloat {
+        rowColumn(of: kind).flatMap { rowScrolls[$0]?.layoutOffset } ?? 0
+    }
+
+    /// The row column whose vertical offset moves a divider handle, if any.
+    func rowColumn(of kind: DividerHandleView.Kind) -> ColumnID? {
+        switch kind {
         case let .split(id): baseGeometry.rowColumnOfSplit[id]
         case let .rowEdge(id, _): id
         case .columnEdge: nil
         }
-        return column.flatMap { rowScrolls[$0]?.state.spring.value } ?? 0
     }
 
     var rowsMoving: Bool {
@@ -42,8 +56,15 @@ extension ScreenContentView {
         for (id, stack) in scrolling {
             guard let column = layout.columns.first(where: { $0.id == id }) else { continue }
             var scroll = rowScrolls[id] ?? RowScroll()
+            if rowScrolls[id] == nil { scroll.state.pendingRestore = pendingScroll.rows.removeValue(forKey: id) }
             let strip = scroll.strip(rows: stack, column: column, panes: baseGeometry.panes)
-            let effects = scroll.state.reduce(.sync(strip, focused: focused, source: source, animated: animated, reveals: reveals))
+            let event = ColumnScrollEvent.sync(strip, focused: focused, source: source, animated: animated, reveals: reveals)
+            if scrollerFlingYields(.row(id), to: { _ = $0.reduce(event) }) {
+                rowScrolls[id] = scroll
+                takeScrollerFromServer(.row(id))
+                scroll = rowScrolls[id] ?? scroll
+            }
+            let effects = scroll.state.reduce(event)
             rowScrolls[id] = scroll
             if effects.needsFrames { needsFrames = true }
         }
@@ -108,30 +129,38 @@ extension ScreenContentView {
     }
 
     func beginRowScroll(_ column: ColumnID) {
-        scrollRidesFrames = false
+        cpuTakesCamera()
+        // A touch takes the rows from a fling on the render server, where they show.
+        takeScrollerFromServer(.row(column))
         rowScrolls[column]?.state.reduce(.gestureBegan)
     }
 
     /// A trackpad delta (points; positive moves content down, as AppKit
-    /// reports it).
+    /// reports it). On the row's motion container it moves one layer property and lays nothing out
+    /// (``presentScrollerPan(_:)``); the gesture's end lays the rows out once where they show.
     func rowScroll(_ column: ColumnID, deltaY: CGFloat, timestamp: TimeInterval) {
         rowScrolls[column]?.state.reduce(.gestureChanged(deltaX: deltaY, time: timestamp))
         refreshRowShift()
-        applyPresentation()
+        if !presentScrollerPan(.row(column)) { applyPresentation() }
     }
 
+    /// Ends a trackpad gesture: projects the fling and springs to a snap point. After a pan on the row's
+    /// container the fling runs on the render server (``startScrollerFling(_:)``), else on the CPU.
     @discardableResult
     func endRowScroll(_ column: ColumnID, timestamp: TimeInterval) -> Bool {
         guard var scroll = rowScrolls[column] else { return false }
         let effects = scroll.state.reduce(.gestureEnded(time: timestamp, animated: !context.reduceMotion))
         rowScrolls[column] = scroll
-        return applyRow(effects)
+        guard effects.needsFrames, startScrollerFling(.row(column)) else { return applyRow(effects) }
+        if let pane = effects.focus { context.model.focus(pane, source: .scroll) }
+        return false
     }
 
     /// One mouse wheel notch on the vertical axis.
     @discardableResult
     func discreteRowScroll(_ column: ColumnID, direction: Int) -> Bool {
-        scrollRidesFrames = false
+        cpuTakesCamera()
+        takeScrollerFromServer(.row(column))
         guard var scroll = rowScrolls[column] else { return false }
         let effects = scroll.state.reduce(.wheel(direction: direction, animated: !context.reduceMotion))
         rowScrolls[column] = scroll

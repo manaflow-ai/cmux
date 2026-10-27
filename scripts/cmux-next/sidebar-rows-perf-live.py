@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Live perf check of the sidebar rows path (sidebar-v2 rows lane) on a running tagged app.
+"""Live perf check of the sidebar rows path (sidebar-v2 rows lane) on a tagged app.
 
   scripts/cmux-next/sidebar-rows-perf-live.py --tag <tag> [--label NAME] [--out DIR]
       [--count 1000] [--ticking 50] [--tick-ms 250] [--seconds 20] [--scroll-steps 120]
+  scripts/cmux-next/sidebar-rows-perf-live.py --app <cmux DEV tag.app> [...]   (the perf lab story)
 
-Attaches to a running tagged app (it never launches or quits one; run it on a GUI lane host
-such as cmux-lawrence-2, never the laptop). It makes `--count` workspaces: `--ticking` of them
+With --tag it attaches to the running app of that tag and never launches or quits one. With --app it
+launches that app through bench_launch.BenchApp (the bench env, a fresh saved session) and quits it
+and the tag's daemons at the end. Run it on a GUI lane host such as cmux-lawrence-2, never the
+laptop. It makes `--count` workspaces: `--ticking` of them
 with a terminal, the others empty (`workspace create --empty`, so 1,000 rows need no 1,000
 PTYs). Then:
 
@@ -28,14 +31,17 @@ PTYs). Then:
 With counters (a build of the rows lane) it asserts: no structural rebuild and no list reload
 during the ticks; row configures stay at or under the row patches (one realized row per changed
 row) and are not 0 when a ticking row is on screen; no list reload during the scroll. A build
-without `debug.sidebar_perf` (the base) is measured only. Writes summary-<label>.json to --out
-and exits 1 when an assertion fails.
+without `debug.sidebar_perf` (the base) is measured only. Writes summary-<label>.json to --out;
+with --app, also the raw samples as result-v1 (story sidebar-rows-live, sidebar_bench_report.py: the
+tick reply delays, CPU and main time per tick, each scroll mode's event RPC times, and the hitch total
+and hitch time ratio of each valid recording); exits 1 when an assertion fails. Every percentile is perf_stats.pct (p50, p95, p99).
 """
-import argparse, json, os, shutil, socket, statistics, subprocess, sys, threading, time
+import argparse, json, os, shutil, socket, subprocess, sys, threading, time
 from concurrent.futures import ThreadPoolExecutor
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--tag", required=True)
+parser.add_argument("--tag", help="attach to the running app of this tag")
+parser.add_argument("--app", help="launch this app through BenchApp (instead of --tag)")
 parser.add_argument("--label", default="run")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
 parser.add_argument("--count", type=int, default=1000)
@@ -53,13 +59,28 @@ parser.add_argument("--repeats", type=int, default=1,
 parser.add_argument("--hover-per-event", action="store_true",
                     help="move the synthesized pointer on every gesture event (round-1 harness; adds a hover recompute per event)")
 opts = parser.parse_args()
-SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
+if not opts.tag and not opts.app:
+    parser.error("pass --tag (a running app) or --app (launch it)")
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)  # the bench modules, also under `python3 -I`
+import sidebar_bench_report as report  # noqa: E402
+from bench_launch import BenchApp, socket_candidates, tag_of  # noqa: E402
+
+if opts.app:
+    app_tag = tag_of(os.path.realpath(opts.app))
+    if opts.tag and opts.tag != app_tag:
+        parser.error(f"--tag {opts.tag} is not the tag of --app ({app_tag})")
+    opts.tag = app_tag
+SOCKET = socket_candidates(opts.tag)[0] if opts.app else f"/tmp/cmux-debug-{opts.tag}.sock"
+BENCH = None  # the BenchApp of the app this script launched (--app)
+
 CLI = os.path.join(HERE, "..", "cmux-debug-cli.sh")
 FRAME_MS = 1000 / 60
 failures = []
 summary = {"label": opts.label, "tag": opts.tag, "count": opts.count, "ticking": opts.ticking,
            "tick_ms": opts.tick_ms, "seconds": opts.seconds}
+# The raw samples behind the summary's percentiles, for result-v1 (report.live_series).
+raw = {"ticks": {}, "scrolls": {}}
 
 
 def check(ok, what):
@@ -99,18 +120,13 @@ def cli(*args, timeout=60):
 
 
 def app_pid():
-    if opts.pid:
-        return opts.pid
-    marker = f"cmux DEV {opts.tag}.app/Contents/MacOS/"
-    for line in subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout.splitlines():
-        pid, _, command = line.strip().partition(" ")
-        if marker in command and "Helper" not in command:
-            return int(pid)
-    return None
+    """The pid of the app: the one this script launched, else --pid, else the process running the tag's bundle."""
+    if BENCH is not None:
+        return BENCH.process.pid
+    return opts.pid or report.running_bundle(opts.tag)[0]
 
 
 def cpu_ns(pid):
-    sys.path.insert(0, HERE)
     from bench_idle import usage  # noqa: E402
     sample = usage(pid) if pid else None
     return sample[0] if sample else None
@@ -139,17 +155,8 @@ def perf_window():
     return best.get("window") if best and shown(best) > 0 else None
 
 
-def percentile(values, p):
-    if not values:
-        return None
-    ordered = sorted(values)
-    return round(ordered[min(len(ordered) - 1, int(p / 100 * len(ordered)))], 2)
-
-
 def latency_stats(values):
-    return {"samples": len(values), "p50_ms": percentile(values, 50), "p95_ms": percentile(values, 95),
-            "max_ms": round(max(values), 2) if values else None,
-            "over_frame": sum(1 for v in values if v > FRAME_MS)}
+    return report.latency_stats(values, FRAME_MS)
 
 
 def make_workspaces():
@@ -360,9 +367,10 @@ def hitches(trace, pid):
                 updates.append(int(duration.text) / 1e6)
     except Exception:  # noqa: BLE001 (an older trace without the table)
         pass
-    return {"hitches": rows, "p50_ms": percentile(durations, 50), "p95_ms": percentile(durations, 95),
+    return {"hitches": rows, "p50_ms": report.pct(durations, 50), "p95_ms": report.pct(durations, 95),
+            "p99_ms": report.pct(durations, 99),
             "max_ms": round(max(durations), 2) if durations else None, "total_ms": round(sum(durations), 1),
-            "app_updates": len(updates), "update_p50_ms": percentile(updates, 50), "update_p90_ms": percentile(updates, 90),
+            "app_updates": len(updates), **report.update_stats(updates),
             "updates_over_8_3_ms": len([u for u in updates if u > 8.34])}
 
 
@@ -400,11 +408,14 @@ def tick_phase(pid):
         trace.__exit__(None, None, None)
     ticks = ticks_each * len(terms)
     # With --profile the app CPU includes Time Profiler sampling: compare CPU only between runs alike.
+    raw["ticks"]["reply_ms"] = list(samples)
     result = {"ticks": ticks, "latency": latency_stats(samples), "hangs": hang_records(hangs)[:12], "profiled": opts.profile,
               "hang_count": (hangs or {}).get("count"), "hang_max_ms": (hangs or {}).get("max_ms")}
     if cpu0 is not None and cpu1 is not None:
         result["app_cpu_ms"] = round((cpu1 - cpu0) / 1e6, 1)
         result["app_cpu_us_per_tick"] = round((cpu1 - cpu0) / 1e3 / max(ticks, 1), 1)
+        if not opts.profile:  # Time Profiler sampling adds to the app's CPU: no result-v1 from a profiled run
+            raw["ticks"]["cpu_us_per_tick"] = (cpu1 - cpu0) / 1e3 / max(ticks, 1)
     if trace and os.path.exists(trace.path):
         result["profile"] = main_thread_profile(trace.path)
         result["trace"] = os.path.relpath(trace.path, opts.out)
@@ -412,6 +423,7 @@ def tick_phase(pid):
     if base is not None and after is not None:
         result["counters"] = after
         result["main_us_per_tick"] = round(after.get("main_ns", 0) / 1e3 / max(ticks, 1), 1)
+        raw["ticks"]["main_us_per_tick"] = after.get("main_ns", 0) / 1e3 / max(ticks, 1)
         visible = summary["visible_ticking_rows"]
         check(after.get("rebuilds", 0) == 0, f"ticks: no structural rebuild (rebuilds {after.get('rebuilds')})")
         check(after.get("list_reloads", 0) == 0, f"ticks: no list reload (list_reloads {after.get('list_reloads')})")
@@ -530,7 +542,9 @@ def scroll_mode(pid, window, label, terms):
         if trace:
             trace.__enter__()
         rpc("debug.frames", {"action": "start"})
+        started = time.perf_counter()
         d = gesture(window, point, opts.gesture_events, -60.0)
+        gesture_s = time.perf_counter() - started  # the recorded gesture: the hitch ratio's denominator
         moved = moved or realized_titles(window) != before
         if trace:
             trace.__exit__(None, None, None)
@@ -540,6 +554,9 @@ def scroll_mode(pid, window, label, terms):
         run = {"frames": f}
         if trace and os.path.exists(trace.path):
             run["hitches"] = hitches(trace.path, pid)
+            ratio = report.hitch_ratio(run["hitches"].get("total_ms"), gesture_s)
+            if ratio is not None:
+                run["hitches"]["hitch_ratio_pct"] = round(ratio, 3)
             run["hitches_trace"] = os.path.relpath(trace.path, opts.out)
         # Valid: the recording worked and the app drew (an occluded or sleeping window commits nothing).
         h = run.get("hitches") or {}
@@ -549,6 +566,9 @@ def scroll_mode(pid, window, label, terms):
               f"updates {h.get('app_updates')} p99 {(f or {}).get('p99_ms')}", flush=True)
     valid = sorted((r for r in runs if r.get("valid")), key=lambda r: r["hitches"].get("total_ms") or 0)
     pick = valid[len(valid) // 2] if valid else (runs[-1] if runs else {})
+    raw["scrolls"][label.replace("-", "_")] = {
+        "event_rpc_ms": down + up, "hitch_total_ms": [r["hitches"].get("total_ms") for r in valid],
+        "hitch_ratio": [r["hitches"].get("hitch_ratio_pct") for r in valid]}
     result.update({"frames": pick.get("frames") or frames, "event_rpc": latency_stats(down + up), "moved_down": moved,
                    "runs": runs, "valid_runs": len(valid)})
     if "hitches" in pick:
@@ -580,7 +600,24 @@ def scroll_phase(pid):
     summary["scroll_ticking"] = scroll_mode(pid, window, "ticking", terms)
 
 
-def main():
+def launch():
+    """--app: launches it through BenchApp; SOCKET and CLI then name its socket and its own CLI (a fleet-built bundle
+    has no DerivedData build for cmux-debug-cli.sh to find)."""
+    global BENCH, SOCKET, CLI
+    BENCH = BenchApp(opts.app, out=opts.out, perf_session=report.SESSION)
+    BENCH.launch()
+    SOCKET, CLI = BENCH.socket, BENCH.cli
+
+
+def write_summary():
+    os.makedirs(opts.out, exist_ok=True)
+    path = os.path.join(opts.out, f"summary-{opts.label}.json")
+    with open(path, "w") as out:
+        json.dump(summary, out, indent=2)
+    return path
+
+
+def measure():
     if "error" in (rpc("debug.layout_counters") or {"error": 1}):
         sys.exit(f"no tagged app answering on {SOCKET}")
     summary["has_counters"] = counters() is not None
@@ -591,13 +628,27 @@ def main():
     tick_phase(pid)
     scroll_phase(pid)
     summary["failures"] = failures
-    os.makedirs(opts.out, exist_ok=True)
-    path = os.path.join(opts.out, f"summary-{opts.label}.json")
-    with open(path, "w") as out:
-        json.dump(summary, out, indent=2)
+    path = write_summary()
+    # result-v1 only from an app this script launched (its launch env is BenchApp's), and after the summary is on
+    # disk, so a failure here cannot lose it.
+    if BENCH is None:
+        summary["result_v1"] = "not recorded: attached to an app this bench did not launch (--tag)"
+    else:
+        summary["result_v1"] = report.record_all(BENCH, report.live_series(opts.count, raw["ticks"], raw["scrolls"]))
+    write_summary()
     print(f"summary: {path}", flush=True)
     print(json.dumps(summary), flush=True)
     print(f"{len(failures)} failure(s)", flush=True)
+
+
+def main():
+    try:
+        if opts.app:
+            launch()
+        measure()
+    finally:
+        if BENCH is not None:
+            BENCH.stop()
     sys.exit(1 if failures else 0)
 
 

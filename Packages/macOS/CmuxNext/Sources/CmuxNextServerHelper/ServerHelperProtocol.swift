@@ -65,7 +65,7 @@ public struct ServerHelperConstants {
 
 /// The helper side: validates the fix id, records the value it replaces and
 /// runs exactly the fix's argv; revert restores the recorded value.
-public final nonisolated class ServerHelperService: NSObject, ServerHelperProtocol, @unchecked Sendable {
+public final nonisolated class ServerHelperService: NSObject, ServerHelperProtocol, Sendable {
     private let runner: any ServerFixRunner
     private let priors: any ServerFixPriorStore
     /// Apply and revert run one at a time, so a revert never interleaves
@@ -98,14 +98,14 @@ public final nonisolated class ServerHelperService: NSObject, ServerHelperProtoc
 
     static func apply(_ fix: ServerFix, runner: any ServerFixRunner, priors: any ServerFixPriorStore) async -> String? {
         do {
-            if priors.prior(fix) == nil {
+            if await priors.prior(fix) == nil {
                 let current = try await runner.run(ServerFix.pmset, ["-g", "custom"])
                 guard current.status == 0, let value = fix.currentValue(inCustomOutput: current.output) else {
                     return "could not read the current \(fix.setting) setting"
                 }
                 if value == fix.appliedValue { return nil }
                 do {
-                    try priors.record(fix, prior: value)
+                    try await priors.record(fix, prior: value)
                 } catch {
                     return "could not record the current \(fix.setting) setting"
                 }
@@ -120,13 +120,13 @@ public final nonisolated class ServerHelperService: NSObject, ServerHelperProtoc
     }
 
     static func revert(_ fix: ServerFix, runner: any ServerFixRunner, priors: any ServerFixPriorStore) async -> String? {
-        guard let prior = priors.prior(fix) else { return nothingToRevert }
+        guard let prior = await priors.prior(fix) else { return nothingToRevert }
         guard ServerFix.allowedRange.contains(prior) else { return "the recorded \(fix.setting) value is out of range" }
         do {
             let result = try await runner.run(ServerFix.pmset, fix.arguments(setting: prior))
             guard result.status == 0 else { return "pmset exited \(result.status)" }
             do {
-                try priors.clear(fix)
+                try await priors.clear(fix)
             } catch {
                 return "could not clear the recorded \(fix.setting) setting"
             }

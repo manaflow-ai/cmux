@@ -92,7 +92,7 @@ import WebKit
     /// A page web view with `id`, not loaded.
     static func page(_ id: String) -> PageWebView {
         let configuration = WKWebViewConfiguration()
-        return PageWebView(descriptor: PageDescriptor(id: id, resource: "keys", namespaces: []), configuration: configuration,
+        return PageWebView(descriptor: PageDescriptor(id: id, resource: "keys", processGroup: .solo, namespaces: []), configuration: configuration,
                            inputReadiness: PageInputReadiness(configuration: configuration), routes: [], route: nil,
                            options: .standard, surface: nil, dynamicResources: nil, pooled: false, load: false, chromium: nil)
     }
@@ -109,9 +109,9 @@ import WebKit
         editor.frame = NSRect(x: 200, y: 0, width: 200, height: 300)
         window.contentView?.addSubview(markdown)
         window.contentView?.addSubview(editor)
-        #expect(window.makeFirstResponder(editor.webKitView))
+        #expect(window.makeFirstResponder(editor.webView))
         #expect(KeyRouter.keyPage(modelPage: markdown, in: window) === editor)
-        #expect(window.makeFirstResponder(markdown.webKitView))
+        #expect(window.makeFirstResponder(markdown.webView))
         #expect(KeyRouter.keyPage(modelPage: markdown, in: window) === markdown)
         #expect(window.makeFirstResponder(nil))
         #expect(KeyRouter.keyPage(modelPage: nil, in: window) == nil)

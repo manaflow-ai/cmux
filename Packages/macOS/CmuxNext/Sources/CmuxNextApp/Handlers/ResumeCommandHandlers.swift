@@ -16,14 +16,14 @@ enum ResumeCommandHandlers {
             registry.bind(id, unavailable: unavailable, invoke: { invocation in
                 guard let (surface, connection) = terminal(invocation, context) else { return }
                 if let command = invocation["command"]?.stringValue {
-                    return registry.track(change(.set(command), surface, connection))
+                    return change(.set(command), surface, connection, context)
                 }
                 ask(id, editing: id == "resumeCommandEdit", invocation, surface, connection, context)
             })
         }
         registry.bind("resumeCommandClear", unavailable: unavailable, invoke: { invocation in
             guard let (surface, connection) = terminal(invocation, context) else { return }
-            registry.track(change(.clear, surface, connection))
+            change(.clear, surface, connection, context)
         })
     }
 
@@ -39,15 +39,14 @@ enum ResumeCommandHandlers {
         return (tab.surface, connection)
     }
 
-    private static func change(_ change: TerminalResumeCommandRequest.Change, _ surface: SurfaceID,
-                               _ connection: DaemonConnection) -> ActionWork {
-        Task {
-            do {
-                _ = try await connection.request(TerminalResumeCommandRequest(.surface(surface), change: change))
-                return nil
-            } catch {
-                return ActionWorkFailure(RefusalStrings.describe(error))
-            }
+    /// Sends the change to the terminal's daemon, off main; a refusal is the run's failure.
+    private static func change(_ change: TerminalResumeCommandRequest.Change, _ surface: SurfaceID, _ connection: DaemonConnection,
+                               _ context: AppActionContext) {
+        context.registry.trackWork(owner: "ResumeCommandHandlers.change", on: context.services.mainWork) {
+            _ = try await connection.request(TerminalResumeCommandRequest(.surface(surface), change: change))
+        } then: { result in
+            guard case .failure(let error) = result else { return nil }
+            return ActionWorkFailure(RefusalStrings.describe(error))
         }
     }
 
@@ -55,10 +54,13 @@ enum ResumeCommandHandlers {
     /// again with it as `command`, which stores it.
     private static func ask(_ id: ActionID, editing: Bool, _ invocation: ActionInvocation, _ surface: SurfaceID,
                             _ connection: DaemonConnection, _ context: AppActionContext) {
-        // task-owner: ends when the daemon replies with the stored line
-        Task { @MainActor in
+        // The stored line is read off main; the step asks as the run's completion once the daemon replies.
+        let registry = context.registry, end = registry.completion(on: context.services.mainWork)
+        end.start {
             let stored = editing ? try? await connection.request(TerminalResumeCommandRequest(.surface(surface))).command : nil
-            context.services.registry.ask(id, invocation, ActionArgumentAsk(argument: "command", initialText: stored))
+            end.post(owner: "ResumeCommandHandlers.ask", answering: true) {
+                registry.ask(id, invocation, ActionArgumentAsk(argument: "command", initialText: stored))
+            }
         }
     }
 }

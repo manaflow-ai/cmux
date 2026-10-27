@@ -1,0 +1,13 @@
+[Interface]
+PrivateKey = GDYq0RJ4LWL6jJhLMAlM1oHcCTdSiXPMZ4X5D8WzGdw=
+Address = 10.1.0.2/32, fd00::2/128
+MTU = 1280
+DNS = 10.1.0.1
+
+[Peer]
+PublicKey = Bo2I0OcpKnXtElGwH6EXV3MwDQctaIrFJ4tDX44DoWs=
+PresharedKey = GDYq0RJ4LWL6jJhLMAlM1oHcCTdSiXPMZ4X5D8WzGdw=
+AllowedIPs = 10.1.0.0/24, fd00::/64
+Endpoint = [2001:db8::1]:51820
+PeerAddress = 10.1.0.1, fd00::1
+PersistentKeepalive = 25

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import Foundation
 
 extension CEFTab: BrowserEmulating {
@@ -107,7 +108,7 @@ nonisolated enum CEFDeviceEmulation {
     /// (`viewport` nil) clears the metrics override and keeps the other calls.
     static func calls(_ emulation: BrowserEmulation?, viewport: BrowserEmulation.Viewport?) -> [(String, [String: Any])] {
         guard let emulation else { return reset }
-        guard let list = try? JSONSerialization.jsonObject(with: Data(emulation.chromiumCallsJSON.utf8)) as? [[String: Any]] else {
+        guard let list = try? JSONSerialization.blockingJSONObject(with: Data(emulation.chromiumCallsJSON.utf8)) as? [[String: Any]] else {
             return []
         }
         return list.compactMap { call in

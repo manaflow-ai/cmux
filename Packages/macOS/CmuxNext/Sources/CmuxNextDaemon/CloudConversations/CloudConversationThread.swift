@@ -4,7 +4,7 @@ import Foundation
 /// through the proxy (cx-59n8.6), up to `limit` (1...200) replies after `afterSeq`.
 public struct CloudConversationThreadRequest: DaemonRequest {
     public typealias Response = ConversationThread
-    public static let command = "cloud-conversation-thread"
+    public static let commandName: DaemonCommandName = "cloud-conversation-thread"
     public static let requiredCapability: String? = DaemonCapability.conversationThread.rawValue
     public static let maxLimit = 200
     public var conversation: String

@@ -9,10 +9,13 @@ extension WorkspaceRowView {
     override var titleFrame: NSRect { title.frame.insetBy(dx: -Self.labelInset, dy: 0) }
     override var titleFont: NSFont { title.font }
     override func setTitleHidden(_ hidden: Bool) {
+        // Every reuse calls this: only a rename's start or end changes the title (`layout()` keeps it otherwise).
+        guard hidden != renaming else { return }
         renaming = hidden
         title.isHidden = hidden
-        needsLayout = true
         if hidden { title.stopMarquee() }
+        // invalidate: a rename started or ended (the guard above).
+        needsLayout = true
     }
 
     /// An AppKit label cell draws its text this far inside its frame; the
@@ -29,6 +32,7 @@ extension WorkspaceRowView {
         // `layout()`, so every hover change asks for one; AppKit coalesces it
         // into the next pass. Skipping it during a scroll or a list apply left
         // a row's controls up after hover cleared (no pointer event follows).
+        // invalidate: hover changed (`isHovered` calls this on a change only).
         needsLayout = true
         // During a scroll the pointer is stationary while rows pass under it.
         // A synchronous layout and a marquee for every crossing turn
@@ -43,6 +47,7 @@ extension WorkspaceRowView {
         // so the title keeps its width; a clipped title scrolls. Under Reduce
         // Motion no marquee runs: the workspace hover card shows the whole
         // name (wrapped), so no second popover (a tooltip) shows with it.
+        // sync-layout: startMarquee reads whether the laid-out title is clipped.
         layoutSubtreeIfNeeded()
         title.startMarquee()
         updateCalmTitleTip()
@@ -57,6 +62,7 @@ extension WorkspaceRowView {
         if themedToolTip != tip { themedToolTip = tip }
     }
 
+    /// Layer colors only: `layerContentsRedrawPolicy` (.onSetNeedsDisplay, SidebarRowView) runs it on needsDisplay, never on a resize.
     override func updateLayer() {
         performWithTheme {
             // An idle workspace nobody named reads quiet until it is selected, hovered or busy.

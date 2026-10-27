@@ -1,5 +1,7 @@
 import CmuxNextActions
 @testable import CmuxNextControl
+import CmuxNextWakeups
+import Foundation
 import Observation
 import Testing
 
@@ -26,9 +28,13 @@ import Testing
             router = ControlRouter(identity: testIdentity(), executor: bridge, configuration: .loadTolerant)
         }
 
-        /// Lets the queued observation and refresh tasks run.
+        /// Lets the queued observation hops and refresh run: automation tasks that reach the
+        /// scheduler in a main run loop pass.
         func settle(until done: () -> Bool = { false }) async {
-            for _ in 0..<100 where !done() { await Task.yield() }
+            for _ in 0..<100 where !done() {
+                await Task.yield()
+                spinMainRunLoop(passes: 1)
+            }
         }
 
         /// The published catalog is what a full build gives now.
@@ -252,4 +258,77 @@ import Testing
         #expect(fixture.bridge.structureBuilds == reattached + 1)
         fixture.expectCurrent()
     }
+
+    /// The refresh is an automation task on the app's scheduler (p04-input-029): it waits behind
+    /// the person's pending input, and runs once the input clears.
+    @Test func aRefreshWaitsBehindThePersonsPendingInput() {
+        let input = BridgeInput()
+        let clock = BridgeClock()
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(input: input, uptimeNanos: clock.read)) { _ in BridgeLink() }
+        // Frames run (as while anything animates), so the held refresh waits for a hand-fired frame.
+        let keeper = FrameClient(owner: "test.keeper", isAnimation: false, on: work.frames) { _ in true }
+        keeper.activate()
+        defer { keeper.deactivate() }
+        let registry = ActionRegistry.standard()
+        let bridge = RegistryControlBridge(registry: registry, work: work)
+        let router = ControlRouter(identity: testIdentity(), executor: bridge, configuration: .loadTolerant)
+        bridge.attach(to: router)
+        defer { bridge.detach() }
+        let builds = bridge.structureBuilds
+
+        input.pending = true
+        registry.bind("splitRight") {}
+        spinMainRunLoop(passes: 5)
+        #expect(bridge.structureBuilds == builds, "the refresh ran ahead of the person's pending key")
+        #expect(router.catalog.resolve("splitRight")?.isBound == false)
+
+        input.pending = false
+        clock.advance(ms: 17)
+        work.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
+        spinMainRunLoop(until: { router.catalog.resolve("splitRight")?.isBound == true })
+        #expect(router.catalog.resolve("splitRight")?.isBound == true)
+        #expect(bridge.structureBuilds == builds + 1)
+    }
+
+    /// No automation site needs a display link (p04-input-029): with a link that never fires and
+    /// no frame client running (an occluded window), a binding and a context change reach the
+    /// published catalog in run loop turns alone.
+    @Test func theCatalogAndContextMaskApplyWithNoDisplayLink() {
+        let clock = BridgeClock()
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(input: BridgeInput(), uptimeNanos: clock.read)) { _ in BridgeLink() }
+        let registry = ActionRegistry.standard()
+        let bridge = RegistryControlBridge(registry: registry, work: work)
+        let router = ControlRouter(identity: testIdentity(), executor: bridge, configuration: .loadTolerant)
+        bridge.attach(to: router)
+        defer { bridge.detach() }
+        #expect(router.catalog.resolve("splitRight")?.isBound == false)
+
+        registry.bind("splitRight") {}
+        registry.context = [.browserFocused]
+        spinMainRunLoop(until: {
+            router.catalog.resolve("splitRight")?.isBound == true && router.catalog.contextMask == ActionContext.browserFocused.rawValue
+        })
+        #expect(router.catalog.resolve("splitRight")?.isBound == true, "the catalog refresh waited for a frame")
+        #expect(router.catalog.contextMask == ActionContext.browserFocused.rawValue, "the context mask waited for a frame")
+    }
+}
+
+/// A clock the test moves (`CLOCK_UPTIME_RAW` nanoseconds).
+@MainActor
+private final class BridgeClock {
+    private var now: UInt64 = 1_000_000_000
+    var read: () -> UInt64 { { [self] in self.now } }
+    func advance(ms: Double) { now += UInt64(ms * 1_000_000) }
+}
+
+@MainActor
+private final class BridgeInput: InputPendingSource {
+    var pending = false
+    func hasPendingInput(uptime: TimeInterval) -> Bool { pending }
+}
+
+@MainActor
+private final class BridgeLink: FrameLink {
+    var isPaused = false
+    func invalidate() {}
 }

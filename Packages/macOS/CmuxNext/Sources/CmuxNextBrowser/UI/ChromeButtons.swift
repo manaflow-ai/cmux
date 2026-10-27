@@ -24,14 +24,19 @@ final class ChromeIconButton: NSButton {
     }
     /// A menu for right-click and long-press (Back / Forward entries).
     var menuProvider: (() -> NSMenu?)?
-    private let holdTimer = DemandTimer(owner: "ChromeIconButton.hold")
-    private var showedHoldMenu = false
+    /// The long press's deadline: a press still held when it fires shows the menu. With none, a press is a click.
+    var longPressDeadline: (any LongPressDeadline)?
+    /// Shows the long press's menu under the button (tests record it instead).
+    var presentMenu: @MainActor (NSMenu, ChromeIconButton) -> Void = { menu, button in button.popUpUnder(menu) }
+    /// True from a press that may become a long press until its release or its menu.
+    private(set) var isHoldingForMenu = false
+    /// How long a press is held before it shows the menu instead of clicking.
+    static let holdDelay: Duration = .milliseconds(400)
 
     init(icon: IconName, label: String, action: Selector?, target: AnyObject?, toolbar: Bool = false, toolTip: Bool = true) {
         isToolbar = toolbar
         showsToolTip = toolTip
         super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
         isBordered = false
         bezelStyle = .regularSquare
         imagePosition = .imageOnly
@@ -42,22 +47,28 @@ final class ChromeIconButton: NSButton {
         themedToolTip = showsToolTip ? label : nil
         setAccessibilityLabel(label)
         wantsLayer = true
-        NSLayoutConstraint.activate([
-            density.bind(widthAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight },
-            density.bind(heightAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight },
-        ])
+        // A fixed square: frame layout reads `intrinsicContentSize`, a stack view keeps it.
+        for orientation in [NSLayoutConstraint.Orientation.horizontal, .vertical] {
+            setContentHuggingPriority(.chromeFixedSize, for: orientation)
+            setContentCompressionResistancePriority(.chromeFixedSize, for: orientation)
+        }
         density.update { [weak self] in
             guard let self else { return }
+            let side = isToolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight
+            if side != self.side { self.side = side; invalidateIntrinsicContentSize() }
             layer?.cornerRadius = isToolbar ? OmnibarStyle.buttonCornerRadius : BrowserMetrics.controlCornerRadius
             applyIcon()
         }
-        density.start()
+        density.start(in: self)
         hover = PointerHover(self) { [weak self] _ in self?.updateFill(animated: true) }
         hover?.isHoverable = { [weak self] in self?.isEnabled ?? false }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    private var side: CGFloat = 0 // the toolbar's button size, or the overlay control height
+    override var intrinsicContentSize: NSSize { NSSize(width: side, height: side) }
 
     /// Unchanged icon and label keep the current image: a new NSImage
     /// makes AppKit lay out and redraw the button.
@@ -169,11 +180,13 @@ final class ChromeIconButton: NSButton {
 
     // A button hidden under a still pointer (collapsed, its tab parked)
     // gets no exit event: hover follows the pointer and the frame instead.
+    // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidHide() {
         super.viewDidHide()
         hover?.refresh()
     }
 
+    // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidUnhide() {
         super.viewDidUnhide()
         hover?.refresh()
@@ -193,29 +206,57 @@ final class ChromeIconButton: NSButton {
     }
 
     /// A press held for 0.4 s shows the menu under the button instead of
-    /// clicking (long-press Back and Forward).
+    /// clicking (long-press Back and Forward). The release or the deadline
+    /// decides, and nothing holds the run loop meanwhile: Chrome's
+    /// ToolbarButton posts its drop-down menu as a delayed task on press
+    /// (chrome/browser/ui/views/toolbar/toolbar_button.cc), as
+    /// `TitlebarBandButton` does.
     override func mouseDown(with event: NSEvent) {
-        showedHoldMenu = false
-        if menuProvider != nil, isEnabled {
-            holdTimer.schedule(after: .milliseconds(400)) { @MainActor [weak self] in self?.showHoldMenu() }
-        }
-        super.mouseDown(with: event)
-        holdTimer.cancel()
+        guard menuProvider != nil, isEnabled, let longPressDeadline, window != nil else { return super.mouseDown(with: event) }
+        isHoldingForMenu = true
+        isHighlighted = true
+        longPressDeadline.schedule(after: Self.holdDelay) { [weak self] in self?.longPressDeadlinePassed() }
     }
 
-    override func sendAction(_ action: Selector?, to target: Any?) -> Bool {
-        guard !showedHoldMenu else { return false }
-        return super.sendAction(action, to: target)
+    /// Held through the deadline: the menu instead of the click. With no menu now (no entries) the press
+    /// stays a click on its release.
+    private func longPressDeadlinePassed() {
+        guard isHoldingForMenu, isEnabled, let menu = menuProvider?() else { return }
+        endHold()
+        presentMenu(menu, self)
     }
 
-    private func showHoldMenu() {
-        guard let menu = menuProvider?() else { return }
-        showedHoldMenu = true
+    /// The hold's drags move nothing; the pressed look follows the pointer in and out, as a tracked press.
+    override func mouseDragged(with event: NSEvent) {
+        guard isHoldingForMenu else { return super.mouseDragged(with: event) }
+        isHighlighted = isInside(event)
+    }
+
+    /// Released before the menu showed: a click when the pointer is still over the button.
+    override func mouseUp(with event: NSEvent) {
+        guard isHoldingForMenu else { return super.mouseUp(with: event) }
+        endHold()
+        if isEnabled, isInside(event) { sendAction(action, to: target) }
+    }
+
+    private func endHold() {
+        isHoldingForMenu = false
+        isHighlighted = false
+        longPressDeadline?.cancel()
+    }
+
+    private func isInside(_ event: NSEvent) -> Bool {
+        bounds.contains(convert(event.locationInWindow, from: nil))
+    }
+
+    /// The menu under the button, with the pressed look while it is open.
+    private func popUpUnder(_ menu: NSMenu) {
         isMenuOpen = true
         menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(for: menu, in: self, gap: 2), in: self)
         isMenuOpen = false
     }
 
+    // visibility-walk-allow: the hover fill is one layer color store in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateFill()
@@ -223,6 +264,8 @@ final class ChromeIconButton: NSButton {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // Out of the window, the hold's mouse-up never comes here.
+        if window == nil, isHoldingForMenu { endHold() }
         hover?.refresh()
         updateFill()
     }
@@ -259,21 +302,23 @@ class ChromeTextButton: NSButton {
     init(title: String, prominent: Bool, action: Selector?, target: AnyObject?) {
         self.prominent = prominent
         super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
         isBordered = false
         bezelStyle = .regularSquare
         self.action = action
         self.target = target
         wantsLayer = true
-        density.bind(heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.controlHeight }.isActive = true
+        // The control height: frame layout reads `intrinsicContentSize`, a stack view keeps it.
+        setContentHuggingPriority(.chromeFixedSize, for: .vertical)
+        setContentCompressionResistancePriority(.chromeFixedSize, for: .vertical)
         titleText = title
         density.update { [weak self] in
             guard let self else { return }
+            controlHeight = BrowserMetrics.controlHeight
             layer?.cornerRadius = BrowserMetrics.controlCornerRadius
             applyTitle()
             invalidateIntrinsicContentSize()
         }
-        density.start()
+        density.start(in: self)
         hover = PointerHover(self) { [weak self] _ in self?.updateFill(animated: true) }
         updateFill()
     }
@@ -294,21 +339,25 @@ class ChromeTextButton: NSButton {
         }
     }
 
+    private var controlHeight: CGFloat = 0 // read in the density binding, so a change applies
     override var intrinsicContentSize: NSSize {
         let size = attributedTitle.size()
-        return NSSize(width: ceil(size.width) + BrowserMetrics.overlayPadding * 2, height: BrowserMetrics.controlHeight)
+        return NSSize(width: ceil(size.width) + BrowserMetrics.overlayPadding * 2, height: controlHeight)
     }
 
+    // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidHide() {
         super.viewDidHide()
         hover?.refresh()
     }
 
+    // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidUnhide() {
         super.viewDidUnhide()
         hover?.refresh()
     }
 
+    // visibility-walk-allow: one layer color and the button's short title in the theme scope; a fixed-size overlay button, no layout; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateFill()
@@ -341,75 +390,9 @@ class ChromeTextButton: NSButton {
     }
 }
 
-/// Plain single-line field with no bezel, no focus ring, and a gray
-/// selection instead of the accent-colored one.
-class ChromeTextField: NSTextField {
-    private let density = DensityBinding()
-    private var placeholderText = ""
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        translatesAutoresizingMaskIntoConstraints = false
-        isBordered = false
-        isBezeled = false
-        drawsBackground = false
-        focusRingType = .none
-        usesSingleLineMode = true
-        lineBreakMode = .byTruncatingTail
-        cell?.isScrollable = true
-        cell?.wraps = false
-        density.update { [weak self] in
-            guard let self else { return }
-            font = BrowserMetrics.bodyFont
-            applyPlaceholder()
-        }
-        density.start()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    func setPlaceholder(_ text: String) {
-        placeholderText = text
-        applyPlaceholder()
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        applyColors()
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        applyColors()
-    }
-
-    private func applyColors() {
-        performWithTheme { textColor = Palette.textPrimary }
-        applyPlaceholder()
-        applyEditorColors()
-    }
-
-    private func applyPlaceholder() {
-        guard !placeholderText.isEmpty else { return }
-        performWithTheme {
-            setPlaceholderKeepingEdit(NSAttributedString(string: placeholderText, attributes: [
-                .foregroundColor: Palette.textSecondary,
-                .font: font ?? BrowserMetrics.bodyFont,
-            ]))
-        }
-    }
-
-    private func applyEditorColors() {
-        guard let editor = currentEditor() as? NSTextView else { return }
-        performWithTheme {
-            editor.insertionPointColor = Palette.caret
-            editor.selectedTextAttributes = [.backgroundColor: Palette.textSelection]
-        }
-    }
-
-    override func becomeFirstResponder() -> Bool {
-        let accepted = super.becomeFirstResponder()
-        if accepted { applyEditorColors() }
-        return accepted
-    }
+extension NSLayoutConstraint.Priority {
+    /// The content priority of a chrome button's fixed size: high enough that a
+    /// stack view keeps the size, below required, so a host that places the button
+    /// by frame (required autoresizing-mask constraints) never conflicts with it.
+    static let chromeFixedSize = NSLayoutConstraint.Priority(999)
 }

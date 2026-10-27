@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextFeed
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The Labs reports basket is AppKit (plans/cmux-next/no-swiftui-DESIGN.md rule 4): it builds no
 /// hosting view, its rows follow clicks and the model, and a reply is sent once while in flight
@@ -29,7 +30,7 @@ import Testing
     }
 
     private func shown(_ model: FeedModel, host: Host? = nil) -> (ReportsBasketView, NSWindow) {
-        let view = ReportsBasketView(model: model, onReply: host.map { host in { await host.send($0) } })
+        let view = ReportsBasketView(model: model, mainWork: MainWorkScheduler(budget: MainFrameBudget()), onReply: host.map { host in { await host.send($0) } })
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -38,13 +39,21 @@ import Testing
         return (view, window)
     }
 
-    /// Lets main-actor tasks run until `condition` holds (bounded).
+    /// Lets main-actor tasks and main run loop passes run until `condition` holds (bounded): the
+    /// basket renders a change at the scheduler's next turn or frame (`FrameObservation`).
     private func until(_ condition: () -> Bool) async {
         var tries = 0
         while !condition(), tries < 400 {
             tries += 1
-            try? await Task.sleep(for: .milliseconds(5))
+            await Task.yield()
+            runLoopPass()
         }
+    }
+
+    /// One bounded main run loop pass. Synchronous, because `RunLoop.run(mode:before:)` is
+    /// unavailable in an async context; `until` calls it between yields.
+    private func runLoopPass() {
+        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.005))
     }
 
     private func subviews(of view: NSView) -> [NSView] {

@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 import os
@@ -120,7 +121,7 @@ final class MobileHostApproverSync {
 
     private func handle(_ data: Data, on line: AcpmuxCheckedLine) {
         guard connection === line,
-              let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let message = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
               let id = (message["id"] as? NSNumber)?.intValue else { return }
         switch id {
         case 1:

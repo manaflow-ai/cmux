@@ -225,6 +225,7 @@ fn place_screens(
 impl Mux {
     /// A raw screen command that may reorder screens or move them between
     /// workspaces: one local commit through the shared screen path.
+    #[track_caller]
     fn commit_screen_change<R>(
         self: &Arc<Self>,
         actor: &Actor,
@@ -240,6 +241,7 @@ impl Mux {
     }
 
     /// A raw screen command that leaves screen order alone.
+    #[track_caller]
     fn commit_screen_metadata<R>(
         &self,
         actor: &Actor,
@@ -254,10 +256,12 @@ impl Mux {
     }
 
     /// The group's record, workspace, and members (for command results).
+    #[track_caller]
     pub fn screen_group_outcome_public(&self, group: &str) -> ScreenGroupOutcome {
         self.screen_group_outcome(group)
     }
 
+    #[track_caller]
     fn screen_group_outcome(&self, group: &str) -> ScreenGroupOutcome {
         let presentation = self.presentation_snapshot();
         self.with_state(|state| {
@@ -277,6 +281,7 @@ impl Mux {
 
     /// Set or clear a screen's color and icon. `None` leaves a field,
     /// `Some(None)` clears it. Returns whether anything changed.
+    #[track_caller]
     pub fn set_screen_metadata_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -295,6 +300,7 @@ impl Mux {
 
     /// Pin or unpin a screen. Pinned screens sort first and leave their
     /// group. Returns whether the flag changed and the screen's new index.
+    #[track_caller]
     pub fn set_screen_pinned_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -312,6 +318,7 @@ impl Mux {
         Ok((before != pinned, index))
     }
 
+    #[track_caller]
     fn screen_presentation_record(
         &self,
         screen: ScreenId,
@@ -326,6 +333,7 @@ impl Mux {
     /// Move one screen within its workspace, into another workspace, or into
     /// a new one. The screen keeps its panes, tabs, and terminals; it leaves
     /// its group when it changes workspace.
+    #[track_caller]
     pub fn move_screen_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -345,6 +353,7 @@ impl Mux {
         })
     }
 
+    #[track_caller]
     fn move_screen_block(
         self: &Arc<Self>,
         actor: &Actor,
@@ -363,6 +372,7 @@ impl Mux {
 
     /// Move a block of screens; with `screen_result`, the v2 result is the
     /// first screen's snapshot.
+    #[track_caller]
     pub(crate) fn move_screen_block_request(
         self: &Arc<Self>,
         request: StripRequest,
@@ -429,6 +439,7 @@ impl Mux {
     /// Create a group from screens of one workspace. Members become
     /// contiguous at the position of the first; screens leave any group they
     /// were in. Pinned screens cannot be grouped.
+    #[track_caller]
     pub fn create_screen_group_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -445,6 +456,7 @@ impl Mux {
         Ok(self.screen_group_outcome(&id))
     }
 
+    #[track_caller]
     pub(crate) fn create_screen_group_request(
         self: &Arc<Self>,
         request: StripRequest,
@@ -457,6 +469,7 @@ impl Mux {
 
     /// [`Self::create_screen_group_request`] with the group's id given: a
     /// reopened ungroup forms its group again under its own id.
+    #[track_caller]
     pub(crate) fn create_screen_group_with_id(
         self: &Arc<Self>,
         request: StripRequest,
@@ -515,6 +528,7 @@ impl Mux {
     /// Rename, recolor, collapse, or set or clear the icon of a group
     /// (`icon`: `None` keeps it, `Some(None)` clears it). A linked saved
     /// record follows.
+    #[track_caller]
     pub fn update_screen_group_as(
         &self,
         actor: &Actor,
@@ -535,6 +549,7 @@ impl Mux {
         Ok(self.screen_group_outcome(group))
     }
 
+    #[track_caller]
     pub(crate) fn update_screen_group_request(
         &self,
         request: StripRequest,
@@ -588,6 +603,7 @@ impl Mux {
     }
 
     /// Add screens to a group at `index` inside it (default: the end).
+    #[track_caller]
     pub fn add_screens_to_screen_group_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -604,6 +620,7 @@ impl Mux {
         Ok(self.screen_group_outcome(group))
     }
 
+    #[track_caller]
     pub(crate) fn add_screens_request(
         self: &Arc<Self>,
         request: StripRequest,
@@ -668,6 +685,7 @@ impl Mux {
 
     /// Remove screens from their groups; each lands right after its former
     /// group. Returns the groups they left.
+    #[track_caller]
     pub fn remove_screens_from_screen_group_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -681,6 +699,7 @@ impl Mux {
             .0)
     }
 
+    #[track_caller]
     pub(crate) fn remove_screens_request(
         self: &Arc<Self>,
         request: StripRequest,
@@ -721,6 +740,7 @@ impl Mux {
 
     /// Move a whole group within its workspace, into another workspace, or
     /// into a new one. Members keep their order and stay grouped.
+    #[track_caller]
     pub fn move_screen_group_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -776,6 +796,7 @@ impl Mux {
     }
 
     /// Dissolve a group; its screens stay in place. Returns the members.
+    #[track_caller]
     pub fn ungroup_screen_group_as(
         &self,
         actor: &Actor,
@@ -789,6 +810,7 @@ impl Mux {
             .0)
     }
 
+    #[track_caller]
     pub(crate) fn ungroup_screen_group_request(
         &self,
         request: StripRequest,
@@ -829,6 +851,7 @@ impl Mux {
     }
 
     /// Close every member screen. A linked saved record stays.
+    #[track_caller]
     pub fn close_screen_group_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -865,6 +888,7 @@ impl Mux {
     /// applied: the name in the creating commit, the rest (color, icon, pin,
     /// position, group) in one screen commit right after. Returns the new
     /// surface and screen.
+    #[track_caller]
     pub fn new_screen_with_spec_as(
         self: &Arc<Self>,
         actor: &Actor,

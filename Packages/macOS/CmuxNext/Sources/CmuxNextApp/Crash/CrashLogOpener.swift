@@ -13,8 +13,6 @@ nonisolated struct CrashLogOpener: Sendable {
         case finder(URL)
     }
 
-    static let textEditBundleID = "com.apple.TextEdit"
-
     /// The TextEdit app URL, nil when it is not installed.
     var textEditURL: @Sendable () -> URL?
     /// Opens a file with an app.
@@ -22,10 +20,13 @@ nonisolated struct CrashLogOpener: Sendable {
     /// Shows a file selected in Finder, or opens a folder.
     var reveal: @Sendable (URL) -> Void
 
+    /// TextEdit on the sealed system volume, where macOS installs it: no Launch Services lookup on the main thread.
+    static let systemTextEdit = URL(fileURLWithPath: "/System/Applications/TextEdit.app", isDirectory: true)
+
     static let system = CrashLogOpener(
-        textEditURL: { NSWorkspace.shared.urlForApplication(withBundleIdentifier: textEditBundleID) },
+        textEditURL: { systemTextEdit },
         openWith: { file, app in
-            NSWorkspace.shared.open([file], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
+            NSWorkspace.shared.openInBackground([file], withApplicationAt: app)
         },
         reveal: { url in
             if url.hasDirectoryPath {

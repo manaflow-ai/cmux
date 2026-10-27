@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextWakeups
 import CoreGraphics
 import Testing
 
@@ -47,7 +48,7 @@ struct LayoutScrollModifierTests {
         return model
     }
 
-    /// One scroll event at `point`, as a layout's monitor sees it. True: `root` took it.
+    /// One scroll event at `point`, as a layout's tap intercept sees it. True: `root` took it.
     @discardableResult
     static func scroll(_ root: LayoutRootView, at point: CGPoint, dx: Int32 = 0, dy: Int32 = 0, phase: CGScrollPhase? = nil,
                        momentum: CGMomentumScrollPhase = .none, units: CGScrollEventUnit = .pixel, command: Bool = false) -> Bool {
@@ -80,7 +81,7 @@ struct LayoutScrollModifierTests {
     }
 
     /// One scroll event from `child` (a page or catcher window of `root`'s window) at the
-    /// layout-window point `point`, through the layout's monitor routing. True: the layout took it.
+    /// layout-window point `point`, through the layout's intercept routing. True: the layout took it.
     @discardableResult
     static func scroll(_ root: LayoutRootView, from child: NSWindow, at point: CGPoint, dx: Int32 = 0, dy: Int32 = 0,
                        phase: CGScrollPhase? = nil, momentum: CGMomentumScrollPhase = .none,
@@ -109,7 +110,7 @@ struct LayoutScrollModifierTests {
             signals.secondsSinceKeyDown = { 60 }
             signals.windowIsKey = { _ in true }
             signals.mouseButtonsDown = { false }
-            root = LayoutRootView(model: model, contentProvider: provider, scrollFocusSignals: signals)
+            root = LayoutRootView(model: model, contentProvider: provider, scrollFocusSignals: signals, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             root.context.reduceMotionOverride = false
             window.contentView = root
             root.layoutSubtreeIfNeeded()
@@ -130,7 +131,7 @@ struct LayoutScrollModifierTests {
             return root.convert(CGPoint(x: top.midX, y: (top.maxY + middle.minY) / 2), to: nil)
         }
 
-        /// One scroll event at `point`, as the layout's monitor sees it. True: the layout took it.
+        /// One scroll event at `point`, as the layout's tap intercept sees it. True: the layout took it.
         @discardableResult
         func scroll(at point: CGPoint, dx: Int32 = 0, dy: Int32 = 0, phase: CGScrollPhase? = nil,
                     momentum: CGMomentumScrollPhase = .none, units: CGScrollEventUnit = .pixel, command: Bool = false) -> Bool {
@@ -300,7 +301,7 @@ struct LayoutScrollModifierTests {
         model.followsDesignMetrics = false
         model.scrollModifierOverride = .command
         let provider = Panes()
-        let root = LayoutRootView(model: model, contentProvider: provider)
+        let root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 700), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.contentView = root
@@ -376,7 +377,7 @@ struct LayoutScrollModifierTests {
         model.rowsEnabledOverride = true
         model.scrollModifierOverride = .command
         let provider = Panes()
-        let root = LayoutRootView(model: model, contentProvider: provider)
+        let root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         root.context.reduceMotionOverride = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -404,7 +405,7 @@ struct LayoutScrollModifierTests {
         model.followsDesignMetrics = false
         model.scrollModifierOverride = .command
         let provider = Panes()
-        let root = LayoutRootView(model: model, contentProvider: provider)
+        let root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.contentView = root
@@ -427,7 +428,7 @@ struct LayoutScrollModifierTests {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 800))
         window.contentView = container
         let providers = [Panes(), Panes()]
-        let roots = providers.map { LayoutRootView(model: Self.columnsModel(modifier: .command), contentProvider: $0) }
+        let roots = providers.map { LayoutRootView(model: Self.columnsModel(modifier: .command), contentProvider: $0, mainWork: MainWorkScheduler(budget: MainFrameBudget())) }
         for (index, root) in roots.enumerated() {
             root.frame = NSRect(x: CGFloat(index) * 500, y: 0, width: 500, height: 800)
             root.context.reduceMotionOverride = false
@@ -551,7 +552,7 @@ struct LayoutScrollModifierTests {
             model.baseStyle.minimumPaneContentSize = CGSize(width: 300, height: 64)
             model.baseStyle.scrollAreasEnabled = true
             model.scrollModifierOverride = .command
-            root = LayoutRootView(model: model, contentProvider: provider)
+            root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             root.context.reduceMotionOverride = false
             window.contentView = root
             root.layoutSubtreeIfNeeded()
@@ -620,8 +621,7 @@ struct LayoutScrollModifierTests {
         #expect(try #require(none.root.frame(of: "top")).minY < noneTop.minY - 10)
     }
 
-    /// A canvas screen of two panes, `a` on the left and `b` on the right, with empty canvas
-    /// between them, on a 1200 x 700 window.
+    /// A canvas screen of two panes, `a` on the left and `b` on the right, with empty canvas between them, on a 1200 x 700 window.
     final class CanvasWindow {
         let provider = Panes()
         let model: LayoutModel
@@ -634,7 +634,7 @@ struct LayoutScrollModifierTests {
                 .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("a"), b: .leaf("b"))))], activeScreenID: "s", focusedPane: "a")
             model.followsDesignMetrics = false
             model.scrollModifierOverride = modifier
-            root = LayoutRootView(model: model, contentProvider: provider)
+            root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             window.contentView = root
             root.layoutSubtreeIfNeeded()
             let seed: [PaneID: CGRect] = ["a": CGRect(x: 0, y: 0, width: 400, height: 700),
@@ -739,7 +739,7 @@ struct LayoutScrollModifierTests {
             return content
         }
         let model = Self.columnsModel(modifier: .command)
-        let root = LayoutRootView(model: model, contentProvider: provider)
+        let root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         root.context.reduceMotionOverride = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)

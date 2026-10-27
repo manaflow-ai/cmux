@@ -5,6 +5,7 @@ use super::*;
 
 #[allow(clippy::too_many_arguments)]
 /// Build the durable mutation plan for moving a sole tab across panes.
+#[track_caller]
 pub(in crate::mux) fn structural_tab_move_plan(
     mux: &Arc<Mux>,
     state: &mut State,

@@ -53,8 +53,9 @@ public struct PaletteKeyMap {
         context[KeyContext.paletteTogglesInPlace] = .bool(selectedTogglesInPlace)
         context[KeyContext.listFocus] = .bool(true)
         let table = RegistryKeyBindings(registry).subtable("palette") { commands[$0.command] != nil }
+        let input = CompiledWhen.Input(context)
         for shortcut in shortcuts(for: event) {
-            if let winner = table.resolve([shortcut], in: context, isRunnable: { _ in true }).winner {
+            if let winner = table.resolveWinner(CollectionOfOne(shortcut), in: input, isRunnable: { _ in true }) {
                 return commands[winner.command]
             }
         }

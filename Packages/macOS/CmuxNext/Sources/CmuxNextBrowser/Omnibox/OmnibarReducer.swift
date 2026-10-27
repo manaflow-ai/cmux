@@ -1,3 +1,4 @@
+public import CmuxNextSignposts
 public import Foundation
 
 /// The result of one reducer step.
@@ -13,8 +14,11 @@ public nonisolated struct OmnibarTransition: Equatable, Sendable {
 /// Rules are in plans/cmux-next/focus.md, section "Omnibar"; each input's
 /// handling is in this file and its `+Editing` and `+Popup` extensions.
 public nonisolated enum OmnibarReducer {
-    public static func reduce(_ state: OmnibarState, _ input: OmnibarInput, resolver: OmniboxResolver) -> OmnibarTransition {
-        var step = OmnibarStep(state: state, resolver: resolver)
+    /// - Parameter signposter: The `key` category's signposter that times the suggestion passes
+    ///   (`key.omnibar_suggest`; tests pass one on their own trace runtime).
+    public static func reduce(_ state: OmnibarState, _ input: OmnibarInput, resolver: OmniboxResolver,
+                              signposter: Signposter = Signposter.key) -> OmnibarTransition {
+        var step = OmnibarStep(state: state, resolver: resolver, signposter: signposter)
         step.handle(input)
         return OmnibarTransition(state: step.state, effects: step.effects, handled: step.handled)
     }
@@ -29,6 +33,8 @@ nonisolated struct OmnibarStep {
     var effects: [OmnibarEffect] = []
     var handled = true
     let resolver: OmniboxResolver
+    /// Times each suggestion pass as one `key.omnibar_suggest` slice.
+    let signposter: Signposter
 
     mutating func handle(_ input: OmnibarInput) {
         switch input {
@@ -42,8 +48,10 @@ nonisolated struct OmnibarStep {
         case .rowHover(let row, let pointer): rowHover(row, pointer: pointer)
         case .rowClick(let row, let disposition): rowClick(row, disposition)
         case .popupScroll: break // at most 8 rows: the card never scrolls, the wheel is swallowed
-        case .suggestions(let generation, let rows): suggestionsArrived(rows, generation: generation)
-        case .moreSuggestions(let generation, let rows, let capacity): moreSuggestionsArrived(rows, generation: generation, capacity: capacity)
+        case .suggestions(let generation, let rows):
+            suggestionPass(.results) { $0.suggestionsArrived(rows, generation: generation) }
+        case .moreSuggestions(let generation, let rows, let capacity):
+            suggestionPass(.moreResults) { $0.moreSuggestionsArrived(rows, generation: generation, capacity: capacity) }
         case .pageURLChanged(let url): pageURLChanged(url)
         case .showFullURLsChanged(let full): showFullURLsChanged(full)
         case .searchEngineChanged: if state.phase == .editing { refreshSuggestions(keepSelection: true) }
@@ -201,8 +209,13 @@ nonisolated struct OmnibarStep {
 
     // MARK: Suggestions
 
-    /// Asks for rows for the typed text, or closes the popup when it is blank.
+    /// Asks for rows for the typed text, or closes the popup when it is blank. Every query pass (a typed key,
+    /// a keyword session's start or end) comes through here, so each is one `key.omnibar_suggest` slice.
     mutating func query() {
+        suggestionPass(.query) { $0.startQuery() }
+    }
+
+    private mutating func startQuery() {
         if let keyword = state.keyword { return keywordQuery(keyword) }
         guard !state.edit.userText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             closePopup()
@@ -227,6 +240,13 @@ nonisolated struct OmnibarStep {
             }
         }
         query()
+    }
+
+    /// Runs one suggestion pass inside a `key.omnibar_suggest` slice whose end holds the popup's rows.
+    mutating func suggestionPass(_ pass: Signposter.KeySearchPass, _ body: (inout OmnibarStep) -> Void) {
+        let slice = signposter.begin(.keyOmnibarSuggest, searchPass: pass)
+        body(&self)
+        signposter.end(.keyOmnibarSuggest, slice, results: state.popup.rows.count)
     }
 
     mutating func closePopup() {

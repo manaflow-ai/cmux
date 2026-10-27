@@ -87,7 +87,7 @@ public final class MachineCatalogPublisher {
         // task-owner: newest snapshot owns this bounded request/retry chain; a change or stop cancels it.
         sending = Task { [weak self, backoff, clock] in
             var backoff = backoff
-            // wakeup-allow: every retry awaits the request and a Backoff after a real refusal; fatal errors end the chain.
+            // wakeup-allow: backoff: every retry awaits the request and a Backoff after a real refusal; fatal errors end the chain.
             while !Task.isCancelled {
                 guard self?.admit(value, sequence: next) == true else { return }
                 do {

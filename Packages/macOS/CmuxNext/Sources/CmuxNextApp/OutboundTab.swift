@@ -52,18 +52,20 @@ final class OutboundTab {
     private var answering = true
     /// The move landed: the hold ends once the pane no longer lists the tab.
     private var landed = false
-    private let timer = DemandTimer(owner: "OutboundTab")
+    /// The answer, backstop and land limits: `visible` work, each one shows the pane's strip as reported.
+    private let timer: MainDeadline
 
     private init(pane: PaneController) {
         self.pane = pane
         key = ObjectIdentifier(pane)
         known = Set(pane.pane.tabs.map(\.id))
-        timer.schedule(after: Self.answerLimit) { @MainActor [weak self] in
+        timer = MainDeadline(owner: "OutboundTab", workClass: .visible, scheduler: pane.services.mainDeadlines)
+        timer.schedule(after: Self.answerLimit) { [weak self] in
             // Not named yet (slow, refused or failed): the pane's new tabs show; a late answer still hides its own.
             guard let self, self.answering else { return }
             self.answering = false
             self.pane?.syncStripFromStore()
-            self.timer.schedule(after: Self.backstop) { @MainActor [weak self] in self?.end() }
+            self.timer.schedule(after: Self.backstop) { [weak self] in self?.end() }
         }
     }
 
@@ -149,7 +151,7 @@ final class OutboundTab {
     private func didName() {
         latchStandIns()
         answering = false
-        timer.schedule(after: Self.backstop) { @MainActor [weak self] in self?.end() }
+        timer.schedule(after: Self.backstop) { [weak self] in self?.end() }
         pane?.syncStripFromStore()
     }
 
@@ -164,7 +166,7 @@ final class OutboundTab {
         answering = false
         guard moved else { return end() }
         landed = true
-        timer.schedule(after: Self.landLimit) { @MainActor [weak self] in self?.end() }
+        timer.schedule(after: Self.landLimit) { [weak self] in self?.end() }
         pane?.syncStripFromStore()
     }
 

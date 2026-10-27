@@ -62,6 +62,7 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
     }
 
     public func show(_ dialog: CmuxDialogView, in scope: CmuxDialogScope, scopeGone: @escaping () -> Void) {
+        // sync-layout: the dialog's wrapped text sets its fitting size, which sizes the overlay below.
         dialog.layoutSubtreeIfNeeded()
         let size = dialog.fittingSize
         dialog.translatesAutoresizingMaskIntoConstraints = true
@@ -106,6 +107,7 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         if let handle = entry.handle, !handle.isDismissed, handle.host === host { return }
         detach(entry)
         let handle = host.present(entry.dialog, options: Self.options(for: scope))
+        handle.name = entry.dialog.spec.identifier
         // The window closed (its host dismissed every overlay): the dialog ends.
         handle.onDismiss = entry.scopeGone
         entry.handle = handle

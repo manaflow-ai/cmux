@@ -123,7 +123,7 @@ nonisolated enum BrowserSettingsSchema {
                 title: SettingsText.keyed("settings.browser.keepNeighborTabsAwake", "Keep Neighbor Tabs Awake"),
                 help: SettingsText.keyed(
                     "settings.browser.keepNeighborTabsAwake.help",
-                    "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off."
+                    "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure, Low Power Mode and Energy Saver turn it off."
                 ),
                 kind: .number(SettingNumber(0...3, step: 1, unit: .count)),
                 default: .number(Double(BrowserHibernationSetting.defaultNeighborRadius)),

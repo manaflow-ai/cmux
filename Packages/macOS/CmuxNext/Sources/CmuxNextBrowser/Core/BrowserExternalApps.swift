@@ -1,6 +1,7 @@
 public import Foundation
 import AppKit
 import CmuxNextCompat
+public import CmuxNextWakeups
 
 /// A page's links to other apps (mailto:, tel:, an app's own scheme), from a
 /// click in the main frame, in both engines (cx-d0d.22). A well-known scheme
@@ -39,14 +40,36 @@ public final class BrowserExternalApps {
         self.defaults = defaults
     }
 
+    /// The app's Launch Services answers (the App sets them at launch): which app opens a scheme is asked on the
+    /// system lane and kept per scheme. Nil opens nothing.
+    public var queries: WorkspaceQueries?
+
+    /// The name of the app that opens `scheme` links (`url` is one of them), nil when none does; read on the system
+    /// lane (Launch Services, then the app's display name from disk).
+    nonisolated static func handlerName(scheme: String, url: URL) -> WorkspaceQuery<String?> {
+        WorkspaceQuery(id: "browser.externalApp." + scheme, refreshes: true) { system in
+            system.defaultApplication(toOpen: url).map {
+                FileManager.default.displayName(atPath: $0.path).replacingOccurrences(of: ".app", with: "")
+            }
+        }
+    }
+
     /// Opens `url`, clicked on the page at `page`, in its app, or asks first
-    /// through `ask` (the tab's prompt bar: kind, origin, answer).
+    /// through `ask` (the tab's prompt bar: kind, origin, answer). Which app
+    /// opens it is known at once when kept, else when Launch Services answers.
     func open(_ url: URL, from page: URL?,
-              ask: (BrowserPromptKind, String, @escaping (BrowserPromptResponse) -> Void) -> Void) {
-        guard let scheme = url.scheme?.lowercased(), let app = NSWorkspace.shared.urlForApplication(toOpen: url) else { return }
+              ask: @escaping (BrowserPromptKind, String, @escaping (BrowserPromptResponse) -> Void) -> Void) {
+        guard let scheme = url.scheme?.lowercased(), let queries else { return }
+        queries.value(Self.handlerName(scheme: scheme, url: url), priority: .userBlocking) { [weak self] name in
+            guard let self, let name else { return }
+            decide(url, scheme: scheme, app: name, from: page, ask: ask)
+        }
+    }
+
+    private func decide(_ url: URL, scheme: String, app name: String, from page: URL?,
+                        ask: (BrowserPromptKind, String, @escaping (BrowserPromptResponse) -> Void) -> Void) {
         let site = page.flatMap(PageInfoSite.origin(of:)) ?? ""
         guard !Self.wellKnownSchemes.contains(scheme), !alwaysAllowed(scheme, for: site) else { return launch(url) }
-        let name = FileManager.default.displayName(atPath: app.path).replacingOccurrences(of: ".app", with: "")
         ask(.openExternalApp(app: name, scheme: scheme), site) { [weak self] response in
             switch response {
             case .allow:

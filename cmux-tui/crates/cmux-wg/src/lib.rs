@@ -30,8 +30,12 @@
 //! a session with each of several paired peers, routed by their allowed IPs.
 
 mod config;
+mod decrypted;
 mod device;
 mod error;
+/// Packet-path entry points for cmux-tui/fuzz.
+#[cfg(feature = "fuzzing")]
+pub mod fuzzing;
 mod mesh;
 mod mesh_driver;
 mod mesh_gateway;

@@ -74,8 +74,9 @@ public struct AgentActivityRequests {
     static func event(_ value: AgentActivityEvent) -> [String: Any] { ["seq": value.seq, "time": value.time.timeIntervalSince1970 * 1000, "kind": value.kind.rawValue, "tool": value.tool as Any, "target": value.target as Any, "ok": value.ok, "errorCode": value.errorCode as Any, "durationMs": value.durationMs as Any, "redactedTextLength": value.redactedTextLength as Any, "beforeFrame": value.beforeFrame.map(frame) as Any, "afterFrame": value.afterFrame.map(frame) as Any, "clickPoint": value.clickPoint.map { ["x": $0.x, "y": $0.y] } as Any] }
     static func json(_ object: [String: Any]) -> String { guard let data = try? JSONSerialization.data(withJSONObject: object), let value = String(data: data, encoding: .utf8) else { return "{}" }; return value }
     static func frameData(source: any AgentActivitySource, frame: AgentActivityFrameRef) async throws -> String {
-        guard let image = await source.image(for: frame), let tiff = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff), let data = bitmap.representation(using: .png, properties: [:]) else {
+        // The frame's own pixels (no TIFF encode and decode of them), encoded as PNG.
+        guard let image = await source.image(for: frame)?.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
             throw AgentActivitySourceError.malformed
         }
         return data.base64EncodedString()

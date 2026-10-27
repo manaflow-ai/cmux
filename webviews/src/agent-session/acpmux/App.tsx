@@ -51,6 +51,7 @@ import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
+import { jumpParams } from "./newtab/inputAt";
 import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
@@ -406,6 +407,7 @@ import { continueTargets, mergedCommands, resolveHarnessTarget, type CmuxCommand
 import { canContinueIn, reviewingHandoff } from "./handoff/continueIn";
 import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
+import { CHECKPOINT_METHODS } from "./checkpoints/protocol";
 import { PermissionPanel } from "./permissions/Panel";
 import { groupAskedCalls, withoutAskedCalls } from "./permissions/askRows";
 import { withoutQuietThoughts } from "./conversation/thoughts";
@@ -7239,6 +7241,12 @@ function AcpmuxPane() {
           "git.checkpoint.diff": ({ from, to }) => client.gitCheckpointDiff(String(from), String(to)),
           "git.commit": (params) => client.gitCommit(params),
           "git.push": (params) => client.gitPush(params),
+          ...Object.fromEntries(
+            CHECKPOINT_METHODS.map((method) => [
+              method,
+              (params: Record<string, unknown>) => client.gitCheckpoint(method, params),
+            ]),
+          ),
           "git.stage": ({ paths, unstage }) =>
             client.gitStage(Array.isArray(paths) ? paths.map(String) : [], unstage === true),
           "git.stageHunk": ({ paths, hunk, unstage }) =>
@@ -7267,6 +7275,8 @@ function AcpmuxPane() {
             return {
               ...composerHandle.current?.wakeState(),
               ...(anchor ? { scrollAnchor: anchor } : anchor === null ? { atLatest: true } : {}),
+              // A chat a pick started behind the page, no prompt sent: the host keeps the page.
+              ...(harnessSwitch.holdsDeferred ? { pendingChat: true } : {}),
             };
           },
         };
@@ -9151,7 +9161,7 @@ function AcpmuxPane() {
               {...(newTab.lastAgent ? { lastAgent: newTab.lastAgent } : {})}
               // A terminal or browser tab opens at once; a chat waits for acpmux (cx-hnpxh).
               onSubmit={newTabPageSubmit({ callNative, whenHandshaken, startChat: chatFromNewTab })}
-              onJump={(target, id) => void callNative("tab.jump", { target, id })}
+              onJump={(target, id, at) => void callNative("tab.jump", jumpParams(target, id, at))}
               onOpenSession={selectSession}
               onShowAll={showAllChats}
               onBrowseProject={() =>

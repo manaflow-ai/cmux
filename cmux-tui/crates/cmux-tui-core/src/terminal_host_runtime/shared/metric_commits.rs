@@ -10,6 +10,7 @@
 //! parsed bytes.
 
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 use std::sync::mpsc::sync_channel;
 
 use anyhow::Context;
@@ -27,7 +28,7 @@ impl HostShared {
     fn wait_for_parser_fifo(&self) {
         let (response, applied) = sync_channel(1);
         if self.parser_commands.send(ParserCommand::Barrier(response)).is_ok() {
-            let _ = applied.recv();
+            let _ = waits::recv(&applied);
         }
     }
 

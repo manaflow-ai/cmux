@@ -249,7 +249,7 @@ extension UpdaterService {
                 self.applyDownloadPolicy()
             }
         }
-        monitor.start(queue: DispatchQueue(label: "cmux.updates.network"))
+        monitor.start(queue: DispatchQueue(label: "cmux.updates.network", qos: .utility))
         pathMonitor = monitor
     }
 }

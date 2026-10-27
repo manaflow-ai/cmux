@@ -1,11 +1,17 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2.
+// cmux-tui mux protocol 12, IR 92ea0b6da7b0bd288ec4e10c0f31751140797c17e8fcdbcb3a76d518df4b8499.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+#[rustfmt::skip]
+pub type AgentSessionAcpmuxReply = serde_json::Value;
+#[rustfmt::skip]
+pub type AgentSessionPage = serde_json::Value;
+#[rustfmt::skip]
+pub type AgentSessionSummary = serde_json::Value;
 #[rustfmt::skip]
 pub type Base64 = String;
 #[rustfmt::skip]
@@ -22,6 +28,48 @@ pub type PaneRef = serde_json::Value;
 pub type TabRef = serde_json::Value;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AccessRequestKind {
+    #[serde(rename = "file")]
+    File,
+    #[serde(rename = "secret")]
+    Secret,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AccessRequestPending {
+    pub age_ms: u64,
+    pub kind: AccessRequestKind,
+    pub name: Nullable<String>,
+    pub path: Nullable<String>,
+    pub reason: Nullable<String>,
+    pub request_id: String,
+    pub session: Nullable<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "state")]
+pub enum AccessRequestStatus {
+    #[serde(rename = "delivered")]
+    Delivered {
+        #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
+        #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+        taken: Option<bool>,
+        #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+        value: Option<String>,
+    },
+    #[serde(rename = "denied")]
+    Denied {
+        reason: Nullable<String>,
+    },
+    #[serde(rename = "pending")]
+    Pending,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ActivitySnapshot {
     pub attached_clients: u32,
@@ -34,6 +82,188 @@ pub struct ActivitySnapshot {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ActivitySubscribeResult {
     pub activity: ActivitySnapshot,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCLIIntent {
+    pub cli: String,
+    pub key: String,
+    pub machine: String,
+    pub profiles: Vec<String>,
+    pub root_key: String,
+    pub session: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCLIJobPath {
+    pub kind: String,
+    pub pane_id: String,
+    pub screen_id: String,
+    pub tab_id: String,
+    pub terminal_id: String,
+    pub workspace_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCLIJobReceipt {
+    pub cli: String,
+    pub machine: String,
+    pub path: AgentCLIJobPath,
+    pub replayed: bool,
+    pub revision: String,
+    pub session: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "state")]
+pub enum AgentCLIJobResolution {
+    #[serde(rename = "created")]
+    Created {
+        receipt: AgentCLIJobReceipt,
+    },
+    #[serde(rename = "failed")]
+    Failed {
+        code: String,
+    },
+    #[serde(rename = "indeterminate")]
+    Indeterminate,
+    #[serde(rename = "not_found")]
+    NotFound,
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "prepared")]
+    Prepared,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCLIStoredIntent {
+    pub cli: String,
+    pub key: String,
+    pub machine: String,
+    pub profiles: Vec<String>,
+    pub receipt: Nullable<AgentCLIJobReceipt>,
+    pub root_key: String,
+    pub session: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentInventoryAuth {
+    #[serde(rename = "signedIn")]
+    SignedIn,
+    #[serde(rename = "signedOut")]
+    SignedOut,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentInventoryChannel {
+    #[serde(rename = "npm")]
+    Npm,
+    #[serde(rename = "bun")]
+    Bun,
+    #[serde(rename = "brew")]
+    Brew,
+    #[serde(rename = "brewCask")]
+    BrewCask,
+    #[serde(rename = "native")]
+    Native,
+    #[serde(rename = "launcher")]
+    Launcher,
+    #[serde(rename = "standalone")]
+    Standalone,
+    #[serde(rename = "missing")]
+    Missing,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentInventoryFamily {
+    #[serde(rename = "claude")]
+    Claude,
+    #[serde(rename = "codex")]
+    Codex,
+    #[serde(rename = "opencode")]
+    Opencode,
+    #[serde(rename = "pi")]
+    Pi,
+    #[serde(rename = "chief")]
+    Chief,
+    #[serde(rename = "gemini")]
+    Gemini,
+    #[serde(rename = "amp")]
+    Amp,
+    #[serde(rename = "copilot")]
+    Copilot,
+    #[serde(rename = "cursor")]
+    Cursor,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentInventoryHarness {
+    pub auth: AgentInventoryAuth,
+    pub channel: AgentInventoryChannel,
+    /// When the owner's health check saved this row, in Unix milliseconds.
+    #[serde(rename = "checkedAt")]
+    pub checked_at: u64,
+    /// Recognized CLI family from the owner's saved health check; null for launchers, missing executables, conflicting evidence and families this daemon does not know.
+    pub family: Nullable<AgentInventoryFamily>,
+    /// Harness profile id: 1-128 bytes of \`\[A-Za-z0-9._-\]\`.
+    pub id: String,
+    /// Latest registry version from the last successful check, or null.
+    pub latest: Nullable<String>,
+    /// When \`latest\` was checked, in Unix milliseconds; null when never checked.
+    #[serde(rename = "latestCheckedAt")]
+    pub latest_checked_at: Nullable<u64>,
+    /// True only when \`version\` and \`latest\` are both known and \`latest\` is newer.
+    pub outdated: bool,
+    /// Installed semantic version, or null when unknown.
+    pub version: Nullable<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentInventoryRefreshResult {
+    pub cached: bool,
+    pub harnesses: Vec<AgentInventoryHarness>,
+    /// Canonical public machine id (\`machine_…\`) of the daemon that answered.
+    pub machine: String,
+    pub view: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentInventoryResult {
+    pub cached: bool,
+    pub harnesses: Vec<AgentInventoryHarness>,
+    pub view: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentInventoryWatchActive {
+    /// Canonical public machine id (\`machine_…\`) of the daemon that answered.
+    pub machine: String,
+    /// The owner's inventory revision when the lease became active.
+    pub revision: u64,
+    /// Opaque lease id: \`inventory_watch_\` and 32 lowercase hex digits.
+    pub watch_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AgentInventoryWatchResult {
+    AgentInventoryWatchActive(AgentInventoryWatchActive),
+    EmptyResult(EmptyResult),
 }
 
 #[rustfmt::skip]
@@ -88,6 +318,15 @@ pub enum AgentReportSource {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionAnsweredBy {
+    /// The device the person answered on: 1 to 128 of \[A-Za-z0-9_.:-\].
+    pub device: String,
+    /// The feed item the person answered: 1 to 128 of \[A-Za-z0-9_.:-\].
+    pub feed_item: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentSessionSource {
     /// The agent kind the chat was started with.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -132,6 +371,148 @@ pub enum AgentState {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentUpdateHarness {
+    pub id: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub latest: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentUpdateOutcome {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub id: String,
+    pub ok: bool,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppGrant {
+    pub granted: bool,
+    pub scope: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppHiddenAccess {
+    pub automations: bool,
+    pub cli: bool,
+    pub mcp: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppLogLine {
+    pub level: String,
+    pub message: String,
+    pub ts_ms: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AppOrigin {
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "cli")]
+    Cli,
+    #[serde(rename = "mcp")]
+    Mcp,
+    #[serde(rename = "script")]
+    Script,
+    #[serde(rename = "remote")]
+    Remote,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppPaletteCommand {
+    pub op: String,
+    pub title: Nullable<JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub when: Optional<JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppRecord {
+    pub available: bool,
+    pub bundle_dir: Nullable<String>,
+    pub commands: Vec<AppPaletteCommand>,
+    pub enabled: bool,
+    pub grants: Vec<String>,
+    pub hidden: bool,
+    pub hidden_access: AppHiddenAccess,
+    pub hide_only: bool,
+    pub id: String,
+    pub installed: bool,
+    pub manifest: Nullable<JsonValue>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub revision: Option<u64>,
+    pub sandboxed: bool,
+    pub scope_classes: BTreeMap<String, AppScopeClass>,
+    pub source: AppSource,
+    pub tier: AppTier,
+    pub version: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AppScopeClass {
+    #[serde(rename = "standard")]
+    Standard,
+    #[serde(rename = "sensitive")]
+    Sensitive,
+    #[serde(rename = "restricted")]
+    Restricted,
+    #[serde(rename = "elevated")]
+    Elevated,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AppSource {
+    #[serde(rename = "default")]
+    Default,
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "bundled")]
+    Bundled,
+    #[serde(rename = "local")]
+    Local,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppTerminalLink {
+    pub app: String,
+    pub channel: String,
+    pub id: String,
+    pub socket: Nullable<String>,
+    pub target: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AppTier {
+    #[serde(rename = "first-party")]
+    FirstParty,
+    #[serde(rename = "verified")]
+    Verified,
+    #[serde(rename = "unverified")]
+    Unverified,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppliedPane {
     pub pane: Id,
     pub surface: Id,
@@ -142,6 +523,52 @@ pub struct AppliedPane {
 pub struct ApplyLayoutResult {
     pub panes: Vec<AppliedPane>,
     pub screen: Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsInventoryDemand {
+    pub enabled: bool,
+    pub sequence: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsLinkChangedResult {
+    pub servers: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsListResult {
+    pub apps: Vec<AppRecord>,
+    pub revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsLogsResult {
+    pub lines: Vec<AppLogLine>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsProviderRegisterResult {
+    pub families: Vec<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub inventory_demand: Option<AppsInventoryDemand>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsRunResult {
+    pub value: Nullable<JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsTerminalLinksResult {
+    pub links: Vec<AppTerminalLink>,
 }
 
 #[rustfmt::skip]
@@ -287,6 +714,36 @@ pub struct BrowserProviderUnregisterResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserRuntimeRow {
+    pub port: u16,
+    pub runtime: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserRuntimeStartResult {
+    pub installed: String,
+    pub port: u16,
+    pub runtime: u64,
+    pub secret: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserRuntimeStatusResult {
+    pub installed: Nullable<String>,
+    pub platform: String,
+    pub runtimes: Vec<BrowserRuntimeRow>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserRuntimeStopResult {
+    pub stopped: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CellPixelFailure {
     pub error: String,
     pub surface: Id,
@@ -307,6 +764,33 @@ pub struct CellPixelSurface {
     pub height_px: u16,
     pub surface: Id,
     pub width_px: u16,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClientHelloPageOperations {
+    pub confirm: Vec<String>,
+    pub gesture: Vec<String>,
+    pub read: Vec<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClientHelloResult {
+    pub connection_id: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub install_id: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub page: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub page_events: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub page_operations: Option<ClientHelloPageOperations>,
+    pub user_origin_allowed: bool,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub verified: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -716,6 +1200,15 @@ pub struct EmptyResult {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EventCause {
+    #[serde(rename = "frontend")]
+    Frontend,
+    #[serde(rename = "automation")]
+    Automation,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExportLayoutResult {
     pub layout: Layout,
@@ -805,6 +1298,128 @@ pub struct FrontendProjection {
     pub schema_version: u32,
     pub scope: String,
     pub subject_key: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FsEntry {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
+    pub kind: FsEntryKind,
+    pub mtime: Nullable<u64>,
+    pub name: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
+    pub size: Nullable<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub target_kind: Option<FsEntryKind>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FsEntryKind {
+    #[serde(rename = "file")]
+    File,
+    #[serde(rename = "dir")]
+    Dir,
+    #[serde(rename = "symlink")]
+    Symlink,
+    #[serde(rename = "other")]
+    Other,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FsEntryResult {
+    pub entry: FsEntry,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct FsFilter {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub kinds: Optional<Vec<FsEntryKind>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub query: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FsPage {
+    pub cursor: Nullable<String>,
+    pub entries: Vec<FsEntry>,
+    pub listing: String,
+    pub revision: String,
+    pub total: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "encoding")]
+pub enum FsReadResult {
+    #[serde(rename = "base64")]
+    Base64 {
+        bytes_base64: Base64,
+        size: u64,
+        truncated: bool,
+    },
+    #[serde(rename = "utf-8")]
+    Utf8 {
+        size: u64,
+        text: String,
+        truncated: bool,
+    },
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct FsSort {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub dir: Option<FsSortDirection>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub dirs_first: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub key: Option<FsSortKey>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FsSortDirection {
+    #[serde(rename = "asc")]
+    Asc,
+    #[serde(rename = "desc")]
+    Desc,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FsSortKey {
+    #[serde(rename = "name")]
+    Name,
+    #[serde(rename = "modified")]
+    Modified,
+    #[serde(rename = "size")]
+    Size,
+    #[serde(rename = "kind")]
+    Kind,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FsStatResult {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
+    pub kind: FsEntryKind,
+    pub mode_display: String,
+    pub mtime: Nullable<u64>,
+    pub name: String,
+    pub owner_display: String,
+    pub revision: String,
+    pub size: Nullable<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub target_kind: Option<FsEntryKind>,
 }
 
 #[rustfmt::skip]
@@ -980,6 +1595,8 @@ pub struct IdentifyResult {
     pub build_commit: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub build_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub bulk_frame_max: Optional<u32>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1126,6 +1743,104 @@ pub struct LivePane {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,
     pub tabs: Vec<Tab>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoopbackAuditRecord {
+    pub at_ms: u64,
+    pub bytes_from_target: u64,
+    pub bytes_to_target: u64,
+    pub client: u64,
+    pub duration_ms: u64,
+    pub host: String,
+    pub outcome: String,
+    pub port: u16,
+    pub stream: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoopbackLimits {
+    pub daemon_window: u64,
+    pub frame_bytes: u64,
+    pub per_client: u64,
+    pub total: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoopbackOpenResult {
+    pub address: String,
+    pub stream: u64,
+    pub window: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoopbackStatusResult {
+    pub audit: Vec<LoopbackAuditRecord>,
+    pub client_streams: u64,
+    pub enabled: bool,
+    pub limits: LoopbackLimits,
+    pub open_streams: u64,
+    pub opened: u64,
+    pub refused: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineCatalogEntry {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Vec<String>>,
+    pub id: String,
+    pub name: String,
+    pub origin: MachineCatalogOrigin,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub platform: Optional<MachineCatalogPlatform>,
+    pub status: MachineCatalogStatus,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MachineCatalogOrigin {
+    #[serde(rename = "cloud")]
+    Cloud,
+    #[serde(rename = "ssh")]
+    Ssh,
+    #[serde(rename = "server")]
+    Server,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct MachineCatalogPlatform {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub arch: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub os: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineCatalogPublishResult {
+    pub replayed: bool,
+    pub sequence: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MachineCatalogStatus {
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "connecting")]
+    Connecting,
+    #[serde(rename = "unavailable")]
+    Unavailable,
+    #[serde(rename = "sleeping")]
+    Sleeping,
+    #[serde(rename = "stopped")]
+    Stopped,
 }
 
 #[rustfmt::skip]
@@ -1682,6 +2397,58 @@ pub struct ServerStatsHistogram {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsIpc {
+    pub bad_message: u64,
+    pub parses: ServerStatsIpcParses,
+    pub received: Vec<ServerStatsIpcKind>,
+    pub sent: Vec<ServerStatsIpcKind>,
+    pub sequence_depth: ServerStatsHistogram,
+    pub streams: ServerStatsIpcStreams,
+    pub writes: ServerStatsIpcWrites,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsIpcKind {
+    pub bytes: u64,
+    pub kind: String,
+    pub messages: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsIpcParse {
+    pub json_parses: u64,
+    pub json_parses_per_request: f64,
+    pub requests: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsIpcParses {
+    pub frames: ServerStatsIpcParse,
+    pub lines: ServerStatsIpcParse,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsIpcStreams {
+    pub open: u64,
+    pub opened: u64,
+    pub peak: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsIpcWrites {
+    pub messages: u64,
+    pub stalls: u64,
+    pub syscalls: u64,
+    pub syscalls_per_message: f64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsJournalWriter {
     pub batch_size: ServerStatsHistogram,
     pub batches: u64,
@@ -1696,6 +2463,32 @@ pub struct ServerStatsJournalWriter {
     pub receipt_wait_us: ServerStatsHistogram,
     pub terminal_events: u64,
     pub terminal_queued: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsLockClass {
+    pub hold_us: ServerStatsHistogram,
+    pub wait_p95_us: u64,
+    pub wait_us: ServerStatsHistogram,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsLockClassSet {
+    pub automation: ServerStatsLockClass,
+    pub automation_due_admissions: u64,
+    pub automation_yields: u64,
+    pub frontend: ServerStatsLockClass,
+    pub program: ServerStatsLockClass,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsLockClasses {
+    pub registry: ServerStatsLockClassSet,
+    pub registry_connection: ServerStatsLockClassSet,
+    pub state: ServerStatsLockClassSet,
 }
 
 #[rustfmt::skip]
@@ -1724,6 +2517,47 @@ pub struct ServerStatsLockStall {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsLockWait {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub holder: Option<String>,
+    pub lock: String,
+    pub site: String,
+    pub waited_us: u64,
+    pub waiter: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsLockWaits {
+    pub dropped: u64,
+    pub long_waits: u64,
+    pub recent: Vec<ServerStatsLockWait>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsMethodLatency {
+    pub class: String,
+    pub handler_us: ServerStatsPercentiles,
+    pub id: Nullable<u16>,
+    pub latency_us: ServerStatsPercentiles,
+    pub lock_wait_us: ServerStatsPercentiles,
+    pub method: String,
+    pub trace_id: u16,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsPercentiles {
+    pub count: u64,
+    pub max: u64,
+    pub p50: u64,
+    pub p95: u64,
+    pub p99: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsRegistryLock {
     pub contended_acquisitions: u64,
     pub hold_us: ServerStatsHistogram,
@@ -1732,6 +2566,47 @@ pub struct ServerStatsRegistryLock {
     pub stalls: u64,
     pub top_sites: Vec<ServerStatsLockSite>,
     pub wait_us: ServerStatsHistogram,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsRequestLatency {
+    pub agent: ServerStatsHistogram,
+    pub browser: ServerStatsHistogram,
+    pub cloud: ServerStatsHistogram,
+    pub create: ServerStatsHistogram,
+    pub other: ServerStatsHistogram,
+    pub query: ServerStatsHistogram,
+    pub terminal_io: ServerStatsHistogram,
+    pub topology: ServerStatsHistogram,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsRequestPathIo {
+    pub child_process: u64,
+    pub fs_write: u64,
+    pub host_wait: u64,
+    pub journal_wait: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub lock_hold_over_1ms: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub lock_waits: Option<ServerStatsLockWaits>,
+    pub network: u64,
+    pub proc_scan: u64,
+    pub process_spawn: u64,
+    pub recording: bool,
+    pub scopes: u64,
+    pub sites: Vec<ServerStatsRequestPathSite>,
+    pub sleep: u64,
+    pub sqlite: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsRequestPathSite {
+    pub kind: String,
+    pub site: String,
 }
 
 #[rustfmt::skip]
@@ -1760,14 +2635,62 @@ pub struct ServerStatsResourceProjection {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsResult {
     pub connections: ServerStatsConnections,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub dispatch_queue_us: Option<ServerStatsHistogram>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub ipc: Option<ServerStatsIpc>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub ipc_methods: Option<Vec<ServerStatsMethodLatency>>,
     pub journal_writer: Nullable<ServerStatsJournalWriter>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub lock_classes: Option<ServerStatsLockClasses>,
     pub registry_lock: ServerStatsRegistryLock,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub request_latency_us: Option<ServerStatsRequestLatency>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub request_path_io: Option<ServerStatsRequestPathIo>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub resource_projection: Option<ServerStatsResourceProjection>,
     pub schema: u32,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub slow_requests: Option<ServerStatsSlowRequests>,
     pub uptime_ms: u64,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub write_path: Option<ServerStatsWritePath>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsSlowRequest {
+    pub busy_ms: u64,
+    pub client: u64,
+    pub duration_ms: Nullable<u64>,
+    pub method: String,
+    pub stack: Vec<ServerStatsSlowRequestFrame>,
+    pub stack_error: Nullable<String>,
+    pub stack_truncated: bool,
+    pub started_ms: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsSlowRequestFrame {
+    pub image: Nullable<String>,
+    pub image_id: Nullable<String>,
+    pub offset: u64,
+    pub symbol: Nullable<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsSlowRequests {
+    pub expected_waits: u64,
+    pub recent: Vec<ServerStatsSlowRequest>,
+    pub spawn_failures: u64,
+    pub threshold_ms: u64,
+    pub total: u64,
+    pub unwatched: u64,
+    pub watchdog_wakeups: u64,
 }
 
 #[rustfmt::skip]
