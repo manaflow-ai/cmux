@@ -74,7 +74,7 @@ struct CloudFileViewerTests {
             }
             guard "r\(files[real]!.revision)" == expected else {
                 throw DaemonError.command(cmd: "fs.write", message: "changed", code: "fs.revision_mismatch",
-                                          details: ["current": .string("r\(files[real]!.revision)")])
+                                          details: .object(["current": .string("r\(files[real]!.revision)")]))
             }
             writes.append((path, text, expected))
             set(real, text)
