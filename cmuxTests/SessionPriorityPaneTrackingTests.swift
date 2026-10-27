@@ -186,4 +186,51 @@ struct SessionPriorityPaneTrackingTests {
 
         #expect(!pending)
     }
+
+    // MARK: - Turned off where the coordinator could not see it (E2E O1)
+
+    /// A `defaults write` from another process turns the feature off without a notification.
+    /// The next trigger or status read that finds it off drops whatever the coordinator still
+    /// shows or holds.
+    @Test
+    func rowsRecordsAndQueuedRestartsAreWhatTurningOffDrops() {
+        var state = SessionPriorityCoordinatorState()
+        let fresh = state.hasActiveState
+
+        state.rowsShown = [UUID()]
+        let withRows = state.hasActiveState
+        _ = state.disable()
+        let afterDisable = state.hasActiveState
+
+        state.queue.enqueue(panelId: pane, workspaceId: UUID(), target: high)
+        let withQueue = state.hasActiveState
+        _ = state.disable()
+
+        state.follow(panelId: pane, sessionId: "s1")
+        let withRecord = state.hasActiveState
+        _ = state.disable()
+
+        _ = state.requestReconcile(nowMs: 0, settles: false)
+        let withPendingPass = state.hasActiveState
+
+        #expect(!fresh)
+        #expect(withRows)
+        #expect(!afterDisable)
+        #expect(withQueue)
+        #expect(withRecord)
+        #expect(withPendingPass)
+    }
+
+    /// What the coordinator keeps while off on purpose does not count.
+    @Test
+    func turnEndsAndDismissalsKeptWhileOffAreNotDropped() {
+        var state = SessionPriorityCoordinatorState()
+        state.noteTurnEnded(panelId: pane, nowMs: 1_000, pendingWork: true)
+        state.clearStickyManual(panelIds: [pane], nowMs: 1_000)
+
+        let active = state.hasActiveState
+
+        #expect(!active)
+        #expect(state.lastTurnEndedAtMs[pane] == 1_000)
+    }
 }
