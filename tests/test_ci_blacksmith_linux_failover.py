@@ -35,29 +35,40 @@ EXCLUDED_FILES = {
 }
 # x64 Blacksmith Linux labels; -arm labels are a different pool.
 LABEL = re.compile(r"blacksmith-\d+vcpu-ubuntu-2404(?![-\w])")
-RUNNER_KEY = re.compile(
-    r"^\s*(?:-\s+)?(runs-on|runs_on|runner|linux_runner|DAEMON_POOL|CMUX_NEXT_RUNNER|os):\s*(.*)$"
-)
 FAILOVER = "vars.CI_CLOUD_OVERFLOW_SAVED && 'ubuntu-24.04' || '"
+# What may come right before a Blacksmith Linux literal without the failover:
+# a variable the switch already points at ubuntu-24.04, or a fork pull-request
+# branch, which picks Blacksmith on purpose and is not the fallback.
+SWITCHED = re.compile(
+    r"(?:(?<!&& )vars\.LINUX_RUNNER|!startsWith\(vars\.LINUX_RUNNER, 'blacksmith-'\) && vars\.LINUX_RUNNER) \|\| '$"
+)
+FORK_BRANCH = re.compile(
+    r"(?:head\.repo\.full_name != github\.repository"
+    r"|!contains\(fromJSON\([\w.]+\), github\.event\.pull_request\.head\.repo\.full_name\)) && '$"
+)
 
 
-def covered(value: str) -> bool:
-    """True when every literal Blacksmith Linux fallback in value fails over."""
-    if "vars.CI_TRUSTED_RUNNER" in value:
-        return True
-    if re.search(r"vars\.LINUX_RUNNER\s*\|\|", value) and "contains(vars.LINUX_RUNNER, '32vcpu')" not in value:
-        return True
-    # The last literal is the fallback the switch must reach; earlier ones are
-    # branches (fork pull requests) that pick Blacksmith on purpose.
-    last = list(re.finditer(r"'(" + LABEL.pattern + r")'", value))
-    if not last:
-        return False
-    head = value[: last[-1].start() + 1]
-    if head.endswith(FAILOVER):
+def literal_covered(head: str) -> bool:
+    """head is the text up to and including the quote that opens the literal."""
+    if head.endswith(FAILOVER) or SWITCHED.search(head) or FORK_BRANCH.search(head):
         return True
     # A guarded literal (`cond && 'blacksmith-...'`) keeps the guard first:
     # `cond && vars.CI_CLOUD_OVERFLOW_SAVED && 'ubuntu-24.04' || cond && '...'`.
-    return re.search(r"\|\|\s*(.+?) && " + re.escape(FAILOVER[:-1]) + r"\1 && '$", head) is not None
+    return re.search(r"(?:\|\||\()\s*(.+?) && " + re.escape(FAILOVER[:-1]) + r"\1 && '$", head) is not None
+
+
+def covered(value: str) -> bool:
+    """True when every Blacksmith Linux literal in a runner value fails over."""
+    if "vars.CI_TRUSTED_RUNNER" in value:
+        # The switch points CI_TRUSTED_RUNNER at ubuntu-24.04; the labels in its
+        # allowlist are double-quoted JSON, not runner literals.
+        return True
+    if "${{" not in value:
+        return LABEL.search(value) is None
+    return all(
+        literal_covered(value[: match.start() + 1])
+        for match in re.finditer(r"'" + LABEL.pattern + r"'", value)
+    )
 
 
 def offenders() -> list[str]:
@@ -66,10 +77,10 @@ def offenders() -> list[str]:
         if EXCLUDED_NAME.search(path.name) or path.name in EXCLUDED_FILES:
             continue
         for number, line in enumerate(path.read_text().splitlines(), 1):
-            match = RUNNER_KEY.match(line)
-            if not match or not LABEL.search(match.group(2)) or "runner.name" in line:
+            code = line.split(" #", 1)[0] if not line.lstrip().startswith("#") else ""
+            if not LABEL.search(code) or "runner.name" in code:
                 continue
-            if not covered(match.group(2)):
+            if not covered(code):
                 found.append(f"{path.name}:{number}: {line.strip()[:160]}")
     return found
 
@@ -94,6 +105,15 @@ class BlacksmithLinuxFailoverTest(unittest.TestCase):
         self.assertFalse(covered("${{ x || a == 'pass' && 'blacksmith-2vcpu-ubuntu-2404' || 'macos-26' }}"))
         self.assertFalse(
             covered("${{ contains(vars.LINUX_RUNNER, '32vcpu') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}")
+        )
+        self.assertTrue(
+            covered("${{ !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}")
+        )
+        # A Blacksmith literal inside an earlier branch must fail over too, not only the last one.
+        self.assertFalse(covered("${{ a && (vars.X || 'blacksmith-16vcpu-ubuntu-2404') || 'blacksmith-6vcpu-macos-15' }}"))
+        fork = "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository"
+        self.assertTrue(
+            covered("${{ " + fork + " && 'blacksmith-4vcpu-ubuntu-2404' || " + FAILOVER + "blacksmith-32vcpu-ubuntu-2404' }}")
         )
 
 
