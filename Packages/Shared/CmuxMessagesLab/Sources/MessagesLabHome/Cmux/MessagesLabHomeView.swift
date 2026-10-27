@@ -541,6 +541,7 @@ public final class MessagesLabHomeView: NSView {
 
     /// The field's attachments, in the order they arrived.
     public var draftAttachments: [LocalAttachment] { projection.draftAttachments }
+    public var isRestoringDraftAttachments: Bool { projection.isRestoringDraftAttachments }
 
     public func removeDraftAttachment(_ hash: String) { projection.removeDraft(hash) }
 

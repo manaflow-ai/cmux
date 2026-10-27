@@ -43,7 +43,7 @@ ring.workspace = true
 toml.workspace = true
 thiserror = "2"
 tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "net", "sync", "time", "fs", "signal"] }
-tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
+tokio-tungstenite.workspace = true
 tokio-util = { version = "0.7", features = ["codec"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -53,12 +53,16 @@ notify.workspace = true
 # Session tokens and secrets (the OS generator on every platform).
 getrandom.workspace = true
 base64 = "0.22"
+# Model-sized copies of large PNG uploads (src/model_copies.rs).
+png.workspace = true
 unicode-width = "0.2"
 # NFC tool call paths on macOS, as git shows them (src/path_canon.rs).
 unicode-normalization.workspace = true
 wait-timeout.workspace = true
 zeroize.workspace = true
 regex = "1"
+# Log lines a reader passes on their head are searched, not parsed (src/store.rs `scan_heads`).
+memchr.workspace = true
 # The typed protocol registry (src/protocol): JSON Schema for spec/acpmux-protocol.json.
 schemars = "1"
 # The model catalog fetch (src/catalog/fetch.rs): HTTPS only, through the

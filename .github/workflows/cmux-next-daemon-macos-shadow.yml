@@ -13,7 +13,7 @@ name: cmux_next_ macOS-only daemon tests (shadow)
 # a queued Mac kept the tree-owner run in progress, and the runs deferring to
 # that owner gave up waiting, so failed-publication recovery stalled behind a
 # Mac queue. Here a red or queued run touches no promotion, publication or
-# marker (tests/test_cmux_tui_daemon_tests_linux.py).
+# marker (tests/test_cmux_tui_daemon_tests_gate.py).
 on:
   push:
     branches: [feat-cmux-next]

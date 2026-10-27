@@ -92,8 +92,14 @@ pub struct Peer {
     person_instance: StdMutex<Option<String>>,
     /// Whether the peer advertised the folder-trust gate in initialize.
     trust_gate: AtomicBool,
+    /// This caller's own opt-out for its remote chains there (`PeerConfig`
+    /// `vmBoundary`, `hub/vm_boundary.rs`): each `session/new` it forwards
+    /// says `vmBoundary: true`.
+    vm_boundary: AtomicBool,
     /// Whether the peer takes `_acpmux/file_put` (`hub/file_uploads.rs`).
     file_put: AtomicBool,
+    /// It lists `filePutChunks` (`hub/file_uploads.rs`).
+    file_put_chunks: AtomicBool,
     /// Whether the peer serves `_acpmux/media_open` and `_acpmux/media_range` (`hub/media_read.rs`).
     media_read: AtomicBool,
     /// Bumped each time a connection to the peer ends (and at `stop`): what the peer kept for
@@ -167,7 +173,9 @@ impl Peer {
             served_as: StdMutex::new(None),
             person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
+            vm_boundary: AtomicBool::new(false),
             file_put: AtomicBool::new(false),
+            file_put_chunks: AtomicBool::new(false),
             media_read: AtomicBool::new(false),
             link_epoch: AtomicU64::new(0),
             subagent_transcript: AtomicBool::new(false),
@@ -410,6 +418,16 @@ impl Peer {
         self.person_instance.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    /// Set before the peer runs (`Hub::spawn_peer`), from its config or lease.
+    pub fn set_vm_boundary(&self, on: bool) {
+        self.vm_boundary.store(on, Ordering::SeqCst);
+    }
+
+    /// Whether this caller opts its remote chains on the peer out of the sandbox.
+    pub fn vm_boundary(&self) -> bool {
+        self.vm_boundary.load(Ordering::SeqCst)
+    }
+
     pub fn supports_trust_gate(&self) -> bool {
         self.trust_gate.load(Ordering::SeqCst)
     }
@@ -417,6 +435,11 @@ impl Peer {
     /// Whether the peer said at its last handshake that it takes `_acpmux/file_put`.
     pub fn supports_file_put(&self) -> bool {
         self.file_put.load(Ordering::SeqCst)
+    }
+
+    /// Whether the peer takes uploads in chunks (`file_put_begin`/`_chunk`/`_finish`/`_cancel`).
+    pub fn supports_file_put_chunks(&self) -> bool {
+        self.file_put_chunks.load(Ordering::SeqCst)
     }
 
     /// Whether the peer said at its last handshake that it serves the media reader.
@@ -764,6 +787,8 @@ impl Peer {
                     .is_some_and(|features| features.iter().any(|f| f.as_str() == Some(feature)))
             };
             me.file_put.store(lists(crate::hub::FILE_PUT_FEATURE), Ordering::SeqCst);
+            let chunks = lists(crate::hub::file_uploads::CHUNKS_FEATURE);
+            me.file_put_chunks.store(chunks, Ordering::SeqCst);
             me.media_read.store(lists(crate::hub::MEDIA_READ_FEATURE), Ordering::SeqCst);
             me.subagent_transcript
                 .store(lists(crate::hub::SUBAGENT_TRANSCRIPT_FEATURE), Ordering::SeqCst);

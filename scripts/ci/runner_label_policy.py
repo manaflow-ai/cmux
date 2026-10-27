@@ -171,10 +171,11 @@ def nightly_next_build_reason(label: str) -> str | None:
     nightly.yml's nightly-next app build reads it first, for every event and
     attempt. It may name an owned side or dev label (glaeda-side-<class>-... or
     glaeda-dev-<class>-...), the same trust as CI_SIDE_LANE_RUNNER, which that
-    build already takes. Anything else is held to the workflow policy. Empty is
-    fine (off).
+    build already takes, or glaeda's nightly slot (glaeda-nightly-<class>-...,
+    glaeda#1684): one runner per owned mini whose hook admits only nightly jobs.
+    Anything else is held to the workflow policy. Empty is fine (off).
     """
-    for prefix in (SIDE_LANE_PREFIX, "glaeda-dev-"):
+    for prefix in (SIDE_LANE_PREFIX, "glaeda-dev-", "glaeda-nightly-"):
         if label.startswith(prefix) and _owned_pattern().fullmatch("glaeda-" + label[len(prefix):]):
             return None
     return forbidden_reason(label)
@@ -310,7 +311,7 @@ def forbidden_reason(label: str) -> str | None:
 # a GitHub-hosted Mac. Leo, 2026-10-27: "THE GITHUB HOSTED MACS / ARE THE
 # SLOWEST THINGS / THEY PREVIOUSLY WREN'T EVEN UNDER CONSIDERATINO".
 NO_HOSTED_MAC_VARIABLES = frozenset({
-    "CI_IOS_INTERNAL_RUNNER", "CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_NIGHTLY_NEXT_HELPER_RUNNER", "CI_SIDE_LANE_RUNNER",
+    "CI_IOS_INTERNAL_RUNNER", "CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER",
     "LINUX_RUNNER",
     "MACOS_RUNNER_15", "MACOS_RUNNER_26", "NIGHTLY_NEXT_TRAIN_RUNNER",
 })
