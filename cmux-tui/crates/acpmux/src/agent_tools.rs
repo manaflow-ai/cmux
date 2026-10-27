@@ -57,6 +57,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value, json};
 
+use crate::subsession_mcp::DaemonTools;
+
 /// Directory that overrides where the cmux binaries are looked up.
 pub const BIN_DIR_ENV: &str = "CMUX_AGENT_TOOLS_BIN_DIR";
 /// `0` turns the agent tools off for this daemon.
@@ -90,6 +92,12 @@ pub const MCP_TOOLS_ENV: &str = "CMUX_MCP_TOOLS";
 /// args, env}`. `cmux mcp serve` runs them behind its code mode, so an
 /// agent sees two tools for everything cmux gives it.
 pub const UPSTREAMS_ENV: &str = "CMUX_MCP_UPSTREAMS";
+/// An [`UPSTREAMS_ENV`] entry's daemon socket: `cmux mcp serve` dials it
+/// instead of starting the entry's command (a tool set the daemon serves,
+/// `subsession_mcp::DaemonTools`).
+pub const SOCKET_FIELD: &str = "socket";
+/// That entry's `_meta` for its first `initialize`: the caller and the server.
+pub const INITIALIZE_META_FIELD: &str = "initializeMeta";
 
 /// A spawn env key (`hub/spawn.rs`) with the comma-separated agent tool
 /// servers this chat turned off (`hub/tools.rs`): a folded server has no
@@ -224,6 +232,11 @@ pub struct Inputs {
     /// by default): sessions get `start_session` and the rest
     /// (`subsession_mcp.rs`, `hub/subsessions.rs`).
     pub subsessions: bool,
+    /// The daemon serves the sub-session and secret tools itself (the
+    /// `agentToolsInDaemon` feature, unix): sessions get them through
+    /// `cmux mcp serve`'s socket upstream or the relay (`mcp_relay.rs`), not
+    /// as a tokio stdio server each (`subsession_mcp::DaemonTools`).
+    pub daemon_tools: bool,
     /// The display allocation folder when this daemon runs with
     /// per-workspace displays (`agent_displays.rs`), else `None`.
     pub displays: Option<PathBuf>,
@@ -261,6 +274,8 @@ impl Inputs {
             secrets: var(SECRET_TOOLS_ENV).is_some_and(|v| v == "1"),
             offers: var(OFFER_TOOLS_ENV).is_some_and(|v| v == "1"),
             subsessions: crate::hub::subsessions::enabled(),
+            daemon_tools: cfg!(unix)
+                && cmux_features::listed_in_env(crate::subsession_mcp::FEATURE),
             displays: crate::agent_displays::per_workspace()
                 .then(|| crate::agent_displays::dir(&crate::config::home())),
         }
@@ -466,6 +481,12 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
     let executable = |name: &str| {
         inputs.bin_dir.as_ref().map(|dir| dir.join(name)).filter(|path| is_executable(path))
     };
+    // The relay for a tool set the daemon serves: beside the cmux binaries (the
+    // app bundle's bin, where acpmux is a link to cmux), else beside this acpmux.
+    let relay = executable(crate::mcp_relay::RELAY_PROGRAM).or_else(|| {
+        let beside = inputs.acpmux.as_ref()?.exe.with_file_name(crate::mcp_relay::RELAY_PROGRAM);
+        is_executable(&beside).then_some(beside)
+    });
     if let (Some(dir), Some(acpmux)) = (&inputs.cua_v2, &inputs.acpmux) {
         // The helper v2: this acpmux as the agent's MCP server. Only the
         // folder goes in its env; the bridge reads the socket and secret
@@ -509,12 +530,8 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
     if let (true, Some(acpmux)) = (inputs.secrets, &inputs.acpmux) {
         // request_secret and run_with_secret (`secret_mcp.rs`): `for_session`
         // names the session and this daemon's socket in its env.
-        servers.push(McpServer {
-            name: crate::secret_mcp::SERVER_NAME.into(),
-            command: acpmux.exe.clone(),
-            args: acpmux.args_lossy(&["secret-mcp"]),
-            env: vec![],
-        });
+        let (tools, relay) = (DaemonTools::Secrets, relay.as_deref());
+        servers.push(tools.server(acpmux, inputs.daemon_tools, relay));
     }
     if let (true, Some(acpmux)) = (inputs.offers, &inputs.acpmux) {
         // offer_session (`offer_mcp.rs`): `for_session` names the session.
@@ -528,12 +545,8 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
     if let (true, Some(acpmux)) = (inputs.subsessions, &inputs.acpmux) {
         // start_session and the rest (`subsession_mcp.rs`): `for_session`
         // gives it the session's id, caller token and this daemon's socket.
-        servers.push(McpServer {
-            name: crate::subsession_mcp::SERVER_NAME.into(),
-            command: acpmux.exe.clone(),
-            args: acpmux.args_lossy(&["subsession-mcp"]),
-            env: vec![],
-        });
+        let (tools, relay) = (DaemonTools::Subsessions, relay.as_deref());
+        servers.push(tools.server(acpmux, inputs.daemon_tools, relay));
     }
     if let Some(acpmux) = &inputs.acpmux {
         // announce, rules and ack (`forum_mcp.rs`, hq#2570): acts as the
@@ -574,6 +587,8 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
     };
     AgentTools { servers, plugin_dir, displays: inputs.displays.clone() }
 }
+
+const RELAY_SERVER: &str = crate::mcp_relay::SERVER_ENV;
 
 impl AgentTools {
     /// The tools for one session: its env's [`CUA_SCOPE_ENV`] reaches only
@@ -649,7 +664,9 @@ impl AgentTools {
             if server.name == "cmux" || server.name == MEMORY_SERVER_NAME {
                 server.env.push((AGENT_SESSION_ENV.to_owned(), session_id.to_owned()));
             }
+            let relayed = DaemonTools::served(server);
             let session_env = match server.name.as_str() {
+                _ if relayed.is_some() => None,
                 crate::secret_mcp::SERVER_NAME => Some(crate::secret_mcp::SESSION_ENV),
                 crate::offer_mcp::SERVER_NAME => Some(crate::offer_mcp::SESSION_ENV),
                 _ => None,
@@ -665,7 +682,10 @@ impl AgentTools {
             // and the one socket the CLI sends it to (`hub/person.rs` (a)).
             // The harness already holds the same token in its env; a Claude
             // Code config with it is a 0600 file (`claude_args`).
-            if server.name == crate::subsession_mcp::SERVER_NAME
+            // A relayed tool set (`mcp_relay.rs`) proves the session the same way: the
+            // daemon serves its tools only to that token (`server/agent_mcp.rs`).
+            if relayed.is_some()
+                || server.name == crate::subsession_mcp::SERVER_NAME
                 || server.name == crate::forum_mcp::SERVER_NAME
             {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();
@@ -673,6 +693,14 @@ impl AgentTools {
                     (crate::subsession_mcp::SESSION_ENV.to_owned(), session_id.to_owned()),
                     ("ACPMUX_SOCKET".to_owned(), socket),
                 ];
+                if let Some(tools) = relayed {
+                    server.env.push((RELAY_SERVER.to_owned(), tools.server_name().to_owned()));
+                    // The tool set's own stdio server, in an install without the relay.
+                    let stdio_session = tools.stdio_session_env();
+                    if stdio_session != crate::subsession_mcp::SESSION_ENV {
+                        server.env.push((stdio_session.to_owned(), session_id.to_owned()));
+                    }
+                }
                 server.env.extend(
                     crate::hub::person::caller_env(session_id)
                         .into_iter()
@@ -762,6 +790,19 @@ impl AgentTools {
                 // The secret card waits for the person, not for a timer.
                 if s.name == crate::secret_mcp::SERVER_NAME {
                     spec["callTimeoutSecs"] = json!(3600);
+                }
+                // A tool set the daemon serves: `cmux mcp serve` dials the daemon itself, with
+                // the relay's handshake (no process); one that reads no `socket` runs the relay.
+                if DaemonTools::served(s).is_some() {
+                    let env = |key: &str| s.env.iter().find(|(k, _)| k == key).map(|(_, v)| v);
+                    let session = env(crate::subsession_mcp::SESSION_ENV);
+                    let token = env(crate::hub::person::CALLER_TOKEN_ENV);
+                    let socket = env(crate::hub::person::CALLER_SOCKET_ENV);
+                    if let (Some(session), Some(token), Some(socket)) = (session, token, socket) {
+                        spec[SOCKET_FIELD] = json!(socket);
+                        spec[INITIALIZE_META_FIELD] =
+                            crate::subsession_mcp::hello_meta(&s.name, session, token);
+                    }
                 }
                 spec
             })

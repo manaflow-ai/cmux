@@ -33,6 +33,8 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "crate::mux::CloseReason": "CloseReason",
     "crate::resource_name::NameSource": "NameSource",
     "AgentSessionParams": "AgentSessionSource",
+    # server/client_hello.rs `HelloFeatures::parse` (p12-perf-process-150).
+    "HelloFeatures": "ClientHelloFeatures",
     "ConversationTabSplitParams": "ConversationTabSplit",
     "crate::model::ColumnDock": "ColumnPin",
     "SnapshotHave": "SnapshotRequestHave",

@@ -119,7 +119,7 @@ struct AppEnvironmentLaunchProbeTests {
         defer { try? FileManager.default.removeItem(at: state) }
         let stores = Self.services(state: state).agentTabs.chatStores
         let context = PageCallContext(page: PageDescriptor.agent.id)
-        let (first, second) = (AgentPageProvider(chatStores: stores) { _ in nil }, AgentPageProvider(chatStores: stores) { _ in nil })
+        let (first, second) = (AgentPageProvider(chatStores: stores, mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }, AgentPageProvider(chatStores: stores, mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil })
         _ = try await first.call(AgentPageOps.namespace + "chat.scrollAnchor",
                                  params: .object(["sessionId": .string("s-1"), "rowId": .string("user-7"), "offset": .number(12)]),
                                  context: context)
