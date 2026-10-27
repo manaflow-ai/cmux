@@ -242,7 +242,9 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
   });
 
   test("a narrow failure card wraps metadata without clipping any prompt, error or reply line", async () => {
-    const page = await browser.newPage({ viewport: { width: 320, height: 640 } });
+    // The rail intentionally hides below its supported gutter; keep the transcript viewport wide
+    // enough to mount the tick, then constrain the card itself to exercise narrow wrapping.
+    const page = await browser.newPage({ viewport: { width: 880, height: 640 } });
     try {
       const port = (vite.httpServer!.address() as { port: number }).port;
       await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html`);
@@ -281,6 +283,16 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
       await tick.focus();
       const card = page.locator(".acpmux-minimap__card");
       await card.waitFor({ state: "visible" });
+      await card.evaluate((node) => {
+        node.style.width = "280px";
+        node.style.minWidth = "0";
+        node.style.maxWidth = "280px";
+      });
+      await page.waitForFunction(() => {
+        const card = document.querySelector<HTMLElement>(".acpmux-minimap__card");
+        const metadata = card?.querySelector<HTMLElement>(".acpmux-minimap__metadata");
+        return !!card && card.getBoundingClientRect().width <= 280 && !!metadata && metadata.offsetHeight > 16;
+      });
       const bounds = await card.evaluate((node) => {
         const card = node.getBoundingClientRect();
         const get = (selector: string) => node.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
@@ -289,7 +301,7 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
         const baseline = node.cloneNode(true) as HTMLElement;
         baseline.removeAttribute("data-prompt");
         baseline.removeAttribute("data-card-failure");
-        baseline.style.cssText = "position:absolute; visibility:hidden; max-height:none; overflow:visible;";
+        baseline.style.cssText = `position:absolute; visibility:hidden; width:${card.width}px; min-width:0; max-width:${card.width}px; max-height:none; overflow:visible;`;
         baseline.querySelector<HTMLElement>(".acpmux-minimap__prompt")!.style.webkitLineClamp = "2";
         baseline.querySelector<HTMLElement>(".acpmux-minimap__reply")!.style.cssText =
           "-webkit-line-clamp:4; height:auto; max-height:none;";
