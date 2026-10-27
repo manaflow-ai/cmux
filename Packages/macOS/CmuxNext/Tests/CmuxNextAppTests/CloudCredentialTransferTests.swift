@@ -22,7 +22,7 @@ struct CloudCredentialTransferTests {
             .init(exec: { command in await MainActor.run { self.commands.append(command); return self.owner ? 0 : 70 } },
                   write: { path, data in await MainActor.run { self.writes.append((path, data)); self.onWrite?() } },
                   load: { await MainActor.run { self.cached } },
-                  acquire: { await MainActor.run { self.logins += 1; try self.onAcquire?(); return CloudCredentialTransferTests.token } },
+                  acquire: { try await MainActor.run { self.logins += 1; try self.onAcquire?(); return CloudCredentialTransferTests.token } },
                   store: { value in await MainActor.run { self.stores += 1; self.cached = value } })
         }
         var transfer: CloudCredentialTransfer {
@@ -81,13 +81,13 @@ struct CloudCredentialTransferTests {
         let r = Recorder()
         var effects = r.effects
         effects.write = { path, data in
-            r.writes.append((path, data))
+            await MainActor.run { r.writes.append((path, data)) }
             withUnsafeCurrentTask { $0?.cancel() }
         }
         effects.exec = { command in
             // Real CloudAPIClient calls reject cancellation before starting their request.
             try Task.checkCancellation()
-            r.commands.append(command)
+            await MainActor.run { r.commands.append(command) }
             return 0
         }
         let task = Task { @MainActor in
