@@ -103,7 +103,7 @@ struct AgentChatsLaunchResumeTests {
         // signal for this Mac's daemon and must retry the launch census instead of ending the task.
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: nil,
                                                                           name: "Retry", screens: [])]))
-        let sessions = try await withAgentPaneDeadline(.seconds(5), label: "late install host launch retry") {
+        let sessions = try await withAgentPaneDeadline(Duration.seconds(5), label: "late install host launch retry") {
             var sessions: [String] = []
             for await session in host.resumed {
                 sessions.append(session)
