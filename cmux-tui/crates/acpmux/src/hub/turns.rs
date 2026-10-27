@@ -524,8 +524,10 @@ impl Hub {
             // A pool launcher that dies on the prompt (its proxy is down)
             // moves the session too, not only a usage or auth limit.
             // A stopped session's agent closed because of the stop: no failover starts it again.
+            // Nor does one MDM's off ended (review 3 of #26034).
             if (is_limit_error(&e.message) || e.message.starts_with("agent process closed"))
                 && session.stops.load(Ordering::SeqCst) == stops
+                && !child.ended_on_purpose()
                 && let Some(to) = self.fallback_profile(session).await
             {
                 let from = session.meta().harness;
@@ -842,11 +844,6 @@ impl Hub {
             session.meta.lock().unwrap().unread = true;
         }
         if session.status() != SessionStatus::Closed {
-            // A turn MDM's off ended with its agent leaves the chat idle (review 2 of #26034).
-            let ended = {
-                let mut ended = session.floor.ended_turn.lock().unwrap_or_else(|e| e.into_inner());
-                ended.take_if(|t| t.as_str() == turn_id).is_some()
-            };
             let alive = child.is_alive().await;
             // A subagent or background shell still waiting on the person
             // keeps the chat waiting after its turn (cx-jo8yo). The lock is
@@ -854,6 +851,9 @@ impl Hub {
             // waiting on nothing.
             let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
             let asking = !state.pending.is_empty() || self.secrets.waiting_in(&session.id);
+            // An agent MDM's off ended leaves the chat idle; read under the lock its end marks it
+            // under (`end_managed_full_access`, reviews 2 and 3 of #26034).
+            let ended = child.ended_on_purpose();
             self.set_status(
                 session,
                 match (ended, alive, asking) {

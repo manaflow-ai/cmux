@@ -420,12 +420,16 @@ impl Hub {
         let child = slot.take();
         drop(slot);
         let ended = child.is_some() || !Self::host_record_gone(&session.id);
-        if child.is_some() {
-            // Ended on purpose, as a stop is (reviews 1 and 2 of #26034): its turn gets no
-            // continuation, nothing it asked stays asking, and its exit and its turn's end leave
-            // the chat idle, not disconnected. The next prompt starts an agent under the bound.
-            *session.floor.ended_turn.lock().unwrap_or_else(|e| e.into_inner()) =
-                session.turn().map(|t| t.turn_id);
+        if let Some(child) = &child {
+            // Ended on purpose, as a stop is (reviews 1 to 3 of #26034): its turn gets no
+            // continuation and no failover, nothing it asked stays asking, and its exit and its
+            // turn's end leave the chat idle, not disconnected. Marked under the lock a turn's end
+            // reads it under (`finish_turn`): an end either sees it or is followed by the idle
+            // below. The next prompt starts an agent under the bound.
+            {
+                let _held = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+                child.end_on_purpose();
+            }
             self.stop_auto_resume(session);
             self.cancel_pending_permissions(session);
             self.idle_unless_closed(session);
