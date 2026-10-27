@@ -98,7 +98,7 @@ impl Surface {
     ) -> std::io::Result<()> {
         let pty = self.pty_in(turn)?;
         #[cfg(any(unix, windows))]
-        if let Some(result) = Self::send_hosted_input(pty, MessageKind::Input, bytes, flow) {
+        if let Some(result) = Self::send_hosted_input(turn, pty, MessageKind::Input, bytes, flow) {
             return result;
         }
         // Not hosted: the daemon writes the PTY itself (the holder model's custody master). Marked
@@ -150,18 +150,21 @@ impl Surface {
     /// replacement host; a send in that window fails with EPIPE although the
     /// shell lives. Such a send waits for the reader's next stream change
     /// (it notifies after it installed the new attachment) and is sent again
-    /// to the new host, until [`HOST_INPUT_RECONNECT_WAIT`] passes or the
-    /// reader gives up or ends. A frame that failed with a lost connection never
+    /// to the new host, until [`HOST_INPUT_RECONNECT_WAIT`] passed since the
+    /// input asked for its `turn` ([`InputTurn::queued_at`]: inputs queued
+    /// during one outage wait it out together) or the reader gives up or
+    /// ends. A frame that failed with a lost connection never
     /// reached a live reader, so the retry cannot duplicate it. `None` when
     /// the runtime is not hosted (the caller writes locally).
     #[cfg(any(unix, windows))]
     fn send_hosted_input(
+        turn: &InputTurn<'_>,
         pty: &PtySurface,
         kind: MessageKind,
         bytes: &[u8],
         flow: u64,
     ) -> Option<std::io::Result<()>> {
-        let deadline = Instant::now() + HOST_INPUT_RECONNECT_WAIT;
+        let deadline = turn.queued_at() + HOST_INPUT_RECONNECT_WAIT;
         let mut first_error = None;
         loop {
             // Read the revision before the send: an install after it wakes
@@ -279,7 +282,7 @@ impl Surface {
         // Keep-on-exit terminals accept and drop paste input the same way
         // as keystrokes: the final screen is read-only, not broken.
         #[cfg(any(unix, windows))]
-        if let Some(result) = Self::send_hosted_input(pty, MessageKind::Paste, bytes, 0) {
+        if let Some(result) = Self::send_hosted_input(turn, pty, MessageKind::Paste, bytes, 0) {
             return result;
         }
         let bracketed = {

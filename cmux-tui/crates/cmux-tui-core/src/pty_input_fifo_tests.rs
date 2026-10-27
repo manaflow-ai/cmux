@@ -3,6 +3,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use super::PtyInputFifo;
 use crate::lock_rank::{LockRank, RankedMutex};
@@ -31,6 +32,31 @@ fn pty_input_order_turns_run_in_the_order_they_were_taken() {
     }
     assert_eq!(*order.lock().unwrap(), (0..16).collect::<Vec<_>>());
     assert_eq!(fifo.waiting(), 0);
+}
+
+#[test]
+fn pty_input_order_a_turn_keeps_the_time_its_input_queued() {
+    let fifo = Arc::new(PtyInputFifo::default());
+    let first = fifo.enter();
+    let before = Instant::now();
+    let waiter = std::thread::spawn({
+        let fifo = fifo.clone();
+        move || {
+            let turn = fifo.enter();
+            (turn.queued_at(), Instant::now())
+        }
+    });
+    while fifo.waiting() == 0 {
+        std::thread::yield_now();
+    }
+    std::thread::sleep(Duration::from_millis(50));
+    drop(first);
+    let (queued_at, started) = waiter.join().unwrap();
+    assert!(queued_at >= before, "queued before it asked for its turn");
+    assert!(
+        started.duration_since(queued_at) >= Duration::from_millis(50),
+        "the turn's time is when it started, not when its input queued"
+    );
 }
 
 #[test]

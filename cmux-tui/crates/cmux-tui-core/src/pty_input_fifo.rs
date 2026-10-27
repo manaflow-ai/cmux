@@ -19,6 +19,7 @@
 //! locks the write takes.
 
 use std::sync::PoisonError;
+use std::time::Instant;
 
 use cmux_threads::sync::{Condvar, Mutex};
 
@@ -53,6 +54,9 @@ struct Tickets {
 #[must_use = "the input turn ends when it is dropped"]
 pub(crate) struct InputTurn<'a> {
     fifo: &'a PtyInputFifo,
+    /// When the input asked for its turn: its waits are bounded from its
+    /// arrival, not from the end of the turns before it.
+    queued_at: Instant,
     _rank: HeldRank,
 }
 
@@ -64,6 +68,7 @@ impl PtyInputFifo {
     pub(crate) fn enter(&self) -> InputTurn<'_> {
         // Checked and raised before the wait, as a ranked mutex is.
         let wait = HeldRank::acquire(LockRank::PtyInput, PTY_INPUT_LOCK_NAME);
+        let queued_at = Instant::now();
         let mut tickets = self.tickets.lock().unwrap_or_else(PoisonError::into_inner);
         let ticket = tickets.next;
         tickets.next = tickets.next.wrapping_add(1);
@@ -75,7 +80,7 @@ impl PtyInputFifo {
             tickets.waiting -= 1;
         }
         drop(tickets);
-        InputTurn { fifo: self, _rank: wait.held() }
+        InputTurn { fifo: self, queued_at, _rank: wait.held() }
     }
 
     /// Turns taken that have not started yet.
@@ -86,6 +91,15 @@ impl PtyInputFifo {
 }
 
 impl InputTurn<'_> {
+    /// When this input asked for its turn. A wait inside the turn (a hosted
+    /// input waiting out a lost host connection) ends at a deadline counted
+    /// from here, so inputs queued during one outage share its window: each
+    /// fails within one window of its arrival, not after the windows of
+    /// every input queued before it.
+    pub(crate) fn queued_at(&self) -> Instant {
+        self.queued_at
+    }
+
     /// Whether this is a turn of `fifo`.
     pub(crate) fn is_of(&self, fifo: &PtyInputFifo) -> bool {
         std::ptr::eq(self.fifo, fifo)
