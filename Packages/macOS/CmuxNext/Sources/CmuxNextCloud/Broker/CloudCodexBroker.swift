@@ -174,7 +174,8 @@ public actor CloudCodexBroker {
         let currentAccess = try await target.readFile(Self.accessPath)
         let installed = installedAccess[target.machineID]
         let knownCandidate = uncertain?.candidate
-        let matchesOwnedInstallation = currentAccess == installed || currentAccess == knownCandidate
+        let matchesOwnedInstallation = currentAccess != nil
+            && (currentAccess == installed || currentAccess == knownCandidate)
         if (matchesOwnedInstallation || (currentAccess == nil && accessRemovalAttempted.contains(target.machineID))),
            try await target.readFile(Self.modePath) == Data("own\n".utf8) {
             accessRemovalAttempted.insert(target.machineID)
