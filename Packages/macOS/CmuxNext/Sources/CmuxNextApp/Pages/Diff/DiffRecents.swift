@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDiff
@@ -95,7 +96,7 @@ final class DiffRecents {
         guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= 1024 * 1024,
               // concurrency-allow: @concurrent, one capped read of a small local file
               let data = try? Data(contentsOf: url),
-              let items = try? JSONDecoder().decode([DiffRecent].self, from: data) else { return [] }
+              let items = try? JSONDecoder().blockingDecode([DiffRecent].self, from: data) else { return [] }
         return items.sorted { $0.openedAt > $1.openedAt }
     }
 

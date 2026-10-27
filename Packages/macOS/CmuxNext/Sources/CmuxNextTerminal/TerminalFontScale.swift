@@ -12,7 +12,8 @@ extension GhosttyRuntime {
     public var configuredFontSize: Double? {
         guard let config else { return nil }
         var size: Float = 0
-        guard Self.configGet(config, &size, key: "font-size"), size > 0 else { return nil }
+        // SAFETY: the runtime's live applied config (GhosttyRuntime.config); font-size is a C float.
+        guard unsafe Self.configGet(config, &size, key: "font-size"), size > 0 else { return nil }
         return Double(size)
     }
 }
@@ -34,11 +35,11 @@ public struct TerminalFontScale {
     }
 
     /// The current font scale reported by Ghostty, nil at the configured size.
-    public var current: Double? { view.bridge.takeUnretainedValue().fontScale }
+    public var current: Double? { view.bridgeObject.fontScale }
 
     /// True once the font size changed since the view was made, including a reset to the
     /// configured size (`current` is nil again then).
-    public var changed: Bool { view.bridge.takeUnretainedValue().fontScaleChanged }
+    public var changed: Bool { view.bridgeObject.fontScaleChanged }
 
     /// The scale `points` is of the configured size; nil at the configured size.
     nonisolated static func scale(points: Double, adjusted: Bool, base: Double?) -> Double? {
@@ -58,8 +59,8 @@ public struct TerminalFontScale {
     }
 
     /// Calls `handler` with the view's font scale after each font size change.
-    public func observe(_ handler: @escaping (Double?) -> Void) {
-        view.bridge.takeUnretainedValue().onFontScaleChange = handler
+    public func observe(_ handler: @escaping @MainActor @Sendable (Double?) -> Void) {
+        view.bridgeObject.onFontScaleChange = handler
     }
 
     /// Gives `fresh`, a surface swapped in for this one (a reconnect replay), this view's font
@@ -67,7 +68,7 @@ public struct TerminalFontScale {
     /// changes still reach the owner. The observer is moved after the scale applies, so carrying
     /// the zoom over reports no change.
     func carry(to fresh: TerminalSurfaceView) {
-        let old = view.bridge.takeUnretainedValue(), new = fresh.bridge.takeUnretainedValue()
+        let old = view.bridgeObject, new = fresh.bridgeObject
         if let scale = old.fontScale { TerminalFontScale(fresh).apply(scale) }
         new.fontScale = old.fontScale
         new.fontScaleChanged = old.fontScaleChanged
@@ -77,7 +78,10 @@ public struct TerminalFontScale {
     /// Installs the font size callback on the view's current surface.
     func installCallback() {
         guard let surface = view.surface else { return }
-        _ = ghostty_surface_set_font_size_action_callback(surface, ghosttyFontSizeAction, view.bridge.toOpaque())
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface); the callback has the C
+        // signature ghostty.h declares, and its userdata is the view's bridge, which outlives
+        // the surface (SurfaceBridge.from).
+        _ = unsafe ghostty_surface_set_font_size_action_callback(surface, ghosttyFontSizeAction, view.bridge.toOpaque())
     }
 }
 
@@ -87,7 +91,9 @@ public struct TerminalFontScale {
 /// thread instead of trapping.
 nonisolated func ghosttyFontSizeAction(_ userdata: UnsafeMutableRawPointer?, _ action: ghostty_font_size_action_e,
                                        _ previous: Float, _ current: Float, _ previousAdjusted: Bool, _ currentAdjusted: Bool) {
-    guard let bridge = SurfaceBridge.from(userdata) else { return }
+    // SAFETY: the view's bridge, registered as this callback's userdata (installCallback).
+    guard let bridge = unsafe SurfaceBridge.from(userdata) else { return }
+    // main-hop-allow: Ghostty calls it on the main thread inside the key's binding action, so the scale applies in the person's turn; only an off-main call hops
     MainDelivery().run {
         let scale = TerminalFontScale.scale(points: Double(current), adjusted: currentAdjusted,
                                             base: GhosttyRuntime.shared.configuredFontSize)

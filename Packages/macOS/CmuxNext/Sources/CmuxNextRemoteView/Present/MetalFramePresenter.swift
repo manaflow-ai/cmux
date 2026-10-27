@@ -14,9 +14,11 @@ final class MetalFramePresenter: RemoteFramePresenter {
     private let metalLayer = CAMetalLayer()
     var layer: CALayer { metalLayer }
     var onFrameSize: ((CGSize) -> Void)?
+    var onFrameShown: (() -> Void)?
     private nonisolated let mailbox = LatestFrameMailbox<RemoteDecodedFrame>()
     private nonisolated let renderer: MetalYUVRenderer
     private var frameSize: CGSize = .zero
+    private(set) var shownFrame: RemoteDecodedFrame?
 
     init?() {
         metalLayer.pixelFormat = .bgra8Unorm
@@ -25,13 +27,16 @@ final class MetalFramePresenter: RemoteFramePresenter {
         metalLayer.isOpaque = true
         metalLayer.presentsWithTransaction = false
         metalLayer.actions = RemoteLayerActions.none
-        guard let renderer = MetalYUVRenderer(layer: metalLayer) else { return nil }
+        guard let renderer = MetalYUVRenderer(layer: SharedMetalLayer(metalLayer)) else { return nil }
         self.renderer = renderer
     }
 
     nonisolated func present(_ frame: RemoteDecodedFrame) {
         guard mailbox.post(frame) else { return }
-        renderer.queue.async { [self] in drainOnRenderQueue() }
+        Task { [renderer, mailbox, weak self] in
+            guard let shown = await renderer.drawNewest(from: mailbox) else { return }
+            await self?.rendered(shown)
+        }
     }
 
     nonisolated var discardedFrames: Int { mailbox.discardedCount }
@@ -40,10 +45,10 @@ final class MetalFramePresenter: RemoteFramePresenter {
         metalLayer.contentsScale = scale
     }
 
-    private nonisolated func drainOnRenderQueue() {
-        guard let frame = mailbox.take(), renderer.render(frame) else { return }
-        let size = frame.pixelSize
-        Task { @MainActor [weak self] in self?.reportSize(size) }
+    private func rendered(_ frame: RemoteDecodedFrame) {
+        shownFrame = frame
+        reportSize(frame.pixelSize)
+        onFrameShown?()
     }
 
     private func reportSize(_ size: CGSize) {

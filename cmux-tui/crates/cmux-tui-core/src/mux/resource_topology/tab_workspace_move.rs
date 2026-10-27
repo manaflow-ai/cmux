@@ -5,6 +5,7 @@ use super::*;
 impl Mux {
     /// Move a live placement without spawning replacement content. New/empty
     /// workspace layout and source removal commit together before live state changes.
+    #[track_caller]
     pub fn move_tab_to_workspace_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -18,6 +19,7 @@ impl Mux {
     /// optionally in a sidebar group and at a final index among that
     /// section's members (groups partition the workspace order), named `name`
     /// (else the default `workspace-N`). Returns the new workspace.
+    #[track_caller]
     pub fn move_tab_to_new_workspace_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -42,6 +44,7 @@ impl Mux {
         .context("moved tab has no workspace")
     }
 
+    #[track_caller]
     pub(super) fn move_tab_to_workspace_placed(
         self: &Arc<Self>,
         actor: &Actor,

@@ -13,19 +13,19 @@ import Testing
 struct BlockingCheckTrapModeTests {
     @Test func withoutTheVariableACheckedBuildRecords() {
         #expect(BlockingViolationTable(environment: [:]).mode == .record)
-        #expect(BlockingMode(environment: ["CMUX_BLOCKING_TRAP": "0"]) == .record)
-        #expect(BlockingMode(environment: ["CMUX_BLOCKING_TRAP": "true"]) == .record)
+        #expect(BlockingMode.resolved(environment: ["CMUX_BLOCKING_TRAP": "0"]) == .record)
+        #expect(BlockingMode.resolved(environment: ["CMUX_BLOCKING_TRAP": "true"]) == .record)
     }
 
     #if CMUX_BENCH_HOOKS
     /// A bench run measures the app: an inherited `CMUX_BLOCKING_TRAP=1` never stops it.
     @Test func aBenchBuildIgnoresTheTrapVariable() {
-        #expect(BlockingMode(environment: ["CMUX_BLOCKING_TRAP": "1"]) == .record)
+        #expect(BlockingMode.resolved(environment: ["CMUX_BLOCKING_TRAP": "1"]) == .record)
         #expect(BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP": "1"]).mode == .record)
     }
     #else
     @Test func theTrapVariableResolvesToTrap() {
-        #expect(BlockingMode(environment: ["CMUX_BLOCKING_TRAP": "1"]) == .trap)
+        #expect(BlockingMode.resolved(environment: ["CMUX_BLOCKING_TRAP": "1"]) == .trap)
         #expect(BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP": "1"]).mode == .trap)
     }
 

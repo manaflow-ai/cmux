@@ -3,6 +3,7 @@ import CmuxNextDesign
 @testable import CmuxNextLayout
 @testable import CmuxNextTerminal
 import CmuxNextTerminalGeometry
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -30,13 +31,13 @@ import Testing
 
         init(_ tree: SplitNode, terminal pane: PaneID, size: NSSize = NSSize(width: 1200, height: 800)) {
             _ = NSApplication.shared
-            _ = GhosttyRuntime.shared
-            session = TerminalSession(io: io)
+            GhosttyRuntime.startedForTests()
+            session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             provider.views[pane] = session.view
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(tree))], activeScreenID: "s",
                                 focusedPane: pane)
             model.splitSizingOverride = .even
-            root = LayoutRootView(model: model, contentProvider: provider)
+            root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             root.context.reduceMotionOverride = false
             window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless],
                               backing: .buffered, defer: false)

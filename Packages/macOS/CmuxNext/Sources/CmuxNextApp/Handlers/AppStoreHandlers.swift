@@ -58,11 +58,11 @@ enum AppStoreHandlers {
             if let work { registry.track(work) }
         })
         // The root palette lists "Open <App>" and the commands of visible apps.
-        services.palette.sources.extraProviders.append(AsyncPaletteProvider(id: "apps", showsItemsForEmptyQuery: false) { [weak services] in
+        services.palettes.sources.extraProviders.append(AsyncPaletteProvider(id: "apps", showsItemsForEmptyQuery: false) { [weak services] in
             guard let services, !services.registry.disabledFeatures.contains(.apps) else { return [] }
             return AppCommandPalette.rootItems(services)
         })
-        services.palette.sources.actionPages["app.command.run"] = { [weak services] in services.map(AppCommandPalette.page) }
+        services.palettes.sources.actionPages["app.command.run"] = { [weak services] in services.map(AppCommandPalette.page) }
         registry.bind("app.command.run", run: { invocation in
             let appID = invocation["app"]?.stringValue ?? ""
             let commandID = invocation["command"]?.stringValue ?? ""

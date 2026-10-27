@@ -20,8 +20,9 @@ extension ChatsFeed {
         let localHost = (try? services.cloud.localDeviceID()).map(AgentSessionRef.host(installID:))
         turns.start(localHost: localHost)
         startChiefTurnStates(tag: services.environment.tag)
-        SidebarSessionTreeFeed.shared.start(workspaces: { services.machines.allWorkspaces.map { $0.0 } }, localHost: localHost)
-        let feed = ChatsFeed(socketPath: environment.socketPath)
+        SidebarSessionTreeFeed.shared.start(workspaces: { services.machines.allWorkspaces.map { $0.0 } }, localHost: localHost,
+                                            reader: services.pullRequests.reader)
+        let feed = ChatsFeed(socketPath: environment.socketPath, deadlines: services.mainDeadlines)
         // The session tree's chat history: rows open through the shared Open Chat path.
         let history = SidebarChatHistoryFeed.shared
         feed.observe(history) { [weak feed] in if let feed { history.chats = feed.store } }

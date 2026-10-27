@@ -1,7 +1,7 @@
 public import CmuxNextRemoteView
 import Foundation
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// Why a remote tab shows no page (cx-erey). The tab says it in its page
 /// area and its title (`RemoteBrowserStrings.failure`), instead of staying
 /// blank.

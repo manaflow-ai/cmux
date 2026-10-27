@@ -7,10 +7,15 @@ import Foundation
 // terminal view starts at its record's scale, and every font size change
 // (keyboard, menu, palette, CLI, the workspace-wide verbs) is saved there.
 extension TabContentCache {
-    /// A session for `tab` that follows its record's font scale.
+    /// A session for `tab` that follows its record's font scale and the Ghostty config; its output
+    /// lane is watched by `daemon`'s hang watch.
     func makeSession(io: any TerminalIO, tab: TabModel, daemon: DaemonService) -> TerminalSession {
-        let session = TerminalSession(io: io, ownsGeometry: true)
+        let session = TerminalSession(io: io, ownsGeometry: true, hangWatch: daemon.hangWatch, modifiers: terminalModifiers,
+                                      pointerFrames: terminalPointerFrames,
+                                      mainWork: mainWork, node: node(for: tab.id), gpuResidency: gpuResidency)
         let key = tab.id
+        // It lays out after a Ghostty config change only while its tab is visible (p06-scheduler-044).
+        session.view.followConfig(node(for: key), on: mainWork)
         if daemon.store.session.known {
             if daemon.store.servesStateResources, let zoom = tab.zoom { TerminalFontScale(session.surfaceView).apply(zoom) }
         } else {

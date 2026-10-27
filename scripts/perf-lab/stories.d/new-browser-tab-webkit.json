@@ -1,0 +1,20 @@
+{
+  "id": "new-browser-tab-webkit",
+  "tier": "T1",
+  "description": "New WebKit tab, the WebKit arm of new-browser-tab (cef-tab-bench.py): New WebKit Tab with and without a page, input to the frame that shows the tab and to the page's first pixels, light session.",
+  "command": ["scripts/cmux-next/cef-tab-bench.py", "--sessions", "light", "--cases", "webkit_new,webkit_url",
+              "--rounds", "6"],
+  "session": "light",
+  "engine": "webkit",
+  "config": "bench",
+  "metrics": [
+    {"name": "new_browser_tab\\.light\\.webkit_[a-z]+\\.(visible|chrome|page|key_ms)", "unit": "ms", "better": "lower"},
+    {"name": "new_browser_tab\\.light\\.webkit_[a-z]+\\.visible_frame", "unit": "count", "better": "lower"},
+    {"name": "new_browser_tab\\.light\\.webkit_[a-z]+\\.[a-z_]+\\.missed_runs", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 70,
+  "needs": ["debug:debug.new_tab", "debug:debug.surfaces"],
+  "owner": "PL-cef-tab",
+  "component": "Browser>NewTab"
+}

@@ -148,6 +148,7 @@ pub(crate) enum KeyedFrontendBrowser<T> {
 
 impl Mux {
     /// `new-frontend-browser-tab {idempotency_key}`.
+    #[track_caller]
     pub(crate) fn new_frontend_browser_tab_keyed_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -190,6 +191,7 @@ impl Mux {
     /// carrying that id (`frontend_browser_id`). A retry with the same key
     /// answers the tab placed before, or resumes a failed creation under the
     /// same id; another request under the key is `idempotency.conflict`.
+    #[track_caller]
     pub(crate) fn keyed_frontend_browser<T>(
         self: &Arc<Self>,
         key: &str,
@@ -237,11 +239,13 @@ impl Mux {
 
 impl Mux {
     /// Whether a keyed frontend browser creation already recorded `key`.
+    #[track_caller]
     pub(crate) fn has_frontend_browser_key(&self, key: &str) -> anyhow::Result<bool> {
         Ok(self.read_registry_state(|c| browser_for_key(c, key))?.is_some())
     }
 
     /// The placed tab a keyed `new-frontend-browser-tab` made under `key`.
+    #[track_caller]
     pub(crate) fn keyed_frontend_browser_tab(
         &self,
         key: &str,
@@ -277,6 +281,7 @@ pub(crate) fn insert_key(
 #[cfg(test)]
 #[allow(dead_code, reason = "test convenience")]
 impl Mux {
+    #[track_caller]
     pub(crate) fn new_frontend_browser_tab_keyed(
         self: &Arc<Self>,
         pane: Option<PaneId>,

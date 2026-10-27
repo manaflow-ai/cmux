@@ -12,8 +12,16 @@ public import Atomics
 /// system type: ``add(_:ordering:)`` and ``subtract(_:ordering:)`` wrap on
 /// overflow instead of trapping, and the two-ordering compare-exchange uses
 /// the success ordering for both outcomes (it is at least as strong).
+///
+/// Every operation is `@inlinable` and always inlined, so a call in another
+/// module with a constant ordering specializes to the value type and folds the
+/// ordering switch: `load(ordering: .relaxed)` on `Atomic<UInt64>` or
+/// `Atomic<UInt32>` is one plain load instruction, as with the system type
+/// (trace category flags read it on every emit). `init` and `deinit` (one
+/// allocation each) stay out of line. A word in memory the caller owns, such
+/// as an mmap ring, uses ``AtomicPointerSlot``.
 public struct Atomic<Value: AtomicValue>: ~Copyable where Value.AtomicRepresentation.Value == Value {
-    private let raw: UnsafeAtomic<Value>
+    @usableFromInline let raw: UnsafeAtomic<Value>
 
     /// Makes an atomic that holds `initialValue`.
     public init(_ initialValue: Value) {
@@ -25,6 +33,7 @@ public struct Atomic<Value: AtomicValue>: ~Copyable where Value.AtomicRepresenta
     }
 
     /// Returns the current value.
+    @inlinable @inline(__always)
     public borrowing func load(ordering: AtomicLoadOrdering) -> Value {
         switch ordering {
         case .relaxed: raw.load(ordering: .relaxed)
@@ -34,6 +43,7 @@ public struct Atomic<Value: AtomicValue>: ~Copyable where Value.AtomicRepresenta
     }
 
     /// Replaces the current value.
+    @inlinable @inline(__always)
     public borrowing func store(_ desired: Value, ordering: AtomicStoreOrdering) {
         switch ordering {
         case .relaxed: raw.store(desired, ordering: .relaxed)
@@ -43,6 +53,7 @@ public struct Atomic<Value: AtomicValue>: ~Copyable where Value.AtomicRepresenta
     }
 
     /// Replaces the current value and returns the value it replaced.
+    @inlinable @inline(__always)
     @discardableResult
     public borrowing func exchange(_ desired: Value, ordering: AtomicUpdateOrdering) -> Value {
         switch ordering {
@@ -56,6 +67,7 @@ public struct Atomic<Value: AtomicValue>: ~Copyable where Value.AtomicRepresenta
 
     /// Stores `desired` only when the current value equals `expected`.
     /// Returns whether it stored, and the value it found.
+    @inlinable @inline(__always)
     @discardableResult
     public borrowing func compareExchange(
         expected: Value,
@@ -73,6 +85,7 @@ public struct Atomic<Value: AtomicValue>: ~Copyable where Value.AtomicRepresenta
 
     /// ``compareExchange(expected:desired:ordering:)`` with separate orderings
     /// for the success and the failure case; the success ordering serves both.
+    @inlinable @inline(__always)
     @discardableResult
     public borrowing func compareExchange(
         expected: Value,
@@ -85,6 +98,7 @@ public struct Atomic<Value: AtomicValue>: ~Copyable where Value.AtomicRepresenta
 
     /// Like ``compareExchange(expected:desired:ordering:)``, but it may fail
     /// spuriously; use it in a retry loop.
+    @inlinable @inline(__always)
     @discardableResult
     public borrowing func weakCompareExchange(
         expected: Value,
@@ -105,18 +119,21 @@ extension Atomic: @unchecked Sendable {} // crash-allow: every access is a hardw
 
 extension Atomic where Value: AtomicInteger {
     /// Adds `operand` (wraps on overflow).
+    @inlinable @inline(__always)
     @discardableResult
     public borrowing func add(_ operand: Value, ordering: AtomicUpdateOrdering) -> (oldValue: Value, newValue: Value) {
         wrappingAdd(operand, ordering: ordering)
     }
 
     /// Subtracts `operand` (wraps on overflow).
+    @inlinable @inline(__always)
     @discardableResult
     public borrowing func subtract(_ operand: Value, ordering: AtomicUpdateOrdering) -> (oldValue: Value, newValue: Value) {
         wrappingSubtract(operand, ordering: ordering)
     }
 
     /// Adds `operand` with wraparound.
+    @inlinable @inline(__always)
     @discardableResult
     public borrowing func wrappingAdd(_ operand: Value, ordering: AtomicUpdateOrdering) -> (oldValue: Value, newValue: Value) {
         let old: Value
@@ -131,6 +148,7 @@ extension Atomic where Value: AtomicInteger {
     }
 
     /// Subtracts `operand` with wraparound.
+    @inlinable @inline(__always)
     @discardableResult
     public borrowing func wrappingSubtract(_ operand: Value, ordering: AtomicUpdateOrdering) -> (oldValue: Value, newValue: Value) {
         let old: Value
@@ -147,6 +165,7 @@ extension Atomic where Value: AtomicInteger {
 
 extension Atomic where Value == Bool {
     /// Sets the value to `value || operand`.
+    @inlinable @inline(__always)
     @discardableResult
     public borrowing func logicalOr(_ operand: Bool, ordering: AtomicUpdateOrdering) -> (oldValue: Bool, newValue: Bool) {
         let old: Bool
@@ -161,6 +180,7 @@ extension Atomic where Value == Bool {
     }
 
     /// Sets the value to `value && operand`.
+    @inlinable @inline(__always)
     @discardableResult
     public borrowing func logicalAnd(_ operand: Bool, ordering: AtomicUpdateOrdering) -> (oldValue: Bool, newValue: Bool) {
         let old: Bool
@@ -197,4 +217,20 @@ public enum AtomicUpdateOrdering: Sendable {
     case releasing
     case acquiringAndReleasing
     case sequentiallyConsistent
+}
+
+/// A memory fence with `ordering` (swift-atomics' `atomicMemoryFence`, C++'s `std::atomic_thread_fence`): orders
+/// this thread's memory accesses around a word that cannot itself be an ``Atomic`` or an ``AtomicPointerSlot``,
+/// such as a signal handler's global with a constant initial value (an atomic made lazily would run its
+/// initializer in the handler). A releasing fence before the word's store pairs with an acquiring fence after
+/// its load on the reading thread. Async-signal-safe: one barrier instruction, always inlined.
+@inlinable @inline(__always)
+public func atomicFence(ordering: AtomicUpdateOrdering) {
+    switch ordering {
+    case .relaxed: atomicMemoryFence(ordering: .relaxed)
+    case .acquiring: atomicMemoryFence(ordering: .acquiring)
+    case .releasing: atomicMemoryFence(ordering: .releasing)
+    case .acquiringAndReleasing: atomicMemoryFence(ordering: .acquiringAndReleasing)
+    case .sequentiallyConsistent: atomicMemoryFence(ordering: .sequentiallyConsistent)
+    }
 }

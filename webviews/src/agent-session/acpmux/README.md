@@ -34,12 +34,11 @@ Slot N runs `acpmux daemon run` with its own `ACPMUX_HOME` (`/tmp/acpdev-N`, ses
 
 To iterate on the real pane inside a running cmux-next with hot reload:
 
-1. `cd webviews && bun run dev:agent-pane` serves this directory with Vite at `http://127.0.0.1:4176/`.
-2. Launch a tagged build with the pane pointed at it: `CMUX_NEXT_AGENT_PANE_DEV_URL=http://127.0.0.1:4176/ ./scripts/reload.sh --tag <tag>`. `reload.sh` forwards the variable to the app.
-3. Open New Agent Chat and edit the TypeScript or CSS here; Vite hot-reloads the pane in about a second. Swift still answers the handshake, so the page talks to the real acpmux daemon and its sessions.
-4. Commit only the sources. The shipped page is gitignored build output: every app build, Swift test run and release builds it first with `./scripts/cmux-next/build-web-bundles.sh`, and CI checks that it builds.
+1. `./scripts/cmux-next/web-overlay.sh server --local` runs the webviews Vite server and points a running Debug, NIGHTLY or NEXT DEV app at it through `web-dev.json` (no relaunch). The page host then serves the pane's files at `cmux-page://cmux.agent/` from the server's `/agent-pane/` (`PageDevServer`).
+2. Open New Agent Chat and edit the TypeScript or CSS here; Vite hot-reloads the pane in about a second. Swift still answers the handshake, so the page talks to the real acpmux daemon and its sessions.
+3. Commit only the sources. The shipped page is gitignored build output: every app build, Swift test run and release builds it first with `./scripts/cmux-next/build-web-bundles.sh`, and CI checks that it builds.
 
-Only Debug and tagged builds read the variable; Release always loads the bundled page. The URL must be `http` on `127.0.0.1` or `localhost` with an explicit port, and anything else falls back to the bundled page. The pane only trusts that exact origin, but whatever process listens on that port receives the daemon token, so point it only at your own dev server. The dev page's CSP (`index.html`) allows same-origin scripts for Vite; the bundled page keeps its inline-only CSP.
+Release and RC builds never read `web-dev.json`. The server must be `http` on `127.0.0.1` or `localhost` with an explicit port; a request it cannot answer gets the bundled file, so a stopped server leaves the bundled pane. A Debug build can also load a built pane from another directory with `CMUX_NEXT_PAGE_ROOT_cmux_agent=/path/to/dir` (the page host's override for every page; `scripts/cmux-next/agent-stream-e2e.py` loads its variants that way).
 
 ## Merging feat-cmux-next
 

@@ -5,24 +5,27 @@
 //! `personal_revision`, after which frontends refetch `list-personal`.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 use crate::workspace_registry::PersonalSnapshot;
 
 mod bookmarks;
 pub use bookmarks::BookmarksChange;
 
 impl Mux {
+    #[track_caller]
     pub fn personal_snapshot(&self) -> anyhow::Result<PersonalSnapshot> {
-        self.workspace_registry.lock().unwrap().personal_snapshot()
+        self.workspace_registry.lock().recover_poison().personal_snapshot()
     }
 
     /// Run one personal mutation under the registry lock. When it changed
     /// durable state, notify journal readers and subscribers.
+    #[track_caller]
     pub(crate) fn personal_mutation<T>(
         &self,
         mutation: impl FnOnce(&mut WorkspaceRegistry) -> anyhow::Result<(T, bool)>,
     ) -> anyhow::Result<(T, bool)> {
         let (value, changed, revision) = {
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry = self.workspace_registry.lock().recover_poison();
             let (value, changed) = mutation(&mut registry)?;
             (value, changed, registry.personal_revision()?)
         };

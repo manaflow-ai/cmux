@@ -36,10 +36,9 @@ enum Style {
     /// (iOS default Dynamic Type: 17 / 13), so large text keeps its width.
     static let gutterZoomCap: CGFloat = 17.0 / 13.0
 
-    /// Row bitmaps draw with it off the main actor. `CTFont` is not marked
-    /// Sendable, but Core Text documents font objects as immutable and safe
-    /// to use from any thread, and this one is never mutated.
-    nonisolated(unsafe) static let bodyFont = Fonts.system(bodySize)
+    /// Row bitmaps draw with it off the main actor (held in a ``SharedFont``).
+    static var bodyFont: CTFont { body.font }
+    private static let body = SharedFont(Fonts.system(bodySize))
 }
 
 /// Width-dependent geometry. At the reference width every value equals the

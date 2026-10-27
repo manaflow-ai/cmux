@@ -6,6 +6,7 @@ import CmuxNextDesign
 @testable import CmuxNextLayout
 @testable import CmuxNextTerminal
 import CmuxNextTerminalGeometry
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -114,7 +115,7 @@ struct SplitTerminalResizeCountTests {
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(tree))], activeScreenID: "s",
                                 focusedPane: tree.panes.first)
             model.splitSizingOverride = .even
-            root = LayoutRootView(model: model, contentProvider: provider)
+            root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             root.context.reduceMotionOverride = false
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)
@@ -127,7 +128,7 @@ struct SplitTerminalResizeCountTests {
         /// A terminal session for `pane` (the daemon's echo of its tab), installed in its container.
         func attachTerminal(_ pane: PaneID) throws {
             let io = CoordinatedIO(pty: PTY(), coordinator: coordinator)
-            let session = TerminalSession(io: io)
+            let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             try #require(session.surfaceView.surface != nil, "libghostty created no surface")
             let container = try #require(provider.containers[pane])
             session.view.frame = container.bounds
@@ -176,6 +177,7 @@ struct SplitTerminalResizeCountTests {
     /// does. Every terminal's PTY resizes at most once, at its final grid, and the new pane's exactly once.
     @Test func aSplitResizesEachPTYOnceIncludingTheNewPanesTerminalAttachedMidSpring() async throws {
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
         let screen = Screen(Self.pair)
         defer { screen.close() }
         try screen.attachTerminal("p1")

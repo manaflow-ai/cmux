@@ -27,6 +27,7 @@ enum AppBrowserPage {
     }
 
     static func run(_ operation: BrowserPageOperation, tabID: String, services: AppServices) async throws -> CmuxNextSettings.JSONValue {
+        // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), read once per request; no walk, no observation
         guard let (tab, _) = services.locateTab(tabID) else {
             throw ControlError(code: "not_found", message: "Surface not found or not a browser")
         }
@@ -48,7 +49,7 @@ enum AppBrowserPage {
         // anything else wakes it in the background and runs on the restored page.
         services.cache.hibernation?.noteAgentUse(tabID)
         if !answersWhileHibernated(operation) {
-            guard let live = await awakePage(tabID, page: page, cache: services.cache, within: actionWait) else { throw wakeFailed }
+            guard let live = await awakePage(tabID, page: page, cache: services.cache, within: actionWait) else { throw wakeError(tabID, cache: services.cache) }
             page = live
         }
         try rebuildStale(stale, tabID: tabID, for: operation, services: services)
@@ -72,7 +73,7 @@ enum AppBrowserPage {
         case .evaluate(let script):
             // The page's pending navigation (the first load after open) ends
             // first, bounded; then the script acts on the loaded document.
-            _ = await awaitPendingNavigation(page, within: actionWait)
+            _ = await awaitPendingNavigation(page, within: actionWait, work: services.mainWork)
             do {
                 let value = try await page.evaluate(script, world: .page, gesture: .agent)
                 return ["value": await json(value)]
@@ -89,11 +90,15 @@ enum AppBrowserPage {
         case .screenshot(let capture):
             return try await screenshot(page, tabID: tabID, capture)
         case .cookies(let request):
-            return try await cookies(page, request)
+            return try await cookies(page, request, work: services.work)
         case .input(let input):
             // Trusted input after the page's first load, as a script acts on the loaded document.
-            _ = await awaitPendingNavigation(page, within: actionWait)
+            _ = await awaitPendingNavigation(page, within: actionWait, work: services.mainWork)
             return try await services.browserNativeInputs.deliver(input, to: page, key: tabID)
+        }
+        // A step on a hibernated page runs once it wakes; a deferred wake keeps it for the tab's next show.
+        if page is HibernatedBrowserTab, let deferral = services.cache.hibernation?.deferral(of: tabID) {
+            return ["deferred": .string(deferral.rawValue)]
         }
         return [:]
     }

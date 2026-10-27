@@ -11,11 +11,10 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::Read as _;
 use std::os::unix::fs::{FileTypeExt as _, PermissionsExt as _};
-use std::os::unix::process::CommandExt as _;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::Context as _;
+use cmux_process::Command;
 
 use crate::agent_hook_install;
 

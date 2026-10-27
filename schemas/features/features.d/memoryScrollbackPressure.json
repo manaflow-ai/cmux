@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "memoryScrollbackPressure",
+  "owner": "PL-memory",
+  "description": "Daemon scrollback RAM total sized from installed RAM (128 MiB at 8 GB, 1 GiB at 64 GB) and lowered by memory pressure: half at warning, 16 MiB at critical, least recently active terminals first; limits return at normal below 80 %.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "daemon",
+  "params": [],
+  "stories": ["pane-stress"],
+  "sticky": false,
+  "runtimeMutable": false
+}

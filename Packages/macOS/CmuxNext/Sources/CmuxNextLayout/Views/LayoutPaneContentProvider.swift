@@ -1,5 +1,7 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextInput
+import CmuxNextWakeups
 
 /// Supplies the view hosted in each pane. The layout does not know about
 /// terminals or browsers; the App returns a view containing the tab strip
@@ -42,12 +44,30 @@ final class LayoutViewContext {
     var requestFrames: () -> Void = {}
     /// Pane hosts or dividers moved: the overlay plane follows them.
     var overlayNeedsSync: () -> Void = {}
+    /// Pane hosts went to rest at a render-server spring's start: the overlay plane places their chrome
+    /// there now, so each host's springs carry its chrome in the same group (`LayoutRootView.syncOverlayNow`).
+    var overlaySyncNow: () -> Void = {}
+    /// A rect in a view's coordinates, in the overlay plane's (the root's): where a host's chrome rides from
+    /// (`PaneHostView.springToRest`). Nil without a root.
+    var overlayPlaneRect: (CGRect, NSView) -> CGRect? = { _, _ in nil }
     /// A user gesture moves the layout (a strip, row or scroll-area pan with the finger down): the root reads
     /// as in layout motion until the motion after it lands (`LayoutRootView.setLayoutInMotion`).
     var userMotionStepped: () -> Void = {}
-    /// A user gesture ended with nothing left to spring: the motion it started ends.
+    /// A user gesture ended, or a screen's render-server springs landed, with nothing left to spring: the motion
+    /// it started ends.
     var userMotionEnded: () -> Void = {}
-    /// A pane's strip clip changed (`PaneHostView.setStripClip`): Chromium pages re-read their clips.
+    /// Whether the window shows content in child windows placed from pane frames (Chromium pages,
+    /// R3): those windows follow host frames, not a layer translation, so a strip pan moves the
+    /// frames then (`ScreenContentView.pansOnContainer`).
+    var childWindowContentShows: () -> Bool = { false }
+    /// A screen's strip started or stopped showing away from where its views are laid out
+    /// (`StripClipContainerView.showsMoved`).
+    var stripMovedDidChange: () -> Void = {}
+    /// A change turn handed a screen's springs to the render server: the window's `motion.run` begins
+    /// (`LayoutMotionTrace`); its landing ends it through ``userMotionEnded``.
+    var renderMotionBegan: () -> Void = {}
+    /// A pane's clip changed (the strip container's range, an area mask, a zooming pane over it):
+    /// Chromium pages re-read their clips.
     var stripClipsDidChange: () -> Void = {}
     /// Screens whose panes spring to a split's or a close's sizes now (`ScreenContentView.holdsGrids`).
     var gridHoldScreens: Set<ScreenID> = [] {
@@ -55,31 +75,62 @@ final class LayoutViewContext {
     }
     /// The first split or close started (true) or the last one landed (false): `LayoutRootView.onTerminalGridHold`.
     var gridHoldDidChange: (Bool) -> Void = { _ in }
+    /// Presses the root's intercept handled while render-server springs ran on its active screen
+    /// (`ScreenContentView.pressedPane(at:)`, `LayoutRootView.pressesMidRenderSpring`), cumulative.
+    var pressesMidRenderSpring = 0
+    /// Scrolls the root's intercept sent through its full routing, with its pane hit tests and claim
+    /// queries (`LayoutRootView.routedScrolls`), cumulative; a page's plain scroll takes none.
+    var routedScrolls: UInt64 = 0
+    /// Scroll points the root's intercept converted from a child window into its own
+    /// (`LayoutRootView.scrollPointConversions`), cumulative; a page's plain scroll takes none.
+    var scrollPointConversions: UInt64 = 0
     /// The strip scrollbar's fade-out deadline clock.
     let scrollbarClock: any Clock<Duration>
     /// Where the pointer is now, in `window`'s coordinates; nil when it cannot
-    /// hover there (the window is not key). Cheap: read on every frame that
-    /// moves the layout, with no event at hand, because the layout can move
-    /// under a still pointer.
-    var hoverPointer: @MainActor (NSWindow) -> NSPoint? = { _ in nil }
-    /// Whether the window is on top under the pointer (no other window or
-    /// panel covers that point, except pass-through panels). A window server
-    /// round trip: asked only when a handle is under the pointer.
-    var hoverReachesWindow: @MainActor (NSWindow) -> Bool = { _ in false }
+    /// hover there (the window is not key). The event is the handle's enter or
+    /// exit being handled: its own point is read, not the live cursor. Cheap:
+    /// also read on every frame that moves the layout, with no event at hand,
+    /// because the layout can move under a still pointer.
+    var hoverPointer: @MainActor (NSWindow, NSEvent?) -> NSPoint? = { _, _ in nil }
+    /// Whether the window is on top at the point `hoverPointer` gave (`window`'s
+    /// coordinates; no other window or panel covers it, except pass-through
+    /// panels). A window server round trip: asked only when a handle is under
+    /// the pointer.
+    var hoverReachesWindow: @MainActor (NSWindow, NSPoint) -> Bool = { _, _ in false }
     /// Windows above this one that pass divider hover through: the app's
     /// click-catching panels over page windows (`DividerMouseCatchers`).
     var hoverPassThroughWindows: () -> Set<Int> = { [] }
+    /// Where the root hears its window's key changes (`LayoutRootView.observeKeyWindow()`): the
+    /// app's one ``WindowEvents`` per window; tests pass their own on their own center.
+    var hoverWindowEvents: @MainActor (NSWindow) -> WindowEvents = { WindowEvents.of($0) }
+    /// The windows' frame-aligned pointer input for divider drags (``LayoutRootView/dragFrameInput``);
+    /// nil: each drag event moves the divider at once.
+    var dragFrameInput: FrameInputCoalescers?
+    /// A new divider drag's resampler (``LayoutRootView/dragResampler``); nil: drawn at the real pointer.
+    var dragResampler: () -> DragResampler? = { nil }
+    /// A strip pan on the motion container shows at each display frame's time, resampled
+    /// (feature `stripPanResampling`, ``LayoutRootView/resamplesStripPan``).
+    var resamplesStripPan = false
+    /// Whether a pane's content keeps its size through a layout spring (feature `paneHoldsContentInMotion`,
+    /// ``LayoutRootView/holdsContentInMotion``), asked by each host at its spring's start.
+    var holdsContentInMotion: () -> Bool = { false }
 
-    init(model: LayoutModel, provider: any LayoutPaneContentProvider, scrollbarClock: any Clock<Duration> = ContinuousClock()) {
+    /// Whether layout motion runs on the render server (`motion.renderServer`): every host's
+    /// `MotionBackends` reads it once per change turn, and only with a variant registered.
+    let rendersMotionOnServer: () -> Bool
+
+    init(model: LayoutModel, provider: any LayoutPaneContentProvider, scrollbarClock: any Clock<Duration> = ContinuousClock(),
+         rendersMotionOnServer: @escaping () -> Bool = { LayoutTunables.motionRenderServer.value }) {
         self.model = model
         self.provider = provider
         self.scrollbarClock = scrollbarClock
+        self.rendersMotionOnServer = rendersMotionOnServer
         // The shared pointer source (`PointerHover`, CmuxNextDesign): the
         // real pointer while the window is key and visible, `debug.mouse`'s
         // synthesized pointer in DEBUG builds (it also passes the topmost check).
-        hoverPointer = { window in PointerHover.pointer(in: window, requireKey: true) }
-        hoverReachesWindow = { [weak self] window in
-            PointerHover.isTopmost(window, passThrough: self?.hoverPassThroughWindows() ?? [])
+        hoverPointer = { window, event in PointerHover.pointer(in: window, requireKey: true, event: event) }
+        hoverReachesWindow = { [weak self] window, point in
+            PointerHover.isTopmost(window, at: point, passThrough: self?.hoverPassThroughWindows() ?? [])
         }
     }
 
@@ -97,10 +148,16 @@ final class LayoutViewContext {
     /// A test that pins `reduceMotionOverride` pins this too, so its springs run as before the setting.
     var animatesPaneLayout: Bool { reduceMotionOverride.map { !$0 } ?? Motion.panes.animatesPaneLayout }
 
+    /// A new drag's resampler (``dragResampler``); none under Reduce Motion, where a drag is drawn at the
+    /// real pointer.
+    func newDragResampler() -> DragResampler? {
+        reduceMotion ? nil : dragResampler()
+    }
+
     func host(for pane: PaneID) -> PaneHostView {
         if let host = hosts[pane] { return host }
         let content = provider?.makeContentView(for: pane) ?? NSView()
-        let host = PaneHostView(pane: pane, content: content)
+        let host = PaneHostView(pane: pane, content: content, holdsContentInMotion: { [weak self] in self?.holdsContentInMotion() ?? false })
         hosts[pane] = host
         return host
     }

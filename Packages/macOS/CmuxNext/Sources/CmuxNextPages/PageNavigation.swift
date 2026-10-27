@@ -56,13 +56,18 @@ public nonisolated struct PageEngineOptions: Sendable, Equatable {
     /// not opt in (``PageDescriptor/acceptsFirstMouse``): a page in the window's chrome, such as
     /// the sidebar's Updated card, while a Chromium page's own window holds the key. Off by default.
     public var acceptsFirstMouse: Bool
+    /// On WebKit, the page joins the host's shared web content processes and their one in-memory
+    /// data store (``WebProcessGroups``: the agent pages, so many New Tab pages and chats do not
+    /// start a process each, and share their localStorage). Chromium ignores it. Off by default.
+    public var sharesWebKitProcess: Bool
 
     public init(fullFrameRate: Bool = false, requiresWebKit: PageWebKitReason? = nil, chromiumAgentChat: Bool = false,
-                acceptsFirstMouse: Bool = false) {
+                acceptsFirstMouse: Bool = false, sharesWebKitProcess: Bool = false) {
         self.fullFrameRate = fullFrameRate
         self.requiresWebKit = requiresWebKit
         self.chromiumAgentChat = chromiumAgentChat
         self.acceptsFirstMouse = acceptsFirstMouse
+        self.sharesWebKitProcess = sharesWebKitProcess
     }
 
     public static let standard = PageEngineOptions()

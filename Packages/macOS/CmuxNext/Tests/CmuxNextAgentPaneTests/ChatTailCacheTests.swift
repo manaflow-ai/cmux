@@ -4,12 +4,9 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// The host's chat tails at the ops the page calls (`chat.tail`, `chat.tail.get`): a chat another
-/// tab read opens drawn instead of blank, on either host, and the bounds that keep this from
-/// becoming somewhere a transcript lives.
-///
-/// `agent.pageHost` is off by default, so the pane's own host is the path production takes; both
-/// are held here, because one store serves both.
+/// The page host's chat tails at the ops the page calls (`chat.tail`, `chat.tail.get`): a chat
+/// another tab read opens drawn instead of blank, and the bounds that keep this from becoming
+/// somewhere a transcript lives.
 @Suite(.serialized)
 @MainActor
 struct ChatTailCacheTests {
@@ -26,8 +23,13 @@ struct ChatTailCacheTests {
         ]
     }
 
+    /// What the page host answers the page (`AgentPageProvider.tail`): `ok` and the value, or
+    /// `ok: false` for a request it refuses or an op that is not this store's.
     static func bridge(_ method: String, _ params: [String: Any]) -> [String: Any] {
-        AgentPaneTailCache.reply(to: method, params: params)
+        guard AgentPaneTailCache.handles(method: method), let json = JSONValue(foundation: params) else { return ["ok": false] }
+        guard let value = try? AgentPageProvider.tail(method, params: json, op: AgentPageOps.namespace + method)
+        else { return ["ok": false] }
+        return ["ok": true, "value": value.foundationObject]
     }
 
     static func value(_ reply: [String: Any]) -> Any? {
@@ -119,18 +121,18 @@ struct ChatTailCacheTests {
         #expect(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-2"])) is NSNull)
     }
 
-    /// Both hosts read and write the one store, so a pane with `agent.pageHost` on and one without
-    /// hand each other the same chats.
-    @Test func thePageHostAndThePanesOwnHostShareTheOneStore() async throws {
+    /// Every page reads and writes the one store: written through the op's answer, read through the
+    /// provider's call, and the other way.
+    @Test func everyPageSharesTheOneStore() async throws {
         defer { AgentPaneTailCache.shared.clear() }
         AgentPaneTailCache.shared.clear()
-        let provider = AgentPageProvider { _ in nil }
+        let provider = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
 
         _ = Self.value(Self.bridge("chat.tail", ["sessionId": "s-1", "tail": Self.tail(3)]))
         let onPageHost = try await provider.call(
             AgentPageOps.namespace + "chat.tail.get", params: .object(["sessionId": .string("s-1")]), context: Self.context)
         guard case .object(let fields) = onPageHost, case .array(let events)? = fields["events"] else {
-            Issue.record("the page host answered no tail for a chat the pane's own host kept: \(onPageHost)")
+            Issue.record("the provider answered no tail for a chat another page kept: \(onPageHost)")
             return
         }
         #expect(events.count == 3)
@@ -142,12 +144,11 @@ struct ChatTailCacheTests {
         #expect(Self.seqs(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-2"]))).count == 4)
     }
 
-    /// Both hosts branch on ``AgentPaneTailCache/handles(method:)``, and it names its two ops rather
-    /// than matching the `chat.tail` prefix. `reply(to:params:)` takes anything that is not `.get`
-    /// as a write, so a later `chat.tail.forget` matched by prefix would have ERASED the chat's tail
-    /// instead of being refused — and on the pane's own host a prefix would swallow it before
-    /// ``AgentPaneRequest`` could give it to the model. The same reason `AgentPaneScrollAnchors`
-    /// names its ops, two lines above this branch in `AgentPageProvider`.
+    /// The page host branches on ``AgentPaneTailCache/handles(method:)``, and it names its two ops
+    /// rather than matching the `chat.tail` prefix. The op takes anything that is not `.get` as a
+    /// write, so a later `chat.tail.forget` matched by prefix would have ERASED the chat's tail
+    /// instead of being refused. The same reason `AgentPaneScrollAnchors` names its ops, one line
+    /// above this branch in `AgentPageProvider`.
     @Test func onlyTheTwoOpsThisStoreServesAreTakenAsItsOwn() throws {
         #expect(AgentPaneTailCache.handles(method: "chat.tail"))
         #expect(AgentPaneTailCache.handles(method: "chat.tail.get"))
@@ -181,41 +182,5 @@ struct ChatTailCacheTests {
                 "the host refuses the tail, not the request")
         // Refused, and the older tail is gone: the page has read on, so what it kept is stale.
         #expect(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-9"])) is NSNull)
-    }
-
-    /// The one line no test here can reach: the pane's own host answers these ops from
-    /// `AgentPaneBridge.userContentController`, and a `WKScriptMessage` cannot be made outside
-    /// WebKit, so nothing can send that handler a message. Every test above calls
-    /// `AgentPaneTailCache.reply` directly. Delete the handler's branch and all of them stay green
-    /// while every new tab silently opens cold again — the whole point of this cache, on the host
-    /// `agent.pageHost: false` makes production use. So the call site is read out of the source.
-    ///
-    /// Renaming either symbol is fine; this test then names what to rewrite it to.
-    @Test func theHandlerStillRoutesTheseOpsToThisCache() throws {
-        var root = URL(fileURLWithPath: #filePath)
-        for _ in 0 ..< 6 { root.deleteLastPathComponent() }
-        let bridge = root.appending(path: "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneBridge.swift")
-        // Read, not guessed: a missing or unreadable file fails rather than passing vacuously.
-        let source = try String(contentsOf: bridge, encoding: .utf8)
-        guard let handler = source.range(of: "func userContentController(") else {
-            Issue.record("AgentPaneBridge no longer has a userContentController handler")
-            return
-        }
-        // Inside the handler, not merely somewhere in the file: the slice ends at the next doc
-        // comment, which today is the one on `reply(for:)`.
-        let rest = source[handler.lowerBound...]
-        let body = rest.range(of: "\n    /// ").map { String(rest[..<$0.lowerBound]) } ?? String(rest)
-        // The routing AND how it decides: a `hasPrefix("chat.tail")` here would still mention the
-        // type and still open the chat, while taking a later `chat.tail.forget` as a write and
-        // erasing the tail. `handles(method:)` is the one that names its ops.
-        #expect(body.contains("AgentPaneTailCache.handles(method:"),
-                """
-                AgentPaneBridge.userContentController no longer routes chat.tail to \
-                AgentPaneTailCache.handles(method:), so either the ops reach AgentPaneModel, which \
-                has no case for them (every chat opened in a new tab waits for acpmux again), or \
-                they are matched some other way — by prefix, which erases the tail of any later \
-                chat.tail.* op. Route them through handles(method:) again, or give AgentPaneModel \
-                the ops and update this test.
-                """)
     }
 }

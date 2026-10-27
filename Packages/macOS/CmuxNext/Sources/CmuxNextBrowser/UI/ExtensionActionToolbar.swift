@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextWakeups
 
 /// Fills `BrowserChromeView.extensionSlot` with the pinned extension
 /// actions of the bound tab in Chromium's order (icon plus native
@@ -36,7 +37,7 @@ final class ExtensionActionToolbar {
     }()
     /// The Extensions bubble (Chrome's `ExtensionsMenuView`).
     private(set) lazy var menuController: ExtensionsMenuController = {
-        let controller = ExtensionsMenuController()
+        let controller = ExtensionsMenuController(mainWork: mainWork)
         controller.onShownChange = { view, shown in (view as? ChromeIconButton)?.isMenuOpen = shown }
         controller.toggleView = { [weak self] in
             guard let self else { return nil }
@@ -69,8 +70,11 @@ final class ExtensionActionToolbar {
     weak var menuHandler: (any ExtensionMenuHandling)?
     private var directHandler: ExtensionsMenu.DirectHandler?
 
-    init(slot: NSStackView) {
-        self.slot = slot
+    /// The app's scheduler and the tab's node (nil: node-free): the toolbar renders at its frames while the tab shows.
+    private let mainWork: MainWorkScheduler, node: VisibilityNode?
+
+    init(slot: NSStackView, mainWork: MainWorkScheduler, node: VisibilityNode?) {
+        (self.slot, self.mainWork, self.node) = (slot, mainWork, node)
         trampoline.action = { [weak self] in self?.showMenu() }
     }
 
@@ -94,7 +98,7 @@ final class ExtensionActionToolbar {
             return
         }
         host.extensionActionAnchor = { [weak self] id in self?.anchorRect(for: id) }
-        observation = ObservationLoop { [weak self] in
+        observation = ObservationLoop(owner: "browser.extensions.toolbar", delivery: .visible(node), on: mainWork) { [weak self] in
             guard let self, let host = self.host else { return }
             let actions = host.extensionActions
             self.render(actions, showsPuzzle: Self.showsPuzzle(host: host))
@@ -104,14 +108,20 @@ final class ExtensionActionToolbar {
         }
     }
 
-    private var prepareTask: Task<Void, Never>?
+    /// An idle task to build the bubble is queued and has not run yet.
+    private var preparePosted = false
 
-    /// Builds the Extensions bubble's rows on a later turn, off the click's path.
+    /// Builds the Extensions bubble's rows in the main thread's idle time, off the click's path, for the tab
+    /// bound when it runs (Blink's PostIdleTask, third_party/blink/public/platform/scheduler): one queued task
+    /// covers every render before it. Held while the tab is hidden; 500 ms at the latest while it shows.
     private func schedulePrepare() {
-        prepareTask?.cancel()
-        prepareTask = Task { @MainActor [weak self] in
-            guard let self, !Task.isCancelled, let host = self.host, self.slot.window != nil else { return }
-            self.menuController.prepare(host: host)
+        guard !preparePosted else { return }
+        preparePosted = true
+        mainWork.postIdle(owner: "browser.extensions.menu.prepare", maxDelay: .milliseconds(500), node: node) { [weak self] _ in
+            guard let self else { return }
+            preparePosted = false
+            guard let host, slot.window != nil else { return }
+            menuController.prepare(host: host)
         }
     }
 
@@ -156,6 +166,7 @@ final class ExtensionActionToolbar {
             return
         }
         // Start from the frames on screen now.
+        // sync-layout: the pin animation starts from these frames, laid out outside its group.
         container.layoutSubtreeIfNeeded()
         // The toolbar's move token: about 0.2 s, like Chrome's toolbar icon animation.
         Motion.overlays.animateTimed(.move, in: container, { [self] in
@@ -163,6 +174,7 @@ final class ExtensionActionToolbar {
             pendingFinish += update()
             let after = Set(buttons.keys)
             lastPinAnimation = (after.subtracting(before).sorted(), before.subtracting(after).sorted())
+            // sync-layout: inside the animation group, so the neighbours slide to their new frames.
             container.layoutSubtreeIfNeeded()
         }, completion: { [weak self] in self?.finishPinAnimation() })
     }

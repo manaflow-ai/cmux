@@ -121,6 +121,7 @@ public final class PageInputReadiness {
     private func apply(_ edit: Edit, expectedEpoch: Int?) async -> Bool {
         if let editor { return await editor(edit, expectedEpoch) }
         guard let webView else { return false }
+        // MQ12 allowed while frozen: typing reaches the focused page, and focus keeps a page from freezing.
         let done = try? await webView.callAsyncJavaScript(Self.editScript(edit, token: editToken, expectedEpoch: expectedEpoch), arguments: [:], in: nil, contentWorld: .page)
         return done as? Bool == true
     }

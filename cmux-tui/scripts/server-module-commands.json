@@ -1,0 +1,131 @@
+{
+  "description": "Server modules that decode their own commands before the server's Command enum sees the line (p05-ipc queue Q2). check-spec-inventory.py reads the names and the authority; check-sdk-schema.py reads the request fields. enum: the module's #[serde(tag = \"cmd\")] enum, each variant named with #[serde(rename = \"...\")]. envelope: the struct that flattens the enum; its other fields (minus the reply id) every variant accepts. enum_handler: the function that dispatches the enum. A module that matches its commands only by name has none of the three. literals: commands the module matches by name, with their handler, their request struct (or the list of structs whose fields make up the request; `module::Name` names a struct in server/<module>.rs, \"path/under/server.rs::Name\" one in that server file) and fields: the members the handler reads from the raw line instead, each {type: the Rust type it accepts, Option<T> when it takes null; presence: required or optional}; the handler's tests cover each refusal. The module must decode a lone request struct for the command: with variant `Enum::Variant`, the literal's match arm builds that variant and the variant holds the struct; without, the handler calls from_value::<Type> or Type::parse. refused_envelope_fields: envelope fields a command's handler refuses before decoding. authority: the profile of every command; local-admin needs the non-Unix refusal in enum_handler and in every literal handler.",
+  "modules": {
+    "apps": {
+      "enum": "Command",
+      "envelope": "Request",
+      "enum_handler": "handle",
+      "literals": {
+        "cancel-request": {
+          "request": "CancelRequest",
+          "handler": "cancel_request"
+        }
+      },
+      "refused_envelope_fields": {
+        "apps-agent-inventory-changed": [
+          "origin"
+        ]
+      },
+      "authority": "local-admin"
+    },
+    "agent_session_attach": {
+      "literals": {
+        "agent-session-attach": {
+          "request": "PageParams",
+          "handler": "handle",
+          "variant": "AgentSessionCommand::Attach"
+        },
+        "agent-session-events": {
+          "request": "PageParams",
+          "handler": "handle",
+          "variant": "AgentSessionCommand::Events"
+        },
+        "agent-session-prompt": {
+          "request": "PromptParams",
+          "handler": "handle",
+          "variant": "AgentSessionCommand::Prompt"
+        },
+        "agent-session-cancel": {
+          "request": "SurfaceParams",
+          "handler": "handle",
+          "variant": "AgentSessionCommand::Cancel"
+        },
+        "agent-session-permission": {
+          "request": "PermissionParams",
+          "handler": "handle",
+          "variant": "AgentSessionCommand::Permission"
+        },
+        "agent-session-detach": {
+          "request": "SurfaceParams",
+          "handler": "handle",
+          "variant": "AgentSessionCommand::Detach"
+        },
+        "agent-session-children": {
+          "request": "SurfaceParams",
+          "handler": "handle",
+          "variant": "AgentSessionCommand::Children"
+        },
+        "agent-session-media": {
+          "request": "MediaParams",
+          "handler": "handle",
+          "variant": "AgentSessionCommand::Media"
+        },
+        "agent-session-start": {
+          "request": "agent_session_start::StartParams",
+          "handler": "start"
+        },
+        "agent-session-trust": {
+          "request": "agent_session_trust::TrustParams",
+          "handler": "trust"
+        }
+      },
+      "authority": "local-admin"
+    },
+    "agent_session_observe": {
+      "literals": {
+        "agent-session-observe": {
+          "request": "agent_session_attach::PageParams",
+          "handler": "handle"
+        }
+      },
+      "authority": "local-admin"
+    },
+    "client_hello": {
+      "literals": {
+        "client-hello": {
+          "fields": {
+            "role": {
+              "type": "String",
+              "presence": "optional"
+            },
+            "install_id": {
+              "type": "String",
+              "presence": "optional"
+            },
+            "page": {
+              "type": "Option<String>",
+              "presence": "optional"
+            },
+            "proof": {
+              "type": "String",
+              "presence": "optional"
+            },
+            "features": {
+              "type": "Option<HelloFeatures>",
+              "presence": "optional"
+            }
+          },
+          "handler": "observe"
+        }
+      },
+      "authority": "local-admin"
+    },
+    "connection_frame/machine_catalog": {
+      "literals": {
+        "machine-catalog-publish": {
+          "request": [
+            "client_registry/machine_catalog.rs::Publication"
+          ],
+          "fields": {
+            "expected_machine_id": {
+              "type": "String",
+              "presence": "required"
+            }
+          },
+          "handler": "handle"
+        }
+      },
+      "authority": "local-admin"
+    }
+  }
+}

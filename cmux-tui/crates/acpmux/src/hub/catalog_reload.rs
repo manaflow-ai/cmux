@@ -14,10 +14,13 @@ impl Hub {
         static RELOADING: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
         let _one = RELOADING.get_or_init(|| tokio::sync::Mutex::new(())).lock().await;
         let (path, sources) = self.config_sources().await?;
+        // The file read back holds every save queued before this reload (`config_writer.rs`).
+        let hub = self.clone();
+        let _ = crate::daemon::spawn_blocking(move || hub.config_writer.flush()).await;
         // Disk reads and PATH discovery run outside the async executor. An
         // invalid/missing file never replaces the last accepted configuration.
-        let mut next = tokio::task::spawn_blocking(move || {
-            std::fs::metadata(&path)?;
+        let mut next = crate::daemon::spawn_blocking(move || {
+            cmux_blocking::fs::metadata(&path)?;
             crate::config::Config::load_from_with(&path, &sources)
         })
         .await

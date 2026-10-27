@@ -6,17 +6,21 @@ public enum TreeEventMode: String, Sendable, Codable {
 
 public struct SubscribeRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "subscribe"
+    public static let commandName: DaemonCommandName = "subscribe"
     public var treeEvents: TreeEventMode
     public var surface: SurfaceID?
     public init(treeEvents: TreeEventMode = .deltas, surface: SurfaceID? = nil) {
         self.treeEvents = treeEvents
         self.surface = surface
     }
+
+    enum CodingKeys: String, CodingKey {
+        case treeEvents = "tree_events", surface
+    }
 }
 
 public struct ListWorkspacesRequest: DaemonRequest {
     public typealias Response = DaemonTree
-    public static let command = "list-workspaces"
+    public static let commandName: DaemonCommandName = "list-workspaces"
     public init() {}
 }
