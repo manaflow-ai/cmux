@@ -304,6 +304,20 @@ impl OwnerApp {
         Self { pid }
     }
 
+    /// Whether an owner was named.
+    pub fn is_named(&self) -> bool {
+        self.pid.is_some()
+    }
+
+    /// Blocks the calling thread until the owner's process exits (a quit or
+    /// a crash), at once when it is already gone: true then; false without
+    /// an owner, or where the platform cannot watch it. One kernel wait, no
+    /// polling. The cmux-tui Chief owner waits on it (its
+    /// `headless/chief_owner_exit.rs`).
+    pub fn wait_for_exit(self) -> bool {
+        self.pid.is_some_and(wait_for_process_exit)
+    }
+
     /// Resolves when the owner's process exits (a quit or a crash), at once
     /// when it is already gone; never without an owner, or where the
     /// platform cannot watch a process this one did not start (the grace

@@ -73,6 +73,7 @@ fn the_supervisor_writes_the_engine_file_before_its_next_signal() {
         },
         brains: BTreeMap::new(),
         sender,
+        live: Arc::default(),
     };
     let file = brain_home(&home, CHIEF).join("optchat/engine.json");
     std::fs::create_dir_all(file.parent().expect("parent")).expect("dir");

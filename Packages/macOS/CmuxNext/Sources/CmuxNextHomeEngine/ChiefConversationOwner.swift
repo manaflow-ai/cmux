@@ -20,8 +20,10 @@ import func CmuxSafeConcurrency.withOnceContinuation
 /// terminals and the Home workspace's tabs; a conversation tab there points
 /// at a conversation of this owner by id.
 ///
-/// The owner process is detached and outlives the app; the next launch
-/// ensures it and attaches. It is never handed off to the connecting
+/// The owner process is detached and outlives the app while a client (the
+/// Chief's brain host at work) or a live brain needs it, then stops
+/// (`CMUX_TUI_OWNER_APP_PID`, cmux-tui `headless/chief_owner_exit.rs`); the
+/// next launch ensures it and attaches. It is never handed off to the connecting
 /// binary (an older build that still shares NIGHTLY's home would restart it
 /// in turn). Only `local-conversations-v1` is required of it.
 @Observable @MainActor
@@ -72,6 +74,8 @@ public final class ChiefConversationOwner {
         var environment = process
         environment["CMUX_TUI_CHIEF_TOOLS_SOCKET"] = home.muxHome.appendingPathComponent("optchat/tools.sock").path
         environment["CMUX_TUI_CHIEF_BRAINS"] = brainsValue(home: home, process: process, bundle: bundle)
+        // This app: the owner stops soon after it exits, once no client (the Chief's host at work)
+        // and no brain needs it (cmux-tui headless/chief_owner_exit.rs).
         return environment
     }
 
@@ -140,6 +144,8 @@ public final class ChiefConversationOwner {
             // databases are copied with SQLite's online backup.
             // cmux NEXT's one-time adoption of its old homes ends before its owner starts (cx-is1kf.9).
             await AcpmuxEnvironment.adoptBuildHomes()
+            // A running owner and brain host an earlier app started serve this app from now on: they
+            // stop idle only after this app exits (cmux-tui headless/chief_owner_exit.rs).
             let adoption = await ChiefAdoption.runOffMain(home: home, by: build, logger: logger)
             weakSelf?.adoption = adoption
             let connected = await DaemonStartup.shared.connect(wake: wake) {

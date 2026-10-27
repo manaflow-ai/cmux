@@ -8,8 +8,10 @@ import os
 /// Starts the local mux brain host (plans/cmux-next/home.md section 4) when
 /// Home first opens: a detached process (its own process group, adopted by
 /// launchd) that is a client of the daemon's conversation owner and of acpmux,
-/// and listens on nothing. It outlives the app; its own pid lock keeps one
-/// instance per mux home, so starting it again is harmless.
+/// and listens on nothing. It outlives the app only while it works: once the
+/// app has exited and the host is idle, it stops (`OPTCHAT_OWNER_APP_PID`,
+/// optchat-chief `owner_app.rs`; quit-persistence.md section 8). Its own pid
+/// lock keeps one instance per mux home, so starting it again is harmless.
 ///
 /// The host is the executable named by `CMUX_NEXT_MUX_HOST` (the TypeScript
 /// `mux`, or a local optchat-chief build), else the OptChat Chief that DEV
@@ -137,6 +139,8 @@ public nonisolated struct HomeBrainHost: Sendable {
         // (optchat-chief acpmux_daemon::Mode::Supervised). Never OPTCHAT_ACPMUX_SHARED: its last
         // Chief to leave ends every session of the daemon, the person's too.
         if usesAppAcpmux { variables["OPTCHAT_ACPMUX_SUPERVISED"] = "1" }
+        // This app: once it exits, an idle host stops with the acpmux it started (optchat-chief
+        // owner_app.rs); live work keeps it. A host this app reuses follows `ChiefHome.ownerAppFile`.
         // No CMUX_MCP_COMMAND: acpmux gives every agent chat, the Chief's
         // turns included, its own `cmux mcp serve` (one server per turn).
         for key in ["USER", "TMPDIR", "MUX_HARNESS"] {
@@ -153,6 +157,9 @@ public nonisolated struct HomeBrainHost: Sendable {
         return ([Bundle.main.resourceURL?.appendingPathComponent("bin").path].compactMap { $0 } + user
             + ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]).joined(separator: ":")
     }
+
+    /// The variable that names the app a host serves (optchat-chief `owner_app.rs`).
+    static let ownerAppPidKey = "OPTCHAT_OWNER_APP_PID"
 
     /// Spawns the host through a throwaway shell with job control, so it gets
     /// its own process group and is adopted by launchd when the shell exits.

@@ -77,6 +77,20 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
     /// Written by `cmux chief shutdown` (cmux-tui `cli/chief/shutdown.rs`):
     /// while it is there the app starts no brain on its own, only when asked.
     var shutdownMarker: URL { root.appendingPathComponent("state/shutdown") }
+    /// `state/owner-app.pid`: the app that last started this home's owner (``recordOwnerApp(pid:)``).
+    /// The Chief's owner daemon and brain host an earlier app started read it when that app exits,
+    /// and follow this one instead of stopping (cmux-tui `headless/chief_owner_exit.rs`,
+    /// optchat-chief `owner_app.rs`).
+    public var ownerAppFile: URL { root.appendingPathComponent("state/owner-app.pid") }
+
+    /// Names `pid` (this app) in ``ownerAppFile``: disk writes, so on a files lane
+    /// (`BackgroundWork.run(_:mayBlock: .files)`), never on the main actor or the pool. A failed write
+    /// only means a helper an earlier app started stops idle when that app exits; this app starts it again.
+    public func recordOwnerApp(pid: pid_t = ProcessInfo.processInfo.processIdentifier) {
+        // Red: nothing is written.
+        _ = pid
+    }
+
     /// While a turn waits for the compactor: how far it is (optchat-chief settle_status.rs).
     var settleStatusFile: URL { root.appendingPathComponent("state/settle.json") }
     /// `ACPMUX_HOME` of the Chief's own daemon, where its turn, compactor and subagent sessions

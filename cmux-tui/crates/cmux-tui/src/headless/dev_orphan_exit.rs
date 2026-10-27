@@ -187,6 +187,16 @@ impl OrphanClock for SystemClock {
 pub(crate) struct WatchState {
     idle_since: Option<Instant>,
     stopped: bool,
+    /// Not armed yet ([`OrphanWatch::disarmed`]): the watch serves until
+    /// [`OrphanWatch::arm`], whatever the clients.
+    disarmed: bool,
+}
+
+impl WatchState {
+    /// When the owner became idle, as the policy reads it: never while disarmed.
+    fn effective_idle_since(&self) -> Option<Instant> {
+        if self.disarmed { None } else { self.idle_since }
+    }
 }
 
 pub(crate) struct OrphanWatch {
@@ -209,15 +219,49 @@ impl OrphanWatch {
         facts: Arc<dyn OrphanFacts>,
         timing: Timing,
     ) -> Arc<Self> {
+        Self::make(clock, facts, timing, false)
+    }
+
+    /// A watch that never decides until [`OrphanWatch::arm`] (an event such
+    /// as the owning app's exit starts it; `chief_owner_exit.rs`): no wake
+    /// and no deadline before that.
+    pub(crate) fn disarmed(
+        clock: Arc<dyn OrphanClock>,
+        facts: Arc<dyn OrphanFacts>,
+        timing: Timing,
+    ) -> Arc<Self> {
+        Self::make(clock, facts, timing, true)
+    }
+
+    fn make(
+        clock: Arc<dyn OrphanClock>,
+        facts: Arc<dyn OrphanFacts>,
+        timing: Timing,
+        disarmed: bool,
+    ) -> Arc<Self> {
         let watch = Arc::new(Self {
             clock,
             facts,
             timing,
-            state: Mutex::new(WatchState::default()),
+            state: Mutex::new(WatchState { disarmed, ..WatchState::default() }),
             changed: Condvar::new(),
         });
         watch.clients_changed();
         watch
+    }
+
+    /// Starts a [`OrphanWatch::disarmed`] watch: an owner with no client is
+    /// idle from now. A second call does nothing.
+    pub(crate) fn arm(&self) {
+        let mut state = self.lock();
+        if state.disarmed {
+            state.disarmed = false;
+            if state.idle_since.is_some() {
+                state.idle_since = Some(self.clock.now());
+            }
+        }
+        drop(state);
+        self.changed.notify_all();
     }
 
     fn lock(&self) -> MutexGuard<'_, WatchState> {
@@ -253,7 +297,7 @@ impl OrphanWatch {
             if state.stopped {
                 return false;
             }
-            let since = state.idle_since;
+            let since = state.effective_idle_since();
             // The facts may take locks of their own: read them unlocked.
             drop(state);
             let decision = decide_with(since, self.clock.now(), self.facts.as_ref(), self.timing);
@@ -261,7 +305,7 @@ impl OrphanWatch {
             if state.stopped {
                 return false;
             }
-            if state.idle_since != since {
+            if state.effective_idle_since() != since {
                 continue;
             }
             state = match decision {
