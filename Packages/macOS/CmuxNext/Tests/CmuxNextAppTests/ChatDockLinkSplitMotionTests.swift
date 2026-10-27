@@ -41,6 +41,12 @@ struct ChatDockLinkSplitMotionTests {
         private var hosting: FakeChromiumHosting?
         let io = GridRecordingTerminalIO()
         init(_ content: Content = .plain) { self.content = content }
+        func holdsContentInMotion(for pane: PaneID) -> Bool {
+            // Keep the production chat's live page painted while the right pane's handoff spring
+            // moves; the pane host releases it once at the landed size.
+            content == .chat && pane == ChatDockLinkSplitMotionTests.anchor
+        }
+
         func makeContentView(for pane: PaneID) -> NSView {
             guard pane == ChatDockLinkSplitMotionTests.anchor else { return NSView() }
             switch content {

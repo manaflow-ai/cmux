@@ -96,7 +96,7 @@ import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
-import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
+import { composerDraft, DRAFT_SETTLE_MS, notifyDraftActionsChanged, settleDraftWithin } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import {
   createPaneQueryClient,
@@ -715,7 +715,7 @@ const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools",
 /// The composer's text changed: the chat tells acpmux this pane types (never the text itself).
 const postTyping = (text: string, sessionId?: string) =>
   void window.cmuxAcpmuxActions?.["chat.typing"]?.({ text, sessionId }).catch(() => undefined);
-const postUnsentDraft = (text: string) => void callNative("chat.unsentDraft", { text }).catch(() => undefined);
+const postUnsentDraft = (text: string) => callNative("chat.unsentDraft", { text }).catch(() => undefined);
 /// Each chat's unsent chips, kept by the host so reopening or restoring the chat brings them back
 /// (AgentPaneDraftAttachments.swift). A host without the store (the gallery, an older app) keeps none.
 const keptAttachments: KeptAttachments = {
@@ -7678,7 +7678,10 @@ function AcpmuxPane() {
           // lets go and handed back with the next page's handshake (`wake`).
           // The transcript's place: an anchor, at its latest message, or left out when unknown
           // (never in view, or a subagent's view open) so the chat's kept anchor stands.
+          // A quit asks this (an update's relaunch too): the typed draft reaches the host first, waited
+          // on at most DRAFT_SETTLE_MS so the host's one-second ask still gets the chips and the place.
           "pane.wakeState": async () => {
+            await settleDraftWithin(composerHandle.current, DRAFT_SETTLE_MS);
             const anchor = transcriptAnchor.current?.();
             return {
               ...composerHandle.current?.wakeState(),
@@ -8406,11 +8409,12 @@ function AcpmuxPane() {
   // Stable, so the composer's unsent-draft throttle is not rebuilt on every render.
   const onNewChatDraft = useCallback(
     (text: string) => {
-      postUnsentDraft(text);
+      const sent = postUnsentDraft(text);
       const { harness } = freshPick.current;
       const cwd = freshPick.current.cwd ?? directClient.current?.newChatCwd();
       const target: PrewarmTarget | undefined = cwd ? { ...(harness ? { harness } : {}), cwd } : undefined;
       newChatPrewarm.typed(text, target);
+      return sent;
     },
     [newChatPrewarm],
   );

@@ -206,6 +206,28 @@ extension CloudHandlers {
         bind("cloudSetIdlePause", registry, reason: reason) { invocation in
             try setIdlePause(invocation, context) { try await cloud.setIdlePause($0, minutes: $1) }
         }
+        // `cloud apply-machine-config --target machine:<id> [--machine-config FILE]` (CloudMachineConfig):
+        // uploads FILE, or reapplies the --repo checkout's `.cmux/machine.toml` or the last upload.
+        bind("cloudApplyMachineConfig", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context); guard session.machine.allows(.exec) else { throw operationUnavailable }
+            // A bare `--machine-config` (no value) arrives as `true`: refuse it, never apply the automatic source instead.
+            if invocation["machineConfig"] != nil, invocation["machineConfig"]?.stringValue?.isEmpty != false {
+                throw ActionFailure(message: CloudStrings.machineConfigUnreadable("--machine-config"))
+            }
+            let path = invocation["machineConfig"]?.stringValue.map(expandingHome)
+            let work = context.services.work, machineID = session.machineID
+            result("apply machine config", context) {
+                var request = CloudMachineRequest()
+                request.machineConfigPath = path
+                let config: CloudMachineConfig
+                do { config = try await request.loadMachineConfig(work: work) ?? CloudMachineConfig(contents: nil) } catch let unreadable as CloudMachineRequest.ScriptUnreadable {
+                    throw ActionFailure(message: CloudStrings.machineConfigUnreadable(unreadable.path))
+                }
+                let outcome = await config.apply(on: CloudMachineBootstrap.Machine(api: cloud.api, machineID: machineID))
+                guard outcome.status != "failed" else { throw ActionFailure(message: outcome.reason ?? "apply machine config failed") }
+                return ["machine_id": .string(machineID), "machine_config": machineConfigAnswer(outcome, machineID: machineID)]
+            }
+        }
         bind("palette.cloud.status", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.stats) else { throw operationUnavailable }
             answer("machine status", invocation, context) {
