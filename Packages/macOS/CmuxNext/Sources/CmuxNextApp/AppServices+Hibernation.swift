@@ -7,6 +7,7 @@ import CmuxNextFeatures
 package import CmuxNextHibernation
 import CmuxNextInput
 import CmuxNextMemory
+import CmuxNextPages
 import CmuxNextResources
 import CmuxNextSettings
 package import CmuxNextTabs
@@ -26,6 +27,7 @@ extension AppServices {
         let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory(mainWork: mainWork) : nil
         let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, deadlines: mainDeadlines, energy: mainWork.energy, audible: audible, followsTabVisibility: features.isEnabled(.chromiumTabVisibility))
         cache.hibernation = hibernation
+        cache.webKit.hidesHiddenTabs = features.isEnabled(.webkitHiddenTabs) // WebKit tabs follow their hides too (p14-energy-059)
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
         hibernation.isDownloading = { [weak self] key in self?.cache.pageRequests.downloads.isDownloading(tab: key) ?? false }
         hibernation.measureMemory = { [weak self] in await self?.resources.sample(.everything).browserPageMemory ?? [:] }
@@ -130,6 +132,13 @@ extension AppServices {
             memory: memoryCoordinator)
     }
 
+    /// The page host's shared WebKit processes (p07-memory-087): at most `SubsystemBudget.webProcessPagesPerGroup`
+    /// pages per process; every page of a sharing group joins with `webKitPageProcessGroups`, else only the agent pages.
+    func makeWebProcessGroups() -> WebProcessGroups {
+        WebProcessGroups(pagesPerProcess: SubsystemBudget.forThisMac(gpuResidentAvailable: false).webProcessPagesPerGroup,
+                         groupsEverySharingPage: features.isEnabled(.webKitPageProcessGroups))
+    }
+
     /// The one list of hidden frames with `memoryHiddenFrameLRU` (p03-rendering-099): every evicted terminal's last
     /// frame, as many unlocked as this Mac's memory allows, each culled after 5 min hidden on one background deadline,
     /// all purged in the memory coordinator's release slices at a warning. Holders drop culled frames on a second
@@ -152,10 +161,12 @@ extension MemoryHistograms {
     /// (absent, never a measured 0) until its discard path records too.
     static let hibernationKinds = [ContentKind.browser, .agentPage].map(\.rawValue)
 
-    /// The counted kinds: ``hibernationKinds``, and overlay pages while a feature releases them (their planner,
-    /// ``OverlayPageDiscards``, records each).
-    static func discardKinds(overlayPages: Bool) -> [String] {
+    /// The counted kinds: ``hibernationKinds``, overlay pages while a feature releases them (their planner,
+    /// ``OverlayPageDiscards``, records each), and sidebar sections while `memoryDiscardSidebarSections` does
+    /// (``SidebarSectionDiscards``).
+    static func discardKinds(overlayPages: Bool, sidebarSections: Bool = false) -> [String] {
         hibernationKinds + (overlayPages ? [ContentKind.overlayPage.rawValue] : [])
+            + (sidebarSections ? [ContentKind.sidebarSection.rawValue] : [])
     }
 
     /// Counts each page `hibernation` hibernates and each agent page `agentPages` releases as a

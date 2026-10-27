@@ -121,7 +121,7 @@ nonisolated struct CEFMirrorTrigger: Hashable, Sendable {
     static let devToolsOpened = CEFMirrorTrigger(kind: 21)
     static let devToolsClosed = CEFMirrorTrigger(kind: 22)
     static let renderTerminated = CEFMirrorTrigger(kind: 23)
-    static let frameRenderers = CEFMirrorTrigger(kind: 62)
+    static let frameRenderers = CEFMirrorTrigger(kind: 65)
     static func tab(_ event: CEFForkTabEvent) -> CEFMirrorTrigger { CEFMirrorTrigger(kind: 16, tabEvent: event.rawValue) }
 }
 

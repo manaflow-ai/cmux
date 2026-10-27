@@ -235,14 +235,27 @@ typedef enum {
   // a key selected, -1 none. HIDE: the token's rows close. ANNOUNCE: s1 =
   // what VoiceOver reads.
   CMUX_SHIM_SUGGESTIONS = 60,
-  // 61 is taken (plans/cmux-next/chromium-host-ops.json, optional_events).
+  // Host mode only (task p01-process-228): the Chromium Host's pushes of the
+  // fork API 31 color chooser, device chooser and screen-share picker
+  // handlers, which it installs while the app has set
+  // cmux_shim_set_color_chooser_handler, _set_device_chooser_handler or
+  // _set_desktop_media_handler. request = that handler's event
+  // (CMUX_SHIM_COLOR_CHOOSER_OPEN ...), a = token, b = the color (color
+  // chooser), s1 = the fork struct's fields as bytes
+  // (ChromiumHost/src/host_choosers.h). The remote shim calls the handler's
+  // fn with them; they never reach the event fn, and the in-process shim
+  // never sends them.
+  CMUX_SHIM_COLOR_CHOOSER = 61,
+  CMUX_SHIM_DEVICE_CHOOSER = 62,
+  CMUX_SHIM_DESKTOP_MEDIA = 63,
+  // 64 is taken (plans/cmux-next/chromium-host-ops.json, optional_events).
   // The renderer processes that host browser_id's frames changed: a frame
   // attached to its renderer, left it or became the main frame
   // (CefFrameHandler), as an iframe added after the load, an out-of-process
   // iframe's swap or its renderer's end do. Sent once after a task's
   // changes, and only when the set of the frames' renderer client ids
   // (cmux_shim_renderer_client_ids) differs from the one it last reported.
-  CMUX_SHIM_FRAME_RENDERERS = 62,
+  CMUX_SHIM_FRAME_RENDERERS = 65,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -1291,6 +1304,13 @@ CMUX_SHIM_EXPORT int cmux_shim_ext_load_later_supported(void);
 // cmux_shim_initialize. Returns 1 when the load started, 0 for an
 // off-the-record key, an empty path or a fork without the call (no reply).
 CMUX_SHIM_EXPORT int cmux_shim_ext_load_command_line(const char* profile_cache_path, int reply, const char* path);
+// The page push channel (fork API 39, cmux_tab_page_push; p13-webui-079): `text` (UTF-8) to the
+// receiver the browser's cmux-page document registered with cmuxPageListen, as data: no script runs
+// for it and nothing answers. Pushes keep their order with each other and with the frame's scripts,
+// and the renderer keeps them until the receiver registers or a frozen page runs again. Returns 1
+// when sent, 0 for NULL text, an unknown browser, a page whose document is not a cmux-page one, or
+// a fork without the call. UI thread.
+CMUX_SHIM_EXPORT int cmux_shim_tab_page_push(int browser_id, const char* text);
 // <select> popups (fork API 31's cmux_browser_set_popup_menu_handler, task
 // p01-process-171). 1: every browser's popups, now and later, come to the
 // host as CMUX_SHIM_POPUP_MENU, and Chromium shows no NSMenu of its own (the

@@ -212,8 +212,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 58: self = .popupMenu(browser: browser, token: a, popup: ChromiumHostPopupMenu(json: s1))
         case 59: self = .popupMenuHidden(browser: browser, token: a)
         case 60: self = ChromiumHostSuggestionEvent(request: request, a: a, b: b, s1: s1).map { Self.pageView(browser: browser, .suggestions($0)) } ?? .unknown(kind: kind)
-        case 61: self = CEFChildProcessMonitor.Exit(helperExitPID: request, status: a, flags: b, type: s1, subType: s2).map(Self.helperExit) ?? .unknown(kind: kind)
-        case 62: self = .frameRenderers(browser: browser)
+        case 64: self = CEFChildProcessMonitor.Exit(helperExitPID: request, status: a, flags: b, type: s1, subType: s2).map(Self.helperExit) ?? .unknown(kind: kind)
+        case 65: self = .frameRenderers(browser: browser)
         default: self = .unknown(kind: kind)
         }
     }

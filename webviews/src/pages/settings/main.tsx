@@ -5,8 +5,9 @@
 import "../shared/desktop";
 import "../../ui/ui.css";
 import { createPageClient } from "../shared/pageClient";
+import { openPageState } from "../shared/pageState";
 import { createMockClient } from "./mockProvider";
-import { mountSettingsPage } from "./mount";
+import { SETTINGS_PAGE, mountSettingsPage } from "./mount";
 import "./page.css";
 import "./tailwind.css";
 import { installCatalog } from "./strings";
@@ -19,6 +20,10 @@ if (process.env.NODE_ENV !== "production" && !globalThis.__cmuxStrings) {
 
 const search = new URLSearchParams(location.search);
 const bridge = search.has("mock") ? null : createPageClient();
+// Before the router reads the fragment: a restored document shows the section, search and focus it
+// had moved on to. They are all the route's, and a form with typed values keeps its tab from being
+// discarded at all (useUnsavedForm), so the page saves only its route and scroll.
+openPageState(bridge, SETTINGS_PAGE).keep(() => null);
 let mock = bridge ? undefined : createMockClient().client;
 // The dev server and tests can give the mock the app's timing (mockTiming.ts); production drops this.
 if (mock && process.env.NODE_ENV !== "production") mock = (await import("./mockTiming")).withMockTiming(mock, search);

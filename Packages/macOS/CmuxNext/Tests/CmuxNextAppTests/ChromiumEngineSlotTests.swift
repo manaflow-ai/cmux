@@ -137,7 +137,7 @@ import Testing
     /// The App's hook holds the crash services themselves: it sets the run marker's signal handlers on an engine
     /// built with no `AppServices` alive (a reader that outlives it, a teardown at quit).
     @Test func theCrashHookNeedsNoAppServices() {
-        let crashRecovery = CrashRecoveryService(bundleID: nil, marksRun: false, work: BackgroundWork(label: "test.crash-hook"),
+        let crashRecovery = CrashRecoveryService(bundleID: nil, runMarker: nil, work: BackgroundWork(label: "test.crash-hook"),
                                                  mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let reporter = AppCrashReporting(environment: AppEnvironment.current([:])).reporter
         var routed: [ObjectIdentifier] = []
