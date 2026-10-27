@@ -1,7 +1,9 @@
 public import AppKit
+import CmuxNextCompat
+import CmuxNextDesign
 public import CmuxNextFileGrid
 public import CmuxNextFiles
-import Observation
+public import CmuxNextWakeups
 
 /// The Screenshots pane: a source menu (all folders, or one), a name
 /// filter, the file count, and the ``FileGridView`` of every screenshot and
@@ -20,6 +22,14 @@ public final class ScreenshotsView: NSView {
     private let commands: ScreenshotsCommands
     private var shownSources: [ScreenshotSource] = []
     private static let headerHeight: CGFloat = 36
+    /// The pane's place in the visibility tree: its tab hides it (`setContentVisible`), so a hidden pane reads
+    /// no model change and shows the latest once, on show.
+    private let visibility = ViewVisibility("screenshots")
+    private var visibilityNode: VisibilityNode { visibility.node }
+    /// The grid and header follow the model while the pane shows (R-obs).
+    private var modelWatch: VisibleObservation<ObservationTrigger<Int>>?
+    /// How many times the grid and header were refreshed from the model (tests).
+    private(set) var refreshes = 0
 
     /// Header text colors (the app passes its palette).
     public var secondaryText: NSColor = .secondaryLabelColor {
@@ -34,8 +44,10 @@ public final class ScreenshotsView: NSView {
     ///   - workspace: opens and reveals files.
     ///   - files: copies drops in, renames and trashes (CmuxNextFiles).
     ///   - appearance: grid colors and tile size.
+    ///   - mainWork: the app's one main-thread scheduler (the grid follows the model on it).
     public init(model: ScreenshotsModel, cache: ThumbnailCache, workspace: any ScreenshotsWorkspace,
-                files: any FileOperating = FileOperator(), appearance: FileGridAppearance = FileGridAppearance()) {
+                files: any FileOperating = FileOperator(), appearance: FileGridAppearance = FileGridAppearance(),
+                mainWork: MainWorkScheduler) {
         self.model = model
         self.grid = FileGridView(cache: cache, appearance: appearance)
         self.saver = ScreenshotDropSaver(files: files)
@@ -59,9 +71,19 @@ public final class ScreenshotsView: NSView {
         grid.onDrop = { [weak self] pasteboard in self?.saveDrop(pasteboard) ?? false }
         for view in [sourceMenu, search, count, grid] as [NSView] { addSubview(view) }
         setAccessibilityLabel(ScreenshotsStrings.title)
-        refresh()
-        observe()
+        // R-obs: the grid, the count and the source menu are views, so they follow the model only while the pane
+        // shows; the first value applies now.
+        modelWatch = VisibleObservation(visibilityNode, owner: Self.modelOwner, on: mainWork) {
+            _ = model.visibleItems
+            _ = model.sources
+            return ObservationTrigger(model.unreadableSourceIDs.count)
+        } apply: { [weak self] _ in
+            self?.refresh()
+        }
     }
+
+    /// The model observation's owner in the board and the wakeup ledger.
+    static let modelOwner = "ScreenshotsView.model"
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -84,23 +106,26 @@ public final class ScreenshotsView: NSView {
     /// Focuses the grid (the tab got focus).
     public func focus() { grid.focus() }
 
-    // MARK: State
-
-    private func observe() {
-        withObservationTracking {
-            _ = model.visibleItems
-            _ = model.sources
-            _ = model.unreadableSourceIDs
-        } onChange: { [weak self] in
-            // task-owner: one main-actor hop per model change; the view re-arms the observation.
-            Task { @MainActor [weak self] in
-                self?.refresh()
-                self?.observe()
-            }
-        }
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        visibility.place(in: window)
     }
 
+    // R-hide: hiding forwards to the node (the page tab hides the pane when its tab is not shown).
+    public override func viewDidHide() {
+        super.viewDidHide()
+        visibilityNode.set(.hidden)
+    }
+
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        visibilityNode.set(.visible)
+    }
+
+    // MARK: State
+
     private func refresh() {
+        refreshes += 1
         let items = model.visibleItems
         grid.show(items)
         grid.emptyText = model.listing.count == 0 ? ScreenshotsStrings.empty : ScreenshotsStrings.noMatches
@@ -148,6 +173,7 @@ public final class ScreenshotsView: NSView {
                                        droppedImage: pasteboard.droppedFileURLs.isEmpty ? pasteboard.droppedImage : nil)
         let saver = saver
         // task-owner: one drop's save; ends when the files are copied in
+        // main-hop-allow: a person's drop: the saver copies off main (CmuxNextFiles), and its end selects the saved file or shows the failure sheet on this pane's window
         Task { @MainActor [weak self] in
             do {
                 let saved = try await saver.save(drop, into: folder)

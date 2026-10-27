@@ -166,7 +166,9 @@ extension Motion {
 extension MotionGate {
     /// Animates `NSView.animator()` changes with a spring token, or applies
     /// them at once when movement does not animate. `completion` runs on the
-    /// main thread after the change finishes (or on the next turn).
+    /// main thread after the change finishes (or on the next turn). A
+    /// layer-backed view's frame or alpha moves on the render server through
+    /// `animate(_:in:frame:alpha:completion:)` instead (MotionGate+ViewLayer).
     ///
     /// - Parameter view: The view the change animates. When its window has no
     ///   screen the change applies at once (``canAnimate(in:)``).
@@ -358,10 +360,10 @@ extension MotionGate {
     /// A continuous clockwise rotation for a busy spinner, or nil when loops are off (Reduce
     /// Motion, Energy Saver, the category or speed off). Clockwise only: every spinner turns the same way.
     ///
-    /// Every infinite loop made here runs through ``LoopVisibility/attach(_:key:make:)`` (or a
-    /// host that gates it on its own ``VisibilityNode``, ``StatusIndicatorView``), never a bare
-    /// `layer.add`: a loop in a hidden view or an occluded window costs the render server frames
-    /// nobody sees (plans/cmux-next/chrome-parity/p03-rendering.md, R6).
+    /// Every infinite loop made here runs through a ``LoopHost`` (``LoopVisibility``, or a host that
+    /// gates it on its own ``VisibilityNode``, ``StatusIndicatorView``), never a bare `layer.add`: a
+    /// loop in a hidden or occluded view costs the render server frames nobody sees (p03-rendering.md,
+    /// R6). `LoopRegistrationTests` checks every `repeatCount = .infinity` in CmuxNext's sources.
     public func spinAnimation() -> CAAnimation? {
         guard let period = period(.spinner) else { return nil }
         let spin = CABasicAnimation(keyPath: "transform.rotation.z")

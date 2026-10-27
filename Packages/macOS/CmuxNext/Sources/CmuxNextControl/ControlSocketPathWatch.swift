@@ -58,6 +58,7 @@ final class ControlSocketPathWatch: Sendable {
     // timer's handler; a tiny struct, never held across a call out.
     private let failures = Mutex(Failures())
     /// The retry after ``maxFailedRestores`` failures in a row.
+    // timer-class-allow: off main: the retry runs on the watch's queue
     private let retry = DemandTimer(owner: "ControlSocketPathWatch.retry")
     #if DEBUG
     /// Path checks run so far: each is one wakeup of `queue` (tests count them).
@@ -73,14 +74,17 @@ final class ControlSocketPathWatch: Sendable {
     /// The hang-watched lane of `queue` (the server's `control.accept`): each job this watch runs there, a check
     /// or a restore, is one scope of it. Nil watches nothing.
     private let lane: HangWatchedLane?
+    /// The watch's record in the launch's arm census (Debug and bench builds, p08-startup-085).
+    private let census: ArmCensusWatch
 
     init(path: String, queue: DispatchQueue, lane: HangWatchedLane? = nil, yieldsToHeldPath: Bool = false,
-         onMissing: @escaping @Sendable () -> Bool) {
+         file: StaticString = #fileID, line: UInt = #line, onMissing: @escaping @Sendable () -> Bool) {
         self.path = path
         self.queue = queue
         self.lane = lane
         self.yieldsToHeldPath = yieldsToHeldPath
         self.onMissing = onMissing
+        census = ArmCensusWatch(.watcher, owner: "ControlSocketPathWatch", file: file, line: line)
     }
 
     deinit {
@@ -163,6 +167,7 @@ final class ControlSocketPathWatch: Sendable {
         // wakeup-allow: kqueue event on the entry (or its directory), no timer; one lstat per event
         watch.setEventHandler { [weak self] in
             guard let self else { return }
+            self.census.fired()
             self.job { self.changed(followingEntry: followsEntry) }
         }
         watch.setCancelHandler { close(descriptor) }
@@ -175,7 +180,7 @@ final class ControlSocketPathWatch: Sendable {
             current = watch
             return true
         }
-        if !installed { watch.cancel() }
+        if installed { census.armed() } else { watch.cancel() }
     }
 
     /// On `queue`: cancels the current watch and watches nothing.

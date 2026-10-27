@@ -297,7 +297,7 @@ def report_soak(args=None, setup=None, events=None, zombies=None, out=None):
     defaults = dict(app_config=None, stress=False, zombie_gate="warn", warmup=0, settle=0, idle=0, hours=0,
                     max_growth_mb=300, max_growth_percent=25, max_fd_growth=100, max_app_cpu=10, max_daemon_cpu=5,
                     max_idle_app_cpu=1, max_idle_daemon_cpu=0.5, max_idle_acpmux_cpu=0.5, idle_cpu_gate="warn",
-                    terminals=0, browsers=0, agents=0)
+                    terminals=0, browsers=0, agents=0, blocking_checks=False)
     soak.args = types.SimpleNamespace(**{**defaults, **(args or {})})
     if out is None:
         soak.scratch = tempfile.TemporaryDirectory()  # removed with the soak
@@ -309,6 +309,7 @@ def report_soak(args=None, setup=None, events=None, zombies=None, out=None):
     soak.zombies = zombies or {}
     soak.sanitizer_count = sum(1 for e in soak.events if e.get("sanitizer"))
     soak.app = "/tmp/app"
+    soak.nightly = None
     return soak
 
 
@@ -626,6 +627,240 @@ class StressTests(unittest.TestCase):
     def test_stress_not_built_fails_the_run(self):
         soak = report_soak(args={"stress": True}, setup={"stress": "not built: display too small"})
         self.assertIn("setup: STRESS not built: display too small", soak.report()["failures"])
+
+
+def blocking_reply(sites=(), overflow=0, mode="record", pool_mode="record", compiled_in=True):
+    """A `debug.blocking` result (BlockingControl.swift) with `sites` as (context, kind, location, count)."""
+    return {"compiled_in": compiled_in, "mode": mode, "pool_mode": pool_mode, "overflow": overflow,
+            "contexts": {c: {"sites": 0, "count": 0, "overflow": 0} for c in ("main", "pool", "cpu-lane", "lane-sync")},
+            "sites": [{"context": c, "kind": k, "seam_kind": k, "location": loc, "count": n, "total_ms": 1.0, "max_ms": 1.0}
+                      for c, k, loc, n in sites]}
+
+
+def hangs_reply(count250=0, count100=0, records=(), thread_hangs=0):
+    """A `debug.hangs` result (ControlRouter+Diagnostics.swift)."""
+    return {"installed": True, "threshold_ms": 8.0, "count": len(records), "count100": count100, "count250": count250,
+            "records": list(records), "thread_hang_count": thread_hangs, "thread_hangs": []}
+
+
+def daemon_reply(sites=(), overflow=0):
+    """The daemon's `server-blocking` reply (server_stats.rs) with `sites` as (file, line, kinds, count)."""
+    return {"id": 1, "ok": True, "data": {"schema": 1, "uptime_ms": 1000, "mode": "record", "site_capacity": 64,
+                                          "overflow": overflow,
+                                          "sites": [{"file": f, "line": line, "column": 5, "kinds": list(kinds),
+                                                     "count": n, "lane_sync": False} for f, line, kinds, n in sites]}}
+
+
+class FakeNightlyApp:
+    """The app's and the daemon's answers, changed by the test between reads."""
+
+    def __init__(self):
+        self.blocking, self.hangs, self.daemon = blocking_reply(), hangs_reply(), daemon_reply()
+        self.calls = []
+
+    def rpc(self, method, params):
+        self.calls.append((method, params))
+        reply = {"debug.blocking": self.blocking, "debug.hangs": self.hangs}[method]
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+    def request(self, command):
+        assert command == {"cmd": "server-blocking"}
+        return self.daemon
+
+
+class NightlyReadoutTests(unittest.TestCase):
+    """--blocking-checks (p02-threads RUN-9): a Nightly-config soak fails on each blocking site of the app or the
+    daemon, each count250 stall, and a source it could not read."""
+
+    def readout(self):
+        fake, events = FakeNightlyApp(), []
+        readout = soak_module.NightlyReadout(fake.rpc, fake.request,
+                                             lambda kind, detail, **extra: events.append({"kind": kind, "detail": detail, **extra}))
+        return readout, fake, events
+
+    def test_each_new_site_is_one_blocking_event(self):
+        readout, fake, events = self.readout()
+        readout.start()
+        self.assertEqual(events, [])
+        fake.blocking = blocking_reply([("main", "file-io", "CmuxNextApp/Foo.swift:12", 1)])
+        readout.poll()
+        fake.blocking = blocking_reply([("main", "file-io", "CmuxNextApp/Foo.swift:12", 9),
+                                        ("pool", "sync-wait", "CmuxNextWakeups/Bar.swift:3", 1)])
+        readout.poll()
+        self.assertEqual([e["detail"] for e in events],
+                         ["app blocking site: main file-io at CmuxNextApp/Foo.swift:12 (1 call(s))",
+                          "app blocking site: pool sync-wait at CmuxNextWakeups/Bar.swift:3 (1 call(s))"])
+        summary = readout.summary()
+        self.assertEqual((summary["app"]["sites"], summary["app"]["by_context"]), (2, {"main": 1, "pool": 1}))
+        self.assertEqual(summary["app"]["site_list"][0]["count"], 9)
+
+    def test_overflow_and_daemon_sites_are_blocking_events(self):
+        readout, fake, events = self.readout()
+        readout.start()
+        fake.blocking = blocking_reply(overflow=3)
+        fake.daemon = daemon_reply([("crates/cmux-tui-core/src/server.rs", 40, ("sleep",), 2)])
+        readout.poll()
+        readout.poll()  # the same counts: nothing new
+        self.assertEqual([e["detail"] for e in events],
+                         ["app: 3 blocking call(s) at sites its table does not hold (overflow)",
+                          "daemon blocking site: sleep at crates/cmux-tui-core/src/server.rs:40:5 (2 call(s))"])
+        self.assertEqual((readout.overflow, readout.reads), ({"app": 3, "daemon": 0}, {"app": 3, "daemon": 2}))
+
+    def test_count250_rise_is_a_stall_event_with_its_long_records(self):
+        readout, fake, events = self.readout()
+        readout.start()
+        long, short = {"seq": 2, "kind": "stall", "duration_ms": 310.0, "stack": ["f"]}, {"seq": 1, "duration_ms": 120.0}
+        fake.hangs = hangs_reply(count250=1, count100=2, records=[short, long], thread_hangs=1)
+        readout.poll()
+        self.assertEqual([e["kind"] for e in events], ["stall-250"])
+        self.assertEqual(events[0]["stalls"], [long])
+        self.assertEqual(readout.stalls, {"count250": 1, "count100": 2, "thread_hangs": 1})
+        fake.hangs = hangs_reply()  # counts went back: another app process, counted from 0
+        readout.poll()
+        fake.hangs = hangs_reply(count250=1)
+        readout.poll()
+        self.assertEqual(readout.stalls["count250"], 2)
+        self.assertIn({"debug.hangs": {"limit": 0}}, [{m: p} for m, p in fake.calls])
+
+    def test_start_refuses_a_build_that_is_not_the_nightly_configuration(self):
+        for blocking, why in ((blocking_reply(compiled_in=False), "no blocking detector"),
+                              ({"error": {"code": "method_not_found"}}, "has no debug.blocking"),
+                              (blocking_reply(mode="trap"), "mode trap, pool mode record")):
+            readout, fake, _ = self.readout()
+            fake.blocking = blocking
+            with self.assertRaisesRegex(SystemExit, why):
+                readout.start()
+
+    def test_a_source_never_read_or_not_read_at_the_end_fails(self):
+        readout, fake, _ = self.readout()
+        readout.start()
+        fake.daemon = None
+        readout.poll()
+        self.assertTrue(readout.problems()[0].startswith(
+            "--blocking-checks: the daemon's server-blocking never read (last failure: "), readout.problems())
+        fake.daemon = daemon_reply()
+        readout.poll()
+        fake.blocking = ConnectionRefusedError("refused")
+        readout.poll(final=True)
+        problems = readout.problems()
+        self.assertEqual(len(problems), 1)
+        self.assertIn("debug.blocking and debug.hangs not read after the last sample", problems[0])
+        self.assertIn("ConnectionRefusedError: refused", problems[0])
+
+    def test_report_fails_on_readout_events_and_keeps_the_readout(self):
+        readout, fake, _ = self.readout()
+        soak = report_soak(args={"blocking_checks": True})
+        readout.event = soak.event
+        readout.start()
+        fake.blocking = blocking_reply([("main", "file-io", "CmuxNextApp/Foo.swift:12", 1)])
+        fake.hangs = hangs_reply(count250=1)
+        readout.poll(final=True)
+        soak.nightly = readout
+        soak.setup["quit"] = {"returncode": 0, "seconds": 1.5, "error": None}
+        result = soak.report()
+        self.assertEqual(result["failures"], ["1 blocking event(s)", "1 stall-250 event(s)"])
+        self.assertEqual((result["nightly"]["app"]["sites"], result["nightly"]["count250"]), (1, 1))
+        with open(os.path.join(soak.out, "report.md")) as handle:
+            self.assertIn("Nightly config (bench-checks): 1 app blocking site(s) {'main': 1}", handle.read())
+
+    def test_an_unclean_quit_fails_only_with_blocking_checks(self):
+        for code, how in ((None, "did not exit within 90 s"), (-9, "exited with signal 9"), (1, "exited with status 1")):
+            quit = {"returncode": code, "seconds": 90.0, "error": None}
+            failed = report_soak(args={"blocking_checks": True}, setup={"quit": quit}).report()
+            self.assertIn(f"quit: the app {how} after its quit request (it awaits work.shutdown() before it exits)",
+                          failed["failures"])
+            warned = report_soak(setup={"quit": quit}).report()
+            self.assertEqual(warned["failures"], [])
+            self.assertTrue(any(how in w for w in warned["warnings"]))
+        clean = report_soak(args={"blocking_checks": True}, setup={"quit": {"returncode": 0, "seconds": 2, "error": None}})
+        self.assertEqual(clean.report()["failures"], [])
+
+    def run_quit(self, request_error, exits_after_polls):
+        """Soak.quit() on a fake app: its quit request raises request_error (None: it replies) and its process exits 0
+        on poll number exits_after_polls (None: never). Returns the soak and the order of what happened."""
+        happened = []
+        soak = report_soak(args={"blocking_checks": True})
+        soak.socket, soak.app_exit = "/tmp/soak.sock", None
+        soak.write_config = lambda behavior: happened.append(("config", behavior))
+        polls = []
+
+        def poll():
+            polls.append(1)
+            return 0 if exits_after_polls is not None and len(polls) >= exits_after_polls else None
+        soak.bench = types.SimpleNamespace(process=types.SimpleNamespace(poll=poll),
+                                           stop=lambda: happened.append(("stop", poll())))
+
+        class FakeClient:
+            def __init__(self, path, timeout):
+                pass
+
+            def call(self, method, params):
+                happened.append((method, params["action"]))
+                if request_error is not None:
+                    raise request_error
+                return {"ok": True}
+        with mock.patch.object(soak_module, "Client", FakeClient), \
+                mock.patch.object(soak_module.time, "sleep", lambda seconds: None), \
+                mock.patch.object(soak_module, "say", lambda line: None):
+            soak.quit()
+        return soak, happened
+
+    def test_a_quit_whose_socket_closes_before_the_reply_still_waits_for_the_exit(self):
+        soak, happened = self.run_quit(ConnectionError("socket closed"), exits_after_polls=4)
+        self.assertEqual(soak.setup["quit"]["returncode"], 0)
+        self.assertEqual(soak.setup["quit"]["error"], "ConnectionError: socket closed")
+        self.assertEqual(happened, [("config", "end-everything"), ("action.run", "quit"), ("stop", 0)])
+        self.assertEqual(soak.report()["failures"], [])
+
+    def test_a_quit_that_never_exits_fails_with_the_request_error_as_context(self):
+        with mock.patch.object(soak_module, "QUIT_WAIT_S", 0.05):
+            soak, happened = self.run_quit(TimeoutError("timed out"), exits_after_polls=None)
+        self.assertIsNone(soak.setup["quit"]["returncode"])
+        self.assertEqual(happened[-1], ("stop", None))
+        self.assertIn("quit: the app did not exit within 90 s after its quit request (it awaits work.shutdown() "
+                      "before it exits; the request itself got no reply: TimeoutError: timed out)",
+                      soak.report()["failures"])
+
+    def test_the_build_must_be_bench_checks_with_the_detectors_symbols(self):
+        with tempfile.TemporaryDirectory() as app:
+            os.makedirs(os.path.join(app, "Contents"))
+            plist = os.path.join(app, "Contents/Info.plist")
+            import plistlib
+            with open(plist, "wb") as handle:
+                plistlib.dump({"CMUXBuildConfiguration": "bench"}, handle)
+            self.assertIn("built with --config bench: the Nightly configuration is --config bench-checks",
+                          soak_module.nightly_build_problem(app))
+            with open(plist, "wb") as handle:
+                plistlib.dump({"CMUXBuildConfiguration": "bench-checks"}, handle)
+            ran = []
+
+            def check(code, stderr=""):
+                def fake(*argv, **kw):
+                    ran.append(argv)
+                    return types.SimpleNamespace(returncode=code, stdout="", stderr=stderr)
+                return fake
+            with mock.patch.object(soak_module, "run", check(1, "blocking-checks: x\nFAIL: the detector is not in app")):
+                self.assertEqual(soak_module.nightly_build_problem(app),
+                                 "blocking-checks.sh --expect nightly exited 1: blocking-checks: x | FAIL: the detector is not in app")
+            with mock.patch.object(soak_module, "run", check(0)):
+                self.assertIsNone(soak_module.nightly_build_problem(app))
+            self.assertEqual(ran[-1][1:], (soak_module.BLOCKING_CHECKS, "--app", app, "--expect", "nightly"))
+            self.assertTrue(os.path.isfile(soak_module.BLOCKING_CHECKS))
+
+    def test_the_app_records_and_the_flag_goes_alone(self):
+        soak = report_soak(args={"blocking_checks": True})
+        soak.acpmux_home = "/tmp/acpmux"
+        env = soak.launch_env()
+        self.assertEqual((env["CMUX_BLOCKING_TRAP"], env["CMUX_BLOCKING_TRAP_POOL"]), ("0", "0"))
+        soak.args.blocking_checks = False
+        self.assertNotIn("CMUX_BLOCKING_TRAP", soak.launch_env())
+        for extra in (["--app-config", "asan"], ["--story", "readiness-soak"]):
+            with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+                soak_module.parse_args(["--app", "/tmp/x.app", "--blocking-checks", *extra])
+        self.assertTrue(soak_module.parse_args(["--app", "/tmp/x.app", "--blocking-checks", "--stress", "--hours", "1",
+                                                "--warmup", "300", "--idle", "900"]).blocking_checks)
 
 
 if __name__ == "__main__":
