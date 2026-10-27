@@ -263,4 +263,40 @@ c4 '[w["id"] for w in out["after_tabs10"]["workspaces"]] == ["w1"]
   "the 9 extra tabs and the hidden-workspace scenario's workspace are closed after"
 c4 'out["probe_tab"].startswith("t-new") and out["probe_evals"] and all(t == out["probe_tab"] for t in out["probe_evals"])' \
   "every eval after open_inproc_probe must go to the tab it opened"
+
+# 5. Tabs in the host (p01-process-080): only --modes profiles moves Chromium tabs to the host, in a launch without
+# the in-process rows; an in-process row of a launch whose tabs run in the host says not_run.
+python3 -I - "$bench" "$tmp" > "$tmp/host-tabs.json" <<'PY'
+import contextlib, importlib.util, io, json, sys
+bench_path, tmp = sys.argv[1], sys.argv[2]
+spec = importlib.util.spec_from_file_location("chromium_host_bench", bench_path)
+bench = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(bench)
+out = {"default": bench.launch_tunables("inproc,helper".split(","))["values"],
+       "profiles": bench.launch_tunables("helper,profiles".split(","))["values"], "refused": []}
+for extra in (["--modes", "inproc,profiles"], ["--modes", "profiles", "--baseline"], ["--modes", "profiles", "--stress"]):
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            bench.parse(["--app", f"{tmp}/cmux DEV t1.app", "--out", f"{tmp}/o", *extra])
+    except SystemExit:
+        out["refused"].append(extra)
+bench.parse(["--app", f"{tmp}/cmux DEV t1.app", "--out", f"{tmp}/o", "--modes", "helper,profiles"])
+calls = []
+def host_rpc(method, params=None, timeout=None):
+    calls.append(method)
+    return {"backend": "host"} if method == "debug.cef" else {}
+out["inproc_tab"] = bench.run_inproc(host_rpc, "file:///probe.html")
+out["inproc_row"] = bench.RESULT["modes"]["inproc"]
+out["tabs10"] = bench.tabs10_wakes(host_rpc, "file:///probe.html")
+out["calls"] = calls
+json.dump(out, sys.stdout)
+PY
+c5() { check "$tmp/host-tabs.json" "$@"; }
+c5 'out["default"]["browserHost.tabs"] is False and out["default"]["browserHost.helper"] is True' \
+  "the default run must keep Chromium tabs in process"
+c5 'out["profiles"]["browserHost.tabs"] is True' "--modes profiles must move Chromium tabs to the host"
+c5 'len(out["refused"]) == 3' "profiles with inproc, --baseline or --stress must be refused: $(cat "$tmp/host-tabs.json")"
+c5 'out["inproc_tab"] is None and "Chromium Host" in out["inproc_row"]["not_run"]' "inproc in host mode must say not_run"
+c5 '"Chromium Host" in out["tabs10"]["not_run"]' "tabs10 in host mode must say not_run"
+c5 'set(out["calls"]) == {"debug.cef"}' "a not_run row must open no tab"
 echo "chromium-host-baseline tests: ok"

@@ -1,4 +1,5 @@
 import CmuxNextCompat
+public import CmuxNextDesign
 public import CmuxNextSignposts
 import CmuxNextTrace
 public import CmuxNextWakeups
@@ -41,7 +42,9 @@ import Darwin
 /// `presented_cb` (``ghosttySurfacePresented(_:_:_:_:)``) marks the echo stage, the probe's
 /// ``TypingLatencyProbe/Mark/contents`` and the new-terminal trace, as Chromium marks a frame shown at its
 /// presentation feedback (`viz::Display::DidReceivePresentationFeedback`, components/viz/service/display/display.cc).
-/// The handoff then marks nothing, so no frame counts twice and no frame counts before it shows.
+/// The handoff then marks nothing, so no frame counts twice and no frame counts before it shows. Each shown frame
+/// is also a contents set of ``TerminalSurfaceView`` in the app's ``RenderStats`` (``countPresentedFrames(in:)``),
+/// which no `setContents:` hook sees once the renderer presents.
 @MainActor
 public final class GhosttyTraceHook {
     /// `ghostty_trace_hook_cb`.
@@ -128,6 +131,13 @@ public final class GhosttyTraceHook {
         let owner = mainWork.board.owner("GhosttyTraceHook.gpuDone")
         recorder.deliverGPU(GPUDelivery(post: { body in mainWork.postFromAnyThread(.visible, owner: owner, body) },
                                         finished: { flow, nanos in presents.gpuDidFinish(flow: flow, atNanos: nanos) }))
+    }
+
+    /// Counts every frame a surface presented (``ghosttySurfacePresented(_:_:_:_:)``) in `frames`, the app's
+    /// ``RenderStats``, from the Core Animation thread that reports it. The composition root calls it once; the
+    /// first one given stays for the process.
+    public func countPresentedFrames(in frames: RenderStats.PresentedFrames) {
+        recorder.countPresentedFrames(in: frames)
     }
 
     /// The echo stages got their sink: their surfaces' handoffs are read from now on.
@@ -241,8 +251,10 @@ extension GhosttyTraceHook {
         let gate: TerminalContentsGate
         let trace: TraceRuntime
         let probe: TypingLatencyProbe
-        /// The address of the retained ``GPUDelivery`` (``deliverGPU(_:)``), 0 until the app gives one.
-        private let gpuDelivery = Atomic<UInt64>(0)
+        /// The ``GPUDelivery`` (``deliverGPU(_:)``), empty until the app gives one.
+        private let gpuDelivery = ProcessOnceSlot<GPUDelivery>()
+        /// The app's ``RenderStats`` counts of presented frames (``countPresentedFrames(in:)``), empty until given.
+        private let presentedFrameCounts = ProcessOnceSlot<RenderStats.PresentedFrames>()
 
         init(gate: TerminalContentsGate, trace: TraceRuntime, probe: TypingLatencyProbe) {
             self.gate = gate
@@ -252,28 +264,20 @@ extension GhosttyTraceHook {
 
         /// Sends GPU completions to `delivery` from now on; the first one given stays for the process.
         func deliverGPU(_ delivery: GPUDelivery) {
-            // SAFETY: one retain, kept for the process once its address is stored (`gpuDelivery`),
-            // else released at once below, since nothing else saw it.
-            let retained = unsafe Unmanaged.passRetained(delivery)
-            // SAFETY: as above; the address is only stored, as an integer.
-            let address = unsafe UInt64(UInt(bitPattern: retained.toOpaque()))
-            if !gpuDelivery.compareExchange(expected: 0, desired: address, ordering: .acquiringAndReleasing).exchanged {
-                // SAFETY: as above.
-                unsafe retained.release()
-            }
+            gpuDelivery.install(delivery)
+        }
+
+        /// Counts presented frames in `frames` from now on; the first one given stays for the process.
+        func countPresentedFrames(in frames: RenderStats.PresentedFrames) {
+            presentedFrameCounts.install(frames)
         }
 
         /// Whether the app gave its ``GPUDelivery``.
-        private var deliversGPU: Bool { gpuDelivery.load(ordering: .acquiring) != 0 }
+        private var deliversGPU: Bool { gpuDelivery.isInstalled }
 
-        /// Runs `body` with the ``GPUDelivery`` given, borrowed with no reference-count traffic; nothing until
-        /// the app gives one.
+        /// Runs `body` with the ``GPUDelivery`` given; nothing until the app gives one.
         private func withGPUDelivery(_ body: (GPUDelivery) -> Void) {
-            // SAFETY: a nonzero address is the GPUDelivery that deliverGPU retained for the process and
-            // never releases, so it is live; it is borrowed only for `body`.
-            guard let address = unsafe UnsafeRawPointer(bitPattern: UInt(gpuDelivery.load(ordering: .acquiring))) else { return }
-            // SAFETY: as above.
-            unsafe Unmanaged<GPUDelivery>.fromOpaque(address)._withUnsafeGuaranteedRef(body)
+            gpuDelivery.withObject(body)
         }
 
         func record(_ event: Event, on surface: Surface, seq: UInt64) {
@@ -304,6 +308,7 @@ extension GhosttyTraceHook {
         /// Animation thread: the frame mark of the echo stage, the probe and the new-terminal trace. Its GPU work
         /// is done, so no commit waits for it.
         func presented(on surface: Surface, frameID: UInt64) {
+            presentedFrameCounts.withObject { $0.framePresented(by: TerminalSurfaceView.self) }
             frameShown(on: surface, seq: frameID, gpuMayRun: false)
         }
 
