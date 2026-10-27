@@ -83,6 +83,7 @@ fn hub(d: &Path) -> Arc<Hub> {
 
 /// Writes the creation marker cmux writes on a VM it made (`owner`), or a
 /// team VM's (`team`), under the hub's marker root.
+#[cfg(target_os = "linux")]
 fn mark(d: &Path, kind: &str) {
     let etc = d.join("root/etc/cmux");
     std::fs::create_dir_all(&etc).unwrap();
@@ -156,7 +157,7 @@ impl Client {
 #[tokio::test]
 async fn every_remote_harness_inherits_only_its_explicit_environment() {
     let d = dir("acp-environment");
-    let hub = hub_with(&d, Some(true));
+    let hub = hub(&d);
     let prompt = "envs: CMUX_REMOTE_TEST_SECRET,LC_API_TOKEN,SSH_AUTH_SOCK,UNRELATED_TOKEN,REMOTE_PROFILE_VALUE,HOME,PATH";
     let mut web = Client::new(&hub, Origin::Web);
     let remote: Value = serde_json::from_str(
@@ -172,6 +173,10 @@ async fn every_remote_harness_inherits_only_its_explicit_environment() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// A Mac (Seatbelt) only: Linux spawns remote Claude through the keeper, which
+/// needs the acpmux binary, not this test process; the production-spawn test
+/// (`support/remote_sandbox_linux_stack.rs`) checks the environment there.
+#[cfg(target_os = "macos")]
 #[tokio::test]
 async fn a_remote_claude_gets_only_the_selected_login_credential() {
     let d = dir("login-credential");
@@ -201,12 +206,12 @@ async fn a_remote_claude_gets_only_the_selected_login_credential() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// A Mac only, as the login-credential test above.
+#[cfg(target_os = "macos")]
 #[tokio::test]
 async fn a_remote_chain_inherits_only_profile_and_safe_base_environment() {
     let d = dir("environment");
-    // Off macOS, vmHost is the sandbox boundary and still needs the same
-    // least-authority process environment. A Mac keeps Seatbelt too.
-    let hub = hub_with(&d, Some(true));
+    let hub = hub(&d);
     let names = [
         "ANTHROPIC_AUTH_TOKEN",
         "CMUX_REMOTE_TEST_SECRET",
@@ -251,30 +256,36 @@ async fn a_local_session_spawns_claude_without_the_remote_settings() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
-/// A VM cmux created (an owner marker, no `vmHost` key) runs a remote chain's
-/// Claude Code with the VM as the sandbox; `_acpmux/vm_host` turns that off
-/// and on again for the next session, with no restart.
-#[cfg(not(target_os = "macos"))]
+/// Nothing the guest can write turns off the sandbox. A Cloud VM's agent user
+/// has sudo, so it can write an owner `/etc/cmux/vm-kind` (with no `/srv/team`),
+/// and as this user it can write config.json's `vmHost`. Either way a remote
+/// chain's Claude Code still goes through the bwrap probe: with no bwrap the
+/// spawn is refused, never run without the sandbox. (The canary with a real
+/// bwrap: `support/remote_sandbox_linux_stack.rs`.)
+#[cfg(target_os = "linux")]
 #[tokio::test]
-async fn on_a_vm_cmux_created_remote_claude_runs_until_the_toggle_turns_it_off() {
-    let d = dir("cmux-vm");
-    mark(&d, "owner");
-    let hub = hub(&d);
-    let mut web = Client::new(&hub, Origin::Web);
-    web.run(&d, "argv").await.unwrap_or_else(|e| panic!("on by default: {e}"));
-
-    let mut local = Client::new(&hub, Origin::Local);
-    let off = local.call("_acpmux/vm_host", json!({"on": false})).await;
-    assert_eq!(off["result"]["vmHost"], false, "{off}");
-    #[cfg(target_os = "linux")]
-    hub.set_linux_bwrap_probe_for_tests(d.join("missing-bwrap"));
-    let e = web.run(&d, "argv").await.expect_err("off: a remote chain needs the sandbox again");
-    assert!(e.to_string().contains("remote.sandbox_refused"), "{e}");
-
-    let on = local.call("_acpmux/vm_host", json!({"on": true})).await;
-    assert_eq!(on["result"]["vmHost"], true, "{on}");
-    web.run(&d, "argv").await.unwrap_or_else(|e| panic!("on again: {e}"));
-    let _ = std::fs::remove_dir_all(&d);
+async fn a_guest_written_owner_marker_or_vm_host_never_skips_the_linux_sandbox() {
+    for (tag, kind, vm_host) in [
+        ("owner-marker", Some("owner"), None),
+        ("config-vm-host", None, Some(true)),
+        ("owner-and-config", Some("owner"), Some(true)),
+    ] {
+        let d = dir(tag);
+        if let Some(kind) = kind {
+            mark(&d, kind);
+        }
+        let hub = hub_with(&d, vm_host);
+        hub.set_linux_bwrap_probe_for_tests(d.join("missing-bwrap"));
+        let mut local = Client::new(&hub, Origin::Local);
+        let view = local.call("_acpmux/vm_host", json!({})).await;
+        assert_eq!(view["result"]["vmHost"], false, "{tag}: {view}");
+        assert_eq!(view["result"]["cmuxVm"], kind.is_some(), "{tag}: shown: {view}");
+        let mut web = Client::new(&hub, Origin::Web);
+        let e = web.run(&d, "argv").await.expect_err("guest state skipped the sandbox");
+        let _ = std::fs::remove_dir_all(&d);
+        assert!(e.to_string().contains("remote.sandbox_refused"), "{tag}: {e}");
+        assert!(e.to_string().contains("bwrap unavailable"), "{tag}: {e}");
+    }
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
