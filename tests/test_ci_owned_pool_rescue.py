@@ -1392,7 +1392,7 @@ class CancelledAPI(FakeAPI):
             raise self.note
         return [{"annotation_level": "failure", "message": self.note}] if self.note else []
 
-    def rescue_jobs(self, earliest_end):
+    def rescue_jobs(self, earliest_end, run_id=0):
         self.calls.append("rescue-jobs")
         return [7001]
 
@@ -1511,7 +1511,7 @@ class StrandedCancel(unittest.TestCase):
         self.assertEqual(len(pages), rescue.RESCUE_RUN_PAGES)
         clock = Clock()
         cancelled = CancelledAPI(clock, cancelled=True, rescue_log=[f"{rescue.CANCEL_SENT} run {RUN_ID} attempt 1"])
-        cancelled.rescue_jobs = lambda earliest_end: (_ for _ in ()).throw(rescue.RescueHistoryCapped("capped"))
+        cancelled.rescue_jobs = lambda earliest_end, run_id=0: (_ for _ in ()).throw(rescue.RescueHistoryCapped("capped"))
         clock.advance(60)
         lines = []
         self.assertEqual(rescue.rerun_intended(cancelled, cancelled.run(RUN_ID), 1, clock.sleep, lines.append), "")
@@ -1546,6 +1546,36 @@ class StrandedCancel(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("a re-run of the rescue workflow acts on nothing", summary)
         self.assertEqual(api.calls, [])
+
+    def test_a_live_sweeper_s_unread_settlement_leaves_the_run_cancelled(self):
+        # R1 stopped after its cancel (SENT); R2, a sweeper still running, resumed it, hit an error and logged SETTLED.
+        # R2's log cannot be read until it ends, so another watch must not read R1's intent alone.
+        def listing(live):
+            return {"workflow_runs": [
+                {"id": 1, "status": "completed", "conclusion": "cancelled", "run_attempt": 1,
+                 "display_title": "owned-pool-sweeper", "run_started_at": stamp(-3600), "updated_at": stamp(-100)},
+                {"id": 2, "run_attempt": 1, "run_started_at": stamp(-60), "updated_at": stamp(0), **live}]}
+        for live, raises in (({"status": "in_progress", "display_title": "owned-pool-sweeper"}, True),
+                             ({"status": "in_progress", "display_title": f"owned-pool-rescue-{RUN_ID}-1"}, True),
+                             ({"status": "in_progress", "display_title": "owned-pool-rescue-99-1"}, False),
+                             ({"status": "queued", "display_title": "owned-pool-sweeper"}, False)):
+            api = rescue.GitHub("t", "manaflow-ai/cmux")
+            api.request = lambda method, path, **_: (listing(live) if "&page=1&" in path else {}) \
+                if path.startswith("/actions/workflows/") else {"jobs": [{"id": 11, "status": "completed"}]}
+            if raises:
+                with self.assertRaises(rescue.RescueHistoryLive, msg=live):
+                    api.rescue_jobs(START - dt.timedelta(seconds=600), RUN_ID)
+            else:
+                self.assertTrue(api.rescue_jobs(START - dt.timedelta(seconds=600), RUN_ID), live)
+            # The reader's own run never counts.
+            api.own_run = 2
+            self.assertTrue(api.rescue_jobs(START - dt.timedelta(seconds=600), RUN_ID), live)
+        clock = Clock()
+        api = CancelledAPI(clock, cancelled=True, rescue_log=[f"{rescue.CANCEL_SENT} run {RUN_ID} attempt 1"])
+        api.rescue_jobs = lambda earliest_end, run_id=0: (_ for _ in ()).throw(rescue.RescueHistoryLive("live"))
+        clock.advance(60)
+        self.assertEqual(self.follow(api, clock), f"stopped: the run was cancelled by @{CMUX_BOT}; left cancelled")
+        self.assertEqual(mutations(api), [])
 
     def test_a_janitor_cancel_by_the_same_bot_stays_cancelled(self):
         # The queue janitor cancels as cmux-bot too (a superseded DEV run that never started, an orphan): no rescue
@@ -1830,10 +1860,10 @@ class StrandedCancel(unittest.TestCase):
         clock.sleep(60)
         logs = {8002: f"{rescue.CANCEL_SETTLED} run {RUN_ID} attempt 1",
                 7001: f"{rescue.CANCEL_SENT} run {RUN_ID} attempt 1"}
-        api.rescue_jobs = lambda earliest_end: [8002, 7001]  # newest first
+        api.rescue_jobs = lambda earliest_end, run_id=0: [8002, 7001]  # newest first
         api.job_marks = lambda job_id: rescue.cancel_marks([logs[job_id]])
         self.assertEqual(rescue.rerun_intended(api, api.run(RUN_ID), 1, clock.sleep, lambda _: None), "")
-        api.rescue_jobs = lambda earliest_end: [7001]
+        api.rescue_jobs = lambda earliest_end, run_id=0: [7001]
         self.assertEqual(rescue.rerun_intended(api, api.run(RUN_ID), 1, clock.sleep, lambda _: None), "failed")
 
 

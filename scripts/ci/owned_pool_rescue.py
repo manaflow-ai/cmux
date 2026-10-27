@@ -960,6 +960,11 @@ class RescueHistoryCapped(Exception):
     settled mark may be on the next page, so no intent is read from it. Not a read error: read() does not retry it."""
 
 
+class RescueHistoryLive(RescueHistoryCapped):
+    """Another rescue run that could have resumed this run's re-run (a sweeper, or this run's own watch) is still
+    running: its CANCEL_SETTLED, if any, cannot be read until it ends (GitHub.rescue_jobs())."""
+
+
 class AnnotationsCapped(Exception):
     """A job's annotations were not all read (GitHub.annotations()); not a read error, so read() does not retry it."""
 # rescue() logs CANCEL_SENT once the cancel it means to follow with a re-run went out, and CANCEL_SETTLED when it is
@@ -1034,7 +1039,7 @@ def rerun_intended(api: GitHub, run: Mapping[str, Any], attempt: int, sleep: Cal
     wanted = (int(run.get("id") or 0), attempt)
     state = ""
     try:
-        for job_id in read(lambda: api.rescue_jobs(finished - dt.timedelta(seconds=CANCEL_WAIT_SECONDS)),
+        for job_id in read(lambda: api.rescue_jobs(finished - dt.timedelta(seconds=CANCEL_WAIT_SECONDS), wanted[0]),
                            sleep, log):
             marks = read(lambda: api.job_marks(job_id), sleep, log)
             if marks is None:
@@ -1422,6 +1427,8 @@ class GitHub:
         self._cache: dict[tuple[str, str], tuple[str, bytes, float]] = {}
         # Finished jobs' cancel marks by job id (job_marks()): a finished job's log no longer changes.
         self._logs: dict[int, dict[tuple[int, int], str] | None] = {}
+        # This rescue job's own workflow run (GITHUB_RUN_ID), which rescue_jobs() never waits on.
+        self.own_run = 0
         # Requests by (kind, "charged" | "not modified"), for the budget lines.
         self.counts: dict[tuple[str, str], int] = {}
         self.started = time.monotonic()
@@ -1748,7 +1755,7 @@ class GitHub:
                 break
         return found
 
-    def rescue_jobs(self, earliest_end: dt.datetime) -> list[int]:
+    def rescue_jobs(self, earliest_end: dt.datetime, run_id: int = 0) -> list[int]:
         """The job ids of the finished ci-owned-pool-rescue.yml runs that ended at or after `earliest_end`,
         newest first (a sweeper or a single watch).
 
@@ -1770,6 +1777,14 @@ class GitHub:
         found: list[int] = []
         for run in runs:
             attempts = int(run.get("run_attempt") or 1)
+            if run.get("status") == "in_progress" and attempts == 1 and int(run.get("id") or 0) != self.own_run:
+                # A job's log is read only once it has ended. A live sweeper, or this run's own watch, may already
+                # have resumed this re-run and logged CANCEL_SETTLED: not known until it ends, so not judged now
+                # (the run stays cancelled; a later sweeper reads it). Other watches never resume this run, and a
+                # re-run of the rescue workflow logs no marks (main()).
+                title = str(run.get("display_title") or run.get("name") or "")
+                if title == "owned-pool-sweeper" or run_id and title.startswith(f"owned-pool-rescue-{run_id}-"):
+                    raise RescueHistoryLive(f"rescue run {run.get('id')} ({title}) is still running")
             if attempts <= 1 and run.get("conclusion") == "skipped":
                 continue
             began, ended = parse_time(run.get("run_started_at")), parse_time(run.get("updated_at"))
@@ -3075,6 +3090,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     repository = env.get("GITHUB_REPOSITORY") or ""
     client = api or GitHub(env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or "", repository,
                            read_token=env.get("READ_TOKEN") or "")
+    if hasattr(client, "own_run"):
+        client.own_run = int((env.get("GITHUB_RUN_ID") or "0").strip() or 0)
     if api is None and env.get("BOT_APP_ID") and env.get("BOT_APP_KEY"):
         # GH_TOKEN is the App's: its replacement is minted before the hour is up (GitHub._fresh_token()).
         client.mint = app_token_minter(env["BOT_APP_ID"], env["BOT_APP_KEY"], repository)
