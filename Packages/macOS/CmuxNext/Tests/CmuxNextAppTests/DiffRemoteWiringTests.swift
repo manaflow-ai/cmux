@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextDaemonService
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -30,5 +31,34 @@ struct DiffRemoteWiringTests {
         let service = DiffPageService(services: services)
         #expect(service.gitLink(for: id) == nil)
         #expect(service.gitLink(for: nil) === services.agentGit.local)
+    }
+
+    /// Open Diff from a Cloud workspace's pane (#25581) reads on the pane's machine unless the
+    /// selected tab is a chat whose session runs elsewhere (#26113): a chat this Mac runs reads
+    /// this Mac, a refused one stays refused, and only a chat on the pane's machine joins it.
+    @Test func aCloudPaneReadsOnItsMachineOnlyWhenTheSelectedChatRunsThere() {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        var chat = TabSnapshot(surface: SurfaceID(rawValue: 1), tabResourceID: ResourceID(rawValue: "chat"),
+                               kind: .conversation, title: "Chat")
+        chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:dev-vm"))
+        let terminal = TabSnapshot(surface: SurfaceID(rawValue: 2), tabResourceID: ResourceID(rawValue: "terminal"),
+                                   kind: .pty, title: "Terminal")
+        let pane = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [chat, terminal])
+        let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(pane.id), panes: [pane])
+        services.daemon.store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "cloud", screens: [screen])]))
+        let machineLink = AgentPaneGitLink(daemon: services.daemon)
+        var chatLink: AgentPaneGitLink?
+        services.agentTabs.gitLink = { _ in chatLink }
+        let service = DiffPageService(services: services)
+
+        #expect(service.readsOnPaneMachine(machineLink, selected: nil))
+        #expect(service.readsOnPaneMachine(machineLink, selected: "terminal"))
+        chatLink = machineLink
+        #expect(service.readsOnPaneMachine(machineLink, selected: "chat"))
+        chatLink = services.agentGit.local
+        #expect(!service.readsOnPaneMachine(machineLink, selected: "chat"))
+        chatLink = nil
+        #expect(!service.readsOnPaneMachine(machineLink, selected: "chat"))
+        machineLink.close()
     }
 }

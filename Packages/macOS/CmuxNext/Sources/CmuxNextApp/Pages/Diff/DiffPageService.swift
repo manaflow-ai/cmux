@@ -119,9 +119,9 @@ final class DiffPageService: InternalPageProvider {
     func open(folder: URL, source: DiffOpenSource = .default, turn: DiffTurn? = nil, in pane: PaneController,
               focus: Bool, on machine: DaemonService? = nil,
               created: (@MainActor (SurfaceID) -> Void)? = nil) async throws(DiffOpenFailure) -> String {
-        if let machine, !machine.isLocal {
+        let paneLink = machine.flatMap { $0.isLocal ? nil : services.agentGit.link(for: $0) }
+        if let machine, let link = paneLink, readsOnPaneMachine(link, selected: pane.selectedTab?.id) {
             // A Cloud workspace's folder (#25581): that machine's session host reads it.
-            let link = services.agentGit.link(for: machine)
             let repository: DiffRepository?
             do {
                 repository = try await DiffPageRuntime.repository(at: folder, git: DiffAgentGit(link: link))
@@ -138,6 +138,14 @@ final class DiffPageService: InternalPageProvider {
         guard let repository = await tabRuntime.repository(at: folder) else { throw .notRepository }
         return open(repository: repository, source: source, turn: turn, gitLink: link, runtime: tabRuntime,
                     in: pane, focus: focus, created: created)
+    }
+
+    /// Whether an open from a pane on the machine of `link` reads there. A selected chat's diff
+    /// reads where its session runs (``gitLink(for:)``, #26113), so it takes the pane's machine only
+    /// when that is the same one: a chat this Mac runs, or one refused, never reads the pane's VM.
+    func readsOnPaneMachine(_ link: AgentPaneGitLink, selected: String?) -> Bool {
+        guard let selected, services.locateTab(selected)?.0.agentSession != nil else { return true }
+        return gitLink(for: selected) === link
     }
 
     private func machineName(_ machine: DaemonService) -> String {
