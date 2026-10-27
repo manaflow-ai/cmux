@@ -17,6 +17,7 @@ import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
 import { flushSync } from "react-dom";
 import { CONNECT_ACTIONS, savedEnvironmentHost, type ConnectKind, type OffloadKind } from "./environments";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
+import { restoreForkSource } from "./handoff/restoreForkSource";
 import { rowPresence } from "./conversation/rowPresence";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
@@ -7603,14 +7604,36 @@ function AcpmuxPane() {
           "chat.handoff.get": () => client.refreshHandoff(),
           "chat.handoff.draft": ({ review }) => client.saveHandoff(review as HandoffReviewInput),
           "chat.handoff.start": async ({ review }) => {
-            const receipt = await client.startHandoff(review as HandoffReviewInput);
-            const source = client.handoff.state.record?.source.sessionId;
-            const target = receipt?.targetSessionId;
-            if (!target || !source || client.selectedSession !== target) return receipt;
-            if (await openOwnTab(target)) {
-              if (client.selectedSession === target) await persistSession(await client.select(source));
-            } else await persistSession(target);
-            return receipt;
+            // Capture the source before starting: a failed target start must return to the
+            // conversation that the person forked, rather than leaving the unprompted target
+            // selected in this pane. The source remains a live daemon session throughout.
+            const handoff = client.handoff.state.record;
+            const source = handoff?.source.sessionId;
+            const target = handoff?.target.sessionId;
+            const handoffId = handoff?.handoffId;
+            const selectionToken = client.selectionToken;
+            try {
+              const receipt = await client.startHandoff(review as HandoffReviewInput);
+              const startedTarget = receipt?.targetSessionId;
+              if (!startedTarget || !source || client.selectedSession !== startedTarget) return receipt;
+              if (await openOwnTab(startedTarget)) {
+                if (client.selectedSession === startedTarget) await persistSession(await client.select(source));
+              } else await persistSession(startedTarget);
+              return receipt;
+            } catch (error) {
+              await restoreForkSource({
+                source,
+                target,
+                handoffId,
+                selectionToken,
+                currentSelectionToken: () => client.selectionToken,
+                currentHandoffId: () => client.handoff.state.record?.handoffId,
+                selectedSession: () => client.selectedSession,
+                select: (id) => client.select(id),
+                persist: (id) => persistSession(id),
+              }).catch(() => undefined);
+              throw error;
+            }
           },
           "chat.handoff.discard": async () => persistSession(await client.discardHandoff()),
           "git.diff": ({ scope, paths, context_lines }) =>
