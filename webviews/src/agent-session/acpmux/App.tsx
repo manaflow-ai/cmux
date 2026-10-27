@@ -7360,8 +7360,18 @@ function AcpmuxPane() {
                 );
               } else {
                 void heldPrompt.hold();
-                if (!inComposer) restorePrompt(text, attachments);
-                trustRefused.current?.(error, () => composerHandle.current?.send());
+                if (newTabRetainsDraft.current && expectedSessionId) {
+                  // New Tab still holds this first prompt. Trust retries this session's send,
+                  // including its acceptance callback, rather than the unmounted chat composer.
+                  trustRefused.current?.(
+                    error,
+                    () =>
+                      void send(text, attachments, accepted, steer, promptId, expectedSessionId).catch(() => undefined),
+                  );
+                } else {
+                  if (!inComposer) restorePrompt(text, attachments);
+                  trustRefused.current?.(error, () => composerHandle.current?.send());
+                }
               }
             }
             throw error;
