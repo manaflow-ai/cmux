@@ -92,6 +92,30 @@ import Testing
         #expect(fake.opened.isEmpty, "a reply older than the Running stream item cannot open sign-in again")
     }
 
+    @Test func aSignInLinkFirstSeenOnTheStreamStillOpensTheBrowserOnce() async {
+        let fake = Fake()
+        let (started, notify) = AsyncStream<Void>.makeStream()
+        let (answers, reply) = AsyncStream<TailnetNodeState>.makeStream()
+        var services = fake.services()
+        services.loginStart = {
+            notify.yield(())
+            var responses = answers.makeAsyncIterator()
+            return await responses.next() ?? TailnetNodeState(state: "needs_login")
+        }
+        let model = TailnetNodeModel(services: services)
+        let signingIn = Task { await model.signIn() }
+        var starts = started.makeAsyncIterator()
+        _ = await starts.next()
+        model.apply(TailnetNodeState(state: "starting"))
+        reply.yield(TailnetNodeState(state: "needs_login", browseToURL: Self.link))
+        reply.finish()
+        await signingIn.value
+        model.apply(TailnetNodeState(state: "needs_login", browseToURL: Self.link))
+        model.apply(TailnetNodeState(state: "needs_login", browseToURL: Self.link))
+        notify.finish()
+        #expect(fake.opened == [Self.link], "the requested browser open is consumed once by the current link")
+    }
+
     @Test func otherStates() {
         let phase = { (state: TailnetNodeState, asked: Bool) in TailnetNodeModel.phase(of: state, signInRequested: asked) }
         #expect(phase(TailnetNodeState(state: "needs_machine_auth"), false) == .needsApproval)
@@ -143,7 +167,7 @@ import Testing
         #expect(model.actionError == "no listener")
     }
 
-    @Test(arguments: ["signed_out", "disconnected", "replacement", "dismissed"])
+    @Test(arguments: ["signed_out", "disconnected", "replacement", "dismissed", "unchanged"])
     func latePairReplyCannotRestoreAnOldCredential(change: String) async {
         let fake = Fake()
         let (started, notify) = AsyncStream<Void>.makeStream()
@@ -163,13 +187,18 @@ import Testing
         case "signed_out": model.apply(TailnetNodeState(state: "needs_login"))
         case "disconnected": model.markUnavailable()
         case "replacement": model.apply(TailnetNodeState(state: "running", dnsName: "replacement.tail1.ts.net"))
+        case "unchanged": model.apply(Self.running)
         default: model.closePair()
         }
         reply.yield(Fake.ticket)
         reply.finish()
         await pairing.value
         notify.finish()
-        #expect(model.pairCode == nil, "a late Pair result must not restore a credential after \(change)")
+        if change == "unchanged" {
+            #expect(model.pairCode?.ticket == Fake.ticket, "an identical state cannot discard a valid Pair result")
+        } else {
+            #expect(model.pairCode == nil, "a late Pair result must not restore a credential after \(change)")
+        }
     }
 
     @Test func pairShowsTheJoinCommandForTheTicket() throws {
