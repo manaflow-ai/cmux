@@ -14,6 +14,12 @@ public nonisolated struct SystemCrashEvent: Sendable {
     public struct Extras: Sendable, Equatable {
         /// Where the binary ran from (tag `process_origin`).
         public var origin: SystemCrashReport.HelperOrigin?
+        /// Whether the crashed image is one of this app's own binaries (tag `process_build`: `this` or `other`).
+        /// A host-exe copy an earlier build made keeps running after an update, and the app that runs now forwards
+        /// its crash; nil when not checked (a bundle binary is always this build's).
+        public var fromThisBuild: Bool?
+        /// The build version the crashed process wrote in its crash-key page (tag `process_build_version`).
+        public var buildVersion: String?
         /// The process kind its black box or crash-key page names (`daemon`, `terminal-host`, `holder`,
         /// `acpmux`; tag `process_role`).
         public var processRole: String?
@@ -24,9 +30,11 @@ public nonisolated struct SystemCrashEvent: Sendable {
         public var crashKeys: [String: String]
 
         /// Extras from their parts.
-        public init(origin: SystemCrashReport.HelperOrigin? = nil, processRole: String? = nil, blackbox: String? = nil,
-                    crashKeys: [String: String] = [:]) {
+        public init(origin: SystemCrashReport.HelperOrigin? = nil, fromThisBuild: Bool? = nil, buildVersion: String? = nil,
+                    processRole: String? = nil, blackbox: String? = nil, crashKeys: [String: String] = [:]) {
             self.origin = origin
+            self.fromThisBuild = fromThisBuild
+            self.buildVersion = buildVersion
             self.processRole = processRole
             self.blackbox = blackbox
             self.crashKeys = crashKeys
@@ -82,6 +90,8 @@ public nonisolated struct SystemCrashEvent: Sendable {
         tags["crash_source"] = "macos_crash_report"
         if let origin = extras.origin { tags["process_origin"] = origin.rawValue }
         if let role = extras.processRole { tags["process_role"] = role }
+        if let fromThisBuild = extras.fromThisBuild { tags["process_build"] = fromThisBuild ? "this" : "other" }
+        if let version = extras.buildVersion { tags["process_build_version"] = version }
         event.tags = tags
         if let incident = report.incident {
             event.extra = ["incident": incident]

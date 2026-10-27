@@ -19,30 +19,36 @@ import Testing
     static let uuidBytes: [UInt8] = [0x3F, 0x0C, 0x9E, 0x43, 0x7A, 0x61, 0x3C, 0x8E, 0x9C, 0x1A, 0x2B, 0x7F, 0x5D, 0x0E, 0x9A, 0x11]
     static let incident = "0B8D4A51-6C9E-4F0F-8F53-3C2D7B4F9E20"
     static let pid: UInt32 = 4_242
+    /// The process start the planted files' headers name (2023-11-14 22:13:20 UTC) and the report's `procLaunch`
+    /// for it, as macOS writes it in local time.
+    static let start: UInt64 = 1_700_000_000_000_000
+    static let procLaunch = "2023-11-14 14:13:20.0000 -0800"
 
     static var roots: SystemCrashReport.HelperRoots {
         SystemCrashReport.HelperRoots(bundlePath: bundle, mainExecutable: mainExecutable, hostExeRoot: hostExeRoot)
     }
 
     /// A crash report (bug type 309) of the binary at `path` (written as macOS writes it, the user as `USER`).
-    static func ips(path: String, pid: UInt32 = pid, uuid: String = uuid) throws -> Data {
+    static func ips(path: String, pid: UInt32 = pid, uuid: String = uuid, procLaunch: String? = procLaunch) throws -> Data {
         let name = URL(fileURLWithPath: path).lastPathComponent
         let header: [String: Any] = ["bug_type": "309", "name": name, "incident_id": incident]
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "procName": name, "procPath": path, "pid": Int(pid), "incident": incident,
             "exception": ["type": "EXC_BAD_ACCESS", "signal": "SIGSEGV"],
             "faultingThread": 0,
             "threads": [["triggered": true, "frames": [["imageOffset": 777, "imageIndex": 0]]]],
             "usedImages": [["uuid": uuid, "base": 4_294_967_296, "size": 16_777_216, "path": path, "name": name, "arch": "arm64"]],
         ]
+        if let procLaunch { body["procLaunch"] = procLaunch }
         var data = try JSONSerialization.data(withJSONObject: header)
         data.append(UInt8(ascii: "\n"))
         data.append(try JSONSerialization.data(withJSONObject: body))
         return data
     }
 
-    static func report(path: String, pid: UInt32 = pid, uuid: String = uuid) throws -> SystemCrashReport {
-        try #require(SystemCrashReport(data: try ips(path: path, pid: pid, uuid: uuid)))
+    static func report(path: String, pid: UInt32 = pid, uuid: String = uuid,
+                       procLaunch: String? = procLaunch) throws -> SystemCrashReport {
+        try #require(SystemCrashReport(data: try ips(path: path, pid: pid, uuid: uuid, procLaunch: procLaunch)))
     }
 
     // MARK: - Roots
@@ -53,6 +59,7 @@ import Testing
             #expect(report.helperOrigin(in: Self.roots) == .hostExe, "\(name)")
             #expect(report.pid == Int32(Self.pid))
             #expect(report.mainImageUUID == Self.uuid)
+            #expect(report.processStartUnixMicros == Self.start)
         }
         let helper = try Self.report(path: Self.bundle + "/Contents/Resources/bin/cmux-tui")
         #expect(helper.helperOrigin(in: Self.roots) == .bundle)
@@ -141,26 +148,42 @@ import Testing
         #expect(log.entries().isEmpty)
     }
 
-    /// The host-exe root is shared by every cmux build on the Mac: a copy whose image is not one of this app's
-    /// binaries is another build's, and that build forwards it with its own release and trace folder.
-    @Test func anotherBuildsHostExeCopyIsNotForwarded() throws {
+    /// Holders and hosts keep running the copy an earlier build made after an app update, and that build is gone:
+    /// the app that runs now forwards the copy's crash, with its ring and keys, tagged as another build's. The
+    /// event id is the incident, so two apps that forward one report make one event.
+    @Test func anotherBuildsHostExeCopyIsForwardedAndTagged() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let otherUUID = "8a1b2c3d-4e5f-3a6b-9c7d-8e9f0a1b2c3d"
+        let otherBytes = try #require(RustCrashArtifacts.uuidBytes(otherUUID))
+        try Self.plantRing(.holder, pid: Self.pid, buildUUID: otherBytes, in: fixture.traceFolder)
+        try Self.keyPage(role: 3, uuid: otherBytes, terminalCount: 2, extra: [8: Self.word("0.0.9")])
+            .write(to: fixture.traceFolder.appending(path: "holder-\(Self.pid).crashkeys"))
         let log = CaptureLog()
         let forwarder = fixture.forwarder(log: log, optIn: true)
         let now = Date()
         forwarder.forwardNew(now: now)
-        try fixture.writeReport("other.ips", try Self.ips(path: fixture.copyPath("cmux-tui-host"), uuid: otherUUID),
+        try fixture.writeReport("other.ips", try Self.ips(path: fixture.copyPath("cmux-holder"), uuid: otherUUID),
                                 modified: now + 10)
-        try fixture.writeReport("own.ips", try Self.ips(path: fixture.copyPath("cmux-tui-host")), modified: now + 11)
-        #expect(forwarder.forwardNew(now: now + 20).map(\.lastPathComponent) == ["own.ips"])
-        #expect(log.entries().count == 1)
+        try fixture.writeReport("own.ips", try Self.ips(path: fixture.copyPath("cmux-tui-host"), pid: Self.pid + 1),
+                                modified: now + 11)
+        #expect(forwarder.forwardNew(now: now + 20).map(\.lastPathComponent) == ["other.ips", "own.ips"])
+        let captured = log.entries()
+        try #require(captured.count == 2)
+        #expect(captured[0].tags["process_build"] == "other")
+        #expect(captured[0].tags["process_build_version"] == "0.0.9")
+        #expect(captured[0].tags["process_role"] == "holder")
+        #expect(captured[0].tags["crash_key.terminal_count"] == "2")
+        #expect(captured[0].attachments.map(\.name) == ["blackbox.txt"])
+        #expect(captured[1].tags["process_build"] == "this")
+        #expect(captured[0].eventID == captured[1].eventID, "one incident is one event, whichever app sends it")
 
         let noBinaries = fixture.forwarder(log: log, optIn: true, ownRustBinaries: [], state: "state-empty.json")
-        noBinaries.forwardNew(now: now)
+        noBinaries.forwardNew(now: now + 25)
         try fixture.writeReport("own-later.ips", try Self.ips(path: fixture.copyPath("cmux-holder")), modified: now + 30)
-        #expect(noBinaries.forwardNew(now: now + 40).isEmpty, "with no binaries of its own the app owns no copy")
+        #expect(noBinaries.forwardNew(now: now + 40).map(\.lastPathComponent) == ["own-later.ips"],
+                "with no binaries of its own the app still forwards every copy")
+        #expect(log.entries().last?.tags["process_build"] == "other")
     }
 
     @Test func theOwnBinariesAreTheBundlesAndADevDaemonsFolder() {
@@ -201,6 +224,64 @@ import Testing
         #expect(fixture.artifacts(optIn: true).extras(for: otherPID) == SystemCrashEvent.Extras())
     }
 
+    /// The report is read at the next launch, maybe hours later: a later process of the same build and role that
+    /// got the crashed pid has rewritten `<role>-<pid>.*` by then. Its files name another start and lend nothing;
+    /// a report or header with no start lends nothing either.
+    @Test func aLaterProcessGivenTheSamePidNeverLendsItsFiles() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let later = Self.start + 3_600_000_000
+        try Self.plantRing(.terminalHost, pid: Self.pid, buildUUID: Self.uuidBytes, start: later, in: fixture.traceFolder)
+        try Self.keyPage(role: 4, start: later, terminalCount: 8)
+            .write(to: fixture.traceFolder.appending(path: "terminal-host-\(Self.pid).crashkeys"))
+        let artifacts = fixture.artifacts(optIn: true)
+        let crashed = try Self.report(path: fixture.copyPath("cmux-tui-host"))
+        #expect(artifacts.extras(for: crashed) == SystemCrashEvent.Extras(), "same pid, role and UUID, another start")
+
+        let laterReport = try Self.report(path: fixture.copyPath("cmux-tui-host"), procLaunch: "2023-11-14 15:13:20.0050 -0800")
+        #expect(artifacts.extras(for: laterReport).processRole == "terminal-host", "within the tolerance: that process's files")
+
+        let noStart = try Self.report(path: fixture.copyPath("cmux-tui-host"), procLaunch: nil)
+        #expect(artifacts.extras(for: noStart) == SystemCrashEvent.Extras())
+
+        let unknownFolder = fixture.root.appending(path: "unknown-start")
+        try Self.plantRing(.terminalHost, pid: Self.pid, buildUUID: Self.uuidBytes, start: 0, in: unknownFolder)
+        try Self.keyPage(role: 4, start: 0).write(to: unknownFolder.appending(path: "terminal-host-\(Self.pid).crashkeys"))
+        let unknown = RustCrashArtifacts(directories: [unknownFolder], blackboxOptIn: { true })
+        #expect(unknown.extras(for: crashed) == SystemCrashEvent.Extras(), "a header with no start names no process")
+    }
+
+    /// With the key-flow knob on, the daemon and its holders write their black boxes in the flows folder: the
+    /// crash forwarder reads the same folder list as hang reports (`RingFolders`).
+    @Test func aRingInTheKeyFlowFolderIsFound() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let flows = fixture.root.appending(path: "flows", directoryHint: .isDirectory)
+        try Self.plantRing(.holder, pid: Self.pid, buildUUID: Self.uuidBytes, in: flows)
+        let home = fixture.root.appending(path: "home", directoryHint: .isDirectory)
+        let rings = HangReportFieldSources.RingFolders.app(bundleID: "com.cmuxterm.app.next.test", flowsDirectory: flows,
+                                                           uid: 501, home: home)
+        #expect(rings.directories.last == flows)
+        // The fixture's socket folder, not this Mac's /tmp/cmux-hd-501.
+        let artifacts = RustCrashArtifacts(directories: rings.directories, holderSockets: fixture.holderSockets,
+                                           blackboxOptIn: { true })
+        let extras = artifacts.extras(for: try Self.report(path: fixture.copyPath("cmux-holder")))
+        #expect(extras.processRole == "holder")
+        #expect(extras.blackbox == "1000 holder holder.spawn I 7 0\n")
+    }
+
+    @Test func procLaunchIsReadAsUnixMicroseconds() {
+        #expect(SystemCrashReport.unixMicros(procLaunch: Self.procLaunch) == Self.start)
+        #expect(SystemCrashReport.unixMicros(procLaunch: "2023-11-14 22:13:20.0000 +0000") == Self.start)
+        #expect(SystemCrashReport.unixMicros(procLaunch: "2023-11-15 03:43:20.1234 +0530") == Self.start + 123_400)
+        #expect(SystemCrashReport.unixMicros(procLaunch: "2024-02-29 00:00:00 +0000") == 1_709_164_800_000_000)
+        #expect(SystemCrashReport.unixMicros(procLaunch: "2023-11-14 22:13:20.123456789 +0000") == Self.start + 123_456)
+        for bad in ["", "2023-11-14 22:13:20.0000", "2023-13-14 22:13:20.0000 +0000", "2023-11-14 22:13:20.x +0000",
+                    "1969-12-31 23:59:59.0000 +0000", "2023-11-14T22:13:20 +0000", "2023-11-14 22:13:20.0000 0000"] {
+            #expect(SystemCrashReport.unixMicros(procLaunch: bad) == nil, "\(bad)")
+        }
+    }
+
     /// cmux-app-host is a bundle binary (task 095 gives it a black box and a crash-key page): its forwarded crash
     /// carries both.
     @Test func aBundleAppHostCrashCarriesItsRingAndKeys() throws {
@@ -239,6 +320,8 @@ import Testing
         #expect(page.role == TraceRing.Role.daemon.rawValue)
         #expect(page.pid == 1_139_101)
         #expect(page.buildUUID == RustCrashArtifacts.uuidBytes("9d180550-ee4d-7ed2-07fd-ad2e43c03735"))
+        #expect(page.processStartUnixMicros == 0x0006_5ECC_7071_F600)
+        #expect(page.buildVersion == "0.1.0")
         #expect(page.tags == ["crash_key.request_method": String(UInt64(0xDEAD_BEEF_CAFE)), "crash_key.terminal_count": "2",
                               "crash_key.holder_link": "lost", "crash_key.requests_in_flight": "1"])
     }
@@ -253,6 +336,8 @@ import Testing
         page[8] = 1
         page[0] ^= 0xFF
         #expect(RustCrashKeyPage(bytes: [UInt8](page)) == nil, "wrong magic")
+        #expect(RustCrashKeyPage(bytes: [UInt8](Self.keyPage(role: 3, extra: [8: Self.word("0.1/..")])))?.buildVersion == nil,
+                "a version with other characters is not a tag")
         #expect(RustCrashKeyPage(bytes: [UInt8](Self.keyPage(role: 3).prefix(4_000))) == nil, "short page")
     }
 
@@ -278,12 +363,13 @@ import Testing
 
     /// A ring of `role` in process `pid` in `folder`, as cmux-trace's `init_blackbox` leaves it: one kept record
     /// (`holder.spawn`), a key record and a per-key PTY hop.
-    static func plantRing(_ role: TraceRuntime.Role, pid: UInt32, buildUUID: [UInt8], in folder: URL) throws {
+    static func plantRing(_ role: TraceRuntime.Role, pid: UInt32, buildUUID: [UInt8], start: UInt64 = start,
+                          in folder: URL) throws {
         let daemonBit = UInt8(6)
         let keyBit = UInt8(1)
         let blackBox = TraceBlackBox(
             role: role, directory: folder.path(percentEncoded: false), runtime: TraceRuntime(role: role),
-            process: TraceBlackBox.ProcessFacts(pid: pid, buildUUID: buildUUID),
+            process: TraceBlackBox.ProcessFacts(pid: pid, processStartUnixMicros: start, buildUUID: buildUUID),
             catalog: TraceRing.nameTable(names: [(id: 1, category: daemonBit, text: "holder.spawn"),
                                                  (id: 2, category: keyBit, text: "key.echo.host_pty_read"),
                                                  (id: 3, category: daemonBit, text: "holder.pty.read")],
@@ -297,7 +383,8 @@ import Testing
     /// A crash-key page as cmux-trace `crash_keys.rs` (task 098) writes it for process ``pid`` with role code
     /// `role`: the header (magic `CMXCKEYS`, version 1 and the role, pid, `LC_UUID` in words 4-5), then the keys
     /// at words 12-14, the untracked count at 15 and the in-flight table from 16. `extra` sets any other word.
-    static func keyPage(role: UInt16, pid: UInt32 = pid, uuid: [UInt8] = uuidBytes, requestMethod: UInt64 = 0,
+    static func keyPage(role: UInt16, pid: UInt32 = pid, uuid: [UInt8] = uuidBytes, start: UInt64 = start,
+                        requestMethod: UInt64 = 0,
                         terminalCount: UInt64 = 0, holderLink: UInt64 = 0, inFlight: [UInt64] = [], untracked: UInt64 = 0,
                         extra: [Int: UInt64] = [:]) -> Data {
         func word(_ bytes: ArraySlice<UInt8>) -> UInt64 {
@@ -307,7 +394,7 @@ import Testing
             0: 0x5359_454B_4358_4D43, // "CMXCKEYS"
             1: 1 | UInt64(role) << 32,
             2: UInt64(pid),
-            3: 1_700_000_000_000_000,
+            3: start,
             4: word(uuid[0 ..< 8]),
             5: word(uuid[8 ..< 16]),
             12: requestMethod, 13: terminalCount, 14: holderLink, 15: untracked,
@@ -315,6 +402,11 @@ import Testing
         for (index, method) in inFlight.enumerated() { words[16 + index] = method }
         for (index, value) in extra { words[index] = value }
         return Data(bytes(of: words))
+    }
+
+    /// Up to 8 ASCII bytes as one little-endian word, NUL-padded.
+    static func word(_ text: String) -> UInt64 {
+        text.utf8.prefix(8).enumerated().reduce(UInt64(0)) { $0 | UInt64($1.element) << (8 * UInt64($1.offset)) }
     }
 
     /// 512 little-endian words, `words[index]` at each index it names and 0 elsewhere.

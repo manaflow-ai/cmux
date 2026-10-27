@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHangReports
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
@@ -78,6 +79,8 @@ struct AppCrashReporting: Sendable {
         afterStartup.schedule { [reporter = self.reporter] in reporter.resumeAfterStartup() }
         // A Rust crash's black box goes only with the hang-reports consent the app's own crash event reads (079).
         let consentKey = HangReportsController.consentKey
+        let rings = HangReportsController.ringFolders(bundleID: environment.launch.bundleID,
+                                                      environment: ProcessInfo.processInfo.environment)
         let forwarder = SystemCrashForwarder(
             stateFile: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
                 .appending(path: "crash-forwarder.json"),
@@ -85,8 +88,8 @@ struct AppCrashReporting: Sendable {
             ownRustBinaries: SystemCrashForwarder.ownRustBinaries(
                 bundledBin: Bundle.main.resourceURL?.appending(path: "bin", directoryHint: .isDirectory),
                 daemonOverride: ProcessInfo.processInfo.environment[DaemonLauncher.binaryOverrideKey]),
-            artifacts: RustCrashArtifacts.app(bundleID: environment.launch.bundleID,
-                                              blackboxOptIn: { UserDefaults.standard.object(forKey: consentKey) is Date }),
+            artifacts: RustCrashArtifacts(directories: rings.directories, holderSockets: rings.holderSockets,
+                                          blackboxOptIn: { UserDefaults.standard.object(forKey: consentKey) is Date }),
             sends: sends)
         forwarder.start()
         self.forwarder = forwarder

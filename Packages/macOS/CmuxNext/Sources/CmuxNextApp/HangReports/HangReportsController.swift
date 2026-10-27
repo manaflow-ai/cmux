@@ -120,8 +120,7 @@ final class HangReportsController {
         // black boxes where the daemon (its key-flow folder), the holders and the hosts write them.
         let bundleID = Bundle.main.bundleIdentifier
         let metricsDirectory = HangReportFieldSources.appMetricsDirectory(bundleID: bundleID)
-        let flows = DaemonDiagnosticKnobs(processEnvironment: environment).daemonEnvironment["CMUX_TRACE_FLOWS"]
-        let rings = HangReportFieldSources.RingFolders.app(bundleID: bundleID, flowsDirectory: flows.map { URL(filePath: $0, directoryHint: .isDirectory) })
+        let rings = ringFolders(bundleID: bundleID, environment: environment)
         if wireSchema.carriesFieldData {
             MetricsStore.startApp(directory: metricsDirectory, channel: policy.channel?.rawValue ?? "dev", work: work)
         }
@@ -142,6 +141,14 @@ final class HangReportsController {
                                               work: work)
         return HangReportsController(service: service, managedDisables: managedDisables, activityFeed: feed, memory: memory,
                                      daemonMetrics: daemonMetrics, daemonPID: daemonPID, work: work, mainWork: mainWork)
+    }
+
+    /// The folders the app's Rust processes write their black boxes and crash-key pages in: the app's trace folder,
+    /// the daemon's key-flow folder when the diagnostic knob turns it on, and the holders' socket folder. Hang
+    /// reports and the crash forwarder (``RustCrashArtifacts``) read the same list.
+    nonisolated static func ringFolders(bundleID: String?, environment: [String: String]) -> HangReportFieldSources.RingFolders {
+        let flows = DaemonDiagnosticKnobs(processEnvironment: environment).daemonEnvironment["CMUX_TRACE_FLOWS"]
+        return .app(bundleID: bundleID, flowsDirectory: flows.map { URL(filePath: $0, directoryHint: .isDirectory) })
     }
 
     /// The local daemon's request latency into the app's histograms, before a report reads them (no socket request).

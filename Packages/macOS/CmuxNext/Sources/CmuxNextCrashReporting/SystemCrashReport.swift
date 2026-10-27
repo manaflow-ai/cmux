@@ -27,6 +27,9 @@ public nonisolated struct SystemCrashReport: Sendable, Equatable {
     public var processPath: String
     /// The crashed process's pid, when the report has one.
     public var pid: Int32?
+    /// When the crashed process started (`procLaunch`), in microseconds since 1970; nil when the report has no
+    /// such time. With ``pid`` it names one process: a later process given the same pid started later.
+    public var processStartUnixMicros: UInt64?
     public var incident: String?
     public var exceptionType: String
     public var signal: String?
@@ -71,6 +74,7 @@ public nonisolated struct SystemCrashReport: Sendable, Equatable {
         processName = body["procName"] as? String ?? header["name"] as? String ?? "unknown"
         processPath = body["procPath"] as? String ?? ""
         pid = (body["pid"] as? NSNumber).flatMap { Int32(exactly: $0.int64Value) }
+        processStartUnixMicros = (body["procLaunch"] as? String).flatMap(Self.unixMicros(procLaunch:))
         incident = body["incident"] as? String ?? header["incident_id"] as? String
         let exception = body["exception"] as? [String: Any] ?? [:]
         exceptionType = exception["type"] as? String ?? "EXC_CRASH"
@@ -93,6 +97,47 @@ public nonisolated struct SystemCrashReport: Sendable, Equatable {
             guard let index = frame["imageIndex"] as? Int, let offset = frame["imageOffset"] as? NSNumber else { return nil }
             return Frame(imageIndex: index, imageOffset: offset.uint64Value, symbol: frame["symbol"] as? String)
         }
+    }
+
+    /// A report's `procLaunch` (`2026-10-14 12:34:56.7890 -0700`: local time, a fraction of a second, the UTC
+    /// offset) as microseconds since 1970; nil for any other form or a time before 1970.
+    static func unixMicros(procLaunch text: String) -> UInt64? {
+        func number(_ digits: Substring, count: ClosedRange<Int>) -> Int? {
+            guard count.contains(digits.utf8.count), digits.utf8.allSatisfy({ (0x30 ... 0x39).contains($0) }) else { return nil }
+            return Int(digits)
+        }
+        let parts = text.split(separator: " ")
+        guard parts.count == 3 else { return nil }
+        let date = parts[0].split(separator: "-", omittingEmptySubsequences: false)
+        let clock = parts[1].split(separator: ":", omittingEmptySubsequences: false)
+        guard date.count == 3, clock.count == 3 else { return nil }
+        let seconds = clock[2].split(separator: ".", omittingEmptySubsequences: false)
+        guard (1 ... 2).contains(seconds.count),
+              let year = number(date[0], count: 4 ... 4), let month = number(date[1], count: 1 ... 2),
+              let day = number(date[2], count: 1 ... 2), let hour = number(clock[0], count: 1 ... 2),
+              let minute = number(clock[1], count: 1 ... 2), let second = number(seconds[0], count: 1 ... 2),
+              (1 ... 12).contains(month), (1 ... 31).contains(day), hour < 24, minute < 60, second <= 60 else { return nil }
+        var micros = 0
+        if seconds.count == 2 {
+            // Digits past the sixth are below a microsecond.
+            let digits = seconds[1].prefix(6)
+            guard number(seconds[1], count: 1 ... 9) != nil, let fraction = number(digits, count: 1 ... 6) else { return nil }
+            micros = fraction * [100_000, 10_000, 1_000, 100, 10, 1][digits.utf8.count - 1]
+        }
+        let zone = parts[2]
+        guard let sign = zone.first, sign == "+" || sign == "-", let offset = number(zone.dropFirst(), count: 4 ... 4) else {
+            return nil
+        }
+        let offsetSeconds = (offset / 100 * 3_600 + offset % 100 * 60) * (sign == "-" ? -1 : 1)
+        // Days since 1970-01-01 of the proleptic Gregorian date (H. Hinnant's days_from_civil).
+        let shifted = month <= 2 ? year - 1 : year
+        let era = shifted / 400
+        let yearOfEra = shifted - era * 400
+        let dayOfYear = (153 * ((month + 9) % 12) + 2) / 5 + day - 1
+        let days = era * 146_097 + yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear - 719_468
+        let unix = days * 86_400 + hour * 3_600 + minute * 60 + second - offsetSeconds
+        guard unix >= 0 else { return nil }
+        return UInt64(unix) * 1_000_000 + UInt64(micros)
     }
 
     /// The `LC_UUID` of the crashed process's own image (the used image named like ``processPath``), as the

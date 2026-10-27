@@ -1,27 +1,30 @@
 public import Foundation
 import CmuxNextCompat
 import CmuxNextTrace
-import CmuxNextWakeups
 
 /// What a crashed cmux Rust process (daemon, terminal host, holder, acpmux, agent host, app host, browser
 /// host) leaves on disk for its macOS crash report (plans/cmux-next/chrome-parity/p09-observability.md, task 097): its black box
 /// (`<role>-<pid>.blackbox.cmxtrace`, task 095) and its crash-key page (`<role>-<pid>.crashkeys`, task 098),
-/// where the process writes them: the app's trace folder, which the app hands the daemon and the daemon its
-/// hosts, and each holder's `<socket>.trace` folder beside its socket in `/tmp/cmux-hd-<uid>`.
+/// where the process writes them: the folders hang reports read the same rings from
+/// (`HangReportFieldSources.RingFolders`: the app's trace folder, which the app hands the daemon and the daemon
+/// its hosts, and the daemon's `CMUX_TRACE_FLOWS` folder when key-flow tracing is on), and each holder's
+/// `<socket>.trace` folder beside its socket in `/tmp/cmux-hd-<uid>`.
 ///
 /// Crashpad does the same from the dead process's memory: the crash keys and annotations of the crashed
 /// process go into its minidump (components/crash/core/common/crash_key.h,
 /// third_party/crashpad/crashpad/client/annotation.h). cmux reads them from the `MAP_SHARED` files the
 /// process wrote with relaxed stores, which outlive it in the page cache.
 ///
-/// A file belongs to the crash only when its header names the report's pid, the file's role and the crashed
-/// image's `LC_UUID`, so a reused pid or another build never lends its ring. The black box goes through the
-/// upload decoder (``CmuxNextTrace/TraceBlackBoxUpload``: catalog names and numbers, at most 512 events, no
-/// key-timing, per-key PTY or flow record) and only with the hang-reports opt-in, as on the app's own crash
-/// event (task 079). The crash keys are numbers and fixed state names and always go as tags.
+/// A file belongs to the crash only when its header names the report's pid, the file's role, the crashed
+/// image's `LC_UUID` and the process start the report gives (`procLaunch`, ``startTolerance``), so another
+/// build, or a later process of this build given the same pid before the report is read, never lends its files.
+/// The black box goes through the upload decoder (``CmuxNextTrace/TraceBlackBoxUpload``: catalog names and
+/// numbers, at most 512 events, no key-timing, per-key PTY or flow record) and only with the hang-reports
+/// opt-in, as on the app's own crash event (task 079). The crash keys are numbers and fixed state names and always go as tags.
 ///
 /// ```swift
-/// let artifacts = RustCrashArtifacts.app(bundleID: Bundle.main.bundleIdentifier, blackboxOptIn: { hangReportsOn() })
+/// let artifacts = RustCrashArtifacts(directories: rings.directories, holderSockets: rings.holderSockets,
+///                                    blackboxOptIn: { hangReportsOn() })
 /// let extras = artifacts.extras(for: report)       // blocking file reads: the forwarder's queue
 /// ```
 public struct RustCrashArtifacts: Sendable {
@@ -45,36 +48,31 @@ public struct RustCrashArtifacts: Sendable {
         self.blackboxOptIn = blackboxOptIn
     }
 
-    /// The folders of the app with bundle id `bundleID`: its trace folder
-    /// (``CmuxNextWakeups/TraceBlackBoxFileSteps/appDirectory(bundleID:home:)``) and this user's holder socket
-    /// folder (`/tmp/cmux-hd-<uid>`, cmux-tui-core `holder_runtime::service::socket_path`).
-    public static func app(bundleID: String?, uid: UInt32 = getuid(),
-                           home: URL = FileManager.default.homeDirectoryForCurrentUser,
-                           blackboxOptIn: @escaping OptIn) -> RustCrashArtifacts {
-        RustCrashArtifacts(directories: [TraceBlackBoxFileSteps.appDirectory(bundleID: bundleID, home: home)],
-                           holderSockets: URL(filePath: "/tmp/cmux-hd-\(uid)", directoryHint: .isDirectory),
-                           blackboxOptIn: blackboxOptIn)
-    }
+    /// The most a file header's process start and the report's `procLaunch` differ for one process: both are the
+    /// kernel's start time, the report's rounded to 100 µs.
+    static let startTolerance: UInt64 = 10_000
 
-    /// The black box and crash keys the crashed process of `report` left, and its role; empty when the report
-    /// names no pid or image UUID, or no file matches both. Blocking file reads.
+    /// The black box and crash keys the crashed process of `report` left, its role and its build version; empty
+    /// when the report names no pid, image UUID or process start, or no file matches them. Blocking file reads.
     public func extras(for report: SystemCrashReport) -> SystemCrashEvent.Extras {
-        guard let pid = report.pid, pid > 0, let uuid = report.mainImageUUID.flatMap(Self.uuidBytes) else {
+        guard let pid = report.pid, pid > 0, let uuid = report.mainImageUUID.flatMap(Self.uuidBytes),
+              let start = report.processStartUnixMicros, start != 0 else {
             return SystemCrashEvent.Extras()
         }
-        let process = UInt32(pid)
+        let process = CrashedProcess(pid: UInt32(pid), uuid: uuid, startUnixMicros: start)
         let folders = folders()
         var extras = SystemCrashEvent.Extras()
-        if case let (role, image)? = ring(of: process, uuid: uuid, in: folders) {
+        if case let (role, image)? = ring(of: process, in: folders) {
             extras.processRole = role.fileStem
             if blackboxOptIn() {
                 extras.blackbox = TraceBlackBoxUpload().crashAttachmentText(TraceBlackBoxUpload.records(of: image),
                                                                             hangReportsOptIn: true)
             }
         }
-        if case let (role, page)? = keyPage(of: process, uuid: uuid, in: folders) {
+        if case let (role, page)? = keyPage(of: process, in: folders) {
             extras.processRole = extras.processRole ?? role.fileStem
             extras.crashKeys = page.tags
+            extras.buildVersion = page.buildVersion
         }
         return extras
     }
@@ -90,28 +88,47 @@ public struct RustCrashArtifacts: Sendable {
         return directories + holders
     }
 
-    /// The first black box of process `pid` whose header names that pid, its file's role and `uuid`.
-    private func ring(of pid: UInt32, uuid: [UInt8], in folders: [URL]) -> (TraceRing.Role, TraceRing.Image)? {
+    /// The crashed process as its files' headers name it.
+    private struct CrashedProcess {
+        let pid: UInt32
+        /// The crashed image's `LC_UUID`.
+        let uuid: [UInt8]
+        /// The report's `procLaunch`, never 0.
+        let startUnixMicros: UInt64
+
+        /// Whether a header with these fields was written by this process: its pid, its image and a start within
+        /// ``RustCrashArtifacts/startTolerance`` (a header that does not know its start, 0, is not).
+        func wrote(pid: UInt32, uuid: [UInt8], startUnixMicros: UInt64) -> Bool {
+            pid == self.pid && uuid == self.uuid && startUnixMicros != 0
+                && max(startUnixMicros, self.startUnixMicros) - min(startUnixMicros, self.startUnixMicros)
+                <= RustCrashArtifacts.startTolerance
+        }
+    }
+
+    /// The first black box of `process` whose header names it and its file's role.
+    private func ring(of process: CrashedProcess, in folders: [URL]) -> (TraceRing.Role, TraceRing.Image)? {
         for folder in folders {
             for role in Self.roles {
-                let file = folder.appending(path: TraceRingFile.fileName(role: role, pid: pid))
+                let file = folder.appending(path: TraceRingFile.fileName(role: role, pid: process.pid))
                 guard let data = try? Data(blockingContentsOf: file), let image = TraceRing.Image(bytes: [UInt8](data)),
-                      image.header.pid == pid, image.header.roleCode == role.rawValue,
-                      image.header.buildUUID == uuid else { continue }
+                      image.header.roleCode == role.rawValue,
+                      process.wrote(pid: image.header.pid, uuid: image.header.buildUUID,
+                                    startUnixMicros: image.header.processStartUnixMicros) else { continue }
                 return (role, image)
             }
         }
         return nil
     }
 
-    /// The first crash-key page of process `pid` whose header names that pid, its file's role and `uuid`.
-    private func keyPage(of pid: UInt32, uuid: [UInt8], in folders: [URL]) -> (TraceRing.Role, RustCrashKeyPage)? {
+    /// The first crash-key page of `process` whose header names it and its file's role.
+    private func keyPage(of process: CrashedProcess, in folders: [URL]) -> (TraceRing.Role, RustCrashKeyPage)? {
         for folder in folders {
             for role in Self.roles {
-                let file = folder.appending(path: RustCrashKeyPage.fileName(role: role, pid: pid))
+                let file = folder.appending(path: RustCrashKeyPage.fileName(role: role, pid: process.pid))
                 guard let data = try? Data(blockingContentsOf: file),
-                      let page = RustCrashKeyPage(bytes: [UInt8](data)),
-                      page.pid == pid, page.role == role.rawValue, page.buildUUID == uuid else { continue }
+                      let page = RustCrashKeyPage(bytes: [UInt8](data)), page.role == role.rawValue,
+                      process.wrote(pid: page.pid, uuid: page.buildUUID, startUnixMicros: page.processStartUnixMicros)
+                else { continue }
                 return (role, page)
             }
         }
@@ -139,7 +156,8 @@ public struct RustCrashArtifacts: Sendable {
 /// the role in bits 32-47; 2 pid; 3 process start (Unix microseconds); 4-5 the main image's `LC_UUID`; 8-11 the
 /// build version. Keys: 12 request method, 13 terminal count, 14 holder link, 15 requests in flight past the
 /// table, 16-31 the requests in flight (a method key each, 0 for a free entry). Only these keys become tags, as
-/// decimal numbers or a fixed state name, so whatever else a damaged or planted file holds never reaches a report.
+/// decimal numbers or a fixed state name, and the build version only when it is version characters, so whatever
+/// else a damaged or planted file holds never reaches a report.
 struct RustCrashKeyPage: Equatable {
     /// The state of a process's link to its PTY holder (cmux-trace `crash_keys::HolderLink`).
     enum HolderLink: UInt64 {
@@ -166,7 +184,10 @@ struct RustCrashKeyPage: Equatable {
         static let magic = 0
         static let versionRole = 1
         static let pid = 2
+        static let processStart = 3
         static let buildUUID = 4
+        static let buildVersion = 8
+        static let buildVersionWords = 4
         static let requestMethod = 12
         static let terminalCount = 13
         static let holderLink = 14
@@ -189,7 +210,11 @@ struct RustCrashKeyPage: Equatable {
 
     let pid: UInt32
     let role: UInt16
+    /// The process start in Unix microseconds; 0 when the writer did not know it.
+    let processStartUnixMicros: UInt64
     let buildUUID: [UInt8]
+    /// The writer's build version (`0.1.0`); nil when the words are empty or hold anything but version characters.
+    let buildVersion: String?
     /// The method key of the request that started last (FNV-1a 64 of its wire name); 0 before the first.
     let requestMethod: UInt64
     let terminalCount: UInt64
@@ -209,13 +234,28 @@ struct RustCrashKeyPage: Equatable {
         guard word(Word.magic) == Self.magic, UInt32(truncatingIfNeeded: versionRole) == Self.version else { return nil }
         role = UInt16(truncatingIfNeeded: versionRole >> 32)
         pid = UInt32(truncatingIfNeeded: word(Word.pid))
+        processStartUnixMicros = word(Word.processStart)
         buildUUID = Array(bytes[Word.buildUUID * 8 ..< (Word.buildUUID + 2) * 8])
+        buildVersion = Self.version(bytes[Word.buildVersion * 8 ..< (Word.buildVersion + Word.buildVersionWords) * 8])
         requestMethod = word(Word.requestMethod)
         terminalCount = word(Word.terminalCount)
         holderLink = word(Word.holderLink)
         var named: UInt64 = 0
         for index in Word.inFlight ..< Word.inFlight + Word.inFlightCapacity where word(index) != 0 { named += 1 }
         requestsInFlight = named &+ word(Word.untracked)
+    }
+
+    /// NUL-padded ASCII of letters, digits and `.+-_` as a string; nil for anything else.
+    private static func version(_ bytes: ArraySlice<UInt8>) -> String? {
+        let text = bytes.prefix { $0 != 0 }
+        let isVersionByte = { (byte: UInt8) -> Bool in
+            (0x30 ... 0x39).contains(byte) || (0x41 ... 0x5A).contains(byte) || (0x61 ... 0x7A).contains(byte)
+                || [UInt8(ascii: "."), UInt8(ascii: "+"), UInt8(ascii: "-"), UInt8(ascii: "_")].contains(byte)
+        }
+        guard !text.isEmpty, text.allSatisfy(isVersionByte), bytes.dropFirst(text.count).allSatisfy({ $0 == 0 }) else {
+            return nil
+        }
+        return String(decoding: text, as: UTF8.self)
     }
 
     /// The keys as tags (`crash_key.<name>`): the request method once one ran, the counts, and the holder link

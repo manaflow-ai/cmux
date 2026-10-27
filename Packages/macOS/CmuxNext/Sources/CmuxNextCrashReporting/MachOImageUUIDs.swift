@@ -2,8 +2,8 @@ public import Foundation
 import CmuxNextCompat
 
 /// The `LC_UUID`s of Mach-O files on disk: one for a thin file, one per slice of a universal one. The crash
-/// forwarder compares a host-exe copy's crashed image with them, so only the app whose own binaries made the
-/// copy forwards its crash (``SystemCrashForwarder``). The headers are read, never the whole file.
+/// forwarder compares a host-exe copy's crashed image with them to tag whether this app's own binaries made
+/// the copy (``SystemCrashForwarder``). The headers are read, never the whole file.
 ///
 /// ```swift
 /// let images = MachOImageUUIDs(files: [bin.appending(path: "cmux-holder")])  // blocking reads

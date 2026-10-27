@@ -14,11 +14,13 @@ import os
 /// with frames Sentry symbolicates from the nightly's debug files: the
 /// binaries inside its own bundle, and the terminal host and holder copies
 /// the daemon runs from the host-exe root (``SystemCrashReport/helperOrigin(in:)``).
-/// That root is shared by every cmux build on the Mac, so a copy's crash is
-/// forwarded only by the app whose own Rust binaries have the crashed image's
-/// `LC_UUID` (``MachOImageUUIDs``): the build that made the copy, with its
-/// release, its consent and its trace folder. A Rust process's report
-/// carries its crash keys and black box (``RustCrashArtifacts``). Reports written before the first forwarder run
+/// Every such copy's crash is forwarded, an earlier build's too: holders and
+/// hosts keep running their own copy across an app update (pty-holder.md), and
+/// the build that made it may be gone. The event id is the macOS incident, so
+/// two apps that forward one report make one event. Whether the crashed image
+/// is one of this app's Rust binaries (``MachOImageUUIDs``) only tags the event
+/// (`process_build`). A Rust process's report carries its crash keys and black
+/// box (``RustCrashArtifacts``). Reports written before the first forwarder run
 /// are never sent. The app's own crashes are Sentry's (in-process), so its
 /// executable is skipped.
 public final class SystemCrashForwarder: Sendable {
@@ -41,7 +43,8 @@ public final class SystemCrashForwarder: Sendable {
     private let directory: URL
     private let stateFile: URL
     private let roots: SystemCrashReport.HelperRoots
-    /// This app's Rust binaries a host-exe copy is made from; read in each pass that meets a host-exe crash.
+    /// This app's Rust binaries a host-exe copy is made from (the `process_build` tag); read in each pass that
+    /// meets a host-exe crash.
     private let ownRustBinaries: [URL]
     /// Where the Rust processes' black boxes and crash-key pages are; nil: no extras.
     private let artifacts: RustCrashArtifacts?
@@ -58,8 +61,8 @@ public final class SystemCrashForwarder: Sendable {
     ///   - hostExeRoot: The root of the daemon's host and holder copies
     ///     (``SystemCrashReport/HelperRoots/standardHostExeRoot(environment:home:)``); nil forwards bundle binaries only.
     ///   - ownRustBinaries: This app's binaries the daemon copies under the host-exe root (the daemon and the
-    ///     `cmux-tui-host` and `cmux-holder` beside it): a copy's crash is forwarded only when its image is one of
-    ///     theirs. Empty forwards no host-exe crash.
+    ///     `cmux-tui-host` and `cmux-holder` beside it): a copy's crash is tagged `process_build` `this` when its
+    ///     image is one of theirs, else `other`. Every copy's crash is forwarded.
     ///   - artifacts: Where the Rust processes' black boxes and crash-key pages are, with the hang-reports
     ///     opt-in that lets a black box leave; nil attaches none.
     ///   - capture: Sends an event with its attachments.
@@ -155,14 +158,13 @@ public final class SystemCrashForwarder: Sendable {
                 return sent
             case .crash(let report):
                 guard let origin = report.helperOrigin(in: roots) else { break }
+                var extras = artifacts?.extras(for: report) ?? SystemCrashEvent.Extras()
+                extras.origin = origin
                 if origin == .hostExe {
                     let images = ownImages ?? MachOImageUUIDs(files: ownRustBinaries)
                     ownImages = images
-                    // Another cmux build's copy: that build forwards it.
-                    guard images.contains(report.mainImageUUID) else { break }
+                    extras.fromThisBuild = images.contains(report.mainImageUUID)
                 }
-                var extras = artifacts?.extras(for: report) ?? SystemCrashEvent.Extras()
-                extras.origin = origin
                 let crash = SystemCrashEvent(report: report, extras: extras)
                 capture(crash.event(), crash.attachments())
                 sent.append(candidate.url)
