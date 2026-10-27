@@ -499,7 +499,12 @@ public actor CloudCodexBroker {
     private func targetList() -> [CloudCodexBrokerTarget] { targets.values.sorted { $0.machineID < $1.machineID } }
 
     private func scheduleRefresh(grant: CloudCodexAccessGrant) {
-        refreshTask?.cancel()
+        // A foreground force-refresh can race a renewal fan-out. Keep the
+        // active renewal task alive so its target delivery is not cancelled and
+        // misclassified as a revoked target. The existing task will schedule
+        // itself again after its fan-out; a completed failed task clears its
+        // handle in the catch below.
+        guard refreshTask == nil else { return }
         refreshCycle += 1
         let cycle = refreshCycle
         let wait = max(1, grant.expiresAt.timeIntervalSinceNow - 120)
@@ -517,8 +522,17 @@ public actor CloudCodexBroker {
                     catch { continue }
                 }
                 await self.rescheduleRefresh(after: refreshed, cycle: cycle)
-            } catch { /* cancellation, logout, or a stopped VM ends renewal */ }
+            } catch {
+                // cancellation, logout, or a stopped VM ends renewal; do not
+                // leave a completed task handle blocking future scheduling.
+                if let self { await self.finishRefreshTask(cycle: cycle) }
+            }
         }
+    }
+
+    private func finishRefreshTask(cycle: Int) {
+        guard cycle == refreshCycle else { return }
+        refreshTask = nil
     }
 
     private func rescheduleRefresh(after grant: CloudCodexAccessGrant, cycle: Int) {
