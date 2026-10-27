@@ -27,6 +27,7 @@ struct CloudCredentialRecoveryTests {
 
     @Test func credentialRecoveryConfirmationIsAlwaysUserOnly() {
         #expect(DebugDialog.userOnly.contains(CloudPresenter.credentialRecoveryIdentifier))
+        #expect(DebugDialog.userOnly.contains(CloudPresenter.codexDeviceCodeIdentifier))
     }
 
     @Test func remoteHandshakeCarriesProviderVMIdentitySeparatelyFromSession() async throws {
