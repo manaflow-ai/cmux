@@ -66,4 +66,22 @@ struct RestoredFocusTests {
         focus.send(.topology(Self.homeAndBrowser))
         #expect(focus.state.resolved == .browserPage(pane: "right-pane", tab: "browser-tab"))
     }
+
+    /// Home gives its message box the keyboard by itself (its default conversation shown, the box installed)
+    /// only while the focus model keeps the keyboard in Home's pane. With the browser page beside it focused,
+    /// the window itself is first responder (a Chromium page keeps the keys in its own window), which is not
+    /// "nothing has the keyboard": Home took it and the model followed (QA v2.2.2 bug 1).
+    @Test func homeTakesTheKeyboardUnaskedOnlyWhileTheModelKeepsItInHomesPane() {
+        let focus = FocusCoordinator()
+        focus.send(.topology(Self.homeAndBrowser))
+        #expect(focus.state.keepsKeyboard(inContentOf: "home-pane"))
+        focus.send(.focusPane("right-pane", source: .mouse))
+        #expect(!focus.state.keepsKeyboard(inContentOf: "home-pane"), "the browser page has the keyboard")
+        #expect(focus.state.keepsKeyboard(inContentOf: "right-pane"))
+        focus.send(.focusTarget(.addressBar, source: .keyboard))
+        #expect(!focus.state.keepsKeyboard(inContentOf: "right-pane"), "the address bar is not the pane's content")
+        focus.send(.overlayOpened(.palette))
+        focus.send(.focusPane("home-pane", source: .mouse))
+        #expect(!focus.state.keepsKeyboard(inContentOf: "home-pane"), "the palette over the window has the keyboard")
+    }
 }
