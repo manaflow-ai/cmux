@@ -1,9 +1,9 @@
 #![cfg(unix)]
-//! Attach streams hold no thread per view (p05-ipc-079): 50 views attached
-//! as client-minted streams (attach-streams-v1) on one connection of a real
-//! daemon socket add at most 2 threads to the process, and every view still
-//! gets its live output. A legacy view holds an output and a notification
-//! thread of its own.
+//! Attach streams hold no thread per view (p05-ipc-079): 50 byte views, 50
+//! render views and 50 snapshot views attached as client-minted streams
+//! (attach-streams-v1) on one connection of a real daemon socket add at most
+//! 2 threads to the process, and every view still gets its live output. A
+//! legacy view holds an output thread and a notification thread of its own.
 //!
 //! This file holds one test, so its process count is not shared with other
 //! tests.
@@ -20,6 +20,9 @@ use serde_json::{Value, json};
 use support::DaemonMuxOps;
 
 const VIEWS: usize = 50;
+/// Render views take streams `RENDER + 1..`, snapshot views `SNAPSHOT + 1..`.
+const RENDER: usize = 100;
+const SNAPSHOT: usize = 200;
 /// The sequenced pool's input workers.
 const THREAD_BUDGET: usize = 2;
 
@@ -144,15 +147,23 @@ fn fifty_stream_attaches_add_at_most_two_threads() {
     connection.rpc(json!({"cmd": "set-client-info", "capabilities": ["attach-streams-v1"]}));
     let before = settled_threads();
 
-    let ids: Vec<u64> = surfaces
-        .iter()
-        .enumerate()
-        .map(|(index, surface)| {
-            connection.send(json!({
-                "cmd": "attach-surface", "surface": surface, "stream": index + 1,
-            }))
-        })
-        .collect();
+    let snapshot_version = ghostty_vt::snapshot_version();
+    let mut ids = Vec::new();
+    for (index, surface) in surfaces.iter().enumerate() {
+        let stream = index + 1;
+        let views = [
+            json!({"cmd": "attach-surface", "surface": surface, "stream": stream}),
+            json!({
+                "cmd": "attach-surface", "surface": surface, "stream": RENDER + stream,
+                "mode": "render",
+            }),
+            json!({
+                "cmd": "attach-surface", "surface": surface, "stream": SNAPSHOT + stream,
+                "snapshot": "ghostsnp", "snapshot_version": snapshot_version,
+            }),
+        ];
+        ids.extend(views.into_iter().map(|view| connection.send(view)));
+    }
     for id in ids {
         let reply = connection.reply(id);
         assert_eq!(reply["ok"], true, "{reply}");
@@ -160,7 +171,8 @@ fn fifty_stream_attaches_add_at_most_two_threads() {
     let after = settled_threads();
     assert!(
         after.saturating_sub(before) <= THREAD_BUDGET,
-        "{VIEWS} stream attaches added {} threads ({before} -> {after})",
+        "{} stream attaches added {} threads ({before} -> {after})",
+        VIEWS * 3,
         after.saturating_sub(before)
     );
 
@@ -170,6 +182,9 @@ fn fifty_stream_attaches_add_at_most_two_threads() {
     connection.rpc(json!({"cmd": "send", "surface": surfaces[VIEWS - 1], "text": "ping\n"}));
     let output = connection.item_of(last, |item| item["event"] == "output");
     assert_eq!(output["surface"], json!(surfaces[VIEWS - 1]), "{output}");
+    // Its snapshot viewer gets the same output.
+    let snapshot = SNAPSHOT as u16 + last;
+    connection.item_of(snapshot, |item| item["event"] == "output");
     drop(connection);
     mux.shutdown();
 }

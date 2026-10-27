@@ -18,6 +18,7 @@ use crate::server::AttachWireShape;
 use crate::server::MessageWriter;
 use crate::server::OutboundStream;
 use crate::server::RenderClientState;
+use crate::server::WatchKind;
 use crate::server::attach_lifecycle::attach_pump::{
     AttachPump, PumpTimer, Step, ViewDrain, ViewOut, ViewSource,
 };
@@ -59,7 +60,7 @@ impl StreamView<'_> {
             notifications,
         );
         on_ready(&source, Box::new(pump.hook()));
-        pump.install(Box::new(ViewDrain { out, source }));
+        pump.install(Box::new(ViewDrain::new(out, source)));
         commit_client_attach_and_start_pump(
             self.mux,
             self.client,
@@ -121,6 +122,8 @@ struct BytesSource {
 }
 
 impl ViewSource for BytesSource {
+    const WATCH: WatchKind = WatchKind::AttachOut;
+
     fn next(&mut self, out: &mut ViewOut, _timer: &PumpTimer<'_>) -> Step {
         match self.attach.stream.try_recv() {
             Ok(frame) => {
@@ -144,6 +147,8 @@ struct RenderSource {
 }
 
 impl ViewSource for RenderSource {
+    const WATCH: WatchKind = WatchKind::RenderAttachOut;
+
     fn next(&mut self, out: &mut ViewOut, _timer: &PumpTimer<'_>) -> Step {
         let sent = match self.attach.stream.try_recv() {
             Ok(RenderAttachFrame::Frame(frame)) => {
@@ -174,6 +179,8 @@ struct BrowserSource {
 }
 
 impl ViewSource for BrowserSource {
+    const WATCH: WatchKind = WatchKind::AttachOut;
+
     fn next(&mut self, out: &mut ViewOut, _timer: &PumpTimer<'_>) -> Step {
         match self.frames.notify.try_recv() {
             Ok(()) => {}
@@ -206,3 +213,7 @@ impl ViewSource for BrowserSource {
         drop(self.frames);
     }
 }
+
+#[cfg(test)]
+#[path = "stream_attach_out_tests.rs"]
+mod tests;

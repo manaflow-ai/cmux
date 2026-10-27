@@ -19,6 +19,7 @@ use super::{
     PendingTail, digest_json, frame_json, frame_output_len, local_ready_event, log_skipped_images,
     ready_event,
 };
+use crate::server::WatchKind;
 use crate::server::attach_lifecycle::attach_pump::{
     AttachPump, PumpTimer, Step, ViewDrain, ViewOut, ViewSource,
 };
@@ -276,7 +277,8 @@ pub(super) fn start(worker: SnapshotWorker, commit: AttachCommit) -> anyhow::Res
             true,
         );
         worker.receiver.on_ready(pump.hook());
-        pump.install(Box::new(ViewDrain { out, source: SnapshotSource { worker, wake_at: None } }));
+        let source = SnapshotSource { worker, wake_at: None };
+        pump.install(Box::new(ViewDrain::new(out, source)));
         return commit_client_attach_and_start_pump(&mux, client, surface, stream.id, commit, pump);
     }
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
@@ -336,6 +338,11 @@ impl SnapshotSource {
 }
 
 impl ViewSource for SnapshotSource {
+    const WATCH: WatchKind = WatchKind::SnapshotAttachOut;
+
+    /// A READY or a history or images chunk is a bulk step: the turn
+    /// yields after it, so a resync holds the worker the echo path shares
+    /// for one chunk at a time.
     fn next(&mut self, _out: &mut ViewOut, timer: &PumpTimer<'_>) -> Step {
         let polled = match self.worker.receiver.try_viewer_event() {
             Ok(event) => Polled::Event(event),
@@ -348,7 +355,16 @@ impl ViewSource for SnapshotSource {
             }
             Err(TryRecvError::Disconnected) => Polled::Disconnected,
         };
-        if self.worker.handle(polled) { Step::Sent } else { Step::End }
+        let bulk = match &polled {
+            Polled::Event(ViewerEvent::Snapshot | ViewerEvent::LocalReady(_)) => true,
+            Polled::Nothing => self.worker.tail.is_some(),
+            Polled::Event(ViewerEvent::Frame(_)) | Polled::Disconnected => false,
+        };
+        match (self.worker.handle(polled), bulk) {
+            (false, _) => Step::End,
+            (true, true) => Step::Bulk,
+            (true, false) => Step::Sent,
+        }
     }
 
     fn end(self, _out: &ViewOut) {

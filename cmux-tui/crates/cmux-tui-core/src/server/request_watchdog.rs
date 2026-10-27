@@ -246,7 +246,7 @@ impl Slot {
 }
 
 /// Where hang records go; the process's hang log outside tests.
-type HangSink = Box<dyn Fn(serde_json::Value) + Send + Sync>;
+pub(crate) type HangSink = Box<dyn Fn(serde_json::Value) + Send + Sync>;
 
 /// Starts the watchdog thread with `body`; a seam so tests can fail it.
 type SpawnWatchdog = fn(Box<dyn FnOnce() + Send>) -> std::io::Result<Thread>;
@@ -733,7 +733,7 @@ impl RequestWatchdog {
 
     /// Tests: every kind's hang tier is `hang`, and records go to `sink`.
     #[cfg(test)]
-    fn for_hang_test(threshold: Duration, hang: Duration, sink: HangSink) -> Self {
+    pub(crate) fn for_hang_test(threshold: Duration, hang: Duration, sink: HangSink) -> Self {
         let capture = Box::new(thread_backtrace::capture);
         let mut watchdog = Self::build(threshold, spawn_watchdog_thread, capture, sink);
         if let Some(shared) = Arc::get_mut(&mut watchdog.shared) {

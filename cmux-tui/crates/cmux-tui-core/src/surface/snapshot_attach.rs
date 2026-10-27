@@ -366,6 +366,15 @@ impl Surface {
         pty.term.lock().unwrap().read_marker_range(epoch, from, to, vt)
     }
 
+    /// Ends the terminal's byte and render attachments the way its exit
+    /// does (`PtySurface::finish_hosted_exit`).
+    #[cfg(test)]
+    pub(crate) fn end_attachments_for_test(&self) {
+        let pty = self.as_pty().expect("a PTY surface");
+        pty.taps.lock().unwrap().clear();
+        pty.render.lock().unwrap().taps.clear();
+    }
+
     /// Apply `bytes` as PTY output the way the reader does (parse, then
     /// broadcast, under the terminal lock).
     #[cfg(test)]

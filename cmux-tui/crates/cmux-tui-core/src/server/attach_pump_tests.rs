@@ -18,7 +18,7 @@ use crate::server::{
 };
 use crate::{Mux, SurfaceOptions};
 
-const WAIT: Duration = Duration::from_secs(10);
+pub(crate) const WAIT: Duration = Duration::from_secs(10);
 
 /// Counts its turns; ends after `turns_left` reaches zero.
 struct Counting {
@@ -31,8 +31,6 @@ impl AttachDrain for Counting {
         self.turns.fetch_add(1, Ordering::SeqCst);
         Turn::Idle
     }
-
-    fn finish(self: Box<Self>) {}
 
     fn abandon(self: Box<Self>) {
         let _ = self.abandoned.send(());
@@ -47,7 +45,7 @@ fn counting_pump(pool: &SequencedPool) -> (AttachPump, Arc<AtomicUsize>, mpsc::R
     (pump, turns, abandons)
 }
 
-fn eventually(what: &str, done: impl Fn() -> bool) {
+pub(crate) fn eventually(what: &str, done: impl Fn() -> bool) {
     let deadline = Instant::now() + WAIT;
     while !done() {
         assert!(Instant::now() < deadline, "timed out waiting until {what}");
@@ -87,37 +85,54 @@ fn a_started_pump_runs_once_per_wake_and_stops_with_its_interrupt() {
     assert!(abandons.try_recv().is_err(), "a started drain is never abandoned");
 }
 
-fn command(value: Value) -> Command {
+pub(crate) fn command(value: Value) -> Command {
     serde_json::from_value(value).expect("raw command")
 }
 
-fn request(mux: &Arc<Mux>, client: u64, writer: &MessageWriter, value: Value) -> Value {
+pub(crate) fn request(mux: &Arc<Mux>, client: u64, writer: &MessageWriter, value: Value) -> Value {
     handle_command(mux, client, command(value), writer).expect("request succeeds")
 }
 
 /// A captured connection that granted attach streams.
-fn connect(mux: &Arc<Mux>) -> (MessageWriter, Arc<BoundedOutbound>, u64) {
+pub(crate) fn connect(mux: &Arc<Mux>) -> (MessageWriter, Arc<BoundedOutbound>, u64) {
+    connect_with(mux, &[])
+}
+
+/// [`connect`], granted `capabilities` as well.
+pub(crate) fn connect_with(
+    mux: &Arc<Mux>,
+    capabilities: &[&str],
+) -> (MessageWriter, Arc<BoundedOutbound>, u64) {
     let (writer, outbound) = captured_writer();
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let mut granted = vec!["attach-streams-v1"];
+    granted.extend_from_slice(capabilities);
     request(
         mux,
         client,
         &writer,
-        json!({"cmd": "set-client-info", "capabilities": ["attach-streams-v1"]}),
+        json!({"cmd": "set-client-info", "kind": "tui", "capabilities": granted}),
     );
     (writer, outbound, client)
 }
 
 /// The next item other than notifications and scroll changes, within `timeout`.
-fn next_item(outbound: &BoundedOutbound, timeout: Duration) -> Option<Value> {
+pub(crate) fn next_item(outbound: &BoundedOutbound, timeout: Duration) -> Option<Value> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let value = next_any(outbound, deadline.saturating_duration_since(Instant::now()))?;
+        if !matches!(value["event"].as_str(), Some("notification" | "scroll-changed")) {
+            return Some(value);
+        }
+    }
+}
+
+/// The next item, whatever it is, within `timeout`.
+pub(crate) fn next_any(outbound: &BoundedOutbound, timeout: Duration) -> Option<Value> {
     let deadline = Instant::now() + timeout;
     loop {
         if let Some(message) = outbound.try_pop() {
-            let value: Value = serde_json::from_str(&message).expect("outbound JSON");
-            if matches!(value["event"].as_str(), Some("notification" | "scroll-changed")) {
-                continue;
-            }
-            return Some(value);
+            return Some(serde_json::from_str(&message).expect("outbound JSON"));
         }
         if Instant::now() >= deadline {
             return None;
@@ -126,7 +141,7 @@ fn next_item(outbound: &BoundedOutbound, timeout: Duration) -> Option<Value> {
     }
 }
 
-fn decoded(item: &Value) -> Vec<u8> {
+pub(crate) fn decoded(item: &Value) -> Vec<u8> {
     base64::engine::general_purpose::STANDARD
         .decode(item["data"].as_str().expect("data"))
         .expect("base64")

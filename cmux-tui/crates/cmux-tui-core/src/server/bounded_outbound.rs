@@ -27,6 +27,7 @@ use super::OUTBOUND_CONNECTION_CAPACITY;
 use super::OUTBOUND_CONTROL_BYTE_RESERVE;
 use super::OUTBOUND_CONTROL_RESERVE;
 use super::OutboundStream;
+use super::RoomWaker;
 use super::attach_streams::AttachStreamError;
 use super::attach_streams::ClientStreamId;
 use super::attach_streams::ClientStreams;
@@ -41,6 +42,7 @@ use std::collections::VecDeque;
 use std::io::Write;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::MutexGuard;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -87,9 +89,32 @@ pub(super) struct BoundedOutboundState {
     /// Client-minted stream ids held until their terminal is queued
     /// (attach-streams-v1): freeing one is part of queuing its terminal.
     pub(super) client_streams: ClientStreams,
-    /// Streams with a space hook that dropped below their backpressure cap
-    /// under the lock: woken once it is released.
-    space_woken: Vec<OutboundStream>,
+    /// Producers that got room under the lock: woken once it is released.
+    space_woken: SpaceWoken,
+    /// Drains whose ordered terminal found no room
+    /// ([`BoundedOutbound::try_push_ordered_terminal`]): woken by the next
+    /// item that leaves the queue, or by its close.
+    room_waiters: Vec<RoomWaker>,
+}
+
+/// Producers woken under the queue's lock, run once it is released.
+#[derive(Default)]
+pub(super) struct SpaceWoken {
+    /// Streams with a space hook that dropped below their backpressure cap.
+    streams: Vec<OutboundStream>,
+    /// Room waiters of ordered terminals.
+    room: Vec<RoomWaker>,
+}
+
+impl SpaceWoken {
+    pub(super) fn wake(self) {
+        for stream in self.streams {
+            stream.space_hook.wake();
+        }
+        for waker in self.room {
+            waker();
+        }
+    }
 }
 
 impl BoundedOutboundState {
@@ -371,6 +396,43 @@ impl BoundedOutbound {
         text: Arc<BudgetedText>,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
+        let mut state = self.state.lock().recover_poison();
+        while !Self::admit_ordered_terminal_locked(&mut state, &text, stream)? {
+            let (next, _) = self.changed.wait_timeout(state, BACKPRESSURE_RECHECK).recover_poison();
+            state = next;
+        }
+        drop(state);
+        self.changed.notify_all();
+        Ok(())
+    }
+
+    /// [`Self::push_ordered_terminal`] for a producer that must not wait (a
+    /// drain on the sequenced pool): `Ok(false)` while the stream or the
+    /// connection has no room for the terminal; the queue then holds
+    /// `on_room` and runs it once an item leaves it or it closes.
+    pub(super) fn try_push_ordered_terminal(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+        on_room: RoomWaker,
+    ) -> std::io::Result<bool> {
+        let mut state = self.state.lock().recover_poison();
+        if !Self::admit_ordered_terminal_locked(&mut state, &text, stream)? {
+            state.room_waiters.push(on_room);
+            return Ok(false);
+        }
+        drop(state);
+        self.changed.notify_all();
+        Ok(true)
+    }
+
+    /// Queues `stream`'s ordered terminal behind its items if the stream's
+    /// and the connection's budgets have room: false when they do not.
+    fn admit_ordered_terminal_locked(
+        state: &mut BoundedOutboundState,
+        text: &Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<bool> {
         let bytes = text.len();
         if bytes > OUTBOUND_BYTE_CAPACITY {
             return Err(std::io::Error::new(
@@ -378,44 +440,31 @@ impl BoundedOutbound {
                 "outbound stream terminal exceeds its byte capacity",
             ));
         }
-        let mut state = self.state.lock().recover_poison();
-        loop {
-            if state.closed {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::BrokenPipe,
-                    "connection closed",
-                ));
-            }
-            if stream.terminal_enqueued.load(Ordering::Acquire) {
-                return Ok(());
-            }
-            if !stream.is_open() {
-                return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "stream closed"));
-            }
-            let (stream_messages, stream_bytes) = state
-                .stream_usage
-                .get(&stream.id)
-                .map(|usage| (usage.messages, usage.bytes))
-                .unwrap_or_default();
-            let stream_full = stream_messages >= OUTBOUND_CAPACITY
-                || bytes > OUTBOUND_BYTE_CAPACITY.saturating_sub(stream_bytes);
-            let connection_full = state.stream_items >= OUTBOUND_CONNECTION_CAPACITY
-                || bytes > OUTBOUND_CONNECTION_BYTE_CAPACITY.saturating_sub(state.regular_bytes);
-            if !stream_full && !connection_full {
-                Self::admit_stream_item_locked(
-                    &mut state,
-                    RegularOutbound::line(text, stream),
-                    false,
-                );
-                state.mark_terminal_queued(stream);
-                stream.close();
-                drop(state);
-                self.changed.notify_all();
-                return Ok(());
-            }
-            let (next, _) = self.changed.wait_timeout(state, BACKPRESSURE_RECHECK).recover_poison();
-            state = next;
+        if state.closed {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
+        if stream.terminal_enqueued.load(Ordering::Acquire) {
+            return Ok(true);
+        }
+        if !stream.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "stream closed"));
+        }
+        let (stream_messages, stream_bytes) = state
+            .stream_usage
+            .get(&stream.id)
+            .map(|usage| (usage.messages, usage.bytes))
+            .unwrap_or_default();
+        let stream_full = stream_messages >= OUTBOUND_CAPACITY
+            || bytes > OUTBOUND_BYTE_CAPACITY.saturating_sub(stream_bytes);
+        let connection_full = state.stream_items >= OUTBOUND_CONNECTION_CAPACITY
+            || bytes > OUTBOUND_CONNECTION_BYTE_CAPACITY.saturating_sub(state.regular_bytes);
+        if stream_full || connection_full {
+            return Ok(false);
+        }
+        Self::admit_stream_item_locked(state, RegularOutbound::line(text.clone(), stream), false);
+        state.mark_terminal_queued(stream);
+        stream.close();
+        Ok(true)
     }
 
     pub(super) fn terminate_stream_locked(
@@ -517,9 +566,7 @@ impl BoundedOutbound {
             if item.is_some() {
                 self.changed.notify_all();
             }
-            for stream in woken {
-                stream.space_hook.wake();
-            }
+            woken.wake();
             match item? {
                 OutboundItem::Text(text) | OutboundItem::Frame(_, text) => {
                     return Some(text.to_string());
@@ -542,9 +589,7 @@ impl BoundedOutbound {
                 let woken = state.take_space_woken();
                 drop(state);
                 self.changed.notify_all();
-                for stream in woken {
-                    stream.space_hook.wake();
-                }
+                woken.wake();
                 return Some(item);
             }
             if state.closed {
@@ -558,6 +603,12 @@ impl BoundedOutbound {
         !self.state.lock().recover_poison().closed
     }
 
+    /// Stream items queued on the connection, against its budget.
+    #[cfg(test)]
+    pub(super) fn queued_stream_items(&self) -> usize {
+        self.state.lock().recover_poison().stream_items
+    }
+
     pub(super) fn has_backpressure_room(&self, stream: &OutboundStream) -> bool {
         self.state.lock().recover_poison().has_backpressure_room(stream)
     }
@@ -567,8 +618,7 @@ impl BoundedOutbound {
         state.closed = true;
         state.control.retain(|item| !matches!(item, ControlOutbound::Flush(_)));
         state.client_streams.clear();
-        drop(state);
-        self.changed.notify_all();
+        self.release_closed(state);
     }
 
     pub(super) fn abort(&self) {
@@ -578,16 +628,25 @@ impl BoundedOutbound {
         state.control.clear();
         state.control_messages = 0;
         state.control_bytes = 0;
-        drop(state);
-        self.changed.notify_all();
+        self.release_closed(state);
     }
 
     pub(super) fn close_after_control(&self) {
         let mut state = self.state.lock().recover_poison();
         state.clear_streams();
         state.closed = true;
+        self.release_closed(state);
+    }
+
+    /// Unlocks a queue that just closed and wakes everything waiting on it:
+    /// a room waiter sees the close and ends its stream.
+    fn release_closed(&self, mut state: MutexGuard<'_, BoundedOutboundState>) {
+        let room = std::mem::take(&mut state.room_waiters);
         drop(state);
         self.changed.notify_all();
+        for waker in room {
+            waker();
+        }
     }
 }
 

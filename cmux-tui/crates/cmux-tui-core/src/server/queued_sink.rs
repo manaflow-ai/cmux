@@ -6,6 +6,7 @@ use super::super::BudgetedText;
 use super::super::MessageSink;
 use super::super::OutboundStream;
 use super::super::RENDER_ATTACH_MAX_BYTES;
+use super::super::RoomWaker;
 use super::super::attach_streams::AttachStreamError;
 use super::super::attach_streams::ClientStreamId;
 use super::BoundedOutbound;
@@ -281,6 +282,15 @@ impl MessageSink for QueuedSink {
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
         self.outbound.push_ordered_terminal(text, stream)
+    }
+
+    fn try_send_ordered_terminal(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+        on_room: RoomWaker,
+    ) -> std::io::Result<bool> {
+        self.outbound.try_push_ordered_terminal(text, stream, on_room)
     }
 
     fn is_open(&self) -> bool {

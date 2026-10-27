@@ -19,15 +19,19 @@
 //! outbound queue state, so queuing `stream-end` and freeing the id are one
 //! step under the lock that already orders the stream's items.
 
+use super::BudgetedText;
 use super::MessageWriter;
 use super::OutboundStream;
+use super::RoomWaker;
 use super::capabilities::IpcCapability;
 use crate::Mux;
 use crate::SurfaceId;
+use cmux_ipc::StreamLane;
 use serde_json::Value;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 /// `stream` on `attach-surface` and the view requests, `stream-end`, and
 /// `cancel-stream`: a framed IPC grant (server/capabilities.rs), so a
@@ -250,6 +254,90 @@ pub(super) fn cancel_stream(
         super::detach_committed_attach(mux, client, surface, outbound.id);
     }
     Ok(json!({"stream": stream.0, "outcome": "applied"}))
+}
+
+/// The writer's side of client-minted streams.
+impl MessageWriter {
+    /// The stream of a view whose id the client minted (attach-streams-v1):
+    /// its items carry `"stream": id`, its overflow terminal is
+    /// `stream-end{overflow}`, and `id` is this connection's until
+    /// `end_client_stream` or that overflow queues its terminal.
+    pub(super) fn start_client_stream(&self, id: ClientStreamId) -> anyhow::Result<OutboundStream> {
+        let overflow = self
+            .render_service
+            .serialize_control(&stream_end_json(id, StreamEndReason::Overflow))?;
+        let mut stream = OutboundStream::with_sequence(
+            self.next_stream_id.fetch_add(1, Ordering::Relaxed),
+            overflow,
+            false,
+            StreamLane::Bulk,
+        );
+        stream.client_stream = Some(id);
+        self.sink.claim_client_stream(&stream)?;
+        Ok(stream)
+    }
+
+    /// The open stream holding client-minted `id` on this connection.
+    pub(super) fn client_stream(&self, id: ClientStreamId) -> Option<OutboundStream> {
+        self.sink.client_stream(id)
+    }
+
+    /// Queues `stream-end{reason}` as the last item of a client-minted
+    /// stream and frees its id. The end of a view (`detached`) keeps every
+    /// item admitted before it, waiting like any other item of the stream;
+    /// a cancel or a failed attach drops what the stream still queues and
+    /// never waits, so the request that ends it answers at once. A stream
+    /// that already has its terminal, or has no client id, is left as it
+    /// is. A terminal that cannot be queued closes the connection, which
+    /// ends every stream on it.
+    pub(super) fn end_client_stream(&self, stream: &OutboundStream, reason: StreamEndReason) {
+        self.end_client_stream_by(stream, reason, |text| {
+            self.sink.send_ordered_terminal(text, stream).map(|()| true)
+        });
+    }
+
+    /// [`Self::end_client_stream`] for a drain on the sequenced pool, which
+    /// never waits: false while the connection has no room for the ordered
+    /// `stream-end{detached}`, and the connection runs `on_room` once an
+    /// item leaves its queue or it closes.
+    pub(super) fn try_end_client_stream(
+        &self,
+        stream: &OutboundStream,
+        reason: StreamEndReason,
+        on_room: RoomWaker,
+    ) -> bool {
+        self.end_client_stream_by(stream, reason, |text| {
+            self.sink.try_send_ordered_terminal(text, stream, on_room)
+        })
+    }
+
+    /// False only when `ordered` found no room for the terminal.
+    fn end_client_stream_by(
+        &self,
+        stream: &OutboundStream,
+        reason: StreamEndReason,
+        ordered: impl FnOnce(Arc<BudgetedText>) -> std::io::Result<bool>,
+    ) -> bool {
+        let Some(id) = stream.client_stream else { return true };
+        if stream.terminal_enqueued.load(Ordering::Acquire) {
+            return true;
+        }
+        let Ok(text) = self.render_service.serialize_control(&stream_end_json(id, reason)) else {
+            self.close();
+            return true;
+        };
+        if reason == StreamEndReason::Detached && stream.is_open() {
+            match ordered(text.clone()) {
+                Ok(true) => return true,
+                Ok(false) => return false,
+                Err(_) => {}
+            }
+        }
+        if self.sink.send_terminal(text, stream).is_err() {
+            self.close();
+        }
+        true
+    }
 }
 
 #[cfg(test)]

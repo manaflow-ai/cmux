@@ -13,10 +13,19 @@
 //! `Connector::OnWatcherHandleReady`; docs/threading_and_tasks.md "Prefer
 //! sequences to threads"): no receiver holds a thread.
 //!
+//! A drain never waits, its end included. When the connection has no room
+//! for the view's ordered `stream-end`, the connection holds the pump's room
+//! waker and runs it when an item leaves its queue or it closes, as a Mojo
+//! writer whose pipe is full watches it for `MOJO_HANDLE_SIGNAL_WRITABLE`
+//! (mojo/public/cpp/system/simple_watcher.h) instead of blocking.
+//!
+//! Each item is a hang scope of the echo path ([`WatchKind`]), as on the
+//! legacy threads: the pool's input workers carry every view's echo.
+//!
 //! Lifetime: the pump keeps itself alive the way a thread does. Its stop
-//! interrupt's waker holds it, and posted tasks hold it; sources hold it
-//! weakly. When the drain is done the pump fires its stop interrupt, which
-//! drops that waker.
+//! interrupt's waker holds it, posted tasks hold it, and so does a room
+//! waker the connection holds; sources hold it weakly. When the drain is
+//! done the pump fires its stop interrupt, which drops that waker.
 
 use cmux_threads::sync::Mutex;
 use std::sync::Arc;
@@ -35,8 +44,11 @@ use crate::Mux;
 use crate::SurfaceId;
 use crate::event_bus::MuxEventReceiver;
 use crate::panic_free::RecoverPoison;
+use crate::server::EchoWatch;
 use crate::server::MessageWriter;
 use crate::server::OutboundStream;
+use crate::server::RoomWaker;
+use crate::server::WatchKind;
 use crate::server::attach_streams::StreamEndReason;
 use crate::server::sequenced_pool::{PostError, Sequence, SequencePriority, SequencedPool};
 use crate::stream_interrupt::StreamInterrupt;
@@ -53,7 +65,7 @@ pub(crate) enum Turn {
     Idle,
     /// Its budget is spent: it runs again behind the other sequences.
     Yield,
-    /// The view ended: [`AttachDrain::finish`] runs next.
+    /// The view ended and its stream has its terminal: the pump stops.
     Done,
 }
 
@@ -62,8 +74,6 @@ pub(crate) enum Turn {
 pub(crate) trait AttachDrain: Send + 'static {
     /// Handles what is ready, without waiting.
     fn turn(&mut self, timer: &PumpTimer<'_>) -> Turn;
-    /// After [`Turn::Done`]: reports, detaches and ends the stream.
-    fn finish(self: Box<Self>);
     /// The attach was never committed: undoes what the drain registered.
     fn abandon(self: Box<Self>) {}
 }
@@ -151,6 +161,14 @@ impl PumpTimer<'_> {
         // A shut-down pool runs nothing again; the view ends with it.
         let _ = self.0.sequence.post_delayed(delay, move || run(&inner));
     }
+
+    /// A wake for the connection to hold while it has no room for the
+    /// view's terminal; it keeps the pump alive until it runs, at the next
+    /// item that leaves the connection's queue or at its close.
+    pub(crate) fn room_waker(&self) -> RoomWaker {
+        let inner = self.0.clone();
+        Box::new(move || wake(&inner))
+    }
 }
 
 fn wake(inner: &Arc<PumpInner>) {
@@ -182,9 +200,7 @@ fn run(inner: &Arc<PumpInner>) {
         Turn::Done => {
             let drain = slot.take();
             drop(slot);
-            if let Some(drain) = drain {
-                drain.finish();
-            }
+            drop(drain);
             inner.stop.fire();
         }
     }
@@ -194,6 +210,10 @@ fn run(inner: &Arc<PumpInner>) {
 pub(crate) enum Step {
     /// An item was sent (or skipped): look again.
     Sent,
+    /// A bulk item was sent (a READY, a history or images chunk): the turn
+    /// yields, so a view holds a worker the echo path shares for at most
+    /// one such item at a time.
+    Bulk,
     /// The source holds nothing now.
     Empty,
     /// The view ends.
@@ -203,6 +223,8 @@ pub(crate) enum Step {
 /// A view's own source: terminal bytes, snapshots, render frames or browser
 /// frames.
 pub(crate) trait ViewSource: Send + Sized + 'static {
+    /// The hang scope of each of its items.
+    const WATCH: WatchKind;
     /// Sends the source's next item on `out`, which has room for it.
     fn next(&mut self, out: &mut ViewOut, timer: &PumpTimer<'_>) -> Step;
     /// Before the view's end is reported and its attachment detached.
@@ -313,22 +335,42 @@ impl ViewOut {
         }
     }
 
-    fn finish(&self) {
+    /// Reports an overflow and detaches the view's attachment.
+    fn end_view(&mut self) {
+        self.notifications = None;
         report_attach_overflow(&self.writer, self.surface, &self.lifecycle, &self.stream);
         detach_committed_attach(&self.mux, self.client, self.surface, self.stream.id);
-        self.writer.end_client_stream(&self.stream, StreamEndReason::Detached);
+    }
+
+    /// Queues the stream's `stream-end{detached}` behind its items. False
+    /// while the connection has no room for it: the connection wakes the
+    /// drain when it may.
+    fn end_stream(&self, timer: &PumpTimer<'_>) -> bool {
+        self.writer.try_end_client_stream(
+            &self.stream,
+            StreamEndReason::Detached,
+            timer.room_waker(),
+        )
     }
 }
 
 /// A view's drain: its notifications and its source, at most one item past
 /// the stream's backpressure cap.
 pub(crate) struct ViewDrain<S> {
-    pub(crate) out: ViewOut,
-    pub(crate) source: S,
+    out: ViewOut,
+    /// `None` once the view ended; then only its terminal is left.
+    source: Option<S>,
+    hangs: EchoWatch,
 }
 
-impl<S: ViewSource> AttachDrain for ViewDrain<S> {
-    fn turn(&mut self, timer: &PumpTimer<'_>) -> Turn {
+impl<S: ViewSource> ViewDrain<S> {
+    pub(crate) fn new(out: ViewOut, source: S) -> Self {
+        Self { hangs: out.mux.echo_watch(), out, source: Some(source) }
+    }
+
+    /// The view's items until it is idle, yields or ends.
+    fn drain(&mut self, timer: &PumpTimer<'_>) -> Turn {
+        let Some(source) = self.source.as_mut() else { return Turn::Done };
         for _ in 0..TURN_BUDGET {
             if !self.out.is_live() {
                 return Turn::Done;
@@ -336,32 +378,50 @@ impl<S: ViewSource> AttachDrain for ViewDrain<S> {
             if !self.out.writer.sink.stream_has_room(&self.out.stream) {
                 return Turn::Idle;
             }
+            // Each item's build and hand-off is an echo-path hang scope; the
+            // wait for the next one is not.
+            let _item = self.hangs.item(S::WATCH);
             match self.out.send_notification() {
                 Some(true) => continue,
                 Some(false) => return Turn::Done,
                 None => {}
             }
-            match self.source.next(&mut self.out, timer) {
+            match source.next(&mut self.out, timer) {
                 Step::Sent => {}
+                Step::Bulk => return Turn::Yield,
                 Step::Empty => return Turn::Idle,
                 Step::End => return Turn::Done,
             }
         }
         Turn::Yield
     }
+}
 
-    fn finish(self: Box<Self>) {
-        let Self { out, source } = *self;
-        source.end(&out);
-        out.finish();
+impl<S: ViewSource> AttachDrain for ViewDrain<S> {
+    fn turn(&mut self, timer: &PumpTimer<'_>) -> Turn {
+        match self.drain(timer) {
+            Turn::Done => {}
+            other => return other,
+        }
+        if let Some(source) = self.source.take() {
+            source.end(&self.out);
+            self.out.end_view();
+        }
+        if self.out.end_stream(timer) { Turn::Done } else { Turn::Idle }
     }
 
     fn abandon(self: Box<Self>) {
-        let Self { out, source } = *self;
-        source.abandon(&out);
+        let Self { out, source, .. } = *self;
+        if let Some(source) = source {
+            source.abandon(&out);
+        }
     }
 }
 
 #[cfg(test)]
 #[path = "attach_pump_tests.rs"]
-mod tests;
+pub(crate) mod tests;
+
+#[cfg(test)]
+#[path = "attach_pump_drain_tests.rs"]
+mod drain_tests;

@@ -115,8 +115,17 @@ impl BrowserSurface {
     }
 
     #[cfg(test)]
-    pub(super) fn store_frame(&self, frame: BrowserFrame) {
+    pub(crate) fn store_frame(&self, frame: BrowserFrame) {
         self.store_frame_for_epoch(frame, self.frame_epoch.current());
+    }
+
+    /// Tests: a state change, then a frame, for the attach taps.
+    #[cfg(test)]
+    pub(crate) fn store_state_and_frame_for_test(&self, frame: BrowserFrame) {
+        let mut state = self.state.lock().unwrap();
+        self.mark_state_dirty_locked(&mut state);
+        drop(state);
+        self.store_frame(frame);
     }
 
     pub(super) fn store_frame_for_epoch(&self, frame: BrowserFrame, frame_epoch: u64) -> bool {

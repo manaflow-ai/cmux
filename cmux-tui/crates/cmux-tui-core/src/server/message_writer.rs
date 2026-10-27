@@ -17,8 +17,6 @@ use super::VtStateMessage;
 use super::api_revision_wire;
 use super::attach_streams::AttachStreamError;
 use super::attach_streams::ClientStreamId;
-use super::attach_streams::StreamEndReason;
-use super::attach_streams::stream_end_json;
 use super::conversation_tabs_wire;
 use super::frame_dispatch::FrameCall;
 use crate::AttachFrame;
@@ -66,7 +64,7 @@ impl OutboundStream {
         Self::with_sequence(id, overflow_text, false, StreamLane::Bulk)
     }
 
-    fn with_sequence(
+    pub(super) fn with_sequence(
         id: u64,
         overflow_text: Arc<BudgetedText>,
         control_sequence: bool,
@@ -108,6 +106,11 @@ impl OutboundStream {
         *self.overflow_text.lock().recover_poison() = text;
     }
 }
+
+/// A non-blocking producer's wake for when the connection's queue has room
+/// for its stream's ordered terminal
+/// ([`MessageSink::try_send_ordered_terminal`]).
+pub(super) type RoomWaker = Box<dyn FnOnce() + Send>;
 
 pub(super) trait MessageSink: Send + Sync {
     fn send_initial(&self, text: Arc<BudgetedText>, stream: &OutboundStream)
@@ -163,6 +166,19 @@ pub(super) trait MessageSink: Send + Sync {
         text: Arc<BudgetedText>,
         stream: &OutboundStream,
     ) -> std::io::Result<()>;
+    /// [`Self::send_ordered_terminal`] for a producer that must not wait (a
+    /// drain on the sequenced pool): `Ok(false)` while the stream or the
+    /// connection has no room for it, and the sink holds `on_room` until an
+    /// item leaves its queue or it closes. A sink with no budget to wait on
+    /// queues it at once.
+    fn try_send_ordered_terminal(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+        _on_room: RoomWaker,
+    ) -> std::io::Result<bool> {
+        self.send_ordered_terminal(text, stream).map(|()| true)
+    }
     fn set_write_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
         Ok(())
     }
@@ -313,55 +329,6 @@ impl MessageWriter {
             true,
             StreamLane::Bulk,
         ))
-    }
-
-    /// The stream of a view whose id the client minted (attach-streams-v1):
-    /// its items carry `"stream": id`, its overflow terminal is
-    /// `stream-end{overflow}`, and `id` is this connection's until
-    /// `end_client_stream` or that overflow queues its terminal.
-    pub(super) fn start_client_stream(&self, id: ClientStreamId) -> anyhow::Result<OutboundStream> {
-        let overflow = self
-            .render_service
-            .serialize_control(&stream_end_json(id, StreamEndReason::Overflow))?;
-        let mut stream = OutboundStream::with_sequence(
-            self.next_stream_id.fetch_add(1, Ordering::Relaxed),
-            overflow,
-            false,
-            StreamLane::Bulk,
-        );
-        stream.client_stream = Some(id);
-        self.sink.claim_client_stream(&stream)?;
-        Ok(stream)
-    }
-
-    /// The open stream holding client-minted `id` on this connection.
-    pub(super) fn client_stream(&self, id: ClientStreamId) -> Option<OutboundStream> {
-        self.sink.client_stream(id)
-    }
-
-    /// Queues `stream-end{reason}` as the last item of a client-minted
-    /// stream and frees its id. The end of a view (`detached`) keeps every
-    /// item admitted before it, waiting like any other item of the stream;
-    /// a cancel or a failed attach drops what the stream still queues and
-    /// never waits, so the request that ends it answers at once. A stream
-    /// that already has its terminal, or has no client id, is left as it
-    /// is. A terminal that cannot be queued closes the connection, which
-    /// ends every stream on it.
-    pub(super) fn end_client_stream(&self, stream: &OutboundStream, reason: StreamEndReason) {
-        let Some(id) = stream.client_stream else { return };
-        if stream.terminal_enqueued.load(Ordering::Acquire) {
-            return;
-        }
-        let Ok(text) = self.render_service.serialize_control(&stream_end_json(id, reason)) else {
-            self.close();
-            return;
-        };
-        let ordered = reason == StreamEndReason::Detached
-            && stream.is_open()
-            && self.sink.send_ordered_terminal(text.clone(), stream).is_ok();
-        if !ordered && self.sink.send_terminal(text, stream).is_err() {
-            self.close();
-        }
     }
 
     /// The stream's overflow terminal (`overflow`, or `stream-end{overflow}`
