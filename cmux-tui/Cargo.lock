@@ -26,7 +26,9 @@ dependencies = [
  "futures-util",
  "getrandom 0.3.4",
  "libc",
+ "memchr",
  "notify",
+ "png",
  "pulldown-cmark",
  "ratatui",
  "regex",
@@ -1089,8 +1091,8 @@ dependencies = [
  "bzip2",
  "openh264-sys2",
  "rustls",
+ "rustls-native-certs",
  "sha2 0.10.9",
- "webpki-roots 1.0.10",
 ]
 
 [[package]]
@@ -3637,6 +3639,7 @@ dependencies = [
  "reqwest",
  "rustls",
  "rustls-pki-types",
+ "rustls-platform-verifier",
  "serde",
  "serde_bytes",
  "strum",
@@ -3646,7 +3649,7 @@ dependencies = [
  "tokio-websockets",
  "tracing",
  "url",
- "webpki-roots 1.0.10",
+ "webpki-roots",
  "ws_stream_wasm",
 ]
 
@@ -6777,7 +6780,6 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tungstenite",
- "webpki-roots 0.26.11",
 ]
 
 [[package]]
@@ -7464,15 +7466,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb"
 dependencies = [
  "rustls-pki-types",
-]
-
-[[package]]
-name = "webpki-roots"
-version = "0.26.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
-dependencies = [
- "webpki-roots 1.0.10",
 ]
 
 [[package]]

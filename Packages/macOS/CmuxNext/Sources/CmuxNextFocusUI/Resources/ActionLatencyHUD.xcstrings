@@ -271,8 +271,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ ms  %2$@  %3$@"
+            "state": "translated",
+            "value": "%1$@ مللي ثانية  %2$@  %3$@"
           }
         },
         "bs": {
@@ -320,7 +320,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ ms  %2$@  %3$@"
+            "value": "%1$@ ミリ秒  %2$@  %3$@"
           }
         },
         "km": {
@@ -331,8 +331,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%1$@ ms  %2$@  %3$@"
+            "state": "translated",
+            "value": "%1$@밀리초  %2$@  %3$@"
           }
         },
         "nb": {

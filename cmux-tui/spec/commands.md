@@ -360,6 +360,11 @@ must leave the machine owner unknown rather than derive an ID from other fields.
 source as its native `machine.list` snapshot. Machine capabilities are separate
 from protocol features in `capabilities`. Older owners may omit the new fields;
 clients retain unknown platform and an empty capability list.
+
+With `revisions: true` the reply also carries `build_time`: unix seconds of the
+source commit the daemon was built from, or null when unknown. A client that
+updates the machine (`cmux link machine update --if-older`) moves it only to a
+build with a later time, never back to an older one.
 The conversations-only remote `identify` remains restricted to `app`, `protocol`
 and `capabilities`.
 
