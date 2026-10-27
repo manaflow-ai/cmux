@@ -63,14 +63,28 @@ extension UpdateDriver {
     /// Sends the held install reply once; Sparkle installs and relaunches. False when this driver
     /// holds no staged update. `automatic` marks an idle-policy install nobody clicked, whose
     /// relaunch also waits for quiet input and a confirmed daemon mirror.
+    ///
+    /// An automatic install whose host reopens itself (``UpdateActionDelegate/updaterQuitsForAutomaticInstall(build:)``)
+    /// leaves the held reply unanswered: Sparkle's prepared installer installs when the app exits
+    /// and does not relaunch it. The relaunch gate is not involved, so only a host without it
+    /// (`holdsUserInstalls` off) is asked.
     @discardableResult
     func installStaged(automatic: Bool = false) -> Bool {
         guard let install = stagedInstall else { return false }
         log.append("background install: installing staged update (automatic=\(automatic))")
+        let build = backgroundItem?.versionString
         stagedInstall = nil
         stagedCancel = nil
         installsWhenStaged = false
         backgroundItem = nil
+        if automatic, !holdsUserInstalls, let build,
+           actionDelegate?.updaterQuitsForAutomaticInstall(build: build) == true {
+            log.append("background install: the app quits for the install; Sparkle installs as it exits, the app reopens itself")
+            // A retry (the quit did not happen) installs and relaunches through Sparkle, once.
+            let once = InstallOnce(install)
+            setState(.installing(.init(retryTerminatingApplication: { once.run() }, dismiss: {})))
+            return true
+        }
         setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
         relaunchIsAutomatic = automatic
         install()

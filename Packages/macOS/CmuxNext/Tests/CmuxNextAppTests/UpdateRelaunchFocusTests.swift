@@ -98,4 +98,46 @@ import Testing
         updater.recordRelaunchFocus()
         #expect(defaults.data(forKey: UpdateRelaunchFocus.key) == nil, "frontmost when the install started")
     }
+
+    /// The reopen itself: an automatic install in a background app quits and reopens behind
+    /// (`open -g`, so LaunchServices never activates it) and still writes the record as the
+    /// safety net; a click, or the user being in the app, lets Sparkle relaunch and activate.
+    @Test func anAutomaticInstallInABackgroundAppReopensBehindWithoutSparklesRelaunch() {
+        let defaults = Self.defaults()
+        let updater = Self.updater(defaults: defaults, front: Self.nightly)
+        updater.keptRunningBuild = .kept
+        updater.automaticInstallInFlight = true
+        var reopened: [URL] = []
+        updater.relaunchBehind = { app, _ in reopened.append(app) }
+        #expect(updater.updaterQuitsForAutomaticInstall(build: "200"))
+        #expect(reopened == [Bundle.main.bundleURL])
+        #expect(updater.installingBuild == "200")
+        #expect(UpdateRelaunchFocus.consume(defaults: defaults, build: "200", now: Self.start.addingTimeInterval(2))?.frontmostPID == 7045)
+    }
+
+    @Test func aClickOrTheUserInTheAppLetsSparkleRelaunch() {
+        for (automatic, front) in [(false, Self.nightly), (true, UpdateFrontmostApp(isThisApp: true, pid: 1, bundleID: "self"))] {
+            let updater = Self.updater(defaults: Self.defaults(), front: front)
+            updater.keptRunningBuild = .kept
+            updater.automaticInstallInFlight = automatic
+            var reopened = 0
+            updater.relaunchBehind = { _, _ in reopened += 1 }
+            #expect(!updater.updaterQuitsForAutomaticInstall(build: "200"))
+            #expect(reopened == 0)
+        }
+    }
+
+    @Test func helperWaitsForTheAppThenTheInstallerThenOpensInTheBackground() {
+        let app = URL(fileURLWithPath: "/Applications/cmux NEXT.app")
+        let label = UpdateRelaunchBehind.installerJobLabel(bundleIdentifier: "com.cmuxterm.app.next")
+        #expect(label == "com.cmuxterm.app.next-sparkle-updater")
+        let command = UpdateRelaunchBehind.command(pid: 4242, app: app, installerJob: label)
+        #expect(Array(command.prefix(2)) == ["/bin/sh", "-c"])
+        #expect(Array(command.suffix(3)) == [app.path, "4242", label])
+        let script = command[2]
+        let order = ["caffeinate -w \"$1\"", "launchctl list \"$2\"", "caffeinate -w \"$installer\"", "open -g \"$0\""]
+        let positions = order.compactMap { script.range(of: $0)?.lowerBound }
+        #expect(positions.count == order.count && positions == positions.sorted(), "\(script)")
+    }
 }
+

@@ -486,7 +486,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 }
 
 /// Runs a Sparkle install handler at most once.
-private final class InstallOnce {
+final class InstallOnce {
     private var install: (() -> Void)?
 
     init(_ install: @escaping () -> Void) {
