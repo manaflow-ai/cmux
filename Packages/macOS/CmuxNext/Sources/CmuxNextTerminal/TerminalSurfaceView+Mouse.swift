@@ -9,11 +9,13 @@ import GhosttyNextKit
 // scrolls reach Ghostty at most twice per frame (``TerminalPointerFrames``);
 // every other event delivers what is pending first.
 extension TerminalSurfaceView {
+    /// Enter, exit and moves in any window state. The I-beam has its own area (``addCursorUpdateArea(_:)``
+    /// in init): NSTrackingArea.h does not support `.activeAlways` with `.cursorUpdate`.
     public override func updateTrackingAreas() {
         if let trackingArea { removeTrackingArea(trackingArea) }
         let area = NSTrackingArea(
             rect: .zero,
-            options: [.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, .activeAlways, .cursorUpdate],
+            options: [.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, .activeAlways],
             owner: self
         )
         addTrackingArea(area)
@@ -167,8 +169,9 @@ extension TerminalSurfaceView {
 
     // MARK: Cursor
 
-    /// The pointer entered the surface's area (`.cursorUpdate` in ``updateTrackingAreas()``). No cursor
-    /// rects (p04-input-090): a pane resize or a divider drag rebuilds none of the window's.
+    /// The pointer entered the surface's cursor area (``addCursorUpdateArea(_:)`` in init, active in the
+    /// key window as the cursor rect was). No cursor rects (p04-input-090): a pane resize or a divider
+    /// drag rebuilds none of the window's.
     public override func cursorUpdate(with event: NSEvent) {
         cursor.set()
     }

@@ -92,6 +92,7 @@ final class HomeChiefLinkButton: NSButton {
         setButtonType(.momentaryChange)
         setAccessibilityLabel(title)
         applyTitle()
+        addCursorUpdateArea()
     }
 
     @available(*, unavailable)
@@ -102,7 +103,8 @@ final class HomeChiefLinkButton: NSButton {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways, .inVisibleRect], owner: self)
+        // Hover in any window state; the pointing hand has its own area (init): `.activeAlways` takes no `.cursorUpdate`.
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
         addTrackingArea(area)
         tracking = area
     }

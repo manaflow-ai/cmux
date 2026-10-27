@@ -1,4 +1,5 @@
 import AppKit
+@testable import CmuxNextBrowser
 import CmuxNextInputCore
 @testable import CmuxNextLayout
 import CmuxNextWakeups
@@ -12,11 +13,34 @@ import Testing
 /// velocity at its own timestamp, and the release lands the pending move first.
 @MainActor @Suite(.serialized) struct DividerDragTests {
     final class Panes: LayoutPaneContentProvider {
-        func makeContentView(for pane: PaneID) -> NSView { NSView() }
+        let content: (PaneID) -> NSView
+        init(content: @escaping (PaneID) -> NSView) { self.content = content }
+        func makeContentView(for pane: PaneID) -> NSView { content(pane) }
+    }
+
+    /// A browser pane's omnibar across its pane's width: resized on every frame of a divider drag beside it,
+    /// laid out again each time as the browser chrome's constraints lay it out.
+    final class OmnibarPane: NSView {
+        let bar = AddressBarView(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            addSubview(bar)
+            bar.update(url: URL(string: "https://example.com/some/path?query=1"), security: .none)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { nil }
+
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
+            bar.frame = NSRect(x: 8, y: 8, width: max(0, newSize.width - 16), height: 34)
+            bar.needsLayout = true
+        }
     }
 
     final class Harness {
-        let provider = Panes()
+        let provider: Panes
         let model: LayoutModel
         let root: LayoutRootView
         let window: CursorRectCountingWindow
@@ -28,8 +52,11 @@ import Testing
         /// `coalesced`: the drags go through the window's coalescer (the feature on). `resampled`: the
         /// divider is drawn at the pointer resampled at the frame (p04-input-040). `reduceMotion` pins the
         /// layout's Reduce Motion (nil follows the app).
-        init(coalesced: Bool = true, resampled: Bool = false, reduceMotion: Bool? = nil) throws {
+        /// `content`: each pane's view (a plain view by default).
+        init(coalesced: Bool = true, resampled: Bool = false, reduceMotion: Bool? = nil,
+             content: @escaping (PaneID) -> NSView = { _ in NSView() }) throws {
             _ = NSApplication.shared
+            provider = Panes(content: content)
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s",
                                                        layout: .splits(.split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))))],
                                 activeScreenID: "s", focusedPane: "p1")
@@ -364,11 +391,20 @@ import Testing
 
     /// A 20-frame drag invalidates none of the window's cursor rects: the handle and the panes set their
     /// cursors when the pointer enters (`cursorUpdate`), so the handle's frame moving every frame (here
-    /// once per frame on top of the drag's own layout) rebuilds nothing. Before, each frame change of the
-    /// handle (a `resetCursorRects` override) and each clip or axis change invalidated its rects.
+    /// once per frame on top of the drag's own layout) rebuilds nothing. The pane beside the divider is a
+    /// browser's omnibar, resized on every frame: before, its layout invalidated its region cursor rects
+    /// on each width change (the text area moved).
     @Test func aTwentyFrameDragInvalidatesNoCursorRects() throws {
-        let harness = try Harness()
+        var omnibars: [OmnibarPane] = []
+        let harness = try Harness { _ in
+            let view = OmnibarPane(frame: .zero)
+            omnibars.append(view)
+            return view
+        }
         defer { harness.close() }
+        #expect(omnibars.count == 2, "both panes are browser panes")
+        let bars = omnibars.map(\.bar)
+        let widths = bars.map(\.frame.width)
         let handle = try harness.handle
         let start = try harness.center()
         harness.root.layoutSubtreeIfNeeded()
@@ -385,8 +421,9 @@ import Testing
         handle.mouseUp(with: harness.event(.leftMouseUp, CGPoint(x: start.x - 100, y: start.y), at: 1000 + 21.0 / 120))
         #expect(harness.moves >= 20, "every frame moved the divider: \(harness.kinds)")
         #expect(harness.ratio < ratio)
+        #expect(bars.map(\.frame.width) != widths, "the drag resized the omnibars")
         #expect(harness.window.cursorRectInvalidations == before,
-                "cursor rects invalidated during the drag: \(harness.window.cursorRectInvalidations - before)")
+                "cursor rects invalidated during the drag: \(harness.window.invalidatedViews.dropFirst(before))")
     }
 
     /// With no frame-aligned input (the feature off), every drag event still moves the divider at once.

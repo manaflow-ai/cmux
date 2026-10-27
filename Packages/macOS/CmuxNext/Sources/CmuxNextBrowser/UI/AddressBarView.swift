@@ -64,8 +64,6 @@ public final class AddressBarView: NSView {
     private var reportedURL: URL?
     /// Whether the field's cursor rects were last built for editing.
     private var cursorRectsEditing = false
-    /// The text area the bar's cursor rects were last built for.
-    private var cursorTextArea = NSRect.zero
     /// The page's title, for a drag of the address out of the bar.
     public var pageTitle: (() -> String?)?
     /// The site icon of a page suggestion row, fetched as the tab fetches
@@ -222,6 +220,7 @@ public final class AddressBarView: NSView {
         density.start(in: self)
         pill.followLook(on: mainWork)
         followDisplay()
+        addCursorUpdateArea()
     }
 
     @available(*, unavailable)
@@ -536,21 +535,21 @@ public final class AddressBarView: NSView {
     }
 
     /// The I-beam over the text area, the arrow beside the chip and the
-    /// badges (`OmnibarPointer`); the rects follow the text area.
-    // cursor-rects-allow: two cursors by region (I-beam over the text, arrow beside it), rebuilt only when the text area moves (layout); ArrowCursorView's move tracker sets the same cursors outside the key window
-    public override func resetCursorRects() {
-        let text = textArea
-        cursorTextArea = text
-        addCursorRect(text, cursor: OmnibarPointer.cursor(.bar).cursor)
-        let edge = OmnibarPointer.cursor(.barEdge).cursor
-        if text.minX > bounds.minX { addCursorRect(NSRect(x: bounds.minX, y: bounds.minY, width: text.minX - bounds.minX, height: bounds.height), cursor: edge) }
-        if text.maxX < bounds.maxX { addCursorRect(NSRect(x: text.maxX, y: bounds.minY, width: bounds.maxX - text.maxX, height: bounds.height), cursor: edge) }
+    /// badges (`OmnibarPointer`), read from the text area when the pointer
+    /// enters the bar (its `.cursorUpdate` area, p04-input-090). A move
+    /// across the text area's edge is the row's (`ArrowCursorView`'s move
+    /// tracker sets the same rule on every move), so a resize of the bar, as
+    /// on every frame of a divider drag beside a browser pane, rebuilds none
+    /// of the window's cursor rects (Chrome: the view under the pointer names
+    /// its cursor, `ui/views/widget/root_view.cc` `RootView::UpdateCursor`).
+    public override func cursorUpdate(with event: NSEvent) {
+        let region: OmnibarPointer.Region = textArea.contains(convert(event.locationInWindow, from: nil)) ? .bar : .barEdge
+        OmnibarPointer.cursor(region).cursor.set()
     }
 
     public override func layout() {
         super.layout()
         applyBarLayout()
-        if textArea != cursorTextArea { window?.invalidateCursorRects(for: self) }
     }
 
     // MARK: Appearance

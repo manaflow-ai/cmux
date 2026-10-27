@@ -9,25 +9,43 @@ import CmuxNextDesign
 ///
 /// Chrome's view adds one cursor rect over its visible rect, and no browser UI lies over it: the
 /// find bar is a widget of its own. Here cmux's find bar, prompt bar, divider grab and crash page
-/// lie over the page view, so the cursor rects leave out ``cursorHoles`` and the crash page: the
-/// holes the in-process page window gets for the same views (``CEFHostView/occlusionRects``).
+/// lie over the page view and the grab moves on every frame of a divider drag, so the page shows its
+/// cursor in `.cursorUpdate` areas over the same pieces instead (p04-input-090): moving them swaps
+/// tracking areas and rebuilds none of the window's cursor rects. They leave out ``cursorHoles`` and
+/// the crash page: the holes the in-process page window gets for the same views (``CEFHostView/occlusionRects``).
 extension ChromiumHostPageView {
-    /// The page's cursor covers the visible page, less the views over it; with none, AppKit's.
-    // cursor-rects-allow: Chrome's own page view does this (render_widget_host_view_cocoa.mm `-resetCursorRects`); rebuilt when the page changes its cursor, a view over it moves or the page resizes
-    public override func resetCursorRects() {
-        guard let shownCursor else { return super.resetCursorRects() }
-        for rect in Self.uncovered(visibleRect, by: coveredRects) {
-            addCursorRect(rect, cursor: shownCursor)
+    public override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        updatePointerArea()
+        #endif
+        placeCursorAreas()
+    }
+
+    /// The pointer entered a piece of the visible page that no view covers (``cursorAreas``).
+    public override func cursorUpdate(with event: NSEvent) {
+        shownCursor?.set()
+    }
+
+    /// Places ``cursorAreas`` over the visible page less the views over it, none while the page shows no
+    /// cursor (AppKit's then). Nothing when the pieces are the same.
+    func placeCursorAreas() {
+        let rects = shownCursor == nil ? [] : Self.uncovered(visibleRect, by: coveredRects)
+        guard rects != cursorAreas.map(\.rect) else { return }
+        for area in cursorAreas { removeTrackingArea(area) }
+        cursorAreas = rects.map { rect in
+            let area = NSTrackingArea(rect: rect, options: [.cursorUpdate, .activeInKeyWindow], owner: self)
+            addTrackingArea(area)
+            return area
         }
     }
 
-    /// New cursor rects take effect only when the pointer next moves, so a cursor the page changes
-    /// under a still pointer (a hover style, a drag) shows now, as `-updateCursor:` does; never over
-    /// a view that covers the page.
+    /// An area sets its cursor only when the pointer enters it, so a cursor the page changes under a
+    /// still pointer (a hover style, a drag) shows now, as `-updateCursor:` does; never over a view
+    /// that covers the page.
     func showPageCursor() {
-        guard let window else { return }
-        window.invalidateCursorRects(for: self)
-        guard let shownCursor, window.isKeyWindow else { return }
+        placeCursorAreas()
+        guard let window, let shownCursor, window.isKeyWindow else { return }
         let pointer = convert(window.mouseLocationOutsideOfEventStream, from: nil)
         guard visibleRect.contains(pointer), !coveredRects.contains(where: { $0.contains(pointer) }) else { return }
         shownCursor.set()

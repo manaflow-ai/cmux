@@ -151,13 +151,25 @@ final class DividerHandleView: NSView {
     override func setFrameSize(_ newSize: NSSize) {
         let old = frame.size
         super.setFrameSize(newSize)
-        if newSize != old { needsLayout = true }
+        if newSize != old {
+            needsLayout = true
+            placeCursorArea()
+        }
+    }
+
+    /// A clipped handle's cursor area is in its own coordinates, so a move changes where the clip falls.
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        if cursorClip != nil { placeCursorArea() }
     }
 
     /// The part of the superview where the handle may take the pointer; nil for all of it. A strip
     /// divider that runs on under a docked column stops where the dock begins: AppKit's tracking areas
     /// ignore the views above, so its whole frame showed a resize cursor over the docked pane.
-    var cursorClip: CGRect?
+    /// The handle's cursor area follows it (``cursorArea``).
+    var cursorClip: CGRect? {
+        didSet { placeCursorArea() }
+    }
 
     /// Where the handle shows its resize cursor, in its own coordinates: its bounds within `cursorClip`.
     var cursorRectInBounds: CGRect {
@@ -169,6 +181,26 @@ final class DividerHandleView: NSView {
     /// AppKit's tracking area rebuilds of this handle, cumulative (StripPanContainerTests: a strip pan on
     /// the motion container makes none).
     private(set) var trackingAreaUpdates = 0
+
+    /// The `.cursorUpdate` area: exactly ``cursorRectInBounds``, as the cursor rect was, so the pointer
+    /// crossing the clip edge enters or leaves it and AppKit asks the view under the pointer for its
+    /// cursor (a docked pane's, or this handle's resize cursor). Nil while that rect is empty.
+    private(set) var cursorArea: NSTrackingArea?
+
+    /// Places ``cursorArea`` at ``cursorRectInBounds`` when that rect changed: a tracking area swap, never
+    /// a rebuild of the window's cursor rects (p04-input-090), and nothing when the rect is the same.
+    private func placeCursorArea() {
+        let rect = cursorRectInBounds
+        if let cursorArea {
+            guard cursorArea.rect != rect else { return }
+            removeTrackingArea(cursorArea)
+            self.cursorArea = nil
+        }
+        guard !rect.isEmpty else { return }
+        let area = NSTrackingArea(rect: rect, options: [.cursorUpdate, .activeInKeyWindow], owner: self)
+        addTrackingArea(area)
+        cursorArea = area
+    }
 
     /// The resize cursor across the handle's axis.
     var resizeCursor: NSCursor {
@@ -184,20 +216,20 @@ final class DividerHandleView: NSView {
         return resizeCursor
     }
 
-    /// The pointer entered the handle's area (p04-input-090): no cursor rects, so a frame change
-    /// during a drag or a strip pan rebuilds none of the window's.
+    /// The pointer entered ``cursorArea`` (p04-input-090): no cursor rects, so a frame change during a
+    /// drag or a strip pan rebuilds none of the window's. Mid-spring it leaves the cursor alone.
     override func cursorUpdate(with event: NSEvent) {
-        if let cursor = cursor(at: convert(event.locationInWindow, from: nil)) { cursor.set() } else { super.cursorUpdate(with: event) }
+        cursor(at: convert(event.locationInWindow, from: nil))?.set()
     }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreaUpdates += 1
         if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .cursorUpdate, .activeInKeyWindow, .inVisibleRect],
-                                  owner: self)
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
         addTrackingArea(area)
         trackingArea = area
+        placeCursorArea()
     }
 
     /// The drawn line in the superview's coordinates. It is native UI that
