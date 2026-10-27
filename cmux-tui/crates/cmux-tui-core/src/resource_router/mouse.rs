@@ -4,7 +4,7 @@
 use super::*;
 
 pub(super) fn validate_browser_mouse(fields: &Map<String, Value>) -> Result<(), ResourceError> {
-    let kind = fields["kind"].as_str().expect("catalog enum validation");
+    let kind = required_string(fields, "kind")?;
     let has_button = fields.contains_key("button");
     let has_click_count = fields.contains_key("click_count");
     if matches!(kind, "down" | "up") && !has_button {
@@ -23,7 +23,7 @@ pub(super) fn validate_browser_mouse(fields: &Map<String, Value>) -> Result<(), 
 }
 
 pub(super) fn validate_terminal_mouse(fields: &Map<String, Value>) -> Result<(), ResourceError> {
-    let kind = fields["kind"].as_str().expect("catalog enum validation");
+    let kind = required_string(fields, "kind")?;
     let has_button = fields.contains_key("button");
     let has_delta = fields.contains_key("delta_rows");
     let valid = match kind {

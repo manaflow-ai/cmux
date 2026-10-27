@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use ghostty_vt::CursorShape;
 use serde_json::{Value, json};
 
 use super::effects::{self, EffectPreparation};
@@ -26,15 +27,27 @@ pub(super) fn dispatch(
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     debug_assert!(handles(request.envelope.operation));
-    if request.envelope.operation == ResourceOperation::SessionCreationResolve {
-        mux.resolve_resource_path(ResourceTarget::Session, &request.selectors)?;
-        return mux
-            .resource_creation_resolution(required_string(&request.fields, "correlation_key")?)
-            .map_err(resource_operation_error);
-    }
-    if request.envelope.operation == ResourceOperation::SessionTerminalDefaultsUpdate {
-        return update_terminal_defaults(mux, request);
-    }
+    let effect = match request.envelope.operation {
+        ResourceOperation::SessionCreationResolve => {
+            mux.resolve_resource_path(ResourceTarget::Session, &request.selectors)?;
+            return mux
+                .resource_creation_resolution(required_string(&request.fields, "correlation_key")?)
+                .map_err(resource_operation_error);
+        }
+        ResourceOperation::SessionTerminalDefaultsUpdate => {
+            return update_terminal_defaults(mux, request);
+        }
+        ResourceOperation::SessionReloadConfig => SessionEffect::ReloadConfig,
+        ResourceOperation::SessionWindowTitleSet => SessionEffect::SetWindowTitle,
+        ResourceOperation::SessionWindowTitleClear => SessionEffect::ClearWindowTitle,
+        other => {
+            return Err(ResourceError::operation_failed(
+                super::operation_name(other),
+                "operation is not a session operation",
+                json!({}),
+            ));
+        }
+    };
     let prepared = effects::prepare(mux, &request, || {
         mux.resolve_resource_path(ResourceTarget::Session, &request.selectors)?;
         Ok(json!({"fields":request.fields}))
@@ -44,8 +57,8 @@ pub(super) fn dispatch(
         EffectPreparation::Execute(prepared) => prepared,
     };
 
-    let value = match request.envelope.operation {
-        ResourceOperation::SessionReloadConfig => {
+    let value = match effect {
+        SessionEffect::ReloadConfig => {
             match mux.request_config_reload() {
                 Ok(()) => {}
                 Err(ConfigReloadError::TimedOut) => {
@@ -65,23 +78,27 @@ pub(super) fn dispatch(
             }
             json!({"reloaded":true,"warnings":[]})
         }
-        ResourceOperation::SessionWindowTitleSet => {
-            let Some(title) = prepared.intent["fields"]["title"].as_str() else {
+        SessionEffect::SetWindowTitle => {
+            let Some(title) = prepared.intent.pointer("/fields/title").and_then(Value::as_str)
+            else {
                 return Err(effects::mark_indeterminate(mux, prepared));
             };
             mux.emit(MuxEvent::WindowTitleRequested(title.to_string()));
             json!({})
         }
-        ResourceOperation::SessionWindowTitleClear => {
+        SessionEffect::ClearWindowTitle => {
             mux.emit(MuxEvent::WindowTitleRequested(String::new()));
             json!({})
         }
-        ResourceOperation::SessionTerminalDefaultsUpdate => {
-            unreachable!("terminal defaults use the exact pure mutation path")
-        }
-        _ => unreachable!("handles guards every session operation"),
     };
     effects::commit_success(mux, prepared, value, json!([]))
+}
+
+/// The session operations that run through a durable effect.
+enum SessionEffect {
+    ReloadConfig,
+    SetWindowTitle,
+    ClearWindowTitle,
 }
 
 pub(super) fn commit_shutdown(
@@ -106,7 +123,8 @@ fn update_terminal_defaults(
     mux: &Arc<Mux>,
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
-    let complete = request.fields["complete"].as_bool().unwrap_or(false);
+    // The catalog fills the documented default (false) for an omitted `complete`.
+    let complete = request.fields.get("complete").and_then(Value::as_bool).unwrap_or(false);
     let base = if complete { DefaultColors::default() } else { mux.default_colors() };
     let colors = DefaultColors {
         fg: nullable_color(&request.fields, "foreground", base.fg)?,
@@ -114,42 +132,19 @@ fn update_terminal_defaults(
         cursor: nullable_color(&request.fields, "cursor", base.cursor)?,
         selection_bg: nullable_color(&request.fields, "selection_background", base.selection_bg)?,
         selection_fg: nullable_color(&request.fields, "selection_foreground", base.selection_fg)?,
-        cursor_style: match request.fields.get("cursor_style") {
-            None => base.cursor_style,
-            Some(Value::Null) => None,
-            Some(Value::String(value)) => Some(match value.as_str() {
-                "block" => ghostty_vt::CursorShape::Block,
-                "bar" => ghostty_vt::CursorShape::Bar,
-                "underline" => ghostty_vt::CursorShape::Underline,
-                _ => unreachable!("catalog validates cursor style"),
-            }),
-            Some(_) => unreachable!("catalog validates cursor style"),
-        },
+        cursor_style: nullable_cursor_style(&request.fields, base.cursor_style)?,
         cursor_blink: match request.fields.get("cursor_blink") {
             None => base.cursor_blink,
             Some(Value::Null) => None,
             Some(Value::Bool(value)) => Some(*value),
-            Some(_) => unreachable!("catalog validates cursor blink"),
-        },
-        palette: match request.fields.get("palette") {
-            None => base.palette,
-            Some(Value::Null) => [None; 256],
-            Some(Value::Object(entries)) => {
-                let mut palette = [None; 256];
-                for (index, value) in entries {
-                    let index = index.parse::<u8>().map_err(|_| {
-                        validation_error(
-                            "palette index must be a decimal value from 0 through 255",
-                            json!({"index":index}),
-                        )
-                    })?;
-                    let color = value.as_str().expect("catalog validates terminal palette values");
-                    palette[usize::from(index)] = Some(parse_hex_color(color)?);
-                }
-                palette
+            Some(_) => {
+                return Err(validation_error(
+                    "cursor_blink must be a boolean or null",
+                    json!({"field":"cursor_blink"}),
+                ));
             }
-            Some(_) => unreachable!("catalog validates terminal palette"),
         },
+        palette: nullable_palette(&request.fields, base.palette)?,
     };
     let value = terminal_defaults_snapshot(colors);
     let mutation = request.mutation().map_err(resource_operation_error)?;
@@ -176,18 +171,75 @@ fn nullable_color(
         None => Ok(inherited),
         Some(Value::Null) => Ok(None),
         Some(Value::String(value)) => parse_hex_color(value).map(Some),
-        Some(_) => unreachable!("catalog validates terminal colors"),
+        Some(_) => {
+            Err(validation_error("terminal colors must be strings or null", json!({"field":name})))
+        }
     }
 }
 
-fn parse_hex_color(value: &str) -> Result<Rgb, ResourceError> {
-    let Some(hex) = value.strip_prefix('#').filter(|hex| hex.len() == 6) else {
-        return Err(validation_error("terminal colors must use #rrggbb", json!({"color":value})));
+fn nullable_cursor_style(
+    fields: &serde_json::Map<String, Value>,
+    inherited: Option<CursorShape>,
+) -> Result<Option<CursorShape>, ResourceError> {
+    let Some(value) = fields.get("cursor_style") else {
+        return Ok(inherited);
     };
-    let parse = |range| {
-        u8::from_str_radix(&hex[range], 16).map_err(|_| {
-            validation_error("terminal colors must use #rrggbb", json!({"color":value}))
-        })
+    match value {
+        Value::Null => Ok(None),
+        Value::String(style) if style == "block" => Ok(Some(CursorShape::Block)),
+        Value::String(style) if style == "bar" => Ok(Some(CursorShape::Bar)),
+        Value::String(style) if style == "underline" => Ok(Some(CursorShape::Underline)),
+        _ => Err(validation_error(
+            "cursor_style must be block, bar, underline or null",
+            json!({"field":"cursor_style"}),
+        )),
+    }
+}
+
+fn nullable_palette(
+    fields: &serde_json::Map<String, Value>,
+    inherited: [Option<Rgb>; 256],
+) -> Result<[Option<Rgb>; 256], ResourceError> {
+    let entries = match fields.get("palette") {
+        None => return Ok(inherited),
+        Some(Value::Null) => return Ok([None; 256]),
+        Some(Value::Object(entries)) => entries,
+        Some(_) => {
+            return Err(validation_error(
+                "palette must be an object or null",
+                json!({"field":"palette"}),
+            ));
+        }
+    };
+    let mut palette = [None; 256];
+    for (index, value) in entries {
+        let invalid_index = || {
+            validation_error(
+                "palette index must be a decimal value from 0 through 255",
+                json!({"index":index}),
+            )
+        };
+        let position = index.parse::<u8>().map_err(|_| invalid_index())?;
+        let color = value.as_str().ok_or_else(|| {
+            validation_error("palette colors must be strings", json!({"index":index}))
+        })?;
+        let Some(slot) = palette.get_mut(usize::from(position)) else {
+            return Err(invalid_index());
+        };
+        *slot = Some(parse_hex_color(color)?);
+    }
+    Ok(palette)
+}
+
+fn parse_hex_color(value: &str) -> Result<Rgb, ResourceError> {
+    let invalid = || validation_error("terminal colors must use #rrggbb", json!({"color":value}));
+    // Six ASCII hex digits, so every two-byte range below is a char boundary.
+    let hex = value
+        .strip_prefix('#')
+        .filter(|hex| hex.len() == 6 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .ok_or_else(invalid)?;
+    let parse = |range: std::ops::Range<usize>| {
+        hex.get(range).and_then(|digits| u8::from_str_radix(digits, 16).ok()).ok_or_else(invalid)
     };
     Ok(Rgb { r: parse(0..2)?, g: parse(2..4)?, b: parse(4..6)? })
 }
@@ -208,9 +260,9 @@ fn terminal_defaults_snapshot(colors: DefaultColors) -> Value {
         "selection_background":colors.selection_bg.map(rgb_hex),
         "selection_foreground":colors.selection_fg.map(rgb_hex),
         "cursor_style":colors.cursor_style.map(|style| match style {
-            ghostty_vt::CursorShape::Bar => "bar",
-            ghostty_vt::CursorShape::Underline => "underline",
-            ghostty_vt::CursorShape::Block | ghostty_vt::CursorShape::BlockHollow => "block",
+            CursorShape::Bar => "bar",
+            CursorShape::Underline => "underline",
+            CursorShape::Block | CursorShape::BlockHollow => "block",
         }),
         "cursor_blink":colors.cursor_blink,
         "palette":palette,

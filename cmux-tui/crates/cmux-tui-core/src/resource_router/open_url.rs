@@ -217,7 +217,7 @@ impl StepKeys {
             digest.update([0]);
         }
         let digest = digest.finalize();
-        let hash: String = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect();
+        let hash: String = digest.iter().take(16).map(|byte| format!("{byte:02x}")).collect();
         Self {
             create: format!("open-url-create-{hash}"),
             select: format!("open-url-select-{hash}"),
@@ -372,17 +372,35 @@ fn reusable_browser(mux: &Mux, side: &RightSide, frontend_only: bool) -> Option<
     })
 }
 
+/// A create step's public value marked `"reused": false`. A step that returned
+/// no object is a broken commit, reported to the caller.
+fn newly_created(value: Option<&Value>) -> Result<Value, ResourceError> {
+    let Some(Value::Object(object)) = value else {
+        return Err(ResourceError::operation_failed(
+            OPERATION,
+            "a create step returned no public value",
+            json!({}),
+        ));
+    };
+    let mut object = object.clone();
+    object.insert("reused".to_string(), Value::Bool(false));
+    Ok(Value::Object(object))
+}
+
 /// A created step's value, when this request's `tab.create_browser` step
 /// already ran.
 fn created_before(mux: &Arc<Mux>, steps: &StepKeys) -> Result<Option<Value>, ResourceError> {
     let resolution =
         mux.resource_creation_resolution(&steps.create).map_err(resource_operation_error)?;
-    if resolution["state"] != "created" || resolution["created_path"]["kind"] != "browser" {
+    let created = resolution
+        .get("created_path")
+        .filter(|path| path.get("kind").and_then(Value::as_str) == Some("browser"));
+    let (Some("created"), Some(created)) =
+        (resolution.get("state").and_then(Value::as_str), created)
+    else {
         return Ok(None);
-    }
-    let mut value = resolution["created_path"].clone();
-    value["reused"] = json!(false);
-    Ok(Some(value))
+    };
+    newly_created(Some(created)).map(Some)
 }
 
 /// A created frontend tab's value, when this request's frontend create step
@@ -458,9 +476,7 @@ impl Call<'_> {
             json!({"url": self.url}),
             Some(&steps.create),
         )?;
-        let mut value = created["value"].clone();
-        value["reused"] = json!(false);
-        Ok(value)
+        newly_created(created.get("value"))
     }
 
     /// A frontend browser tab in `pane` (the `new-frontend-browser-tab`
@@ -554,9 +570,8 @@ impl Call<'_> {
                 .map(|commit| commit.result)
         };
         if !frontend {
-            let mut value = commit(fields).map_err(resource_operation_error)?;
-            value["reused"] = json!(false);
-            return Ok(value);
+            let value = commit(fields).map_err(resource_operation_error)?;
+            return newly_created(Some(&value));
         }
         let fingerprint = json!({
             "operation": OPERATION,
@@ -606,7 +621,8 @@ impl Call<'_> {
         let value =
             self.commit_create(ResourceOperation::PaneSplit, selectors, fields, steps, frontend)?;
         // A new pane takes the focus; it goes back to the pane that had it.
-        if let Some(focused) = focused.filter(|pane| value["pane_id"] != pane.as_str()) {
+        let new_pane = value.get("pane_id").and_then(Value::as_str);
+        if let Some(focused) = focused.filter(|pane| new_pane != Some(pane.as_str())) {
             self.inner(
                 ResourceOperation::PaneFocus,
                 Map::from_iter([("pane".to_string(), json!(focused.as_str()))]),
@@ -676,5 +692,30 @@ impl Call<'_> {
             "browser_id": reuse.browser.as_str(),
             "reused": true,
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn newly_created_marks_objects_and_reports_missing_values() {
+        let value = newly_created(Some(&json!({"browser_id":"b"}))).unwrap();
+        assert_eq!(value, json!({"browser_id":"b","reused":false}));
+        for broken in [None, Some(&Value::Null), Some(&json!("browser"))] {
+            let error = newly_created(broken).unwrap_err();
+            assert_eq!(error.code, "operation.failed");
+        }
+    }
+
+    #[test]
+    fn step_keys_hash_the_first_sixteen_digest_bytes() {
+        let workspace = WorkspacePublicId::parse(format!("ws_{:032x}", 1)).unwrap();
+        let keys = StepKeys::new("key", &workspace, "https://example.com");
+        let hash = keys.create.strip_prefix("open-url-create-").unwrap();
+        assert_eq!(hash.len(), 32);
+        assert!(hash.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert_eq!(keys.select, format!("open-url-select-{hash}"));
     }
 }
