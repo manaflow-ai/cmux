@@ -37,8 +37,8 @@ public struct FrameSequenceReport: Sendable, Equatable {
 /// - An ``Interaction``, from ``FrameScheduler/beginSequence(_:)`` to ``FrameScheduler/endSequence(_:)``, as
 ///   Chrome starts and stops one tracker per sequence type (`FrameSequenceTrackerCollection::StartSequence`):
 ///   ``Interaction/motion`` for a layout `motion.run` (on the CPU or the render server; other animation clients,
-///   such as autoscroll, are not layout motion), ``Interaction/scroll`` for a terminal or page scroll gesture and
-///   its momentum (``ScrollFrameSequences``), ``Interaction/resize`` for a live window resize and
+///   such as autoscroll, are not layout motion), ``Interaction/scroll`` for a terminal or page scroll (a gesture
+///   with its momentum, or a wheel's latched ticks: ``ScrollFrameSequences``), ``Interaction/resize`` for a live window resize and
 ///   ``Interaction/drag`` for a tab drag and its landing. Each records `smoothness.dropped_pct.<type>`; a run
 ///   shorter than ``minimumReportedFrames`` carries into the next one of its type, as Chrome merges a short
 ///   sequence into the next of its type (`kMinFramesForThroughputMetric`, cc/metrics/frame_sequence_metrics.cc).
@@ -58,7 +58,7 @@ public final class FrameSequenceTracker {
     public enum Kind: Sendable, Equatable {
         /// A layout `motion.run`.
         case motion
-        /// A scroll gesture or its momentum.
+        /// A scroll: a gesture with its momentum, or a wheel's latched ticks.
         case scroll
         /// A live window resize.
         case resize
@@ -73,7 +73,7 @@ public final class FrameSequenceTracker {
     public enum Interaction: Int, Sendable, CaseIterable {
         /// A layout `motion.run` (`LayoutMotionTrace`).
         case motion
-        /// A terminal or page scroll gesture, or its momentum (``ScrollFrameSequences``).
+        /// A terminal or page scroll, a gesture with its momentum or a wheel's latched ticks (``ScrollFrameSequences``).
         case scroll
         /// A live window resize (`LiveResizeWindows`, from will-start to did-end).
         case resize

@@ -521,7 +521,6 @@ final class AppServices {
         classifier: CmuxApplication.inputTargets { [weak self] page in
             self?.madeAgentTabs?.views.values.contains { $0.chromiumPage?.contentView.window === page } == true })
     private var mouseDownSubscription: InputSubscription?  // a click after dispatch (start)
-    private var scrollSequenceSubscription: InputSubscription?  // each scroll gesture and its momentum: smoothness.dropped_pct.scroll (start)
     private var scrollerStyleWatch: EventSubscription?  // the scroll bar setting's notice, for every native scroller
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
     private(set) lazy var routeKeyDown: (NSEvent, NSWindow?) -> Bool = PerfLabCanaryKeyDown(features: { [weak self] in self?.features })
@@ -746,9 +745,11 @@ final class AppServices {
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
         IconAssetImages.shared.attach(mainWork: mainWork)  // before any view maps an asset icon
-        // Its scroll events are timed to their frame (`key.scroll_frame`) by their latency slots (``inputLatency``).
+        // Its scroll events are timed to their frame (`key.scroll_frame`) by their latency slots (``inputLatency``),
+        // and each scroll is a frame sequence (`smoothness.dropped_pct.scroll`) on its window's scheduler.
         inputDispatch = InputDispatchContext(discreteInput: { [mainWork] in mainWork.noteDiscreteInput(expectsFrame: $0) },
-                                             discreteDispatch: { [mainWork] in mainWork.noteDiscreteDispatch(began: $0) })
+                                             discreteDispatch: { [mainWork] in mainWork.noteDiscreteDispatch(began: $0) },
+                                             scrollGestures: { [scrollSequences = ScrollFrameSequences()] in scrollSequences.note($0, in: $1) })
         daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork, wireStats: wireStats,
                                hangWatch: hangWatch, crashKeys: crashKeys)
         self.launchReveal = launchReveal
@@ -909,7 +910,6 @@ final class AppServices {
             windowHints.cancel()
             keyRouter.cancelChord()
         }
-        scrollSequenceSubscription = inputTap.subscribe(class: [.scroll, .button]) { [scrollSequences = ScrollFrameSequences()] event in scrollSequences.note(event) }
         scrollerStyleWatch = SystemScrollers.follow(settingChangesOn: appEvents)
         AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
     }

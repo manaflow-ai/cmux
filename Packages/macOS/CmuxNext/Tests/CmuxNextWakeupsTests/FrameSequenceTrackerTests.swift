@@ -341,73 +341,135 @@ import Testing
     private static func micros(_ seconds: CFTimeInterval) -> Int64 { Int64((seconds * 1_000_000).rounded()) }
 }
 
-/// ScrollFrameSequences (p09-observability 113) on synthetic scroll phases: a gesture is one scroll sequence from its
-/// `began` to its end and its momentum another, on the scheduler of the window it began in (Chrome's
-/// `StartScrollSequence` at ScrollBegin, stopped at ScrollEnd, cc/trees/layer_tree_host_impl.cc).
+/// ScrollFrameSequences (p09-observability 113) on synthetic scroll events: a scroll is one scroll sequence while its
+/// events latch, by Chrome's `MouseWheelPhaseHandler` rules (content/browser/renderer_host/input/
+/// mouse_wheel_phase_handler.cc): a gesture with its momentum, or a wheel's ticks until none comes for the latching
+/// timeout, closed on the open scheduler's own frames.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct ScrollFrameSequencesTests {
     private static let base: CFTimeInterval = 1000
 
-    /// A flick: the gesture's 5 frames, then its momentum's 4 frames with 2 refreshes missed, end as two scroll
-    /// sequences, and the scheduler goes idle after the momentum ends.
-    @Test func aGestureAndItsMomentumAreTwoScrollSequences() {
+    /// A scheduler, its ended sequences, and frames at a refresh interval from ``base``.
+    @MainActor private final class Rig {
         let scheduler = FrameScheduler.testing(clock: ManualClock()) { _ in SequenceLink() }
         let ends = EndBox()
-        scheduler.sequences.onSequenceEnd = { ends.reports.append(($0, $1)) }
-        let scrolls = ScrollFrameSequences()
-        let interval = 1.0 / 120
+        let interval: Double
         var refresh = 0.0
+
+        init(hz: Double = 120) {
+            interval = 1 / hz
+            let ends = self.ends
+            scheduler.sequences.onSequenceEnd = { ends.reports.append(($0, $1)) }
+        }
+
+        /// The time of the next frame.
+        var now: CFTimeInterval { ScrollFrameSequencesTests.base + refresh * interval }
+
         func tick(_ frames: Int) {
             for _ in 0..<frames {
-                scheduler.frameDidFire(timestamp: Self.base + refresh * interval, refreshInterval: interval)
+                scheduler.frameDidFire(timestamp: now, refreshInterval: interval)
                 refresh += 1
             }
         }
-        scrolls.note(phase: .mayBegin, momentumPhase: [], scheduler: scheduler)
-        #expect(!scrolls.isOpen, "a touch that may begin a scroll opened a sequence")
-        scrolls.note(phase: .began, momentumPhase: [], scheduler: scheduler)
-        #expect(scheduler.sequences.isOpen(.scroll) && scheduler.hasLink)
-        tick(3)
-        scrolls.note(phase: .changed, momentumPhase: [], scheduler: scheduler)
-        tick(2)
-        scrolls.note(phase: .ended, momentumPhase: [], scheduler: scheduler)
-        #expect(!scheduler.sequences.isOpen(.scroll), "the gesture's end left its sequence open")
-        scrolls.note(phase: [], momentumPhase: .began, scheduler: scheduler)
-        tick(1)
-        refresh += 2
-        tick(3)
-        scrolls.note(phase: [], momentumPhase: .changed, scheduler: scheduler)
-        scrolls.note(phase: [], momentumPhase: .ended, scheduler: scheduler)
-        #expect(!scrolls.isOpen && !scheduler.hasLink, "the momentum's end left the scheduler ticking")
-        #expect(ends.reports.map { $0.0 } == [.scroll, .scroll])
-        #expect(ends.reports.map { $0.1 } == [FrameSequenceReport(expected: 5, produced: 5), FrameSequenceReport(expected: 6, produced: 4)])
     }
 
-    /// A wheel tick with no phase has no end to close a sequence: it opens none and never asks for a scheduler.
-    @Test func aPhaselessWheelTickOpensNothing() {
+    /// A flick: the gesture's 5 frames, its end, then its momentum's 4 frames with 2 refreshes missed, end as one
+    /// scroll sequence, and the scheduler goes idle when the momentum ends.
+    @Test func aFlickIsOneScrollSequence() {
+        let rig = Rig()
+        let scrolls = ScrollFrameSequences()
+        scrolls.note(phase: .mayBegin, momentumPhase: [], at: rig.now, scheduler: rig.scheduler)
+        #expect(!scrolls.isOpen, "a touch that may begin a scroll opened a sequence")
+        scrolls.note(phase: .began, momentumPhase: [], at: rig.now, scheduler: rig.scheduler)
+        #expect(rig.scheduler.sequences.isOpen(.scroll) && rig.scheduler.hasLink)
+        rig.tick(3)
+        scrolls.note(phase: .changed, momentumPhase: [], at: rig.now, scheduler: rig.scheduler)
+        rig.tick(2)
+        scrolls.note(phase: .ended, momentumPhase: [], at: rig.now, scheduler: rig.scheduler)
+        #expect(rig.scheduler.sequences.isOpen(.scroll), "the gesture's end closed it before its momentum")
+        scrolls.note(phase: [], momentumPhase: .began, at: rig.now, scheduler: rig.scheduler)
+        rig.tick(1)
+        rig.refresh += 2
+        rig.tick(3)
+        scrolls.note(phase: [], momentumPhase: .changed, at: rig.now, scheduler: rig.scheduler)
+        scrolls.note(phase: [], momentumPhase: .ended, at: rig.now, scheduler: rig.scheduler)
+        #expect(!scrolls.isOpen && !rig.scheduler.hasLink, "the momentum's end left the scheduler ticking")
+        #expect(rig.ends.reports.map { $0.0 } == [.scroll])
+        #expect(rig.ends.reports.map { $0.1 } == [FrameSequenceReport(expected: 11, produced: 9)])
+    }
+
+    /// A gesture that ends with no momentum closes on the first frame past the momentum wait (100 ms).
+    @Test func aGestureWithNoMomentumClosesAfterTheMomentumWait() throws {
+        let rig = Rig(hz: 60)
+        let scrolls = ScrollFrameSequences()
+        scrolls.note(phase: .began, momentumPhase: [], at: rig.now, scheduler: rig.scheduler)
+        rig.tick(2)
+        let ended = rig.now
+        scrolls.note(phase: .ended, momentumPhase: [], at: ended, scheduler: rig.scheduler)
+        while rig.now < ended + 0.1 {
+            rig.tick(1)
+            #expect(scrolls.isOpen, "it closed before the momentum wait ran out")
+        }
+        rig.tick(1)
+        #expect(!scrolls.isOpen && !rig.scheduler.sequences.isOpen(.scroll) && !rig.scheduler.hasLink)
+        let (kind, report) = try #require(rig.ends.only)
+        #expect(kind == .scroll && report.dropped == 0)
+    }
+
+    /// A discrete mouse wheel (ticks with no phase): its ticks latch into one sequence on the scheduler asked for at
+    /// the first tick, which closes on the first frame 500 ms after the last tick.
+    @Test func wheelTicksAreOneSequenceUntilTheyStop() throws {
+        let rig = Rig(hz: 60)
         let scrolls = ScrollFrameSequences()
         let asked = TickCount()
-        for _ in 0..<5 {
-            scrolls.note(phase: [], momentumPhase: [], scheduler: { () -> FrameScheduler? in asked.value += 1; return nil }())
+        let scheduler = rig.scheduler
+        func wheel() {
+            scrolls.note(phase: [], momentumPhase: [], at: rig.now, scheduler: { () -> FrameScheduler? in asked.value += 1; return scheduler }())
         }
-        #expect(!scrolls.isOpen)
-        #expect(asked.value == 0)
+        wheel()
+        #expect(scheduler.sequences.isOpen(.scroll) && scheduler.hasLink, "a wheel tick opened no sequence")
+        rig.tick(18)
+        wheel()
+        let last = rig.now
+        while rig.now < last + 0.5 {
+            rig.tick(1)
+            #expect(scrolls.isOpen, "it closed before the latching timeout after the last tick")
+        }
+        rig.tick(1)
+        #expect(!scrolls.isOpen && !scheduler.hasLink, "the wheel's sequence outlived its latching timeout")
+        #expect(asked.value == 1, "a latched tick looked up its scheduler again")
+        let (kind, report) = try #require(rig.ends.only)
+        #expect(kind == .scroll && report.produced == report.expected)
     }
 
-    /// A begin while a sequence is open (its end was lost, or the gesture moved windows) ends that one on its own
-    /// scheduler first; a cancelled gesture ends its sequence; an end with none open does nothing.
-    @Test func aNewBeginEndsTheOpenSequenceFirst() {
+    /// A scroll after a timeout no frame reached (the window stopped ticking) closes the stale sequence and opens
+    /// a new one.
+    @Test func aScrollPastAStaleTimeoutStartsANewSequence() {
+        let rig = Rig(hz: 60)
+        let scrolls = ScrollFrameSequences()
+        scrolls.note(phase: [], momentumPhase: [], at: rig.now, scheduler: rig.scheduler)
+        rig.tick(1)
+        scrolls.note(phase: [], momentumPhase: [], at: rig.now + 0.6, scheduler: rig.scheduler)
+        #expect(rig.ends.reports.map { $0.0 } == [.scroll], "the stale sequence did not end")
+        #expect(scrolls.isOpen && rig.scheduler.sequences.isOpen(.scroll), "the new tick opened no sequence")
+        scrolls.end()
+        #expect(!rig.scheduler.hasLink)
+    }
+
+    /// A begin on another scheduler (the end was lost, or the gesture moved windows) ends the open sequence on its
+    /// own scheduler first; a cancelled gesture ends its sequence; a gesture's end with none open opens none.
+    @Test func aBeginElsewhereEndsTheOpenSequenceFirst() {
         let first = FrameScheduler.testing(clock: ManualClock()) { _ in SequenceLink() }
         let second = FrameScheduler.testing(clock: ManualClock()) { _ in SequenceLink() }
         let scrolls = ScrollFrameSequences()
-        scrolls.note(phase: .began, momentumPhase: [], scheduler: first)
+        scrolls.note(phase: .began, momentumPhase: [], at: Self.base, scheduler: first)
         first.frameDidFire(timestamp: Self.base, refreshInterval: 1.0 / 60)
-        scrolls.note(phase: .began, momentumPhase: [], scheduler: second)
+        scrolls.note(phase: .began, momentumPhase: [], at: Self.base + 0.01, scheduler: second)
         #expect(!first.sequences.isOpen(.scroll) && !first.hasLink, "the lost gesture's sequence stayed open")
         #expect(second.sequences.isOpen(.scroll))
-        scrolls.note(phase: .cancelled, momentumPhase: [], scheduler: second)
+        scrolls.note(phase: .cancelled, momentumPhase: [], at: Self.base + 0.02, scheduler: second)
         #expect(!second.sequences.isOpen(.scroll) && !scrolls.isOpen)
-        scrolls.note(phase: .ended, momentumPhase: [], scheduler: second)
-        scrolls.end()
+        scrolls.note(phase: .ended, momentumPhase: [], at: Self.base + 0.03, scheduler: second)
+        #expect(!scrolls.isOpen, "a gesture's end with none open opened one")
         #expect(!second.hasLink)
     }
 }

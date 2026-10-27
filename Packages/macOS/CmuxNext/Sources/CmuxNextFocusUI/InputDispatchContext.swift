@@ -61,6 +61,8 @@ public final class InputDispatchContext {
     private let discreteDispatch: @MainActor (_ began: Bool) -> Void
     /// Whether a window of `event` still has a display request pending when its dispatch ends.
     private let displayPending: @MainActor (NSEvent) -> Bool
+    /// Told each scroll and mouse-button event dispatched here, with the window it went to.
+    private let scrollGestures: @MainActor (NSEvent, NSWindow?) -> Void
 
     /// A context with no event being dispatched.
     ///
@@ -74,14 +76,18 @@ public final class InputDispatchContext {
     ///     reported (the App passes its scheduler's `noteDiscreteDispatch(began:)`; the default ignores it).
     ///   - displayPending: Whether a view asked for display during the dispatch (the default reads the event's
     ///     window and the key window, ``windowsNeedDisplay(for:)``; tests inject one).
+    ///   - scrollGestures: Told each scroll and mouse-button event as its dispatch begins, with the window it went
+    ///     to (the App passes its `ScrollFrameSequences`; the default ignores them).
     public init(scrollFrames: any ScrollFrameTiming = NoScrollFrameTiming(),
                 discreteInput: @escaping @MainActor (_ expectsFrame: Bool) -> Void = { _ in },
                 discreteDispatch: @escaping @MainActor (_ began: Bool) -> Void = { _ in },
-                displayPending: @escaping @MainActor (NSEvent) -> Bool = InputDispatchContext.windowsNeedDisplay(for:)) {
+                displayPending: @escaping @MainActor (NSEvent) -> Bool = InputDispatchContext.windowsNeedDisplay(for:),
+                scrollGestures: @escaping @MainActor (NSEvent, NSWindow?) -> Void = { _, _ in }) {
         self.scrollFrames = scrollFrames
         self.discreteInput = discreteInput
         self.discreteDispatch = discreteDispatch
         self.displayPending = displayPending
+        self.scrollGestures = scrollGestures
     }
 
     /// The dispatch in progress changed something that shows in the next frame (an action ran, the terminal took
@@ -161,20 +167,24 @@ public final class InputDispatchContext {
     public var isKeyDown: Bool { stack.last?.event.type == .keyDown }
 
     /// Runs `body` with `event` as the event being dispatched. A scroll event is timed to the frame that shows
-    /// it (`key.scroll_frame`): from its dispatch to the commit that ends the turn, with who took it. A discrete
+    /// it (`key.scroll_frame`): from its dispatch to the commit that ends the turn, with who took it; it and a mouse
+    /// button also go to the scroll frame sequences (`scrollGestures`), with `window`. A discrete
     /// input reports whether its turn expects a frame when `body` returns, or at the first wait of a run loop nested
     /// in `body`. A dispatch nested in another (the same event sent through the app by `debug.key`, a move inside a
     /// tracking loop) hands its frame expectation to the outer one.
     ///
     /// - Parameters:
     ///   - event: The event `body` dispatches.
+    ///   - window: The window it goes to; nil: `event.window` (a dispatcher names it for a synthesized scroll,
+    ///     whose `window` is nil).
     ///   - body: The dispatch.
     /// - Returns: What `body` returns.
     /// - Throws: What `body` throws.
-    public func dispatching<T>(_ event: NSEvent, _ body: () throws -> T) rethrows -> T {
+    public func dispatching<T>(_ event: NSEvent, in window: NSWindow? = nil, _ body: () throws -> T) rethrows -> T {
         let isScroll = event.type == .scrollWheel
         if isScroll { scrollFrames.begin(phase: scrollFramePhase(of: event), eventTimestamp: event.timestamp) }
         let isDiscrete = Self.isDiscreteInput(event.type) && stack.last?.event !== event
+        if isScroll || (isDiscrete && event.type != .keyDown) { scrollGestures(event, window ?? event.window) }
         stack.append(Dispatch(event: event, isScroll: isScroll, isDiscrete: isDiscrete))
         if isDiscrete { watchNestedRunLoops(opening: true) }
         defer { endDispatch() }

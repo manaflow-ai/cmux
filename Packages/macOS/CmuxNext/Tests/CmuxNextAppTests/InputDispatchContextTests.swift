@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextFocusUI
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// ``InputDispatchContext``: nested dispatches (a synthetic event sent from inside another dispatch, as
@@ -72,4 +74,56 @@ struct InputDispatchContextTests {
         #expect(context.answering(input: 6) { context.inputTimestamp } == 6)
         #expect(context.inputTimestamp == nil, "the carried input ends with its work")
     }
+
+    /// A trackpad scroll as `debug.mouse` synthesizes it: `NSEvent(cgEvent:)`, so its `window` is nil.
+    private static func scroll(_ phase: CGScrollPhase) throws -> NSEvent {
+        _ = NSApplication.shared
+        let cg = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -10, wheel2: 0, wheel3: 0))
+        cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+        cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase.rawValue))
+        return try #require(NSEvent(cgEvent: cg))
+    }
+
+    /// A windowless synthesized scroll dispatched with the window it goes to (`debug.mouse`'s path, which never
+    /// passes `sendEvent` or the input tap) opens the scroll frame sequence on that window's scheduler; the gesture's
+    /// end closes it once the momentum wait passes, and a click ends the next one (p09-observability-113).
+    @Test func aWindowlessSynthesizedScrollOpensAndClosesTheScrollSequence() throws {
+        let scheduler = FrameScheduler.testing(clock: ManualClock(), ledger: WakeupLedger(), mediaTime: { 1000 }) { _ in DispatchTestLink() }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        let looked = WindowLog()
+        let scrolls = ScrollFrameSequences(schedulerOf: { looked.windows.append($0); return scheduler })
+        let context = InputDispatchContext(scrollGestures: { scrolls.note($0, in: $1) })
+
+        let began = try Self.scroll(.began)
+        #expect(began.window == nil)
+        context.dispatching(began, in: window) {}
+        #expect(scheduler.sequences.isOpen(.scroll), "a windowless synthesized scroll opened no scroll sequence")
+        #expect(looked.windows.count == 1 && looked.windows.first === window, "the scroll did not count on its dispatch window")
+        scheduler.frameDidFire(timestamp: began.timestamp, refreshInterval: 1.0 / 60)
+        let ended = try Self.scroll(.ended)
+        context.dispatching(ended, in: window) {}
+        #expect(scheduler.sequences.isOpen(.scroll), "the gesture's end closed it before the momentum wait")
+        scheduler.frameDidFire(timestamp: ended.timestamp + 0.2, refreshInterval: 1.0 / 60)
+        #expect(!scheduler.sequences.isOpen(.scroll) && !scrolls.isOpen, "the momentum wait did not close it")
+
+        let next = try Self.scroll(.began)
+        let click = try Self.event(.leftMouseDown, at: 3)
+        context.dispatching(next, in: window) {}
+        #expect(scheduler.sequences.isOpen(.scroll))
+        context.dispatching(click) {}
+        #expect(!scheduler.sequences.isOpen(.scroll) && !scrolls.isOpen, "a click left the scroll sequence open")
+    }
+}
+
+/// The windows a test's scroll sequences looked up a scheduler for.
+@MainActor
+private final class WindowLog {
+    var windows: [NSWindow] = []
+}
+
+private final class DispatchTestLink: FrameLink {
+    var isPaused = false
+    func invalidate() {}
 }

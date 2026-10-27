@@ -186,7 +186,7 @@ extension DebugMouse {
             return .object(["error": .string("could not synthesize the page scroll")])
         }
         let latencySlot = services.inputLatency.willDeliver(event, in: page, to: target)
-        let layoutTook = services.inputDispatch.dispatching(event) { () -> Bool in
+        let layoutTook = services.inputDispatch.dispatching(event, in: page) { () -> Bool in
             if root.handleMonitoredScroll(event, from: page, at: location) == nil { return true }
             target.scrollWheel(with: event)
             return false

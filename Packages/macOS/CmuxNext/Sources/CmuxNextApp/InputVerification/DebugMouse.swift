@@ -109,7 +109,7 @@ enum DebugMouse {
             let root = sequence(first: target, next: \.superview).lazy.compactMap { $0 as? LayoutRootView }.first
             let movesPointer = params["hover"]?.boolValue != false
             let latencySlot = services.inputLatency.willDeliver(event, in: window, to: target)
-            let layoutTook = services.inputDispatch.dispatching(event) { () -> Bool in
+            let layoutTook = services.inputDispatch.dispatching(event, in: window) { () -> Bool in
                 if let root, root.handleScroll(event, locationInWindow: baseLocation(point, in: window)) { return true }
                 target.scrollWheel(with: event)
                 return false
