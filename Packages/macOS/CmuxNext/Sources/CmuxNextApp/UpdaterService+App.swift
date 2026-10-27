@@ -18,6 +18,12 @@ extension UpdaterService {
     func attach(sheet: UpdateSheetController, services: AppServices, simulating: @escaping @MainActor @Sendable () -> Bool) {
         presentUpdateUI = { [weak services] in sheet.present(in: services?.windows.active?.window) }
         willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
+        relaunchBehind = { [weak services] willQuit, declined, inFront in
+            let behind = UpdateRelaunchBehind(app: Bundle.main.bundleURL, bundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+            // A quit the user refuses (a quit dialog's Cancel) stops the helper and stages the update again.
+            services?.quit.onQuitRefused = { behind.quitRefused() }
+            behind.start(willQuit: willQuit, declined: declined, inFront: inFront)
+        }
         relaunchBlockers = { [weak self, weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services))] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
         // The click: the windows leave the screen at once (S1); a failed
         // install brings them back.

@@ -57,6 +57,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .watchChat: "watchChat"
         case .chatsPage: "chatsPage"
         case .environment: "environment"
+        case .cloudMachine: "cloudMachine"
         case .appAction: "appAction"
         case .paneAction, .diffTurn: "paneAction"
         case .preview: "preview"
