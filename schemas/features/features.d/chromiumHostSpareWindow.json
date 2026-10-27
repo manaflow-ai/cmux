@@ -1,0 +1,15 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "chromiumHostSpareWindow",
+  "owner": "PL-cef-layer",
+  "description": "With the Chromium host, the warm start keeps a spare Chromium window as in process, instead of relying on Chromium's own spare renderer alone; the bench arm that measures whether the spare renderer meets the new tab target.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "benchOnly": true,
+  "params": [],
+  "stories": ["new-browser-tab"],
+  "sticky": false,
+  "runtimeMutable": false
+}

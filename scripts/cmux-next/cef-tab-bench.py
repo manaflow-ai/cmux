@@ -27,6 +27,11 @@ Every series is also written as one cmux-perf-result/v1 file into `--out` throug
 (new_tab_bench_report.py); the JSON lists them under `results_v1`. The Chromium cases are the story
 new-browser-tab, the WebKit ones new-browser-tab-webkit (scripts/perf-lab/stories.d).
 
+`--host` runs Chromium in the Chromium Host (debug tunable `browserHost.helper`), where the warm start builds no spare
+window and the new tab's renderer is content's spare RenderProcessHost (p01-process-086); `--host-spare-window` adds
+the bench-only feature `chromiumHostSpareWindow` (a Labs local choice), the spare window arm: run both and write the
+cold_pane and second_pane visible p95 of each in the PR, to show whether the spare renderer alone meets 100 ms.
+
 `--sessions light,stress`: after the light rounds, builds STRESS (scripts/cmux-next/perf-stress-session.py:
 60 workspaces, the measured one 14 panes x 6 tabs, 10 others with Chromium pages, 10 printing
 terminals) and runs the cases that need no split in the measured workspace's focused pane.
@@ -57,6 +62,9 @@ def parse(argv=None):
     parser.add_argument("--sessions", default="light", help="light, stress, or both (comma list, in that order)")
     parser.add_argument("--profile", type=int, default=0, help="after the light rounds: N profiled new tabs per engine under a Time Profiler (main-thread top frames)")
     parser.add_argument("--spare-cost", action="store_true", help="after the light rounds: the spare Chromium window's resident memory")
+    parser.add_argument("--host", action="store_true", help="Chromium in the Chromium Host (debug tunable browserHost.helper)")
+    parser.add_argument("--host-spare-window", action="store_true",
+                        help="with --host: the bench-only feature chromiumHostSpareWindow, a spare window as in process")
     parser.add_argument("--budget-ms", type=float, default=10.0, help="visible p95 target (reported, not enforced)")
     parser.add_argument("--out", default="/tmp")
     parser.add_argument("--json")
@@ -362,6 +370,21 @@ def summary(rows):
     return out
 
 
+def host_launch(options, scratch):
+    """The launch env and Labs local features of the arm: `--host` writes a debug tunables file with
+    `browserHost.helper`, `--host-spare-window` adds `chromiumHostSpareWindow` (bench-only, a local choice since the app
+    strips an inherited CMUX_ENABLE_FEATURES). Neither: the in-process engine, no change."""
+    if options.host_spare_window and not options.host:
+        raise SystemExit("--host-spare-window needs --host")
+    if not options.host:
+        return {}, {}
+    tunables = os.path.join(scratch, "debug-tunables.json")
+    with open(tunables, "w") as handle:
+        json.dump({"version": 1, "values": {"browserHost.helper": True}}, handle)
+    features = {"chromiumHostSpareWindow": True} if options.host_spare_window else {}
+    return {"CMUX_NEXT_DEBUG_TUNABLES_FILE": tunables}, features
+
+
 def cleanup():
     """Quits the app this run launched and ends its tag's daemons (BenchApp.stop); nothing when the launch refused."""
     if launcher:
@@ -373,8 +396,9 @@ def main():
     # One launch path (bench_launch.py): it refuses a live app of this tag, unlinks only a socket nothing accepts on,
     # starts the app with the bench env and an empty cmux.json (Chromium is the default engine), and says why when
     # it does not come up.
+    env, local_features = host_launch(opts, SCRATCH)
     launcher = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", config={}, window=(40, 40, 1400, 900),
-                        screen="last", build_config=opts.build_config)
+                        screen="last", build_config=opts.build_config, env=env, local_features=local_features)
     try:
         launcher.launch(timeout=120)
     finally:
@@ -396,7 +420,8 @@ def main():
     cef = rpc("debug.cef") or {}
     result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "stress_session": stress, "spare_cost": spare, "profiles": profiles,
               "budget_visible_ms": opts.budget_ms, "summary": summary(rows), "runs": rows,
-              "cef": {k: cef.get(k) for k in ("spare_window", "start_steps", "likely", "state") if k in cef},
+              "host_arm": {"host": opts.host, "spare_window": opts.host_spare_window},
+              "cef": {k: cef.get(k) for k in ("backend", "spare_window", "start_steps", "likely", "state") if k in cef},
               "results_v1": results.record_all(launcher, results.new_browser_tab_series(rows, CASES, opts.story))}
     print("\nSUMMARY", json.dumps(result["summary"], indent=1), flush=True)
     print(f"\n| session/case | n | visible p50 | visible p95 | frame p95 | chrome p95 | page p50 | page p95 | create_window p95 | "

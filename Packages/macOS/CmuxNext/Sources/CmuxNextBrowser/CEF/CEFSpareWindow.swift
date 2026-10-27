@@ -52,6 +52,13 @@ import Foundation
 /// extension's `chrome.tabs.create` targets its last window) waits there
 /// (`park`) and is adopted by the first tab that takes that spare.
 ///
+/// With the Chromium Host no spare is made (`ChromiumWarmup.Placement.host`, p01-process-086): the
+/// host builds each window on its own main thread, so a window built on the key's turn holds none of
+/// cmux's (`windowsBuiltOnKeyTurn` still counts it), and the renderer the new tab needs is content's
+/// spare RenderProcessHost, which Chrome desktop keeps at all times under site-per-process
+/// (`RenderProcessHostImpl::IsSpareProcessKeptAtAllTimes`, `features::kSpareRendererForSitePerProcess`).
+/// A spare window there is the bench-only `chromiumHostSpareWindow`, to measure against.
+///
 /// The runtime owns the one instance (`CEFRuntime.spareWindow`).
 final class CEFSpareWindow {
     static let panePrefix = "spare-"

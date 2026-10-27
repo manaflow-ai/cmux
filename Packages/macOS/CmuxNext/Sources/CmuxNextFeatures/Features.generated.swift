@@ -1852,9 +1852,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// With the Chromium host, the warm start keeps a spare Chromium window as in process, instead of relying on Chromium's own spare renderer alone; the bench arm that measures whether the spare renderer meets the new tab target.
+    public static let chromiumHostSpareWindow = Feature(
+        index: 106,
+        name: "chromiumHostSpareWindow",
+        owner: "PL-cef-layer",
+        description: "With the Chromium host, the warm start keeps a spare Chromium window as in process, instead of relying on Chromium's own spare renderer alone; the bench arm that measures whether the spare renderer meets the new tab target.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["new-browser-tab"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.
     public static let perfLabCanary = Feature(
-        index: 106,
+        index: 107,
         name: "perfLabCanary",
         owner: "Performance Lead",
         description: "Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.",
@@ -1871,7 +1888,7 @@ nonisolated extension Feature {
 
     /// Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.
     public static let perfLabKillProbe = Feature(
-        index: 107,
+        index: 108,
         name: "perfLabKillProbe",
         owner: "Performance Lead",
         description: "Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.",
@@ -1996,6 +2013,7 @@ nonisolated extension Feature {
         .cefHelperHost,
         .cefLayerHostingEveryPage,
         .chromiumHostIdleExit,
+        .chromiumHostSpareWindow,
         .perfLabCanary,
         .perfLabKillProbe,
     ]
