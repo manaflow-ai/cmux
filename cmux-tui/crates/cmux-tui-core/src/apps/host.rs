@@ -63,6 +63,16 @@ pub fn resolve_binary() -> Option<PathBuf> {
     path.is_file().then_some(path)
 }
 
+/// `--panic-log <path>`: the host's panic log (`HelperPanicLog::AppHost`),
+/// which it opens before its sandbox holds. Empty with no state directory.
+pub fn panic_log_args() -> Vec<String> {
+    crate::diagnostics::HelperPanicLog::AppHost
+        .path()
+        .and_then(|path| path.into_os_string().into_string().ok())
+        .map(|path| vec![cmux_app_host::protocol::PANIC_LOG_FLAG.to_string(), path])
+        .unwrap_or_default()
+}
+
 /// Where first-party app server binaries ship: `CMUX_APP_SERVER_DIR`, else
 /// the directory of the daemon executable (next to `cmux-app-host`).
 pub fn resolve_server_dir() -> Option<PathBuf> {

@@ -367,6 +367,9 @@ fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, 
         }
         None => None,
     };
+    if let Some(path) = crate::diagnostics::HelperPanicLog::BrowserHost.path() {
+        command.arg("--panic-log").arg(path);
+    }
     command
         .arg("--socket")
         .arg(socket)

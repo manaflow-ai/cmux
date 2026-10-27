@@ -52,6 +52,9 @@ struct AppCrashReporting: Sendable {
     /// The app's acpmux daemon's panic log (`$ACPMUX_HOME/panics.jsonl`); nil outside the app
     /// process or with no acpmux.
     let acpmuxPanics: OwnerPanicForwarder?
+    /// The panic logs of the other cmux Rust processes (p09-observability-099): the owner's app
+    /// hosts, browser host and `cmux mcp serve`, and acpmux's agent hosts. Empty outside the app process.
+    let helperPanics: [OwnerPanicForwarder]
 
     /// - Parameters:
     ///   - features: The features the app runs with, put on the Sentry scope right after it starts
@@ -67,6 +70,7 @@ struct AppCrashReporting: Sendable {
             forwarder = nil
             ownerPanics = nil
             acpmuxPanics = nil
+            helperPanics = []
             return
         }
         DebugTimings.markLaunch("crash.sentry_start")
@@ -82,9 +86,9 @@ struct AppCrashReporting: Sendable {
             bundlePath: Bundle.main.bundlePath, mainExecutable: Bundle.main.executablePath, sends: sends)
         forwarder.start()
         self.forwarder = forwarder
+        let stateRoot = Self.ownerStateRoot(stateDirectory: environment.daemonStateDirectory)
         let ownerPanics = OwnerPanicForwarder(
-            log: OwnerPanicForwarder.log(stateRoot: Self.ownerStateRoot(stateDirectory: environment.daemonStateDirectory),
-                                         session: environment.daemonSession),
+            log: OwnerPanicForwarder.log(stateRoot: stateRoot, session: environment.daemonSession),
             stateFile: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
                 .appending(path: "owner-panic-forwarder.json"),
             sends: sends)
@@ -92,7 +96,8 @@ struct AppCrashReporting: Sendable {
         self.ownerPanics = ownerPanics
         // A panic in a daemon request task ends only that task: before this log, the
         // 2026-10-14 sort panic reached only daemon.log.
-        if let home = Self.acpmuxHome(environment: environment) {
+        let acpmuxHome = Self.acpmuxHome(environment: environment)
+        if let home = acpmuxHome {
             let acpmuxPanics = OwnerPanicForwarder(
                 log: RustPanicSource.acpmuxLog(acpmuxHome: home),
                 stateFile: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
@@ -102,6 +107,15 @@ struct AppCrashReporting: Sendable {
             self.acpmuxPanics = acpmuxPanics
         } else {
             acpmuxPanics = nil
+        }
+        let stateDirectory = AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
+        helperPanics = RustPanicSource.helperLogs(stateRoot: stateRoot, acpmuxHome: acpmuxHome).map { entry in
+            let (source, log) = entry
+            let forwarder = OwnerPanicForwarder(
+                log: log, stateFile: stateDirectory.appending(path: "\(source.fingerprintPrefix)-forwarder.json"),
+                sends: sends, source: source)
+            forwarder.start()
+            return forwarder
         }
         Self.installLayoutPassGuard(reporter: reporter)
     }

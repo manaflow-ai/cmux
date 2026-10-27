@@ -32,4 +32,6 @@ sha1 = "0.10"
 rquickjs = "0.14"
 
 [target.'cfg(unix)'.dependencies]
+# `serve --panic-log` (src/bin/cmux-browser-host.rs).
+cmux-panic-log.workspace = true
 libc.workspace = true

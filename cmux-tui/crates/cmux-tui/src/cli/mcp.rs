@@ -24,6 +24,7 @@ mod code_mode;
 mod config;
 mod keybinding_tools;
 mod messages;
+mod panic_log;
 mod render_tool;
 mod schema;
 mod terminal_talk_tools;
@@ -375,6 +376,7 @@ fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
         eprintln!("cmux: {message}");
         return 1;
     }
+    panic_log::install();
     // The client ends the server by closing stdin, then by SIGTERM; the
     // blocking stdin read must not hide that signal.
     let _ = crate::restore_default_termination_signals();

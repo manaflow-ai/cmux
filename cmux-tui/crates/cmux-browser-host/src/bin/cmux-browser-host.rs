@@ -1,7 +1,7 @@
 //! `cmux-browser-host`: the browser host until `cmux browser host` exists in
 //! the Rust cmux binary (#16174).
 //!
-//!   cmux-browser-host serve [--socket PATH]
+//!   cmux-browser-host serve [--socket PATH] [--panic-log PATH]
 //!   cmux-browser-host eval [--session NAME] [--engine E] [--max-output N] [--timeout-ms N] (-|CODE)
 //!   cmux-browser-host list | close --session NAME | guide | version
 //!
@@ -63,6 +63,9 @@ mod unix {
         /// With `--supervised`: exit after this long with no session and no
         /// provider (the idle stop).
         idle_exit_ms: Option<u64>,
+        /// `serve --panic-log`: append each panic to this file (the daemon
+        /// passes `browser-host-panics.jsonl` at its state root).
+        panic_log: Option<PathBuf>,
     }
 
     fn parse(args: &[String]) -> Result<Options, String> {
@@ -79,6 +82,7 @@ mod unix {
             history_fd: None,
             provider_listen_fd: None,
             idle_exit_ms: None,
+            panic_log: None,
         };
         let mut iter = args.iter();
         while let Some(arg) = iter.next() {
@@ -87,6 +91,7 @@ mod unix {
             match arg.as_str() {
                 "--socket" => options.socket = PathBuf::from(value("--socket")?),
                 "--session" => options.session = value("--session")?,
+                "--panic-log" => options.panic_log = Some(PathBuf::from(value("--panic-log")?)),
                 "--engine" => options.engine = value("--engine")?,
                 "--max-output" => {
                     options.max_output = Some(
@@ -246,6 +251,9 @@ mod unix {
     }
 
     fn serve_command(options: &Options) -> i32 {
+        if let Some(path) = &options.panic_log {
+            cmux_browser_host::panic_log::install(path.clone());
+        }
         // No descriptor this process inherited reaches a browser it starts.
         if let Err(error) = cmux_browser_host::server::seal_inherited_descriptors() {
             eprintln!("cmux-browser-host: sealing inherited descriptors: {error}");

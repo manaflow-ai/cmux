@@ -16,13 +16,7 @@ use tokio::sync::mpsc;
 /// start the harness, answer on stdout, then serve controllers until the
 /// harness ended and its exit was logged.
 pub fn main() -> Result<()> {
-    // The host must not die when a controller or the bootstrap parent goes
-    // away mid-write.
-    // SAFETY: setting a signal disposition has no memory-safety preconditions.
-    unsafe {
-        libc::signal(libc::SIGPIPE, libc::SIG_IGN);
-        libc::signal(libc::SIGHUP, libc::SIG_IGN);
-    }
+    host_process::start();
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     runtime.block_on(run())
 }
@@ -41,24 +35,13 @@ async fn run() -> Result<()> {
         Ok(started) => {
             write_frame(&mut stdout, &BootstrapReply::Ready { record: started.record.clone() })
                 .await?;
-            detach_stdio();
+            host_process::detach_stdio();
             started.serve(spec).await
         }
         Err(e) => {
             let message = format!("{e:#}");
             let _ = write_frame(&mut stdout, &BootstrapReply::SpawnFailed { message }).await;
             Err(e)
-        }
-    }
-}
-
-/// Point stdin and stdout at /dev/null so the bootstrap pipes close.
-fn detach_stdio() {
-    if let Ok(null) = std::fs::OpenOptions::new().read(true).write(true).open("/dev/null") {
-        // SAFETY: dup2 onto the standard descriptors of this process.
-        unsafe {
-            libc::dup2(null.as_raw_fd(), 0);
-            libc::dup2(null.as_raw_fd(), 1);
         }
     }
 }
