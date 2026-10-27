@@ -1,6 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AVFoundation
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import Foundation
 
 /// Debug builds only: plays a recorded clip into the SpeechAnalyzer engine in
@@ -80,14 +80,15 @@ private final class RecordedFileReader {
 
 extension DictationSession {
     /// A session that hears the clip `CMUX_NEXT_DICTATION_AUDIO_FILE` names
-    /// through the on-device engine, or nil when it names none.
-    public static func recorded() -> DictationSession? {
-        recorded(in: ProcessInfo.processInfo.environment)
+    /// through the on-device engine, or nil when it names none. `deadlines` is the app's
+    /// (`AppServices.mainDeadlines`), as for any session.
+    public static func recorded(deadlines: MainDeadlineScheduler) -> DictationSession? {
+        recorded(in: ProcessInfo.processInfo.environment, deadlines: deadlines)
     }
 
-    static func recorded(in environment: [String: String]) -> DictationSession? {
+    static func recorded(in environment: [String: String], deadlines: MainDeadlineScheduler) -> DictationSession? {
         guard let clip = RecordedDictationInput.url(in: environment) else { return nil }
-        return DictationSession(authorizer: RecordedInputAuthorizer(), makeTranscriber: { meter in
+        return DictationSession(deadlines: deadlines, authorizer: RecordedInputAuthorizer(), makeTranscriber: { meter in
             OnDeviceDictationTranscriber(levelMeter: meter, recordedInput: clip)
         })
     }

@@ -3,6 +3,7 @@ public import CmuxNextDictation
 import Foundation
 import CmuxNextCompat
 import CmuxNextInput
+import CmuxNextWakeups
 
 /// A dictation request from the page's mic button or keys.
 public nonisolated enum AgentPaneDictationCommand: Equatable, Sendable {
@@ -83,27 +84,32 @@ final class AgentPaneDictation {
     var now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     static let holdThreshold: TimeInterval = 0.35
 
+    /// - Parameters:
+    ///   - deadlines: The app's deadline scheduler (`AppServices.mainDeadlines`), which the default session runs on
+    ///     (its stop deadline and its events).
+    ///   - makeSession: Makes the session on first use; nil makes the on-device one.
     init(
         input: InputEventTap,
         send: @escaping (DictationUpdate) -> Void,
+        deadlines: MainDeadlineScheduler,
         microphone: DictationMicrophone = .shared,
-        makeSession: @escaping () -> DictationSession = { AgentPaneDictation.defaultSession() }
+        makeSession: (() -> DictationSession)? = nil
     ) {
         self.input = input
         self.send = send
         self.microphone = microphone
-        self.makeSession = makeSession
+        self.makeSession = makeSession ?? { AgentPaneDictation.defaultSession(deadlines: deadlines) }
     }
 
     var phase: DictationPhase { session?.phase ?? .idle }
 
     /// The on-device engine. Debug builds hear a recorded clip instead when
     /// `CMUX_NEXT_DICTATION_AUDIO_FILE` names one (machines without a microphone).
-    static func defaultSession() -> DictationSession {
+    static func defaultSession(deadlines: MainDeadlineScheduler) -> DictationSession {
         #if DEBUG
-        if let recorded = DictationSession.recorded() { return recorded }
+        if let recorded = DictationSession.recorded(deadlines: deadlines) { return recorded }
         #endif
-        return DictationSession()
+        return DictationSession(deadlines: deadlines)
     }
 
     func handle(_ command: AgentPaneDictationCommand) {

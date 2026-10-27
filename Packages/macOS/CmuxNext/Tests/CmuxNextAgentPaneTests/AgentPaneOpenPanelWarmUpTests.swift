@@ -24,7 +24,7 @@ import CmuxNextWakeups
         let shared = MadeAheadOpenPanel()
 
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(), openPanel: shared, gestures: .testing()))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(), openPanel: shared, gestures: .testing(), deadlines: .agentPaneTesting()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled, .resizable],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

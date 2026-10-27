@@ -907,7 +907,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextFilesTests",
             // CmuxFuzzSupport: FilePathFuzzTests (p10-stability-030).
-            dependencies: ["CmuxNextFiles", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
+            dependencies: ["CmuxNextFiles", "CmuxNextWakeups", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: daemonSwiftSettings
         ),
         // The Files pane's AppKit views over CmuxNextFiles: list (NSTableView), icons
@@ -1092,7 +1092,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // CmuxNextCompat only (the thumbnail cache is a memory consumer).
         .target(
             name: "CmuxNextFileGrid",
-            dependencies: ["CmuxNextCompat"],
+            // Wakeups: each tile's thumbnail lands as a posted visible task (MainWorkScheduler).
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
             ],
@@ -1102,7 +1103,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextScreenshots",
             // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextFileGrid", "CmuxNextFiles", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextFileGrid", "CmuxNextFiles", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
             ],
@@ -1110,7 +1111,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextScreenshotsTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextFileGrid", "CmuxNextFiles", "CmuxNextScreenshots"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextFileGrid", "CmuxNextFiles", "CmuxNextScreenshots", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // The built-in Memory Inspector (plans/cmux-next/memory-inspector-native-DESIGN.md):
@@ -2166,6 +2167,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemonRecovery",
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
+                "CmuxNextDictation",
                 "CmuxNextDiff",
                 "CmuxNextEnergy",
                 "CmuxNextFeatures",

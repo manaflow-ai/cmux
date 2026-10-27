@@ -31,7 +31,7 @@ struct RecentlyClosedSharedEncodeTests {
         let file = try #require(AgentPageTestRoot.page)
         let host = WebUIHost.agentPaneTestHost()
         let views = try (0..<pages).map { _ in
-            try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: host, gestures: .testing()))
+            try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: host, gestures: .testing(), deadlines: .agentPaneTesting()))
         }
         defer { for view in views { view.close() } }
 

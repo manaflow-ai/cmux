@@ -19,7 +19,7 @@ struct AgentPaneChromiumFeatureTests {
     private func chat(_ hosting: FakeChromiumHosting, chromiumChat: Bool) throws -> AgentPaneView {
         let file = try #require(AgentPageTestRoot.page)
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
-                                              webUI: .agentPaneTestHost(chromium: hosting), gestures: .testing(), chromiumChat: chromiumChat))
+                                              webUI: .agentPaneTestHost(chromium: hosting), gestures: .testing(), deadlines: .agentPaneTesting(), chromiumChat: chromiumChat))
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         return view
     }

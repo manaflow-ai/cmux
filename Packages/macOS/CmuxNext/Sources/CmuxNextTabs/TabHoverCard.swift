@@ -33,7 +33,7 @@ final class TabHoverCardController: HoverCardSource {
     weak var strip: TabStripView?
     /// Samples CPU and memory of the hovered tab while its card shows (first
     /// sample when it shows: a sweep across tabs samples none), never otherwise.
-    let resources = ResourceCardSampler(source: nil)
+    let resources = ResourceCardSampler()
     /// Pointer rest before a tab's card opens: `HoverCardTiming.showDelay`,
     /// or `sidebar.hoverCards.delay`; read on
     /// each hover so a Settings change applies at once. Every tab waits the

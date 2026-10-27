@@ -83,7 +83,7 @@ struct FloatingChatTests {
         let controller = QuickComposerController(
             makeChat: { session in
                 rig.made.append(session)
-                return AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: session), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(page), webUI: .agentTabsTestHost(), gestures: .testing())
+                return AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: session), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(page), webUI: .agentTabsTestHost(), gestures: .testing(), deadlines: .agentPaneTesting())
             },
             makeWindow: { rig.window },
             openInWindow: { session in

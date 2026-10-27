@@ -158,7 +158,7 @@ struct AgentPaneTransportBench {
             try Self.nativeScript.write(to: directory.appendingPathComponent("bench.js"), atomically: true, encoding: .utf8)
             let model = AgentPaneModel(host: BenchHost(url: server.url))
             // Run alone (pane-native-transport.sh): the first agent page root of a process is the one it serves.
-            let pane = try #require(AgentPaneView(model: model, work: BackgroundWork(label: "test.agent-pane"), source: .bundled(page), webUI: .agentPaneTestHost(), gestures: .testing()))
+            let pane = try #require(AgentPaneView(model: model, work: BackgroundWork(label: "test.agent-pane"), source: .bundled(page), webUI: .agentPaneTestHost(), gestures: .testing(), deadlines: .agentPaneTesting()))
             pane.frame = window.contentView!.bounds
             // The bench host shows the page in WebKit: the bench drives that engine directly.
             let paneWebView = try #require(pane.page.webKitEngine)

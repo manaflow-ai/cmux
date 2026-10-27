@@ -248,7 +248,7 @@ struct AgentPaneGestureGrantTests {
         }
         for _ in 0..<2 {
             let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
-                                                  webUI: .agentPaneTestHost(chromium: FakeChromiumHosting()), gestures: .testing()))
+                                                  webUI: .agentPaneTestHost(chromium: FakeChromiumHosting()), gestures: .testing(), deadlines: .agentPaneTesting()))
             view.frame = root.bounds
             root.addSubview(view)
             view.layoutSubtreeIfNeeded()
@@ -283,7 +283,7 @@ struct AgentPaneGestureGrantTests {
         let tap = InputEventTap()
         let router = AgentPaneGestureRouter(input: tap)
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(),
-                                              gestures: router))
+                                              gestures: router, deadlines: .agentPaneTesting()))
         #expect(tap.subscriberCount(.button, stage: .intercept) == 0, "a pane in no window costs the tap nothing")
 
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],

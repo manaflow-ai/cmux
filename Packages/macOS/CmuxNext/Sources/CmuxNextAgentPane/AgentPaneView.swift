@@ -129,11 +129,12 @@ public final class AgentPaneView: NSView {
     ///   - warmup: The app's agent page WebKit warm-up (`AppServices.agentPageWarmup`), which this page replaces.
     ///   - gestures: The app's gesture router over its input tap: the person's presses in this pane grant
     ///     its page a gesture, and its dictation's hold-to-talk hears the key-up.
+    ///   - deadlines: The app's deadline scheduler (`AppServices.mainDeadlines`), which the pane's dictation runs on.
     ///   - chatStores: The app's chat stores (where each chat rested, its unsent chips); the default keeps nothing.
     ///   - chromiumChat: Whether the page may show in Chromium: feature `agentChromium` now (tests: its default, on).
     public init?(model: AgentPaneModel, work: any MayBlockRunner, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
                  webUI: WebUIHost, openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, gestures: AgentPaneGestureRouter,
-                 chatStores: AgentPaneChatStores = .keepsNothing, chromiumChat: Bool = true) {
+                 deadlines: MainDeadlineScheduler, chatStores: AgentPaneChatStores = .keepsNothing, chromiumChat: Bool = true) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         gestureRouter = gestures
         self.openPanel = openPanel
@@ -155,7 +156,7 @@ public final class AgentPaneView: NSView {
                 // transport resyncs the chat while the provider's replay state restores chrome.
                 if let connection = model.transport.connection { model.transport.close(connection: connection) }
             }
-        })
+        }, deadlines: deadlines)
         super.init(frame: .zero)
         // The page holds its `dictation` keep reason while a session runs (p13-webui-032).
         let keep = page.keepReasons

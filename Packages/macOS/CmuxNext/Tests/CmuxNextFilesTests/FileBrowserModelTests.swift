@@ -1,13 +1,14 @@
 import Foundation
 import Testing
 @testable import CmuxNextFiles
+import CmuxNextWakeups
 
 /// The pane model over a real temp folder: listing, filters, selection and
 /// keyboard moves, history, Go to Folder, and changes with Undo and Redo.
 @MainActor
 struct FileBrowserModelTests {
     private func model(_ temp: TempFolder, watcher: any FolderWatching = ManualWatcher(), now: @escaping @Sendable () -> Date = { Date() }) -> FileBrowserModel {
-        FileBrowserModel(folder: temp.url, watcher: watcher, resolver: GoToFolderResolver(home: temp.url), now: now)
+        FileBrowserModel(folder: temp.url, work: MainWorkScheduler(budget: MainFrameBudget()), watcher: watcher, resolver: GoToFolderResolver(home: temp.url), now: now)
     }
 
     @Test func listsSortedAndHidesHiddenUntilAsked() async throws {

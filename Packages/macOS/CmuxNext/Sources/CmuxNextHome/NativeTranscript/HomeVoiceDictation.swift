@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDictation
+import CmuxNextWakeups
 import MessagesLabHome
 
 /// The speech engine behind Home's mic. The system engine (``DictationSession``: SpeechAnalyzer on
@@ -33,19 +34,24 @@ final class HomeVoiceDictation: HomeVoiceInput {
     /// Opens a URL (System Settings); tests record it.
     var open: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
 
-    init(claims: DictationMicrophoneClaims = .shared,
-         makeEngine: @escaping () -> any HomeDictationEngine = { HomeVoiceDictation.systemEngine() }) {
+    /// - Parameters:
+    ///   - deadlines: The app's deadline scheduler (`AppServices.mainDeadlines`), which the system engine's session
+    ///     runs on (its stop deadline and its events).
+    ///   - claims: The app's one microphone.
+    ///   - makeEngine: Makes the engine on first use; nil makes the system engine.
+    init(deadlines: MainDeadlineScheduler, claims: DictationMicrophoneClaims = .shared,
+         makeEngine: (() -> any HomeDictationEngine)? = nil) {
         self.claims = claims
-        self.makeEngine = makeEngine
+        self.makeEngine = makeEngine ?? { HomeVoiceDictation.systemEngine(deadlines: deadlines) }
     }
 
     /// The on-device engine. Debug builds hear a recorded clip instead when
     /// `CMUX_NEXT_DICTATION_AUDIO_FILE` names one (machines without a microphone).
-    static func systemEngine() -> any HomeDictationEngine {
+    static func systemEngine(deadlines: MainDeadlineScheduler) -> any HomeDictationEngine {
         #if DEBUG
-        if let recorded = DictationSession.recorded() { return recorded }
+        if let recorded = DictationSession.recorded(deadlines: deadlines) { return recorded }
         #endif
-        return DictationSession()
+        return DictationSession(deadlines: deadlines)
     }
 
     var phase: DictationPhase { engine?.phase ?? .idle }

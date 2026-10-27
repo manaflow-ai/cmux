@@ -3,6 +3,7 @@ import CmuxNextCompat
 import CmuxNextInput
 import CmuxNextPages
 import CmuxNextPagesTestSupport
+import CmuxNextWakeups
 
 extension WebUIHost {
     /// A page host for an agent pane test: `chromium` makes its Chromium pages (nil keeps every page
@@ -16,4 +17,9 @@ extension WebUIHost {
 extension AgentPaneGestureRouter {
     /// A gesture router over a fresh input tap, for a test that never dispatches through one.
     static func testing() -> AgentPaneGestureRouter { AgentPaneGestureRouter(input: InputEventTap()) }
+}
+
+extension MainDeadlineScheduler {
+    /// A deadline scheduler on a fresh main-thread scheduler, for a pane test's dictation.
+    static func agentPaneTesting() -> MainDeadlineScheduler { MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())) }
 }

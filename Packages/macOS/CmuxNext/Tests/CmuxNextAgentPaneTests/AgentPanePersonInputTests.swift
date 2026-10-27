@@ -91,7 +91,7 @@ struct AgentPanePersonInputTests {
         router.input.currentEvent = { last }
         router.input.sendEventEnded()
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"),
-                                              source: .bundled(file), webUI: .agentPaneTestHost(), gestures: router))
+                                              source: .bundled(file), webUI: .agentPaneTestHost(), gestures: router, deadlines: .agentPaneTesting()))
         defer { view.close() }
         let dropped = try #require(view.page.onFilesDropped, "the pane takes no file drop")
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("dropped-\(UUID().uuidString).txt")

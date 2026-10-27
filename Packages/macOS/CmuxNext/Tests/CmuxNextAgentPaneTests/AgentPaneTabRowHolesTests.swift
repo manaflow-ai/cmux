@@ -25,7 +25,7 @@ struct AgentPaneTabRowHolesTests {
         let file = try #require(AgentPageTestRoot.page)
         let hosting = FakeChromiumHosting()
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
-                                              webUI: .agentPaneTestHost(chromium: hosting), gestures: .testing()))
+                                              webUI: .agentPaneTestHost(chromium: hosting), gestures: .testing(), deadlines: .agentPaneTesting()))
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         view.layoutSubtreeIfNeeded()
         let deadline = Date().addingTimeInterval(5)

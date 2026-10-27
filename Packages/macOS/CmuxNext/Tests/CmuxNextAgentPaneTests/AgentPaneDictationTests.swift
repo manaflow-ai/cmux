@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDictation
 import CmuxNextPages
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -31,8 +32,9 @@ struct AgentPaneDictationTests {
         let pressedAt = ProcessInfo.processInfo.systemUptime
 
         init() {
-            dictation = AgentPaneDictation(input: tap, send: { _ in }, microphone: DictationMicrophone(),
-                                           makeSession: { DictationSession(authorizer: WaitingAuthorizer()) })
+            let deadlines = MainDeadlineScheduler.agentPaneTesting()
+            dictation = AgentPaneDictation(input: tap, send: { _ in }, deadlines: deadlines, microphone: DictationMicrophone(),
+                                           makeSession: { DictationSession(deadlines: deadlines, authorizer: WaitingAuthorizer()) })
             let pressedAt = pressedAt
             dictation.now = { pressedAt }
         }

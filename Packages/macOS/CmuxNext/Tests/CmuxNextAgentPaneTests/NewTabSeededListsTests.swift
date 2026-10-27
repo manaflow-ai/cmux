@@ -23,7 +23,7 @@ struct NewTabSeededListsTests {
 
     @Test func listsSeededBeforeThePageLoadsReachItAtTheHandshake() async throws {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing(), deadlines: .agentPaneTesting()))
         defer { view.close() }
         // What `AgentPageChats.seed` does as the page is made: the page is still loading.
         view.deviceChats = [AgentPaneDeviceChat(key: "claude-code:s-1", harness: "claude-code", title: "Fix the flaky upload test",

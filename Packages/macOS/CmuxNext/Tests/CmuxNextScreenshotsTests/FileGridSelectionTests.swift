@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 @testable import CmuxNextFileGrid
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -76,7 +77,7 @@ import Testing
     private func grid() -> (FileGridView, NSWindow) {
         _ = NSApplication.shared
         let grid = FileGridView(cache: ThumbnailCache(capacity: 16, generator: CountingGenerator()),
-                                appearance: FileGridAppearance(tileSide: 60))
+                                work: MainWorkScheduler(budget: MainFrameBudget()), appearance: FileGridAppearance(tileSide: 60))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
         // The test owns the window; closing must not also release it.
         window.isReleasedWhenClosed = false

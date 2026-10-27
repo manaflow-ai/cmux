@@ -18,7 +18,7 @@ struct AgentPageRedrawFrameWaitTests {
     private static func page() throws -> AgentPaneView {
         let file = try #require(AgentPageTestRoot.page)
         return try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"),
-                                          source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
+                                          source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing(), deadlines: .agentPaneTesting()))
     }
 
     /// What a waiting body holds: the New Tab capture's continuation stands for it.

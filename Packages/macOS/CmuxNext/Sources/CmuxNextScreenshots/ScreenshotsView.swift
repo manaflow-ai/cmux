@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextFileGrid
 public import CmuxNextFiles
+public import CmuxNextWakeups
 import Observation
 
 /// The Screenshots pane: a source menu (all folders, or one), a name
@@ -33,11 +34,12 @@ public final class ScreenshotsView: NSView {
     ///   - cache: the app's thumbnail cache.
     ///   - workspace: opens and reveals files.
     ///   - files: copies drops in, renames and trashes (CmuxNextFiles).
+    ///   - work: the app's main-thread scheduler (`AppServices.mainWork`), where the grid's thumbnails land.
     ///   - appearance: grid colors and tile size.
     public init(model: ScreenshotsModel, cache: ThumbnailCache, workspace: any ScreenshotsWorkspace,
-                files: any FileOperating = FileOperator(), appearance: FileGridAppearance = FileGridAppearance()) {
+                files: any FileOperating = FileOperator(), work: MainWorkScheduler, appearance: FileGridAppearance = FileGridAppearance()) {
         self.model = model
-        self.grid = FileGridView(cache: cache, appearance: appearance)
+        self.grid = FileGridView(cache: cache, work: work, appearance: appearance)
         self.saver = ScreenshotDropSaver(files: files)
         self.commands = ScreenshotsCommands(workspace: workspace, files: files)
         super.init(frame: .zero)
