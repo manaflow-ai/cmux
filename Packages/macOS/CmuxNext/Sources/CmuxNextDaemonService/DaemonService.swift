@@ -194,10 +194,11 @@ public final class DaemonService {
     /// `terminalEnvironment` (`AppEnvironment.terminalEnvironment`), with `resolvedTerminalEnvironment` over it,
     /// goes to the daemon process and to every terminal it creates for this app. `prestart` is the first connect attempt `main` began
     /// (`DaemonService.prestart`); without one the first attempt starts here, its launcher's disk steps on
-    /// `work` (the app's one ``BackgroundWork``). `launchSnapshot` is the snapshot's read `main` began; without one
+    /// `work` (the app's one ``BackgroundWork``). `team`: this process's Team ID, as the prestart got it.
+    /// `launchSnapshot` is the snapshot's read `main` began; without one
     /// the read is posted to `work` here (``DaemonLaunchSnapshot/take(_:session:stateDirectory:work:)``).
     /// `featureHello`: the app's daemon features for every hello.
-    public func start(work: BackgroundWork, launch: LaunchIdentity, terminalEnvironment: [String: String],
+    public func start(work: BackgroundWork, launch: LaunchIdentity, team: String?, terminalEnvironment: [String: String],
                resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
                terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                resolvesShellIntegration: Bool = false,
@@ -211,7 +212,7 @@ public final class DaemonService {
             retryWake = prestart.wake
         } else {
             do {
-                launcher = try DaemonLauncher.forApp(work: work, build: launch.build,
+                launcher = try DaemonLauncher.forApp(work: work, build: launch.build, team: team,
                                                 terminalEnvironment: terminalEnvironment,
                                                 resolvedTerminalEnvironment: resolvedTerminalEnvironment,
                                                 daemonEnvironment: Self.firstPartyAppsEnvironment, webSocketPageOrigins: Self.pageOrigins,
