@@ -10,8 +10,21 @@ public struct DaemonEventStream: AsyncSequence, Sendable {
     let base: AsyncThrowingStream<DaemonEventEnvelope, any Error>
     let route: DaemonEventRoute
 
-    public func makeAsyncIterator() -> AsyncThrowingStream<DaemonEventEnvelope, any Error>.Iterator {
+    public func makeAsyncIterator() -> Iterator {
         route.takeStream()
-        return base.makeAsyncIterator()
+        return Iterator(base: base.makeAsyncIterator(), route: route)
+    }
+
+    /// Takes the events in order and tells the route each one is taken, so its reader, waiting past the
+    /// stream's byte bound (``DaemonEventRoute``), resumes as the consumer catches up.
+    public struct Iterator: AsyncIteratorProtocol {
+        var base: AsyncThrowingStream<DaemonEventEnvelope, any Error>.Iterator
+        let route: DaemonEventRoute
+
+        public mutating func next() async throws -> DaemonEventEnvelope? {
+            guard let envelope = try await base.next() else { return nil }
+            route.took()
+            return envelope
+        }
     }
 }

@@ -7,16 +7,20 @@ extension RemoteRdStreamTransport {
     /// The bodies of the session service's control messages (`service`
     /// messages whose service is the hello's), in order and never dropped.
     /// Subscribe before `connect()`: bodies that arrive with no subscriber
-    /// are not kept. A new call finishes the previous stream.
-    public func serviceMessages() -> AsyncStream<RemoteRdJSON> {
+    /// are not kept. A new call finishes the previous stream. A consumer
+    /// that holds ``RemoteRdServiceOutlet/byteBound`` of them untaken ends
+    /// the session, as the core ends one whose messages pass the same bound.
+    public func serviceMessages() -> RemoteRdServiceMessages {
         // concurrency-allow: rb/1 control bodies (page state, menus, dialogs), not frames; the session drains them at once into its reducer, and a dropped body would desync it
-        let (stream, continuation) = AsyncStream.makeStream(of: RemoteRdJSON.self, bufferingPolicy: .unbounded)
+        // memory: bounded-by RemoteRdServiceOutlet.byteBound (4 MiB, the core's message bound): past it the session ends
+        let (stream, continuation) = AsyncStream.makeStream(of: RemoteRdServiceMessages.Item.self, bufferingPolicy: .unbounded)
+        let outlet = RemoteRdServiceOutlet(continuation)
         let previous = state.withLock { state in
-            defer { state.services = continuation }
+            defer { state.services = outlet }
             return state.services
         }
         previous?.finish()
-        return stream
+        return RemoteRdServiceMessages(base: stream, outlet: outlet)
     }
 
     /// Sends one control message of the session's service (`body` is an

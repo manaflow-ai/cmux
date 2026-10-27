@@ -9,10 +9,23 @@ import CmuxNextCompat
 /// slice 2). It adds no listener on either side. The stream opens when the
 /// transport starts; a failed open, a host that closes, or a lost link ends
 /// the session (`.closed`), so the tab says why and never waits.
+///
+/// Bounds, both directions: bytes from the host stay within the stream's
+/// receive window (``LoopbackStream``), whose credit goes back only once the
+/// transport took them. Bytes to the host wait in the outbox for the
+/// daemon's credit; past ``outboxBound`` the host has stopped taking them,
+/// and the path ends (`.closed`) instead of buffering without limit, as a
+/// control connection drops a client that stopped reading
+/// (`ControlConnection`'s `maxOutboxBytes`).
 nonisolated final class MachineLoopbackCarrier: RemoteRdByteCarrier {
+    /// The bytes `send` may queue that the stream has not written yet: 4 MiB,
+    /// 16 of the daemon's 256 KiB windows.
+    static let outboxBound = 4 << 20
+
     private let open: @Sendable () async throws -> LoopbackStream
     private let outgoing: AsyncStream<Data>
     private let outbox: AsyncStream<Data>.Continuation
+    private let bound: Int
     private let state = Mutex(State())
 
     private struct State {
@@ -21,11 +34,20 @@ nonisolated final class MachineLoopbackCarrier: RemoteRdByteCarrier {
         var task: Task<Void, Never>?
         var stream: LoopbackStream?
         var cancelled = false
+        /// Bytes `send` queued that the stream has not written yet.
+        var outboxBytes = 0
+        /// The outbox passed the bound: the path ended and later sends are dropped.
+        var overflowed = false
     }
 
-    init(open: @escaping @Sendable () async throws -> LoopbackStream) {
+    /// - Parameters:
+    ///   - outboxBound: The bytes `send` may queue that the stream has not written yet.
+    ///   - open: Opens the stream when the transport starts.
+    init(outboxBound: Int = MachineLoopbackCarrier.outboxBound, open: @escaping @Sendable () async throws -> LoopbackStream) {
         self.open = open
-        // concurrency-allow: the transport's frames in send order; the transport paces them as it does for NWConnection's send queue
+        bound = max(outboxBound, 1)
+        // concurrency-allow: the transport's frames in send order; send() ends the path past outboxBound
+        // memory: bounded-by outboxBound (4 MiB): send() ends the path instead of queueing past it
         (outgoing, outbox) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .unbounded)
     }
 
@@ -66,6 +88,7 @@ nonisolated final class MachineLoopbackCarrier: RemoteRdByteCarrier {
                             self.emit(.closed)
                             return
                         }
+                        self.state.withLock { $0.outboxBytes -= bytes.count }
                     }
                 }
                 // Either direction ending ends the path.
@@ -77,9 +100,40 @@ nonisolated final class MachineLoopbackCarrier: RemoteRdByteCarrier {
         state.withLock { $0.task = task }
     }
 
+    /// Queues `bytes` for the host. Past ``outboxBound`` unwritten bytes the
+    /// path ends (`.closed`, once) and these and later bytes are dropped.
     func send(_ bytes: Data) {
-        outbox.yield(bytes)
+        let admission = state.withLock { state -> OutboxAdmission in
+            guard !state.cancelled, !state.overflowed else { return .dropped }
+            guard state.outboxBytes + bytes.count <= bound else {
+                state.overflowed = true
+                return .overflowed(state.stream)
+            }
+            state.outboxBytes += bytes.count
+            return .queued
+        }
+        switch admission {
+        case .queued:
+            outbox.yield(bytes)
+        case .dropped:
+            break
+        case .overflowed(let stream):
+            emit(.closed)
+            outbox.finish()
+            stream?.close()
+        }
     }
+
+    /// What ``send(_:)`` does with one frame.
+    private nonisolated enum OutboxAdmission {
+        case queued
+        case dropped
+        /// The frame would pass the bound: the path ends; the stream, when one is open, closes.
+        case overflowed(LoopbackStream?)
+    }
+
+    /// Bytes `send` queued that the stream has not written yet (tests).
+    var queuedOutboxBytes: Int { state.withLock(\.outboxBytes) }
 
     func cancel() {
         let (task, stream) = state.withLock { state in

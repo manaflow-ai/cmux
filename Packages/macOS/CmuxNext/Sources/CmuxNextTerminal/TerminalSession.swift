@@ -201,7 +201,7 @@ public final class TerminalSession {
         find.target = self
         view.attachFind(find)
 
-        eventsTask = Self.consume(io.events, for: self)
+        eventsTask = Self.consume(io.events, from: io, for: self)
         // The first grid report fired inside the surface init, before
         // `session` was set; report it now.
         surfaceView.updateSurfaceSize(forceReport: true)
@@ -294,11 +294,14 @@ public final class TerminalSession {
     /// actor, in stream order: the loop waits for it, and it hands back the lane the next output
     /// may use (nil while the surface still waits for its first content, or none is live). Only
     /// ``handle(_:)`` swaps surfaces, so that lane stays current until the next main-actor event.
-    private nonisolated static func consume(_ events: AsyncStream<TerminalIOEvent>,
+    /// Each output chunk, once its lane took it, is credited back to `io`
+    /// (``TerminalIO/outputConsumed(_:)``), so an IO that bounds its stream reads on.
+    private nonisolated static func consume(_ events: AsyncStream<TerminalIOEvent>, from io: any TerminalIO,
                                             for session: TerminalSession) -> Task<Void, Never> {
         Task.detached(priority: .high) { [weak session] in
             var lane: TerminalOutputLane?
             for await event in events {
+                defer { if case .output(let data) = event { io.outputConsumed(data.count) } }
                 if let lane, await lane.takeOffMain(event) { continue }
                 guard let session else { return }
                 lane = await session.handle(event)

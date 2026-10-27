@@ -36,7 +36,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         var units: AsyncStream<RemoteAccessUnit>.Continuation?
         var statuses: AsyncStream<RemoteViewStatus>.Continuation?
         var cursors: AsyncStream<RemoteCursorState>.Continuation?
-        var services: AsyncStream<RemoteRdJSON>.Continuation?
+        var services: RemoteRdServiceOutlet?
         /// rb/1 popup surface streams and their buffered units.
         var surfaces = RemoteRdSurfaceStreams()
         var status = RemoteViewStatus(state: .connecting)
@@ -323,7 +323,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
                 guard let control = try? RemoteRdControl.parse(json) else { continue }
                 if case let .service(service, body) = control, service == hello.service, !engine.handshake.isEnded {
                     applySurfaceStreams(body)
-                    _ = state.withLock { $0.services?.yield(body) }
+                    // A consumer past the outlet's bound ends the session, as the core ends a flood.
+                    guard state.withLock({ $0.services?.offer(body, bytes: json.count) }) != false else { return closed() }
                 }
                 engine.handshake.receive(control)
                 handleUpstream(control)
