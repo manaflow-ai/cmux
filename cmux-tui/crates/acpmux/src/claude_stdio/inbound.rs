@@ -476,7 +476,10 @@ impl Translator {
             "control_cancel_request" => {
                 let rid = line.get("request_id").and_then(Value::as_str).unwrap_or("");
                 if let Some(id) = self.cancel_control_request(rid).await {
-                    out.push(Message::notification(method::CANCEL_REQUEST, json!({"requestId": id})));
+                    out.push(Message::notification(
+                        method::CANCEL_REQUEST,
+                        json!({"requestId": id}),
+                    ));
                 }
             }
             "control_response" => {
