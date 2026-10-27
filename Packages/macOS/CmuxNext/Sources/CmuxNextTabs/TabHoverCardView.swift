@@ -34,8 +34,15 @@ final class TabHoverCardView: NSView {
     let detailRow = HoverCardRowView()
     /// Memory (with CPU bars), or that the page hibernated.
     let memoryRow = HoverCardRowView()
+    /// That the hidden tab uses high energy, with `discardButton` under it (`TabHoverCard+Energy.swift`).
+    let energyRow = HoverCardRowView()
+    let discardButton = ThemedBezelButton(frame: .zero)
+    /// The tab's Discard: the controller's, for the tab the card shows.
+    var onDiscard: (() -> Void)?
+    /// The tab uses high energy (its source said so when the card was configured).
+    var highEnergy = false
     /// The rows top to bottom; a hidden one gives up its line.
-    private var rowViews: [HoverCardRowView] { [placeRow, statusRow, detailRow, memoryRow] }
+    private var rowViews: [HoverCardRowView] { [placeRow, statusRow, detailRow, memoryRow, energyRow] }
     private let thumbnail = NSView()
     /// The tab's status in the shared indicator, trailing the title's first line.
     /// Follows its panel's visibility node: the panel orders front after the card moves into it.
@@ -73,6 +80,7 @@ final class TabHoverCardView: NSView {
         for view in [kindIcon, titleLabel, thumbnail, activity] {
             addSubview(view)
         }
+        setUpDiscardButton()
     }
 
     @available(*, unavailable)
@@ -109,7 +117,8 @@ final class TabHoverCardView: NSView {
             if titles.count > shown.count { lines.append(Strings.groupMore(titles.count - shown.count)) }
             titleLabel.stringValue = group.name.isEmpty ? Strings.groupTabCount(titles.count) : group.name
             set(placeRow, HoverCardRowContent(text: lines.joined(separator: "\n"), lines: lines.count), icon: nil)
-            for row in [statusRow, detailRow, memoryRow] { set(row, nil, icon: nil) }
+            setHighEnergy(false, discard: nil)
+            for row in [statusRow, detailRow, memoryRow, energyRow] { set(row, nil, icon: nil) }
             setActivity(.idle, style: nil)
             setThumbnailVisible(false)
         }
@@ -156,6 +165,8 @@ final class TabHoverCardView: NSView {
             icon: NSImage.icon(.textDescription, size: Self.iconSize))
         set(memoryRow, lines.memory.map { HoverCardRowContent(text: $0, accessory: cpuBars()) },
             icon: NSImage.icon(.serverHealth, size: Self.iconSize))
+        discardButton.isHidden = !highEnergy || item.isDormant
+        set(energyRow, discardButton.isHidden ? nil : Self.energyContent, icon: NSImage.icon(.statusWarning, size: Self.iconSize))
     }
 
     /// The memory row's bars: the tab's CPU over the last seconds, warm at a core, hot at two.
@@ -246,6 +257,8 @@ final class TabHoverCardView: NSView {
         place(activity, layout.activity)
         place(thumbnail, layout.thumbnail)
         for (row, frame) in zip(rowViews.filter { !$0.isHidden }, layout.rows) { place(row, frame) }
+        // Discard takes the last row frame, under the energy row (`cardLayout`).
+        if !discardButton.isHidden, let frame = layout.rows.last { place(discardButton, discardFrame(in: frame)) }
     }
 
     /// What the card's program status line reads ("" when hidden).
@@ -288,7 +301,7 @@ extension TabHoverCardView {
         let content = TabHoverCardLayout.Content(
             showsKindIcon: !kindIcon.isHidden, showsActivity: !activity.isHidden,
             titleHeight: titleLabel.intrinsicContentSize.height, titleBaseline: titleLabel.firstBaselineOffsetFromTop,
-            rowHeights: rowViews.filter { !$0.isHidden }.map { $0.fittingSize.height },
+            rowHeights: rowViews.filter { !$0.isHidden }.map { $0.fittingSize.height } + (discardButton.isHidden ? [] : [discardButton.fittingSize.height]),
             thumbnailHeight: thumbnail.isHidden ? nil : Self.thumbnailSize.height)
         let layout = TabHoverCardLayout(content: content, metrics: Self.layoutMetrics,
                                         rightToLeft: userInterfaceLayoutDirection == .rightToLeft)
@@ -310,6 +323,6 @@ extension TabHoverCardView: HoverCardTextReporting {
         [titleLabel.stringValue] + rowViews.compactMap { row in
             guard !row.isHidden, !row.shownText.isEmpty else { return nil }
             return row.shownText
-        }
+        } + (discardButton.isHidden ? [] : [discardButton.title])
     }
 }

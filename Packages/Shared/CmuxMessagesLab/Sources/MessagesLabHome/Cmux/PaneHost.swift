@@ -80,10 +80,10 @@ final class HostView: NSView {
     var quoteCard: ReplyQuoteCardView?
     private(set) var demo: MessagesWindowView?
     weak var controller: ChatController? { didSet { scrollView.document.controller = controller } }
-    /// MessagesLab b6760b6: the window's update observation and the window place the rows last read
-    /// (PaneHost+WindowPlace.swift).
-    var windowPlaceObservation: MainQueueObservation?
+    /// MessagesLab b6760b6: the window place the rows last read (PaneHost+WindowPlace.swift).
     var lastWindowPlace: (origin: CGPoint, axis: CGPoint)?
+    /// How many times the rows read their window place (tests: a window event with no move reads none).
+    var windowPlaceRefreshes = 0
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -221,7 +221,7 @@ final class HostView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         controller?.windowChanged()
-        observeWindowPlace()  // MessagesLab b6760b6: another window, another place (PaneHost+WindowPlace.swift)
+        windowPlaceDidChangeWindow()  // MessagesLab b6760b6 (PaneHost+WindowPlace.swift)
         restoreClipMaskOutsideLiveResize()
         if window != nil, demo?.restorePending == true { needsLayout = true }  // cmux: `layout` lays the restored rows out
     }
@@ -372,8 +372,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
     let wake: ChatWakeScheduler
     private var wakeAt = Double.infinity
     private var viewWakeAt = Double.infinity
+    /// cmux: where the pane's display frames come from (CmuxNext: its FrameScheduler).
+    private let frameSource: any FrameTickSource
     /// The next display frame of the pane's screen (MessagesLab bd65bbf FrameTick).
-    private(set) lazy var frameTick = FrameTick(view: host)
+    private(set) lazy var frameTick = FrameTick(view: host, source: frameSource)
     /// Runs work at the start of the next display frame (FrameTick; tests capture it).
     /// Off screen (no window: captures, the harness) there is no display frame: now.
     lazy var nextFrame: (@escaping () -> Void) -> Void = { [weak self] f in
@@ -465,12 +467,16 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// `--follow-key-state` argument turns it on for parity runs.
     var followsKeyWindow = ChatController.args.contains("--follow-key-state")
 
-    init(host: HostView = HostView(frame: NSRect(origin: .zero, size: Fixture.windowSize)), wake: ChatWakeScheduler) {
+    init(host: HostView = HostView(frame: NSRect(origin: .zero, size: Fixture.windowSize)), wake: ChatWakeScheduler,
+         frames: any FrameTickSource = DisplayLinkFrameTicks()) {
         HomeMarkdownPolicy.install()  // cmux: before the first Markdown parse
         self.host = host
         self.wake = wake
+        self.frameSource = frames
         super.init()
         host.controller = self
+        // The scroller's fade-in, widen and hide on the host's timer (CmuxNext: DemandTimer).
+        (host.scrollView.verticalScroller as? SequenceScroller)?.useDeadlines(from: wake)
         host.fieldChrome.onEmoji = { [weak self] in self?.roundButtonClicked() }
         host.voiceControls.onMic = { [weak self] in self?.voice.toggle() }
         host.voiceControls.onFinish = { [weak self] in self?.voice.finish() }
@@ -573,6 +579,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// display scale follow it (the controller does not own the window).
     func windowChanged() {
         ScaleKeeper.shared.setNeedsApply()
+        frameTick.viewDidMoveToWindow()  // cmux: waiting frame work follows the pane to its new window
         observers = []
         // The flight recorder follows the pane's window (before the window view exists, too).
         FlightRecorder.shared.attach(self)

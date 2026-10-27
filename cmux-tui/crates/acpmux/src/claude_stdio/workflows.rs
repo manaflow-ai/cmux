@@ -244,7 +244,7 @@ impl Translator {
             // Off the stdout loop, and only what was written since the last read.
             (Some((dir, tail)), None) => {
                 let read =
-                    tokio::task::spawn_blocking(move || tail.read(&dir)).await.ok().flatten();
+                    crate::daemon::spawn_blocking(move || tail.read(&dir)).await.ok().flatten();
                 match read {
                     Some(tail) => {
                         let counts = json!({"done": tail.done, "started": tail.started});
@@ -557,7 +557,7 @@ impl JournalTail {
     /// `JOURNAL_BYTES` a read, so a big run's journal is read once in all.
     fn read(mut self, dir: &Path) -> Option<Self> {
         use std::io::{Read, Seek, SeekFrom};
-        let mut file = std::fs::File::open(dir.join("journal.jsonl")).ok()?;
+        let mut file = cmux_blocking::fs::open(dir.join("journal.jsonl")).ok()?;
         file.seek(SeekFrom::Start(self.offset)).ok()?;
         let mut bytes = Vec::new();
         file.take(JOURNAL_BYTES).read_to_end(&mut bytes).ok()?;

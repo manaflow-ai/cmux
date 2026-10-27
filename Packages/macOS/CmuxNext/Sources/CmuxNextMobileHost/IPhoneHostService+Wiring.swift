@@ -5,6 +5,7 @@ public import CmuxNextDaemonService
 public import CmuxNextMobile
 public import CmuxNextSettings
 public import Foundation
+public import CmuxNextWakeups
 
 extension IPhoneHostService {
     /// The mobile service phones and this Mac meet at: production for production sign-in, the dev
@@ -29,6 +30,8 @@ extension IPhoneHostService {
     ///   - acpmuxEnvironment: The app's acpmux, for the phones' approval keys (nil: none).
     ///   - chief: This app's Chief owner (session, and socket once connected), which hostd serves to phones.
     ///   - surfaceHosts: The app's phone tabs as streamed simulator surfaces (nil: this Mac streams none).
+    ///   - deadlines: The app's one deadline placer; its scheduler runs the host's follows and replies.
+    ///   - appEvents: The app's one fan-out of app-wide notices (a waiting pairing prompt watches for a window).
     public func wire(auth: CloudAuth, daemon: DaemonService,
                      acpmuxHost: @escaping @MainActor @Sendable () -> (any AgentPaneHostProviding)?,
                      acpmuxEnvironment: AcpmuxEnvironment? = nil,
@@ -37,6 +40,7 @@ extension IPhoneHostService {
                      chief: (@MainActor () async -> ChiefPlacement?)? = nil,
                      surfaceHosts: (any MobileHostSurfaceHosting)? = nil,
                      settings: @escaping @MainActor @Sendable () -> SettingsController?,
+                     deadlines: MainDeadlineScheduler, appEvents: AppEvents,
                      bundleID: String?, computerName: @escaping @Sendable () async -> String,
                      processEnvironment: [String: String] = ProcessInfo.processInfo.environment) {
         let bundled = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux-mobile-host", isDirectory: false)
@@ -61,12 +65,17 @@ extension IPhoneHostService {
         // (Contents/Helpers, every configuration on arm64).
         let browserHosts: (any MobileHostBrowserHosting)? = IPhoneBrowserHosts.available()
             ? IPhoneBrowserHosts(workRoot: state.appendingPathComponent("browser", isDirectory: true)) : nil
-        follow { settings()?.snapshot.mobile.allowIPhoneConnections ?? false }
+        self.deadlines = deadlines
+        self.appEvents = appEvents
         defer {
-            followWorkspaceFolders()
-            followNewChatPicks()
+            // After the dependencies: each follow applies its current value now, and a start reads them.
+            let mainWork = deadlines.work
+            followSupervisor(on: mainWork)
+            follow(allowed: { settings()?.snapshot.mobile.allowIPhoneConnections ?? false }, on: mainWork)
+            followAccount({ Self.account(of: auth, signedIn: auth.isSignedIn) }, on: mainWork)
+            followWorkspaceFolders(on: mainWork)
+            followNewChatPicks(on: mainWork)
         }
-        followAccount { Self.account(of: auth, signedIn: auth.isSignedIn) }
         dependencies = Dependencies(
             executable: executable,
             baseURL: base,

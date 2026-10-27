@@ -19,7 +19,9 @@
 //! (mojo/public/cpp/bindings/message.h) ends the sender: nothing after the
 //! bad byte is interpreted.
 //!
-//! REQUEST and CANCEL frames go to [`frame_dispatch`] (p05-ipc-071).
+//! REQUEST and CANCEL frames go to [`frame_dispatch`] (p05-ipc-071), and so
+//! do INPUT frames, which queue on the stream they name until its opener is
+//! answered ([`pending_streams`], p05-ipc-087).
 
 use std::fmt;
 
@@ -71,6 +73,13 @@ pub(super) fn spawn_connection_reader(
     serve: impl FnOnce() + Send + 'static,
 ) -> std::io::Result<JoinHandle<()>> {
     cmux_threads::spawn(name, CONNECTION_READER_QOS, move || {
+        // Each frame it reads is one hang-watch scope (connection_frame.rs);
+        // the read itself is outside every scope.
+        let thread = std::thread::current();
+        let _hang_watch = cmux_hang_watch::register_thread(
+            cmux_hang_watch::ThreadKind::Io,
+            thread.name().unwrap_or("mux-conn"),
+        );
         cmux_threads::disallow_blocking();
         serve();
     })
@@ -135,6 +144,9 @@ pub(super) enum ConnectionBadMessage {
     Wire(BadMessage),
     /// A valid frame of a kind this daemon does not route.
     UnroutedKind { kind: FrameKind },
+    /// A stream frame (INPUT) naming a stream this connection never
+    /// announced (server/pending_streams.rs).
+    UnknownStream { kind: FrameKind, stream: u16 },
     /// A REQUEST or CANCEL frame that its method or the requests in flight
     /// refuse.
     Call(frame_dispatch::CallRefusal),
@@ -148,6 +160,7 @@ impl ConnectionBadMessage {
         match self {
             ConnectionBadMessage::Wire(bad) => bad.reason(),
             ConnectionBadMessage::UnroutedKind { .. } => "unrouted_kind",
+            ConnectionBadMessage::UnknownStream { .. } => "unknown_stream",
             ConnectionBadMessage::Call(refusal) => refusal.reason(),
             ConnectionBadMessage::UnexpectedFds => "unexpected_fds",
         }
@@ -160,6 +173,9 @@ impl fmt::Display for ConnectionBadMessage {
             ConnectionBadMessage::Wire(bad) => write!(f, "{bad}"),
             ConnectionBadMessage::UnroutedKind { kind } => {
                 write!(f, "no route for {} frames", kind.name())
+            }
+            ConnectionBadMessage::UnknownStream { kind, stream } => {
+                write!(f, "{} frame on never-announced stream {stream}", kind.name())
             }
             ConnectionBadMessage::Call(refusal) => write!(f, "{refusal}"),
             ConnectionBadMessage::UnexpectedFds => write!(f, "a file descriptor arrived"),
@@ -201,17 +217,24 @@ pub(super) fn serve_connection(
     let writer_outbound = outbound;
     let writer_close = writer.clone();
     let writer_ipc = mux.ipc_stats().clone();
+    let writer_hangs = mux.echo_watch();
     let Ok(writer_thread) = crate::echo_thread::spawn("mux-line-out", move || {
-        // mq14-allow: the writer thread waits for its own queue (a checked wait).
-        while let Some(item) = writer_outbound.recv() {
-            match &item {
-                OutboundItem::Text(text) => writer_ipc.line_sent(text.len() + 1),
-                OutboundItem::Frame(header, _) | OutboundItem::Chunk { header, .. } => {
-                    writer_ipc.frame_sent(header.kind(), header.frame_len());
-                }
-                OutboundItem::Flush(_) => {}
-            }
-            if write_line_outbound_item(&mut writer_ipc.counted(&mut *write_half), item).is_err() {
+        let _hang_watch =
+            cmux_hang_watch::register_thread(cmux_hang_watch::ThreadKind::Io, "mux-line-out");
+        // Every ready item up to 256 KiB leaves in one writev (p05-ipc-088).
+        let mut batch = Vec::new();
+        // mq14-allow: the writer thread waits for its own queue (an idle wait).
+        while writer_outbound.recv_batch(&mut batch) {
+            // Each batch's write is a 100 ms hang scope; the wait above is not.
+            let _batch = writer_hangs.item(WatchKind::LineOut);
+            // One scope per write, as long as the socket's write timeout:
+            // the queue wait above is outside it.
+            let write = cmux_hang_watch::watch(STREAM_WRITE_TIMEOUT);
+            let written = write_counted_batch(&mut *write_half, &writer_ipc, &batch);
+            drop(write);
+            // The written texts go now, not when the next item arrives.
+            batch.clear();
+            if written.is_err() {
                 writer_outbound.close();
                 let _ = write_half.shutdown(Shutdown::Both);
                 break;

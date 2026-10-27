@@ -19,17 +19,22 @@ import QuartzCore
 /// marks; once installed it stays for the process and its layer class. The override looks the
 /// superclass's IMP up on each call, so a hook installed there later (RenderStats) runs while it is
 /// in and never after it is out.
+///
+/// With renderer-owned frames (`GHOSTTY_RENDERER_FRAMES`, p03-rendering-081) the renderer presents into
+/// its own leaf and no frame passes through `setContents:`, so there is no hook in any build: every
+/// contents mark, the new-terminal trace's too, is the renderer's presented-frame callback
+/// (`presented_cb`, ``ghosttySurfacePresented(_:_:_:_:)``).
 enum TypingFrameProbe {
     /// Whether every terminal layer class gets the hook, and so whether surfaces get echo stages.
     nonisolated static var hooksEveryLayer: Bool {
-        #if DEBUG || CMUX_BENCH_HOOKS
+        #if (DEBUG || CMUX_BENCH_HOOKS) && !GHOSTTY_RENDERER_FRAMES
         return true
         #else
         return false
         #endif
     }
 
-    #if DEBUG || CMUX_BENCH_HOOKS
+    #if (DEBUG || CMUX_BENCH_HOOKS) && !GHOSTTY_RENDERER_FRAMES
     private typealias SetContents = @convention(c) (AnyObject, Selector, AnyObject?) -> Void
 
     /// Each hooked layer class and the gate its hook reads.
@@ -55,7 +60,7 @@ enum TypingFrameProbe {
     /// (``GhosttyRuntime/echoStages``). Nothing in Release builds.
     @MainActor static func install(on layer: CALayer, gate: TerminalContentsGate,
                                    keyFlows: TypingLatencyProbe.SurfaceKey? = nil) {
-        #if DEBUG || CMUX_BENCH_HOOKS
+        #if (DEBUG || CMUX_BENCH_HOOKS) && !GHOSTTY_RENDERER_FRAMES
         if let keyFlows, let key = unsafe keyFlowsKey {
             // SAFETY: the key is an address the runtime only compares (`keyFlowsKey`); the runtime
             // retains the box on `layer` (OBJC_ASSOCIATION_RETAIN).
@@ -81,7 +86,7 @@ enum TypingFrameProbe {
         #endif
     }
 
-    #if DEBUG || CMUX_BENCH_HOOKS
+    #if (DEBUG || CMUX_BENCH_HOOKS) && !GHOSTTY_RENDERER_FRAMES
     /// Built outside the main actor so the block carries no isolation check:
     /// a layer whose contents are set off the main thread must not trap.
     private nonisolated static func override(calling superclass: AnyClass, _ selector: Selector,

@@ -119,7 +119,7 @@ fn classify_local_peer(
     LocalPeer::Other
 }
 
-fn peer_pid(key: &str) -> Option<u32> {
+pub(super) fn peer_pid(key: &str) -> Option<u32> {
     let (pid, version) = key.strip_prefix("token:")?.split_once('.')?;
     let pid = pid.parse().ok()?;
     (!version.is_empty() && pid > 0).then_some(pid)
@@ -413,6 +413,11 @@ pub(super) fn set_peer_identity_at_accept(
         record.origin.mobile_host = mobile_host;
         record.origin.peer_process = peer_process;
     }
+    drop(state);
+    // The peer is known now: a connection of the daemon's own journal plugin
+    // no longer counts as a client (orphan_shutdown.rs `client_count`), so the
+    // exit watchers look again.
+    mux.control_clients.notify_client_presence();
 }
 
 /// cmux's own executables beside the daemon's that splice a far client's

@@ -97,9 +97,10 @@ final class DragLiftView: NSView {
     }
 
     private func shadowPath(_ rect: CGRect) -> CGPath {
-        CGPath(roundedRect: rect, cornerWidth: SidebarStyle.rowCornerRadius, cornerHeight: SidebarStyle.rowCornerRadius, transform: nil)
+        CGPath.roundedRect(rect, cornerWidth: SidebarStyle.rowCornerRadius, cornerHeight: SidebarStyle.rowCornerRadius)
     }
 
+    // visibility-walk-allow: sets the lifted card's layer colors and its badge's text color only (no layout); it exists only during a drag
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateColors()

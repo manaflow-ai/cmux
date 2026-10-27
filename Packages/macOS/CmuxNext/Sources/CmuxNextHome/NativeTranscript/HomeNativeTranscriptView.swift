@@ -97,11 +97,9 @@ public final class HomeNativeTranscriptView: NSView {
     /// The bubbles' look: iMessage's (the default) or the theme's colours; follows
     /// `home.chiefBubbleStyle` (`DesignSettings.homeChiefBubblesThemed`, `followSettings(on:)`).
     public var bubbleStyle: HomePalette.BubbleStyle = .iMessage { didSet { if bubbleStyle != oldValue { applyTheme() } } }
-    /// The first-run panel's open-a-terminal or start-an-agent row was
-    /// picked (the host runs the matching registry action).
+    /// The first-run panel's open-a-terminal or start-an-agent row was picked (the host runs the matching registry action).
     public var onFirstRunAction: (HomeFirstRunAction) -> Void = { _ in }
-    /// An agent row of the first-run panel was picked: the host opens that
-    /// tab (its daemon tab id).
+    /// An agent row of the first-run panel was picked: the host opens that tab (its daemon tab id).
     public var onFirstRunAgent: (String) -> Void = { _ in }
     /// The Switching card's Hide: the host records it, then clears the card.
     public var onHideSwitchKeys: () -> Void = {}
@@ -124,6 +122,8 @@ public final class HomeNativeTranscriptView: NSView {
     /// The window's key and occlusion notices, through its one WindowEvents fan-out; releasing a
     /// subscription ends it.
     private var windowEvents: [EventSubscription] = []
+    /// The window's layout passes (HomeNativeTranscriptView+WindowState.swift).
+    var layoutPassWatch: WindowLayoutPasses.Observation?
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
     private var cursorHold: HomeCursorRectHold?
     /// Debug Settings > Home > Avatar and name over the chat, when this conversation opened (off: no header).
@@ -143,7 +143,8 @@ public final class HomeNativeTranscriptView: NSView {
     /// - Parameter diagrams: draws Mermaid fences as diagrams (the app's ``OndineMermaidRenderer``); nil keeps them as text.
     /// - Parameter openPanel: the app's made-ahead file picker (`AppServices.openPanel`) for the "+"; nil (tests) opens none.
     /// - Parameter deadlines: the app's one deadline placer (`AppServices.mainDeadlines`): the engine's
-    ///   wakes are its deadlines, and the live settings apply on its scheduler's frames.
+    ///   wakes and the scroller's show, widen and hide are its deadlines, and the live settings apply on
+    ///   its scheduler's frames.
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil,
                 openPanel: MadeAheadOpenPanel? = nil, deadlines: MainDeadlineScheduler) {
         attachmentPanel = openPanel.map { HomeAttachmentPanel(openPanel: $0) }
@@ -155,8 +156,9 @@ public final class HomeNativeTranscriptView: NSView {
         self.me = me
         // Debug Settings > Home > Rich tables, before the transcript maps its first messages.
         MessagesLabHomeView.richTables = HomeTunables.richTables.value
-        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(node: visibility, deadlines: deadlines),
-                                         diagrams: diagrams)
+        let wake = HomeDemandWake(node: visibility, deadlines: deadlines)
+        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: wake,
+                                         frames: HomeFrameTicks(), diagrams: diagrams)
         // Reduce Motion changes still or restart the loops already running (the transcript observes nothing itself).
         HomeReduceMotion.follow(transcript)
         // The running indicator's look (Debug Settings > Home), read at each of its ticks.
@@ -308,8 +310,11 @@ public final class HomeNativeTranscriptView: NSView {
     }
 
     /// The person opened this conversation: the message box takes the keyboard now, or once the
-    /// first page installs it if nothing else took the keyboard in between.
-    public func takeKeyboardOnOpen() { transcript.takeKeyboardOnOpen() }
+    /// first page installs it if nothing else took the keyboard in between. `allowed`: the host's rule,
+    /// asked now and at the install, when nobody opened it (its default conversation shown by itself).
+    public func takeKeyboardOnOpen(while allowed: @escaping @MainActor () -> Bool = { true }) {
+        transcript.takeKeyboardOnOpen(while: allowed)
+    }
     /// Shows `text` in the message box (Send Message… from elsewhere already wrote it to the
     /// store's draft; an open view takes it here, a new one restores it from the store).
     public func showDraft(_ text: String) { transcript.setDraft(text) }
@@ -446,6 +451,7 @@ public final class HomeNativeTranscriptView: NSView {
         updateVisibility()
         for subscription in windowEvents { subscription.cancel() }
         windowEvents = []
+        followLayoutPasses()
         cursorHold = window.flatMap(HomeCursorRectHold.hold(for:))
         cursorHold?.add(self)
         if let linkPreviews {

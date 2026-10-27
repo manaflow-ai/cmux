@@ -16,7 +16,7 @@ extension PageDescriptor {
     /// launch, before Chromium's scheme table is made (`FirstPartyPageSchemes.install`).
     @discardableResult
     static func registerAgentActivityRoot(overlay: WebBundleOverlay = .shared) -> URL? {
-        guard let root = AgentActivityHostView.bundledPage?.deletingLastPathComponent() else { return nil }
+        guard let root = AgentActivityPageAddress.bundledPage?.deletingLastPathComponent() else { return nil }
         PageID.registerBundledRoot(root, for: agentActivity.id)
         overlay.register(bundled: root, output: WebBundleOverlay.agentActivityOutput)
         return root

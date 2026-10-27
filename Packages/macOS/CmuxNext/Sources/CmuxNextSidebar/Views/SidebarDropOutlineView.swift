@@ -25,6 +25,7 @@ final class SidebarDropOutlineView: NSView {
     nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    // visibility-walk-allow: sets the ring layer's border and fill colors only (no layout); it shows only during a drop
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         performWithTheme { ring.applyTheme() }
