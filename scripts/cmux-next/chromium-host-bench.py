@@ -547,6 +547,7 @@ TYPING_PROBE = {}  # {"path": the CMUX_NEXT_TYPING_PROBE CSV} when --kill-host t
 # time.monotonic() of each Chromium Host end this run caused, the helper mode's kill too: the process rows' Lab
 # shares it, so kill-host waits out the restart window after all of them.
 HOST_DEATHS = []
+CDP = {"port": None}  # kill-app's DevTools port on the Chromium Host (main() sets it)
 DEFAULTS = {}
 
 
@@ -642,18 +643,41 @@ def front_pid():
     return int(found.group(1)) if found else None
 
 
-def chromium_host_pid():
-    """The pid of the running Chromium Host (`<Product> Chromium Host` in the app's Contents/MacOS), or None."""
+def chromium_host_pids():
+    """The pids of every running Chromium Host of the app (`<Product> Chromium Host` in its Contents/MacOS), in ps
+    order: the backend's own host, the helper mode's prototype host, and an orphan that outlived cmux."""
     macos = os.path.join(os.path.abspath(opts.app), "Contents", "MacOS") + "/"
     try:
         listing = subprocess.run(["/bin/ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=10).stdout
     except subprocess.TimeoutExpired:
-        return None
+        return []
+    found = []
     for line in listing.splitlines():
         pid, _, command = line.strip().partition(" ")
         if command.startswith(macos) and command[len(macos):].split(" --", 1)[0].endswith(" Chromium Host"):
-            return int(pid)
-    return None
+            found.append(int(pid))
+    return found
+
+
+def chromium_host_pid():
+    """The pid of the first running Chromium Host of the app, or None (the helper mode's prototype host)."""
+    return next(iter(chromium_host_pids()), None)
+
+
+def backend_host_pids(rpc):
+    """Every Chromium Host of the app but the helper mode's prototype (`debug.chromium_host` pid)."""
+    prototype = (rpc("debug.chromium_host") or {}).get("pid")
+    return [pid for pid in chromium_host_pids() if pid != prototype]
+
+
+def backend_host_pid(rpc):
+    """The app backend's own Chromium Host: the pid the app reports (`debug.cef` host pid, task p01-process-080)
+    while it runs, else the one host of the app that is not the prototype; None when none, or more than one, runs."""
+    reported = ((rpc("debug.cef") or {}).get("host") or {}).get("pid")
+    if isinstance(reported, int) and reported > 0:
+        return None if pid_gone(reported) else reported
+    others = backend_host_pids(rpc)
+    return others[0] if len(others) == 1 else None
 
 
 def defaults_snapshot(domain):
@@ -779,9 +803,14 @@ def main():
         env["CMUX_NEXT_TYPING_PROBE"] = TYPING_PROBE["path"] = os.path.join(opts.out, "typing.csv")
     if "stall" in opts.process_rows and opts.stall_idle_minutes > 0:
         env["CMUX_NEXT_NO_ACTIVATE"] = None  # the after-idle stall makes cmux frontmost (BenchApp.activate)
-    if opts.host_switches:
-        env["CMUX_NEXT_CHROMIUM_HOST_SWITCHES"] = opts.host_switches
-        RESULT["host_switches"] = opts.host_switches
+    host_switches = [switch for switch in opts.host_switches.split(",") if switch]
+    if "kill-app" in opts.process_rows:
+        # Done check 20's CDP session: held on the host's page across the app's SIGKILL and relaunch.
+        CDP["port"] = free_port()
+        host_switches += [f"remote-debugging-port={CDP['port']}", "remote-allow-origins=*"]
+    if host_switches:
+        env["CMUX_NEXT_CHROMIUM_HOST_SWITCHES"] = ",".join(host_switches)
+        RESULT["host_switches"] = env["CMUX_NEXT_CHROMIUM_HOST_SWITCHES"]
     app = BenchApp(opts.app, out=opts.out, env=env, build_config=opts.build_config, perf_session=opts.session)
     APP_LOG["path"] = app.log_path
     try:
@@ -2147,14 +2176,58 @@ def focus_terminal(rpc):
 
 
 def stall_pace(rpc, url):
-    """The stall row's pacing on a fresh probe tab of the app's backend (the Chromium Host in host mode)."""
+    """The stall row's pacing on a fresh probe tab of the app's backend, the Chromium Host (the process rows run in
+    host mode only): its keys go with no target to the focused page view, its click is a window point over the
+    focused pane (`target: "page"` needs an in-process page window)."""
     def run(stall_ms, every_ms):
         page, click_point, _ = open_inproc_probe(rpc, url, f"stall-{stall_ms}-{every_ms}-{int(time.time())}")
         if not page:
             return {"error": click_point}
-        rpc("debug.mouse", {"target": "page", **click_point("t")})
-        return stall_row(rpc, {"target": "page"}, lambda: page("document.title"), stall_ms, every_ms / 1000)
+        border, point = focused_pane_border(rpc), click_point("t")
+        if not (border and point):
+            return {"error": "no geometry for the focused pane or the probe's field (debug.focus, debug.pane_chrome)"}
+        rpc("debug.mouse", {"x": border[0] + point["x"], "y": border[1] + point["y"]})
+        return stall_row(rpc, {}, lambda: page("document.title"), stall_ms, every_ms / 1000)
     return run
+
+
+def terminal_send(rpc, text):
+    """`text` to the focused terminal (terminal.sendText); True when the app took it."""
+    reply = rpc("action.run", {"action": "terminal.sendText", "args": {"text": text}, "origin": "script"}, timeout=30)
+    return isinstance(reply, dict) and not reply.get("error")
+
+
+def read_text(path):
+    try:
+        with open(path) as handle:
+            return handle.read()
+    except OSError:
+        return None
+
+
+def free_port():
+    import socket
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+def cdp_session(port):
+    """kill-app's CDP session on the host's page whose URL has `query`, over the host's DevTools port (`port`, the
+    remote-debugging-port switch main() gives the host): {session} or {error}."""
+    def open_session(query):
+        if not port:
+            return {"error": "the Chromium Host has no DevTools port (kill-app sets one)"}
+        from ext_e2e import cdp
+        target = cdp.wait_target(port, lambda t: t.get("type") == "page" and query in t.get("url", ""), 10)
+        if not target:
+            return {"error": f"no CDP page target for {query} on the Chromium Host's port {port} (its "
+                             "CMUX_NEXT_CHROMIUM_HOST_SWITCHES remote-debugging-port works in Debug builds only)"}
+        try:
+            return {"session": cdp.Session(target["webSocketDebuggerUrl"])}
+        except OSError as error:
+            return {"error": f"CDP connect: {error}"[:200]}
+    return open_session
 
 
 RELAUNCH_MARKS_WAIT_S = 10.0
@@ -2191,7 +2264,10 @@ def process_lab(app, url):
         return pathlib.Path(path).as_uri()
     return process_rows.Lab(
         rpc=rpc, wait=wait, sleep=time.sleep, now=time.monotonic, uptime=lambda: time.clock_gettime(time.CLOCK_UPTIME_RAW),
-        kill=os.kill, pid_gone=pid_gone, host_pid=chromium_host_pid,
+        kill=os.kill, pid_gone=pid_gone, host_pid=lambda: backend_host_pid(rpc),
+        host_pids=lambda: backend_host_pids(rpc),
+        page_rect=lambda: focused_pane_border(rpc), terminal_send=lambda text: terminal_send(rpc, text),
+        out_path=lambda name: os.path.join(opts.out, name), read_text=read_text, cdp_session=cdp_session(CDP["port"]),
         app_pid=lambda: app.process.pid if app.process and app.process.poll() is None else None,
         helpers=host_helpers, typing_rows=typing_rows, focus_terminal=lambda: focus_terminal(rpc),
         secure_pid=secure_input_pid, ax_text=process_rows.ax_find_text, front=front_pid, write_page=write_page,
@@ -2205,13 +2281,13 @@ def run_process_rows(app, url):
     lab = process_lab(app, url)
     params = {"signals": opts.signals, "hang_ms": opts.hang, "ordering_keys": opts.ordering_keys, "stall": opts.stall,
               "stall_idle_minutes": opts.stall_idle_minutes}
-    out = {}
-    for name in opts.process_rows:
+
+    def bounded_row(out, name, run):
         limit = process_rows.ROW_LIMIT_S.get(name, ROW_LIMIT_S)
         if name == "stall":
             limit += int(opts.stall_idle_minutes * 60)
-        bounded(out, name, lambda name=name: process_rows.run_row(lab, name, params), limit)
-    return out
+        bounded(out, name, run, limit)
+    return process_rows.run_rows(lab, opts.process_rows, params, bounded_row)
 
 
 if __name__ == "__main__":

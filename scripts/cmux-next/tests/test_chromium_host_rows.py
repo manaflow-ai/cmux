@@ -2,14 +2,19 @@
 """chromium_host_rows.py and chromium_host_process_rows.py, the pass/fail rows of chromium-host-bench.py
 (p01-process-160), against a fake app on a fake clock: every check prints PASS or FAIL with its done check's number; a
 check the app cannot answer fails with its reason; --list-failing names each failing row once and lists the native UI
-rows with no runner yet (Q6), and an asked row with no result fails with the run's error. kill-host passes for a host
-that restarts and restores within 2000 ms, fails for one that restores late, ignores the signal or never ends its
-restarts, and for a terminal that loses keys; the 4th signal checks the restart budget, after the window of every
-earlier host death (the helper mode's kill too); a build whose backend is not the host measures nothing; ordering
-catches a key routed to the wrong tab. Every other row (hang and its hidden case against the visible control,
-renderer-hang, ime with Kotoeri and secure input, ax, visibility, stall after idle with cmux frontmost, quit,
-runtime-update, helper-kill, kill-app) has a passing and a failing fake, and the bench's relaunch adopts the surviving
-host and reads its launch marks. The bench's own flags select rows and modes. Runs anywhere (no app, no macOS).
+rows with no runner yet (Q6), and an asked row with no result fails with the run's error. The fakes refuse
+`target: "page"` keys and clicks as host mode does (no page window), so every row's input goes as a person's.
+kill-host passes for a host that restarts and restores both tabs (one in a background pane) within 2000 ms, fails for
+one that restores late, restores only the focused tab, ignores the signal or never ends its restarts, and for a
+terminal that loses keys; the 3rd signal checks the restart budget as task 081 landed it (the 4th goes to a host
+Reload started), after the window of every earlier host death (the helper mode's kill too); a build whose backend is
+not the host measures nothing; ordering catches a key routed to the wrong tab. Every other row (hang and its hidden
+case against the visible control, renderer-hang, ime with Kotoeri (Live Conversion too) and secure input, ax,
+visibility, stall at 120 Hz and after idle with cmux frontmost, quit (no Cmd-Q the app cannot ask; later rows fail
+after a quit), runtime-update, helper-kill, kill-app with its CDP session, 60 s command, the one adopted host and the
+parts with no driver) has a passing and a failing fake; the bench's backend host is never the prototype or an orphan,
+and its relaunch adopts the surviving host and reads its launch marks. The bench's own flags select rows and modes.
+Runs anywhere (no app, no macOS).
 Run: python3 -I scripts/cmux-next/tests/test_chromium_host_rows.py"""
 import importlib.util, json, os, signal, sys, tempfile, time, unittest
 
@@ -27,22 +32,29 @@ def load_bench():
 
 
 class FakeApp:
-    """A host-mode app with one Chromium tab and a Chromium Host process. `restore_s`: how long a killed host takes
-    to come back with the tab's state (None: it comes back without the typed text); `budget`: restarts the host
-    allows before it stays ended (None: no limit, the restart budget is missing); `report_fields`: the `debug.cef`
-    host fields of the later tasks are there; `misroute`: the ordering tabs swap every key after this many;
-    `ignores`: signals the host ignores. A killed host's page loses its text and scroll until a restart restores
-    them."""
+    """A host-mode app with Chromium tabs and a Chromium Host process. `restore_s`: how long a killed host takes to
+    come back with the tabs' state (None: it comes back without the typed text); `budget`: the crash that ends the
+    restarts, as ChromiumHostRestartPolicy counts them (3: the 3rd; None: no limit, the restart budget is missing);
+    `report_fields`: the `debug.cef` host fields of the later tasks are there; `misroute`: the ordering tabs swap every
+    key after this many; `ignores`: signals the host ignores; `restores_only_focused`: a restart gives back only the
+    focused tab's state. A killed host's pages lose their text and scroll until a restart restores them. As in the
+    app's host mode, `debug.key`/`debug.mouse` with `target: "page"` find no Chromium page window and answer an
+    error: keys go to the focused tab with no target."""
 
-    def __init__(self, backend="host", restore_s=0.6, budget=3, report_fields=True, misroute=None, ignores=()):
+    PAGE_RECT = [0, 0, 800, 600]
+
+    def __init__(self, backend="host", restore_s=0.6, budget=3, report_fields=True, misroute=None, ignores=(),
+                 restores_only_focused=False):
         self.backend, self.restore_s, self.budget, self.report_fields, self.misroute = backend, restore_s, budget, report_fields, misroute
         self.ignores = set(ignores)  # signals the host ignores: it keeps running with its page
+        self.restores_only_focused = restores_only_focused
         self.now_s, self.pid, self.next_pid, self.app = 0.0, 500, 501, 100
-        self.down_until, self.crashes, self.kills, self.restarts = None, [], [], 0
-        self.state = {"search": "?kill", "field": "", "scroll": 0, "origin": 1.0}
-        self.saved = None  # the page state a restarted host gives back
+        self.down_until, self.crashes, self.kills, self.restarts, self.counted = None, [], [], 0, 0
+        self.context_at, self.cannot_start = 0.0, False
+        self.saved = None  # the pages' state a restarted host gives back
         self.tabs, self.focused, self.keys = {}, None, 0
         self.exit_ns = self.page_ns = None
+        self.refused_page_targets = 0
 
     # the Lab parts
     def sleep(self, seconds):
@@ -66,11 +78,19 @@ class FakeApp:
             self.down_until = None
             self.pid, self.next_pid = self.next_pid, self.next_pid + 1
             self.restarts += 1
-            # A new host loads the tab's URL; only a restore (task 093) gives back its text and scroll.
-            self.state.update((self.saved or {}) if self.restore_s is not None else {"origin": self.now_s})
+            # A new host loads each tab's URL; only a restore (task 093) gives back its text and scroll.
+            for tab, state in self.tabs.items():
+                saved = (self.saved or {}).get(tab) or {}
+                if self.restore_s is not None and (not self.restores_only_focused or tab == self.focused):
+                    state.update(saved)
+                else:
+                    state["origin"] = self.now_s
 
     def host_pid(self):
         return None if self.down_until is not None or self.pid is None else self.pid
+
+    def context_up(self):
+        return self.host_pid() is not None and self.now_s >= self.context_at
 
     def kill(self, pid, sig):
         if pid != self.pid:
@@ -78,35 +98,64 @@ class FakeApp:
         self.kills.append(sig)
         if sig in self.ignores:
             return
-        self.saved = dict(self.state)
-        self.state.update(field="", scroll=0)
+        early = not self.context_up()
+        self.saved = {tab: dict(state) for tab, state in self.tabs.items()}
+        for state in self.tabs.values():
+            state.update(field="", scroll=0)
         self.crashes.append({"pid": pid, "code": int(sig), "process_type": "chromium-host",
                              "minidump": {"symbolized_frames": 12}})
         self.exit_ns = self.now_s * 1e9
         self.page_ns = self.exit_ns + 5e6
-        if self.budget is not None and len(self.kills) > self.budget:
+        if early:
+            self.pid, self.cannot_start = None, True  # died before its context: cannot start, no retry
+            return
+        self.counted += 1
+        if self.budget is not None and self.counted >= self.budget:
             self.pid = None  # the budget is spent: the crash page's Reload, no new host
             return
         self.down_until = self.now_s + (self.restore_s if self.restore_s is not None else 0.5)
 
+    def reload(self):
+        """The crash page's Reload: a host whose context comes up 0.2 s later, with the pages loaded fresh."""
+        if self.host_pid() is not None or self.down_until is not None:
+            return
+        self.pid, self.next_pid, self.cannot_start = self.next_pid, self.next_pid + 1, False
+        self.context_at = self.now_s + 0.2
+        for state in self.tabs.values():
+            state.update(field="", scroll=0, origin=self.now_s)
+
     def lab(self, **parts):
         base = dict(rpc=self.rpc, wait=self.wait, sleep=self.sleep, now=self.now, uptime=self.now, kill=self.kill,
-                    pid_gone=lambda pid: pid != self.host_pid(), host_pid=self.host_pid, app_pid=lambda: self.app,
-                    helpers=lambda pid: [], typing_rows=lambda: [], focus_terminal=lambda: False,
+                    pid_gone=lambda pid: pid != self.host_pid(), host_pid=self.host_pid,
+                    host_pids=lambda: [self.host_pid()] if self.host_pid() else [], app_pid=lambda: self.app,
+                    page_rect=lambda: list(self.PAGE_RECT), helpers=lambda pid: [], typing_rows=lambda: [],
+                    focus_terminal=lambda: False, terminal_send=lambda text: False,
+                    out_path=lambda name: f"/bench/{name}", read_text=lambda path: None,
+                    cdp_session=lambda query: {"error": "no CDP in the fake"},
                     secure_pid=lambda: None, ax_text=lambda pid, text: None, front=lambda: self.app,
                     write_page=lambda name, html: f"file:///bench/{name}", stall_pace=lambda ms, every: {},
                     relaunch=lambda: {"error": "not in the fake"}, hz=120.0)
         base.update(parts)
         return process.Lab(**base)
 
+    def refuses_page_target(self, method, params):
+        """DebugKey.pageWindow and DebugMouse.clickPage in host mode: no Chromium page window for the pane."""
+        if method in ("debug.key", "debug.mouse") and params.get("target") == "page" and self.backend == "host":
+            self.refused_page_targets += 1
+            return True
+        return False
+
     # the app's socket
     def rpc(self, method, params=None, timeout=60):
         params = params or {}
+        if self.refuses_page_target(method, params):
+            return {"error": "no Chromium page window for pane"}
         if method == "debug.cef":
             host = {}
             if self.report_fields:
-                host = {"crash_page": self.pid is None, "exit_ns": self.exit_ns, "crash_page_ns": self.page_ns,
-                        "phase": "running" if self.host_pid() else "ended", "context_initialized": True}
+                phase = "running" if self.host_pid() else "cannot start" if self.cannot_start else "ended"
+                host = {"pid": self.host_pid(), "crash_page": self.pid is None, "exit_ns": self.exit_ns,
+                        "crash_page_ns": self.page_ns, "phase": phase, "context_initialized": self.context_up()}
             return {"backend": self.backend, "host": host}
         if method == "debug.crashes":
             return {"chromium": list(self.crashes)}
@@ -114,10 +163,12 @@ class FakeApp:
             if params.get("action") == "openBrowser.chromium":
                 url = params["args"]["url"]
                 tab = f"t{len(self.tabs) + 1}"
-                self.tabs[tab] = {"search": "?" + url.split("?", 1)[1], "field": ""}
+                self.tabs[tab] = {"search": "?" + url.split("?", 1)[1], "field": "", "scroll": 0, "origin": 1.0}
                 self.focused = tab
             elif params.get("action") in ("focusLeft", "focusRight"):
                 self.focused = list(self.tabs)[0 if params["action"] == "focusLeft" else 1]
+            elif params.get("action") == "browserReload":
+                self.reload()
             return {"ok": True}
         if method == "debug.key":
             if params.get("modifiers") == ["alt"]:
@@ -133,8 +184,6 @@ class FakeApp:
             if self.misroute is not None and self.keys > self.misroute and len(self.tabs) > 1:
                 target = next(t for t in self.tabs if t != self.focused)
             self.tabs[target]["field"] += key
-            if self.tabs[target]["search"] == "?kill":
-                self.state["field"] += key
             return {"ok": True}
         if method in ("debug.mouse", "debug.window_frame", "debug.hangs"):
             return {}
@@ -147,16 +196,18 @@ class FakeApp:
             return {"value": True, "tab": tab}
         if "getBoundingClientRect" in script:
             return {"value": [100, 50], "tab": tab}
-        if self.host_pid() is None:
-            return {"error": "the host is gone"}
+        if self.host_pid() is None or tab not in self.tabs:
+            return {"error": "the host or the tab is gone"}
+        if script == "1 + 1":
+            return {"value": 2}
         if script.endswith(".value = ''"):
-            self.state["field"] = ""
+            self.tabs[tab]["field"] = ""
             return {"value": None}
         if script.startswith("window.scrollTo"):
-            self.state["scroll"] = int(script.split(",")[1].strip(" )"))
+            self.tabs[tab]["scroll"] = int(script.split(",")[1].strip(" )"))
             return {"value": None}
         if script == process.RESTORE_STATE:
-            return {"value": json.dumps(self.state)}
+            return {"value": json.dumps(self.tabs[tab])}
         if script == "document.getElementById('f').value":
             return {"value": self.tabs[tab]["field"]}
         raise AssertionError(f"unexpected script {script}")
@@ -260,21 +311,52 @@ class FromResultTests(unittest.TestCase):
 
 class KillHostTests(unittest.TestCase):
     def test_a_host_that_restores_within_the_limit_and_honors_the_budget_passes(self):
+        # The landed policy (task 081): the 3rd crash ends the restarts; the 4th signal goes to a host Reload started.
         app = FakeApp()
         row = process.kill_host(app.lab())
         named = by_name(row["checks"])
-        for name in ("TRAP", "SEGV", "ABRT"):
+        for name in ("TRAP", "SEGV"):
+            self.assertEqual(named[(f"kill-host.{name}", "restarted")]["verdict"], "PASS", named)
             self.assertEqual(named[(f"kill-host.{name}", "restore_ms")]["verdict"], "PASS", named)
+        for name in ("ABRT", "KILL"):
+            self.assertEqual(named[(f"kill-host.{name}", "no_restart")]["verdict"], "PASS", named)
+            self.assertEqual(named[(f"kill-host.{name}", "reload_shown")]["verdict"], "PASS")
+            self.assertNotIn((f"kill-host.{name}", "restore_ms"), named)
+        for name in ("TRAP", "SEGV", "ABRT", "KILL"):
             self.assertEqual(named[(f"kill-host.{name}", "crash_page_frames")]["verdict"], "PASS")
             self.assertEqual(named[(f"kill-host.{name}", "crash_record")]["verdict"], "PASS")
             self.assertEqual(named[(f"kill-host.{name}", "minidump")]["verdict"], "PASS")
             self.assertEqual(named[(f"kill-host.{name}", "app_pid")]["verdict"], "PASS")
-        self.assertEqual(named[("kill-host.KILL", "no_restart")]["verdict"], "PASS")
-        self.assertEqual(named[("kill-host.KILL", "reload_shown")]["verdict"], "PASS")
-        self.assertEqual(app.kills, [signal.SIGTRAP, signal.SIGSEGV, signal.SIGABRT, signal.SIGKILL])
+        self.assertEqual(named[("kill-host.cannot_start", "no_retry")]["verdict"], "PASS")
+        self.assertEqual(named[("kill-host.cannot_start", "cannot_start_shown")]["verdict"], "PASS")
+        self.assertEqual(app.kills, [signal.SIGTRAP, signal.SIGSEGV, signal.SIGABRT, signal.SIGKILL, signal.SIGKILL])
         self.assertAlmostEqual(row["kills"][0]["restore_ms"], 600, delta=30)
+        self.assertEqual(sorted(row["expected"]), ["?kill", "?kill-back"])  # two tabs, one in a background pane
+        self.assertEqual(app.refused_page_targets, 0)  # every key and click went as host mode takes them
         # No terminal in the fake: the typing check is there and fails as not measured.
         self.assertFalse(named[("kill-host.typing", "key_to_frame_p99_ms")]["measured"])
+
+    def test_a_host_that_restarts_after_the_third_crash_fails_it(self):
+        named = by_name(process.kill_host(FakeApp(budget=4).lab())["checks"])
+        self.assertEqual(named[("kill-host.ABRT", "no_restart")]["verdict"], "FAIL")
+        self.assertTrue(named[("kill-host.ABRT", "no_restart")]["measured"])
+
+    def test_a_restart_that_restores_only_the_focused_tab_fails(self):
+        named = by_name(process.kill_host(FakeApp(restores_only_focused=True).lab())["checks"])
+        late = named[("kill-host.TRAP", "restore_ms")]
+        self.assertEqual(late["verdict"], "FAIL")
+        self.assertIn("1 of 2 tabs", late["reason"])
+        self.assertIn("?kill", late["reason"])
+
+    def test_page_targets_are_refused_in_host_mode_as_the_app_refuses_them(self):
+        app = FakeApp()
+        refused = {"error": "no Chromium page window for pane"}
+        self.assertEqual(app.rpc("debug.key", {"target": "page", "key": "a"}), refused)
+        self.assertEqual(app.rpc("debug.mouse", {"target": "page"}), refused)
+        for row in (process.ime, lambda lab: process.hang(lab, 5000), process.renderer_hang, process.quit_row):
+            fake = RowFake()
+            row(fake.lab())
+            self.assertEqual(fake.refused_page_targets, 0, row)
 
     def test_a_late_restore_fails_its_row(self):
         named = by_name(process.kill_host(FakeApp(restore_s=2.5).lab())["checks"])
@@ -288,8 +370,9 @@ class KillHostTests(unittest.TestCase):
         self.assertEqual(named[("kill-host.TRAP", "restore_ms")]["verdict"], "FAIL")
         self.assertIn("not back", named[("kill-host.TRAP", "restore_ms")]["reason"])
 
-    def test_a_host_with_no_restart_budget_fails_the_fourth_signal(self):
+    def test_a_host_with_no_restart_budget_fails_the_third_signal(self):
         named = by_name(process.kill_host(FakeApp(budget=None).lab())["checks"])
+        self.assertEqual(named[("kill-host.ABRT", "no_restart")]["verdict"], "FAIL")
         self.assertEqual(named[("kill-host.KILL", "no_restart")]["verdict"], "FAIL")
 
     def test_fields_the_app_does_not_report_yet_fail_as_not_measured_naming_the_task(self):
@@ -388,12 +471,17 @@ class RowFake(FakeApp):
     (debug.cef host_block_ms exists), `renderer_prompt` (the per-tab unresponsive prompt), `renderer_banner` (the host
     banner shows for a renderer hang: wrong), `dead_keys`, `kotoeri`, `secure_balanced`, `ax_connected`,
     `hidden_throttle`, `stay` (Stay keeps cmux), `runtime` (stage_runtime_update), `helper_records`, `sad_tab`,
-    `adopt` (the relaunch keeps the host), `screens_ms` (the relaunch's terminal_screens_shown after its first frame)."""
+    `adopt` (the relaunch keeps the host), `screens_ms` (the relaunch's terminal_screens_shown after its first frame),
+    `live_conversion` (Kotoeri commits 日本, macOS's default, not にほん), `quit_asks` (debug.cef host
+    quit_beforeunload: True, False, or None when the app does not report it; a Cmd-Q that does not ask ends cmux),
+    `cdp_alive` (a CDP session outlives the relaunch), `command_survives` (a terminal's command outlives cmux),
+    `lingering` (the old host, not adopted, still runs beside the new one and is listed first)."""
 
     def __init__(self, **switches):
         defaults = dict(hang_gate=True, banner_at=2.0, host_block=True, renderer_prompt=True, renderer_banner=False,
                         dead_keys=True, kotoeri=True, secure_balanced=True, ax_connected=True, hidden_throttle=True,
-                        stay=True, runtime=True, helper_records=True, sad_tab=True, adopt=True, screens_ms=120.0)
+                        stay=True, runtime=True, helper_records=True, sad_tab=True, adopt=True, screens_ms=120.0,
+                        live_conversion=False, quit_asks=True, cdp_alive=True, command_survives=True, lingering=False)
         self.switches = {**defaults, **{k: v for k, v in switches.items() if k in defaults}}
         super().__init__(**{k: v for k, v in switches.items() if k not in defaults})
         self.hidden = self.stopped = False
@@ -403,6 +491,8 @@ class RowFake(FakeApp):
         self.focus_element, self.secure, self.gone, self.unresponsive = None, False, False, False
         self.titles, self.dialogs, self.raf, self.helper_pids = {}, [], 0.0, {"gpu-process": [700], "renderer": [701, 702]}
         self.staged = None
+        self.ime = {}  # per tab: {start: compositions begun, end: their committed texts}
+        self.orphans, self.commands = [], {}  # hosts left running beside a new one; terminal commands by start time
 
     # what a row reads of the host
     def blocked(self):
@@ -428,8 +518,11 @@ class RowFake(FakeApp):
         banner = bool(self.armed() and self.now_s - self.key_at >= self.switches["banner_at"])
         banner = banner or (self.switches["renderer_banner"] and self.mouse_at is not None and self.titles.get(
             self.focused) == "hang probe")
-        return {"hang_banner": banner, "hang_timer_armed": self.armed(), "first_rect_max_ms": 0.04,
-                **({"runtime_version": self.staged} if self.staged and self.restarts else {"runtime_version": "1"})}
+        fields = {"hang_banner": banner, "hang_timer_armed": self.armed(), "first_rect_max_ms": 0.04,
+                  **({"runtime_version": self.staged} if self.staged and self.restarts else {"runtime_version": "1"})}
+        if self.switches["quit_asks"] is not None:
+            fields["quit_beforeunload"] = self.switches["quit_asks"]
+        return fields
 
     def kill(self, pid, sig):
         if pid == self.pid and sig in (signal.SIGSTOP, signal.SIGCONT):
@@ -455,9 +548,36 @@ class RowFake(FakeApp):
                     secure_pid=lambda: self.app if self.secure else 0,
                     ax_text=lambda pid, text: self.switches["ax_connected"] and text == process.AX_HEADING,
                     input_source=self.select_source, activate=lambda: {"activated": True, "error": ""},
-                    relaunch=self.relaunch, front=lambda: self.app)
+                    relaunch=self.relaunch, front=lambda: self.app, focus_terminal=lambda: True,
+                    host_pids=lambda: self.orphans + ([self.host_pid()] if self.host_pid() else []),
+                    terminal_send=self.terminal_send, read_text=self.read_text, cdp_session=self.cdp_session)
         base.update(parts)
         return super().lab(**base)
+
+    def terminal_send(self, text):
+        path = text.split("> ", 1)[1].strip().strip("'")
+        self.commands[path] = self.now_s
+        return True
+
+    def read_text(self, path):
+        started = self.commands.get(path)
+        ran = started is not None and self.now_s - started >= process.SHELL_COMMAND_S
+        return "done\n" if ran and self.switches["command_survives"] else None
+
+    def cdp_session(self, query):
+        fake = self
+        tab = next((t for t, v in self.tabs.items() if v["search"] == query), None)
+
+        class Session:
+            def evaluate(self, expression):
+                if not fake.switches["cdp_alive"]:
+                    raise ConnectionResetError("the DevTools socket closed")
+                assert expression == "performance.timeOrigin"
+                return fake.tabs[tab]["origin"]
+
+            def close(self):
+                pass
+        return {"session": Session()} if tab else {"error": "no target"}
 
     def select_source(self, source):
         previous, self.source = self.source, source
@@ -466,8 +586,11 @@ class RowFake(FakeApp):
     def relaunch(self):
         self.app += 1
         if not self.switches["adopt"]:
+            if self.switches["lingering"]:
+                self.orphans.append(self.pid)
             self.pid, self.next_pid = self.next_pid, self.next_pid + 1
-            self.state["origin"] = self.now_s + 1000.0  # a reload: a new timeOrigin
+            for state in self.tabs.values():
+                state["origin"] = self.now_s + 1000.0  # a reload: a new timeOrigin
         first = 400.0
         marks = {process.FIRST_FRAME_MARK: first}
         if self.switches["screens_ms"] is not None:
@@ -476,6 +599,8 @@ class RowFake(FakeApp):
 
     def rpc(self, method, params=None, timeout=60):
         params = params or {}
+        if self.refuses_page_target(method, params):
+            return {"error": "no Chromium page window for pane"}
         if method == "debug.cef":
             if "host_block_ms" in params:
                 if not self.switches["host_block"]:
@@ -516,7 +641,7 @@ class RowFake(FakeApp):
         if method == "snapshot.get":
             return {"topology": {"workspaces": [{"id": w} for w in self.workspaces]}}
         if method == "debug.mouse":
-            if "y" in params:
+            if params["y"] < 200:  # an element's point (f at 50, pw at 150), not the page's center
                 self.focus_element = "pw" if params["y"] > 100 else "f"
                 self.secure = self.focus_element == "pw" and self.host_pid() is not None
             else:
@@ -525,17 +650,24 @@ class RowFake(FakeApp):
                     self.titles[self.focused] = "unload armed"
             return {}
         if method == "debug.key":
-            if params.get("target") == "page" and self.blocked() and self.key_at is None:
+            if self.focused in self.tabs and self.blocked() and self.key_at is None:
                 self.key_at = self.now_s
             if params.get("modifiers") == ["cmd"] and params.get("key") == "q":
-                if self.titles.get(self.focused) == "unload armed":
+                if self.titles.get(self.focused) == "unload armed" and self.switches["quit_asks"]:
                     self.dialogs = [{"identifier": dialogs_question(), "visible": True}]
+                else:
+                    self.app, self.pid = None, None  # a quit that asks nothing ends cmux
                 return {}
             if self.source == process.KOTOERI_SOURCE and self.switches["kotoeri"] and self.focused in self.tabs:
+                ime = self.ime.setdefault(self.focused, {"start": 0, "end": []})
                 if params["key"] == "return":
-                    self.tabs[self.focused]["field"] += {"nihon": "にほん"}.get(self.composing, self.composing)
+                    converted = "日本" if self.switches["live_conversion"] else "にほん"
+                    text = {"nihon": converted}.get(self.composing, self.composing)
+                    self.tabs[self.focused]["field"] += text
+                    ime["end"].append(text)
                     self.composing = ""
                 else:
+                    ime["start"] += not self.composing
                     self.composing += params["key"]
                 return {}
             if params.get("modifiers") == ["alt"] and not self.switches["dead_keys"]:
@@ -583,13 +715,12 @@ class RowFake(FakeApp):
             return {"value": self.titles.get(tab)}
         if script == "location.search":
             return {"value": self.tabs[tab]["search"]}
-        if script.endswith(".value = ''") and tab != self.tab_of("?kill"):
-            self.tabs[tab]["field"] = ""
+        if script == process.IME_RESET:
+            self.ime[tab] = {"start": 0, "end": []}
             return {"value": None}
+        if script == process.IME_STATE:
+            return {"value": json.dumps(self.ime.get(tab, {"start": 0, "end": []}))}
         return super().evaluate(script, tab)
-
-    def tab_of(self, search):
-        return next((t for t, v in self.tabs.items() if v["search"] == search), None)
 
 
 def dialogs_question():
@@ -664,6 +795,17 @@ class ImeTests(unittest.TestCase):
         self.assertEqual(named[("ime.kotoeri", "commit")]["verdict"], "FAIL")
         self.assertTrue(named[("ime.kotoeri", "commit")]["measured"])
 
+    def test_kotoeri_with_live_conversion_commits_its_conversion(self):
+        named = run(RowFake(live_conversion=True), process.ime)
+        self.assertEqual(named[("ime.kotoeri", "commit")]["verdict"], "PASS", named[("ime.kotoeri", "commit")])
+        self.assertEqual(named[("ime.kotoeri", "commit")]["value"]["value"], "日本")
+
+    def test_kotoeri_text_with_no_composition_fails(self):
+        fake = RowFake()
+        named = run(fake, process.ime, input_source=lambda source: "com.apple.keylayout.US")  # no Kotoeri selected
+        self.assertEqual(named[("ime.kotoeri", "commit")]["verdict"], "FAIL")
+        self.assertEqual(named[("ime.kotoeri", "commit")]["value"]["compositions"], 0)
+
     def test_kotoeri_without_an_input_source_driver_is_not_measured(self):
         named = run(RowFake(), process.ime, input_source=lambda source: None)
         self.assertFalse(named[("ime.kotoeri", "commit")]["measured"])
@@ -725,6 +867,14 @@ class StallTests(unittest.TestCase):
         self.assertFalse(named[("stall.after_idle", "long_frames")]["measured"])
         self.assertIn("NO_ACTIVATE", named[("stall.after_idle", "cmux_frontmost")]["reason"])
 
+    def test_a_display_below_120_hz_fails_the_row_as_not_measured(self):
+        named = run(RowFake(), process.stall, 50, 100, 0, stall_pace=lambda ms, every: dict(self.PACE), hz=60.0)
+        self.assertEqual(named[("stall", "long_frames")]["verdict"], "PASS")
+        self.assertFalse(named[("stall", "refresh_hz")]["measured"])
+        self.assertIn("60 Hz", named[("stall", "refresh_hz")]["reason"])
+        named = run(RowFake(), process.stall, 50, 100, 0, stall_pace=lambda ms, every: dict(self.PACE))
+        self.assertEqual(named[("stall", "refresh_hz")]["verdict"], "PASS")
+
     def test_long_frames_fail(self):
         named = run(RowFake(), process.stall, 50, 100, 0, stall_pace=lambda ms, every: {"stalls": 30, "long_frames": 3})
         self.assertEqual(named[("stall", "long_frames")]["verdict"], "FAIL")
@@ -739,6 +889,29 @@ class QuitRuntimeTests(unittest.TestCase):
     def test_a_quit_that_ignores_stay_fails(self):
         named = run(RowFake(stay=False), process.quit_row)
         self.assertEqual(named[("quit", "stay_keeps_cmux")]["verdict"], "FAIL")
+
+    def test_no_cmd_q_when_the_app_does_not_ask_host_pages_on_quit(self):
+        for asks, reason in ((None, "quit_beforeunload"), (False, "does not ask")):
+            fake = RowFake(quit_asks=asks)
+            named = run(fake, process.quit_row)
+            self.assertIsNotNone(fake.app)  # cmux still runs: the row sent no Cmd-Q
+            for name in ("asked", "stay_keeps_cmux", "host_kept", "tab_kept"):
+                self.assertFalse(named[("quit", name)]["measured"])
+                self.assertIn(reason, named[("quit", name)]["reason"])
+                self.assertIn("p01-process-087", named[("quit", name)]["reason"])
+
+    def test_rows_after_a_row_that_ended_cmux_fail_with_that_cause(self):
+        fake = RowFake(stay=False)
+        ran = []
+
+        def bounded(out, name, run_row):
+            ran.append(name)
+            out[name] = run_row()
+        out = process.run_rows(fake.lab(), ["quit", "kill-app", "kill-host"], {}, bounded)
+        self.assertEqual(ran, ["quit"])
+        for name, number in (("kill-app", 20), ("kill-host", 4)):
+            self.assertEqual(out[name]["checks"][0]["reason"], "cmux quit during the quit row")
+            self.assertEqual(out[name]["checks"][0]["number"], number)
 
     def test_a_staged_runtime_used_after_the_idle_restart_passes(self):
         named = run(RowFake(), process.runtime_update)
@@ -770,16 +943,58 @@ class HelperKillTests(unittest.TestCase):
 
 
 class KillAppTests(unittest.TestCase):
+    MEASURED = ("host_adopted", "no_reload", "cdp_session", "terminal_screens_ms", "terminal_command")
+
     def test_a_relaunch_that_adopts_the_host_with_no_reload_passes(self):
         named = run(RowFake(), process.kill_app)
-        for name in ("host_adopted", "no_reload", "terminal_screens_ms"):
+        for name in self.MEASURED:
             self.assertEqual(named[("kill-app", name)]["verdict"], "PASS", named[("kill-app", name)])
         self.assertEqual(named[("kill-app", "terminal_screens_ms")]["value"], 120.0)
+        self.assertGreaterEqual(named[("kill-app", "terminal_command")]["value"], process.SHELL_COMMAND_S)
+
+    def test_the_parts_of_done_check_20_with_no_driver_fail_naming_their_task(self):
+        named = run(RowFake(), process.kill_app)
+        for name in ("shell_mode_command", "remote_tabs", "vscode_url"):
+            self.assertEqual(named[("kill-app", name)]["verdict"], "FAIL")
+            self.assertFalse(named[("kill-app", name)]["measured"])
+            self.assertIn("p01-process-239", named[("kill-app", name)]["reason"])
+        self.assertEqual(rows.failing(list(named.values())), ["kill-app"])
 
     def test_a_relaunch_with_a_new_host_and_a_reload_fails(self):
         named = run(RowFake(adopt=False, screens_ms=450.0), process.kill_app)
-        for name in ("host_adopted", "no_reload", "terminal_screens_ms"):
+        for name in ("host_adopted", "no_reload", "cdp_session", "terminal_screens_ms"):
             self.assertEqual(named[("kill-app", name)]["verdict"], "FAIL")
+            self.assertTrue(named[("kill-app", name)]["measured"])
+
+    def test_an_orphaned_host_listed_first_beside_a_new_one_is_no_adoption(self):
+        named = run(RowFake(adopt=False, lingering=True), process.kill_app)
+        adopted = named[("kill-app", "host_adopted")]
+        self.assertEqual(adopted["verdict"], "FAIL")
+        self.assertEqual(adopted["value"]["running"], [500, 501])
+        # The same host reported after, with an orphan of another run beside it, fails too.
+        fake = RowFake()
+        named = run(fake, process.kill_app, host_pids=lambda: [499, fake.host_pid()])
+        self.assertIn("2 Chromium Host processes", named[("kill-app", "host_adopted")]["reason"])
+
+    def test_a_command_or_cdp_session_that_died_with_cmux_fails(self):
+        named = run(RowFake(command_survives=False, cdp_alive=False), process.kill_app)
+        self.assertIn("ended with cmux", named[("kill-app", "terminal_command")]["reason"])
+        self.assertIn("the session ended", named[("kill-app", "cdp_session")]["reason"])
+        named = run(RowFake(), process.kill_app, cdp_session=lambda query: {"error": "no CDP page target"})
+        self.assertFalse(named[("kill-app", "cdp_session")]["measured"])
+
+    def test_without_the_hosts_reported_pid_adoption_is_not_measured(self):
+        fake = RowFake()
+        real = fake.rpc
+
+        def rpc(method, params=None, timeout=60):
+            reply = real(method, params, timeout)
+            if method == "debug.cef" and isinstance(reply.get("host"), dict):
+                reply["host"].pop("pid", None)
+            return reply
+        named = run(fake, process.kill_app, rpc=rpc)
+        self.assertFalse(named[("kill-app", "host_adopted")]["measured"])
+        self.assertIn("p01-process-080", named[("kill-app", "host_adopted")]["reason"])
 
     def test_no_terminal_screens_mark_names_task_152(self):
         named = run(RowFake(screens_ms=None), process.kill_app)
@@ -865,6 +1080,29 @@ class BenchRelaunchTests(unittest.TestCase):
         seeded = fake.lab()
         seeded.host_deaths.append(fake.now() - 30)
         self.assertAlmostEqual(process.kill_host(seeded)["rested_s"], rows.RESTART_WINDOW_S - 30, delta=0.01)
+
+    def test_the_backend_host_is_the_reported_one_never_the_prototype_or_an_orphan(self):
+        listed = [600, 500]
+        self.bench.chromium_host_pids = lambda: list(listed)
+        self.bench.pid_gone = lambda pid: pid not in listed
+
+        def rpc_of(reported, prototype):
+            def rpc(method, params=None, timeout=60):
+                if method == "debug.cef":
+                    return {"backend": "host", "host": {"pid": reported} if reported else {}}
+                if method == "debug.chromium_host":
+                    return {"pid": prototype} if prototype else {}
+                return {}
+            return rpc
+        self.assertEqual(self.bench.backend_host_pid(rpc_of(500, None)), 500)
+        self.assertEqual(self.bench.backend_host_pid(rpc_of(None, 600)), 500)
+        self.assertEqual(self.bench.backend_host_pids(rpc_of(None, 600)), [500])
+        self.assertIsNone(self.bench.backend_host_pid(rpc_of(None, None)))  # two hosts, none reported: ambiguous
+        self.assertIsNone(self.bench.backend_host_pid(rpc_of(700, None)))  # the reported host is gone
+
+    def test_the_kill_app_run_gives_the_host_a_devtools_port(self):
+        self.assertIsNone(self.bench.cdp_session(None)("?app").get("session"))
+        self.assertIn("no DevTools port", self.bench.cdp_session(None)("?app")["error"])
 
     def test_asked_rows_follow_the_flags(self):
         asked = self.bench.asked_rows(self.bench.opts)

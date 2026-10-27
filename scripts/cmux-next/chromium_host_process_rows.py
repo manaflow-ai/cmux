@@ -6,15 +6,18 @@ prints PASS or FAIL with its number.
 Every row drives a Chromium tab of the app's backend (`openBrowser.chromium`) and needs that backend to be the
 Chromium Host (`debug.cef` backend `host`); in process, every check of the row is not measured, so it fails.
 
-  kill-host       done check 4. A tab is given typed text and a scroll offset; the host gets each of --signals in
-                  turn (TRAP, SEGV, ABRT, KILL). Per signal: cmux's pid is unchanged; the crash page shows within 1
-                  frame of the exit; the signaled host ends and a new one has the tab back at its URL with its text
-                  and scroll within 2000 ms; debug.crashes has a record naming the signal, with a minidump of
-                  symbolized frames and no URL or title. The 4th
-                  crash within 5 minutes starts no host and leaves the crash page's Reload. Then a host started by
-                  Reload and ended before its context is up shows "cannot start" and is not retried. While the host
-                  dies, keys go to a terminal (the typing probe, CMUX_NEXT_TYPING_PROBE): its key-to-frame p99, and
-                  no key lost.
+  kill-host       done check 4. Two tabs, one in a background pane, are each given typed text and a scroll
+                  offset; the host gets each of --signals in turn (TRAP, SEGV, ABRT, KILL). Per signal: cmux's pid is
+                  unchanged; the crash page shows within 1 frame of the exit; debug.crashes has a record naming the
+                  signal, with a minidump of symbolized frames and no URL or title. While the restart budget lasts,
+                  the signaled host ends and a new one has every tab back at its URL with its text and scroll within
+                  2000 ms (timed to the last tab back). The crash that spends the budget (the 3rd within 5 minutes,
+                  ChromiumHostRestartPolicy as task 081 landed it) starts no host and leaves the crash page's Reload;
+                  each later signal goes to a host the bench starts with Reload, which ends the same way. Then a host
+                  started by Reload and ended before its context is up shows "cannot start" and is not retried. While
+                  the host dies, keys go to a terminal (the typing probe, CMUX_NEXT_TYPING_PROBE): its key-to-frame
+                  p99, and no key lost. Done check 4's text says the 4th crash leaves Reload; the landed policy (and
+                  Chrome's GpuProcessHost) ends at the 3rd, and the bench follows the policy.
   helper-kill     SIGKILL to the host's GPU helper, then to every renderer: one debug.crashes record each, the
                   host and cmux keep running, the page answers again after the GPU loss and shows its sad tab after
                   the renderer's.
@@ -28,8 +31,9 @@ Chromium Host (`debug.cef` backend `host`); in process, every check of the row i
   ime             done check 8: a dead key composes and commits; the host's firstRect reads stay under 0.1 ms and
                   it asks cmux for no synchronous IME state; secure event input is on while a password field has
                   focus and off after blur, a host crash and a tab close. Kotoeri (selected by the bench) composes
-                  `nihon` and commits it; the emoji picker and dictation have no bench driver: those checks fail
-                  naming the task whose input path they exercise.
+                  `nihon` as marked text and commits Japanese text (にほん, or 日本 with Live Conversion on); the
+                  emoji picker and dictation have no bench driver: those checks fail naming the task whose input
+                  path they exercise.
   ax              done check 9: the tab's page view has remote accessibility children (`page_accessibility`
                   connected) and the probe's h1 is readable through the Accessibility API.
   ordering        done check 7: --ordering-keys keys interleaved with focus changes between two tabs, dead-key
@@ -37,20 +41,32 @@ Chromium Host (`debug.cef` backend `host`); in process, every check of the row i
                   in order, IME text in send order.
   visibility      done check 12: a tab in a workspace that is hidden, and in a hidden app, has
                   visibilityState hidden and draws 0 animation frames per second; it draws again when shown.
-  stall           done check 5, --stall MS/EVERY: the page animates at the display's rate with 0 long frames while
+  stall           done check 5, --stall MS/EVERY: on a display of at least 120 Hz (a slower one fails the row, not
+                  measured), the page animates at the display's rate with 0 long frames while
                   cmux's main thread stalls MS every EVERY ms; the same after --stall-idle-minutes with cmux made
                   frontmost before the idle and still frontmost after it (no App Nap of the host).
   quit            task 087: Cmd-Q with a page that has a beforeunload handler asks; Stay keeps cmux, the host and
-                  the tab.
+                  the tab. Cmd-Q is sent only when the page armed its handler and the app says its quit asks host
+                  pages (`debug.cef` host quit_beforeunload, 087): otherwise it would end cmux. A row after a row that
+                  ended cmux fails with that reason.
   runtime-update  task 087: a staged Chromium runtime (`debug.cef` stage_runtime_update) is used after the host's
                   idle restart, and the tab is back at its URL.
   kill-app        done check 20: SIGKILL to cmux with browserHost.survivesAppCrash on, then a relaunch: the host
-                  is the same process, the page was not reloaded (performance.timeOrigin unchanged), and every
-                  terminal screen shows within 300 ms of the first frame.
+                  the app reports is the same process before and after, and it is the only Chromium Host of the
+                  bundle; the page was not reloaded (performance.timeOrigin unchanged); a CDP session held on the
+                  page across the relaunch still answers; a 60 s command started in a terminal before the kill
+                  finishes after it; every terminal screen shows within 300 ms of the first frame. The agent pane's
+                  shell mode, the remote tabs and VS Code have no bench driver: those checks fail naming task 239.
+
+Input goes to the page view as a person's does: keys with no `target` reach the shell window's first responder (the
+ChromiumHostPageView of the focused pane), clicks are window points over the focused pane's content rect. In host
+mode `debug.key`/`debug.mouse` `target: "page"` need a Chromium page window, which only the in-process backend has
+(task p01-process-224 routes them to the page view).
 
 What the rows read that a later task adds (a missing field makes its check not measured, naming the task):
-`debug.cef` `host` {crash_page, exit_ns, crash_page_ns (CLOCK_UPTIME_RAW ns; 082), phase (cannot start: 081),
-context_initialized (081), hang_banner, hang_timer_armed (084), first_rect_max_ms (043), runtime_version (087)};
+`debug.cef` `host` {pid (the backend's own host: 080), crash_page, exit_ns, crash_page_ns (CLOCK_UPTIME_RAW ns;
+082), phase (cannot start: 081), context_initialized (081), hang_banner, hang_timer_armed (084), first_rect_max_ms
+(043), runtime_version and quit_beforeunload (087)};
 `debug.cef` params host_block_ms (084) and stage_runtime_update (087); `debug.crashes` chromium records' `minidump`
 {symbolized_frames} (226); `debug.hangs` records' `process` "chromium-host" (084); the relaunch's
 `terminal_screens_shown` launch mark (152). `ime_sync_requests` comes from `debug.chromium_host` (043).
@@ -58,6 +74,7 @@ context_initialized (081), hang_banner, hang_timer_armed (084), first_rect_max_m
 import ctypes
 import ctypes.util
 import json
+import shlex
 import signal
 import threading
 
@@ -72,11 +89,14 @@ ROWS = ("ime", "ax", "visibility", "ordering", "stall", "hang", "renderer-hang",
 DEFAULT_SIGNALS = ("TRAP", "SEGV", "ABRT", "KILL")
 # Each row's own limit (the bench's bounded()): kill-host waits out four restarts and the budget, ordering sends
 # 10,000 keys, stall idles --stall-idle-minutes (added by the bench).
-ROW_LIMIT_S = {"kill-host": 240 + int(rows.RESTART_WINDOW_S), "ordering": 900, "hang": 120, "renderer-hang": 120, "kill-app": 300,
+ROW_LIMIT_S = {"kill-host": 240 + int(rows.RESTART_WINDOW_S), "ordering": 900, "hang": 120, "renderer-hang": 120,
+               "kill-app": 360,
                "runtime-update": 180, "stall": 120}
 
-RESTORE_TEXT = "kill"
-RESTORE_SCROLL = 1200
+# kill-host's tabs: (query, typed text, scroll offset). The first is seeded, then the second opens in a pane to its
+# right, so the first is in a background pane when the host dies.
+RESTORE_TABS = (("?kill", "kill", 1200), ("?kill-back", "back", 800))
+RELOAD_WAIT_S = 15.0
 RESTORE_POLL_S = 0.025
 RESTORE_GRACE_S = 8.0  # past the 2000 ms limit, so a late restore is measured, not lost
 BUDGET_SETTLE_S = 5.0
@@ -89,18 +109,32 @@ RENDERER_HANG_PROMPT_LIMIT_S = rows.RENDERER_HANG_PROMPT_S + 5.0
 TYPING_INTERVAL_S = 1 / 30
 ORDER_FOCUS_EVERY, ORDER_IME_EVERY, ORDER_RESIZE_EVERY = 50, 200, 500
 NO_FIELD = "the app does not report {} (task p01-process-{})"
+# Done check 20's 60 s command, and how long past it the bench waits for its output.
+SHELL_COMMAND_S, SHELL_COMMAND_GRACE_S = 60, 30
+ADOPT_WAIT_S = 10.0
+NO_RELAUNCH_DRIVER = {
+    "shell_mode_command": "no bench driver: the agent pane's shell mode runs its commands as app children until "
+                          "they become daemon jobs (task p01-process-239)",
+    "remote_tabs": "no bench driver: 3 remote tabs on one daemon-owned remote-browser host (task p01-process-239)",
+    "vscode_url": "no bench driver: VS Code's serve-web supervised by the daemon keeps its URL (task p01-process-239)",
+}
 
 # The tab whose state a restart must give back. `__raf` counts animation frames (the visibility row).
 RESTORE_PAGE = """<!doctype html><meta charset=utf-8><title>restore probe</title>
 <style>html,body{margin:0;background:#204080;color:#fff;font:16px system-ui}#tall{height:600vh}
 #f{position:fixed;left:10%;top:10%;width:50%;font-size:20px}#pw{position:fixed;left:10%;top:25%;width:30%}</style>
 <input id=f><input id=pw type=password><div id=tall></div>
-<script>window.__raf = 0; (function tick() { window.__raf++; requestAnimationFrame(tick); })();</script>"""
+<script>window.__raf = 0; (function tick() { window.__raf++; requestAnimationFrame(tick); })();
+window.__ime = {start: 0, end: []};
+addEventListener('compositionstart', () => window.__ime.start++, true);
+addEventListener('compositionend', (e) => window.__ime.end.push(e.data), true);</script>"""
 RESTORE_STATE = ("JSON.stringify({search: location.search, field: document.getElementById('f').value, "
                  "scroll: Math.round(scrollY), origin: performance.timeOrigin})")
 
 KOTOERI_SOURCE = "com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese"
-KOTOERI_KEYS, KOTOERI_COMMIT = "nihon", "にほん"
+KOTOERI_KEYS = "nihon"
+IME_STATE = "JSON.stringify(window.__ime)"
+IME_RESET = "window.__ime = {start: 0, end: []}"
 # Done check 8's input methods the bench has no driver for: each names the task whose path it exercises, so Q6
 # gives the row an owner. Both insert through the page view's NSTextInputClient from another process's UI.
 NO_IME_DRIVER = {
@@ -123,13 +157,18 @@ class Lab:
     """What the rows touch, injected: the bench builds it over the app, the tests over a fake.
 
     rpc(method, params=None, timeout=60), wait(check, seconds, step), sleep(seconds), now() (monotonic seconds),
-    uptime() (CLOCK_UPTIME_RAW seconds, debug.key's timestamp), kill(pid, signal), pid_gone(pid), host_pid(),
-    app_pid(), helpers(host_pid) -> [{pid, type}], typing_rows() -> the typing probe's CSV rows,
+    uptime() (CLOCK_UPTIME_RAW seconds, debug.key's timestamp), kill(pid, signal), pid_gone(pid), host_pid() (the
+    app backend's own Chromium Host, never the helper mode's prototype host), host_pids() (every Chromium Host of the
+    bundle but the prototype), page_rect() -> the focused pane's content rect [x, y, w, h] (window points, top
+    left) or None, app_pid(), helpers(host_pid) -> [{pid, type}], typing_rows() -> the typing probe's CSV rows,
     focus_terminal() -> True when a terminal pane has the focus, secure_pid() -> the secure event input's pid (0 none,
     None unreadable), ax_text(pid, text) -> True/False, None without an Accessibility grant, front() -> frontmost pid,
     write_page(name, html) -> its file URL, stall_pace(ms, every_ms) -> stall_row's dict, relaunch() -> SIGKILL to
     cmux and a relaunch that adopts the surviving host: ``relaunch_timings``' {first_frame_ms, terminal_screens_ms}
-    or {error}, activate() -> {activated, error} (cmux made frontmost), input_source(id) -> the input source id
+    or {error}, activate() -> {activated, error} (cmux made frontmost), terminal_send(text) -> True once `text` went
+    to a focused terminal, out_path(name) -> a path in the run's folder, read_text(path) -> its text or None,
+    cdp_session(query) -> {session} (a CDP session on the host's page whose URL has `query`; `.evaluate(js)`,
+    `.close()`) or {error}, input_source(id) -> the input source id
     selected before (``select_input_source``) or None, hz (the display's refresh rate), host_deaths (now() of each
     host end the run caused before and during the rows: kill-host waits out the restart window after the last)."""
 
@@ -197,13 +236,35 @@ def center(lab, tab, element):
     return {"x": rect[0], "y": rect[1]} if isinstance(rect, list) and len(rect) == 2 else {}
 
 
-def click(lab, tab, element):
-    lab.rpc("debug.mouse", {"target": "page", **center(lab, tab, element)})
+def window_point(lab, tab=None, element=None):
+    """debug.mouse's window point (top-left window points) over `element` of the focused pane's page, or the page's
+    center with no `element`; None without the pane's geometry or the element's rect. The page view fills the pane's
+    content rect, so a page point is that rect's origin plus the CSS point (host_click_point does the same)."""
+    rect = lab.page_rect()
+    if not (isinstance(rect, (list, tuple)) and len(rect) == 4):
+        return None
+    if element is None:
+        return {"x": rect[0] + rect[2] / 2, "y": rect[1] + rect[3] / 2}
+    at = center(lab, tab, element)
+    return {"x": rect[0] + at["x"], "y": rect[1] + at["y"]} if at else None
+
+
+def click(lab, tab, element=None):
+    """A click on the focused pane's page, as a person's: a window point, no `target` (see the module's notes)."""
+    point = window_point(lab, tab, element)
+    if point:
+        lab.rpc("debug.mouse", point)
+    return point is not None
+
+
+def page_key(lab, key, **params):
+    """A key to the focused page view: no `target`, so the shell window's first responder takes it."""
+    return lab.rpc("debug.key", {"key": key, **params})
 
 
 def type_keys(lab, text):
     for key in text:
-        lab.rpc("debug.key", {"target": "page", "key": key})
+        page_key(lab, key)
 
 
 def crash_records(lab):
@@ -272,18 +333,36 @@ class Typing:
 
 # ---------------------------------------------------------------- kill-host (done check 4)
 
-def seed_restore(lab, tab):
-    """Typed text and a scroll offset in the tab (what PageState must restore, task 093); the state, or None."""
+def seed_restore(lab, tab, text, scroll):
+    """Typed text and a scroll offset in the focused tab `tab` (what PageState must restore, task 093); the state, or
+    None."""
     click(lab, tab, "f")
     page(lab, tab, "document.getElementById('f').value = ''")
-    type_keys(lab, RESTORE_TEXT)
-    page(lab, tab, f"window.scrollTo(0, {RESTORE_SCROLL})")
-    return lab.wait(lambda: (lambda s: s if s and s.get("field") == RESTORE_TEXT and s.get("scroll") == RESTORE_SCROLL
+    type_keys(lab, text)
+    page(lab, tab, f"window.scrollTo(0, {scroll})")
+    return lab.wait(lambda: (lambda s: s if s and s.get("field") == text and s.get("scroll") == scroll
                              else None)(page_json(lab, tab, RESTORE_STATE)), 10, 0.1)
 
 
 def same_page(state, expected):
     return bool(state) and all(state.get(k) == expected.get(k) for k in ("search", "field", "scroll")) and state
+
+
+def open_restore_tabs(lab):
+    """kill-host's tabs, each seeded while it is focused: ({tab: its seeded state}, None), or (None, why)."""
+    url = lab.write_page("restore.html", RESTORE_PAGE)
+    seeded = {}
+    for index, (query, text, scroll) in enumerate(RESTORE_TABS):
+        if index:
+            lab.rpc("action.run", {"action": "splitRight", "focus": True, "origin": "script"}, timeout=60)
+        tab = open_tab(lab, f"{url}{query}", "restore probe", query)
+        if not tab:
+            return None, f"the restore probe {query} never loaded"
+        state = seed_restore(lab, tab, text, scroll)
+        if not state:
+            return None, f"the probe {query} kept no typed text and scroll"
+        seeded[tab] = state
+    return seeded, None
 
 
 def crash_page_frames(lab, row):
@@ -308,7 +387,39 @@ def crash_checks(lab, row, before, pid, sig):
     return out, record
 
 
-def one_kill(lab, tab, expected, name, budget_spent, app_pid):
+def restore_checks(lab, row, pid, started, expected, out):
+    """A new host has every tab of `expected` ({tab: seeded state}) back; restore_ms is when the last one is."""
+    def restored():
+        # Only a new host's pages count: the old one still answers while it is in its crash handler, or when it
+        # ignored the signal, and its pages are the seeded ones.
+        new = lab.host_pid()
+        if not (lab.pid_gone(pid) and new and new != pid):
+            return None
+        back = {tab: same_page(page_json(lab, tab, RESTORE_STATE), state) for tab, state in expected.items()}
+        return back if all(back.values()) else None
+    back = lab.wait(restored, rows.KILL_RESTORE_MS / 1000 + RESTORE_GRACE_S, RESTORE_POLL_S)
+    restore_ms = (lab.now() - started) * 1000 if back else None
+    new_pid, gone = lab.host_pid(), lab.pid_gone(pid)
+    restarted = gone and bool(new_pid) and new_pid != pid
+    after = back or {tab: page_json(lab, tab, RESTORE_STATE) for tab in expected}
+    by_query = {expected[tab]["search"]: state for tab, state in after.items()}
+    out.update(restore_ms=restore_ms, new_pid=new_pid, after=by_query)
+    checks = [holds(4, row, "restarted", restarted, new_pid, reason=None if restarted else
+                    "no new Chromium Host started" if gone else "the signaled host did not end")]
+    if back:
+        checks.append(at_most(4, row, "restore_ms", restore_ms, rows.KILL_RESTORE_MS))
+    else:
+        missing = {expected[tab]["search"]: state for tab, state in after.items()
+                   if not same_page(state, expected[tab])}
+        why = (f"{len(missing)} of {len(expected)} tabs not back with their URL, text and scroll: "
+               f"{json.dumps(missing)[:160]}" if restarted else "no new host restored them")
+        checks.append(check(4, row, "restore_ms", False, None, f"<= {rows.KILL_RESTORE_MS:g}", "ms", why))
+    return checks
+
+
+def one_kill(lab, expected, name, budget_spent, app_pid):
+    """One signal to the host. `budget_spent`: this crash spends the restart budget, or comes after it, so no host
+    may start and the crash page's Reload stays."""
     row = f"kill-host.{name}"
     sig = getattr(signal, f"SIG{name}")
     pid = lab.host_pid()
@@ -326,30 +437,25 @@ def one_kill(lab, tab, expected, name, budget_spent, app_pid):
         checks.append(holds(4, row, "no_restart", again is None, again))
         checks.append(field_check(4, row, "reload_shown", state, "crash_page", "082", lambda v: v is True))
     else:
-        def restored():
-            # Only a new host's page counts: the old one still answers while it is in its crash handler, or when
-            # it ignored the signal, and its page is the seeded one.
-            new = lab.host_pid()
-            if not (lab.pid_gone(pid) and new and new != pid):
-                return None
-            return same_page(page_json(lab, tab, RESTORE_STATE), expected)
-        back = lab.wait(restored, rows.KILL_RESTORE_MS / 1000 + RESTORE_GRACE_S, RESTORE_POLL_S)
-        restore_ms = (lab.now() - started) * 1000 if back else None
-        new_pid, gone = lab.host_pid(), lab.pid_gone(pid)
-        restarted = gone and bool(new_pid) and new_pid != pid
-        out.update(restore_ms=restore_ms, new_pid=new_pid, after=back or page_json(lab, tab, RESTORE_STATE))
-        checks.append(holds(4, row, "restarted", restarted, new_pid, reason=None if restarted else
-                            "no new Chromium Host started" if gone else "the signaled host did not end"))
-        why = (f"not back with its URL, text and scroll: {json.dumps(out['after'])[:120]}" if restarted
-               else "no new host restored it")
-        checks.append(at_most(4, row, "restore_ms", restore_ms, rows.KILL_RESTORE_MS) if back else
-                      check(4, row, "restore_ms", False, None, f"<= {rows.KILL_RESTORE_MS:g}", "ms", why))
+        checks += restore_checks(lab, row, pid, started, expected, out)
     checks.append(holds(4, row, "app_pid", lab.app_pid() == app_pid, lab.app_pid()))
     checks.append(crash_page_frames(lab, row))
     records, out["record"] = crash_checks(lab, row, before, pid, sig)
     checks += records
     out["checks"] = checks
     return out
+
+
+def reload_host(lab, tab):
+    """The crash page's Reload on `tab` with the budget spent: the host it starts, once its context is up and the tab
+    answers, else None."""
+    lab.rpc("action.run", {"action": "browserReload", "target": f"tab:{tab}", "origin": "script"}, timeout=30)
+
+    def up():
+        pid = lab.host_pid()
+        ready = pid and host_state(lab).get("context_initialized") is not False and page(lab, tab, "1 + 1") == 2
+        return pid if ready else None
+    return lab.wait(up, RELOAD_WAIT_S, 0.1)
 
 
 def cannot_start(lab, tab):
@@ -388,18 +494,21 @@ def kill_host(lab, signals=DEFAULT_SIGNALS):
     if skipped:
         return skipped
     rested_s = rest_after_deaths(lab)
-    url = lab.write_page("restore.html", RESTORE_PAGE)
-    tab = open_tab(lab, f"{url}?kill", "restore probe", "?kill")
-    if not tab:
-        return failed(4, "kill-host", "the restore probe never loaded")
-    expected = seed_restore(lab, tab)
+    expected, why = open_restore_tabs(lab)
     if not expected:
-        return failed(4, "kill-host", "the probe kept no typed text and scroll")
+        return failed(4, "kill-host", why)
+    first = next(iter(expected))
     typing = Typing(lab) if lab.focus_terminal() else None
     app_pid, kills, checks = lab.app_pid(), [], []
     try:
         for index, name in enumerate(signals):
-            kill = one_kill(lab, tab, expected, name, index >= rows.RESTART_LIMIT, app_pid)
+            # The budget ends at its RESTART_LIMIT-th crash; a later signal needs a host that only Reload starts.
+            if index >= rows.RESTART_LIMIT and not reload_host(lab, first):
+                kills.append({"signal": name})
+                checks.append(unmeasured(4, f"kill-host.{name}", "pass", "the crash page's Reload started no "
+                                         "Chromium Host to signal (task p01-process-081)"))
+                continue
+            kill = one_kill(lab, expected, name, index >= rows.RESTART_LIMIT - 1, app_pid)
             checks += kill.pop("checks")
             kills.append(kill)
     finally:
@@ -411,12 +520,12 @@ def kill_host(lab, signals=DEFAULT_SIGNALS):
         checks.append(at_most(4, "kill-host.typing", "key_to_frame_p99_ms", typed["p99"], rows.KILL_TYPING_P99_MS,
                               reason="the typing probe wrote no frame rows (CMUX_NEXT_TYPING_PROBE)"))
         checks.append(holds(4, "kill-host.typing", "lost", typed["lost"] == 0, typed["lost"]))
-    start = cannot_start(lab, tab) if len(signals) > rows.RESTART_LIMIT else {
+    start = cannot_start(lab, first) if len(signals) >= rows.RESTART_LIMIT else {
         "checks": [unmeasured(4, "kill-host.cannot_start", "no_retry",
-                              f"needs more than {rows.RESTART_LIMIT} signals to spend the restart budget")]}
+                              f"needs at least {rows.RESTART_LIMIT} signals to spend the restart budget")]}
     checks += start.pop("checks")
-    return {"rested_s": rested_s, "expected": expected, "kills": kills, "typing": typed, "cannot_start": start,
-            "checks": checks}
+    return {"rested_s": rested_s, "expected": {state["search"]: state for state in expected.values()}, "kills": kills,
+            "typing": typed, "cannot_start": start, "checks": checks}
 
 
 # ---------------------------------------------------------------- helper-kill
@@ -481,7 +590,7 @@ def hang(lab, hang_ms):
     if not blocked and pid:
         lab.kill(pid, signal.SIGSTOP)
     started = lab.now()
-    lab.rpc("debug.key", {"target": "page", "key": "a"})  # an input the blocked host cannot ack
+    page_key(lab, "a")  # an input the blocked host cannot ack
     banner_ms, state, armed = None, {}, False
     while lab.now() - started < hang_ms / 1000:
         state = host_state(lab)
@@ -520,7 +629,7 @@ def hidden_hang(lab, pid, control):
         return unmeasured(11, row, "no_timer", "no Chromium Host process")
     lab.rpc("action.run", {"action": "showHideAllWindows", "args": {"hidden": True}, "origin": "script"}, timeout=60)
     lab.kill(pid, signal.SIGSTOP)
-    lab.rpc("debug.key", {"target": "page", "key": "b"})  # an outstanding input: what arms the timer when shown
+    page_key(lab, "b")  # an outstanding input: what arms the timer when shown
     started, armed, state = lab.now(), False, {}
     while lab.now() - started < HIDDEN_HANG_S:  # past the 2 s banner deadline
         state = host_state(lab)
@@ -544,7 +653,8 @@ def renderer_hang(lab):
     tab = open_tab(lab, f"{url}?renderer", "hang probe", "?renderer")
     if not tab:
         return failed(11, "renderer-hang", "the hang probe never loaded")
-    lab.rpc("debug.mouse", {"target": "page"})
+    if not click(lab, tab):
+        return failed(11, "renderer-hang", "no geometry for the focused pane (debug.focus, debug.pane_chrome)")
     started, banner, state = lab.now(), False, {}
 
     def prompt():
@@ -574,8 +684,8 @@ def ime(lab):
         return failed(8, "ime", "the probe never loaded")
     click(lab, tab, "f")
     page(lab, tab, "document.getElementById('f').value = ''")
-    lab.rpc("debug.key", {"target": "page", "key": "e", "modifiers": ["alt"]})  # the dead acute accent
-    lab.rpc("debug.key", {"target": "page", "key": "e"})
+    page_key(lab, "e", modifiers=["alt"])  # the dead acute accent
+    page_key(lab, "e")
     composed = lab.wait(lambda: (lambda v: v if v else None)(page(lab, tab, "document.getElementById('f').value")), 5)
     state, prototype = host_state(lab), lab.rpc("debug.chromium_host") or {}
     checks = [holds(8, "ime.dead_key", "commit", composed == "é", composed), kotoeri(lab, tab)]
@@ -594,11 +704,18 @@ def field_value(lab, tab):
     return page(lab, tab, "document.getElementById('f').value")
 
 
+def japanese(text):
+    """Only kana, kanji and the prolonged sound mark: Kotoeri's commit of a romaji word, converted or not."""
+    return bool(text) and all("\u3040" <= c <= "\u30ff" or "\u4e00" <= c <= "\u9fff" for c in text)
+
+
 def kotoeri(lab, tab):
-    """Kotoeri's romaji input composes `nihon` and Return commits it as にほん (done check 8). The bench selects
-    the input source (``select_input_source``) and puts the one before it back."""
+    """Kotoeri's romaji input composes `nihon` as marked text and Return commits it (done check 8): a composition
+    ran, and the field holds the Japanese text it ended with, にほん or, with Live Conversion (on by default), 日本.
+    The bench selects the input source (``select_input_source``) and puts the one before it back."""
     row = "ime.kotoeri"
     page(lab, tab, "document.getElementById('f').value = ''")
+    page(lab, tab, IME_RESET)
     previous = lab.input_source(KOTOERI_SOURCE)
     if previous is None:
         return unmeasured(8, row, "commit", f"the bench could not select {KOTOERI_SOURCE} (TISSelectInputSource: not "
@@ -606,12 +723,16 @@ def kotoeri(lab, tab):
     try:
         lab.sleep(0.3)  # test harness: the input source change reaches cmux's text input context
         type_keys(lab, KOTOERI_KEYS)
-        lab.rpc("debug.key", {"target": "page", "key": "return"})
-        committed = lab.wait(lambda: (lambda v: v if v == KOTOERI_COMMIT else None)(field_value(lab, tab)), 5)
+        page_key(lab, "return")
+        committed = lab.wait(lambda: (lambda v: v if japanese(v) else None)(field_value(lab, tab)), 5)
     finally:
         lab.input_source(previous)
     value = committed or field_value(lab, tab)
-    return holds(8, row, "commit", value == KOTOERI_COMMIT, value)
+    ime_state = page_json(lab, tab, IME_STATE) or {}
+    marked = (ime_state.get("start") or 0) > 0
+    ok = marked and japanese(value) and value in (ime_state.get("end") or [])
+    return holds(8, row, "commit", ok, {"value": value, "compositions": ime_state.get("start"),
+                                        "ended_with": ime_state.get("end")})
 
 
 def secure_input(lab, tab):
@@ -878,6 +999,12 @@ def stall(lab, ms, every_ms, idle_minutes):
         checks.append(holds(5, row, "stalls_sent", (result.get("stalls") or 0) > 0, result.get("stalls")))
         checks.append(at_most(5, row, "long_frames", result.get("long_frames"), rows.STALL_LONG_FRAMES, "frames",
                               reason=result.get("error") or "no frame intervals from the page"))
+    # Done check 5 is at 120 Hz: a slower display measures the pacing, not the check.
+    if rows.is_number(lab.hz) and lab.hz >= rows.STALL_MIN_HZ:
+        checks.append(holds(5, "stall", "refresh_hz", True, lab.hz))
+    else:
+        checks.append(unmeasured(5, "stall", "refresh_hz", f"the display runs at {lab.hz:g} Hz; done check 5 needs "
+                                 f"{rows.STALL_MIN_HZ:g} Hz" if rows.is_number(lab.hz) else "no display refresh rate"))
     out["fresh"] = lab.stall_pace(ms, every_ms)
     judged("stall", out["fresh"])
     if idle_minutes <= 0:
@@ -912,16 +1039,27 @@ def quit_row(lab):
     tab = open_tab(lab, f"{url}?quit", "unload probe", "?quit")
     if not tab:
         return failed(4, "quit", "the unload probe never loaded")
-    lab.rpc("debug.mouse", {"target": "page"})  # Chromium asks only a page the person used
+    click(lab, tab)  # Chromium asks only a page the person used
     armed = lab.wait(lambda: page(lab, tab, "document.title") == "unload armed", 10, 0.2)
+    names = ("asked", "stay_keeps_cmux", "host_kept", "tab_kept")
+    if not armed:
+        return {"armed": False, "checks": [unmeasured(4, "quit", name, "the unload probe never armed its "
+                                                      "beforeunload handler (no click reached the page)")
+                                           for name in names]}
+    # Cmd-Q to an app whose quit does not ask host pages ends cmux, and every later row with it.
+    asks = host_state(lab).get("quit_beforeunload")
+    if asks is not True:
+        reason = (NO_FIELD.format("quit_beforeunload", "087") if asks is None else
+                  "the app's quit does not ask host pages' beforeunload (task p01-process-087)")
+        return {"armed": True, "checks": [unmeasured(4, "quit", name, reason) for name in names]}
     app_pid, host_pid = lab.app_pid(), lab.host_pid()
     lab.rpc("debug.key", {"key": "q", "modifiers": ["cmd"]})
     asked = lab.wait(lambda: dialogs.questions(lab.rpc), dialogs.SHOW_DEADLINE_S, 0.2)
     lab.rpc("debug.dialog", {"press": "cancel"})
     lab.sleep(2.0)  # test harness: a quit that ignored Stay would have ended cmux by now
     stayed = lab.app_pid() == app_pid
-    return {"armed": bool(armed), "asked": bool(asked), "checks": [
-        holds(4, "quit", "asked", bool(armed) and bool(asked)),
+    return {"armed": True, "asked": bool(asked), "checks": [
+        holds(4, "quit", "asked", bool(asked)),
         holds(4, "quit", "stay_keeps_cmux", stayed, lab.app_pid()),
         holds(4, "quit", "host_kept", stayed and lab.host_pid() == host_pid, lab.host_pid()),
         holds(4, "quit", "tab_kept", stayed and page(lab, tab, "location.search") == "?quit")]}
@@ -951,6 +1089,65 @@ def runtime_update(lab):
 
 # ---------------------------------------------------------------- kill-app (done check 20)
 
+def reported_host_pid(lab):
+    pid = host_state(lab).get("pid")
+    return pid if rows.is_number(pid) and pid else None
+
+
+def adoption_check(lab, before):
+    """The relaunched app reports the host it reported before the kill (debug.cef host pid, task 080), and that host
+    is the bundle's only Chromium Host: an orphan still running beside a new host is no adoption."""
+    if before is None:
+        return unmeasured(20, "kill-app", "host_adopted", NO_FIELD.format("host.pid", "080")), None
+    after = lab.wait(lambda: (lambda p: p if p == before else None)(reported_host_pid(lab)), ADOPT_WAIT_S, 0.25) \
+        or reported_host_pid(lab)
+    running = sorted(lab.host_pids())
+    value = {"before": before, "after": after, "running": running}
+    if after != before:
+        reason = f"the relaunched app reports host {after}, not {before}"
+    elif running != [before]:
+        reason = f"{len(running)} Chromium Host processes of the app run: {running}"
+    else:
+        reason = None
+    return holds(20, "kill-app", "host_adopted", reason is None, value, reason=reason), after
+
+
+def start_terminal_command(lab):
+    """Done check 20's 60 s command in a focused terminal: it writes `done` to a file of the run's folder when it ends
+    (a shell that died with cmux never writes it). Returns the file, or None when no terminal took it."""
+    path = lab.out_path(f"kill-app-command-{int(lab.now() * 1000)}.txt")
+    command = f"sleep {SHELL_COMMAND_S}; echo done > {shlex.quote(path)}\r"
+    return path if lab.focus_terminal() and lab.terminal_send(command) else None
+
+
+def terminal_command_check(lab, path, started, running_at_kill):
+    row = "kill-app"
+    if path is None:
+        return unmeasured(20, row, "terminal_command", "no terminal pane took the 60 s command")
+    if not running_at_kill:
+        return holds(20, row, "terminal_command", False, reason="the command had ended before the kill")
+    deadline = SHELL_COMMAND_S + SHELL_COMMAND_GRACE_S - (lab.now() - started)
+    done = lab.wait(lambda: (lab.read_text(path) or "").strip() == "done", max(deadline, 0.0), 0.5)
+    ran_s = lab.now() - started
+    return holds(20, row, "terminal_command", bool(done), round(ran_s, 1),
+                 reason=None if done else f"the 60 s command wrote nothing in {ran_s:.0f} s: it ended with cmux")
+
+
+def cdp_check(lab, cdp, origin):
+    """The CDP session opened on the page before the kill answers after the relaunch, on the same document."""
+    if "session" not in cdp:
+        return unmeasured(20, "kill-app", "cdp_session", cdp.get("error") or "no CDP session")
+    session = cdp["session"]
+    try:
+        value = session.evaluate("performance.timeOrigin")
+        reason = None if value == origin else f"the session's page has timeOrigin {value}, not {origin}"
+    except Exception as error:  # noqa: BLE001 - a session that died with cmux is this check's failure
+        value, reason = None, f"the session ended: {type(error).__name__}: {error}"[:200]
+    finally:
+        session.close()
+    return holds(20, "kill-app", "cdp_session", reason is None, value, reason=reason)
+
+
 def kill_app(lab):
     skipped = require_host(lab, "kill-app", 20)
     if skipped:
@@ -960,17 +1157,28 @@ def kill_app(lab):
     if not tab:
         return failed(20, "kill-app", "the probe never loaded")
     before = page_json(lab, tab, RESTORE_STATE) or {}
-    host_pid = lab.host_pid()
+    cdp = lab.cdp_session("?app") or {}
+    command, command_started = start_terminal_command(lab), lab.now()
+    host_pid = reported_host_pid(lab)
+    running_at_kill = command is not None and lab.read_text(command) is None
     launch = lab.relaunch() or {}
     if launch.get("error"):
+        if "session" in cdp:
+            cdp["session"].close()
         return failed(20, "kill-app", f"relaunch: {launch['error']}")
     after = lab.wait(lambda: page_json(lab, tab, RESTORE_STATE), 30, 0.25) or {}
     origin = before.get("origin")
-    return {"host_pid": host_pid, "launch": launch, "before": before, "after": after, "checks": [
-        holds(20, "kill-app", "host_adopted", bool(host_pid) and lab.host_pid() == host_pid, lab.host_pid()),
-        holds(20, "kill-app", "no_reload", origin is not None and after.get("origin") == origin, after.get("origin")),
-        at_most(20, "kill-app", "terminal_screens_ms", launch.get("terminal_screens_ms"), rows.REATTACH_SCREEN_MS,
-                reason=launch.get("terminal_screens_missing") or "the relaunch reported no launch marks")]}
+    adopted, after_pid = adoption_check(lab, host_pid)
+    checks = [adopted,
+              holds(20, "kill-app", "no_reload", origin is not None and after.get("origin") == origin,
+                    after.get("origin")),
+              cdp_check(lab, cdp, origin),
+              at_most(20, "kill-app", "terminal_screens_ms", launch.get("terminal_screens_ms"), rows.REATTACH_SCREEN_MS,
+                      reason=launch.get("terminal_screens_missing") or "the relaunch reported no launch marks"),
+              terminal_command_check(lab, command, command_started, running_at_kill)]
+    checks += [unmeasured(20, "kill-app", name, reason) for name, reason in NO_RELAUNCH_DRIVER.items()]
+    return {"host_pid": host_pid, "host_pid_after": after_pid, "launch": launch, "before": before, "after": after,
+            "checks": checks}
 
 
 FIRST_FRAME_MARK = "first_window_frame_committed"
@@ -990,6 +1198,25 @@ def relaunch_timings(timings):
         out["terminal_screens_missing"] = NO_FIELD.format(f"the {TERMINAL_SCREENS_MARK} launch mark", "152")
     else:
         out["terminal_screens_ms"] = screens - first
+    return out
+
+
+def after_app_end(name, ended_by):
+    """A row asked after the row `ended_by` left no cmux running: it fails with that cause, not a missing backend."""
+    return failed(rows.PROCESS_ROWS.get(name, 0), name, f"cmux quit during the {ended_by} row")
+
+
+def run_rows(lab, names, params, bounded):
+    """The rows `names` in order, each through `bounded(out, name, run)`; after a row that left no cmux running (a
+    quit that did not ask, a relaunch that failed), every later row is after_app_end."""
+    out, ended_by = {}, None
+    for name in names:
+        if ended_by:
+            out[name] = after_app_end(name, ended_by)
+            continue
+        bounded(out, name, lambda name=name: run_row(lab, name, params))
+        if lab.app_pid() is None:
+            ended_by = name
     return out
 
 

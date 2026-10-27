@@ -21,11 +21,14 @@ into checks. It runs anywhere: no app, no macOS.
 KILL_RESTORE_MS = 2000.0
 KILL_CRASH_PAGE_FRAMES = 1
 KILL_TYPING_P99_MS = 16.7
-# Chrome's GPU restart rule as p01-process-081 sets it: 3 crashes within 5 minutes end the restarts.
+# Chrome's GPU restart rule as p01-process-081 landed it (ChromiumHostRestartPolicy.hostEnded): each crash adds one
+# to a recent count, each 5 minutes since the last crash takes one off, and the crash that brings the count to 3 ends
+# the restarts. So with no earlier crash in the window the 3rd crash starts no host (done check 4's text says the 4th).
 RESTART_LIMIT = 3
 RESTART_WINDOW_S = 300.0
 # Done check 5 (--stall 50/100).
 STALL_LONG_FRAMES = 0
+STALL_MIN_HZ = 120.0
 # Done check 6: key and click to page paint.
 PAINT_P50_MS = 8.3
 PAINT_P99_MS = 16.7
