@@ -1,4 +1,4 @@
-// The minimap's preview card: a two-line prompt with its bookmark, recorded turn details and a
+// The minimap's preview card: an up-to-three-line prompt with its bookmark, recorded turn details and a
 // four-line reply. Both rails (ThreadMinimap.tsx, ScrollMap.tsx) draw it.
 //
 // The card draws in the transcript scroller's parent, not in the rail. The scroller masks its soft
@@ -84,21 +84,41 @@ export const PreviewCard = React.forwardRef<
     prompt?: string;
     reply: readonly ReplyBlock[];
     metadata?: MinimapTurnMetadata;
+    /// The rail's unshifted left edge, for the same pane-edge clamp in both CSS translations.
+    railLeft?: number;
     bookmark?: PreviewBookmark;
     onPointerLeave(event: React.PointerEvent<HTMLDivElement>): void;
+    onSizeChange?(): void;
     onFocus?(): void;
     onBlur?(event: React.FocusEvent<HTMLDivElement>): void;
   }
 >(function PreviewCard(
-  { id, x, y, scroller, prompt, reply, metadata, bookmark, onPointerLeave, onFocus, onBlur },
+  {
+    id,
+    x,
+    y,
+    scroller,
+    prompt,
+    reply,
+    metadata,
+    railLeft = 0,
+    bookmark,
+    onPointerLeave,
+    onSizeChange,
+    onFocus,
+    onBlur,
+  },
   ref,
 ) {
   const t = useT();
   const layer = scroller?.parentElement;
   const anchor = useRef<HTMLSpanElement>(null);
   const self = useRef<HTMLDivElement | null>(null);
+  const onSizeChangeRef = useRef(onSizeChange);
+  onSizeChangeRef.current = onSizeChange;
   /// The rail's origin in the card's containing block, measured after each commit (before paint).
   const [origin, setOrigin] = useState({ x: 0, y: 0 });
+  const [replyMetrics, setReplyMetrics] = useState({ lines: 1, lineHeight: 20 });
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs after every commit on purpose (the rail can move under the card with any render); its setState is guarded by the comparison.
   useLayoutEffect(() => {
     const from = anchor.current;
@@ -107,12 +127,52 @@ export const PreviewCard = React.forwardRef<
     const base = node.offsetParent instanceof HTMLElement ? node.offsetParent : layer;
     const mark = from.getBoundingClientRect();
     const frame = base.getBoundingClientRect();
+    const shiftX =
+      Number.parseFloat(from.ownerDocument.defaultView?.getComputedStyle(from.parentElement!).translate ?? "") || 0;
     const next = {
-      x: mark.left - frame.left - base.clientLeft + base.scrollLeft,
+      x: mark.left - shiftX - frame.left - base.clientLeft + base.scrollLeft,
       y: mark.top - frame.top - base.clientTop + base.scrollTop,
     };
     if (next.x !== origin.x || next.y !== origin.y) setOrigin(next);
   });
+  // The text budget is six lines: the old two-line prompt plus four-line reply. Measure the
+  // prompt's actual wrapped lines when the card opens (and when its width changes), then give the
+  // reply the remaining whole lines. Metadata and failure details keep their old natural rows.
+  useLayoutEffect(() => {
+    const node = self.current;
+    if (!node || prompt === undefined) return;
+    const update = () => {
+      const promptNode = node.querySelector<HTMLElement>(".acpmux-minimap__prompt");
+      const replyNode = node.querySelector<HTMLElement>(".acpmux-minimap__reply");
+      if (!promptNode || !replyNode) return;
+      const style = promptNode.ownerDocument.defaultView?.getComputedStyle(promptNode);
+      if (!style) return;
+      const lineHeight = Number.parseFloat(style.lineHeight) || 20;
+      const promptLines = Math.max(1, Math.min(3, Math.ceil(promptNode.getBoundingClientRect().height / lineHeight)));
+      const naturalReply = replyNode.cloneNode(true) as HTMLElement;
+      naturalReply.style.cssText =
+        "position:absolute; visibility:hidden; display:block; height:auto; max-height:none; -webkit-line-clamp:unset;";
+      naturalReply.style.width = `${replyNode.getBoundingClientRect().width}px`;
+      node.append(naturalReply);
+      const naturalReplyLines = Math.max(
+        1,
+        Math.min(4, Math.ceil(naturalReply.getBoundingClientRect().height / lineHeight)),
+      );
+      naturalReply.remove();
+      // Match the old two-line prompt + four-line reply text budget for this same content. A
+      // longer prompt spends only the reply lines it needs, so the card never grows because of it.
+      const oldTextLines = Math.min(2, promptLines) + naturalReplyLines;
+      const lines = Math.max(1, Math.min(4, oldTextLines - promptLines));
+      setReplyMetrics((previous) =>
+        previous.lines === lines && Math.abs(previous.lineHeight - lineHeight) < 0.1 ? previous : { lines, lineHeight },
+      );
+      onSizeChangeRef.current?.();
+    };
+    update();
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
+    observer?.observe(node);
+    return () => observer?.disconnect();
+  }, [metadata?.failure, metadata?.failed, prompt, reply]);
   const own = useCallback(
     (node: HTMLDivElement | null) => {
       self.current = node;
@@ -128,7 +188,13 @@ export const PreviewCard = React.forwardRef<
       ref={own}
       id={id}
       className="acpmux-minimap__card"
-      style={{ transform: `translate3d(${at.x + x}px, ${at.y + y}px, 0)` }}
+      data-prompt={prompt !== undefined ? "" : undefined}
+      style={
+        {
+          "--acpmux-rail-left": `${railLeft}px`,
+          transform: `translate3d(${at.x + x}px, ${at.y + y}px, 0)`,
+        } as React.CSSProperties
+      }
       onPointerLeave={onPointerLeave}
       onWheel={layer ? (event) => forwardWheel(scroller!, event.nativeEvent) : undefined}
       onFocus={onFocus}
@@ -197,7 +263,18 @@ export const PreviewCard = React.forwardRef<
         </div>
       )}
       {reply.length > 0 && (
-        <div className="acpmux-minimap__reply" data-only={prompt === undefined || undefined}>
+        <div
+          className="acpmux-minimap__reply"
+          data-only={prompt === undefined || undefined}
+          style={
+            prompt === undefined
+              ? undefined
+              : ({
+                  "--acpmux-minimap-reply-lines": replyMetrics.lines,
+                  "--acpmux-minimap-reply-line-height": `${replyMetrics.lineHeight}px`,
+                } as React.CSSProperties)
+          }
+        >
           {reply.map((block, blockIndex) => (
             <p key={blockIndex} className={block.kind === "item" ? "acpmux-minimap__item" : undefined}>
               {block.spans.map((span, spanIndex) =>
