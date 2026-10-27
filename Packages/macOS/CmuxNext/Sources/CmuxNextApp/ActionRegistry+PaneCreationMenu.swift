@@ -10,6 +10,7 @@ extension ActionRegistry {
         if let commands = menu.items.last, Self.menuRun(of: commands)?.id == "commandPalette",
            let symbol = descriptor(for: "commandPalette")?.symbol {
             // The catalog treats the default command symbol as no icon; this discovery row names it explicitly.
+            commands.title = String(localized: "paneCreation.allCommands", defaultValue: "All commands…", table: "PaneCreation", bundle: .module)
             commands.image = .menuSymbol(symbol)
         }
         return menu
