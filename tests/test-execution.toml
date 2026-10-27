@@ -310,6 +310,10 @@ path = "tests/test_ci_cmux_next_compile_revert.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cmux_next_linux_compile_status.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_next_macos_cascade.py"
 lane = "linux-guard"
 
