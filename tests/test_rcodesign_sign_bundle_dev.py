@@ -220,7 +220,8 @@ class RcodesignSignBundleDevTest(unittest.TestCase):
                     self.assertRegex(step, scrub, f"{path.name}: a step calls rcodesign without the scrub")
         for script in ("rcodesign-notarize-dmg-dev.sh", "rcodesign-sign-bundle-dev.sh"):
             text = (ROOT / "scripts/ci" / script).read_text()
-            self.assertLess(scrub.search(text).start(), text.index('"$R" '), script)
+            first_call = re.search(r'"\$R" [a-z]', text).start()  # not `command -v "$R"`
+            self.assertLess(scrub.search(text).start(), first_call, script)
 
     def test_components_get_feat_cmux_next_treatment(self) -> None:
         self.run_script()
