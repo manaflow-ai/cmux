@@ -1999,6 +1999,13 @@ class Nightly(unittest.TestCase):
         # The pickers never hand it out: it is not a pull request pool.
         self.assertFalse(rescue.persistent(TRUSTED))
 
+    def test_the_dedicated_nightly_builder_is_watched_but_never_a_pull_request_pool(self):
+        # nightly_build_runner.py offers it first on nightly-next; a build queued on it while another
+        # run holds it is moved after the budget, so no build waits on that one mini.
+        self.assertEqual(rescue.job_pool({"labels": ["glaeda-trusted-next-nightly"]}), "glaeda-trusted-next-nightly")
+        self.assertIsNone(rescue.job_pool({"labels": ["glaeda-trusted-next-nightly-x"]}))
+        self.assertFalse(rescue.persistent("glaeda-trusted-next-nightly"))
+
     def test_the_marker_listing_pages_past_the_window_by_the_id_order_skew(self):
         api = rescue.GitHub("token", "manaflow-ai/cmux")
         start = dt.datetime(2026, 9, 27, 12, 0, tzinfo=dt.timezone.utc)
