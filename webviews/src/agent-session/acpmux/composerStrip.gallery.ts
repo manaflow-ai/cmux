@@ -82,7 +82,7 @@ export default agentPaneEntry({
     },
     "started-movable": {
       height: 520,
-      note: "Leo: \"Picking one moves the chat\". A started chat the host can move (its tab's menu offers Move to Cloud) keeps its strip; the chip opens the environment picker with where the chat runs, Move to Cloud and Choose folder….",
+      note: 'Leo: "Picking one moves the chat". A started chat the host can move (its tab\'s menu offers Move to Cloud) keeps its strip; the chip opens the environment picker with where the chat runs, Move to Cloud and Choose folder….',
       native: { "pane.tabState": { moves: ["cloudMove"] } },
       snapshot: started(),
       play: async (ctx) => {
