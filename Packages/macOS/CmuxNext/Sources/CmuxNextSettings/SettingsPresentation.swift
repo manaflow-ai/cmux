@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// Where Debug Settings opens (`settings.presentation`, DEV and NIGHTLY): a tab in the active
 /// window's focused pane by default, or the separate desktop window when explicitly selected.
