@@ -1500,6 +1500,13 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: red commit (counter, test fails at 723c4ab) before the fix; threading-model.md row.
 - Test phase: zig build test; bench_idle.py 10 hidden printing terminals: CPU lower.
 - Size S.
+- Fork state (2026-10-27): ghostty-next branch `cp/p03-rendering-088` on the pin 723c4ab93: red 149b24263
+  (RenderCounters `thread_wakes` / `hidden_thread_wakes`; 2 tests fail), fix d8db9757d, review fix 6a3d48518 (the
+  blink timer's re-arm and its `.visible` / `.focus` restart are `blinkRearms` / `blinkChange`, each tested). QoS by state was already
+  in `setQosClass`; the fix stops a hidden surface's cursor blink timer at its next tick (restarted by `.visible`),
+  pushes no `reset_cursor_blink` to a renderer that takes no output wakes, and rechecks scrollback compression
+  once a second while hidden. The gitlink is not moved (079 lands it). `bench_idle.py --scenarios hidden-printing`
+  (runs last) measures it on the fleet, before and after the pin bump: each terminal's loop is sent to its own tab.
 
 #### p03-rendering-089 No frame when nothing changed (G7 rest)
 - Files: `ghostty-next/src/renderer/generic.zig`, `src/renderer/Thread.zig`.
