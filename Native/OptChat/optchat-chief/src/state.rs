@@ -63,6 +63,10 @@ pub struct HostState {
     /// across restarts, so a card a restart cut off still ends.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub browser_card: Option<BrowserCard>,
+    /// Ended cards whose first post the owner had not confirmed when a newer
+    /// turn's card replaced them: edited once it does.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub browser_cards_ending: Vec<BrowserCard>,
     /// The turn whose messages are logged but whose reply is not posted yet.
     #[serde(default)]
     pub turn: Option<PendingTurn>,

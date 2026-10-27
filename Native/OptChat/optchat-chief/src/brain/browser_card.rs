@@ -130,6 +130,20 @@ fn browser_verb_line(verb: &str, url: Option<&str>) -> String {
     }
 }
 
+/// The edit that shows `card` as it is now (its message id known).
+fn edit_entry(card: &mut BrowserCard) -> crate::state::OutboxEntry {
+    card.edits += 1;
+    let key = format!("{}:e{}", card.key, card.edits);
+    super::op_entry(
+        card.conversation.clone(),
+        &key,
+        Op::MessageEdit {
+            message_id: card.message_id.clone().unwrap_or_default(),
+            parts: vec![Part::Card(card.card.clone())],
+        },
+    )
+}
+
 /// `--out FILE` or `--out=FILE` of a command's words.
 fn out_path(words: &[&str]) -> Option<String> {
     let path = words.iter().enumerate().find_map(|(i, w)| {
@@ -197,6 +211,7 @@ impl Brain {
                 if self.state.browser_card.as_ref().is_none_or(|c| c.turn != turn) {
                     // A card an earlier turn left live (a restart, a cut turn) ends first.
                     self.end_browser_card();
+                    self.retire_browser_card();
                     self.state.browser_card = Some(BrowserCard {
                         turn: turn.to_owned(),
                         conversation: conversation.to_owned(),
@@ -292,6 +307,14 @@ impl Brain {
 
     /// The owner took a message under `key`: the card message's id.
     pub(super) fn browser_card_sent(&mut self, key: &str, message_id: &str) {
+        if let Some(at) = self.state.browser_cards_ending.iter().position(|c| c.key == key) {
+            let mut old = self.state.browser_cards_ending.remove(at);
+            old.message_id = Some(message_id.to_owned());
+            self.state.outbox.push(edit_entry(&mut old));
+            self.save();
+            self.flush_outbox();
+            return;
+        }
         let Some(card) = self.state.browser_card.as_mut() else {
             return;
         };
@@ -319,22 +342,13 @@ impl Brain {
         let parts = vec![Part::Card(card.card.clone())];
         let conversation = card.conversation.clone();
         let outbox = &mut self.state.outbox;
-        match &card.message_id {
+        match card.message_id.clone() {
             Some(message_id) => {
                 outbox.retain(|e| {
                     e.attempted
-                        || !matches!(&e.op, Op::MessageEdit { message_id: id, .. } if id == message_id)
+                        || !matches!(&e.op, Op::MessageEdit { message_id: id, .. } if *id == message_id)
                 });
-                card.edits += 1;
-                let key = format!("{}:e{}", card.key, card.edits);
-                outbox.push(super::op_entry(
-                    conversation,
-                    &key,
-                    Op::MessageEdit {
-                        message_id: message_id.clone(),
-                        parts,
-                    },
-                ));
+                outbox.push(edit_entry(card));
             }
             None => {
                 if let Some(queued) = outbox.iter_mut().find(|e| e.idempotency_key == card.key) {
@@ -381,6 +395,23 @@ impl Brain {
         }
         self.save();
         self.flush_outbox();
+    }
+
+    /// A card a newer turn replaced before the owner confirmed its first
+    /// post: once it does, its last state (ended) is edited in.
+    fn retire_browser_card(&mut self) {
+        if let Some(old) = self.state.browser_card.take()
+            && old.unsent
+            && old.message_id.is_none()
+            && !old.refused
+        {
+            let ending = &mut self.state.browser_cards_ending;
+            ending.push(old);
+            // A bound: an owner that never confirms must not grow the state.
+            if ending.len() > 4 {
+                ending.remove(0);
+            }
+        }
     }
 
     /// The screenshot file at `path` as a run picture of `conversation`.

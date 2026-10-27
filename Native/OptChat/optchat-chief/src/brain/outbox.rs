@@ -161,6 +161,13 @@ impl Brain {
                         *root = thread_root.clone();
                     }
                     *head = fallback;
+                    // A refused browser card is not sent again (browser_card.rs).
+                    if let Some(card) = self.state.browser_card.as_mut()
+                        && card.key == key
+                    {
+                        card.refused = true;
+                        self.browser_cards_refused = true;
+                    }
                     self.save();
                     (self.log)(&format!(
                         "op {key}: the owner refused its link cards ({reason}); sending the text"
