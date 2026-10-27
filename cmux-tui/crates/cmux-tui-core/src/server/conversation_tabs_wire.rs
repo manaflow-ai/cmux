@@ -205,7 +205,7 @@ fn landed_here(mux: &Mux, host: &str, session: &str) -> bool {
 /// client, and never admits a record from another registry host.
 fn live_registry_session(mux: &Mux, host: &str, session: &str) -> bool {
     let own = format!("{MACHINE_HOST_PREFIX}{}", mux.registry_identity().0);
-    if host != own || mux.agent_session_moved_away(session) {
+    if host != own {
         return false;
     }
     // The presentation registry retains a closed tab record for reopen/history. Only a
@@ -228,7 +228,32 @@ fn live_registry_session(mux: &Mux, host: &str, session: &str) -> bool {
                 ..
             }) if existing_host == host && existing_session == session
         )
-    })
+    }) && root_session_stays_here(mux, session)
+}
+
+/// Ask this daemon's acpmux for its durable transfer decision. A surviving live
+/// surface is not authorization after a move; neither restart nor an automatic
+/// abort may leave us relying on a separate cache of that decision.
+#[cfg(unix)]
+fn root_session_stays_here(mux: &Mux, session: &str) -> bool {
+    use super::agent_session_attach::agent_session_link::AcpmuxLink;
+    let Some(socket) = mux.control_clients.agent_sessions.socket() else { return false };
+    let Ok(link) = AcpmuxLink::connect(&socket, |_| {}) else { return false };
+    let Ok(info) = link.call(
+        "_acpmux/info",
+        json!({"sessionId": session, "waitLogs": true}),
+        std::time::Duration::from_secs(5),
+    ) else {
+        return false;
+    };
+    info.get("sessionId").and_then(Value::as_str) == Some(session)
+        && info.get("transferBlocked").and_then(Value::as_bool) == Some(false)
+        && info.get("peer").is_none_or(Value::is_null)
+}
+
+#[cfg(not(unix))]
+fn root_session_stays_here(_: &Mux, _: &str) -> bool {
+    false
 }
 
 #[cfg(unix)]

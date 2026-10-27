@@ -70,7 +70,7 @@
 //! receives and 16 moves remembered (24 h each), 8 calls at once.
 
 use crate::panic_free::JsonFields;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -146,8 +146,6 @@ pub(crate) struct AgentTransfers {
     /// Receives a finish ended: only a receive-abort still names them.
     settled: Mutex<HashMap<String, Settled>>,
     moves: Mutex<HashMap<String, Move>>,
-    /// Registry-root chats whose source transfer removed this daemon's authorization.
-    moved_away: Mutex<HashSet<String>>,
     /// Chats a finish here landed (`landed.rs`).
     landed: landed::Landed,
     /// Receives a receive-abort may still name after a restart (`askable.rs`).
@@ -197,18 +195,6 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl AgentTransfers {
-    fn mark_moved_away(&self, session: &str) {
-        lock(&self.moved_away).insert(session.to_owned());
-    }
-
-    fn forget_moved_away(&self, session: &str) {
-        lock(&self.moved_away).remove(session);
-    }
-
-    fn moved_away(&self, session: &str) -> bool {
-        lock(&self.moved_away).contains(session)
-    }
-
     fn host(&self) -> Option<AgentTransferHost> {
         self.host.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
@@ -329,18 +315,6 @@ impl Mux {
     /// True with an acpmux socket path and a host.
     pub(crate) fn serves_agent_transfer(&self) -> bool {
         self.serves_agent_session_attach() && self.agent_transfers.host().is_some()
-    }
-
-    pub(crate) fn mark_agent_session_moved_away(&self, session: &str) {
-        self.agent_transfers.mark_moved_away(session);
-    }
-
-    pub(crate) fn forget_agent_session_moved_away(&self, session: &str) {
-        self.agent_transfers.forget_moved_away(session);
-    }
-
-    pub(crate) fn agent_session_moved_away(&self, session: &str) -> bool {
-        self.agent_transfers.moved_away(session)
     }
 }
 
@@ -907,7 +881,6 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             // acpmux's own answer, never a client's id: this machine's chat now.
             if let Some(landed) = session.field("sessionId").as_str() {
                 mux.remember_landed_agent_session(landed);
-                mux.forget_agent_session_moved_away(landed);
             }
             Ok(json!({"session": session}))
         }
@@ -937,7 +910,6 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             lock(&transfers.moves).insert(transfer_id.clone(), entry);
             // The chat is leaving this machine: no new tab of it may name it.
             mux.forget_landed_agent_session(&source_session);
-            mux.mark_agent_session_moved_away(&source_session);
             mux.control_clients.agent_sessions.known_children.forget(&source_session);
             Ok(json!({"transfer_id": transfer_id, "source_session": source_session,
                        "manifest": manifest}))
@@ -969,7 +941,6 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             call("_acpmux/transfer_commit", params, CALL_TIMEOUT)?;
             lock(&transfers.moves).remove(&transfer_id);
             mux.forget_landed_agent_session(&session);
-            mux.mark_agent_session_moved_away(&session);
             mux.control_clients.agent_sessions.known_children.forget(&session);
             Ok(json!({"committed": true}))
         }
