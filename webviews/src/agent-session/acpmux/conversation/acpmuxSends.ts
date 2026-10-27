@@ -283,6 +283,44 @@ export function recordedMessageBodyChanges(line: string): RecordedMessageBodyCha
     });
 }
 
+// Tool rows are immutable snapshots but the enclosing turn is rebuilt as streamed calls arrive.
+// Keep parsing bounded by tool id+command revision so appending a later call does not reparse every
+// earlier shell line. A changed command gets a new key; an evicted key is safe to recompute.
+const RECORDED_BODY_CACHE_LIMIT = 64;
+const recordedBodyCache = new Map<string, readonly RecordedMessageBodyChange[]>();
+let recordedBodyParseCount = 0;
+
+export function recordedMessageBodyChangesForTool(tool: {
+  id: string;
+  command?: string;
+}): readonly RecordedMessageBodyChange[] {
+  if (!tool.command) return [];
+  const key = `${tool.id}\u0000${tool.command}`;
+  const cached = recordedBodyCache.get(key);
+  if (cached) {
+    recordedBodyCache.delete(key);
+    recordedBodyCache.set(key, cached);
+    return cached;
+  }
+  recordedBodyParseCount += 1;
+  const changes = recordedMessageBodyChanges(tool.command);
+  recordedBodyCache.set(key, changes);
+  while (recordedBodyCache.size > RECORDED_BODY_CACHE_LIMIT)
+    recordedBodyCache.delete(recordedBodyCache.keys().next().value!);
+  return changes;
+}
+
+/** Test-only observability for the bounded revision cache. */
+export function resetRecordedMessageBodyCacheForTests(): void {
+  recordedBodyCache.clear();
+  recordedBodyParseCount = 0;
+}
+
+/** Test-only observability for the bounded revision cache. */
+export function recordedMessageBodyParseCountForTests(): number {
+  return recordedBodyParseCount;
+}
+
 /// What an unclosed quote leaves among a command's scripts: the shell refuses the line, so the
 /// command runs nothing a send row could name (`onlyReads` reads it as no reader).
 const UNCLOSED = "\u0000";

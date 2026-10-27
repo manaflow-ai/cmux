@@ -6,6 +6,7 @@ import { expect, test } from "bun:test";
 import type { AcpmuxActivity } from "../model";
 import { mcpCall } from "./mcpCalls";
 import { toolGroups } from "./toolGroups";
+import { recordedMessageBodyParseCountForTests, resetRecordedMessageBodyCacheForTests } from "./acpmuxSends";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -120,4 +121,30 @@ test("a later Bash send resolves only a prior same-turn recorded message write",
   const standalone = toolGroups([send]).find((entry) => entry.type === "send");
   expect(standalone?.type).toBe("send");
   if (standalone?.type === "send") expect(standalone.send.text).toBeUndefined();
+});
+
+test("unchanged streamed tool revisions reuse the bounded body parser cache", () => {
+  resetRecordedMessageBodyCacheForTests();
+  const writer = item({
+    title: "Bash",
+    kind: "execute",
+    command: "cat > /tmp/review.md <<'EOF'\nready\nEOF",
+  });
+  const send = item({
+    title: "Bash",
+    kind: "execute",
+    command: "acpmux send lane - < /tmp/review.md",
+  });
+  toolGroups([writer, send]);
+  expect(recordedMessageBodyParseCountForTests()).toBe(2);
+  // Streaming appends a new tool but keeps the prior tool snapshots unchanged.
+  const later = item({ title: "Bash", kind: "execute", command: "echo done" });
+  toolGroups([writer, send, later]);
+  expect(recordedMessageBodyParseCountForTests()).toBe(3);
+  toolGroups([writer, send, later]);
+  expect(recordedMessageBodyParseCountForTests()).toBe(3);
+  // A same-id command revision is a new cache key, so stale content cannot survive an overwrite.
+  const changedWriter = { ...writer, tool: { ...writer.tool!, command: "echo replacement > /tmp/review.md" } };
+  toolGroups([changedWriter, send]);
+  expect(recordedMessageBodyParseCountForTests()).toBe(4);
 });

@@ -5,7 +5,7 @@
 import { pathKey, type AcpmuxActivity } from "../model";
 import type { Translate } from "../i18n";
 import { isBareShellName } from "../toolPaths";
-import { acpmuxSendCall, recordedMessageBodyChanges, type AcpmuxSendCall } from "./acpmuxSends";
+import { acpmuxSendCall, recordedMessageBodyChangesForTool, type AcpmuxSendCall } from "./acpmuxSends";
 import { agentMessage, type AgentMessage } from "./agentMessages";
 import { dispatchCall, type DispatchCall } from "./dispatchCalls";
 import { mcpCall, mcpKey } from "./mcpCalls";
@@ -97,7 +97,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     const key = call && mcpKey(call);
     const rememberMessageFiles = () => {
       if (!tool?.command) return;
-      for (const change of recordedMessageBodyChanges(tool.command)) {
+      for (const change of recordedMessageBodyChangesForTool(tool)) {
         if (change.text === undefined) messageFiles.delete(change.path);
         else {
           messageFiles.set(change.path, change.text);
