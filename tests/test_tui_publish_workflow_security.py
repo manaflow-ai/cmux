@@ -2467,10 +2467,12 @@ def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> Non
 
 
 def test_publish_attestation_uses_the_release_app_token_with_a_fallback() -> None:
-    # The attestation spends the release App's installation budget, not the
-    # github.token budget that ran out ("API rate limit exceeded for
-    # installation"). A failed mint (the App lacks attestations:write) or
-    # absent credentials falls back to github.token.
+    # The first attestation try spends the release App's installation budget,
+    # not the github.token budget that ran out ("API rate limit exceeded for
+    # installation"). Both refusals fall back to github.token: a failed mint
+    # (the App lacks attestations:write) or absent credentials leave the
+    # step's token empty, and a minted token GitHub refuses (403) or an App
+    # budget that ran out fails only that try; tries 2 to 4 use github.token.
     artifacts = workflow("cmux-tui-artifacts.yml")
     document = yaml.load(artifacts, Loader=yaml.BaseLoader)
     jobs = document["jobs"]
@@ -2484,6 +2486,7 @@ def test_publish_attestation_uses_the_release_app_token_with_a_fallback() -> Non
         mint = next(step for step in steps if step.get("id") == "attest_app_token")
         assert mint["uses"] == "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1"
         assert mint["if"] == "env.CMUX_RELEASE_APP_CONFIGURED == 'true'"
+        # A failed mint never fails the job.
         assert mint["continue-on-error"] == "true"
         assert mint["with"] == {
             "app-id": "${{ secrets.CMUX_RELEASE_APP_ID }}",
@@ -2492,20 +2495,23 @@ def test_publish_attestation_uses_the_release_app_token_with_a_fallback() -> Non
             "repositories": "${{ github.event.repository.name }}",
             "permission-attestations": "write",
         }
-        token = "${{ steps.attest_app_token.outputs.token || github.token }}"
         attests = [step for step in steps if "attest-build-provenance" in step.get("uses", "")]
         assert len(attests) == 4, name
-        assert steps.index(mint) < steps.index(attests[0])
-        for step in attests:
-            assert step["with"]["github-token"] == token, name
-        backoffs = [step for step in steps if "gh_budget_wait.sh --backoff" in step.get("run", "")]
-        assert len(backoffs) == 3, name
-        for step in backoffs:
-            assert step["env"]["GH_TOKEN"] == token, name
+        first, *retries = attests
+        assert steps.index(mint) < steps.index(first)
+        # Path 1: no token minted, so the first try uses github.token.
+        assert first["with"]["github-token"] == "${{ steps.attest_app_token.outputs.token || github.token }}", name
+        assert first["continue-on-error"] == "true", name
+        # Path 2: the App token was refused; every retry uses github.token.
+        for step in retries:
+            assert step["with"]["github-token"] == "${{ github.token }}", name
+            assert step["if"].endswith(".outcome == 'failure'"), name
+        assert "continue-on-error" not in retries[-1], name
         # The App secrets appear only in the mint step and the presence flag.
         for step in steps:
             if step is not mint:
                 assert "CMUX_RELEASE_APP" not in yaml.dump(step), name
+                assert "attest_app_token" not in yaml.dump(step) or step is first, name
     for name, job in jobs.items():
         if name not in ("publish", "publish-windows"):
             assert "CMUX_RELEASE_APP" not in yaml.dump(job), name
