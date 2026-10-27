@@ -1666,6 +1666,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // CrashReporterOptionsTests checks the options against CLISentryRuntimePolicy.
                 .product(name: "CmuxSentryReporting", package: "CmuxSentryTelemetry"),
                 .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
+                // SystemCrashReportTests plants a Rust ring and scans the forwarded black box with the hang
+                // reports' PrivacyLeakScanner (p09-observability-097).
+                "CmuxNextTrace",
+                "CmuxNextHangReports",
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -2200,7 +2204,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextSettingsWindow",
-            dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextActions", "CmuxNextWakeups"],
+            // CmuxSafeConcurrency: ChatRootPicker's OnceContinuation (moved from CmuxNextSettings, p15-oracle-133).
+            dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextActions", "CmuxNextWakeups",
+                           .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
                 .process("Localizable.xcstrings"),
             ],
