@@ -1373,6 +1373,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .process("BrowserProfileActions.xcstrings"),
                 .process("BrowserToolbarActions.xcstrings"),
                 .process("CloudPortActions.xcstrings"),
+                .process("CredentialPlan.xcstrings"),
                 .process("DevToolsActions.xcstrings"),
                 .process("Extensions.xcstrings"),
                 .process("HibernationActions.xcstrings"),

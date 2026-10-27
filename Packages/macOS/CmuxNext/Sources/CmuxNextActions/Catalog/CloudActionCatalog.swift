@@ -4,6 +4,25 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         var actions: [ActionDescriptor] = [
             ActionDescriptor(
+                id: "cloudCredentialPlan",
+                title: String(localized: "action.cloudCredentialPlan", defaultValue: "Cloud Credential Setup Plan", table: "CredentialPlan", bundle: .module),
+                description: """
+                    Returns a nonsecret credential setup plan for --target machine:<id> after --confirm. \
+                    Run claude setup-token in your current machine's terminal, then manually supply only \
+                    that new token as CLAUDE_CODE_OAUTH_TOKEN on the target; it grants Claude Code access \
+                    under your Claude account. Automatic delivery awaits the Cloud secret store. \
+                    Or run claude auth login on the target. For Codex, run codex login --device-auth on \
+                    the target and approve in your browser (device login must be enabled in your account \
+                    or workspace). No current login, API key, refresh token, SSH key or GitHub credential \
+                    is read or copied. The result is plan_only, never a transfer or completed sign-in. \
+                    Keep token values out of action arguments, chat, logs and shell history.
+                    """,
+                category: .cloud, symbol: "key", surfaces: [], arguments: [CatalogArgument.confirmBool],
+                targets: [.machine], cliName: "cloud credential-plan",
+                surfacePlan: ActionSurfacePlan(palette: .exempt(.credentials), cli: .offered,
+                                              contextMenuExemption: .credentials, mcpExemption: .credentials)
+            ),
+            ActionDescriptor(
                 id: "newCloudWorkspace",
                 title: String(localized: "action.newCloudWorkspace", defaultValue: "New Cloud Workspace", bundle: .module),
                 keywords: ["vm", "remote", "create"], defaultShortcut: Shortcut("y", modifiers: [.command, .shift]),
@@ -303,7 +322,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             "palette.cloud.snapshot", "palette.cloud.promoteTemplate", "cloudExec", "newCloudMachine", "cloudNewTerminal",
             // The new terminal tab's ids (`surface_id`), so a script can type into it next.
             "cloudSSH",
-            "cloudSetupGitHub",
+            "cloudSetupGitHub", "cloudCredentialPlan",
             // Each answers its machine's id (and the workspace's) once the server is done, so a CLI
             // caller hears a failure instead of OK, and can name the result in the next command.
             "palette.cloud.fork", "palette.cloud.restore", "newCloudWorkspace", "cloudRenameMachine", "cloudKillMachine",
