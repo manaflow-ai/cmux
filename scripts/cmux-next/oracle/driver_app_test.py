@@ -51,6 +51,9 @@ class FakeApp:
         self.fail_launch = False
         self.stops = 0
         self.hang: set = set()
+        self.daemon_pid: Optional[int] = 4242
+        self.signals: List[int] = []
+        self.relaunches = 0
 
     # -- the port
 
@@ -75,6 +78,17 @@ class FakeApp:
 
     def daemon_socket(self) -> Optional[str]:
         return None
+
+    def signal_daemon(self, signum: int) -> Optional[int]:
+        if self.daemon_pid is None:
+            return None
+        self.signals.append(signum)
+        return self.daemon_pid
+
+    def relaunch(self) -> None:
+        if self.fail_launch:
+            raise driver_app.AppLaunchFailed("quit-keep-sessions", "the app still runs 30 s after quitKeepSessions")
+        self.relaunches += 1
 
     def request(self, method: str, params: Mapping[str, Any], timeout: float) -> Dict[str, Any]:
         self.calls.append((method, json.loads(json.dumps(params))))
@@ -405,6 +419,39 @@ class AppSessionTest(unittest.TestCase):
         result = session.run_case(missing, {"case_id": "actions/c"})
         self.assertEqual(result["status"], "Crash")
         self.assertIn("p15-oracle-046", result["message"])
+
+    def test_daemon_kill_and_app_restart_run_here_and_dirty_the_session(self) -> None:
+        session = self.session()
+        kill = step("drop", "kill", target={"process": "daemon"}, args={"signal": "KILL"},
+                    expect={"outcome": "ok", "noReceiptReason": "a killed process runs no action"})
+        restart = step("relaunch", "restart", target={"process": "app"},
+                       expect={"outcome": "ok", "noReceiptReason": "a relaunch runs no action"})
+        result = session.run_case(case(NEW_WORKSPACE, kill, restart, requires=["actions", "restart"]),
+                                  {"case_id": "journeys/c"})
+        app = self.apps[0]
+        self.assertEqual(result["status"], "Pass", result["message"])
+        self.assertEqual(app.signals, [driver_app.signal.SIGKILL])
+        self.assertEqual(app.relaunches, 1)
+        self.assertTrue(result["session_dirty"])
+        # No owner to kill, and a relaunch that does not come back, are this case's Crash at that step.
+        app.daemon_pid = None
+        result = session.run_case(case(kill, requires=["restart"]), {"case_id": "journeys/c"})
+        self.assertEqual((result["status"], result["step"]), ("Crash", "drop"), result["message"])
+        app.fail_launch = True
+        result = session.run_case(case(restart, requires=["restart"]), {"case_id": "journeys/c"})
+        self.assertEqual((result["status"], result["step"]), ("Crash", "relaunch"), result["message"])
+        self.assertIn("quit-keep-sessions", result["message"])
+
+    def test_other_process_kills_and_restarts_are_other_drivers(self) -> None:
+        session = self.session()
+        for op, process in (("kill", "renderer"), ("kill", "holder"), ("restart", "daemon")):
+            other = step("x", op, target={"process": process}, expect={"outcome": "ok", "noReceiptReason": "no action"})
+            result = session.run_case(case(NEW_WORKSPACE, other, requires=["restart"]), {"case_id": "journeys/c"})
+            self.assertEqual((result["status"], result["step"]), ("Crash", "x"), result["message"])
+            self.assertIn(f"target.process {process}", result["message"])
+            self.assertIn("driver_daemon.py", result["message"])
+        # Refused before any launch.
+        self.assertEqual(self.apps[0].launches, [])
 
     def test_viewport_relaunches_and_a_failed_launch_is_a_dirty_crash(self) -> None:
         session = self.session()

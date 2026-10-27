@@ -7,6 +7,12 @@ import Foundation
     MainWorkScheduler.testing { _ in nil }
 }
 
+/// A deadline placer on a ``linklessMainWork()`` scheduler (tests): its deadlines fire on the real
+/// clock and their actions run on the next main run loop pass.
+@MainActor func linklessDeadlines() -> MainDeadlineScheduler {
+    MainDeadlineScheduler(work: linklessMainWork())
+}
+
 /// A root node a person can see (tests): views on it update as they do on screen.
 @MainActor func shownNode(_ name: String = "test.window") -> VisibilityNode {
     VisibilityNode(root: name, own: .visible)
