@@ -124,15 +124,12 @@ std::string RealPath(const char* path) {
 // The outermost `*.app` directory that holds `path` (with its trailing
 // slash); empty when none does.
 std::string OuterAppBundle(const std::string& path) {
-  size_t at = 0;
-  while (true) {
-    const size_t found = path.find(".app/", at);
-    if (found == std::string::npos) return std::string();
-    // A path component that ends in ".app", not one that only holds it.
+  for (size_t found = path.find(".app/"); found != std::string::npos; found = path.find(".app/", found + 5)) {
+    // A component named `<name>.app`, not a bare `.app`.
     const size_t start = path.rfind('/', found);
     if (start != std::string::npos && found > start + 1) return path.substr(0, found + 5);
-    at = found + 5;
   }
+  return std::string();
 }
 
 // The executable `token` names lies in this binary's own app bundle.
