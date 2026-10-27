@@ -225,7 +225,12 @@ const scrollPanel = async (ctx: PlayContext) => {
   const more = () => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__finished");
   if (more() && more()!.getAttribute("aria-expanded") !== "true") {
     await ctx.click({ selector: ".acpmux-running-tray__finished" });
-    await ctx.waitFor(() => ctx.document.querySelector("aside.acpmux-artifact .acpmux-summary-agent"));
+    await ctx.waitFor(() =>
+      Boolean(ctx.document.querySelector("aside.acpmux-artifact .acpmux-summary-agent")) ||
+      (ctx.document.defaultView as unknown as { cmuxGalleryLog?: { method: string }[] }).cmuxGalleryLog?.some(
+        (call) => call.method === "chat.subagentList",
+      ) === true,
+    );
   }
   await ctx.scroll({ selector: ".acpmux-running-tray__list" }, "bottom");
   headInView(ctx);

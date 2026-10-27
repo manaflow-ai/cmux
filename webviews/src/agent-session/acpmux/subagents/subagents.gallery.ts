@@ -269,7 +269,7 @@ export default agentPaneEntry({
       snapshot: CODEX,
       play: async (ctx) => {
         await openGroup(2)(ctx);
-        await ctx.click({ role: "button", name: "Open Read a" });
+        await ctx.click({ role: "button", name: /Open Read a/ });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of"));
       },
     },
@@ -381,7 +381,7 @@ export default agentPaneEntry({
         // The nested group of a running agent starts open in the working turn.
         if (ctx.find({ selector: ".cv-subagents" }).getAttribute("aria-expanded") !== "true")
           await ctx.click({ selector: ".cv-subagents" });
-        await ctx.click({ role: "button", name: "Open Unit tests" });
+        await ctx.click({ role: "button", name: /Open Unit tests/ });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of__parent")?.textContent === "Test coverage");
       },
     },
@@ -510,7 +510,7 @@ export default agentPaneEntry({
       native: { "chat.subagentPane": { opened: true } },
       play: async (ctx) => {
         await openSummary(ctx);
-        await ctx.click({ selector: '.acpmux-summary-agent[title="Read a"]' });
+        await ctx.click({ selector: '.acpmux-summary-agent[title^="Read a"]' });
         const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: PaneCall[] }).cmuxGalleryLog;
         await ctx.waitFor(() =>
           log.some((call) => call.method === "chat.subagentPane" && call.params?.subagent === CODEX_A.id),
@@ -525,7 +525,7 @@ export default agentPaneEntry({
       snapshot: NESTED_MIXED,
       play: async (ctx) => {
         await openSummary(ctx);
-        await ctx.click({ selector: '.acpmux-summary-agent[title="Test coverage"]' });
+        await ctx.click({ selector: '.acpmux-summary-agent[title^="Test coverage"]' });
         await ctx.waitFor(
           () => ctx.document.querySelector(".cv-subagent-of") && cardRow(ctx, "Test coverage")?.ariaCurrent === "true",
         );
