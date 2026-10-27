@@ -1278,7 +1278,12 @@ impl Hub {
                 return false;
             }
             m.status = status;
-            m.updated_at = now_ms();
+            // Only a change dates the chat: stopping a closed chat again logs nothing and leaves
+            // it as old as it was, or a chat stopped every day would never be old enough for log
+            // retention (`retention.rs`) and would move up the lists that sort by it.
+            if was != status {
+                m.updated_at = now_ms();
+            }
             // The parent's slot follows the status under the same lock, so
             // concurrent status writes and the index never disagree (the
             // index is a leaf lock, `subsessions.rs`).
