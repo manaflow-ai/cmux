@@ -57,7 +57,8 @@ import CmuxNextCompat
     var pendingHost: [PendingHostSend] = []
     var awaitingHost: [Int: PendingHostSend] = [:]
     var personProofID: Int?
-    var pendingTrustFolders: [String] = []
+    var pendingTrustFolders: [AgentPanePromptJournal.PendingTrust] = []
+    var trustDaemon: String?
     var draining = false
     /// The user's gestures in this pane; a granting frame consumes one.
     public let gestures: AgentPaneUserGestures
@@ -216,7 +217,11 @@ import CmuxNextCompat
         socketPath = connection.socketPath
         remoteApprovals = connection.remote?.approvals
         remoteWire = connection.remote != nil
-        if !remoteWire, let daemon = connection.socketPath { await restorePendingTrust(daemon: daemon, connection: id) }
+        trustDaemon = remoteWire ? nil : (connection.socketPath ?? connection.url.absoluteString)
+        if let daemon = trustDaemon {
+            bindPreOpenTrust(to: daemon)
+            guard await restorePendingTrust(daemon: daemon, connection: id) else { throw .closed }
+        }
         guard id == current else { throw .staleConnection }
         let wire = connection.remote?.makeWire()
         if let wire {

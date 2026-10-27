@@ -158,6 +158,17 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         }
     }
 
+    /// The first local connection claims picks made before a daemon was known, durably.
+    func bindPreOpenTrust(daemon: String) -> Bool {
+        change { state in
+            guard !state.pendingTrust.isEmpty else { return false }
+            for index in state.pendingTrust.indices where state.pendingTrust[index].daemon.isEmpty {
+                state.pendingTrust[index].daemon = daemon
+            }
+            return true
+        }
+    }
+
     /// Pending trust barriers for a local daemon, including a pre-open native pick.
     func pendingTrustFolders(daemon: String) -> [String] {
         state.withLock { state in

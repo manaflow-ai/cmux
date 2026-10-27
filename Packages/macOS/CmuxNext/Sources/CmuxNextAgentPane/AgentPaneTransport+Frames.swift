@@ -145,7 +145,7 @@ extension AgentPaneTransport {
     /// main-actor state, the re-encode and the send. It stops at the first frame that needs the main
     /// actor (the gesture record, the sheets, the pane's sessions), which gets only small facts.
     func drain() async {
-        while !pending.isEmpty || !pendingHost.isEmpty || (sentFirst && !pendingTrustFolders.isEmpty) {
+        while !pending.isEmpty || !pendingHost.isEmpty || (sentFirst && hasPendingTrust) {
             if sentFirst, let socket, !socket.isClosed, let ids = requestIds {
                 flushPendingTrust()
                 if !pendingHost.isEmpty {

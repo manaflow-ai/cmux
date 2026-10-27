@@ -8,13 +8,19 @@ extension AgentPaneTransport {
     /// this helper.
     func trustPicked(_ folder: String) async {
         guard !remoteWire else { return }
-        guard let socket, !socket.isClosed, sentFirst, let ids = requestIds else {
-            rememberPendingTrust(folder)
-            let journal = promptJournal, daemon = socketPath
-            let persisted = if let journal {
-                await journal.trustIO { journal.recordPendingTrust(daemon: daemon, folder: folder) }
-            } else { true }
-            if !persisted { Self.logger.error("agent pane folder trust could not be journaled") }
+        let journal = promptJournal, daemon = trustDaemon, connection = current
+        // Persist at the pick, before joining a possibly busy drain. A queued request must
+        // survive app exit even when sendHost has not started yet.
+        let persisted = if let journal {
+            await journal.trustIO { journal.recordPendingTrust(daemon: daemon, folder: folder) }
+        } else { true }
+        guard persisted, connection == current, daemon == trustDaemon,
+              let socket, !socket.isClosed, sentFirst, let ids = requestIds else {
+            rememberPendingTrust(folder, daemon: daemon)
+            if !persisted {
+                Self.logger.error("agent pane folder trust could not be journaled")
+                if connection == current { close(connection: connection) }
+            }
             return
         }
         guard let request = trustRequest(folder, ids: ids) else { return }
@@ -24,26 +30,38 @@ extension AgentPaneTransport {
         }
     }
 
-    func restorePendingTrust(daemon: String, connection: Int) async {
+    func restorePendingTrust(daemon: String, connection: Int) async -> Bool {
         let journal = promptJournal
-        let folders = if let journal {
-            await journal.trustIO { journal.pendingTrustFolders(daemon: daemon) }
-        } else { [String]() }
-        guard connection == current, !remoteWire else { return }
-        for folder in folders { rememberPendingTrust(folder) }
+        let restored = if let journal {
+            await journal.trustIO { (journal.bindPreOpenTrust(daemon: daemon), journal.pendingTrustFolders(daemon: daemon)) }
+        } else { (true, [String]()) }
+        guard connection == current, !remoteWire else { return false }
+        for folder in restored.1 { rememberPendingTrust(folder, daemon: daemon) }
+        return restored.0
     }
 
-    private func rememberPendingTrust(_ folder: String) {
-        if !pendingTrustFolders.contains(folder) { pendingTrustFolders.append(folder) }
+    private func rememberPendingTrust(_ folder: String, daemon: String?) {
+        let entry = AgentPanePromptJournal.PendingTrust(daemon: daemon ?? "", folder: folder)
+        if !pendingTrustFolders.contains(entry) { pendingTrustFolders.append(entry) }
+    }
+
+    var hasPendingTrust: Bool {
+        pendingTrustFolders.contains { $0.daemon.isEmpty || $0.daemon == trustDaemon }
+    }
+
+    func bindPreOpenTrust(to daemon: String) {
+        for index in pendingTrustFolders.indices where pendingTrustFolders[index].daemon.isEmpty {
+            pendingTrustFolders[index].daemon = daemon
+        }
     }
 
     func flushPendingTrust() {
         guard !remoteWire, let ids = requestIds else { return }
-        let folders = pendingTrustFolders
-        pendingTrustFolders.removeAll()
+        let folders = pendingTrustFolders.filter { $0.daemon.isEmpty || $0.daemon == trustDaemon }.map(\.folder)
+        pendingTrustFolders.removeAll { $0.daemon.isEmpty || $0.daemon == trustDaemon }
         for folder in folders {
             guard let request = trustRequest(folder, ids: ids) else { continue }
-            pendingHost.append(PendingHostSend(connection: current, requestID: request.id, folder: folder, frame: request.frame, reply: nil))
+            pendingHost.append(PendingHostSend(connection: current, requestID: request.id, folder: folder, daemon: trustDaemon, journal: promptJournal, frame: request.frame, reply: nil))
         }
     }
 
@@ -76,7 +94,7 @@ extension AgentPaneTransport {
 
     func submitHost(connection id: Int, requestID: Int, folder: String, frame: String) async -> AgentPaneTransportError? {
         await withCheckedContinuation { continuation in
-            pendingHost.append(PendingHostSend(connection: id, requestID: requestID, folder: folder, frame: frame, reply: continuation))
+            pendingHost.append(PendingHostSend(connection: id, requestID: requestID, folder: folder, daemon: trustDaemon, journal: promptJournal, frame: frame, reply: continuation))
             guard !draining else { return }
             draining = true
             Task { [weak self] in await self?.drain() }
@@ -87,14 +105,18 @@ extension AgentPaneTransport {
         let connection: Int
         let requestID: Int
         let folder: String
+        let daemon: String?
+        let journal: AgentPanePromptJournal?
         let frame: String
         var completion: CheckedContinuation<AgentPaneTransportError?, Never>?
         let reply: CheckedContinuation<AgentPaneTransportError?, Never>?
 
-        init(connection: Int, requestID: Int, folder: String, frame: String, reply: CheckedContinuation<AgentPaneTransportError?, Never>?) {
+        init(connection: Int, requestID: Int, folder: String, daemon: String?, journal: AgentPanePromptJournal?, frame: String, reply: CheckedContinuation<AgentPaneTransportError?, Never>?) {
             self.connection = connection
             self.requestID = requestID
             self.folder = folder
+            self.daemon = daemon
+            self.journal = journal
             self.frame = frame
             self.reply = reply
         }
@@ -103,7 +125,7 @@ extension AgentPaneTransport {
     func hostAnswered(_ id: Int, connection: Int, error: AgentPaneTransportError? = nil) {
         guard let host = awaitingHost[id], host.connection == connection else { return }
         awaitingHost.removeValue(forKey: id)
-        if error != nil { rememberPendingTrust(host.folder) }
+        if error != nil { rememberPendingTrust(host.folder, daemon: host.daemon) }
         host.reply?.resume(returning: error)
         host.completion?.resume(returning: error)
     }
@@ -111,14 +133,14 @@ extension AgentPaneTransport {
     func sendHost(_ host: PendingHostSend, socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async {
         let requestID = host.requestID
         let connection = host.connection
-        let journal = promptJournal, daemon = socketPath, folder = host.folder
+        let journal = host.journal, daemon = host.daemon, folder = host.folder
         // Capture the daemon and journal before suspension. Persist before the first send, so
         // a crash after refusal cannot leave a saved prompt without its trust barrier.
         let persisted = if let journal {
             await journal.trustIO { journal.recordPendingTrust(daemon: daemon, folder: folder) }
         } else { true }
         guard persisted, self.socket === socket, !socket.isClosed else {
-            rememberPendingTrust(folder)
+            rememberPendingTrust(folder, daemon: daemon)
             host.reply?.resume(returning: .closed)
             if self.socket === socket { close(connection: connection) }
             return
@@ -150,7 +172,7 @@ extension AgentPaneTransport {
             hostAnswered(host.requestID, connection: id, error: .closed)
         }
         for host in pendingHost where host.connection == id {
-            rememberPendingTrust(host.folder)
+            rememberPendingTrust(host.folder, daemon: host.daemon)
             host.reply?.resume(returning: .closed)
         }
         pendingHost.removeAll { $0.connection == id }

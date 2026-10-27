@@ -47,6 +47,7 @@ struct AgentPaneSendPickedFolderPromptTests {
         var limits = AgentPaneTransport.Limits()
         limits.maximumOutstandingBytes = maximumSendBytes
         let transport = AgentPaneTransport(limits: limits, gestures: AgentPaneUserGestures(now: { clock.now }))
+        transport.promptJournal = nil // Tests attach their own journal when persistence is relevant.
         transport.deliver = { event, done in inbox.deliver(event.frames); done() }
         let model = AgentPaneModel(host: NoHost(), transport: transport)
         transport.roots = { [root] }
@@ -214,13 +215,12 @@ struct AgentPaneSendPickedFolderPromptTests {
         transport.promptJournal = AgentPanePromptJournal(url: blocker.appendingPathComponent("prompts.json"))
         transport.webModes = { _, _, _ in nil }
         #expect(await transport.pick(pane.folder) == pane.folder)
-        let id = try await transport.open(AcpmuxConnection(url: pane.server.url, dashboardToken: "t", localAppToken: nil,
-            socketPath: pane.base.appendingPathComponent("acpmux.sock").path))
-        defer { transport.close(connection: id) }
-        let socket = try #require(transport.socket)
-        #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
-        #expect(await pane.server.wait { _ in socket.isClosed })
-        #expect(pane.server.peers.last?.frames.contains { $0.contains("acp.trust.set") || $0.contains("session/prompt") } == false)
+        do {
+            _ = try await transport.open(AcpmuxConnection(url: pane.server.url, dashboardToken: "t", localAppToken: nil,
+                socketPath: pane.base.appendingPathComponent("acpmux.sock").path))
+            Issue.record("an unpersisted trust barrier must prevent opening the send queue")
+        } catch { #expect(error == .closed) }
+        #expect(pane.server.peers.allSatisfy { peer in !peer.frames.contains { $0.contains("acp.trust.set") || $0.contains("session/prompt") } })
     }
 
     @Test func persistedTrustKeepsDaemonBoundariesAndReadsTheOldJournal() async throws {
@@ -241,6 +241,63 @@ struct AgentPaneSendPickedFolderPromptTests {
         #expect(result.2 == [folder])
     }
 
+    @Test(.timeLimit(.minutes(1))) func aQueuedTrustPickSurvivesRestartBeforeTheDrainReachesIt() async throws {
+        let pane = try await pane()
+        defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
+        let transport = pane.model.transport, daemon = try #require(transport.trustDaemon)
+        let url = pane.base.appendingPathComponent("queued-trust.json")
+        transport.promptJournal = AgentPanePromptJournal(url: url)
+        transport.draining = true // An earlier page send still owns the drain.
+        let picking = Task { await transport.pick(pane.folder) }
+        #expect(await pane.server.wait { _ in !transport.pendingHost.isEmpty })
+        let saved = await Task.detached { AgentPanePromptJournal(url: url).pendingTrustFolders(daemon: daemon) }.value
+        #expect(saved == [pane.folder], "queued consent must already be durable before sendHost runs")
+        transport.close(connection: pane.id)
+        _ = await picking.value
+        let restarted = AgentPaneTransport()
+        restarted.promptJournal = AgentPanePromptJournal(url: url)
+        restarted.deliver = { event, done in pane.inbox.deliver(event.frames); done() }
+        pane.server.hold("acp.trust.set")
+        let id = try await restarted.open(AcpmuxConnection(url: pane.server.url, dashboardToken: "t", localAppToken: nil))
+        defer { pane.server.releaseHeld(); restarted.close(connection: id) }
+        #expect(await restarted.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
+        #expect(await pane.server.wait { $0.last?.frames.contains { $0.contains("acp.trust.set") } == true })
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func pendingTrustNeverMovesFromDaemonAToDaemonB(queued: Bool) async throws {
+        let pane = try await pane(connected: false)
+        defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
+        let transport = pane.model.transport
+        transport.promptJournal = AgentPanePromptJournal(url: pane.base.appendingPathComponent("daemon-trust.json"))
+        transport.webModes = { _, _, _ in nil }
+        let a = AcpmuxConnection(url: pane.server.url, dashboardToken: "t", localAppToken: nil, socketPath: "daemon-a")
+        let b = AcpmuxConnection(url: pane.server.url, dashboardToken: "t", localAppToken: nil, socketPath: "daemon-b")
+        let first = try await transport.open(a)
+        if queued {
+            #expect(await transport.send(connection: first, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
+            transport.draining = true
+            let picking = Task { await transport.pick(pane.folder) }
+            #expect(await pane.server.wait { _ in !transport.pendingHost.isEmpty })
+            transport.close(connection: first)
+            _ = await picking.value
+        } else {
+            #expect(await transport.pick(pane.folder) == pane.folder)
+            transport.close(connection: first)
+        }
+        let second = try await transport.open(b)
+        #expect(await transport.send(connection: second, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#,
+            #"{"jsonrpc":"2.0","id":1,"method":"_acpmux/status","params":{}}"#]) == nil)
+        #expect(await pane.server.wait { $0.last?.frames.contains { $0.contains("_acpmux/status") } == true })
+        #expect(pane.server.peers.last?.frames.contains { $0.contains("acp.trust.set") } == false)
+        transport.close(connection: second)
+        pane.server.hold("acp.trust.set")
+        let third = try await transport.open(a)
+        defer { pane.server.releaseHeld(); transport.close(connection: third) }
+        #expect(await transport.send(connection: third, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
+        #expect(await pane.server.wait { $0.last?.frames.contains { $0.contains("acp.trust.set") } == true })
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func aTrustSendFailureKeepsTheFolderForReconnect(overflow: Bool) async throws {
         let pane = try await pane(maximumSendBytes: 1024)
@@ -251,7 +308,7 @@ struct AgentPaneSendPickedFolderPromptTests {
         transport.grant(pane.folder) // The native picker grants the root before its trust send.
         if !overflow { socket.close(code: 1000, reason: "", error: nil) }
         // Exercise a failure after the picker has queued its host request, at the actual send.
-        let host = AgentPaneTransport.PendingHostSend(connection: pane.id, requestID: ids.hostID(), folder: pane.folder,
+        let host = AgentPaneTransport.PendingHostSend(connection: pane.id, requestID: ids.hostID(), folder: pane.folder, daemon: transport.trustDaemon, journal: transport.promptJournal,
             frame: overflow ? String(repeating: " ", count: 1025) : "{}", reply: nil)
         await transport.sendHost(host, socket: socket, ids: ids)
         try await startAfterDeferredTrust(pane)
