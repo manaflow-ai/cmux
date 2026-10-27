@@ -630,7 +630,8 @@ enum CmuxEmbeddedConfigSchema {
         "customBlush": { "type": "string", "pattern": "^[0-9A-Fa-f]{6}$", "default": "FF99B5" },
         "customInk": { "type": "string", "pattern": "^[0-9A-Fa-f]{6}$", "default": "333D6B" },
         "customLogo": { "type": "string", "pattern": "^[0-9A-Fa-f]{6}$", "default": "6BDEFF" },
-        "customBackground": { "type": "string", "pattern": "^[0-9A-Fa-f]{6}$", "default": "060812" }
+        "customBackground": { "type": "string", "pattern": "^[0-9A-Fa-f]{6}$", "default": "060812" },
+        "keepAwakeWhileAgentsActive": { "type": "boolean", "default": false, "description": "Keep the Mac and display awake while any agent is running a command." }
       }
     },
     "workspaceGroups": {

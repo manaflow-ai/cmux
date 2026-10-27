@@ -17,5 +17,6 @@ public struct SleepyModeCatalogSection: SettingCatalogSection {
     public let customInk = DefaultsKey<String>(id: "sleepyMode.customInk", defaultValue: "333D6B", userDefaultsKey: "sleepyMode.customInk")
     public let customLogo = DefaultsKey<String>(id: "sleepyMode.customLogo", defaultValue: "6BDEFF", userDefaultsKey: "sleepyMode.customLogo")
     public let customBackground = DefaultsKey<String>(id: "sleepyMode.customBackground", defaultValue: "060812", userDefaultsKey: "sleepyMode.customBackground")
+    public let keepAwakeWhileAgentsActive = DefaultsKey<Bool>(id: "sleepyMode.keepAwakeWhileAgentsActive", defaultValue: false, userDefaultsKey: "sleepyMode.keepAwakeWhileAgentsActive")
     public init() {}
 }

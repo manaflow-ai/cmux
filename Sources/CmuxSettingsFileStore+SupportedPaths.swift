@@ -61,6 +61,7 @@ extension CmuxSettingsFileStore {
         "sleepyMode.customInk",
         "sleepyMode.customLogo",
         "sleepyMode.customBackground",
+        "sleepyMode.keepAwakeWhileAgentsActive",
         "terminal.adaptiveDefaultTheme",
         CmuxJSONFontSettings.surfaceTabBarPath,
         "terminal.showScrollBar",

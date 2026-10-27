@@ -23,7 +23,8 @@ extension CmuxSettingsFileStore {
         let booleans: [(String, String)] = [
             ("showMoon", catalog.showMoon.userDefaultsKey), ("showStars", catalog.showStars.userDefaultsKey),
             ("showZs", catalog.showZs.userDefaultsKey), ("showClock", catalog.showClock.userDefaultsKey),
-            ("showStatus", catalog.showStatus.userDefaultsKey), ("showPets", catalog.showPets.userDefaultsKey)
+            ("showStatus", catalog.showStatus.userDefaultsKey), ("showPets", catalog.showPets.userDefaultsKey),
+            ("keepAwakeWhileAgentsActive", catalog.keepAwakeWhileAgentsActive.userDefaultsKey)
         ]
         for (name, defaultsKey) in booleans where section.keys.contains(name) {
             guard let value = jsonBool(section[name]) else {
