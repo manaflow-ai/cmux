@@ -65,10 +65,10 @@ What only you can do: installing Tailscale, signing in to it (`tailscale up`, a 
 ## Use cmux from an iPhone: pair the cmux iOS app with this Mac
 
 ```text
-Set up the cmux iPhone app with this Mac: run `cmux settings get mobile.allowIPhoneConnections` and, if it is off, `cmux settings set mobile.allowIPhoneConnections true`. Then run `cmux cloud open-mobile-pairing` and tell me to install cmux on my iPhone and sign in there with the same cmux account, then to allow the phone on this Mac when it asks.
+Set up the cmux iPhone app with this Mac: run `cmux settings get mobile.allowIPhoneConnections` and `cmux cloud open-mobile-pairing`. If iPhone connections are off, tell me to turn them on there (only I can). Then tell me to install cmux on my iPhone, sign in there with the same cmux account, and allow the phone on this Mac when it asks.
 ```
 
-What only you can do: installing the cmux iPhone app (TestFlight invite while it is in beta), signing in there with the same cmux account, and allowing the phone on this Mac when it asks.
+What only you can do: turning on iPhone connections on the Mobile Pairing page, installing the cmux iPhone app (TestFlight invite while it is in beta), signing in there with the same cmux account, and allowing the phone on this Mac when it asks.
 
 ## Add another machine with one pasted line (a single-use pairing ticket)
 

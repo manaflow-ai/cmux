@@ -233,8 +233,9 @@ function Phones({ host }: { host: PairingHost }) {
   return (
     <section className="pairing-phones" aria-label={host.phonesTitle}>
       {host.phonesTitle && <h2 className="pairing-section-title">{host.phonesTitle}</h2>}
+      {host.phonesError && <p className="pairing-muted pairing-phones-error">{host.phonesError}</p>}
       {host.phones.length === 0 ? (
-        host.phonesEmpty && <p className="pairing-muted">{host.phonesEmpty}</p>
+        !host.phonesError && host.phonesEmpty && <p className="pairing-muted">{host.phonesEmpty}</p>
       ) : (
         <ul className="pairing-phone-list">
           {host.phones.map((phone) => (

@@ -61,9 +61,9 @@ the cmux account):
 
 1. The Mac is signed in to cmux: `cmux accounts list --json`. Signed out:
    `cmux cloud sign-in`, and the person finishes the sign-in in the browser.
-2. Phones may connect: `cmux settings get mobile.allowIPhoneConnections`; when
-   it is false, `cmux settings set mobile.allowIPhoneConnections true` (undo:
-   set it back to false).
+2. Phones may connect: `cmux settings get mobile.allowIPhoneConnections`. Only
+   the person turns it on (agents are refused): when it is false, the page in
+   step 3 has the switch; tell them to press Allow iPhone Connections there.
 3. `cmux cloud open-mobile-pairing` opens the Mobile Pairing page beside the
    chat. It says one of: signed out, phone access off, preparing, ready, or
    failed (with the reason). Wait for ready.
@@ -200,7 +200,7 @@ Good to know, say it only when it applies:
 | You | The person |
 | --- | --- |
 | Run every check and every `cmux` command | Sign in to Tailscale and to cmux in the browser |
-| Turn on phone access, open the pairing page | Install the iPhone app, sign in there, allow it on the Mac |
+| Open the pairing page | Turn on iPhone connections, install the iPhone app, sign in there, allow it on the Mac |
 | Install cmux on a machine you can ssh to, add it as a peer, serve it | Approve a new device when their tailnet asks for it; click Add Machine when the build must come from the app |
 | Mint a pairing ticket and hand them the line | Paste the line on a machine you cannot reach |
 | Verify with `cmux host dial NAME` and say it works | Give you their Tailscale login for a tagged server |

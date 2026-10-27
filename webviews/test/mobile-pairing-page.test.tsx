@@ -207,6 +207,7 @@ test("the page names the missing step, then the host's status, requests and phon
   expect(host.querySelector(".pairing-how")?.textContent).toBe(HOST.how);
   expect(host.querySelector(".pairing-host-status")?.textContent).toBe("Online · 1 phone connected");
   expect(host.querySelector(".pairing-phone.is-connected")?.textContent).toContain("Leo's iPhone");
+  expect(host.querySelector(".pairing-phones-error")).toBeNull();
   expect(host.textContent).toContain("Studio");
   expect(host.querySelector("[data-action=allow]")).toBeNull();
   const allowPhone = host.querySelector<HTMLButtonElement>("[data-request=phone-2] [data-action=allow-phone]");
@@ -215,6 +216,19 @@ test("the page names the missing step, then the host's status, requests and phon
   expect(fake.calls.filter((call) => call.op === "cmux.mobilePairing.answerPair").map((call) => call.params)).toEqual([
     { id: "phone-2", allow: true },
   ]);
+
+  // A list the host could not read says why instead of "no phones".
+  fake.set({
+    ...BASE,
+    state: "ready",
+    allowed: true,
+    account: "me@example.com",
+    host: { ...HOST, phones: [], phonesEmpty: "No phones yet.", phonesError: "Couldn't read your phones." },
+  });
+  await act(async () => fake.emit());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(host.querySelector(".pairing-phones-error")?.textContent).toBe("Couldn't read your phones.");
+  expect(host.textContent).not.toContain("No phones yet.");
 
   // A code the host sends shows, with the account line in place of how to connect.
   fake.set({

@@ -117,8 +117,9 @@ final class MobilePairingPageProvider: PageProvider {
 
     /// Everything `status` reads that can change while the page is open.
     private static func fingerprint(_ dependencies: Dependencies) -> String {
-        [String(dependencies.signedIn()), dependencies.account().id, String(dependencies.allowed()),
-         String(describing: dependencies.host.pageJSON)].joined(separator: "|")
+        let account = dependencies.account()
+        return [String(dependencies.signedIn()), account.id, account.name ?? "", String(dependencies.allowed()),
+                String(describing: dependencies.host.pageJSON)].joined(separator: "|")
     }
 
     private func status() async -> JSONValue {
@@ -142,6 +143,8 @@ final class MobilePairingPageProvider: PageProvider {
                 "phonesTitle": card["phones_title"] ?? .null,
                 "phones": .array(phones),
                 "phonesEmpty": card["phones_empty"] ?? .null,
+                // Why the list could not be read: the page says so instead of "no phones".
+                "phonesError": card["phones_error"] ?? .null,
                 "pendingTitle": card["pending_title"] ?? .null,
                 "pending": card["pending"] ?? .array([]),
                 "allowTitle": card["pair_allow_title"] ?? .null,

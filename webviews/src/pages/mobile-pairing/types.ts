@@ -76,6 +76,8 @@ export interface PairingHost {
   phonesTitle?: string;
   phones: PairingPhone[];
   phonesEmpty?: string;
+  /** Why the phone list could not be read; shown instead of `phonesEmpty`. */
+  phonesError?: string | null;
   pendingTitle?: string;
   pending: PairingRequest[];
   allowTitle?: string;
