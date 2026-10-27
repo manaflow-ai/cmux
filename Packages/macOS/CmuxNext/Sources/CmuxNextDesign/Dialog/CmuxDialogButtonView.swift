@@ -9,7 +9,6 @@ public final class CmuxDialogButtonView: NSButton {
     /// The key that presses this button, drawn after its title (u2647); nil draws none.
     public let keyHint: CmuxDialogKeyHint?
     private var isHovering = false { didSet { refresh() } }
-    private var tracking: NSTrackingArea?
     private var hasFocus = false { didSet { refresh() } }
 
     /// A button drawing `hint` after its title. The hint only labels the key: the host
@@ -31,6 +30,7 @@ public final class CmuxDialogButtonView: NSButton {
         // VoiceOver reads the key after the title; the label stays the title (automation finds it).
         setAccessibilityHelp(hint?.spokenName)
         heightAnchor.constraint(equalToConstant: CmuxDialogMetrics.buttonHeight).isActive = true
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self))
         refresh()
     }
 
@@ -86,14 +86,6 @@ public final class CmuxDialogButtonView: NSButton {
         let size = attributedTitle.size()
         return NSSize(width: max(ceil(size.width) + Metrics.space4 * 2, CmuxDialogMetrics.buttonMinWidth),
                       height: CmuxDialogMetrics.buttonHeight)
-    }
-
-    public override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
     }
 
     public override func mouseEntered(with event: NSEvent) { isHovering = true }

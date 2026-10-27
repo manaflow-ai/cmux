@@ -32,6 +32,7 @@ import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextPopups
 import CmuxNextRemoteLocalhostService
+import CmuxNextRemoteViewSessions
 import CmuxNextBrowserImport
 import CmuxNextPhone
 import CmuxNextPhoneAccess
@@ -56,7 +57,7 @@ final class AppServices {
     /// The app's theme store (the one ``ThemeScope/app`` roots on), handed to the App's theme owners.
     let themeStore = ThemeScope.app.store
     /// The recovery-draft backstop of unsaved documents (R96).
-    let recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory)
+    private(set) lazy var recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory, deadlines: mainDeadlines)
     /// The quit hook's unsaved-document participants; drafts go to ``recoveryDrafts``.
     private(set) lazy var quitUnsaved = QuitUnsavedRegistry(deadlines: .on(mainDeadlines), drafts: recoveryDrafts)  // each save's limit is a userBlocking deadline
     /// The open files' quit documents, shared by the markdown and editor pages.
@@ -78,7 +79,7 @@ final class AppServices {
     /// The app's one main-thread scheduler (from the composition root), passed by init to the
     /// local daemon and to the Cloud, SSH and server services for their machines.
     let mainWork: MainWorkScheduler
-    private(set) lazy var mainDeadlines = MainDeadlineScheduler(work: mainWork)  // the app's one `MainDeadline` placer
+    let mainDeadlines: MainDeadlineScheduler  // the app's one `MainDeadline` placer, made in init on `mainWork`
     /// The app's one Launch Services and icon answer cache: questions run on `work`'s system lane, never on main.
     private(set) lazy var workspaceQueries = WorkspaceQueries(work: work, mainWork: mainWork)
     /// The local and peer chat upload stagers' expiry deadlines.
@@ -135,11 +136,9 @@ final class AppServices {
     // raw-observer-allow: the AppEvents fan-out itself, one observer per workspace notice for the whole app
     let workspaceEvents = AppEvents(center: NSWorkspace.shared.notificationCenter)
     /// The app's node in the visibility tree (hidden app, sleeping displays), every window's
-    /// node's parent (`WindowVisibilitySource`, p06-scheduler-022).
-    private(set) lazy var appVisibility = AppVisibilitySource(
-        appEvents: appEvents, workspaceEvents: workspaceEvents,
-        isAppHidden: NSApp.isHidden
-    )
+    /// node's parent (`WindowVisibilitySource`, p06-scheduler-022). Made in init, before the
+    /// updater, whose feed checks align to its hidden wakes.
+    let appVisibility: AppVisibilitySource
     /// Reduce Motion, the motion switches, hover cards, the inactive dim and the system's display
     /// options (``AppearanceSignals``, p06-scheduler-043), handed to the readers this root builds:
     /// the glass watch, every window and the content its panes show. The design settings own it,
@@ -186,7 +185,7 @@ final class AppServices {
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
     private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard, mainWork: mainWork, work: work,
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
-    private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
+    private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }), mainWork: mainWork)  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
     var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); madeRemoteLocalhost?.follow(settings); terminalDelegate.followPredictiveEcho(settings, on: mainWork); (NSApp as? CmuxApplication)?.followMainJobGate(settings, on: mainWork); if cloudContext != nil { followHostReplica(settings) } } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
@@ -197,11 +196,13 @@ final class AppServices {
     let chromiumRuntime: ChromiumRuntimeService
     /// The browser stores both engines and the App share: the one answer to "is this profile off the record".
     let browserStores = BrowserSharedStores.application()
+    /// The saved VNC sign-ins in memory, listed at launch: a VNC tab's connect reads them before the Keychain.
+    let vncSignIns = RemoteVNCSignIns()
     /// Chromium sign-in tabs: the engine's runtime and the sign-in windows share it.
     let signInCallbacks = CEFSignInCallbacks()
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
     let resizes = ResizeCoordinator()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap), terminalPointerFrames: terminalPointerFrames, mainWork: mainWork, deadlines: mainDeadlines, appEvents: appEvents, imageCaches: ImageCacheShares(.forThisMac(gpuResidentAvailable: false), budgeted: features.isEnabled(.memoryImageCaches), purgeable: features.isEnabled(.purgeableImageCaches)), gpuResidency: features.isEnabled(.terminalGPURelease) ? GhosttyGPUResidency() : nil, webKitProcessReuse: AppMemoryConsumers(services: self).webKitProcessReuse)  // first read in init (no IUO); its Chromium engine at its first read
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap), terminalPointerFrames: terminalPointerFrames, mainWork: mainWork, deadlines: mainDeadlines, appEvents: appEvents, imageCaches: ImageCacheShares(.forThisMac(gpuResidentAvailable: false), budgeted: features.isEnabled(.memoryImageCaches), purgeable: features.isEnabled(.purgeableImageCaches)), gpuResidency: features.isEnabled(.terminalGPURelease) ? GhosttyGPUResidency(deadlines: mainDeadlines) : nil, webKitProcessReuse: AppMemoryConsumers(services: self).webKitProcessReuse)  // first read in init (no IUO); its Chromium engine at its first read
     /// What the Now Playing card shows and drives: the player while it plays, else the playing tab,
     /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out)
     /// while `sidebar.nowPlaying.otherApps` is on (off by default: only what plays in cmux). Its
@@ -259,14 +260,17 @@ final class AppServices {
     private(set) lazy var history = HistoryService(services: self)
     /// `cmux://history`: opens the page and serves its data.
     private(set) lazy var historyPage = HistoryPageService(services: self)
-    /// The local model relay's bearer lease (Router/ModelRouterLease.swift); nil without acpmux.
-    private(set) lazy var modelRouter: ModelRouterLease? = {
-        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        guard let acpmux = AcpmuxEnvironment.resolve(build: environment.build, bundledBinDirectory: bin,
-                                                     environment: ProcessInfo.processInfo.environment) else { return nil }
-        return ModelRouterLease(tokens: cloudAuth, apiBaseURL: FeedService.apiBaseURL(auth: cloudAuth), acpmuxHome: acpmux.home,
-                                logger: Logger(subsystem: "com.cmuxterm.app.next", category: "model-router"))
-    }()
+    /// The local model relay's bearer lease (Router/ModelRouterLease.swift), built at the first read once
+    /// `main`'s acpmux resolve has landed (``AppEnvironment/appAcpmux``); nil without acpmux or before then.
+    var modelRouter: ModelRouterLease? {
+        if let modelRouterIfBuilt { return modelRouterIfBuilt }
+        guard let acpmux = environment.appAcpmux?.value ?? nil else { return nil }
+        let lease = ModelRouterLease(tokens: cloudAuth, apiBaseURL: FeedService.apiBaseURL(auth: cloudAuth), acpmuxHome: acpmux.home,
+                                     logger: Logger(subsystem: "com.cmuxterm.app.next", category: "model-router"))
+        modelRouterIfBuilt = lease
+        return lease
+    }
+    private var modelRouterIfBuilt: ModelRouterLease?
     /// Where agent cursors draw (plans/cmux-next/agent-cursor.md section 3).
     private(set) lazy var agentCursorVisibility = AgentCursorWiring.makeVisibility(services: self)
     /// What agent cursor tags say and where a click on one goes.
@@ -566,7 +570,7 @@ final class AppServices {
     private(set) lazy var quit = QuitCoordinator(services: self)
     /// Background mode (cx-ghagp): no window open means no Dock icon or Cmd-Tab entry, and a menu bar item instead.
     /// Only the process's own services drive it, and not while quitting (window teardown runs inside a quit).
-    private(set) lazy var background = BackgroundActivation(registry: registry, icon: .icon(.appCmux, size: 16)) { [weak self] in
+    private(set) lazy var background = BackgroundActivation(registry: registry, icon: .icon(.appCmux, size: 16), mainWork: mainWork) { [weak self] in
         guard let self else { return false }
         return AppProcessRoot.shared.services === self && self.windows.controllers.isEmpty && !self.quit.isQuitting
             && self.settings?.snapshot.hideDockIconWithoutWindows ?? CmuxConfigSnapshot.hideDockIconWithoutWindowsFallback }
@@ -757,7 +761,8 @@ final class AppServices {
         (self.launchStartup, self.crashKeys) = (launchStartup, crashKeys)
         // Estimated presents read the key display's last tick; no link starts for them.
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board, displays: FrameScheduler.appDisplays)
-        updater = UpdaterService(work: work)
+        (mainDeadlines, appVisibility) = (MainDeadlineScheduler(work: mainWork), AppVisibilitySource(appEvents: appEvents, workspaceEvents: workspaceEvents, isAppHidden: NSApp?.isHidden ?? false))
+        updater = UpdaterService(work: work, deadlines: mainDeadlines, checkNode: appVisibility.node)
         let launchFeatures = features ?? Self.launchFeatures(environment)
         // In host mode one Chromium Host serves every tab of every profile (p01-process-080).
         let hostSupervisor = Self.chromiumHostSupervisor(work: work, mainWork: mainWork, features: launchFeatures)
@@ -795,8 +800,11 @@ final class AppServices {
             WatchdogHangSinks(watchdog: $0, keepsFatalHangRecord: features.isEnabled(.fatalHangReports) && marker != nil,
                               markerFolder: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID))
         }
-        crashReporting = AppCrashReporting(environment: environment, features: CrashFeatureScope(FeatureFlagsPage.report(self.features, tunables: TunableStore.shared, daemon: environment.daemonFeatureHello).fieldState), afterStartup: .init(handlersFirst: self.features.isEnabled(.sentryHandlersFirst), startup: launchStartup), hangSinks: hangSinks, forwardersAfterStartup: self.features.isEnabled(.crashForwardersAfterStartup) ? launchStartup : nil)  // after the run marker's handlers
+        crashReporting = AppCrashReporting(environment: environment, features: CrashFeatureScope(FeatureFlagsPage.report(self.features, tunables: TunableStore.shared, daemon: environment.daemonFeatureHello).fieldState), afterStartup: .init(handlersFirst: self.features.isEnabled(.sentryHandlersFirst), startup: launchStartup), hangSinks: hangSinks, forwardersAfterStartup: self.features.isEnabled(.crashForwardersAfterStartup) ? launchStartup : nil, runMarker: crashRecovery.marker)  // after the run marker's handlers
         DebugTimings.markLaunch("services.crash_reporting")
+        // The engines' Keychain calls run on the system lane; the remembered HTTP sign-ins are listed there now.
+        browserStores.loadRememberedSignIns(on: work)
+        vncSignIns.loadRememberedVNCSignIns(on: work)
         machines = MachineRegistry(local: daemon)
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
         BrowserLifecycleTrace.shared.configure { tab, event in

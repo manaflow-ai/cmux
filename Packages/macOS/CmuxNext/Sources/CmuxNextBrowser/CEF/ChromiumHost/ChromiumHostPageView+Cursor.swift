@@ -14,11 +14,9 @@ import CmuxNextDesign
 /// tracking areas and rebuilds none of the window's cursor rects. They leave out ``cursorHoles`` and
 /// the crash page: the holes the in-process page window gets for the same views (``CEFHostView/occlusionRects``).
 extension ChromiumHostPageView {
+    // tracking-area: the cursor pieces are rects cut from the visible rect, not `.inVisibleRect`; this only moves them (the pointer area is added once, in init).
     public override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        #if DEBUG || CMUX_BENCH_HOOKS
-        updatePointerArea()
-        #endif
         placeCursorAreas()
     }
 

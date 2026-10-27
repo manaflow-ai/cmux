@@ -54,9 +54,7 @@ impl BoundedOutbound {
             if state.closed {
                 return false;
             }
-            // The writer's wait for its own next item is an idle wait
-            // (`Condvar::idle`), as in `recv`: the line writer disallows
-            // blocking (echo_thread.rs), and a checked wait there panics.
+            // The writer's idle wait for its own queue (p02-threads 308).
             state = self.changed.idle().wait(state).recover_poison();
         }
     }
