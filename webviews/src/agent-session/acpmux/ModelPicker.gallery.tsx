@@ -346,8 +346,8 @@ export default componentEntry<GalleryProps>({
   title: "Model picker",
   area: "Agent pane",
   pane: true,
-  height: 390,
-  widths: { narrow: 200, normal: 420, wide: 760 },
+  height: 560,
+  widths: { narrow: 420, normal: 560, wide: 760 },
   anchors: [{ selector: ".acpmux-model" }],
   covers: [
     "agent-session/acpmux/ModelPicker.tsx#ModelPicker",

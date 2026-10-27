@@ -193,9 +193,14 @@
   color: var(--agent-muted);
   text-align: end;
 }
+.acpmux-quick-sub > .acpmux-menu-label { flex: none; }
 .acpmux-quick-sub .acpmux-quick-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   margin-inline-start: auto;
-  padding-inline-start: 20px;
+  padding-inline-start: 8px;
   color: var(--agent-muted);
 }
 .acpmux-quick-sub .acpmux-quick-value + .ui-submenu-chevron { margin-inline-start: 6px; }

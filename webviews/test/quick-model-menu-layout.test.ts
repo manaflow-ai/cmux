@@ -162,6 +162,20 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     }
   });
 
+  test("a long account name keeps the Account control readable in a narrow pane", async () => {
+    for (const width of [320, 420]) {
+      const page = await open("claude", width);
+      try {
+        const label = page.getByRole("menuitem", { name: /^Account/ }).locator(".acpmux-menu-label");
+        expect(await label.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+        await page.getByRole("menuitem", { name: /^Account/ }).hover();
+        await page.getByRole("menuitemradio", { name: "API key", exact: true }).waitFor();
+      } finally {
+        await page.close();
+      }
+    }
+  });
+
   test("Fast switch toggles with the keyboard and stays inside a narrow short window", async () => {
     const page = await open("claude-many-harnesses", 320, 290);
     try {
