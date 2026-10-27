@@ -19,7 +19,7 @@ Pages (labd, task 012, serves them; `Dashboard.handle(path)` is its whole interf
                      reference artifact's runs, and every point as a table
   /alerts            alert groups with their alerts, culprit and issue
   /jobs              Pinpoint bisect, verify and try jobs with trace links
-  /coverage          newest waterfall run per tier, story and host, and its age
+  /coverage          newest waterfall run per tier, story and host, its age, and a harness-broken story
   /field, /stability Nightly field and Sentry rows (tasks 042, 223, 225), passed in by labd
 
 The targets come from the lab catalog (catalog.py, task 007: `targets.json` and `stories.d`), the same
@@ -321,6 +321,8 @@ class CoverageRow:
     last_run_at: datetime
     runs_24h: int
     builds_24h: int
+    broken: bool = False  # harness-broken on its host class now (harness_alerts.broken_stories): measured nothing
+
 
 
 @dataclass(frozen=True)
@@ -487,7 +489,8 @@ def parse_stamp(text: str) -> datetime:
 
 # ---------- SVG ----------
 
-STATUS_LABEL = {"pass": "Pass", "miss": "Miss", "no-data": "No data", "stale": "Stale", "fresh": "Fresh"}
+STATUS_LABEL = {"pass": "Pass", "miss": "Miss", "no-data": "No data", "stale": "Stale", "fresh": "Fresh",
+                "broken": "Harness broken"}
 
 
 def status_icon(status: str) -> str:
@@ -495,7 +498,7 @@ def status_icon(status: str) -> str:
     if status in ("pass", "fresh"):
         glyph = '<path d="M4.6 8.3l2.2 2.2 4.6-4.8" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'
         return f'<svg class="icon good" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="7"/>{glyph}</svg>'
-    if status in ("miss", "stale"):
+    if status in ("miss", "stale", "broken"):
         glyph = '<path d="M5.5 5.5l5 5M10.5 5.5l-5 5" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>'
         return f'<svg class="icon critical" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="7"/>{glyph}</svg>'
     return ('<svg class="icon none" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">'
@@ -856,12 +859,14 @@ def render_coverage(rows: Sequence[CoverageRow], now: datetime) -> str:
     if not rows:
         return page("Coverage", "/coverage", '<p class="empty">No tiered waterfall runs yet.</p>')
     parts = ['<p class="meta">Newest waterfall run per tier, story and host. Stale: T0 over 60 min, T1 over 3 h, '
-             'T2 over 26 h. Counts are the last 24 h.</p>',
+             'T2 over 26 h. Harness broken: the story errored on its last consecutive batches, so it measures '
+             'nothing. Counts are the last 24 h.</p>',
              '<table><thead><tr><th>Tier</th><th>Story</th><th>Host</th><th>Host class</th><th>Newest run</th>'
              '<th>Age</th><th>State</th><th class="num">Runs</th><th class="num">Builds</th></tr></thead><tbody>']
     for row in rows:
         limit = STALE_AFTER.get(row.tier)
-        state = "stale" if limit is not None and now - row.last_run_at > limit else "fresh"
+        state = ("broken" if row.broken else
+                 "stale" if limit is not None and now - row.last_run_at > limit else "fresh")
         parts.append(f'<tr><td>{esc(row.tier)}</td><td>{esc(row.story)}</td><td>{esc(row.host_name)}</td>'
                      f'<td>{esc(row.host_class)}</td><td>{esc(row.last_run_at.isoformat(timespec="seconds"))}</td>'
                      f'<td>{esc(age_text(now, row.last_run_at))}</td><td>{status_badge(state)}</td>'
@@ -1159,8 +1164,13 @@ class StoreSource:
                FROM runs u JOIN hosts h ON h.id = u.host_id
                WHERE u.kind = 'waterfall' AND u.tier IS NOT NULL
                GROUP BY u.tier, u.story, h.name, h.host_class ORDER BY u.tier, u.story, h.name""", [stamp, stamp])
+        try:
+            broken = _load_sibling("harness_alerts").broken_stories(self._db)
+        except sqlite3.OperationalError as error:
+            raise DashboardError(f"lab store not readable ({error}); run the store migrations") from error
         return [CoverageRow(row["tier"], row["story"], row["host_name"], row["host_class"], parse_stamp(row["last_run"]),
-                            row["runs"] or 0, row["builds"] or 0) for row in rows]
+                            row["runs"] or 0, row["builds"] or 0, broken=(row["story"], row["host_class"]) in broken)
+                for row in rows]
 
     def field_rows(self) -> list[FieldRow]:
         return list(self._field_rows())

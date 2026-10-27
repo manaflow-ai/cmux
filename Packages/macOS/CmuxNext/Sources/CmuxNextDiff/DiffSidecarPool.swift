@@ -108,10 +108,7 @@ actor DiffSidecarPool: DiffSidecarRunning {
     }
 
     private func release() {
-        guard !waiters.isEmpty else {
-            active -= 1
-            return
-        }
+        guard !waiters.isEmpty else { active -= 1; return }
         // The slot passes to the next waiter: `active` stays the same.
         waiters.removeFirst().continuation.resume(returning: true)
     }
