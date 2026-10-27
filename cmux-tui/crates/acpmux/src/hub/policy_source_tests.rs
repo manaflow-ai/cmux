@@ -338,3 +338,27 @@ async fn any_start_turns_a_cleared_host_chat_cleared_first() {
     assert_eq!(s.meta().policy_source.as_deref(), Some(CLEARED));
     let _ = hub.kill(&s, true).await;
 }
+
+/// A policy write to a `clearedHost` chat (the owner's one click, before its old host ended) keeps
+/// the duty to end that host; the owner's approve-all then holds once it ended, and after a
+/// restart.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_policy_set_before_the_old_host_ended_keeps_the_end_and_the_grant() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    legacy_store(dir.path());
+    let hub = hub_at(dir.path());
+    let s = hub.resolve(VM_HOST_ERA).unwrap();
+    s.meta.lock().unwrap().policy_source = Some(CLEARED_HOST.into());
+    for policy in [PermissionPolicy::Ask, PermissionPolicy::ApproveAll] {
+        hub.set_policy_unless_moving(&s, policy).await.unwrap();
+        assert_eq!(s.meta().policy_source.as_deref(), Some(CLEARED_HOST), "{policy}");
+    }
+    // No host runs here: the end is proven, and the owner's grant stays.
+    assert!(hub.end_cleared_host(&s).await);
+    assert_eq!(s.meta().policy_source.as_deref(), Some(CLEARED));
+    assert_eq!(answers(&hub, VM_HOST_ERA), PermissionPolicy::ApproveAll);
+    hub.store.flush().unwrap();
+    drop((s, hub));
+    let hub = hub_at(dir.path());
+    assert_eq!(answers(&hub, VM_HOST_ERA), PermissionPolicy::ApproveAll, "cleared again");
+}

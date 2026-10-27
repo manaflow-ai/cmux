@@ -143,6 +143,9 @@ impl Hub {
         self.set_policy_from(session, PermissionPolicy::ApproveAll, VM_HOST).await;
     }
 
+    /// A [`CLEARED_HOST`] chat keeps that source through a policy write: its old host still has to
+    /// end before anything reaches it. Any source, `cleared` included, keeps an approve-all from
+    /// [`settle_grant`], so the owner's grant made meanwhile holds once that host has ended.
     async fn set_policy_from(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -151,7 +154,9 @@ impl Hub {
     ) {
         self.permission_policy_changed(session, |m| {
             m.permission_policy = Some(policy.to_string());
-            m.policy_source = Some(source.to_owned());
+            if m.policy_source.as_deref() != Some(CLEARED_HOST) {
+                m.policy_source = Some(source.to_owned());
+            }
         });
         self.append(session, "mux", "policy", json!({"policy": policy.to_string()}));
         self.save_meta(session);
