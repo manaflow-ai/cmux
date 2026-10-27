@@ -44,6 +44,7 @@
       "build-nightly-ghostty-cli-helper": {
         "Reuse the original helper through build-nightly-app": {"plumbing": true},
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true}, "Install Zig": {"plumbing": true},
+        "Key the Ghostty CLI helper cache": {"plumbing": true, "note": "hashes the helper cache manifest inputs into the actions/cache key; no product check. tests/test_nightly_ghostty_helper_cache.py holds the key to the script's manifest"},
         "Build Ghostty CLI helper": {"nightly_only": "zig builds the Ghostty CLI helper for macOS (universal or arm64) and checks it with lipo on a Mac; ci-macos.yml swift-package-tests builds it only for pull requests into main (ci.yml's static-preflight skips feat-cmux-next)"},
         "Build the cmux-next source archive": {"nightly_only": "zig fetches every Ghostty and ghostty-next package on the macOS helper runner (network, minutes); a new package without a pinned license shows only here. The collector and verifier run on fixtures in cmux-next-guards.yml:vt-link-graph:The nightly's Ghostty license checks pass on fixtures; cmux-next-source-archive.yml runs it for real on ghosttykit-pin/** pushes"},
         "libghostty-vt Zig packages are covered by the notices": {"pr": "cmux-next-guards.yml:vt-link-graph:The nightly's Ghostty license checks pass on fixtures", "note": "check_ghostty_vt_notices.py --license-manifest on fixture manifests; the real manifests come from the source archive"}},
