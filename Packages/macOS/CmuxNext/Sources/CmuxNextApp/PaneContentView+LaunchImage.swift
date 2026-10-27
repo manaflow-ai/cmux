@@ -66,14 +66,32 @@ extension PaneContentView {
 extension VisiblePaneRefs {
     /// The end of the launch restore (p08-startup task 013): the restore ref ends, and each visible pane
     /// holds startup until its content shows. What a pane shows, a window's visibility and a terminal's
-    /// content are not observable: each reads the windows again (``noteChange()``).
+    /// content are not observable: each reads the windows again (``noteChange()``). When the person sees no
+    /// window by current facts, the refs end with `noWindow` at once (p08-startup-095); a launch ordered behind
+    /// other apps' windows lets the system's occlusion decide (`LaunchCoverWatch`).
     func finishRestore(of manager: WindowManager) {
-        manager.services.cache.presentationChanges.subscribe("visible-pane-refs") { [weak self] in self?.noteChange() }
+        let services = manager.services, startup = services.launchStartup, images = services.launchImageHold
+        let behind = LaunchWindowSight.ordersBehind(noActivate: services.environment.noActivate,
+                                                    testScreen: services.environment.testWindow != nil)
+        let sight: @MainActor () -> LaunchWindowSight? = { [weak manager] in
+            manager.map { VisiblePaneRefs.launchSight(of: $0, orderedBehind: behind) }
+        }
+        guard sight()?.verdict != .noWindow else { return launchShowedNoWindow(startup: startup, images: images) }
+        services.cache.presentationChanges.subscribe("visible-pane-refs") { [weak self] in self?.noteChange() }
         followWindows(manager.controllers.compactMap(\.window))
         restoreFinished { [weak self, weak manager] in
             guard let self, let manager else { return [] }
             return windows(of: manager)
         }
+        guard behind else { return }
+        watchCover(of: manager.controllers.compactMap(\.window), sight: sight, startup: startup, images: images)
+    }
+
+    /// What the person sees of the launch's windows now.
+    private static func launchSight(of manager: WindowManager, orderedBehind: Bool) -> LaunchWindowSight {
+        LaunchWindowSight(appHidden: NSApp.isHidden, orderedBehind: orderedBehind,
+                          coming: manager.awaitingContent.count + (manager.launchWindows?.waitingVisible.count ?? 0),
+                          windows: manager.controllers.compactMap(\.window))
     }
 
     /// Every launch window on screen, or kept off screen until its content is installed, with what it shows.

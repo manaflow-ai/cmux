@@ -121,6 +121,8 @@ public final class VisiblePaneRefs {
     private var followed: Set<ObjectIdentifier> = []
     /// The windows' notifications that call ``noteChange()`` (``followWindows(_:)``), cancelled once no ref is held.
     var windowEvents: [EventSubscription] = []
+    /// Whether the launch's windows ordered behind other apps' show one (``watchCover(of:center:timer:sight:startup:images:)``).
+    var cover: LaunchCoverWatch?
     private var paneWatch: Task<Void, Never>?
     private var unavailableWatch: Task<Void, Never>?
 
@@ -212,10 +214,15 @@ public final class VisiblePaneRefs {
 
     /// The daemon is unavailable: releases every ref still held with `daemonUnavailable`.
     public func daemonUnavailable() {
+        releaseAll(.daemonUnavailable)
+    }
+
+    /// Releases every ref still held, the restore's too, with `reason`; no pane takes a ref after.
+    func releaseAll(_ reason: StartupInProgressRef.Reason) {
         let released = [restore].compactMap { $0 } + pending.map(\.release)
         restore = nil
         pending = []
-        end(released, .daemonUnavailable)
+        end(released, reason)
     }
 
     // MARK: Refs

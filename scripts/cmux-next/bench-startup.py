@@ -256,6 +256,8 @@ MARKS = [
     ("launch_picture_decoded", "front window's saved picture read and decoded"),
     ("launch_picture_missed", "the first window asked before its picture's read ended"),
     ("launch_picture_dropped", "the front window's picture untaken at startup complete"),
+    # p08-startup-095: a hidden launch dropped the read before it ended; the lane read and decoded nothing after.
+    ("launch_picture_stopped", "the front window's picture read stopped by a drop (hidden launch)"),
     # p08-startup-012: StartupScheduler's refs are all released (or its 10 s failsafe fired); --startup-complete
     # waits for it after the first content.
     ("startup_complete", "startup complete (StartupScheduler)"),

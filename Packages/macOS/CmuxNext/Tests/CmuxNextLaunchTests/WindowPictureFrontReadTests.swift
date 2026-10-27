@@ -179,6 +179,32 @@ struct WindowPictureFrontReadTests {
         #expect(pictures.takeFront()?.windowID == Self.front, "the first frame after the read got no picture")
     }
 
+    /// A hidden launch (p08-startup-095) drops the read as soon as AppKit says it is hidden, while the lane is still
+    /// asking which window is front: no meta or picture file is read and nothing is decoded.
+    @Test func aHiddenLaunchsDropStopsTheReadBeforeAnyFile() async throws {
+        let directory = Self.folder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await Self.save([(Self.front, Self.defaultProfile)], in: directory)
+        let reads = Reads(), answer = DispatchSemaphore(value: 0)
+        let (marks, mark) = AsyncStream.makeStream(of: String.self)
+        var names = marks.makeAsyncIterator()
+        let pictures = WindowPictureStore(directory: directory, work: Self.work, reader: reads.reader)
+        pictures.prefetchFront({
+            mark.yield("asking")
+            answer.wait()  // the launch snapshot's read, still running when the app learns it is hidden
+            return Self.frontWindow()
+        }, mark: { mark.yield($0) })
+        let asking = await names.next()
+        #expect(asking == "asking", "the lane is in front")
+        pictures.dropFront()  // AppDelegate: NSApp.isHidden at applicationDidFinishLaunching
+        answer.signal()
+        let stopped = await names.next()
+        #expect(stopped == "launch_picture_stopped")
+        #expect(reads.all.isEmpty, "a hidden launch read the saved picture's files")
+        #expect(pictures.takeFront() == nil)
+        #expect(await pictures.frontFinished() == false)
+    }
+
     /// Startup complete drops an untaken picture (it is large); a taken one is not dropped again.
     @Test func anUntakenPictureGoesAtTheDrop() async throws {
         let directory = Self.folder()

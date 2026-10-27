@@ -122,6 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         control.startWatchdog()
         (NSApp as? CmuxApplication)?.inputQueueing = control.watchdog
         DebugTimings.markLaunch("did_finish_launching_start")
+        if NSApp.isHidden { environment.windowPictures?.dropFront() }  // hidden: nobody sees the picture, its read stops (095)
         let launchStart = startupTrace?.uptimeNanos
         DebugTimings.install(watchdog: control.watchdog, startupTrace: startupTrace)
         // No system caret bubble over cmux's own native text fields (before any field edits).

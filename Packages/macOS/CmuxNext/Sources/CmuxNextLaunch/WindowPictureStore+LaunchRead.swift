@@ -17,7 +17,9 @@ public import Foundation
 /// `kCGImageSourceShouldCacheImmediately`), so the main thread gets pixels ready to draw. The first frame asks with
 /// ``takeFront(matching:launch:)``, the only way out of the store, so the launch rules always apply
 /// (WindowPictureStore+LaunchRules.swift); it never waits. The picture is handed out once and dropped at startup
-/// complete when nobody took it (``dropFront()``; a decoded window picture is tens of MB).
+/// complete when nobody took it (``dropFront()``; a decoded window picture is tens of MB). A drop before the read
+/// ends also stops it: the lane reads no file and decodes nothing after the drop, so a hidden launch, which drops it
+/// as soon as AppKit says it is hidden (p08-startup-095), reads no picture when the drop comes first.
 ///
 /// ```swift
 /// let pictures = WindowPictureStore(state: stateDirectory, work: work)
@@ -68,8 +70,9 @@ extension WindowPictureStore {
     ///   - front: The window the launch shows first, from the launch snapshot. It runs on the lane, only when a
     ///     profile folder holds a meta; nil reads no picture.
     ///   - mark: Records the launch marks `launch_picture_decoded` (on the lane, when the picture is decoded),
-    ///     `launch_picture_missed` (the first frame asked before the read ended) and `launch_picture_dropped`
-    ///     (nobody took it by startup complete).
+    ///     `launch_picture_missed` (the first frame asked before the read ended), `launch_picture_dropped`
+    ///     (nobody took it by startup complete) and `launch_picture_stopped` (on the lane, when a drop came before the
+    ///     read ended: nothing more was read or decoded).
     public func prefetchFront(_ front: @escaping @Sendable () -> FrontWindow?, mark: @escaping @Sendable (String) -> Void = { _ in }) {
         launch.start(front, mark: mark)
     }
@@ -94,7 +97,8 @@ extension WindowPictureStore {
         await launch.finished()
     }
 
-    /// Drops the read's picture when nobody took it; later asks get none.
+    /// Drops the read's picture when nobody took it; later asks get none. A read still running reads no file and
+    /// decodes nothing after it.
     public func dropFront() {
         launch.drop()
     }
@@ -109,6 +113,8 @@ extension WindowPictureStore {
         private var read: LaunchRead<FrontPicture?>?
         /// The read was taken or dropped: ``start(_:mark:)`` starts no new one.
         private var ended = false
+        /// Set by ``drop()``: the lane reads and decodes nothing more.
+        private let stop = Stop()
         private var mark: @Sendable (String) -> Void = { _ in }
 
         init(directory: URL?, work: BackgroundWork, reader: LaunchFileReader) {
@@ -118,10 +124,10 @@ extension WindowPictureStore {
         func start(_ front: @escaping @Sendable () -> FrontWindow?, mark: @escaping @Sendable (String) -> Void) {
             guard let directory, read == nil, !ended else { return }
             self.mark = mark
-            let reader = reader
+            let reader = reader, stop = stop
             read = LaunchRead<FrontPicture?>(on: work, dropped: .some(nil)) {
-                let picture = WindowPictureStore.readFront(in: directory, front: front, reader)
-                if picture != nil { mark("launch_picture_decoded") }
+                let picture = WindowPictureStore.readFront(in: directory, front: front, reader, stopped: { stop.isSet })
+                if picture != nil { mark("launch_picture_decoded") } else if stop.isSet { mark("launch_picture_stopped") }
                 return picture
             }
         }
@@ -148,6 +154,7 @@ extension WindowPictureStore {
 
         func drop() {
             guard !ended else { return }
+            stop.set()
             if let result = read?.value, result != nil { mark("launch_picture_dropped") }
             end()
         }
@@ -158,25 +165,35 @@ extension WindowPictureStore {
         }
     }
 
+    /// Set once, from the main thread, and read by the lane between its steps.
+    nonisolated final class Stop: Sendable {
+        private let flag = Atomic<Bool>(false)
+
+        var isSet: Bool { flag.load(ordering: .acquiring) }
+
+        func set() { flag.store(true, ordering: .releasing) }
+    }
+
     /// The front window's picture under `directory` (`<profile>/<window>.heic|json`), decoded: nil when no profile
     /// folder holds a meta (then `front` is not asked), when `front` names none or a window with no meta or
-    /// picture in its profile's folder, when the meta names another window or profile, or when the picture does
-    /// not decode.
-    nonisolated static func readFront(in directory: URL, front: () -> FrontWindow?, _ reader: LaunchFileReader) -> FrontPicture? {
+    /// picture in its profile's folder, when the meta names another window or profile, when the picture does
+    /// not decode, or when `stopped` turned true before a step (no file is read and nothing decoded after it).
+    nonisolated static func readFront(in directory: URL, front: () -> FrontWindow?, _ reader: LaunchFileReader,
+                                      stopped: () -> Bool = { false }) -> FrontPicture? {
         let files = FileManager.checked
         func names(_ profile: String) -> [String] {
             (try? files.contentsOfDirectory(atPath: directory.appending(path: profile, directoryHint: .isDirectory).path)) ?? []
         }
         let profiles = ((try? files.contentsOfDirectory(atPath: directory.path)) ?? []).filter { isFileSafe($0) }
-        guard profiles.contains(where: { profile in names(profile).contains { $0.hasSuffix(".\(metaExtension)") } }),
-              let front = front(), isFileSafe(front.window), isFileSafe(front.profile), profiles.contains(front.profile) else { return nil }
+        guard !stopped(), profiles.contains(where: { profile in names(profile).contains { $0.hasSuffix(".\(metaExtension)") } }),
+              let front = front(), !stopped(), isFileSafe(front.window), isFileSafe(front.profile), profiles.contains(front.profile) else { return nil }
         let folder = directory.appending(path: front.profile, directoryHint: .isDirectory)
         let saved = names(front.profile)
         let metaName = "\(front.window).\(metaExtension)", pictureName = "\(front.window).\(pictureExtension)"
         guard saved.contains(metaName), saved.contains(pictureName),
               let data = reader.data(at: folder.appending(path: metaName), maximumBytes: maximumMetaBytes),
               let meta = try? JSONDecoder().decode(WindowPictureMeta.self, from: data),
-              meta.window == front.window, meta.profile == front.profile,
+              meta.window == front.window, meta.profile == front.profile, !stopped(),
               let image = reader.image(at: folder.appending(path: pictureName), maximumBytes: maximumPictureBytes)
         else { return nil }
         return FrontPicture(windowID: front.window, image: image, meta: meta)
