@@ -259,7 +259,7 @@ struct ScreenSwitchRenderMotionTests {
             let dt = 1.0 / 4000
             let ids: [ScreenID] = ["a", "b"]
             /// Where each screen shows at `half` and how fast it moves there (points per second).
-            func sample() throws -> [(x: CGFloat, opacity: CGFloat, slope: CGFloat)] {
+            @MainActor func sample() throws -> [(x: CGFloat, opacity: CGFloat, slope: CGFloat)] {
                 try ids.map { id in
                     let later = try Self.presented(screens.layer(id), at: half + dt, root: clock)
                     let now = try Self.presented(screens.layer(id), at: half, root: clock)
@@ -416,10 +416,12 @@ struct ScreenSwitchRenderMotionTests {
             screens.show("b")
             #expect(!screens.root.screensStepping)
             #expect(!screens.root.screenSwitch.isInFlight)
-            #expect(try screens.view("a").isHidden, "the old screen did not hide in the switch's turn")
-            #expect(try screens.view("b").frame == screens.root.bounds)
+            let a = try screens.view("a"), b = try screens.view("b")
+            #expect(a.isHidden, "the old screen did not hide in the switch's turn")
+            #expect(b.frame == screens.root.bounds)
             for screen: ScreenID in ["a", "b"] {
-                #expect(try !Self.hasRenderSprings(screens.layer(screen)), "\(screen) animates under Reduce Motion")
+                let layer = try screens.layer(screen)
+                #expect(!Self.hasRenderSprings(layer), "\(screen) animates under Reduce Motion")
             }
         }
     }
@@ -433,12 +435,14 @@ struct ScreenSwitchRenderMotionTests {
             #expect(screens.root.screensStepping, "the switch does not spring on the CPU")
             #expect(!screens.root.screenSwitch.isInFlight)
             for screen: ScreenID in ["a", "b"] {
-                #expect(try !Self.hasRenderSprings(screens.layer(screen)), "\(screen) has render-server springs with the switch off")
+                let layer = try screens.layer(screen)
+                #expect(!Self.hasRenderSprings(layer), "\(screen) has render-server springs with the switch off")
             }
             #expect(screens.root.advanceFrame(1.0 / 120), "the CPU step has nothing to move")
             for _ in 0..<480 where !screens.root.advanceFrame(1.0 / 120) { break }
             #expect(!screens.root.screensStepping, "the CPU switch did not land")
-            #expect(try screens.view("a").isHidden, "the old screen did not hide when the CPU switch landed")
+            let a = try screens.view("a")
+            #expect(a.isHidden, "the old screen did not hide when the CPU switch landed")
         }
     }
 }
