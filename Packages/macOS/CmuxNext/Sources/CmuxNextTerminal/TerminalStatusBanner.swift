@@ -25,6 +25,7 @@ final class TerminalStatusBanner: NSView {
         fatalError("init(coder:) is not supported")
     }
 
+    // visibility-walk-allow: the body only sets the banner layer's two colors (applyThemeColors: performWithTheme resolves the theme's appearance), R-appear's kept form
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyThemeColors()
