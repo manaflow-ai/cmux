@@ -249,9 +249,24 @@ class TerminalHolderKillTests(unittest.TestCase):
             hosts = Path(state, "terminal-hosts-0011223344556677")
             hosts.mkdir()
             Path(hosts, "aa.json").write_text(json.dumps({"terminal_id": "aa", "host_pid": 41}))
+            Path(hosts, "cc.json").write_text(json.dumps({"terminal_id": "cc", "host_pid": 43,
+                                                          "supports_pty_custody": True}))
             Path(hosts, "bb.json").write_text("{not json")
             Path(hosts, "holder.token").write_text("x")
-            self.assertEqual(d.host_terminals(Path(state)), {41: "aa"})
+            self.assertEqual(d.host_terminals(Path(state)),
+                             {41: d.HostRecord("aa", False), 43: d.HostRecord("cc", True)})
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "reads /proc")
+    def test_custody_counts_the_pty_masters_a_process_holds(self):
+        """A process that holds one PTY master, and no custody thread, reads (1, False) (Linux /proc)."""
+        master, slave = os.openpty()
+        try:
+            masters, exchanging = d.daemon_custody(os.getpid())
+        finally:
+            os.close(master)
+            os.close(slave)
+        self.assertEqual((masters, exchanging), (1, False))
+        self.assertEqual(d.daemon_custody(os.getpid()), (0, False))
 
     def test_only_whole_lines_after_the_offset_are_read(self):
         with tempfile.TemporaryDirectory() as root:
@@ -726,11 +741,21 @@ class LiveTests(unittest.TestCase):
         self.assertEqual((result["status"], result["step"]), ("Crash", "stop"))
         self.assertIn("I17", result["message"])
 
-    def test_the_holder_crash_journey_of_the_default_arm_records_each_host_loss(self):
-        """The corpus journey of the per-terminal host arm (p15-oracle-224): the crash seam aborts the first host
-        and a SIGKILL ends the next, each inside an escape sequence. Each kill waits for the daemon's host-loss
-        line, and the terminal keeps its id and gets a new shell."""
-        result = self.run_case(holder_crash_case("old"))
+    def test_the_holder_crash_journey_of_the_default_arm_replaces_each_host(self):
+        """The corpus journey of the per-terminal host arm (p15-oracle-224) with the program's stops moved out of
+        its escape sequences (inside one, the replacement fails: p15-oracle-340). Each kill waits for the daemon's
+        PTY custody; the crash seam aborts the first host and a SIGKILL ends its replacement; each gives a
+        host_replaced line, and the VT state, cwd and last screen are kept."""
+        case = holder_crash_case("old")
+        arm = next(step for step in case["steps"] if step["id"] == "arm")["args"]["params"]
+        inside = ("printf 'X\\033]2;oracle-armed\\007\\033[38;5;1'; dd bs=1 count=1 >/dev/null 2>&1; "
+                  "printf '96mRED\\033]2;oracle-second\\007\\303'; dd bs=1 count=1 >/dev/null 2>&1; printf '\\251")
+        outside = ("printf 'X\\033]2;oracle-armed\\007'; dd bs=1 count=1 >/dev/null 2>&1; "
+                   "printf '\\033[38;5;196mRED\\033]2;oracle-second\\007'; dd bs=1 count=1 >/dev/null 2>&1; "
+                   "printf '\\303\\251")
+        self.assertIn(inside, arm["text"])
+        arm["text"] = arm["text"].replace(inside, outside)
+        result = self.run_case(case)
         self.assertEqual(result["status"], "Pass", result["message"])
 
     def test_a_holder_kill_outside_allow_crashes_is_a_crash(self):

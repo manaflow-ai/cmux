@@ -69,14 +69,15 @@ its tree by SIGTERM and falls back to one marker scan of the process table for t
 
 A kill of `process: holder` ends every process that runs the case's terminals (VT workers): each
 `__terminal-host` on the default arm, the install's one `__holder` on the holder arm
-(CMUX_TUI_TERMINAL_HOST_MODEL=holder). Its reply names the kinds it ended and the daemon's record of
-each ended terminal host: the `host_replaced` line or the host-loss line that the daemon appends to
-`terminal-losses.jsonl` in the case's state (cmux-tui/spec/terminal-host.md). A holder has no such
-record: the daemon starts a new holder and hands it every PTY master. A case with a holder kill by
-ABRT arms the terminal host's debug crash seam (CMUX_TUI_TEST_HOST_ABORT_ONCE,
-terminal_host_runtime/shared/host_crash.rs): the kill releases it, and the host panics and aborts
-itself, so its panic hook writes the crash record that the loss line names. A worker that does not
-wait on the seam (the holder, or a host started after the first one) gets SIGABRT.
+(CMUX_TUI_TERMINAL_HOST_MODEL=holder). Before it ends a terminal host, it waits until the daemon holds
+that host's PTY master (custody), without which the daemon cannot replace a dead host on its shell. Its
+reply names the kinds it ended and the daemon's record of each ended terminal host: the `host_replaced`
+line or the host-loss line that the daemon appends to `terminal-losses.jsonl` in the case's state
+(cmux-tui/spec/terminal-host.md). A holder has no such record: the daemon starts a new holder and hands
+it every PTY master. A case with a holder kill by ABRT arms the terminal host's debug crash seam
+(CMUX_TUI_TEST_HOST_ABORT_ONCE, terminal_host_runtime/shared/host_crash.rs): the kill releases it, and
+the host panics and aborts itself, so its panic hook writes the crash record that the daemon's line names.
+A worker that does not wait on the seam (the holder, or a host started after the first one) gets SIGABRT.
 
 Chrome reference (chromium/src):
 - base/test/launcher/test_launcher.cc: each test child runs in its own process group and the launcher
@@ -196,9 +197,12 @@ SIGNALS = {"KILL": signal.SIGKILL, "TERM": signal.SIGTERM, "ABRT": signal.SIGABR
 ABORT_SEAM_ENV = "CMUX_TUI_TEST_HOST_ABORT_ONCE"
 # The daemon's local log of terminal-host losses and replacements, in the state directory (terminal_loss_log.rs).
 LOSS_LOG = "terminal-losses.jsonl"
-# The daemon appends a loss record and gives no event a client can wait on: the holder kill reads the log anew
-# at this interval until each ended host has its record.
-LOSS_LOG_POLL_S = 0.02
+# The daemon takes PTY custody and appends a loss record with no event a client can wait on for either: the
+# holder kill reads its descriptors and the log anew at this interval until each holds.
+DAEMON_POLL_S = 0.02
+# The daemon's custody exchange runs on a thread of this name (cmux-tui-core surface/rehost.rs request_custody):
+# it receives the master first and stores it in the host's attachment last.
+CUSTODY_THREAD = "pty-custody"
 STEP_REF = re.compile(r"^\$step:([a-z0-9][a-z0-9-]{0,63})#((?:/(?:[^~/]|~[01])*)*)$")
 TYPED_ID = re.compile(r"^[a-z][a-z_]*_[0-9a-f]{32}$")
 ENV_WORD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
@@ -588,9 +592,17 @@ def vt_worker_kind(argv: Sequence[str]) -> Optional[str]:
     return None
 
 
-def host_terminals(state: Path) -> Dict[int, str]:
-    """Terminal id by host pid, from the terminal-host records (`terminal-hosts-<install>/<terminal id>.json`)."""
-    found: Dict[int, str] = {}
+@dataclass(frozen=True)
+class HostRecord:
+    """The part of a terminal-host record (cmux-tui/spec/terminal-host.md) that a holder kill reads."""
+
+    terminal_id: str
+    supports_pty_custody: bool
+
+
+def host_terminals(state: Path) -> Dict[int, HostRecord]:
+    """The terminal-host records (`terminal-hosts-<install>/<terminal id>.json`) by host pid."""
+    found: Dict[int, HostRecord] = {}
     for path in sorted(state.glob("terminal-hosts-*/*.json")):
         try:
             record = json.loads(path.read_text(encoding="utf-8"))
@@ -598,8 +610,30 @@ def host_terminals(state: Path) -> Dict[int, str]:
             continue
         if isinstance(record, dict) and isinstance(record.get("host_pid"), int) \
                 and isinstance(record.get("terminal_id"), str):
-            found[record["host_pid"]] = record["terminal_id"]
+            found[record["host_pid"]] = HostRecord(record["terminal_id"], record.get("supports_pty_custody") is True)
     return found
+
+
+def daemon_custody(pid: int) -> Tuple[int, bool]:
+    """(PTY masters the daemon process holds, whether its custody exchange still runs). Linux reads /proc; macOS
+    lists the descriptors with lsof, which names no threads, so there an exchange never shows as running."""
+    if not sys.platform.startswith("linux"):
+        listing = subprocess.run(["lsof", "-a", "-p", str(pid), "-Fn"], capture_output=True, text=True, check=False)
+        return sum(1 for line in listing.stdout.splitlines() if line.startswith("n") and line.endswith("ptmx")), False
+    masters = 0
+    for fd in glob.glob(f"/proc/{pid}/fd/*"):
+        try:
+            masters += os.readlink(fd).endswith("ptmx")
+        except OSError:
+            continue
+    exchanging = False
+    for comm in glob.glob(f"/proc/{pid}/task/*/comm"):
+        try:
+            with open(comm, encoding="utf-8") as handle:
+                exchanging = exchanging or handle.read().strip() == CUSTODY_THREAD
+        except OSError:
+            continue
+    return masters, exchanging
 
 
 def log_lines(path: Path, offset: int) -> List[Dict[str, Any]]:
@@ -1395,11 +1429,12 @@ class CaseRun:
             raise CaseError("Failure", "kill: no terminal host or holder runs the case's terminals", step_id)
         self.remember()
         terminals = host_terminals(self.paths.state)
-        ended = {proc.pid: terminals.get(proc.pid, "") for proc in workers
-                 if vt_worker_kind(proc.argv) == "terminal-host"}
-        unknown = sorted(pid for pid, terminal in ended.items() if not terminal)
+        hosts = [proc.pid for proc in workers if vt_worker_kind(proc.argv) == "terminal-host"]
+        unknown = [pid for pid in hosts if pid not in terminals]
         if unknown:
             raise CaseError("Crash", f"kill: no terminal-host record names host pid {unknown[0]}", step_id)
+        ended = {pid: terminals[pid].terminal_id for pid in hosts}
+        self.await_custody(step_id, sum(terminals[pid].supports_pty_custody for pid in hosts))
         offset = self.paths.loss_log.stat().st_size if self.paths.loss_log.exists() else 0
         if not (name == "ABRT" and self.release_abort_seam(workers, step_id)):
             for proc in workers:
@@ -1421,6 +1456,25 @@ class CaseRun:
         records = self.await_host_records(step_id, ended, offset)
         return {"signal": name, "process": "holder", "ended": sorted({str(vt_worker_kind(p.argv)) for p in workers}),
                 "records": [records[pid] for pid in sorted(ended)]}
+
+    def await_custody(self, step_id: str, hosts: int) -> None:
+        """Waits until the daemon holds the PTY master of each of `hosts` terminal hosts whose record advertises
+        custody and its custody exchange has finished. The daemon takes custody after each launch, adoption and
+        reconnect, and only with it does a dead host get its documented replacement (cmux-tui/spec/terminal-host.md,
+        PTY custody and adoption). The holder model hands the daemon each master when it starts a terminal, so a
+        holder kill does not wait."""
+        if hosts == 0 or self.daemon.proc is None:
+            return
+        bound = REQUEST_S * self.scale
+        deadline = time.monotonic() + bound
+        while True:
+            masters, exchanging = daemon_custody(self.daemon.proc.pid)
+            if masters >= hosts and not exchanging:
+                return
+            if time.monotonic() >= deadline:
+                raise CaseError("Timeout", f"kill: the daemon held {masters} of {hosts} terminal hosts' PTY masters "
+                                           f"after {bound:.0f} s", step_id)
+            time.sleep(DAEMON_POLL_S)
 
     def release_abort_seam(self, workers: Sequence[CaseProcess], step_id: str) -> bool:
         """Opens the crash seam's FIFO for the terminal host that waits on it; False when none waits (a case without
@@ -1453,7 +1507,7 @@ class CaseRun:
                 missing = sorted(set(ended) - set(found))
                 raise CaseError("Timeout", f"kill: the daemon recorded no replacement or loss of host pid "
                                            f"{missing[0]} in {LOSS_LOG} within {bound:.0f} s", step_id)
-            time.sleep(LOSS_LOG_POLL_S)
+            time.sleep(DAEMON_POLL_S)
 
     def op_restart(self, index: int, step: Mapping[str, Any]) -> Tuple[str, Any]:
         step_id = step["id"]
