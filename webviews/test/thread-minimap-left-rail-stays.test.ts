@@ -7,8 +7,8 @@
 // room. In a wide pane (1600), the pane where the column moves (1200), the pane where moving it
 // would take the rail's room (1100), a narrow window (1000) and the narrowest pane the layout allows
 // (200, cmux.json `layout.minimumPaneWidth`), with Session Info closed, open, and pushing (Push
-// always): the rail draws (minimal under a 48px gutter, #24525), inside the pane, clear of the
-// transcript's column, and Session Info opening leaves it where it was.
+// always): the rail keeps one full-width look, hugs the transcript at a 4 px resting gap, and hides
+// only when the minimum usable gutter is gone. Session Info shifts the rail with the transcript.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux
 // (support/papercutChat.ts). Locally:
@@ -94,16 +94,17 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
         left: Math.round(box.left),
         insidePane: box.left >= shell.left - 0.5 && box.right <= shell.right + 0.5 && bar.width > 0,
         clearOfColumn: box.right <= column + 0.5,
+        distance: Math.round((column - box.right) * 10) / 10,
       };
     });
 
   for (const name of browsers.keys())
-    for (const width of [1600, 1200, 1100, 1000, 200])
-      test(`${name}: in a ${width}px pane the rail stays put with Session Info closed, open and pushing`, async () => {
+    for (const width of [1600, 1200, 800, 780, 760])
+      test(`${name}: in a ${width}px pane the rail hugs the text until it runs out of room`, async () => {
         current = browsers.get(name)!;
         const page = await pane!.open({ width, height: 700 });
         try {
-          const placed = { shown: true, insidePane: true, clearOfColumn: true };
+          const placed = { shown: true, insidePane: true, clearOfColumn: true, distance: 4 };
           await closeInspector(page);
           const closed = await rail(page);
           await openInspector(page, false);
@@ -114,13 +115,20 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           await openInspector(page, true);
           const pushed = await rail(page);
           const where = ({ left: _left, ...rest }: { left?: number; shown: boolean }) => rest;
-          expect({
-            closed: where(closed),
-            open: where(open),
-            pushed: where(pushed),
-            // Floating Session Info leaves the rail where it was.
-            moved: closed.shown && open.shown ? open.left - closed.left : "hidden",
-          }).toEqual({ closed: placed, open: placed, pushed: placed, moved: 0 });
+          const expected =
+            width < 780
+              ? { shown: false }
+              : {
+                  ...placed,
+                  clearOfColumn: width >= 1000,
+                  distance: width >= 1000 ? 4 : -6,
+                };
+          const pushedExpected = width >= 1600 ? expected : { shown: false };
+          expect({ closed: where(closed), open: where(open), pushed: where(pushed) }).toEqual({
+            closed: expected,
+            open: expected,
+            pushed: pushedExpected,
+          });
         } finally {
           await page.close();
         }
