@@ -282,6 +282,11 @@ impl Drop for IdleTerminalReaper {
     }
 }
 
+/// The reaper thread's name in `cmux_threads::snapshot`.
+pub const IDLE_CLOSE_THREAD: &str = "mux-idle-close";
+/// The reaper's QoS: best-effort upkeep nobody waits on (Chromium kUtility).
+pub const IDLE_CLOSE_QOS: cmux_threads::ThreadQos = crate::thread_qos::ThreadType::Utility.qos();
+
 /// Start the reaper for an owner. It sleeps until the next idle-close
 /// deadline, wakes early on policy or attachment changes, and runs until
 /// stopped or the mux is gone. `_interval` is unused (no periodic tick).
@@ -298,7 +303,7 @@ pub fn start_idle_terminal_reaper(
             let _ = waker.send(ReaperMessage::Wake);
         });
     }
-    let thread = std::thread::Builder::new().name("mux-idle-close".into()).spawn(move || {
+    let thread = cmux_threads::spawn(IDLE_CLOSE_THREAD, IDLE_CLOSE_QOS, move || {
         loop {
             let Some(owner) = mux.upgrade() else { break };
             let now = Instant::now();

@@ -184,8 +184,16 @@ pub fn start_apps_when_ready(mux: &Arc<Mux>) {
     }
 }
 
+/// The apps start thread's name in `cmux_threads::snapshot`.
+pub const APPS_START_THREAD: &str = "cmux-apps-start";
+/// The apps start thread's QoS. It starts the app servers, and a Linux child
+/// keeps the nice value of the thread that spawns it (`cmux_threads::process`),
+/// so this class is nice 0.
+pub const APPS_START_QOS: cmux_threads::ThreadQos =
+    crate::thread_qos::ThreadType::Interactive.qos();
+
 fn spawn_off_startup(job: impl FnOnce() + Send + 'static) -> std::io::Result<JoinHandle<()>> {
-    std::thread::Builder::new().name("cmux-apps-start".into()).spawn(job)
+    cmux_threads::spawn(APPS_START_THREAD, APPS_START_QOS, job)
 }
 
 /// Whether origin `user` is allowed on `client` now: both checks of this

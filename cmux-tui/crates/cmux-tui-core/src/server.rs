@@ -108,7 +108,7 @@ pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 #[cfg(unix)]
 mod apps;
 #[cfg(unix)]
-pub use apps::start_apps_when_ready;
+pub use apps::{APPS_START_QOS, APPS_START_THREAD, start_apps_when_ready};
 pub use cmd_workspaces::WORKSPACE_NAME_SOURCE_CAPABILITY;
 #[cfg(unix)]
 mod browser_runtime;

@@ -276,6 +276,9 @@ impl Drop for UsagePoller {
     }
 }
 
+/// The poller thread's name in `cmux_threads::snapshot`.
+pub(crate) const POLL_THREAD: &str = "machine-usage-poll";
+
 /// Start polling when the process resolves a usage source; otherwise `None`.
 pub(crate) fn start_poller(mux: Weak<Mux>) -> Option<UsagePoller> {
     let env_file = default_env_file_path();
@@ -292,7 +295,8 @@ fn start_poller_with_source(
 ) -> Option<UsagePoller> {
     let stop = Arc::new(Notify::new());
     let stop_for_thread = stop.clone();
-    let spawn = std::thread::Builder::new().name("machine-usage-poll".into()).spawn(move || {
+    // Idle work (Chromium kBackground): a usage readout nobody waits on.
+    let spawn = cmux_threads::spawn(POLL_THREAD, cmux_threads::ThreadQos::Background, move || {
         let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
             Ok(runtime) => runtime,
             Err(error) => {
@@ -598,6 +602,10 @@ mod tests {
             &|event| matches!(event, cmux_tui_core::MuxEvent::MachineUsageChanged(Some(usage)) if usage.vm_id == "vm-123"),
         );
         assert_eq!(mux.machine_usage().map(|usage| usage.total_tokens), Some(17));
+        // p08-startup-094: the running poller (it published the readout)
+        // declares Background, the class of idle work.
+        let row = cmux_threads::snapshot().into_iter().find(|row| row.name == POLL_THREAD);
+        assert_eq!(row.map(|row| row.declared), Some(cmux_threads::ThreadQos::Background));
         wait(&|event| matches!(event, cmux_tui_core::MuxEvent::MachineUsageChanged(None)));
         assert_eq!(mux.machine_usage(), None);
         poller.stop();

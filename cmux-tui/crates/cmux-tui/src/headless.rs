@@ -8,6 +8,8 @@ use super::*;
 
 #[cfg(unix)]
 mod dev_orphan_exit;
+#[cfg(test)]
+mod owner_background_tests;
 #[cfg(unix)]
 #[path = "server_lifecycle.rs"]
 mod server_lifecycle;
@@ -156,10 +158,8 @@ pub(crate) fn finish_server_shutdown<W, R>(
 /// [`wake_headless`], and starts `background` here when its first-client
 /// gate marks it due. The thread waits as the `main` registry row at
 /// UserInitiated (`owner_start::register_main_thread`). The workers it
-/// starts before that run at their own classes; of the deferred work, the
-/// checks name their QoS, the poller and the idle reaper start under a
-/// lower one, and the journal plugin and apps start at this class so the
-/// processes they spawn are not demoted.
+/// starts, before that and here, run at their own declared classes
+/// (`owner_start::OwnerWorkPlan::start`).
 fn wait_for_stop(stopped: impl Fn() -> bool, background: &mut owner_start::OwnerBackground) {
     owner_start::register_main_thread();
     let (lock, wake) = &HEADLESS_WAKE;
@@ -203,6 +203,7 @@ mod tests {
     #[test]
     fn the_owner_main_thread_waits_at_user_initiated_and_its_workers_do_not() {
         use cmux_threads::{LiveQos, ThreadQos};
+        let _rows = super::owner_start::lock_thread_rows();
         std::thread::spawn(|| {
             let before = cmux_threads::current();
             super::super::owner_start::prepare(&args(&[])).unwrap();

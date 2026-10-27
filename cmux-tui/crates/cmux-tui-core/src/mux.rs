@@ -355,7 +355,10 @@ pub use dock_columns::{
     ColumnDockError, ColumnDockOutcome, PERMANENT_COLUMN_CODE, parse_column_dock,
 };
 pub(crate) use dock_columns::{ensure_permanent_columns_kept, permanent_columns};
-pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
+pub use idle_close::{
+    IDLE_CLOSE_QOS, IDLE_CLOSE_REAP_INTERVAL, IDLE_CLOSE_THREAD, IdleTerminalReaper,
+    start_idle_terminal_reaper,
+};
 pub use layout_ratio_error::LayoutRatioError;
 pub(crate) use pinned_columns::{
     LONE_DOCK_NEIGHBOR_WIDTH, ensure_pane_takes_tabs, ensure_pinned_columns_kept,

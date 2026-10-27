@@ -161,7 +161,10 @@ pub use cmux_pty::{OPEN_FILE_LIMIT_CEILING, OpenFileLimit, raise_open_file_limit
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 pub(crate) use journal_ingress::contention::JournalContention;
 pub use journal_ingress::{FrontendFocusTarget, FrontendJournalEvent};
-pub use journal_plugin::{JournalPluginOptions, JournalPluginRuntime};
+pub use journal_plugin::{
+    JournalPluginOptions, JournalPluginRuntime, SUPERVISOR_QOS as JOURNAL_PLUGIN_QOS,
+    SUPERVISOR_THREAD as JOURNAL_PLUGIN_THREAD,
+};
 pub use layout::{
     DEFAULT_VIEWPORT_PANE_WIDTH, ExactSplitResize, ExactViewportSplitResize, LayoutResult,
     MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, Rect, SplitEdge, SplitResize,
@@ -189,9 +192,9 @@ pub use mux::{
     WorkspacePlacement, ZoomMode, ZoomState,
 };
 pub use mux::{
-    DEFAULT_TERMINAL_REAP_GRACE, IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper,
-    MAX_TERMINAL_REAP_GRACE, TerminalReaper, start_idle_terminal_reaper, start_terminal_reaper,
-    validate_terminal_reap_grace,
+    DEFAULT_TERMINAL_REAP_GRACE, IDLE_CLOSE_QOS, IDLE_CLOSE_REAP_INTERVAL, IDLE_CLOSE_THREAD,
+    IdleTerminalReaper, MAX_TERMINAL_REAP_GRACE, TerminalReaper, start_idle_terminal_reaper,
+    start_terminal_reaper, validate_terminal_reap_grace,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use program_status::ShownProgramStatus;

@@ -245,6 +245,7 @@ mod tests {
 
     #[test]
     fn a_real_attach_wakes_the_owner_from_a_utility_thread_and_a_stopped_gate_starts_nothing() {
+        let _rows = super::super::lock_thread_rows();
         let mux = Mux::new("after-first-client-test", Default::default());
         // Stopped before any client: the work never becomes due.
         let gate = FirstClientGate::start(&mux, record_wake).expect("the gate thread starts");

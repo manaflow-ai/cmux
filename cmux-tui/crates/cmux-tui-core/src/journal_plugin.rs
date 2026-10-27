@@ -16,6 +16,14 @@ use std::time::{Duration, Instant};
 use cmux_process::{Child, Command, ExitStatus, Stdio};
 
 use crate::panic_free::RecoverPoison;
+use crate::thread_qos::ThreadType;
+
+/// The supervisor thread's name in `cmux_threads::snapshot`.
+pub const SUPERVISOR_THREAD: &str = "cmux-journal-plugin";
+/// The supervisor's QoS. A Linux child keeps the nice value of the thread
+/// that spawns it (`cmux_threads::process`), so the class that spawns the
+/// plugin is nice 0; on macOS a `posix_spawn` child starts at Default anyway.
+pub const SUPERVISOR_QOS: cmux_threads::ThreadQos = ThreadType::Interactive.qos();
 
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
@@ -396,9 +404,9 @@ impl JournalPluginRuntime {
             }
             state.started = true;
             let shared = Arc::clone(&self.state);
-            let handle = thread::Builder::new()
-                .name("cmux-journal-plugin".into())
-                .spawn(move || supervise(shared));
+            let handle = cmux_threads::spawn(SUPERVISOR_THREAD, SUPERVISOR_QOS, move || {
+                supervise(shared);
+            });
             match handle {
                 Ok(handle) => {
                     *self.thread.lock().recover_poison() = Some(handle);

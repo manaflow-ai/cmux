@@ -16,6 +16,8 @@ use cmux_threads::ThreadQos;
 use cmux_tui_core::Mux;
 
 pub(crate) use after_first_client::FirstClientGate;
+#[cfg(test)]
+pub(crate) use after_first_client::THREAD_NAME as FIRST_CLIENT_THREAD;
 
 /// Debug builds only: the owner's hang log test trigger, once its mux
 /// exists (tests/owner_panic.rs).
@@ -40,8 +42,7 @@ const MAIN_THREAD_QOS: ThreadQos = ThreadQos::UserInitiated;
 /// thread starts at its creator's class, and those workers (journal
 /// maintenance, history search) run at their own lower classes, not at the
 /// main thread's. The deferred work it starts later ([`OwnerBackground`])
-/// names its own QoS, except the journal plugin and apps, which start at
-/// this class so the processes they spawn are not demoted.
+/// declares its own QoS ([`OwnerWorkPlan::start`]).
 pub(crate) fn register_main_thread() -> bool {
     cmux_threads::register_current("main", MAIN_THREAD_QOS)
 }
@@ -124,33 +125,29 @@ pub(crate) struct OwnerWork {
 
 impl OwnerWorkPlan {
     /// Starts the work on the calling (owner) thread. Each piece starts its
-    /// own threads; the owner's checks set their QoS (utility or background).
+    /// own registered threads at a declared QoS: the checks, the poller
+    /// (Background) and the idle reaper (Utility) below the owner; the
+    /// journal plugin and apps supervisors at UserInitiated, because a Linux
+    /// child process keeps its spawning thread's nice value.
     pub(crate) fn start(self, mux: &Arc<Mux>) -> OwnerWork {
         if let Some(checks) = self.checks {
             checks.start();
         }
         mux.start_journal_plugin(self.journal_socket);
         let mut work = OwnerWork::default();
-        // The poller and the reaper start no processes, so their threads
-        // inherit a lower QoS from the start call (macOS; a Linux thread
-        // that could not raise its nice back keeps nice 0, see cmux_threads::qos).
         // Cloud VMs carry coderouter identity in their model-plane env; every
         // other host resolves no source and gets no poller.
         #[cfg(unix)]
         {
-            work.machine_usage_poller = cmux_threads::with_qos(ThreadQos::Background, || {
-                crate::coderouter_usage::start_poller(Arc::downgrade(mux))
-            });
+            work.machine_usage_poller = crate::coderouter_usage::start_poller(Arc::downgrade(mux));
         }
         // Closes terminals whose idle-close policy (`set-terminal-idle-policy`)
         // has elapsed with no attached view. It reads every policy when it
         // starts, so a policy set before then is not missed.
-        let idle_reaper = cmux_threads::with_qos(ThreadQos::Utility, || {
-            cmux_tui_core::start_idle_terminal_reaper(
-                Arc::downgrade(mux),
-                cmux_tui_core::IDLE_CLOSE_REAP_INTERVAL,
-            )
-        });
+        let idle_reaper = cmux_tui_core::start_idle_terminal_reaper(
+            Arc::downgrade(mux),
+            cmux_tui_core::IDLE_CLOSE_REAP_INTERVAL,
+        );
         work.idle_terminal_reaper = match idle_reaper {
             Ok(reaper) => Some(reaper),
             Err(error) => {
@@ -234,4 +231,12 @@ impl OwnerBackground {
         }
         self.work
     }
+}
+
+/// Serializes the tests that read thread rows by name (`main`, the gate,
+/// the deferred work's threads): one test's threads would be another's.
+#[cfg(test)]
+pub(crate) fn lock_thread_rows() -> std::sync::MutexGuard<'static, ()> {
+    static ROWS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    ROWS.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }

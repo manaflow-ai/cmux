@@ -466,6 +466,10 @@ fn the_app_supervisor_starts_off_the_daemon_startup_path() {
     let (done, finished) = std::sync::mpsc::channel::<()>();
     let handle = spawn_off_startup(move || {
         wait.recv().unwrap();
+        // p08-startup-094: the start thread declares its QoS in the registry.
+        let declared =
+            cmux_threads::current_slot().map(|slot| (slot.name().to_owned(), slot.declared()));
+        assert_eq!(declared, Some((APPS_START_THREAD.to_owned(), APPS_START_QOS)));
         done.send(()).unwrap();
     })
     .unwrap();
