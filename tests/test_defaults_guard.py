@@ -179,6 +179,46 @@ class DefaultsGuardTests(unittest.TestCase):
         self.assertIn("tunable.dev.label", snapshot)
         self.assertIn('"two  spaces"', snapshot)
 
+    def test_tunable_helper_and_symbol_dependencies_cannot_bypass_review(self):
+        path = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DevTunables.swift"
+        dependency = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Material.swift"
+        source = r'''enum DevTunables {
+    static let devDefault = false
+    static let enabled = Tunable<Bool>.toggle("dev.enabled", .status, "Dev", default: devDefault)
+    static func points(_ name: String, _ value: Double) -> Tunable<Double> {
+        .number("dev.\(name)", .status, name, default: value)
+    }
+    static let gap = points("gap", 2)
+    static let opacity = Tunable<Double>.number("dev.opacity", .status, "Opacity", default: Material.opacity)
+    static let values = [1, 2]
+    static let dynamic = values.map { value in
+        Tunable.number("dev.\(value)", .status, "Value", default: value)
+    }
+    static func unrelated() { print("before") }
+}
+'''
+        material = 'enum Material { static let opacity = 0.5 }\n'
+        self.repo.write(path, source)
+        self.repo.write(dependency, material)
+        self.base = self.repo.commit("tunable dependencies")
+        for title, changed, other, expected in (
+            ("symbol", source.replace("devDefault = false", "devDefault = true"), material, "DevTunables.swift:devDefault"),
+            ("helper", source.replace('points("gap", 2)', 'points("gap", 3)'), material, "DevTunables.swift:gap"),
+            ("helper body", source.replace("default: value)", "default: value + 1)"), material, "DevTunables.swift:points"),
+            ("dynamic", source.replace("values = [1, 2]", "values = [1, 3]"), material, "DevTunables.swift:values"),
+            ("external symbol", source, material.replace("0.5", "0.6"), "Material.swift:opacity"),
+        ):
+            with self.subTest(title=title):
+                head = self.head(extra={path: changed, dependency: other})
+                result = self.check(head)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("DEFAULTS tunable-source.CmuxNextDesign/" + expected, result.stdout)
+        head = self.head(extra={path: source.replace('print("before")', 'print("after")')
+                               .replace("static let devDefault", "/* comment */ static   let devDefault"),
+                               dependency: material})
+        result = self.check(head)
+        self.assertEqual(result.returncode, 0, result.stdout)
+
     def test_two_flags_with_one_name_are_judged_apart(self):
         two = "enum A {\n    static let isEnabled = false\n}\nenum B {\n    static let isEnabled = true\n}\n"
         self.repo.write("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Trace.swift", two)

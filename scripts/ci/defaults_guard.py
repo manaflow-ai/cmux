@@ -15,7 +15,11 @@ the sources of truth with no hand list:
   current by the generated-files check; the Ghostty `keybind = ...` lines, the
   `static let ...Enabled = true|false` flags and each
   `Tunable<T>.choice|toggle|number|color|spring("key", ..., default: ...)` in
-  the app's Swift sources.
+  the app's Swift sources. Tunable initializers/helpers and their symbolic source
+  dependencies also have conservative declaration fingerprints (not whole-file hashes),
+  so helper, interpolated-key and nonliteral defaults cannot silently remain unchanged
+  when their defining declaration changes. An edit to a tracked declaration's help text
+  also needs review; comments and formatting do not.
 
   python3 scripts/ci/defaults_guard.py snapshot           # regenerate it
   python3 scripts/ci/defaults_guard.py check-fresh        # it matches the sources
@@ -299,9 +303,11 @@ def defaults(tree: Tree) -> dict[str, object]:
                 found[f"ghostty.{trigger.strip()}"] = action.strip()
     for name, block in YIELDS_RE.findall(tree.read(KEY_BINDING_DEFAULTS) or ""):
         found[f"steps-aside.{name}"] = sorted(re.findall(r'"([^"]+)"', block))
-    sources = sorted({name for name, _ in tree.grep(r"Tunable<", SWIFT_SOURCES)})
-    for text in tree.read_bytes(sources).values():
-        for key, value in tunables(text.decode("utf-8")):
+    sources = sorted(name for name in tree.files(SWIFT_SOURCES) if name.endswith(".swift"))
+    swift = {name: text.decode("utf-8") for name, text in tree.read_bytes(sources).items()}
+    found.update(tunable_source_defaults(swift))
+    for text in swift.values():
+        for key, value in tunables(text):
             found[f"tunable.{key}"] = value
     for name, line in tree.grep(r"static +(let|var) +[A-Za-z0-9_]*Enabled *(: *Bool *)?= *(true|false)", SWIFT_SOURCES):
         for flag, value in FLAG_RE.findall(line):
@@ -395,6 +401,90 @@ def strip_swift_comments(text: str) -> str:
     return "".join(output)
 
 
+# Source fingerprints complement the readable literal values. Swift defaults may be built by a
+# helper or depend on other declarations; reading an unchanged expression is not its value.
+# Track those declarations and their dependencies instead of evaluating untrusted Swift.
+SWIFT_TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|[A-Za-z_]\w*|[^\s]', re.S)
+STATIC_DECL = re.compile(r"\bstatic\s+(let|var|func)\s+(\w+)")
+
+
+def static_declarations(text: str) -> list[tuple[str, str, list[str]]]:
+    """Static initializer/function tokens; comments and formatting do not change a stamp."""
+    text = strip_swift_comments(text)
+    found = []
+    # A help string may contain a Swift example; only actual declarations count.
+    syntax = SWIFT_TOKEN.sub(lambda match: " " * len(match.group())
+                             if match.group().startswith('"') else match.group(), text)
+    for match in STATIC_DECL.finditer(syntax):
+        kind, name = match.groups()
+        tokens = [kind, name]
+        depth, started, previous_end = 0, False, match.end()
+        for token in SWIFT_TOKEN.finditer(text, match.end()):
+            value = token.group()
+            gap = text[previous_end:token.start()]
+            if depth == 0 and started:
+                if value in ("}", ";"):
+                    break
+                if "\n" in gap and tokens[-1] not in ("=", ",", ".", ":", "+", "-", "?", "??") and value not in (".", "{", "("):
+                    break
+            if value in ("(", "[", "{"):
+                depth += 1
+            elif value in (")", "]", "}"):
+                if depth == 0:
+                    break
+                depth -= 1
+            if value == "=" or (value == "{" and kind in ("func", "var")):
+                started = True
+            tokens.append(value)
+            previous_end = token.end()
+        if started:
+            found.append((kind, name, tokens))
+    return found
+
+
+def tunable_source_defaults(sources: Mapping[str, str]) -> dict[str, object]:
+    """Fingerprint tunable initializers, their helpers and symbolic source dependencies.
+
+    This is conservative source tracking, not a Swift interpreter: editing a selected declaration's
+    help text or implementation also needs review. Unrelated declarations in its file do not.
+    Same-file names and qualified Type.member references resolve to all possible source declarations
+    (including extensions); ambiguity adds evidence rather than silently choosing one definition.
+    """
+    nodes, by_file_name, types = {}, {}, {}
+    for path, text in sources.items():
+        for type_name in re.findall(r"\b(?:enum|struct|class|extension)\s+(\w+)", strip_swift_comments(text)):
+            types.setdefault(type_name, set()).add(path)
+        for kind, name, tokens in static_declarations(text):
+            key = f"tunable-source.{path.removeprefix(SWIFT_SOURCES + '/')}:{name}"
+            while key in nodes:
+                key += "#"
+            nodes[key] = (path, kind, name, tokens)
+            by_file_name.setdefault((path, name), set()).add(key)
+    selected = {key for key, (_, _, _, tokens) in nodes.items()
+                if any(re.fullmatch(r"(?:Derived)?Tunable|\w+Tunable", token) for token in tokens)}
+    # A helper returning Tunable (e.g. points) has callers whose initializer has no Tunable token.
+    helpers = {(path, name) for key, (path, kind, name, _) in nodes.items()
+               if key in selected and kind == "func"}
+    for key, (path, _, _, tokens) in nodes.items():
+        if any((path, token) in helpers for token in tokens):
+            selected.add(key)
+    pending = list(selected)
+    while pending:
+        key = pending.pop()
+        path, _, _, tokens = nodes[key]
+        dependencies = set()
+        for i, token in enumerate(tokens):
+            dependencies.update(by_file_name.get((path, token), ()))
+            if i + 2 < len(tokens) and tokens[i + 1] == ".":
+                for owner in types.get(token, ()):
+                    dependencies.update(by_file_name.get((owner, tokens[i + 2]), ()))
+        for dependency in dependencies - selected:
+            selected.add(dependency)
+            pending.append(dependency)
+    return {key: hashlib.sha256(json.dumps(nodes[key][3], ensure_ascii=False).encode()).hexdigest()
+            for key in sorted(selected)}
+
+
 def tunables(text: str) -> list[tuple[str, object]]:
     """Return (key, default) for Tunables with a literal default value."""
     text = strip_swift_comments(text)
@@ -415,10 +505,12 @@ def tunables(text: str) -> list[tuple[str, object]]:
                 continue
             except json.JSONDecodeError:
                 pass
-        try:
-            found.append((key, float(value) if kind == "number" else value.removeprefix(".")))
-        except ValueError:
-            found.append((key, value))
+        if re.fullmatch(r"\.[A-Za-z_]\w*", value):
+            found.append((key, value[1:]))
+        elif re.fullmatch(r"-?\d+(?:\.\d+)?", value):
+            found.append((key, float(value)))
+        # Nonliteral defaults are covered by tunable-source dependency fingerprints above.
+        # Never present an expression such as devDefault as though it were the default value.
     return found
 
 
