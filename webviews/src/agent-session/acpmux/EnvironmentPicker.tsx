@@ -354,7 +354,9 @@ export function EnvironmentPicker({
           data-section={section}
           data-first-section={first ? "" : undefined}
         >
-          {action.icon ?? <EnvironmentIcon kind={action.kind === "saved" || action.kind === "phone" ? "local" : action.kind} />}
+          {action.icon ?? (
+            <EnvironmentIcon kind={action.kind === "saved" || action.kind === "phone" ? "local" : action.kind} />
+          )}
           <span className="acpmux-menu-text acpmux-location-name">
             <span className="acpmux-menu-label">{action.text}</span>
             {action.detail && <span className="acpmux-env-detail">{action.detail}</span>}
