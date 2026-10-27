@@ -1,10 +1,12 @@
-import React, { useId, useSyncExternalStore } from "react";
+import React, { useEffect, useId, useSyncExternalStore } from "react";
 import { agentBrand, AGENT_BRANDS, type AgentBrandSpec, type BrandTone } from "./agentBrand";
 import { AGENT_BRAND_SMALL_POINT_SIZE } from "./agentBrands.generated";
 import {
   harnessIcon,
   harnessIconImageURL,
   harnessIconsSnapshot,
+  harnessSymbolsSnapshot,
+  loadHarnessSymbol,
   monogramColors,
   subscribeHarnessIcons,
   type HarnessIconSpec,
@@ -102,8 +104,9 @@ export function AgentMark(props: MarkProps) {
   return <BrandMark {...props} />;
 }
 
-/// An emoji, an image or a monogram at `size` px. An SF Symbol draws its monogram: the pages'
-/// CSP allows `data:` images only, and only the native views draw symbols.
+/// An emoji, an image, an SF Symbol or a monogram at `size` px. A symbol is the host's template
+/// image as a mask in the text color (shared/harnessIcons.ts); its monogram shows until the image
+/// arrives, and for good when the host draws none.
 function HarnessIcon({
   spec,
   size = 16,
@@ -111,8 +114,33 @@ function HarnessIcon({
   onDark,
 }: MarkProps & { spec: Exclude<HarnessIconSpec, { kind: "brand" | "glyph" }> }) {
   const [scheme] = useSyncExternalStore(subscribe, appearance, () => "dark brand").split(" ");
+  const symbols = useSyncExternalStore(subscribeHarnessIcons, harnessSymbolsSnapshot, harnessSymbolsSnapshot);
+  const symbolName = spec.kind === "symbol" ? spec.name : undefined;
+  useEffect(() => {
+    if (symbolName) loadHarnessSymbol(symbolName);
+  }, [symbolName]);
   const dark = onDark ?? scheme === "dark";
   const a11y = label ? { role: "img", "aria-label": label } : { "aria-hidden": true as const };
+  const symbolSrc = symbolName ? symbols.get(symbolName) : undefined;
+  if (symbolSrc) {
+    const mask = `url("${symbolSrc}") center / contain no-repeat`;
+    return (
+      <span
+        className="agent-mark agent-mark-symbol"
+        data-symbol={symbolName}
+        style={{
+          display: "inline-flex",
+          flex: "none",
+          width: size,
+          height: size,
+          backgroundColor: "currentColor",
+          mask,
+          WebkitMask: mask,
+        }}
+        {...a11y}
+      />
+    );
+  }
   const box: React.CSSProperties = { display: "inline-flex", flex: "none", width: size, height: size };
   if (spec.kind === "image") {
     return (

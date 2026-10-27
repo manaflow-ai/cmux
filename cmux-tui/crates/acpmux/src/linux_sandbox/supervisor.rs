@@ -1,5 +1,5 @@
-//! E1 write-open supervision; no production caller until G2.
-//! Activation also requires F: every mutation must hold the same process-wide
+//! Filesystem supervision for Linux remote-chain commands.
+//! Every mutation holds the same process-wide
 //! mutex and per-uid flock through resolve/check/perform, across all supervisors.
 //! Bwrap supplies read-only mounts and masks; this is not a standalone sandbox.
 //! Activation requires A2 to reject mounts under writable roots that are not
@@ -29,6 +29,7 @@ use std::{
 };
 
 mod locking;
+mod mutations;
 
 type Result<T> = std::result::Result<T, i32>;
 fn error() -> i32 {
@@ -265,6 +266,19 @@ fn resolve_inner(
         }
         let metadata = stat(pin.as_raw_fd())?;
         if metadata.st_mode & S_IFMT == S_IFLNK {
+            // Mutation operations address a directory entry without following it.
+            if queue.is_empty() && flags & (O_PATH | O_NOFOLLOW) == (O_PATH | O_NOFOLLOW) {
+                if directory_required {
+                    return Err(ENOTDIR);
+                }
+                return Ok(Resolved {
+                    parent: stack.pop().ok_or(EACCES)?,
+                    name,
+                    logical: target.to_str().ok_or(EACCES)?.into(),
+                    object: None,
+                    directory_required,
+                });
+            }
             if queue.is_empty() && flags & O_NOFOLLOW != 0 {
                 return Err(ELOOP);
             }
@@ -603,16 +617,24 @@ pub(crate) fn run(notify_fd: OwnedFd, policy: WritePolicy, stop: OwnedFd) -> io:
             Err(ECANCELED) => return Ok(()),
             Err(errno) => return Err(io::Error::from_raw_os_error(errno)),
         };
-        if let Err(errno) = emulate(fd, &request, &policy, stop.as_raw_fd()) {
-            let reply = seccomp_notif_resp { id: request.id, val: 0, error: -errno, flags: 0 };
-            unsafe {
-                response.as_mut_ptr().cast::<seccomp_notif_resp>().write(reply);
-            }
-            if unsafe { ioctl(fd, SECCOMP_IOCTL_NOTIF_SEND, response.as_ptr()) } < 0
-                && error() != ENOENT
-            {
-                return Err(io::Error::last_os_error());
-            }
+        let result = if arguments(&request.data).is_ok() {
+            emulate(fd, &request, &policy, stop.as_raw_fd()).map(|()| None)
+        } else {
+            mutations::emulate(fd, &request, &policy, stop.as_raw_fd())
+        };
+        let (value, errno) = match result {
+            Ok(None) => continue,
+            Ok(Some(value)) => (value, 0),
+            Err(errno) => (0, errno),
+        };
+        let reply = seccomp_notif_resp { id: request.id, val: value, error: -errno, flags: 0 };
+        unsafe {
+            response.as_mut_ptr().cast::<seccomp_notif_resp>().write(reply);
+        }
+        if unsafe { ioctl(fd, SECCOMP_IOCTL_NOTIF_SEND, response.as_ptr()) } < 0
+            && error() != ENOENT
+        {
+            return Err(io::Error::last_os_error());
         }
     }
 }
@@ -1107,6 +1129,7 @@ mod tests {
 
 #[cfg(test)]
 mod notification_tests {
+    include!("supervisor/review_tests.rs");
     use super::*;
     use crate::{
         hub::remote_sandbox::PROFILE,
@@ -1198,16 +1221,33 @@ mod notification_tests {
         }
     }
 
+    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     /// Child lifetime is bounded by SIGALRM; every post-fork call is raw libc.
     /// Parent loops end at child exit/error; recv and supervisor joins have deadlines.
     fn exercise(case: u8, paths: &[CString]) -> Option<(Fixture, i32)> {
         // Serialize forks so another case cannot inherit and keep our listener alive.
-        static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         let fixture = Fixture::new();
+        if case == 210 {
+            fs::remove_dir_all(fixture.0.join(".git")).unwrap();
+        }
         if case == 200 {
             let fifo = CString::new(fixture.0.join("fifo").to_str().unwrap()).unwrap();
             assert_eq!(unsafe { mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        }
+        if (4..=16).contains(&case) || case == 18 {
+            fs::write(fixture.0.join(".git/hooks/pre-commit.sample"), b"protected").unwrap();
+            fs::write(fixture.0.join("CLAUDE.md"), b"instructions").unwrap();
+            fs::write(fixture.0.join("ordinary"), b"ordinary").unwrap();
+            fs::set_permissions(fixture.0.join("ordinary"), fs::Permissions::from_mode(0o600))
+                .unwrap();
+            if case == 4 || case == 8 {
+                fs::remove_dir_all(fixture.0.join(".git")).unwrap();
+                if case == 8 {
+                    fs::create_dir(fixture.0.join(".git")).unwrap();
+                }
+            }
         }
         let mut paths = paths.to_vec();
         paths.push(
@@ -1370,9 +1410,152 @@ mod notification_tests {
         }
     }
 
+    /// Two children have independent filters/listeners; all forks precede the
+    /// supervisor threads. Finite 1000-call loops and child alarms bound work.
+    #[test]
+    fn mutation_two_supervisors_cannot_create_through_a_renamed_parent() {
+        if exercise(1, &[]).is_none() {
+            return;
+        } // Existing kernel capability probes.
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let fixture = Fixture::new();
+        fs::create_dir(fixture.0.join("cache")).unwrap();
+        let cwd = CString::new(fixture.0.as_os_str().as_encoded_bytes()).unwrap();
+        let program = seccomp::filter(true).unwrap();
+        let mut sockets = [[-1; 2]; 2];
+        let mut listeners: Vec<OwnedFd> = Vec::new();
+        let mut children = Vec::new();
+        unsafe {
+            for pair in &mut sockets {
+                assert_eq!(
+                    socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, pair.as_mut_ptr()),
+                    0
+                );
+            }
+            for (i, pair) in sockets.iter().enumerate() {
+                let pid = fork();
+                assert!(pid >= 0);
+                if pid == 0 {
+                    for listener in &listeners {
+                        close(listener.as_raw_fd());
+                    }
+                    for pair in sockets {
+                        for fd in pair {
+                            if fd != sockets[i][1] {
+                                close(fd);
+                            }
+                        }
+                    }
+                    let mut mask: sigset_t = std::mem::zeroed();
+                    sigemptyset(&mut mask);
+                    sigprocmask(SIG_SETMASK, &mask, std::ptr::null_mut());
+                    signal(SIGALRM, SIG_DFL);
+                    alarm(30);
+                    if chdir(cwd.as_ptr()) != 0 || prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
+                        _exit(90);
+                    }
+                    let prog = sock_fprog {
+                        len: program.len() as u16,
+                        filter: program.as_ptr().cast_mut(),
+                    };
+                    let fd = syscall(
+                        SYS_seccomp,
+                        SECCOMP_SET_MODE_FILTER,
+                        SECCOMP_FILTER_FLAG_NEW_LISTENER | SECCOMP_FILTER_FLAG_TSYNC | (1 << 4),
+                        &prog,
+                    ) as i32;
+                    if fd < 0 || transfer(sockets[i][1], fd, true) < 0 {
+                        _exit(91);
+                    }
+                    close(fd);
+                    let mut ack = 0u8;
+                    if read(sockets[i][1], (&mut ack as *mut u8).cast(), 1) != 1 {
+                        _exit(92);
+                    }
+                    for _ in 0..1000 {
+                        if i == 0 {
+                            let fd = open(c"cache/config".as_ptr(), O_CREAT | O_WRONLY, 0o600);
+                            if fd < 0 {
+                                _exit(93);
+                            }
+                            close(fd);
+                        } else {
+                            let rc = renameat(
+                                AT_FDCWD,
+                                c"cache".as_ptr(),
+                                AT_FDCWD,
+                                c".git/hooks/cache".as_ptr(),
+                            );
+                            if rc != -1 || !matches!(*__errno_location(), EACCES | EPERM) {
+                                _exit(94);
+                            }
+                            let rc = renameat(
+                                AT_FDCWD,
+                                c".git/hooks/cache".as_ptr(),
+                                AT_FDCWD,
+                                c"cache".as_ptr(),
+                            );
+                            if rc != -1 {
+                                _exit(95);
+                            }
+                        }
+                    }
+                    _exit(0);
+                }
+                children.push(pid);
+                close(pair[1]);
+                let mut ready = pollfd { fd: pair[0], events: POLLIN, revents: 0 };
+                assert_eq!(poll(&mut ready, 1, 5000), 1);
+                let fd = transfer(pair[0], -1, false);
+                assert!(fd >= 0);
+                listeners.push(OwnedFd::from_raw_fd(fd));
+            }
+            let mut workers = Vec::new();
+            for (i, listener) in listeners.into_iter().enumerate() {
+                let stop = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+                assert!(stop >= 0);
+                let stop = OwnedFd::from_raw_fd(stop);
+                let thread_stop = stop.try_clone().unwrap();
+                let policy = fixture.policy();
+                let (tx, rx) = std::sync::mpsc::channel();
+                let thread = std::thread::spawn(move || {
+                    let _ = tx.send(run(listener, policy, thread_stop));
+                });
+                workers.push((stop, rx, thread));
+                assert_eq!(write(sockets[i][0], (&1u8 as *const u8).cast(), 1), 1);
+                close(sockets[i][0]);
+            }
+            let mut statuses = Vec::new();
+            for pid in children {
+                let mut status = 0;
+                while waitpid(pid, &mut status, 0) != pid {
+                    assert_eq!(error(), EINTR);
+                }
+                statuses.push(status);
+            }
+            for (stop, rx, thread) in workers {
+                let result = rx.recv_timeout(Duration::from_secs(3));
+                if result.is_err() {
+                    let _ = write(stop.as_raw_fd(), (&1u64 as *const u64).cast(), 8);
+                }
+                thread.join().unwrap();
+                result.unwrap().unwrap();
+            }
+            assert!(
+                statuses.iter().all(|s| WIFEXITED(*s) && WEXITSTATUS(*s) == 0),
+                "children: {statuses:?}"
+            );
+        }
+        assert!(!fixture.0.join(".git/hooks/cache/config").exists());
+        assert!(fixture.0.join("cache/config").exists());
+    }
+
     /// Finite syscall cases; SIGALRM bounds blocking opens and the race worker.
     unsafe fn child_case(case: u8, paths: &[CString]) -> i32 {
         unsafe {
+            if case >= 210 {
+                return review_case(case);
+            }
             if case == 1 {
                 return 0;
             }
@@ -1394,7 +1577,7 @@ mod notification_tests {
                 close(fd);
                 return 0;
             }
-            if case == 4 {
+            if case == 17 {
                 let limit = rlimit { rlim_cur: 32, rlim_max: 32 };
                 if setrlimit(RLIMIT_NOFILE, &limit) != 0 {
                     return 70;
@@ -1434,6 +1617,9 @@ mod notification_tests {
                     }
                 }
                 return 0;
+            }
+            if case >= 4 {
+                return mutation_case(case);
             }
             for (i, path) in paths.iter().enumerate() {
                 let fd = open(path.as_ptr(), O_CREAT | O_WRONLY | O_TRUNC, 0o666);
@@ -1539,7 +1725,7 @@ mod notification_tests {
 
     #[test]
     fn target_fd_exhaustion_rolls_back_creation_without_fd_leaks() {
-        if let Some((fixture, status)) = exercise(4, &[]) {
+        if let Some((fixture, status)) = exercise(17, &[]) {
             assert_eq!(status, 0, "child case failed");
             // Policy-permitted O_TRUNC can precede EMFILE; contents are not restored.
             assert!(!fixture.0.join("new").exists());
@@ -1565,6 +1751,131 @@ mod notification_tests {
         if let Some((fixture, status)) = exercise(2, &[]) {
             assert_eq!(status, 0);
             assert!(!fixture.0.join("gone").exists());
+        }
+    }
+
+    /// Each case runs a finite syscall sequence; the harness's child alarm
+    /// bounds any blocking operation. No allocations or unwinding after fork.
+    unsafe fn mutation_case(case: u8) -> i32 {
+        unsafe {
+            let at = AT_FDCWD;
+            let hook = c".git/hooks/pre-commit.sample".as_ptr();
+            let ordinary = c"ordinary".as_ptr();
+            let times = [timespec { tv_sec: 123, tv_nsec: 456 }; 2];
+            if case == 16 {
+                if renameat(at, ordinary, at, c"renamed".as_ptr()) != 0 {
+                    return 110;
+                }
+                if fchmodat(at, c"renamed".as_ptr(), 0o640, 0) != 0 {
+                    return 111;
+                }
+                if utimensat(at, c"renamed".as_ptr(), times.as_ptr(), 0) != 0 {
+                    return 112;
+                }
+                let fd = open(c"renamed".as_ptr(), O_RDONLY | O_CLOEXEC);
+                let mut metadata: libc::stat = std::mem::zeroed();
+                if fd < 0 || fstat(fd, &mut metadata) != 0 {
+                    return 119;
+                }
+                close(fd);
+                if metadata.st_mode & 0o777 != 0o640
+                    || metadata.st_mtime != 123
+                    || metadata.st_mtime_nsec != 456
+                {
+                    return 120;
+                }
+                if unlinkat(at, c"renamed".as_ptr(), 0) != 0 {
+                    return 113;
+                }
+                return 0;
+            }
+            let rc = match case {
+                4 => renameat(at, c"a".as_ptr(), at, c".git".as_ptr()) as c_long,
+                18 => renameat(at, c"a".as_ptr(), at, c".git/cache".as_ptr()) as c_long,
+                5 => renameat(at, ordinary, at, c".git/hooks/new".as_ptr()) as c_long,
+                6 => renameat(at, c".git".as_ptr(), at, c"moved-git".as_ptr()) as c_long,
+                7 => syscall(SYS_renameat2, at, ordinary, at, hook, RENAME_EXCHANGE),
+                8 => unlinkat(at, c".git".as_ptr(), AT_REMOVEDIR) as c_long,
+                9 => unlinkat(at, c"CLAUDE.md".as_ptr(), 0) as c_long,
+                10 => fchmodat(at, hook, 0o755, 0) as c_long,
+                11 | 12 => {
+                    let fd = open(hook, O_RDONLY | O_CLOEXEC);
+                    if fd < 0 {
+                        return 114;
+                    }
+                    let result = if case == 11 { fchmod(fd, 0o755) } else { ftruncate(fd, 0) };
+                    let saved = *__errno_location();
+                    close(fd);
+                    *__errno_location() = saved;
+                    result as c_long
+                }
+                13 => utimensat(at, c".git/config".as_ptr(), times.as_ptr(), 0) as c_long,
+                14 => setxattr(
+                    c"CLAUDE.md".as_ptr(),
+                    c"user.acpmux".as_ptr(),
+                    c"x".as_ptr().cast(),
+                    1,
+                    0,
+                ) as c_long,
+                15 => {
+                    syscall(SYS_renameat2, at, ordinary, at, c"whiteout".as_ptr(), RENAME_WHITEOUT)
+                }
+                _ => return 115,
+            };
+            let errno = *__errno_location();
+            if rc != -1 {
+                return 116;
+            }
+            if case == 15 {
+                return if errno == EPERM { 0 } else { 117 };
+            }
+            if matches!(errno, EACCES | EPERM) { 0 } else { 118 }
+        }
+    }
+
+    macro_rules! mutation_test {
+        ($name:ident, $case:literal) => {
+            #[test]
+            fn $name() {
+                if let Some((fixture, status)) = exercise($case, &[]) {
+                    assert_eq!(
+                        status, 0,
+                        "mutation child failed (116 = allowed; 118 = wrong errno)"
+                    );
+                    assert_eq!(fs::read(fixture.0.join("ordinary")).unwrap(), b"ordinary");
+                    assert_eq!(fs::read(fixture.0.join("CLAUDE.md")).unwrap(), b"instructions");
+                    if $case != 4 && $case != 8 {
+                        let hook = fixture.0.join(".git/hooks/pre-commit.sample");
+                        assert_eq!(fs::read(&hook).unwrap(), b"protected");
+                        assert_eq!(fs::metadata(hook).unwrap().permissions().mode() & 0o111, 0);
+                        assert_eq!(fs::read(fixture.0.join(".git/config")).unwrap(), b"protected");
+                    }
+                }
+            }
+        };
+    }
+
+    mutation_test!(mutation_rename_directory_to_git_denied, 4);
+    mutation_test!(mutation_rename_into_hooks_denied, 5);
+    mutation_test!(mutation_rename_git_away_denied, 6);
+    mutation_test!(mutation_exchange_hooks_denied, 7);
+    mutation_test!(mutation_remove_git_denied, 8);
+    mutation_test!(mutation_remove_instructions_denied, 9);
+    mutation_test!(mutation_chmod_hook_denied, 10);
+    mutation_test!(mutation_fchmod_readonly_hook_denied, 11);
+    mutation_test!(mutation_ftruncate_readonly_hook_denied, 12);
+    mutation_test!(mutation_utimensat_git_config_denied, 13);
+    mutation_test!(mutation_setxattr_instructions_denied, 14);
+    mutation_test!(mutation_whiteout_always_denied, 15);
+    mutation_test!(mutation_directory_relocation_requires_subtree_checks, 18);
+
+    #[test]
+    fn mutation_ordinary_cwd_changes_allowed() {
+        if let Some((fixture, status)) = exercise(16, &[]) {
+            assert_eq!(status, 0, "ordinary mutation failed");
+            assert!(!fixture.0.join("ordinary").exists());
+            assert!(!fixture.0.join("renamed").exists());
+            assert_eq!(fs::read(fixture.0.join("CLAUDE.md")).unwrap(), b"instructions");
         }
     }
 
