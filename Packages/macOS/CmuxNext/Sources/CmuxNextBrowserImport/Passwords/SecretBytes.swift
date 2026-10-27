@@ -26,7 +26,7 @@ public final class SecretBytes: @unchecked Sendable {
 
     /// A zeroed buffer of `capacity` bytes; `fill` writes into it and returns how many it used.
     @safe public init(capacity: Int, fill: (UnsafeMutableRawBufferPointer) throws -> Int) rethrows {
-        let page = Int(getpagesize())
+        let page = getpagesize().widened
         let usable = max(capacity, 1)
         let size = (usable + page - 1) / page * page
         // SAFETY: a new allocation of `size` bytes (whole pages, at least one), owned here and freed
@@ -43,7 +43,7 @@ public final class SecretBytes: @unchecked Sendable {
             // `fill` sees exactly the capacity asked for, and its answer is clamped into it.
             // SAFETY: the view is the allocation's first `usable` bytes (usable <= size), valid for the
             // call; `fill`'s closure is not escaping, so it cannot keep the view.
-            let used = try unsafe fill(UnsafeMutableRawBufferPointer(rebasing: allocation[0..<usable]))
+            let used = try unsafe fill(UnsafeMutableRawBufferPointer(rebasing: allocation.prefix(usable)))
             count = min(max(used, 0), usable)
         } catch {
             wipe()
@@ -90,14 +90,14 @@ public final class SecretBytes: @unchecked Sendable {
     @safe public func withUnsafeBytes<R, E: Error>(_ body: (UnsafeRawBufferPointer) throws(E) -> R) throws(E) -> R {
         // SAFETY: the view is the live allocation's first `count` bytes (count <= buffer.count), valid
         // for the call; `body` is not escaping, so it cannot keep the view.
-        try unsafe body(UnsafeRawBufferPointer(rebasing: buffer[0..<count]))
+        try unsafe body(UnsafeRawBufferPointer(rebasing: buffer.prefix(count)))
     }
 
     /// The bytes' address for handing many secrets to one C call. Valid only
     /// while this object is alive: keep it alive with `withExtendedLifetime`
     /// until the call returns, and never store the pointer.
     @unsafe public var unsafeBytesWhileAlive: UnsafeRawBufferPointer {
-        unsafe UnsafeRawBufferPointer(rebasing: buffer[0..<count])
+        unsafe UnsafeRawBufferPointer(rebasing: buffer.prefix(count))
     }
 
     /// Whether the bytes are UTF-8, checked in place: they never become a `String`.
@@ -132,10 +132,10 @@ public final class SecretBytes: @unchecked Sendable {
         guard count == other.count else { return false }
         return withUnsafeBytes { mine in
             other.withUnsafeBytes { theirs in
-                var difference: UInt8 = 0
-                // SAFETY: both views hold exactly `count` bytes (checked equal above), so every index in
-                // 0..<count is inside both; both are valid while these closures run.
-                for index in 0..<count { difference |= unsafe mine[index] ^ theirs[index] }
+                // Every byte pair is read (no early exit), so the time depends only on the count.
+                // SAFETY: both views hold exactly `count` bytes (checked equal above) and are valid while these
+                // closures run; zip reads them front to back, never past either end.
+                let difference = unsafe zip(mine, theirs).reduce(UInt8.zero) { $0 | ($1.0 ^ $1.1) }
                 return difference == 0
             }
         }

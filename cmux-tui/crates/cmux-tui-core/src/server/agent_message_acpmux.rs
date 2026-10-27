@@ -5,7 +5,7 @@
 //! requires for `_acpmux/prompt_withdraw`, and never starts acpmux.
 
 use crate::panic_free::JsonFields;
-use cmux_threads::checked::ipc_reply;
+use crate::server::request_hang_watch::ipc_reply;
 use cmux_threads::checked::sync as waits;
 use std::sync::mpsc::sync_channel;
 use std::time::Duration;

@@ -82,6 +82,7 @@ impl AttachBuilder {
             snapshot_images: None,
             snapshot_local_history: None,
             snapshot_version: Optional::Missing,
+            stream: Optional::Missing,
             viewer_backlog_bytes: Optional::Missing,
         })
     }
