@@ -143,6 +143,9 @@ public actor CloudCodexBroker {
         defer { unlockTarget(target.machineID) }
         // A registration awaiting its first grant owns no VM auth files.
         guard let installed = installedAccess[target.machineID] else {
+            previousModeByMachine.removeValue(forKey: target.machineID)
+            loadedPreviousMode.remove(target.machineID)
+            accessRemovalAttempted.remove(target.machineID)
             pendingRevocations.remove(target.machineID)
             stopRenewalIfEmpty()
             if signOut, targets.isEmpty { _ = try? await request(method: "logout") }
@@ -369,7 +372,7 @@ public actor CloudCodexBroker {
         // misclassified as a revoked target. The existing task will schedule
         // itself again after its fan-out; a completed failed task clears its
         // handle in the catch below.
-        guard refreshTask == nil else { return }
+        guard refreshTask == nil, !targets.isEmpty else { return }
         refreshCycle += 1
         let cycle = refreshCycle
         let wait = max(1, grant.expiresAt.timeIntervalSinceNow - 120)
