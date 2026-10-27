@@ -451,8 +451,8 @@ public final class TabStripView: NSView {
         }
     }
 
-    // tracking-area: the strip's own area is added once (init); this moves the closing-mode watch's rect area,
-    // which lives on the content view and covers the strip's bounds plus Chrome's exit pads.
+    // The closing-mode watch's rect area lives on the content view and covers the strip's bounds plus Chrome's exit pads.
+    // tracking-area: the strip's own area is added once (init); this only moves the closing-mode watch's rect area.
     public override func updateTrackingAreas() {
         super.updateTrackingAreas()
         closingWatch.updateTracking()

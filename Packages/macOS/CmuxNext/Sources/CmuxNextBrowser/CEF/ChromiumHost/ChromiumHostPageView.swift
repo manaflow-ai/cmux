@@ -131,7 +131,7 @@ public final class ChromiumHostPageView: NSView {
     /// Drags from outside into the page (ChromiumHostPageView+Drag.swift); none until ``takeDrags(through:)``.
     let dragDestination = ChromiumHostDragDestination()
     /// The page's autofill, password and `<datalist>` suggestions, drawn by cmux (task 061).
-    private(set) lazy var suggestions = ChromiumHostSuggestionList(view: self)
+    lazy var suggestions = ChromiumHostSuggestionList(view: self)
     /// The window's part of the page's visibility (ChromiumHostPageView+Visibility.swift): hidden
     /// out of a window, in a minimized window or a hidden app; occluded in a covered window.
     let windowNode: VisibilityNode
