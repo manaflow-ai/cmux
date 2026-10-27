@@ -416,9 +416,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// local terminals (which run in cmux-tui and outlive the app), folds in
     /// the incognito close confirmation, saves windows, and for End stops
     /// the local daemon. `kill` never gets here.
-    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        services?.quit.shouldTerminate(sender) ?? .terminateNow
-    }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply { services?.quit.shouldTerminate(sender) ?? .terminateNow }
 
     /// Chromium's `CommandDispatcher` asks NSApp.delegate (in Chrome, its `AppController`) to
     /// validate a `commandDispatch:` item that no Chromium window handles, with no
@@ -497,11 +495,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.daemon.shutdownConnection()
     }
 
-    /// The app stays running with no windows (standard macOS behavior): a window closes when its
-    /// last workspace closes, and the daemon keeps every terminal regardless.
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        false
-    }
+    /// The app stays running with no windows (standard macOS behavior); the daemon keeps every terminal regardless.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    /// No AppKit state restoration (p08-startup-087): windows come back from the registry and the daemon, as Chrome's from its session.
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
+    func application(_ app: NSApplication, shouldSaveSecureApplicationState coder: NSCoder) -> Bool { false }
+    func application(_ app: NSApplication, shouldRestoreSecureApplicationState coder: NSCoder) -> Bool { false }
 
     /// Dock click with no window open: the last closed window comes back
     /// with its workspaces, else a new window (in background mode a panel or the menu bar item may count as visible).

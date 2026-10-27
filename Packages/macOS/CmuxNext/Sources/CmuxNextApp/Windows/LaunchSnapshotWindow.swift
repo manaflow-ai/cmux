@@ -222,6 +222,7 @@ extension ShellWindow {
         window.isMovableByWindowBackground = false
         window.minSize = NSSize(width: 520, height: 320)
         window.isReleasedWhenClosed = false
+        window.isRestorable = false  // cmux restores its windows from the daemon and the window registry, not AppKit (p08-startup-087)
         window.tabbingMode = .disallowed
         return window
     }
