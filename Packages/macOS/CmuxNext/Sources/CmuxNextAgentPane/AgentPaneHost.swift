@@ -223,10 +223,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         try Task.checkCancellation()
         guard !sessionIds.isEmpty else { return }
         hasWarmedSessions = true
-        let ready = try await endpoint(startsDaemon: true)
+        _ = try await endpoint(startsDaemon: true)
         try Task.checkCancellation()
         guard let socket = environment?.socketPath else { throw AgentPaneHostError.acpmuxNotFound }
-        try await launchWarm.warm(sessionIds, socket: socket, epoch: ready.token)
+        try await launchWarm.warm(sessionIds, socket: socket)
     }
 
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? {

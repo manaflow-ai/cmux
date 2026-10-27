@@ -198,11 +198,13 @@ final class QuitCoordinator {
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },
             endLocalAgents: { [attempts = QuitAttempts()] in
                 let retry = attempts.isRetry()
-                let olderHomes = await services.agentTabs.chiefHomes?.endLaunchSessions(waitForShutdown: retry) ?? []
+                let acpmux = QuitAgents.environment(services)
+                let olderHomes = await services.agentTabs.chiefHomes?.endLaunchSessions(
+                    waitForShutdown: retry, excludingAttachedHome: acpmux?.isAttached == true ? acpmux?.home : nil
+                ) ?? []
                 // The Chief home's host ends with the sessions (home-state-ownership.md section 3),
                 // and Home does not start it again.
                 await services.home.brain.stop()
-                let acpmux = QuitAgents.environment(services)
                 // A Chief home whose acpmux is the attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) ends nothing there.
                 if !QuitAgents.isAttached(acpmux, to: services.home.chief.home.acpmuxHome) {
                     await ChiefHostStop.endChiefSessions(home: services.home.chief.home,

@@ -615,10 +615,28 @@ async fn launch_warm_preserves_a_stop_between_retry_attempts() {
     hub.kill(&session, false).await.unwrap();
     hub.config.write().await.harnesses.get_mut("fake").unwrap().argv = original;
     let result = client
-        .request(method::MUX_WARM, json!({"sessionIds": [id], "expectedStopCounts": {id: stops}}))
+        .request(method::MUX_WARM, json!({"sessionIds": [id], "expectedStopCounts": {id: stops}, "expectedDaemonEpoch": failed["daemonEpoch"]}))
         .await
         .unwrap();
     assert_eq!(result["warmed"], json!([]), "{result}");
     assert_eq!(result["failed"], json!([]), "a later Stop is an intentional skip: {result}");
+    hub.shutdown_all().await;
+}
+
+/// A restart resets stop counters; a retry from the previous launch must not start anything.
+#[tokio::test]
+async fn launch_warm_rejects_a_fence_from_another_daemon_launch() {
+    let (hub, mut client) = setup(PermissionPolicy::ApproveAll).await;
+    let made = client.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = made["sessionId"].as_str().unwrap().to_owned();
+    let session = hub.resolve(&id).unwrap();
+    hub.detach_child(&session).await;
+    let result = client.request(method::MUX_WARM, json!({
+        "sessionIds": [id], "expectedStopCounts": {id: 0}, "expectedDaemonEpoch": "previous-daemon-launch"
+    })).await.unwrap();
+    assert_eq!(result["warmed"], json!([]), "{result}");
+    assert_eq!(result["failed"], json!([]), "{result}");
+    assert_eq!(result["daemonEpoch"], format!("{}:{}", std::process::id(), hub.started_at));
+    assert_eq!(hub.status().await["liveAgents"], 0);
     hub.shutdown_all().await;
 }

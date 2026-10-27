@@ -84,16 +84,20 @@ public actor ChiefHomeDirectory {
 
     /// Ends only older homes warmed by this launch, and only while no other build owns the home.
     /// Called after launch cancellation/drain. Failed ends stay recorded so Quit's Retry can try again.
-    public func endLaunchSessions(waitForShutdown: Bool,
+    public func endLaunchSessions(waitForShutdown: Bool, excludingAttachedHome: URL? = nil,
                                   end: (@Sendable (AcpmuxEnvironment?, Bool) async -> AcpmuxQuit.EndResult)? = nil) async -> [AcpmuxQuit.EndResult] {
         let endAgents: @Sendable (AcpmuxEnvironment?, Bool) async -> AcpmuxQuit.EndResult = end ?? {
             await AcpmuxQuit.endAgents($0, keep: .nothing, waitForShutdown: $1)
         }
         var results: [AcpmuxQuit.EndResult] = []
         for host in launchHomes.sorted() {
-            guard let own = await ownAcpmux(of: host) else { continue }
+            guard let own = await ownAcpmux(of: host), await own.starting.hasWarmedSessions else { continue }
             let home = own.home
-            guard let owned = try? await work.run(.userVisible, mayBlock: .files, { home.hostRuns }), !owned else { continue }
+            guard let mayEnd = try? await work.run(.userVisible, mayBlock: .files, {
+                if let attached = excludingAttachedHome,
+                   attached.standardizedFileURL.resolvingSymlinksInPath() == home.acpmuxHome.standardizedFileURL.resolvingSymlinksInPath() { return false }
+                return !home.hostRuns
+            }), mayEnd else { continue }
             let result = await endAgents(own.environment, waitForShutdown)
             results.append(result)
             switch result {

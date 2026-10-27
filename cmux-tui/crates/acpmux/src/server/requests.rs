@@ -1389,6 +1389,11 @@ async fn dispatch_request(
         method::MUX_WEB_MODES => hub.web_modes_view(&params),
         method::MUX_WEB_TOKEN_ROTATE => hub.rotate_web_token().await,
         method::MUX_WARM => {
+            // Stop counts belong to this process launch, never the persistent dashboard token.
+            let epoch = format!("{}:{}", std::process::id(), hub.started_at);
+            if params.get("expectedDaemonEpoch").and_then(Value::as_str).is_some_and(|expected| expected != epoch) {
+                return Ok(json!({"warmed": [], "failed": [], "daemonEpoch": epoch}));
+            }
             let requested: Vec<String> = params
                 .get("sessionIds")
                 .and_then(Value::as_array)
@@ -1413,7 +1418,7 @@ async fn dispatch_request(
                 .filter_map(|(id, count)| count.as_u64().map(|count| (id.clone(), count)))
                 .collect();
             let (warmed, failed) = hub.warm_sessions_guarded(&requested, limit, web, owner, &expected_stops).await;
-            Ok(json!({"warmed": warmed, "failed": failed}))
+            Ok(json!({"warmed": warmed, "failed": failed, "daemonEpoch": epoch}))
         }
         method::MUX_PREWARM => {
             let s = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);

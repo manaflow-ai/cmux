@@ -118,6 +118,34 @@ import CmuxNextWakeups
         #expect(await directory.endLaunchSessions(waitForShutdown: true, end: { _, _ in await warm.endAgents() }).isEmpty)
     }
 
+    @Test func fallbackOnlyWarmingNeverEndsTheOldHomesUnrelatedDaemon() async throws {
+        let (base, _, old) = try homes()
+        defer { try? FileManager.default.removeItem(at: base.deletingLastPathComponent()) }
+        let own = ChiefSubagentWarmHost(), fallback = ChiefSubagentWarmHost()
+        let directory = ChiefHomeDirectory(parents: [base], work: BackgroundWork(), environment: { _ in nil }) { _, _ in own }
+        let pane = ChiefHomeSessionHost(host: ChiefHomeAcpmux.host(muxHome: old), homes: directory, fallback: fallback)
+        try await pane.warm(sessionIds: ["01a1610c-24e0-75a3-8440-e4bcf537a4ba"])
+        #expect(await own.warmed.isEmpty)
+        #expect(await fallback.warmed.count == 1)
+        #expect(await directory.endLaunchSessions(waitForShutdown: false, end: { _, _ in await own.endAgents() }).isEmpty)
+        #expect(await own.ends == 0)
+    }
+
+    @Test func anAttachedOlderHomeIsNeverEndedEvenAfterLaunchWarming() async throws {
+        let (base, _, old) = try homes()
+        defer { try? FileManager.default.removeItem(at: base.deletingLastPathComponent()) }
+        let warm = ChiefSubagentWarmHost()
+        let directory = ChiefHomeDirectory(parents: [base], work: BackgroundWork(), environment: { _ in nil }) { _, _ in warm }
+        let pane = ChiefHomeSessionHost(host: ChiefHomeAcpmux.host(muxHome: old), homes: directory, fallback: ChiefSubagentNamedHost(name: "app"))
+        try await pane.warm(sessionIds: [kept])
+        let alias = base.appendingPathComponent("attached-home")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: old.appendingPathComponent("acpmux"))
+        let results = await directory.endLaunchSessions(waitForShutdown: false, excludingAttachedHome: alias,
+                                                        end: { _, _ in await warm.endAgents() })
+        #expect(results.isEmpty)
+        #expect(await warm.ends == 0)
+    }
+
     /// A Chief home whose brain host runs (another build that is open) owns its acpmux: a tab of
     /// that home only attaches to it, never starts it (cx-ebm.54). That is read at each handshake:
     /// a build that opens after the first lookup, or quits, changes it.
