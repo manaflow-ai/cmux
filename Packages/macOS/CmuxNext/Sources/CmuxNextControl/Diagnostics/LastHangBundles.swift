@@ -283,9 +283,9 @@ public final class LastHangBundles: Sendable {
 
     /// Whether `name` is a ``captureNow(_:)`` bundle's (``nowBundleName(_:)``).
     static func isNowBundleName(_ name: String) -> Bool {
-        let bytes = Array(name.utf8)
-        guard bytes.count > nowStampDigits + 1, bytes[nowStampDigits] == UInt8(ascii: "-") else { return false }
-        return bytes[..<nowStampDigits].allSatisfy { (UInt8(ascii: "0") ... UInt8(ascii: "9")).contains($0) }
+        let stamp = name.utf8.prefix(nowStampDigits), rest = name.utf8.dropFirst(nowStampDigits)
+        return stamp.count == nowStampDigits && stamp.allSatisfy { (UInt8(ascii: "0") ... UInt8(ascii: "9")).contains($0) }
+            && rest.first == UInt8(ascii: "-") && rest.count > 1
     }
 
     private static let nowStampDigits = 16

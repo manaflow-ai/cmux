@@ -44,7 +44,8 @@ extension MainThreadWatchdog {
         guard let trace else { return }
         var tid: UInt64 = 0
         guard pthread_threadid_np(pthread_main_thread_np(), &tid) == 0, tid != 0 else { return }
-        trace.event(.hangThreadHung, arg0: tid, arg1: UInt64(LastHangCause.milliseconds(max(elapsed, .zero))))
+        let (seconds, attoseconds) = elapsed.components
+        trace.event(.hangThreadHung, arg0: tid, arg1: UInt64(clamping: seconds &* 1_000 &+ attoseconds / 1_000_000_000_000_000))
     }
 
     /// A stall just crossed the hang threshold (once per stall): samples the main thread and
