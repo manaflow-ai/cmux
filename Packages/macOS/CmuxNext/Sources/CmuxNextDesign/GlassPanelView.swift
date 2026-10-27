@@ -239,13 +239,14 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
 /// the close button of an inactive window). The scope finds that read by watching, and forces
 /// nothing while it watches:
 ///
-/// 1. Calibration, only while AppKit answers true (the window is active, so nothing is forced):
-///    each read inside a glass update for its own window, made by AppKit code with a SwiftUI frame
-///    above it in the same call, is recorded with its site (the return address in the reader) and
-///    its caller. When the outermost update ends, a caller with exactly two sites that is the only
+/// 1. Calibration, which never forces anything (every read keeps AppKit's answer): each read
+///    inside a glass update for its own window, made by AppKit code with a SwiftUI frame above it
+///    in the same call, is recorded with its site (the return address in the reader) and its
+///    caller. When the outermost update ends, a caller with exactly two sites that is the only
 ///    caller with reads is a candidate pair. The same pair from ``confirmations`` updates in a row
 ///    fixes the material site: the lower of the two, the earlier in code. Any other outcome
-///    resets the count.
+///    resets the count. The glass's first layout, as its window comes on screen, is such an
+///    update, so a new window is calibrated before it can lose focus.
 /// 2. After that, a read is forced only when its site is exactly that instruction, its stack has
 ///    a SwiftUI frame, and its window is the updating one. Every other read, and every read off the
 ///    main thread, keeps AppKit's answer. Until calibration ends the glass follows the key state.
@@ -257,8 +258,11 @@ enum ActiveLookScope {
         let caller: UInt
     }
 
-    /// Updates in a row that must agree on the pair before its material site is used.
-    static let confirmations = 2
+    /// Updates in a row that must agree on the pair before its material site is used. One: a
+    /// window loses focus after its first layout as often as not (the fleet probe calibrated only
+    /// at its first app switch with two), and the pair's shape (one AppKit caller, exactly two
+    /// sites, under a SwiftUI update in the glass's own subtree) is the check.
+    static let confirmations = 1
 
     /// The windows of the glass updates under way, innermost last.
     private static var windows: [ObjectIdentifier] = []
@@ -310,7 +314,7 @@ enum ActiveLookScope {
 
     private static func finishCalibration() {
         defer { pending.removeAll() }
-        // An update with no calibration reads (an inactive window, or no graph update) says nothing.
+        // An update with no calibration reads (no graph update) says nothing.
         guard !pending.isEmpty else { return }
         materialSite = confirm(pair(in: pending), candidate: &candidate)
     }
@@ -337,8 +341,8 @@ enum ActiveLookScope {
     }
 
     private static func decide(_ window: NSWindow, answer: Bool) -> Bool {
-        // Outside a glass update for this window, or nothing to learn or force: AppKit's answer.
-        guard windows.last == ObjectIdentifier(window), answer == (materialSite == nil) else { return answer }
+        // Outside a glass update for this window, or a key window once calibrated: AppKit's answer.
+        guard windows.last == ObjectIdentifier(window), materialSite == nil || !answer else { return answer }
         var frames = [UnsafeMutableRawPointer?](repeating: nil, count: depth)
         let count = Int(frames.withUnsafeMutableBufferPointer { backtrace($0.baseAddress, Int32(depth)) })
         guard let reader = (0..<count).first(where: { image(of: frames[$0]) != ownImage }), reader + 1 < count,

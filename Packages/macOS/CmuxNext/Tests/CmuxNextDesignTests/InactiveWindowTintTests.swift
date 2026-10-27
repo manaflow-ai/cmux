@@ -43,17 +43,20 @@ import CmuxNextDesignTokens
         #expect(ActiveLookScope.pair(in: [Read(site: 1584, caller: 7)]) == nil)
     }
 
-    /// The material site is used only after `confirmations` updates in a row agree on the pair;
-    /// a disagreeing update starts the count again. Calibration reads only happen while AppKit
-    /// answers true, so nothing is forced before the site is fixed.
+    /// The material site is used once `confirmations` updates in a row agree on the pair (one: the
+    /// glass's first layout); an update showing no pair starts the count again. Calibration
+    /// reads keep AppKit's answer, so nothing is forced before the site is fixed.
     @Test func theMaterialSiteNeedsAgreeingUpdates() {
         var candidate: (pair: [UInt], count: Int)?
-        #expect(ActiveLookScope.confirm([1584, 1860], candidate: &candidate) == nil)
-        #expect(ActiveLookScope.confirm(nil, candidate: &candidate) == nil, "a disagreeing update resets")
-        #expect(ActiveLookScope.confirm([1584, 1860], candidate: &candidate) == nil)
-        #expect(ActiveLookScope.confirm([10, 20], candidate: &candidate) == nil, "another pair resets")
-        #expect(ActiveLookScope.confirm([1584, 1860], candidate: &candidate) == nil)
+        #expect(ActiveLookScope.confirm(nil, candidate: &candidate) == nil)
+        #expect(candidate == nil, "an update with no pair resets")
+        #expect(ActiveLookScope.confirm([1584, 1860], candidate: &candidate) == (ActiveLookScope.confirmations == 1 ? 1584 : nil))
+        for _ in 1..<max(ActiveLookScope.confirmations, 2) {
+            _ = ActiveLookScope.confirm([1584, 1860], candidate: &candidate)
+        }
         #expect(ActiveLookScope.confirm([1584, 1860], candidate: &candidate) == 1584, "the lower site: the material read")
+        #expect(ActiveLookScope.confirm([10, 20], candidate: &candidate) == (ActiveLookScope.confirmations == 1 ? 10 : nil),
+                "another pair starts its own count")
     }
 
     /// Only the window whose backdrop glass is updating is in scope, the innermost when updates
