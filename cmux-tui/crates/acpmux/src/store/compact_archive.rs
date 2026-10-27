@@ -48,15 +48,8 @@ mod unix {
 
     /// `name` in `parent`, a folder of this user's that no one else may write, never a link.
     fn own_dir_at(parent: &File, name: &CString, path: &Path) -> Result<File> {
-        let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
-        // SAFETY: a valid descriptor and a NUL-terminated name.
-        let fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), flags) };
-        if fd < 0 {
-            return Err(std::io::Error::last_os_error())
-                .with_context(|| format!("open archive folder {}", path.display()));
-        }
-        // SAFETY: `openat` just returned this descriptor, owned by nothing else.
-        let dir = File::from(unsafe { OwnedFd::from_raw_fd(fd) });
+        let dir = open_at(parent, name)
+            .with_context(|| format!("open archive folder {}", path.display()))?;
         let meta = dir.metadata()?;
         // SAFETY: getuid has no preconditions.
         let uid = unsafe { libc::getuid() };
