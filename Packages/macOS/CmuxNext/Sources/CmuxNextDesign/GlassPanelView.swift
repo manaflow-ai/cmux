@@ -345,46 +345,35 @@ enum ActiveLookScope {
         guard windows.last == ObjectIdentifier(window), materialSite == nil || !answer else { return answer }
         var frames = [UnsafeMutableRawPointer?](repeating: nil, count: depth)
         let count = Int(frames.withUnsafeMutableBufferPointer { backtrace($0.baseAddress, Int32(depth)) })
-        guard let reader = (0..<count).first(where: { image(of: frames[$0]) != ownImage }), reader + 1 < count,
-              image(of: frames[reader]) == appKitImage,
-              frames[(reader + 1)..<count].contains(where: { isSwiftUI(image(of: $0)) }),
+        // The reader: the first AppKit frame (below it only this getter and its Swift thunks).
+        guard let reader = (0..<count).first(where: { kind(of: frames[$0]) == .appKit }), reader + 1 < count,
+              frames[(reader + 1)..<count].contains(where: { kind(of: $0) == .swiftUI }),
               let site = frames[reader].map({ UInt(bitPattern: $0) }) else { return answer }
         if let materialSite { return site == materialSite }
         if let caller = frames[reader + 1].map({ UInt(bitPattern: $0) }) { pending.append(Read(site: site, caller: caller)) }
         return answer
     }
 
-    private static let ownImage: UnsafeMutableRawPointer? = {
+    /// What a frame's image is: AppKit, SwiftUI (or SwiftUICore), or anything else.
+    enum ImageKind { case appKit, swiftUI, other }
+
+    /// The kind of each return address seen: code never moves while its image is loaded.
+    private static var kinds: [UnsafeMutableRawPointer: ImageKind] = [:]
+
+    private static func kind(of frame: UnsafeMutableRawPointer?) -> ImageKind {
+        guard let frame else { return .other }
+        if let known = kinds[frame] { return known }
         var info = Dl_info()
-        return dladdr(#dsohandle, &info) != 0 ? info.dli_fbase : nil
-    }()
-
-    private static let appKitImage: UnsafeMutableRawPointer? = {
-        var info = Dl_info()
-        let layout = class_getMethodImplementation(NSView.self, #selector(NSView.layout))
-        return dladdr(unsafeBitCast(layout, to: UnsafeRawPointer.self), &info) != 0 ? info.dli_fbase : nil
-    }()
-
-    /// Whether each loaded image is SwiftUI's: images never move while loaded.
-    private static var swiftUIImages: [UnsafeMutableRawPointer: Bool] = [:]
-
-    /// The image of each return address seen: code never moves while its image is loaded.
-    private static var imageByAddress: [UnsafeMutableRawPointer: UnsafeMutableRawPointer] = [:]
-
-    private static func image(of frame: UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer? {
-        guard let frame else { return nil }
-        if let known = imageByAddress[frame] { return known }
-        var info = Dl_info()
-        guard dladdr(frame, &info) != 0, let base = info.dli_fbase else { return nil }
-        imageByAddress[frame] = base
-        if swiftUIImages[base] == nil {
-            let name = info.dli_fname.map { String(cString: $0) } ?? ""
-            swiftUIImages[base] = name.hasSuffix("/SwiftUICore") || name.hasSuffix("/SwiftUI")
-        }
-        return base
+        let path = dladdr(frame, &info) != 0 ? info.dli_fname.map { String(cString: $0) } ?? "" : ""
+        let kind = imageKind(path: path)
+        kinds[frame] = kind
+        return kind
     }
 
-    private static func isSwiftUI(_ base: UnsafeMutableRawPointer?) -> Bool {
-        base.flatMap { swiftUIImages[$0] } ?? false
+    /// The kind of the image at `path` (tests read it).
+    static func imageKind(path: String) -> ImageKind {
+        if path.hasSuffix("/AppKit.framework/Versions/C/AppKit") || path.hasSuffix("/AppKit.framework/AppKit") { return .appKit }
+        if path.hasSuffix("/SwiftUICore") || path.hasSuffix("/SwiftUI") { return .swiftUI }
+        return .other
     }
 }

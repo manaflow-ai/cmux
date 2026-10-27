@@ -43,20 +43,25 @@ import CmuxNextDesignTokens
         #expect(ActiveLookScope.pair(in: [Read(site: 1584, caller: 7)]) == nil)
     }
 
-    /// The material site is used once `confirmations` updates in a row agree on the pair (one: the
-    /// glass's first layout); an update showing no pair starts the count again. Calibration
-    /// reads keep AppKit's answer, so nothing is forced before the site is fixed.
-    @Test func theMaterialSiteNeedsAgreeingUpdates() {
+    /// The first update with the pair fixes the material site (a new window can lose focus right
+    /// after its first layout: the fleet probe drew the frost there with two confirmations); an
+    /// update showing no pair resets. Calibration reads keep AppKit's answer, so nothing is forced
+    /// before the site is fixed.
+    @Test func theFirstUpdateWithThePairFixesTheMaterialSite() {
         var candidate: (pair: [UInt], count: Int)?
         #expect(ActiveLookScope.confirm(nil, candidate: &candidate) == nil)
         #expect(candidate == nil, "an update with no pair resets")
-        #expect(ActiveLookScope.confirm([1584, 1860], candidate: &candidate) == (ActiveLookScope.confirmations == 1 ? 1584 : nil))
-        for _ in 1..<max(ActiveLookScope.confirmations, 2) {
-            _ = ActiveLookScope.confirm([1584, 1860], candidate: &candidate)
-        }
         #expect(ActiveLookScope.confirm([1584, 1860], candidate: &candidate) == 1584, "the lower site: the material read")
-        #expect(ActiveLookScope.confirm([10, 20], candidate: &candidate) == (ActiveLookScope.confirmations == 1 ? 10 : nil),
-                "another pair starts its own count")
+    }
+
+    /// The reader is the first AppKit frame and the graph is found by its SwiftUI frames, by the
+    /// images' paths (a swizzled AppKit method can live in another image).
+    @Test func framesAreClassifiedByTheirImagePath() {
+        #expect(ActiveLookScope.imageKind(path: "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit") == .appKit)
+        #expect(ActiveLookScope.imageKind(path: "/System/Library/Frameworks/SwiftUICore.framework/Versions/A/SwiftUICore") == .swiftUI)
+        #expect(ActiveLookScope.imageKind(path: "/System/Library/Frameworks/SwiftUI.framework/Versions/A/SwiftUI") == .swiftUI)
+        #expect(ActiveLookScope.imageKind(path: "/Applications/cmux.app/Contents/MacOS/cmux") == .other)
+        #expect(ActiveLookScope.imageKind(path: "") == .other)
     }
 
     /// Only the window whose backdrop glass is updating is in scope, the innermost when updates
