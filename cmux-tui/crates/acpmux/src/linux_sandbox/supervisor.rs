@@ -544,10 +544,77 @@ fn emulate(fd: RawFd, request: &seccomp_notif, policy: &WritePolicy, stop: RawFd
     delivery
 }
 
-/// E1b owns the notification loop. E1a keeps the resolver callable and
-/// uncalled so this boundary can land independently.
-pub(crate) fn run(_notify_fd: OwnedFd, _policy: WritePolicy, _stop: OwnedFd) -> io::Result<()> {
-    Err(io::Error::other("user-notify supervisor not implemented"))
+/// Dedicated thread and sole listener receiver: unshares CLONE_FS before
+/// clearing its own umask.
+/// Stops on listener POLLHUP (all filtered processes exited), readable stop
+/// eventfd, or a fatal I/O error. Every checked operation is emulated; response
+/// flags are always zero, never CONTINUE. Policy/internal failures use EACCES.
+/// Dropping the last listener (including acpmux death) fails pending and later
+/// notified syscalls with ENOSYS: fail closed. All inner loops consume bounded
+/// paths/collections; poll/RECV retries end on stop, HUP, or fatal I/O error.
+pub(crate) fn run(notify_fd: OwnedFd, policy: WritePolicy, stop: OwnedFd) -> io::Result<()> {
+    checked(unsafe { unshare(CLONE_FS) }).map_err(io::Error::from_raw_os_error)?;
+    unsafe {
+        umask(0);
+    }
+    let lock = locking::open(&policy).map_err(io::Error::from_raw_os_error)?;
+    let mut sizes: seccomp_notif_sizes = unsafe { std::mem::zeroed() };
+    checked(unsafe { syscall(SYS_seccomp, SECCOMP_GET_NOTIF_SIZES, 0, &mut sizes) } as i32)
+        .map_err(io::Error::from_raw_os_error)?;
+    if (sizes.seccomp_notif as usize) < size_of::<seccomp_notif>()
+        || (sizes.seccomp_notif_resp as usize) < size_of::<seccomp_notif_resp>()
+        || (sizes.seccomp_data as usize) < size_of::<seccomp_data>()
+    {
+        return Err(io::Error::from_raw_os_error(EACCES));
+    }
+    let mut receive = vec![0u64; (sizes.seccomp_notif as usize).div_ceil(8)];
+    let mut response = vec![0u64; (sizes.seccomp_notif_resp as usize).div_ceil(8)];
+    let fd = notify_fd.as_raw_fd();
+    let mut polls = [
+        pollfd { fd, events: POLLIN, revents: 0 },
+        pollfd { fd: stop.as_raw_fd(), events: POLLIN, revents: 0 },
+    ];
+    loop {
+        if unsafe { poll(polls.as_mut_ptr(), 2, -1) } < 0 {
+            if error() == EINTR {
+                continue;
+            }
+            return Err(io::Error::last_os_error());
+        }
+        if polls[0].revents & POLLHUP != 0 || polls[1].revents & POLLIN != 0 {
+            return Ok(());
+        }
+        if polls.iter().any(|p| p.revents & (POLLERR | POLLNVAL | POLLHUP) != 0) {
+            return Err(io::Error::from_raw_os_error(EACCES));
+        }
+        if polls[0].revents & POLLIN == 0 {
+            continue;
+        }
+        receive.fill(0);
+        if unsafe { ioctl(fd, SECCOMP_IOCTL_NOTIF_RECV, receive.as_mut_ptr()) } < 0 {
+            if matches!(error(), EINTR | ENOENT | EAGAIN) {
+                continue;
+            }
+            return Err(io::Error::last_os_error());
+        }
+        let request = unsafe { receive.as_ptr().cast::<seccomp_notif>().read() };
+        let _transaction = match locking::acquire(&lock, stop.as_raw_fd(), fd) {
+            Ok(guard) => guard,
+            Err(ECANCELED) => return Ok(()),
+            Err(errno) => return Err(io::Error::from_raw_os_error(errno)),
+        };
+        if let Err(errno) = emulate(fd, &request, &policy, stop.as_raw_fd()) {
+            let reply = seccomp_notif_resp { id: request.id, val: 0, error: -errno, flags: 0 };
+            unsafe {
+                response.as_mut_ptr().cast::<seccomp_notif_resp>().write(reply);
+            }
+            if unsafe { ioctl(fd, SECCOMP_IOCTL_NOTIF_SEND, response.as_ptr()) } < 0
+                && error() != ENOENT
+            {
+                return Err(io::Error::last_os_error());
+            }
+        }
+    }
 }
 
 /// Resolver regression loops terminate at the end of their fixed input tables.
