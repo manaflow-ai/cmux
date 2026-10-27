@@ -71,6 +71,20 @@ impl CloudConversations {
         )?)
     }
 
+    /// Completes a Worker-side multipart original after all bounded pieces landed.
+    pub fn attachment_multipart_complete(
+        &self,
+        conversation: &str,
+        slot: &str,
+        parts: &Value,
+    ) -> Result<Value, CloudError> {
+        require_conversation(conversation)?;
+        route_value(self.post(
+            "/v1/home/attachments/multipart/complete",
+            &json!({"conversation": conversation, "slot": slot, "parts": parts}),
+        )?)
+    }
+
     /// `POST /v1/home/attachments/url`: a signed GET URL of one variant, on the lease's origin.
     pub fn attachment_url(
         &self,

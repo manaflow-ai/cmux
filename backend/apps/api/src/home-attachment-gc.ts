@@ -57,7 +57,15 @@ const expireSlots = async (deps: AttachmentGcDeps, now: number): Promise<void> =
   for (;;) {
     const due = store.dueSlots(deps.sql, now, 100)
     if (due.length === 0) return
-    if (deps.env.HOME_ATTACHMENTS) await deps.env.HOME_ATTACHMENTS.delete(due.flatMap(store.slotKeys))
+    if (deps.env.HOME_ATTACHMENTS) {
+      const keys = due.flatMap(store.slotKeys)
+      for (const slot of due) {
+        if (slot.mode !== "multipart") continue
+        const parts = await deps.env.HOME_ATTACHMENTS.list({ prefix: store.multipartPartPrefix(slot.object_key) })
+        keys.push(...parts.objects.map((part) => part.key))
+      }
+      if (keys.length) await deps.env.HOME_ATTACHMENTS.delete(keys)
+    }
     for (const slot of due) {
       if (slot.state !== "tombstone") await deps.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
       store.removeSlot(deps.sql, slot.id)

@@ -47,6 +47,29 @@ describe("Home attachments: upload intent", { timeout: 60_000 }, () => {
 })
 
 describe("Home attachments: upload and dedupe", { timeout: 60_000 }, () => {
+  it("streams an original larger than one Worker request as ordered multipart pieces", async () => {
+    const alice = await signIn("att-multipart-alice")
+    const { id } = await group(alice)
+    const body = new Uint8Array(32 * 1024 * 1024 + 17)
+    for (let i = 0; i < body.length; i++) body[i] = i % 251
+    const r = await intent(alice, id, body)
+    expect(r.json.value).toMatchObject({ state: "upload", mode: "multipart", method: "PUT" })
+    const partSize = r.json.value.part_size as number
+    const parts: Array<{ part_number: number; byte_count: number; etag?: string }> = []
+    for (let start = 0, part = 1; start < body.length; start += partSize, part++) {
+      const piece = body.subarray(start, Math.min(body.length, start + partSize))
+      const reply = await worker.fetch(r.json.value.upload_url, { method: "PUT", body: piece, headers: { "content-length": String(piece.byteLength), "x-cmux-part-number": String(part) } })
+      expect(reply.status).toBe(200)
+      const value = ((await reply.json()) as any).value
+      parts.push({ part_number: part, byte_count: piece.byteLength, etag: value.etag })
+    }
+    const done = await post("/v1/home/attachments/multipart/complete", alice.token, { conversation: id, slot: r.json.value.slot, parts })
+    expect(done.status).toBe(200)
+    expect(done.json.value.state).toBe("stored")
+    const fetched = await worker.fetch((await urlFor(alice, id, sha(body))).json.value.url)
+    expect(new Uint8Array(await fetched.arrayBuffer())).toEqual(body)
+  })
+
   it("bytes whose SHA-256 differs from the declared hash are refused and not kept", async () => {
     const alice = await signIn("att-hash-alice")
     const { id } = await group(alice)

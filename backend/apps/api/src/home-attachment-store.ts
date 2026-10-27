@@ -10,7 +10,7 @@ import type { SqlStore } from "@cmux/ownership"
  *   The `poster*` columns hold the attachment's derived image, a video's poster or an image's
  *   preview (home-core `derivedVariantOf` picks the variant by type); the names predate previews.
  * - `home_attachment_slots`: upload slots made at intent time. States: `open` (issued),
- *   `uploading` (its one PUT or commit started), `tombstone` (a presigned slot that ended without
+ *   `uploading` (its PUT, multipart completion or commit started), `tombstone` (a remote slot that ended without
  *   keeping its object: its URL may still be used until it expires). A slot row lives until the
  *   alarm deletes its object key at expiry (refunding the bytes of a slot that never committed),
  *   so no upload outside a record survives.
@@ -33,7 +33,7 @@ export interface UploadSlot {
   readonly quota_user: string
   readonly object_id: string
   readonly object_key: string
-  readonly mode: "stream" | "presigned"
+  readonly mode: "stream" | "presigned" | "multipart"
   readonly expires_at: number
   readonly state?: "open" | "uploading" | "tombstone"
   /** The declared poster (video) or preview (image): uploaded once through the Worker (`open` -> `uploading` -> `stored`) before the attachment commits. */
@@ -44,9 +44,9 @@ export interface UploadSlot {
 
 /**
  * How long after its expiry a slot that may still receive bytes is kept: an `uploading` slot (its
- * Worker PUT may still be streaming) and every presigned slot, open or tombstone (S3 checks the
+ * Worker PUT may still be streaming) and every remote slot, open or tombstone (S3 checks the
  * URL's expiry only when a request starts, so a PUT that began in time may finish later). One
- * hour covers a maximum-size (100 MB) PUT down to about 230 kbit/s; the alarm deletes the key,
+ * hour covers a bounded multipart piece down to about 230 kbit/s; the alarm deletes the key,
  * refunds and drops the row only after it, so a late PUT never leaves an object outside the quota.
  */
 export const UPLOADING_GRACE_MS = 3_600_000
@@ -113,6 +113,8 @@ const toRecord = (r: Row): Record => {
 const keysOf = (objectKey: string, variant: conversation.DerivedVariant | undefined): Array<string> => (variant ? [objectKey, conversation.attachmentDerivedKey(objectKey, variant)] : [objectKey])
 /** Every R2 key a slot may have written: its object and its derived image. */
 export const slotKeys = (slot: Pick<UploadSlot, "object_key" | "mime_type">): Array<string> => keysOf(slot.object_key, conversation.derivedVariantOf(slot.mime_type))
+/** Temporary objects used by the worker-side multipart transport. */
+export const multipartPartPrefix = (objectKey: string): string => `${objectKey}.part.`
 /** Every R2 key of a record. */
 export const recordKeys = (r: Record): Array<string> => keysOf(r.object_key, conversation.recordedImageOf(r)?.variant)
 
@@ -214,13 +216,13 @@ export const settleDerived = (sql: Sql, id: string, etag: string | null): void =
  * URL expires, so the alarm deletes anything PUT to the key later.
  */
 export const settleSlot = (sql: Sql, slot: UploadSlot, kept: boolean): void => {
-  if (kept || slot.mode === "stream") sql.exec(`DELETE FROM ${SLOTS} WHERE id = ?`, slot.id)
+  if (kept || slot.mode === "stream" || slot.mode === "multipart") sql.exec(`DELETE FROM ${SLOTS} WHERE id = ?`, slot.id)
   else sql.exec(`UPDATE ${SLOTS} SET state = 'tombstone' WHERE id = ?`, slot.id)
 }
 
-const DUE = `CASE WHEN state = 'uploading' OR mode = 'presigned' THEN expires_at + ${UPLOADING_GRACE_MS} ELSE expires_at END`
+const DUE = `CASE WHEN state = 'uploading' OR mode IN ('presigned', 'multipart') THEN expires_at + ${UPLOADING_GRACE_MS} ELSE expires_at END`
 
-/** Slots whose time is up: open stream slots at expiry; uploading and presigned slots (open or tombstone) after the grace. */
+/** Slots whose time is up: open stream slots at expiry; uploading and remote slots (open or tombstone) after the grace. */
 export const dueSlots = (sql: Sql, now: number, limit: number): Array<UploadSlot> =>
   has(sql, SLOTS) ? sql.exec<SlotRow>(`SELECT * FROM ${SLOTS} WHERE ${DUE} <= ? ORDER BY ${DUE} LIMIT ?`, now, limit).map(slotRow) : []
 

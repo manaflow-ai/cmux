@@ -7,6 +7,38 @@ import { createHash } from "node:crypto"
  */
 export type StreamResult = { readonly ok: true; readonly etag: string | undefined } | { readonly ok: false; readonly code: "attachment.size_mismatch" | "attachment.hash_mismatch" }
 
+export type PartResult = { readonly ok: true; readonly etag: string | undefined; readonly size: number } | { readonly ok: false; readonly code: "attachment.size_mismatch" }
+
+/** Store one bounded multipart piece without buffering it in the Worker. */
+export const streamPartInto = async (bucket: R2Bucket, key: string, request: Request, maxBytes: number, contentType: string): Promise<PartResult> => {
+  const declared = request.headers.get("content-length")
+  const length = declared === null ? null : Number(declared)
+  if (!request.body || length === null || !Number.isSafeInteger(length) || length <= 0 || length > maxBytes) return { ok: false, code: "attachment.size_mismatch" }
+  let count = 0
+  const meter = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, ctl) {
+      count += chunk.byteLength
+      if (count > length) return ctl.error(new Error("body longer than declared"))
+      ctl.enqueue(chunk)
+    }
+  })
+  const fixed = new FixedLengthStream(length)
+  const piped = request.body.pipeThrough(meter).pipeTo(fixed.writable).catch(() => undefined)
+  let etag: string | undefined
+  try {
+    etag = (await bucket.put(key, fixed.readable, { httpMetadata: { contentType } }))?.etag
+    await piped
+  } catch {
+    await bucket.delete(key)
+    return { ok: false, code: "attachment.size_mismatch" }
+  }
+  if (count !== length) {
+    await bucket.delete(key)
+    return { ok: false, code: "attachment.size_mismatch" }
+  }
+  return { ok: true, etag, size: count }
+}
+
 export const streamInto = async (bucket: R2Bucket, key: string, request: Request, byteCount: number, sha256: string, contentType: string): Promise<StreamResult> => {
   const declared = request.headers.get("content-length")
   if (!request.body || (declared !== null && Number(declared) !== byteCount)) return { ok: false, code: "attachment.size_mismatch" }

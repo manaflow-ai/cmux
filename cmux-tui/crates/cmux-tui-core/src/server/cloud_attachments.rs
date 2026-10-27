@@ -6,7 +6,7 @@
 //!   slot with the lease (the same declaration and rules); a hash the
 //!   conversation already holds answers `stored` at once. `chunk` collects
 //!   the bytes here; `commit` checks them, sends the poster or preview first,
-//!   then the file (through the Worker, or a presigned PUT and the commit),
+//!   then the file (through the Worker, multipart pieces, or a presigned PUT),
 //!   and answers the owner's record.
 //! - `cloud-attachment-read`: bytes of a variant through a signed URL the
 //!   owner mints (kept for reuse, minted again when it stops answering).
@@ -261,18 +261,37 @@ fn send_upload(service: &CloudConversations, upload: CloudUpload) -> anyhow::Res
         .field("upload_url")
         .as_str()
         .ok_or_else(|| CloudError::Unavailable("no upload slot".into()))?;
+    let multipart = plan.field("mode") == "multipart";
     let presigned = plan.field("mode") == "presigned";
     // A Worker slot is on the lease's origin; only a presigned object URL may be elsewhere.
-    let answer =
-        service.attachment_put(url, &plan_headers(plan.field("headers")), bytes, !presigned)?;
-    let committed = if presigned {
+    let committed = if multipart {
+        let mut parts = Vec::new();
+        for (part_number, chunk) in bytes.chunks(MAX_CHUNK_BYTES).enumerate() {
+            let mut headers = plan_headers(plan.field("headers"));
+            headers.push(("x-cmux-part-number".into(), (part_number + 1).to_string()));
+            headers.push(("content-length".into(), chunk.len().to_string()));
+            let value = service.attachment_put(url, &headers, chunk.to_vec(), true)?;
+            let number = value["part_number"].as_u64().ok_or_else(|| CloudError::Unavailable("multipart reply without part number".into()))?;
+            let size = value["byte_count"].as_u64().ok_or_else(|| CloudError::Unavailable("multipart reply without byte count".into()))?;
+            anyhow::ensure!(number == part_number as u64 + 1 && size == chunk.len() as u64, "multipart reply did not echo the uploaded part");
+            parts.push(json!({ "part_number": number, "byte_count": size, "etag": value["etag"].clone() }));
+        }
+        let slot = plan
+            .field("slot")
+            .as_str()
+            .ok_or_else(|| CloudError::Unavailable("a multipart slot without its id".into()))?;
+        service.attachment_multipart_complete(&conversation, slot, &Value::Array(parts))?
+    } else {
+        let answer = service.attachment_put(url, &plan_headers(plan.field("headers")), bytes, !presigned)?;
+        if presigned {
         let slot = plan
             .field("slot")
             .as_str()
             .ok_or_else(|| CloudError::Unavailable("a presigned slot without its id".into()))?;
-        service.attachment_commit(&conversation, slot)?
-    } else {
-        answer
+            service.attachment_commit(&conversation, slot)?
+        } else {
+            answer
+        }
     };
     // The owner's record (the first upload of a hash wins its derived image).
     Ok(match committed.get("attachment") {

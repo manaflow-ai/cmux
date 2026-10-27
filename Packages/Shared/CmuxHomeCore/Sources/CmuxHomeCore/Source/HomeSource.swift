@@ -118,8 +118,7 @@ public protocol HomeSource: Sendable {
     /// the conversation's blob storage under `file.ref.hash`. Idempotent by
     /// hash: a blob the conversation already holds succeeds without sending
     /// the bytes again. Files over `HomeAttachmentPolicy.streamMaxBytes` use
-    /// the owner's presigned PUT and its commit call before returning; a 412
-    /// on a retried presigned PUT means the first attempt landed, so commit.
+    /// bounded multipart pieces and a final commit before returning.
     /// A video with `ref.poster` declares it in the intent and PUTs the poster
     /// to the answer's `poster_upload` before the video's PUT or commit (the
     /// owner answers 409 `attachment.poster_missing` until then). An image
