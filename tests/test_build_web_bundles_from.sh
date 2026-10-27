@@ -65,6 +65,17 @@ for path in "$PANE" "$PAGES" "$ACTIVITY"; do
   [ ! -e "$REPO/$path/stale.js" ] || { echo "FAIL: --from must drop build output the prebuilt tree does not hold ($path/stale.js)"; exit 1; }
 done
 
+# Exercise the nightly producer and the real installer together: a handoff must
+# include every file --from needs, including the checked-in inspector page.
+mkdir -p "$REPO/scripts/ci"
+cp "$ROOT/scripts/ci/nightly_linux_inputs.py" "$REPO/scripts/ci/"
+git -C "$REPO" add scripts "$INSPECTOR/index.html"
+git -C "$REPO" -c core.hooksPath=/dev/null -c user.name=Test -c user.email=test@example.invalid commit -qm fixture
+key="$(python3 "$REPO/scripts/cmux-next/web-bundle-key.py" "$REPO" --source)"
+python3 "$REPO/scripts/ci/nightly_linux_inputs.py" pack-web "$WORK/handoff" --source-key "$key"
+python3 "$REPO/scripts/ci/nightly_linux_inputs.py" install-web "$WORK/handoff"
+"$SCRIPT" --verify
+
 # A committed inspector page that differs from the one generated for this source key is stale:
 # an in-tree build refuses it (build-optchat-inspector-web.sh --check), and so must --from.
 cp -R "$WORK/out" "$WORK/stale"
