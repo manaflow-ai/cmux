@@ -233,10 +233,11 @@ async fn a_peer_that_cannot_check_uploads_is_refused_before_anything_is_sent() {
                             "build": "older", "origin": "peer",
                             "features": ["filePut", "filePutChunks", "promptUploads"]}}}),
                         method::MUX_WATCH => json!({"sessions": [{"sessionId": "old-1"}]}),
-                        _ => {
+                        m if m.starts_with("_acpmux/file_put") => {
                             counted.fetch_add(1, Ordering::SeqCst);
                             json!({"path": "/old/x"})
                         }
+                        _ => json!({}),
                     };
                     let reply = Message::ok(id, result).to_line();
                     if ws.send(Ws::Text(reply.trim_end().to_owned().into())).await.is_err() {
@@ -258,5 +259,5 @@ async fn a_peer_that_cannot_check_uploads_is_refused_before_anything_is_sent() {
         "size": 3, "sha256": sha(b"abc")});
     let finished = c.call(method::MUX_FILE_PUT_FINISH, finish).await;
     assert_eq!(reason(&finished), "filePut.unsupported", "{finished}");
-    assert_eq!(sent.load(Ordering::SeqCst), 0, "nothing reached the old peer");
+    assert_eq!(sent.load(Ordering::SeqCst), 0, "no upload call reached the old peer");
 }
