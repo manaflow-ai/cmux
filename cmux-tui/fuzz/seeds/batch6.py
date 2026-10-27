@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
-"""Writes the seed corpora of the batch 6 byte-layout fuzz targets
-(p10-stability-181): the app host script session in cmux-tui/fuzz, the
-mobile host's frame decoders in cmux-next-ios/rust/fuzz and the OptChat
-Chief's request and transcript parsers in Native/OptChat/fuzz.
+"""Writes the seed corpora of the batch 6 fuzz targets (p10-stability-181):
+the browser host's CDP evaluate and gate fetch and the app host script
+session in cmux-tui/fuzz, the mobile host's frame decoders in
+cmux-next-ios/rust/fuzz and the OptChat Chief's request and transcript
+parsers in Native/OptChat/fuzz.
 
 Run from anywhere: python3 cmux-tui/fuzz/seeds/batch6.py
 Seeds go to <fuzz dir>/corpus/<target>/seed-NN. Each seed follows its
 target's input layout (see the doc comment of fuzz_targets/<target>.rs).
 The two browser host targets take structured (`arbitrary`) input; their
-seeds are a minimized corpus of a short run, not written here.
+seeds are `Input` values encoded by browser_host.py.
 """
 
 import json
 import pathlib
 import shutil
 import struct
+
+from browser_host import browser_host_cdp_evaluate, browser_host_gate_fetch
 
 REPO = pathlib.Path(__file__).resolve().parents[3]
 TUI_FUZZ = REPO / "cmux-tui/fuzz"
@@ -259,6 +262,8 @@ def optchat_chief_turn_stream():
 
 
 def main():
+    write(TUI_FUZZ, "browser_host_cdp_evaluate", browser_host_cdp_evaluate())
+    write(TUI_FUZZ, "browser_host_gate_fetch", browser_host_gate_fetch())
     write(TUI_FUZZ, "app_host_script_session", app_host_script_session())
     write(MOBILE_FUZZ, "mobile_host_phone_stream", mobile_host_phone_stream())
     write(MOBILE_FUZZ, "mobile_host_source_frames", mobile_host_source_frames())
