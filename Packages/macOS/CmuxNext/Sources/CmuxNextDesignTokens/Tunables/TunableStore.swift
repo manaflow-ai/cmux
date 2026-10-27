@@ -45,6 +45,8 @@ public nonisolated final class TunableStore: Observable, Sendable {
     private let active = Atomic<Bool>(false)
     private let state = Mutex(State())
     private let writer = Mutex<TunableFileWriter?>(nil)
+    /// The override file `activate` read (nil without one).
+    private let file = Mutex<URL?>(nil)
 
     public init() {}
 
@@ -98,6 +100,7 @@ public nonisolated final class TunableStore: Observable, Sendable {
     public func activate(file: URL?) {
         active.store(true, ordering: .relaxed)
         guard let file else { return }
+        self.file.withLock { $0 = file }
         writer.withLock { $0 = TunableFileWriter(url: file) }
         state.withLock { $0.loading = true }
         Task.detached(priority: .userInitiated) { [weak self] in
@@ -115,6 +118,18 @@ public nonisolated final class TunableStore: Observable, Sendable {
         guard active.load(ordering: .relaxed) else { return nil }
         registrar.access(self, keyPath: keyPath(key))
         return state.withLock { $0.overrides[key] }
+    }
+
+    /// The override for `key` as the file holds it, also before `activate`'s read lands: while that
+    /// read is pending, the file is read here (blocking). For a setting read once at a launch step
+    /// that cannot wait for the main actor's load (Chromium's launch switches, `CEFRuntime`).
+    public func settledOverride(_ key: String) -> TunableValue? {
+        guard active.load(ordering: .relaxed) else { return nil }
+        let pending = state.withLock { state -> Bool in state.loading && state.overrides[key] == nil }
+        guard pending, let url = file.withLock({ $0 }) else { return state.withLock { $0.overrides[key] } }
+        // concurrency-allow: one small Debug Settings file, read once when Chromium starts and only while the
+        // store's own read of it is still pending (DEV and NIGHTLY)
+        return validate(TunableFile.readRaw(url))[key]
     }
 
     /// Every override, by key.

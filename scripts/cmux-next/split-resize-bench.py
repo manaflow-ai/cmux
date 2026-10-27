@@ -83,7 +83,7 @@ def measure(variant: str | None, folder: Path) -> dict:
                             "png": strip_png(folder / shot["path"])} for shot in (data.get("strip") or [])[:20]]
         print(f"[{variant or 'default'}] " + split_resize.markdown_row(report))
         print("SPLIT-RESIZE " + json.dumps({k: v for k, v in report.items() if k not in ("drags", "strip", "log")}))
-    except Exception as error:  # one variant's failure still reports the others
+    except (Exception, SystemExit) as error:  # one variant's failure (BenchApp's launch error is a SystemExit) still reports the others
         report["error"] = repr(error)
         print(f"[{variant or 'default'}] failed: {error!r}")
     finally:

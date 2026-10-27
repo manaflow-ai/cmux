@@ -57,6 +57,12 @@ public nonisolated struct BrowserResizeTunables {
         help: "Live: the page lays out at every size, a few frames behind the divider. Hold: the page keeps its size and moves with the pane, clipped, and lays out once when the drag lands. Synced live: Chromium holds each app frame until the page has drawn at the new size (up to 500 ms); applies the next time Chromium starts.",
         default: BrowserDragResize.default, code: "BrowserResizeTunables.dragResize")
 
+    /// `dragResize` as the override file holds it when Chromium starts, even when a restored tab starts
+    /// Chromium before the store's own read of the file landed (`TunableStore.settledOverride`).
+    static var dragResizeAtLaunch: BrowserDragResize {
+        TunableStore.shared.settledOverride(dragResize.key).flatMap(BrowserDragResize.init(tunableValue:)) ?? dragResize.defaultValue
+    }
+
     public static var all: [TunableDescriptor] {
         [pageBackdrop.descriptor, layerHosting.descriptor, syncDeadline.descriptor, liveResizeDeadline.descriptor, dragResize.descriptor]
     }

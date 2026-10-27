@@ -185,7 +185,8 @@ def judge_drag(trace: dict, refresh: float) -> dict:
             if hit is not None:
                 layout_lags.append(max(0.0, (hit - wall) / refresh))
         # Only the frames the divider moved in, the same frames `moving_frames` counts.
-        for (_, width), wall in zip(area[first:last], walls[first:last]):
+        for index in moving:
+            width, wall = area[index + 1][1], walls[index + 1]
             shown = [w for t, w in page if t <= wall + refresh / 2]
             if shown and abs(shown[-1] - width) > 0.5:
                 stale += 1
