@@ -45,7 +45,7 @@ concurrency:
 jobs:
 
   rust-terminal-linux:
-    name: terminal crates (Linux)
+    name: terminal crates (portable)
     if: github.repository_owner == 'manaflow-ai'
     runs-on: ${{ !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 40
@@ -79,7 +79,7 @@ jobs:
             -- --skip terminal_corpus_snapshots_encode_ready_and_complete
 
   swift-terminal-linux:
-    name: Swift terminal packages (Linux)
+    name: Swift terminal packages (portable)
     if: github.repository_owner == 'manaflow-ai'
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 30
