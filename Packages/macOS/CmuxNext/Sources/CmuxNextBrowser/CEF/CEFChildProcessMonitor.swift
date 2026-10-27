@@ -22,7 +22,8 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
         var isExtension: Bool
         /// Raw `waitpid` status.
         var status: Int32
-        /// A renderer's `--renderer-client-id` (its render process host id); nil for every other helper.
+        /// A renderer's `--renderer-client-id` (its render process host id, which RENDER_TERMINATED names too);
+        /// nil for every other helper.
         var rendererClientID: Int32?
         /// The browsers a renderer hosted frames for other than their main frame (``CEFSubframeRenderers``).
         var subframeBrowsers: Set<Int32> = []
@@ -150,7 +151,7 @@ nonisolated struct CEFHelperIdentity: Equatable, Sendable {
     var processType: String
     var subType: String?
     var isExtension: Bool
-    /// `--renderer-client-id`: the render process host id Chromium names a renderer's frames by.
+    /// `--renderer-client-id`: the render process host id Chromium names a renderer's frames by, and RENDER_TERMINATED too.
     var rendererClientID: Int32?
 
     static func read(pid: Int32) -> CEFHelperIdentity? {

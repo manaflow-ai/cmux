@@ -10,23 +10,22 @@ enum AgentChatMuteHandlers {
     static let action: ActionID = "agentChat.toggleNotificationMute"
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let mute = { QuitAgents.environment(context.services).map { AgentChatMute(environment: $0, turns: .shared) } }
+        let services = context.services
         /// The targeted tab's chat, when it is one of this Mac's acpmux.
         let chat = { (invocation: ActionInvocation) -> (AgentChatMute, AgentSessionRef, muted: Bool)? in
-            guard let mute = mute(), let chat = context.daemonTab(invocation)?.tab.agentSession,
-                  let muted = mute.isMuted(chat) else { return nil }
-            return (mute, chat, muted)
+            guard let muting = mute(services), let chat = context.daemonTab(invocation)?.tab.agentSession,
+                  let muted = muting.isMuted(chat) else { return nil }
+            return (muting, chat, muted)
         }
         registry.bind(action, invoke: { invocation in
-            guard let (mute, session, _) = chat(invocation) else { return context.refuse(AgentChatMuteStrings.notAChat) }
-            registry.track(Task { @MainActor in
-                do {
-                    _ = try await mute.toggle(session)
-                    return nil
-                } catch {
-                    return ActionWorkFailure(AgentChatMuteStrings.failed)
-                }
-            })
+            guard let (_, session, _) = chat(invocation) else { return context.refuse(AgentChatMuteStrings.notAChat) }
+            // The tag write is awaited off the action's turn; its outcome is one task of the run's completion.
+            registry.trackWork(owner: "AgentChatMuteHandlers.toggle", on: services.mainWork) {
+                try await toggle(session, services: services)
+            } then: { result in
+                guard case .failure = result else { return nil }
+                return ActionWorkFailure(AgentChatMuteStrings.failed)
+            }
         })
         ActionTargetTitles.set(action, in: registry) { invocation in
             guard let (_, _, muted) = chat(invocation) else { return nil }
@@ -35,6 +34,16 @@ enum AgentChatMuteHandlers {
         ActionTargetVisibility.hide(action, in: registry) { invocation in
             invocation.target?.kind == .tab && chat(invocation) == nil
         }
+    }
+
+    /// This Mac's acpmux chat mute, or nil without an acpmux.
+    private static func mute(_ services: AppServices) -> AgentChatMute? {
+        QuitAgents.environment(services).map { AgentChatMute(environment: $0, turns: .shared) }
+    }
+
+    /// Mutes `session`'s chat, or unmutes a muted one (nothing without an acpmux).
+    private static func toggle(_ session: AgentSessionRef, services: AppServices) async throws {
+        _ = try await mute(services)?.toggle(session)
     }
 }
 

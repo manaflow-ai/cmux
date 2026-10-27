@@ -312,6 +312,8 @@ mod chief_engine_mirror;
 pub(crate) mod energy_op;
 /// The app's Energy Saver rule for the daemon's own reading (p14-energy-137).
 pub(crate) mod energy_rule;
+/// `memory.limit`: the app's memory limit (p07-memory-109).
+pub(crate) mod memory_limit;
 pub(crate) use chief_engine_mirror::{
     engine_file as chief_engine_file, write as write_chief_engine_file,
 };
@@ -2355,7 +2357,7 @@ mod worker_admission;
 pub(crate) use worker_admission::ServerSurfaceOperationAdmission;
 use worker_admission::{
     ResourceWorkerAdmission, ResourceWorkerAdmissionError, ResourceWorkerPermit,
-    ServerSurfaceAdmissionError, ServerSurfaceBytesPermit,
+    ServerSurfaceAdmissionError, ServerSurfaceBytesPermit, WorkerClass,
 };
 
 // The frame variant of the attach writer; no transport serves it yet.
@@ -2500,8 +2502,8 @@ mod routes;
 #[cfg(test)]
 use connection_frame::write_vt_state_command_json;
 use connection_frame::{
-    FramedBodyMismatch, FramedMethod, FramedRequest, auth_token, constant_time_eq,
-    decode_framed_request, handle_connection_frame_at, handle_framed_request_at,
+    FramedBodyMismatch, FramedMethod, FramedRequest, auth_token, connection_caller,
+    constant_time_eq, decode_framed_request, handle_connection_frame_at, handle_framed_request_at,
     handle_request_with_cancellation, lock_caller_scope, pairing_request, zeroize_string,
 };
 #[cfg(test)]

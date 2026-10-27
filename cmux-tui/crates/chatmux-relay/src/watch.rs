@@ -291,21 +291,15 @@ impl WatchRegistry {
                     let slot = state
                         .entry(watch_id.clone())
                         .or_insert_with(|| WatchSlot { active: None, opening: None });
-                    let previous = slot.opening.replace(Opening {
-                        generation,
-                        live: Arc::clone(&opening_live),
-                        cancellation: opening_cancellation.clone(),
-                        abort: None,
-                    });
-                    // Spawn while the state lock is held, then install the
-                    // abort handle before another caller can close/replace
-                    // this slot. Tokio guarantees `spawn` does not poll the
-                    // future synchronously as part of this call.
+                    // Spawn while the state lock is held, then reserve the
+                    // slot with the abort handle before another caller can
+                    // close/replace it. Tokio guarantees `spawn` does not
+                    // poll the future synchronously as part of this call.
                     let context = OpenContext {
                         watch_id: watch_id.clone(),
                         generation,
                         live: Arc::clone(&opening_live),
-                        cancellation: opening_cancellation,
+                        cancellation: opening_cancellation.clone(),
                         sessions: Arc::clone(&sessions),
                         outbound,
                     };
@@ -316,8 +310,12 @@ impl WatchRegistry {
                         setup_slots,
                         teardown_slots,
                     ));
-                    slot.opening.as_mut().expect("opening was just reserved").abort =
-                        Some(task.abort_handle());
+                    let previous = slot.opening.replace(Opening {
+                        generation,
+                        live: Arc::clone(&opening_live),
+                        cancellation: opening_cancellation,
+                        abort: Some(task.abort_handle()),
+                    });
                     Reservation::Accepted { previous }
                 }
             }
@@ -458,6 +456,7 @@ fn commit_open(
                 opening.generation == generation && !opening.cancellation.is_cancelled()
             })
             && outbound.try_critical_text_with_token(opened, Some(Arc::clone(&live))).is_ok()
+            && let Some(run_prepared) = prepared.take()
         {
             let (start_tx, start_rx) = oneshot::channel();
             let run_id = watch_id.clone();
@@ -467,7 +466,6 @@ fn commit_open(
             let run_setup_slots = setup_slots;
             let run_cancellation = cancellation.clone();
             let run_live = Arc::clone(&live);
-            let run_prepared = prepared.take().expect("prepared watch present");
             let task = tokio::spawn(async move {
                 // Install the active slot before allowing the runner to poll.
                 // This closes the fast-exit race where cleanup could otherwise
@@ -907,13 +905,17 @@ fn relative_watch_path(root: &Path, path: &Path) -> Option<String> {
     if text.is_empty() { None } else { Some(text) }
 }
 
-fn record(
+pub(crate) fn record(
     changes: &mut Vec<wire::FsWatchChange>,
     change_index: &mut HashMap<String, usize>,
     change: wire::FsWatchChange,
 ) {
     match change_index.get(&change.path) {
         Some(&index) => {
+            #[allow(
+                clippy::indexing_slicing,
+                reason = "INVARIANT: change_index holds only indices `record` pushed into this burst's `changes`, which it never shortens"
+            )]
             let existing = &mut changes[index];
             // Merge within one burst: created-then-modified stays created;
             // anything ending deleted is deleted; a rename target wins.
@@ -1012,7 +1014,9 @@ fn collect_changes(
             }
         }
         EventKind::Modify(ModifyKind::Name(RenameMode::Both)) if event.paths.len() == 2 => {
-            push(&event.paths[1], wire::FsWatchChangeKind::Renamed, Some(&event.paths[0]));
+            if let [from, to] = event.paths.as_slice() {
+                push(to, wire::FsWatchChangeKind::Renamed, Some(from));
+            }
         }
         EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {
             for path in &event.paths {
