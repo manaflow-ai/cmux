@@ -743,7 +743,10 @@ final class AppServices {
         // Estimated presents read the key display's last tick; no link starts for them.
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board, displays: FrameScheduler.appDisplays)
         updater = UpdaterService(work: work)
-        chromiumRuntime = ChromiumRuntimeService.make(work: work)
+        let launchFeatures = features ?? Self.launchFeatures(environment)
+        // In host mode one Chromium Host serves every tab of every profile (p01-process-080).
+        let hostSupervisor = Self.chromiumHostSupervisor(work: work, mainWork: mainWork, features: launchFeatures)
+        chromiumRuntime = ChromiumRuntimeService.make(work: work, hostSupervisor: hostSupervisor)
         mobile = MobileHostService(displayName: { await MacName().displayName() }, work: work)
         let runTiming = SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys, crashKeyPage: traceBlackBox?.blackBox.crashKeys)
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -768,7 +771,7 @@ final class AppServices {
         popups = BrowserPopupWindows(contextMenus: contextMenus, mainWork: mainWork, inputTap: inputTap)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, runMarker: environment.runMarker, crashKeys: crashKeys, work: work, mainWork: mainWork)
-        self.features = features ?? Self.launchFeatures(environment)
+        self.features = launchFeatures
         launchPanes = LaunchPaneGate(startup: self.features.isEnabled(.launchVisiblePanesOnly) ? launchStartup : nil)
         // The fatal-hang record needs the run marker, whose folder the next launch reads (p09-observability-110).
         let hangSinks = watchdog.map { [features = self.features, marker = crashRecovery.marker] in

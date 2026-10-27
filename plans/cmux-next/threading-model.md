@@ -642,6 +642,8 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
   `com.cmuxterm.chromium-host.control` (user-initiated; the control channel's reader in cmux and, same label, in the host;
   waits only in `poll`: input, the socket taking a waiting outbox, a wake byte, the quota ceiling's one deadline),
   `com.cmuxterm.chromium-host.exit` (user-initiated; serial queue for the host's exit source: a crash shows on the page),
+  `com.cmuxterm.chromium-host.supervisor` (utility; serial queue of host mode's one Chromium Host's exit source, kqueue
+  `NOTE_EXIT` then `waitid(WNOWAIT)`, `ChromiumHostSupervisor`, p01-process-080; its spawn runs on BackgroundWork's `.system` lane),
   `com.cmuxterm.chromium-host.input` (user-interactive; in the host process, fixed: a thread waiting in a plain
   kqueue gets no QoS override from the doorbell's message; the input ring's reader, `HostInput` in
   chromium_host_input_ring.h, p01-process-041, started by the host with task 042: waits only in `kevent64` on the
