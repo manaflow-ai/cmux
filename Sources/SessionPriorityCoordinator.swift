@@ -393,7 +393,7 @@ final class SessionPriorityCoordinator {
         }
         // The pane restarted to a bare shell: the user needs the command, setting or not.
         if case .resumeNotTyped(let manual) = result {
-            SessionPriorityNotice.notRestarted(target: entry.target, command: manual.command)
+            SessionPriorityNotice.notRestarted(target: entry.target, manual: manual)
                 .post(workspaceId: workspace.id, panelId: panelId)
         }
         // Turned off meanwhile: `disable()` already dropped the pane and its row.
