@@ -138,6 +138,7 @@ import Testing
         let order = ["caffeinate -w \"$1\"", "launchctl list \"$2\"", "caffeinate -w \"$installer\"", "open -g \"$0\""]
         let positions = order.compactMap { script.range(of: $0)?.lowerBound }
         #expect(positions.count == order.count && positions == positions.sorted(), "\(script)")
+        #expect(Set(UpdateRelaunchBehind.environment.keys) == ["PATH"], "open passes its environment to the new build")
     }
 }
 

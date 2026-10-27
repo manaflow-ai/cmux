@@ -31,6 +31,12 @@ public nonisolated enum UpdateRelaunchBehind {
         return ["/bin/sh", "-c", script, app.path, String(pid), installerJob]
     }
 
+    /// The helper's whole environment. `open` hands its environment to the app it launches, so the
+    /// helper never inherits this process's (a launch-time `CMUX_NEXT_NO_ACTIVATE`, a test socket,
+    /// the shell's variables): the new build starts with what LaunchServices gives it, as
+    /// Sparkle's relaunch does.
+    public static let environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+
     /// Starts the helper for this process and bundle, then quits (the relaunch hook already
     /// recorded "keep sessions"). Sparkle's installer is waiting for this exit. When the helper
     /// cannot start, `otherwise` runs instead (Sparkle installs and relaunches as before).
@@ -41,6 +47,7 @@ public nonisolated enum UpdateRelaunchBehind {
         let helper = Process()
         helper.executableURL = URL(fileURLWithPath: command[0])
         helper.arguments = Array(command.dropFirst())
+        helper.environment = environment
         // task-owner: one spawn, then the quit; ends with the app.
         Task { @MainActor in
             do {
