@@ -80,6 +80,17 @@ export default agentPaneEntry({
       note: "After the first send: no location strip (a chat cannot change folder or machine), and no gap where it stood.",
       snapshot: started(),
     },
+    "started-movable": {
+      height: 520,
+      note: "Leo: \"Picking one moves the chat\". A started chat the host can move (its tab's menu offers Move to Cloud) keeps its strip; the chip opens the environment picker with where the chat runs, Move to Cloud and Choose folder….",
+      native: { "pane.tabState": { moves: ["cloudMove"] } },
+      snapshot: started(),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-strip"));
+        await ctx.click({ role: "button", name: /^Environment|^Computer/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
     "long-folder": {
       note: 'A new chat in a folder with a long name: in a narrow pane it cuts in the middle and keeps its last word ("atlas-we…service"); the branch keeps its name.',
       ready: { newSession: true },
