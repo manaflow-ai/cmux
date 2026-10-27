@@ -112,18 +112,44 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
                 self.assertIn("blacksmith-6vcpu-macos-26", match.group(1))
                 self.assertNotIn("vars.CI_SIDE_LANE_RUNNER", match.group(1))
 
-    def test_secret_free_prepare_fallback_does_not_requeue_a_retry_on_the_side_pool(self) -> None:
-        text = (WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")
-        job = text[text.index("\n  prepare-nightly-variant-primary:"):]
-        runs_on = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1)
-        self.assertIn("github.run_attempt == 1", runs_on)
-        self.assertIn("vars.CI_SIDE_LANE_RUNNER", runs_on)
-        self.assertIn("blacksmith-6vcpu-macos-26", runs_on)
-        # The fallback leg after a failed primary prepares on Blacksmith, never the side pool.
-        job = text[text.index("\n  prepare-nightly-variant-fallback:"):]
-        runs_on = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1)
-        self.assertNotIn("vars.CI_SIDE_LANE_RUNNER", runs_on)
-        self.assertIn("blacksmith-6vcpu-macos-26", runs_on)
+    def test_prepare_runs_on_linux_and_executes_no_mach_o(self) -> None:
+        """prepare-nightly-variant only moves and reads files, so it runs on Linux.
+
+        The cmux-tui client install (it runs the client), Apple's strip and the
+        capability probes run in build-nightly-app; the theme picker regression
+        and the diff sidecar handshake (they run Mach-O) run on the signed app
+        in verify-signed-nightly. llvm-lipo thins, which gives Apple lipo's bytes.
+        """
+        import yaml
+        document = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
+        jobs = document["jobs"]
+        self.assertEqual(jobs["prepare-nightly-variant-primary"]["runs-on"],
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}")
+        self.assertEqual(jobs["prepare-nightly-variant-fallback"]["runs-on"], "ubuntu-24.04")
+        moved_out = ("install-cmux-tui-client.sh", "strip-release-bundle.sh", "write-cmux-tui-version.sh",
+                     "check-daemon-capabilities.sh", "test_bundled_ghostty_theme_picker_helper.sh",
+                     "verify-diff-sidecar-artifact.sh", "select-ci-xcode.sh", "ditto ", "otool", "codesign")
+        for name in ("prepare-nightly-variant-primary", "prepare-nightly-variant-fallback"):
+            runs = "\n".join(step.get("run", "") for step in jobs[name]["steps"])
+            names = [step.get("name", "") for step in jobs[name]["steps"]]
+            with self.subTest(job=name):
+                for needle in moved_out:
+                    self.assertNotIn(needle, runs)
+                self.assertIn("Put llvm-lipo on PATH as lipo", names)
+                self.assertIn("Require the cmux-tui client build-nightly-app bundled", names)
+                self.assertIn("thin-app-bundle.sh", runs)
+                self.assertIn("verify_app_libintl.py", runs)
+        build = "\n".join(step.get("run", "") for step in jobs["build-nightly-app"]["steps"])
+        for needle in ("install-cmux-tui-client.sh", "write-cmux-tui-version.sh", "check-daemon-capabilities.sh"):
+            self.assertIn(needle, build)
+        steps = [step.get("name") for step in jobs["build-nightly-app"]["steps"]]
+        self.assertLess(steps.index("Strip unsigned nightly app before transfer"), steps.index("Bundle the cmux-tui client"))
+        self.assertLess(steps.index("Bundle the cmux-tui client"), steps.index("Archive unsigned nightly app"))
+        verify = "\n".join(step.get("run", "") for step in jobs["verify-signed-nightly"]["steps"])
+        self.assertIn("test_bundled_ghostty_theme_picker_helper.sh", verify)
+        self.assertIn("verify-diff-sidecar-artifact.sh", verify)
+        helper = "\n".join(step.get("run", "") for step in jobs["build-nightly-ghostty-cli-helper"]["steps"])
+        self.assertIn("strip -S -x nightly-helper/ghostty", helper)
 
 
     def test_promotion_requests_never_wait_on_blacksmith(self) -> None:
