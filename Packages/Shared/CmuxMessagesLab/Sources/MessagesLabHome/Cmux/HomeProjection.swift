@@ -82,8 +82,15 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// A sign-in card's Add: the host asks for the sign-in and saves it in the Secure Store, then
     /// calls `done(true)`; the projection then sends the Added message. Nil: Add does nothing.
     var onChiefSignIn: ((_ site: String, _ url: String?, _ done: @escaping @MainActor (Bool) -> Void) -> Void)?
-    /// The Secure Store's sites changed (``HomeChiefCards/storedSites``): shown sign-in cards redraw.
-    var storedSitesObserver: NSObjectProtocol?
+    /// The Secure Store's sites (the host's, shared by its transcripts): a sign-in card for one says
+    /// Added, and a change redraws the shown cards (``HomeChiefCardStateObserver``). Nil: none is Added.
+    var cardState: HomeChiefCardState? {
+        didSet {
+            oldValue?.stopObserving(self)
+            cardState?.observe(self)
+            refreshCards()
+        }
+    }
     /// Bubble pictures and originals.
     let media = HomeMedia()
     /// Inline video playback in the bubbles.
@@ -155,10 +162,6 @@ final class HomeProjection: @preconcurrency ChatIntents {
         video.controller = controller
         // A finished picture redraws only the rows that show it (not every attachment row shown).
         media.onReady = { [weak self] hash in self?.refreshAttachments(only: hash) }
-        storedSitesObserver = NotificationCenter.default.addObserver(forName: HomeChiefCards.storedSitesChanged, object: nil,
-                                                                     queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshCards() }
-        }
     }
 
     func start() {
@@ -173,8 +176,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         liveLine.stop()
         turnPopover?.close()
         controller.intents = nil
-        if let storedSitesObserver { NotificationCenter.default.removeObserver(storedSitesObserver) }
-        storedSitesObserver = nil
+        cardState?.stopObserving(self)
     }
 
     // MARK: HomeStore -> projection

@@ -175,7 +175,7 @@ final class HomeHostView: NSView {
         }
         // A Chief's cards (cmux issue 25830): Open browser selects the browser right of this chat (or a
         // Cloud machine's desktop); a sign-in card's Add saves into the Chief Secure Store.
-        HomeChiefCardActions.wire(transcript, services: services) { [weak self] url in
+        service.chiefCards.wire(transcript, services: services) { [weak self] url in
             if let self { LinkRouter.shared.open(url, otherTarget: false, from: self) } else { LinkRouter.shared.open(url, otherTarget: false) }
         }
         let store = service.homeStore

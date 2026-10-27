@@ -11,7 +11,7 @@ import os
 ///   current step, the screenshot in a white inset, and "Open browser" when the card names a target.
 ///   The Chief edits one card per turn, so the row updates in place as the message is edited.
 /// - sign_in: a shield tile, "Secure Store", "Sign in to <site>" and a white Add button; "Added" once
-///   this Mac's Secure Store holds the site (``HomeChiefCards/storedSites``).
+///   this Mac's Secure Store holds the site (``HomeChiefCardState``).
 /// - next_steps: one outlined row per choice with a circle check at its right; a click sends the
 ///   choice as a person message; a choice a later person message said is checked and takes no click.
 /// The row is drawn, so it has no per-control views: a click maps to an action through the same
@@ -39,11 +39,12 @@ final class HomeChiefCardRowProvider: TranscriptCustomRowProvider {
         if installed == nil { CustomRows.register(HomeChiefCardRowProvider()) }
     }
 
-    /// The row for `card`: a drawn card when the provider is installed, else its text.
-    static func part(_ card: ChiefCard, media: HomeMapping.Media, chosen: Set<String>) -> Part {
+    /// The row for `card`: a drawn card when the provider is installed, else its text. `context`: what
+    /// only this Mac knows (``HomeChiefCardContext``; empty in the mappings that do not have it).
+    static func part(_ card: ChiefCard, media: HomeMapping.Media, context: HomeChiefCardContext) -> Part {
         let payload = Payload(card: card, picture: card.image.flatMap { media($0.hash) },
-                              chosen: card.choices.filter(chosen.contains),
-                              added: card.kind == .signIn && card.site.map(HomeChiefCards.isStored) == true)
+                              chosen: card.choices.filter(context.chosen.contains),
+                              added: card.kind == .signIn && card.site.map { context.stored.contains($0.lowercased()) } == true)
         guard installed != nil, let custom = custom(payload) else { return .text(HomeChiefCards.text(payload), runs: []) }
         return .custom(custom)
     }
@@ -82,8 +83,11 @@ final class HomeChiefCardRowProvider: TranscriptCustomRowProvider {
 
     func drawRow(_ part: CustomPart, in ctx: CGContext, rect: CGRect, context: CustomRowDrawContext) {
         guard let payload = Self.payload(part) else { return }
-        HomeChiefCardLayout(payload, width: rect.width).draw(ctx, at: rect.origin)
+        HomeChiefCardLayout(payload, width: rect.width).draw(ctx, at: rect.origin, icons: icons)
     }
+
+    /// The tile symbols this provider drew (row bitmaps draw on their threads).
+    private let icons = HomeChiefCardIcons()
 }
 
 /// What a click on a card asks the host for.
@@ -96,33 +100,15 @@ enum HomeChiefCardAction: Equatable {
     case choose(String)
 }
 
-/// The card state that no message carries, and the card's words.
+/// What a card shows that no message carries: the chips a later person message said, and the
+/// sites this Mac's Secure Store holds (lowercased).
+struct HomeChiefCardContext: Hashable {
+    var chosen: Set<String> = []
+    var stored: Set<String> = []
+}
+
+/// The cards' words and the chips' derivation.
 enum HomeChiefCards {
-    // Lock carve-out: the mapping reads it on the loader queue and the main thread; a small set.
-    private static let sites = OSAllocatedUnfairLock(initialState: Set<String>())
-
-    /// The sites this Mac's Secure Store holds (the host reads the keychain off the main thread and
-    /// sets them; lowercased). A change posts ``storedSitesChanged`` so shown cards redraw.
-    static var storedSites: Set<String> {
-        get { sites.withLock { $0 } }
-        set {
-            let new = Set(newValue.map { $0.lowercased() })
-            let changed = sites.withLock { (old: inout Set<String>) -> Bool in
-                guard old != new else { return false }
-                old = new
-                return true
-            }
-            if changed { NotificationCenter.default.post(name: storedSitesChanged, object: nil) }
-        }
-    }
-
-    static let storedSitesChanged = Notification.Name("cmux.home.chiefCards.storedSitesChanged")
-
-    static func isStored(_ site: String) -> Bool {
-        let site = site.lowercased()
-        return sites.withLock { $0.contains(site) }
-    }
-
     /// For each item with a next-steps card (by its key), the choices a later person message said.
     /// One pass from the newest item back (a person's texts so far, then each card against them).
     static func chosen(in items: [TranscriptItem], isPerson: (ParticipantID) -> Bool) -> [IdempotencyKey: Set<String>] {
@@ -284,14 +270,14 @@ struct HomeChiefCardLayout {
 
     private var light: Bool { Fixture.lightAppearance }
 
-    func draw(_ ctx: CGContext, at origin: CGPoint) {
+    func draw(_ ctx: CGContext, at origin: CGPoint, icons: HomeChiefCardIcons) {
         ctx.saveGState()
         defer { ctx.restoreGState() }
         ctx.translateBy(x: origin.x, y: origin.y)
         let card = payload.card
         switch card.kind {
         case .browser, .signIn:
-            drawTile(ctx, card)
+            drawTile(ctx, card, icons: icons)
             var y = titleOrigin.y
             for line in title + subtitle {
                 Self.drawLine(ctx, line, at: CGPoint(x: titleOrigin.x, y: y))
@@ -304,7 +290,7 @@ struct HomeChiefCardLayout {
         }
     }
 
-    private func drawTile(_ ctx: CGContext, _ card: ChiefCard) {
+    private func drawTile(_ ctx: CGContext, _ card: ChiefCard, icons: HomeChiefCardIcons) {
         let browser = card.kind == .browser
         let blue = UIColor(srgbRed: 0.04, green: 0.52, blue: 1, alpha: 1)
         let fill: UIColor = browser
@@ -313,7 +299,7 @@ struct HomeChiefCardLayout {
         Self.fillRounded(ctx, tileRect, radius: 8, fill)
         let symbol = browser ? (card.surface == .computer ? "display" : "globe") : "lock.shield"
         let tint = browser ? blue : Fixture.secondaryText
-        if let icon = HomeChiefCardIcons.image(symbol, size: 15, color: tint, scale: Fixture.renderScale) {
+        if let icon = icons.image(symbol, size: 15, color: tint, scale: Fixture.renderScale) {
             Self.drawCentered(ctx, icon, in: tileRect, scale: Fixture.renderScale)
         }
     }
@@ -429,12 +415,13 @@ struct HomeChiefCardLayout {
     }
 }
 
-/// The cards' tile symbols, made once per symbol, colour and scale (row bitmaps draw on their threads).
-enum HomeChiefCardIcons {
+/// The cards' tile symbols, made once per symbol, colour and scale; owned by the card provider
+/// (row bitmaps draw on their threads).
+final class HomeChiefCardIcons: @unchecked Sendable {
     // Lock carve-out: a tiny synchronous cache read from drawing threads; no async caller.
-    private static let cache = OSAllocatedUnfairLock(initialState: [String: CGImage]())
+    private let cache = OSAllocatedUnfairLock(initialState: [String: CGImage]())
 
-    static func image(_ name: String, size: CGFloat, color: NSColor, scale: CGFloat) -> CGImage? {
+    func image(_ name: String, size: CGFloat, color: NSColor, scale: CGFloat) -> CGImage? {
         let rgb = color.usingColorSpace(.sRGB) ?? color
         let key = "\(name)|\(size)|\(rgb.redComponent)|\(rgb.greenComponent)|\(rgb.blueComponent)|\(rgb.alphaComponent)|\(scale)"
         if let hit = cache.withLock({ $0[key] }) { return hit }

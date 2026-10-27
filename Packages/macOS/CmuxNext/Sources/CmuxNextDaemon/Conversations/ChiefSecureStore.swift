@@ -28,10 +28,8 @@ public struct ChiefSecureStore: Sendable {
         // One item per site: an older one (another username) goes first.
         let removed = SecItemDelete(Self.query(site: site) as CFDictionary)
         guard removed == errSecSuccess || removed == errSecItemNotFound else { throw Failure.keychain(removed) }
-        var add = Self.query(site: site)
-        add[kSecAttrAccount as String] = username
-        add[kSecValueData as String] = Data(password.utf8)
-        add[kSecAttrDescription as String] = Self.label
+        let add = Self.query(site: site, adding: [kSecAttrAccount as String: username, kSecValueData as String: Data(password.utf8),
+                                                  kSecAttrDescription as String: Self.label])
         let status = SecItemAdd(add as CFDictionary, nil)
         guard status == errSecSuccess else { throw Failure.keychain(status) }
     }
@@ -39,9 +37,7 @@ public struct ChiefSecureStore: Sendable {
     /// Whether the store holds a sign-in for exactly `site`.
     public func contains(site: String) -> Bool {
         guard let site = Self.normalized(site) else { return false }
-        var find = Self.query(site: site)
-        find[kSecMatchLimit as String] = kSecMatchLimitOne
-        find[kSecReturnAttributes as String] = true
+        let find = Self.query(site: site, adding: [kSecMatchLimit as String: kSecMatchLimitOne, kSecReturnAttributes as String: true])
         var result: CFTypeRef?
         guard SecItemCopyMatching(find as CFDictionary, &result) == errSecSuccess,
               let attributes = result as? [String: Any] else { return false }
@@ -53,15 +49,13 @@ public struct ChiefSecureStore: Sendable {
     public func credential(forHost host: String) -> (site: String, username: String, password: String)? {
         let sites = self.sites()
         guard let site = Self.bestSite(forHost: host, among: sites) else { return nil }
-        var find = Self.query(site: site)
-        find[kSecMatchLimit as String] = kSecMatchLimitOne
-        find[kSecReturnAttributes as String] = true
-        find[kSecReturnData as String] = true
+        let find = Self.query(site: site, adding: [kSecMatchLimit as String: kSecMatchLimitOne, kSecReturnAttributes as String: true,
+                                                   kSecReturnData as String: true])
         var result: CFTypeRef?
         guard SecItemCopyMatching(find as CFDictionary, &result) == errSecSuccess,
               let attributes = result as? [String: Any], Self.isOurs(attributes),
-              let username = attributes[kSecAttrAccount as String] as? String,
-              let data = attributes[kSecValueData as String] as? Data,
+              let username: String = Self.value(attributes, kSecAttrAccount),
+              let data: Data = Self.value(attributes, kSecValueData),
               let password = String(data: data, encoding: .utf8) else { return nil }
         return (site, username, password)
     }
@@ -99,13 +93,19 @@ public struct ChiefSecureStore: Sendable {
 
     // MARK: Keychain
 
-    private static func query(site: String) -> [String: Any] {
+    /// Our item for `site`, with `extra` attributes or search keys.
+    private static func query(site: String, adding extra: [String: Any] = [:]) -> [String: Any] {
         [kSecClass as String: kSecClassInternetPassword, kSecAttrServer as String: site,
-         kSecAttrLabel as String: label, kSecAttrComment as String: comment]
+         kSecAttrLabel as String: label, kSecAttrComment as String: comment].merging(extra) { _, new in new }
     }
 
     private static func isOurs(_ attributes: [String: Any]) -> Bool {
-        attributes[kSecAttrLabel as String] as? String == label && attributes[kSecAttrComment as String] as? String == comment
+        value(attributes, kSecAttrLabel) == label && value(attributes, kSecAttrComment) == comment
+    }
+
+    /// An item attribute of type `T` (a lookup that never traps).
+    private static func value<T>(_ attributes: [String: Any], _ key: CFString) -> T? {
+        attributes.first { $0.key == key as String }?.value as? T
     }
 
     /// The sites of every sign-in in the store (no passwords read).
@@ -116,6 +116,6 @@ public struct ChiefSecureStore: Sendable {
         var result: CFTypeRef?
         guard SecItemCopyMatching(find as CFDictionary, &result) == errSecSuccess,
               let items = result as? [[String: Any]] else { return [] }
-        return items.filter(Self.isOurs).compactMap { $0[kSecAttrServer as String] as? String }
+        return items.filter(Self.isOurs).compactMap { Self.value($0, kSecAttrServer) }
     }
 }

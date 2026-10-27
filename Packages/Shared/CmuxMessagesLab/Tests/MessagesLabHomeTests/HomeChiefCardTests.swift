@@ -18,7 +18,6 @@ import Testing
     init() {
         HomeMarkdownPolicy.install()
         HomeChiefCardRowProvider.install()
-        HomeChiefCards.storedSites = []
     }
 
     static func payload(_ part: Part) -> HomeChiefCardRowProvider.Payload? {
@@ -48,8 +47,9 @@ import Testing
 
     @Test func theScreenshotFillsInOnceItsPictureIsReady() {
         let hash = Self.browser.image?.hash ?? ""
-        let before = Self.payload(HomeChiefCardRowProvider.part(Self.browser, media: { _ in nil }, chosen: []))
-        let after = Self.payload(HomeChiefCardRowProvider.part(Self.browser, media: { $0 == hash ? "file:///tmp/shot.png" : nil }, chosen: []))
+        let before = Self.payload(HomeChiefCardRowProvider.part(Self.browser, media: { _ in nil }, context: HomeChiefCardContext()))
+        let after = Self.payload(HomeChiefCardRowProvider.part(Self.browser, media: { $0 == hash ? "file:///tmp/shot.png" : nil },
+                                                                 context: HomeChiefCardContext()))
         #expect(before?.picture == nil)
         #expect(after?.picture == "file:///tmp/shot.png")
     }
@@ -66,9 +66,11 @@ import Testing
 
     @Test func signInShowsAddedWhenTheSecureStoreHoldsTheSite() {
         #expect(Self.payload(HomeMapping.part(.card(Self.signIn)))?.added == false)
-        HomeChiefCards.storedSites = ["LinkedIn.com"]
-        #expect(Self.payload(HomeMapping.part(.card(Self.signIn)))?.added == true)
-        HomeChiefCards.storedSites = []
+        let stored = HomeChiefCardRowProvider.part(Self.signIn, media: { _ in nil }, context: HomeChiefCardContext(stored: ["linkedin.com"]))
+        #expect(Self.payload(stored)?.added == true)
+        let state = HomeChiefCardState()
+        state.setStoredSites(["LinkedIn.com"])
+        #expect(state.storedSites == ["linkedin.com"], "the state keeps sites lowercased")
     }
 
     // MARK: Clicks (the layout the drawing used)
@@ -169,10 +171,12 @@ import Testing
         defer { rig.stop() }
         #expect(await rig.post([.card(Self.signIn)], key: IdempotencyKey("signin")))
         rig.frame()
+        let state = HomeChiefCardState()
+        rig.view.chiefCardState = state
         var asked: [String] = []
         rig.view.onChiefSignIn = { site, _, done in
             asked.append(site)
-            HomeChiefCards.storedSites = [site]
+            state.addStoredSite(site)
             done(true)
         }
         rig.view.projection.chiefCardAction(.addSignIn(site: "linkedin.com", url: nil), at: MessagesLabHome.PartRef(messageId: "signin", partIndex: 0))
@@ -185,7 +189,6 @@ import Testing
         #expect(rig.store.transcript(for: HomeChatRig.conversation).contains { $0.author == rig.me && $0.plainText == text })
         let cards = rig.view.controller.store?.state.conversation.messages.flatMap(\.parts).compactMap(Self.payload) ?? []
         #expect(cards.map(\.added) == [true], "the card shows Added")
-        HomeChiefCards.storedSites = []
     }
 
     @Test func aCancelledSignInSendsNothing() async throws {

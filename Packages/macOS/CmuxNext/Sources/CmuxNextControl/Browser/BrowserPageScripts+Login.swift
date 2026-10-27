@@ -105,7 +105,7 @@ extension BrowserPageScripts {
           try { if (form.requestSubmit) { form.requestSubmit(); } else { form.submit(); } return { value: true }; } catch (_) {}
         }
         const root = (el.getRootNode && el.getRootNode().querySelectorAll) ? el.getRootNode() : el.ownerDocument;
-        const near = Array.from(root.querySelectorAll('button, [role=button], input[type=submit]')).find((b) => cmuxLoginShown(b) && go.test(label(b)));
+        const near = Array.from(root.querySelectorAll('button, [role=button], [type=submit]')).find((b) => cmuxLoginShown(b) && go.test(label(b)));
         if (near) { near.click(); return { value: true }; }
         const key = (type) => el.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true }));
         try { el.focus(); } catch (_) {}

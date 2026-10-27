@@ -13,16 +13,24 @@ import MessagesLabHome
 /// - Open desktop (`machine:<id>`): the Cloud machine's Open Desktop action (`cloud open-desktop`).
 /// - Add (a sign-in card): the sheet's sign-in goes into the Chief Secure Store (`ChiefSecureStore`,
 ///   the login keychain), off the main thread; the shown cards then say Added.
+/// One per app (`HomeService.chiefCards`): its ``HomeChiefCardState`` is shared by every Home transcript.
 @MainActor
-enum HomeChiefCardActions {
-    /// Wires `transcript`'s card buttons and loads the Secure Store's sites once.
-    static func wire(_ transcript: HomeNativeTranscriptView, services: AppServices, openLink: @escaping @MainActor (URL) -> Void) {
+final class HomeChiefCardActions {
+    /// The Secure Store's sites every transcript's cards read.
+    let state = HomeChiefCardState()
+    /// The keychain was read once (later saves update the state directly).
+    private var sitesLoaded = false
+
+    /// Wires `transcript`'s card buttons and state, and loads the Secure Store's sites once.
+    func wire(_ transcript: HomeNativeTranscriptView, services: AppServices, openLink: @escaping @MainActor (URL) -> Void) {
+        transcript.chiefCardState = state
         transcript.onChiefCardOpen = { [weak services] target, url in
             guard let services else { return }
-            open(target, url: url, services: services, openLink: openLink)
+            Self.open(target, url: url, services: services, openLink: openLink)
         }
-        transcript.enableChiefSignIn { site, username, password in
-            await save(site: site, username: username, password: password)
+        transcript.enableChiefSignIn { [weak self] site, username, password in
+            guard let self else { return false }
+            return await self.save(site: site, username: username, password: password)
         }
         loadSites()
     }
@@ -51,26 +59,24 @@ enum HomeChiefCardActions {
     }
 
     /// Saves the sign-in off the main thread; true when it is in the store.
-    static func save(site: String, username: String, password: String) async -> Bool {
+    func save(site: String, username: String, password: String) async -> Bool {
         let saved = await Task.detached(priority: .userInitiated) { () -> Bool in
             (try? ChiefSecureStore().save(site: site, username: username, password: password)) != nil
         }.value
         if saved, let normalized = ChiefSecureStore.normalized(site) {
-            MessagesLabHomeView.chiefSecureStoreSites.insert(normalized)
+            state.addStoredSite(normalized)
         }
         return saved
     }
 
     /// The Secure Store's sites, read once off the main thread (a sign-in card then shows Added).
-    static func loadSites() {
+    func loadSites() {
         guard !sitesLoaded else { return }
         sitesLoaded = true
         // task-owner: one keychain read; ends when the sites are set
-        Task {
+        Task { [state] in
             let sites = await Task.detached(priority: .utility) { ChiefSecureStore().sites() }.value
-            MessagesLabHomeView.chiefSecureStoreSites.formUnion(sites)
+            state.setStoredSites(state.storedSites.union(sites.map { $0.lowercased() }))
         }
     }
-
-    private static var sitesLoaded = false
 }

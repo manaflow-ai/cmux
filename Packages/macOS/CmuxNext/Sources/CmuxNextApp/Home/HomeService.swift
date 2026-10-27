@@ -80,6 +80,8 @@ final class HomeService {
     /// The latest `ensure_home`; only it clears `homeEnsureInFlight`.
     @ObservationIgnored var homeEnsureGeneration = 0
     @ObservationIgnored var homeWorkspaceTask: Task<Void, Never>?
+    /// A Chief's cards (cmux issue 25830): their buttons, and the Secure Store sites every Home transcript reads.
+    @ObservationIgnored let chiefCards = HomeChiefCardActions()
     /// The last step the home workspace setup reached, for `debug.home`.
     @ObservationIgnored var homeWorkspaceStep = "not started"
     /// The chief tab creation's idempotency key (one per creation).

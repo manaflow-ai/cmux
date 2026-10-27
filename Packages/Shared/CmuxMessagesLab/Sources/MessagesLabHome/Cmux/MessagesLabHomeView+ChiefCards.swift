@@ -19,10 +19,10 @@ extension MessagesLabHomeView {
         set { projection.onChiefSignIn = newValue }
     }
 
-    /// The sites this Mac's Secure Store holds (the host reads them off the main thread): a sign-in
-    /// card for one of them shows Added. Setting a new set redraws the shown cards of every chat.
-    public static var chiefSecureStoreSites: Set<String> {
-        get { HomeChiefCards.storedSites }
-        set { HomeChiefCards.storedSites = newValue }
+    /// The host's Secure Store sites (one ``HomeChiefCardState`` for all its transcripts): a sign-in
+    /// card for one of them shows Added, and a change redraws the shown cards. Nil: none shows Added.
+    public var chiefCardState: HomeChiefCardState? {
+        get { projection.cardState }
+        set { projection.cardState = newValue }
     }
 }

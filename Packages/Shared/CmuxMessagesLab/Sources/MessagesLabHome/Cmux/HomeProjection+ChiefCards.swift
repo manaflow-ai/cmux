@@ -3,7 +3,9 @@ import Foundation
 
 /// A Chief's cards (cmux issue 25830, ``HomeChiefCardRowProvider``): the state they show that no
 /// message change carries, and their clicks.
-extension HomeProjection {
+extension HomeProjection: HomeChiefCardStateObserver {
+    func chiefCardStateChanged() { refreshCards() }
+
     /// Each shown card row again with what only this side knows: the screenshot once HomeMedia has
     /// it, the chips a later person message said, a sign-in the Secure Store holds. A card that
     /// changed is replaced in place (`.cmuxSetParts`, no motion); the message's other parts stay as
@@ -17,11 +19,12 @@ extension HomeProjection {
         guard !cards.isEmpty else { return }
         let summary = shownSummary
         let chosen = HomeChiefCards.chosen(in: shown) { !HomeMapping.isAgent($0, summary) }
+        let stored = cardState?.storedSites ?? []
         for item in cards {
             let id = HomeMapping.id(item, aliases: aliases)
             guard let message = store.state.message(id) else { continue }
             let want = HomeMapping.projectedParts(item, summary: summary, media: core.media, links: core.links,
-                                                  chosen: chosen[item.key] ?? []).parts
+                                                  cards: HomeChiefCardContext(chosen: chosen[item.key] ?? [], stored: stored)).parts
             guard want.count == message.parts.count else { continue }
             let parts = zip(message.parts, want).map { have, new -> Part in
                 if case let .custom(c) = new, c.kind == HomeChiefCardRowProvider.kind { return new }

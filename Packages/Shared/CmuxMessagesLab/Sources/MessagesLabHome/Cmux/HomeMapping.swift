@@ -109,16 +109,17 @@ enum HomeMapping {
     /// stay one text bubble, a URL in a sentence gets no card. So the local
     /// send and the message HomeStore stores show the same bubbles.
     ///
-    /// `chosen`: the next-step choices a later person message said (``HomeChiefCards/chosen(in:isPerson:)``);
-    /// only `HomeProjection.refreshCards` knows them, the other mappings show a card's chips unchosen.
+    /// `cards`: what a Chief card shows from this Mac (``HomeChiefCardContext``: the chips a later person
+    /// message said, the Secure Store's sites); only `HomeProjection.refreshCards` knows it, the other
+    /// mappings show a card without it.
     static func projectedParts(_ item: TranscriptItem, summary: ConversationSummary?, media: Media = { _ in nil },
-                               links: Links = { _ in nil }, chosen: Set<String> = []) -> (parts: [Part], owners: [Int]) {
+                               links: Links = { _ in nil }, cards: HomeChiefCardContext = HomeChiefCardContext()) -> (parts: [Part], owners: [Int]) {
         guard !item.isRetracted else { return ([], []) }
         let markdown = isAgent(item.author, summary)
         var parts: [Part] = [], owners: [Int] = []
         for (i, p) in item.parts.enumerated() {
             let shown = if case .card(let card) = p {
-                [HomeChiefCardRowProvider.part(card, media: media, chosen: chosen)]
+                [HomeChiefCardRowProvider.part(card, media: media, context: cards)]
             } else {
                 self.parts(p, media: media, progress: item.attachmentProgress, markdown: markdown, links: links)
             }
@@ -320,7 +321,7 @@ enum HomeMapping {
             return .location(latitude: place.latitude, longitude: place.longitude, title: place.label, subtitle: nil)
         case .card(let card):
             // A Chief's card (cmux issue 25830): a drawn row, its screenshot by hash like a link preview's.
-            return HomeChiefCardRowProvider.part(card, media: media, chosen: [])
+            return HomeChiefCardRowProvider.part(card, media: media, context: HomeChiefCardContext())
         case .work, .approval, .question:
             // Agent session, approval and question cards are not MessagesLab rows
             // yet: their text. The question card moves to the custom-row seam.

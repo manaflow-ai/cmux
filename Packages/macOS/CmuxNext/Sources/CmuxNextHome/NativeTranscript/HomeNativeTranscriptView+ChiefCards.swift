@@ -2,7 +2,7 @@ import AppKit
 public import CmuxHomeCore
 import CmuxNextDesign
 import Foundation
-import MessagesLabHome
+public import MessagesLabHome
 
 /// A Chief's cards (cmux issue 25830): Open browser goes to the host; a sign-in card's Add asks for
 /// the sign-in in a sheet on this window and hands it to the host's save (the Secure Store). The
@@ -11,6 +11,12 @@ import MessagesLabHome
 extension HomeNativeTranscriptView {
     static let signInUsernameField = "username"
     static let signInPasswordField = "password"
+
+    /// The host's Secure Store sites (shared by its transcripts): a sign-in card for one shows Added.
+    public var chiefCardState: HomeChiefCardState? {
+        get { transcript.chiefCardState }
+        set { transcript.chiefCardState = newValue }
+    }
 
     /// A browser card's Open browser (a computer card's Open desktop): the target and the card's page URL.
     public var onChiefCardOpen: ((ChiefCard.Target, String?) -> Void)? {
