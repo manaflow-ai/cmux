@@ -363,6 +363,8 @@ final class AppServices {
     /// reach Ghostty on a frame interval's first event and once more at its frame. Nil while it is off: each event
     /// reaches Ghostty at once.
     private(set) lazy var terminalPointerFrames: FrameInputCoalescers? = features.isEnabled(.terminalPointerFrames) ? pointerFrames : nil
+    /// Tab strip wheels (feature `tabStripScrollFrames`, p04-input-087): one layer moves per frame. Nil: each event lays out.
+    private(set) lazy var tabScrollFrameInput: FrameInputCoalescers? = features.isEnabled(.tabStripScrollFrames) ? pointerFrames : nil
     /// Remote panes (feature `pointerFrameRemoteInput`): remote desktop and remote browser tabs send moves, drags and
     /// mid-gesture scrolls to the host on a frame interval's first event and once more at its frame (p04-input-035).
     /// Nil while it is off: each event goes to the host at once.
