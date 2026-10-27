@@ -5,7 +5,11 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PICK="$ROOT_DIR/scripts/ci/nightly-sparkle-key.sh"
-WORKFLOW="$ROOT_DIR/.github/workflows/nightly.yml"
+# nightly.yml with its scripts/ci/nightly-steps/*.sh steps put back inline: the helper
+# calls moved there with their run blocks (#26196, #26210).
+WORKFLOW="$(mktemp)"
+trap 'rm -f "$WORKFLOW"' EXIT
+(cd "$ROOT_DIR/tests" && python3 -c 'from nightly_workflow_text import nightly_text; print(nightly_text())') >"$WORKFLOW"
 
 expect() {
   # expect <want> <selector> <channel> [nightly-key]
