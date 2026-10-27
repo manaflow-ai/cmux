@@ -160,10 +160,17 @@ def newer_head_runs(run: Mapping[str, Any], runs: Iterable[Mapping[str, Any]]) -
     return [other for _, other in sorted(found.values(), key=lambda pair: pair[0], reverse=True)]
 
 
+def is_build_job(job: Mapping[str, Any]) -> bool:
+    """A job that does build work: it asks for a Mac, or its name says it builds, signs or publishes."""
+    return (any("macos" in str(label).lower() for label in job.get("labels") or ())
+            or bool(BUILD_JOB_NAME.search(str(job.get("name") or ""))))
+
+
 def builds_the_same(waiting: Sequence[str], other_jobs: Sequence[Mapping[str, Any]] | None) -> str | None:
-    """Why `other_jobs` (a newer run's) do not show that run doing the build `waiting` names, or None when they do:
-    each waiting job of the old run is listed in the newer one and has not been skipped or failed. A cache-only or
-    throttled run skips its build jobs, and one still deciding has not listed them yet."""
+    """Why `other_jobs` (a newer run's) do not show that run doing the same work, or None when they do: each job
+    of the old run that is not skipped (`waiting`: those waiting and the gates that ran) is listed in the newer one
+    and has not been skipped or failed. A cache-only or throttled run skips its build jobs, and one still deciding
+    has not listed them yet."""
     if other_jobs is None:
         return "its jobs could not be read"
     listed: dict[str, list[Mapping[str, Any]]] = {}
@@ -200,9 +207,12 @@ def superseded_unstarted(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any
     started = build_started(jobs)
     if started:
         return False, f"its build has started: {started}"
-    waiting = sorted({str(job.get("name") or "") for job in jobs if job.get("status") in WAITING_JOB_STATUSES})
-    if not waiting:
-        return False, "no job of it is waiting, so what it would build cannot be matched"
+    pending = [job for job in jobs if job.get("status") in WAITING_JOB_STATUSES]
+    if not any(is_build_job(job) for job in pending):
+        # Still at its gates (decide, inputs): whether it would build at all is not known yet, so nothing can show
+        # that a newer run does the same.
+        return False, "it waits on no build job yet, so what it would deliver cannot be matched"
+    waiting = sorted({str(job.get("name") or "") for job in jobs if job.get("conclusion") != "skipped"})
     newer = newer_head_runs(run, runs)
     if not newer:
         return False, f"no newer head of {run.get('head_branch') or 'its branch'} has its own run of this workflow"
@@ -212,7 +222,7 @@ def superseded_unstarted(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any
     for other in newer[:REPLACEMENT_JOB_READS]:
         problem = builds_the_same(waiting, jobs_of(other))
         if problem is None:
-            return True, (f"its build has not started ({len(waiting)} job(s) waiting, only gate jobs done) and run "
+            return True, (f"its build has not started ({len(pending)} job(s) waiting, only gate jobs done) and run "
                           f"{other.get('id')} builds the newer head {str(other.get('head_sha'))[:12]} of "
                           f"{run.get('head_branch')} with the same job(s)")
         why_not = why_not or f"run {other.get('id')}: {problem}"

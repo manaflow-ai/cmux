@@ -1298,6 +1298,16 @@ class SupersededDeliveryTests(unittest.TestCase):
                 ok, why = janitor.superseded_unstarted(old, gate_jobs(60), [old, new], lambda other: newer_jobs)
                 self.assertFalse(ok)
                 self.assertIn("same build", why)
+        # An old run still at its gates (only `decide` queued) is not matched to anything: a cache-only run's
+        # `decide` succeeds too.
+        at_gates = [{"name": "decide", "status": "queued", "labels": [LINUX], "runner_name": None}]
+        ok, why = janitor.superseded_unstarted(old, at_gates, [old, new], lambda other: skipped)
+        self.assertFalse(ok)
+        self.assertIn("no build job", why)
+        # A newer run that skipped a gate the old one ran (a different path) is not the same build either.
+        other_path = gate_jobs(20)
+        other_path[1] = {**other_path[1], "status": "completed", "conclusion": "skipped"}
+        self.assertFalse(janitor.superseded_unstarted(old, gate_jobs(60), [old, new], lambda other: other_path)[0])
         # Two newer runs: a cache-only one first, a building one behind it.
         building = nightly_run("e3ca669f", 30)
         ok, why = self.judge(old, gate_jobs(60), [old, building, new], {new["id"]: skipped})
