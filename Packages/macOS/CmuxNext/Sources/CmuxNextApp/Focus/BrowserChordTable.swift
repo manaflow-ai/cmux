@@ -91,7 +91,7 @@ enum BrowserChordTable {
     private static func shortcuts(of event: NSEvent) -> [Shortcut] {
         guard event.type == .keyDown else { return [] }
         let keys = [event.charactersIgnoringModifiers, event.characters(byApplyingModifiers: [])].compactMap { $0 }
-        return keys.map { Shortcut($0, modifiers: event.modifierFlags) }
+        return keys.map { Shortcut($0, modifiers: KeyModifiers(eventFlags: event.modifierFlags)) }
     }
 
     /// Whether the focus target is browser content (page, address bar, find

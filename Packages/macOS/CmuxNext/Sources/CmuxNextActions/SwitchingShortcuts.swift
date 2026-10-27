@@ -70,7 +70,7 @@ public nonisolated struct SwitchingShortcuts: Sendable, Equatable {
         }
         let tabs = binding("selectSurfaceByNumber", preferred: nil, digit: true)
         tabByNumber = tabs.map { display($0, "selectSurfaceByNumber") }
-        tabByNumberModifiers = tabs.flatMap { $0.keys.count == 1 ? $0.keys[0].modifiers.intersection(.deviceIndependentFlagsMask).rawValue : nil }
+        tabByNumberModifiers = tabs.flatMap { $0.keys.count == 1 ? $0.keys[0].modifiers.rawValue : nil }
         workspaceByNumber = binding("selectWorkspaceByNumber", preferred: nil, digit: true).map { display($0, "selectWorkspaceByNumber") }
         nextPreviousTab = pair(key("prevSurface", Shortcut("[", modifiers: [.command, .shift])),
                                key("nextSurface", Shortcut("]", modifiers: [.command, .shift])))

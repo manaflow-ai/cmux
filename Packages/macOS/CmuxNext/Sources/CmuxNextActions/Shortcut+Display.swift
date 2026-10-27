@@ -1,17 +1,6 @@
-import AppKit
+import Foundation
 
 extension Shortcut {
-    // Key-equivalent characters for non-printing keys (NSMenuItem semantics).
-    public nonisolated static let upArrowKey = String(Character(UnicodeScalar(UInt32(NSUpArrowFunctionKey)) ?? UnicodeScalar(0)))
-    public nonisolated static let downArrowKey = String(Character(UnicodeScalar(UInt32(NSDownArrowFunctionKey)) ?? UnicodeScalar(0)))
-    public nonisolated static let leftArrowKey = String(Character(UnicodeScalar(UInt32(NSLeftArrowFunctionKey)) ?? UnicodeScalar(0)))
-    public nonisolated static let rightArrowKey = String(Character(UnicodeScalar(UInt32(NSRightArrowFunctionKey)) ?? UnicodeScalar(0)))
-    public nonisolated static let returnKey = "\r"
-    public nonisolated static let tabKey = "\t"
-    public nonisolated static let escapeKey = "\u{1B}"
-    public nonisolated static let deleteKey = "\u{8}"
-    public nonisolated static let spaceKey = " "
-
     /// Modifier glyphs in macOS menu order: control, option, shift, command.
     public var modifierGlyphs: [String] {
         var glyphs: [String] = []

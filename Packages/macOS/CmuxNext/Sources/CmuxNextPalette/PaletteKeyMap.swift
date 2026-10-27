@@ -69,7 +69,7 @@ public struct PaletteKeyMap {
 
     /// The table keys an event may be: its key-code key, else its characters.
     static func shortcuts(for event: NSEvent) -> [Shortcut] {
-        let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        let flags = KeyModifiers(eventFlags: event.modifierFlags)
         if let key = keysByCode[event.keyCode] { return [Shortcut(key, modifiers: flags)] }
         guard let key = event.charactersIgnoringModifiers?.lowercased(), !key.isEmpty else { return [] }
         return [Shortcut(key, modifiers: flags)]

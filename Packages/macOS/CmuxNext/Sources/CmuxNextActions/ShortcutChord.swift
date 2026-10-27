@@ -1,4 +1,4 @@
-public import AppKit
+import Foundation
 
 /// A two-key shortcut (`["ctrl+b", "c"]` in cmux.json), as the old app's
 /// Prefix-chord bindings: the first key arms it, the next key runs the action.
@@ -59,35 +59,5 @@ extension ActionRegistry {
             return (id, String(digit))
         }
         return nil
-    }
-
-    /// The first key of a chord a key-down starts, or nil.
-    public func chordPrefix(for event: NSEvent) -> Shortcut? {
-        Self.shortcuts(for: event).first(where: startsChord)
-    }
-
-    /// The action a key-down completes after `prefix`, with its tier.
-    public func resolveChord(after prefix: Shortcut, event: NSEvent) -> (id: ActionID, argument: String?, tier: ActionKeyTier)? {
-        guard event.type == .keyDown else { return nil }
-        for shortcut in Self.shortcuts(for: event) {
-            if let resolved = resolveChord(after: prefix, shortcut) {
-                return (resolved.id, resolved.argument, keyTier(for: resolved.id))
-            }
-        }
-        return nil
-    }
-
-    /// The shortcuts a key-down may mean: its characters, then the unshifted
-    /// key ("}" or "]" for Shift-]), with its modifiers.
-    public static func shortcuts(for event: NSEvent) -> ShortcutReadings {
-        guard event.type == .keyDown else { return ShortcutReadings() }
-        let flags = event.modifierFlags.intersection(Shortcut.relevantModifiers)
-        let key = event.charactersIgnoringModifiers.map { Shortcut($0, modifiers: flags) }
-        let base = event.characters(byApplyingModifiers: []).map { Shortcut($0, modifiers: flags) }
-        switch (key, base) {
-        case (let key?, let base?): return ShortcutReadings(key, base)
-        case (let only?, nil), (nil, let only?): return ShortcutReadings(only)
-        case (nil, nil): return ShortcutReadings()
-        }
     }
 }

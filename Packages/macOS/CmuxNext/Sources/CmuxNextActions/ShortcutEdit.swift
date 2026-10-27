@@ -54,7 +54,7 @@ extension ActionRegistry {
     /// The numbered family `id` (`⌘1…9`) on `modifiers`: each of its nine
     /// keys assessed as ``assessKey(_:for:environment:)`` does; the first
     /// that is not available decides, else the notes of all nine.
-    public func assessFamilyModifiers(_ modifiers: NSEvent.ModifierFlags, for id: ActionID,
+    public func assessFamilyModifiers(_ modifiers: KeyModifiers, for id: ActionID,
                                       environment: ShortcutEditEnvironment) -> ShortcutAssessment {
         var notes: [ShortcutNote] = []
         for digit in 1...9 {

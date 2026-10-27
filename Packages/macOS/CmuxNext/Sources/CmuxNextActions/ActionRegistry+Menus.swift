@@ -15,7 +15,7 @@ extension ActionRegistry {
             action: #selector(ActionMenuTarget.performAction(_:)),
             keyEquivalent: isFamily ? "" : (shortcut?.key ?? "")
         )
-        item.keyEquivalentModifierMask = isFamily ? [] : (shortcut?.modifiers ?? [])
+        item.keyEquivalentModifierMask = isFamily ? [] : (shortcut?.modifiers.eventFlags ?? [])
         item.representedObject = id.rawValue
         item.target = menuTarget
         // Accessibility clients (computer-use agents) find a menu bar action by id in any language.

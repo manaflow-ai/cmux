@@ -1,4 +1,4 @@
-public import AppKit
+import Foundation
 
 /// Stable identifier for an action, e.g. `view.toggleSidebar`.
 ///
@@ -19,38 +19,15 @@ public nonisolated struct ActionID: RawRepresentable, Hashable, Sendable, Expres
 }
 
 /// A key equivalent plus modifiers. `key` uses NSMenuItem key-equivalent
-/// semantics: a lowercase character, or a function-key character.
+/// semantics: a lowercase character, or a function-key character
+/// (``Shortcut/upArrowKey`` and the other named key codes).
 public nonisolated struct Shortcut: Hashable, Sendable {
     public let key: String
-    public let modifiers: NSEvent.ModifierFlags
+    public let modifiers: KeyModifiers
 
-    public init(_ key: String, modifiers: NSEvent.ModifierFlags = [.command]) {
+    public init(_ key: String, modifiers: KeyModifiers = [.command]) {
         self.key = key.lowercased()
-        self.modifiers = modifiers.intersection(Self.relevantModifiers)
-    }
-
-    /// Modifiers that participate in matching; caps lock, fn, and numeric pad
-    /// flags are ignored.
-    static let relevantModifiers: NSEvent.ModifierFlags = [.command, .shift, .option, .control]
-
-    /// Whether a key-down event triggers this shortcut.
-    public func matches(_ event: NSEvent) -> Bool {
-        guard event.type == .keyDown else { return false }
-        let flags = event.modifierFlags.intersection(Self.relevantModifiers)
-        guard flags == modifiers else { return false }
-        // `charactersIgnoringModifiers` keeps shift applied for letters on
-        // some layouts, so compare lowercased.
-        return event.charactersIgnoringModifiers?.lowercased() == key
-    }
-
-    // `NSEvent.ModifierFlags` is not Hashable; hash its raw value.
-    public static func == (lhs: Shortcut, rhs: Shortcut) -> Bool {
-        lhs.key == rhs.key && lhs.modifiers.rawValue == rhs.modifiers.rawValue
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(key)
-        hasher.combine(modifiers.rawValue)
+        self.modifiers = modifiers.intersection(.relevant)
     }
 }
 

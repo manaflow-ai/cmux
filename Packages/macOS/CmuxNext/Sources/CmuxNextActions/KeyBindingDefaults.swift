@@ -1,4 +1,4 @@
-public import AppKit
+import Foundation
 
 /// Default entries that are not an action's own catalog key (plans/cmux-next/keybindings.md
 /// section 5).
@@ -28,14 +28,14 @@ public import AppKit
 ///   change one only with the user's explicit OK.
 public nonisolated struct KeyBindingDefaults {
     public nonisolated init() {}
-    static let right = String(Character(UnicodeScalar(UInt32(NSRightArrowFunctionKey)) ?? UnicodeScalar(0)))
-    static let left = String(Character(UnicodeScalar(UInt32(NSLeftArrowFunctionKey)) ?? UnicodeScalar(0)))
-    static let up = String(Character(UnicodeScalar(UInt32(NSUpArrowFunctionKey)) ?? UnicodeScalar(0)))
-    static let down = String(Character(UnicodeScalar(UInt32(NSDownArrowFunctionKey)) ?? UnicodeScalar(0)))
-    public static let pageUp = String(Character(UnicodeScalar(UInt32(NSPageUpFunctionKey)) ?? UnicodeScalar(0)))
-    public static let pageDown = String(Character(UnicodeScalar(UInt32(NSPageDownFunctionKey)) ?? UnicodeScalar(0)))
-    public static let home = String(Character(UnicodeScalar(UInt32(NSHomeFunctionKey)) ?? UnicodeScalar(0)))
-    public static let end = String(Character(UnicodeScalar(UInt32(NSEndFunctionKey)) ?? UnicodeScalar(0)))
+    static let right = Shortcut.rightArrowKey
+    static let left = Shortcut.leftArrowKey
+    static let up = Shortcut.upArrowKey
+    static let down = Shortcut.downArrowKey
+    public static let pageUp = Shortcut.pageUpKey
+    public static let pageDown = Shortcut.pageDownKey
+    public static let home = Shortcut.homeKey
+    public static let end = Shortcut.endKey
 
     public static let notTerminal = WhenClause.notEquals(KeyContext.surfaceKind, .string("terminal"))
 
@@ -44,7 +44,7 @@ public nonisolated struct KeyBindingDefaults {
     /// and `selectWorkspaceByNumber` (Cmd-1…9) are here too, so they also win
     /// over a Ghostty keybind.
     public static let tabSwitching: [KeyBinding] = {
-        func bind(_ key: String, _ modifiers: NSEvent.ModifierFlags, _ id: ActionID, _ argument: String? = nil) -> KeyBinding {
+        func bind(_ key: String, _ modifiers: KeyModifiers, _ id: ActionID, _ argument: String? = nil) -> KeyBinding {
             KeyBinding(keys: [Shortcut(key, modifiers: modifiers)], command: id, argument: argument)
         }
         return [
@@ -101,7 +101,7 @@ public nonisolated struct KeyBindingDefaults {
     /// actions' catalog keys; Cmd-Shift-] / [ are aliases. They go after the Chrome tab keys
     /// (``tabSwitching``), which they replace on Home only.
     public static let homeChatSwitching: [KeyBinding] = {
-        func bind(_ key: String, _ modifiers: NSEvent.ModifierFlags, _ id: ActionID, _ argument: String? = nil) -> KeyBinding {
+        func bind(_ key: String, _ modifiers: KeyModifiers, _ id: ActionID, _ argument: String? = nil) -> KeyBinding {
             KeyBinding(keys: [Shortcut(key, modifiers: modifiers)], command: id, argument: argument, when: onHomeChats)
         }
         return [
@@ -283,7 +283,7 @@ public nonisolated struct KeyBindingDefaults {
         func when(_ clauses: WhenClause...) -> WhenClause { .and([open] + clauses) }
         let tree = WhenClause.has(K.paletteHierarchical), menu = WhenClause.has(K.paletteActionsMenuOpen)
         let empty = WhenClause.has(K.paletteQueryEmpty)
-        func bind(_ key: String, _ modifiers: NSEvent.ModifierFlags, _ id: ActionID, _ clause: WhenClause) -> KeyBinding {
+        func bind(_ key: String, _ modifiers: KeyModifiers, _ id: ActionID, _ clause: WhenClause) -> KeyBinding {
             KeyBinding(keys: [Shortcut(key, modifiers: modifiers)], command: id, when: clause)
         }
         return [

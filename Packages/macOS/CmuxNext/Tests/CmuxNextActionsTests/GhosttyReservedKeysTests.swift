@@ -51,7 +51,7 @@ import Testing
 
     /// A keybindings.json stroke (`cmd+opt+left`) as a ``Shortcut``.
     static func shortcut(_ text: String) throws -> Shortcut {
-        var modifiers: NSEvent.ModifierFlags = []
+        var modifiers: KeyModifiers = []
         var key: String?
         for token in text.lowercased().split(separator: "+").map(String.init) {
             switch token {

@@ -212,6 +212,6 @@ extension ShortcutRecorder {
     public static func shortcut(for event: NSEvent) -> Shortcut {
         let base = event.characters(byApplyingModifiers: [])?.lowercased()
         let key = base.flatMap { $0.isEmpty ? nil : $0 } ?? event.charactersIgnoringModifiers?.lowercased() ?? ""
-        return Shortcut(key, modifiers: event.modifierFlags)
+        return Shortcut(key, modifiers: KeyModifiers(eventFlags: event.modifierFlags))
     }
 }

@@ -144,7 +144,8 @@ struct KeyRouterBench {
         let target = try #require(stubbed.first)
         let whenKey = try #require(chords.first { $0.name == "when_clause" })
         KeyBindingLoader(registry).load(KeyBindingLayers(user: [
-            KeyBinding(keys: [Shortcut(whenKey.unmodified, modifiers: whenKey.modifiers)], command: target, when: whenClause, source: .user),
+            KeyBinding(keys: [Shortcut(whenKey.unmodified, modifiers: KeyModifiers(eventFlags: whenKey.modifiers))], command: target,
+                       when: whenClause, source: .user),
         ]))
         let resolved = router.candidate(for: try harness.event(whenKey), focus: focus, facts: facts)
         try #require(resolved?.id == target, "the when-clause binding does not win in a terminal (\(resolved?.id.rawValue ?? "nothing"))")

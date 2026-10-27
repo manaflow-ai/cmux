@@ -63,7 +63,7 @@ import Testing
         #expect(!idsByShortcut.isEmpty, "the menu bar places actions with shortcuts")
         for (shortcut, ids) in idsByShortcut {
             let characters = try #require(Self.characters(of: shortcut))
-            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: shortcut.modifiers,
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: shortcut.modifiers.eventFlags,
                                                       timestamp: 1000, windowNumber: 0, context: nil, characters: characters,
                                                       charactersIgnoringModifiers: characters, isARepeat: false, keyCode: 0))
             recorder.fired = nil

@@ -201,7 +201,7 @@ struct KeybindingPageWrites {
 
     /// Moves the numbered family `id` to `modifiers` (all nine keys) in cmux.json.
     /// Its own keys again write nothing; its default keys drop the override.
-    private func moveFamily(_ id: ActionID, to modifiers: NSEvent.ModifierFlags) async throws {
+    private func moveFamily(_ id: ActionID, to modifiers: KeyModifiers) async throws {
         let first = Shortcut("1", modifiers: modifiers)
         guard registry.effectiveShortcut(for: id) != first || registry.chordOverrides[id] != nil else { return }
         let environment = ShortcutEditEnvironment(chromeChords: BrowserChordTable.chromeReserved)

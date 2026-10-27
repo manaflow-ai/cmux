@@ -57,7 +57,7 @@ struct GhosttyKeyBindingLayer {
         let scalars = shortcut.key.unicodeScalars
         // Function keys (arrows, Home) type nothing: Ghostty matches them by the physical key.
         let typed = scalars.count == 1 && !(0xF700...0xF8FF).contains(scalars.first?.value ?? 0) ? scalars.first?.value ?? 0 : 0
-        return GhosttyKeyProbe(keyCode: code, unshifted: typed, modifiers: shortcut.modifiers)
+        return GhosttyKeyProbe(keyCode: code, unshifted: typed, modifiers: shortcut.modifiers.eventFlags)
     }
 
     /// The single Command or Control keys of the table's default entries
@@ -84,9 +84,9 @@ struct GhosttyKeyBindingLayer {
     func shortcut(for bind: GhosttyHostKeybind) -> Shortcut? {
         switch bind.key {
         case .unicode(let scalar):
-            UnicodeScalar(scalar).map { Shortcut(String(Character($0)), modifiers: bind.modifiers) }
+            UnicodeScalar(scalar).map { Shortcut(String(Character($0)), modifiers: KeyModifiers(eventFlags: bind.modifiers)) }
         case .keyCode(let code):
-            keyNames[code].map { Shortcut($0, modifiers: bind.modifiers) }
+            keyNames[code].map { Shortcut($0, modifiers: KeyModifiers(eventFlags: bind.modifiers)) }
         }
     }
 }

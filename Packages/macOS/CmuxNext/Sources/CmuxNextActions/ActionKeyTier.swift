@@ -1,4 +1,4 @@
-public import AppKit
+import Foundation
 
 /// Where an action's shortcut sits in the key routing order
 /// (plans/cmux-next/focus.md section 5). Lower tiers run first.
@@ -81,16 +81,16 @@ extension ActionRegistry {
         keyTierOverrides[canonicalID(for: id)] = tier
     }
 
-    /// The action a key-down resolves to in the current context, with its
-    /// tier, without running it: the binding table's winner
-    /// (``RegistryKeyBindings/table``, as the key router resolves), so a
-    /// more specific entry wins (Cmd-R in a page is reload, not rename);
-    /// the router then decides by tier whether it may run now.
-    public func resolveShortcut(for event: NSEvent) -> (id: ActionID, argument: String?, tier: ActionKeyTier)? {
+    /// The action a key-down's readings (``shortcuts(for:)``) resolve to in
+    /// the current context, with its tier, without running it: the binding
+    /// table's winner (``RegistryKeyBindings/table``, as the key router
+    /// resolves), so a more specific entry wins (Cmd-R in a page is reload,
+    /// not rename); the router then decides by tier whether it may run now.
+    public func resolveShortcut(readings: ShortcutReadings) -> (id: ActionID, argument: String?, tier: ActionKeyTier)? {
         let bindings = RegistryKeyBindings(self)
         let table = bindings.table, bits = context
         let input = CompiledWhen.Input(KeyContext(bits: bits))
-        for shortcut in Self.shortcuts(for: event) {
+        for shortcut in readings {
             if let winner = table.resolveWinner(CollectionOfOne(shortcut), in: input, isRunnable: { bindings.canPerform($0, in: bits) }) {
                 return (winner.command, winner.argument, keyTier(for: winner.command))
             }
