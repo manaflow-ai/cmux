@@ -21,6 +21,11 @@ extension HomeNativeTranscriptView {
         firstRun.setShortcuts(terminal: terminal, agent: agent, switching: switching)
     }
 
+    /// The first-run panel's "Bring your memory from …" row (what the host found on this Mac); nil removes it.
+    public func setFirstRunMemoryOffer(_ title: String?) {
+        firstRun.setMemoryOffer(title)
+    }
+
     /// The Chief's avatar as the host resolved it (its picture, else its text: the profile's, or
     /// 🫡 for a Chief with none, `HomeChiefAvatar.headerText`), on the header and the first-run hero.
     public func setChiefAvatar(picture: NSImage?, text: String?) {
@@ -37,18 +42,6 @@ extension HomeNativeTranscriptView {
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.followChiefPet() }
         }
-    }
-
-    /// A row the host puts on the Chief's front page under its action rows (Home's import
-    /// suggestion, `ImportSuggestionRowView`), in the panel's own layout so it never covers the
-    /// conversation; nil removes it.
-    public func setFirstRunAccessory(_ view: NSView?) {
-        firstRun.accessory = view
-    }
-
-    /// The front page's host row showed, hid or changed size: the panel fits its rows again.
-    public func firstRunAccessoryChanged() {
-        firstRun.needsLayout = true
     }
 
     /// The user's agents for the first-run panel's glance (the host maps

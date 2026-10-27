@@ -37,7 +37,7 @@ final class HelperDragPanel: NSPanel {
         surface.layoutSubtreeIfNeeded()
         stack.frame = NSRect(origin: .zero, size: size)
         contentView = surface
-        ThemeStore.shared.adopt(self)
+        ThemeScope.app.store.adopt(self)
         setContentSize(size)
         close.target = self
         close.action = #selector(closePressed)

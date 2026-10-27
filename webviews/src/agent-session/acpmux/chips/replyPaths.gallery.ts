@@ -6,15 +6,15 @@ import { agentPaneEntry, type ChipHostFixture } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 
 const FLEET_REPLY = [
-  "Rendered the build fleet status: `/tmp/fleetviz/out/fleet.png` and `/tmp/fleetviz/out/fleet.html`.",
+  "Rendered the build fleet status: `/var/tmp/fleetviz/out/fleet.png` and `/var/tmp/fleetviz/out/fleet.html`.",
   "",
-  "![Build fleet status](/tmp/fleetviz/out/fleet.png)",
+  "![Build fleet status](/var/tmp/fleetviz/out/fleet.png)",
 ].join("\n");
 
 const FLEET_HOST: ChipHostFixture = {
   paths: {
-    "/tmp/fleetviz/out/fleet.png": { place: "outside", folder: false },
-    "/tmp/fleetviz/out/fleet.html": { place: "outside", folder: false },
+    "/var/tmp/fleetviz/out/fleet.png": { place: "outside", folder: false },
+    "/var/tmp/fleetviz/out/fleet.html": { place: "outside", folder: false },
   },
   policy: { outsideRoots: "confirm", remoteImages: "click" },
 };
@@ -56,7 +56,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/chips/LinkChips.tsx#PathChip", "agent-session/acpmux/chips/ReplyImage.tsx#ReplyImage"],
   variants: {
     "fleet-reply": {
-      note: "The fleet reply: two /tmp paths in code are chips with a lock; the /tmp image is outside the folders.",
+      note: "The fleet reply: two /var/tmp paths explain their locality on hover; the image is outside the local image roots.",
       chipHost: FLEET_HOST,
       snapshot: chat([user("Render the build fleet status", 3), assistant(FLEET_REPLY, 2.9), summary(2.9)]),
     },

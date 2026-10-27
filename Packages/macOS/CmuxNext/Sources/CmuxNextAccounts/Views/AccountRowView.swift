@@ -76,6 +76,11 @@ struct AccountRowView: View {
                     .disabled(row.isBusy)
                     .accessibilityIdentifier("cmux.accounts.reauth.\(row.provider.rawValue)")
             }
+            if row.canSignOut {
+                Button(AccountsStrings.signOut, role: .destructive) { model.signOut(row.provider) }
+                    .disabled(row.isBusy)
+                    .accessibilityIdentifier("cmux.accounts.signOut.\(row.provider.rawValue)")
+            }
             if row.provider.acceptsPastedKey {
                 Button(AccountsStrings.addKey) { model.pasteTarget = row.provider }
                     .disabled(row.isBusy)

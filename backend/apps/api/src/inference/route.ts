@@ -9,11 +9,14 @@ import { roleHas } from "../domains/team-roles.ts"
 const SPEND_CLASSES: ReadonlySet<string> = new Set(["mutate-own", "mutate-shared", "money"])
 import { nextMonthStart, userLimitMicros } from "../usage-user.ts"
 import type { Env } from "../env.ts"
-import { cardCost, MODELS, modelById, type ModelEntry, type ProviderId } from "./catalog.ts"
+import { cardCost, MODELS, modelById, routeCost, type ModelEntry, type ProviderId } from "./catalog.ts"
 import { providerTarget } from "./providers.ts"
 import { callUpstream } from "./upstream.ts"
 import { freeCaller, freeSettle, freeAdmit } from "./free.ts"
 import { includedMicrosFor, includedReached } from "./included-stop.ts"
+import { creditsMargin, creditsMinReserveUsd } from "../credits.ts"
+
+const creditFloorMicros = (env: Env) => Math.ceil(creditsMinReserveUsd(env) * 1_000_000)
 
 /**
  * The model router's HTTP surface (plans/cmux-next/model-router.md, cx-dna4.1):
@@ -28,7 +31,13 @@ import { includedMicrosFor, includedReached } from "./included-stop.ts"
 
 export type Caller =
   | { readonly kind: "team"; readonly team: string; readonly user: string; readonly limitMicros: number; readonly plan?: string | null }
+  /** No paid plan, but prepaid cmux credits (credits.ts): each call is held and charged on the credit ledger, never billed. */
+  | { readonly kind: "credits"; readonly team: string; readonly user: string }
   | { readonly kind: "free"; readonly device: string }
+
+/** What a 402 offers the app's missing-access card (plans/cmux-next/paid-plan.md): buy credits, bring a key, or see the plans. */
+export const ACCESS_ACTIONS = ["add_credits", "add_api_key", "see_plans"] as const
+const TOPUP_PATH = "/v1/credits/topup"
 
 const MAX_BODY_BYTES = 8 * 1024 * 1024
 
@@ -44,8 +53,12 @@ const disabledProviders = (env: Env) => new Set((env.INFERENCE_DISABLED_PROVIDER
 /** Providers of a model that this deployment can call now (key or binding present, not switched off). */
 export const liveRoutes = (env: Env, m: ModelEntry) => {
   const off = disabledProviders(env)
-  return m.routes.filter((r) => !off.has(r.provider) && providerTarget(env, r.provider) !== undefined)
+  // Cheapest first (paid-plan.md §2); sort is stable, so equal or unpriced routes keep catalog order.
+  return m.routes.filter((r) => !off.has(r.provider) && providerTarget(env, r.provider) !== undefined).sort((a, b) => routeCost(a) - routeCost(b))
 }
+
+/** Outside production, `x-cmux-provider` pins one provider (per-provider staging checks); production ignores it. */
+export const PROVIDER_PIN_HEADER = "x-cmux-provider"
 
 /** Bearer token, or `x-api-key` (Messages API clients send the key there). */
 const bearer = (request: Request) => {
@@ -88,10 +101,15 @@ export const resolveCaller = async (env: Env, request: Request): Promise<Caller 
   // team through its team plan (inference/plan.ts, protocol inference-plans.ts).
   const personal = p.team === personalTeamIdFor(p.user)
   const stackUser = personal ? (p.stack_user_id ?? (await env.USER_DO.get(env.USER_DO.idFromName(p.user)).stackUserOf(p.user)) ?? undefined) : undefined
-  if (personal && !stackUser) return err(402, "inference.plan_required", "AI models need a paid plan", { details: { plan: INFERENCE_ENTRY_PLAN } })
-  const plan = await env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team)).inferencePlan(p.team, p.user, stackUser)
+  const plan = personal && !stackUser ? ({ ok: true, paid: false } as const) : await env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team)).inferencePlan(p.team, p.user, stackUser)
   if (!plan.ok) return err(503, "plan.unavailable", "the plan check is not available now; retry", { retryable: true })
-  if (!plan.paid) return err(402, "inference.plan_required", "AI models need a paid plan", { details: { plan: INFERENCE_ENTRY_PLAN } })
+  if (!plan.paid) {
+    // No paid plan: prepaid cmux credits pay instead ("Use cmux credits", paid-plan.md step 1).
+    const credits = await env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(p.team)).creditBalance(p.team, Date.now(), 0).catch(() => null)
+    if (credits === null) return err(503, "credits.unavailable", "the credit balance could not be read; retry", { retryable: true })
+    if (credits.available_micros > 0) return { kind: "credits", team: p.team, user: p.user }
+    return err(402, "inference.plan_required", "AI models need cmux credits, your own API key, or a paid plan", { details: { plan: INFERENCE_ENTRY_PLAN, actions: ACCESS_ACTIONS, credits: { available_usd: credits.available_micros / 1_000_000, topup_path: TOPUP_PATH } } })
+  }
   return { kind: "team", team: p.team, user: p.user, limitMicros: userLimitMicros(plan.user_limit_usd), plan: plan.plan ?? null }
 }
 
@@ -164,14 +182,14 @@ export const admitRequest = async (env: Env, request: Request): Promise<{ caller
 export const handleChatCompletions = async (env: Env, request: Request, ctx: ExecutionContext): Promise<Response> => {
   const admitted = await admitRequest(env, request)
   if (admitted instanceof Response) return admitted
-  return serveChat(env, ctx, admitted.caller, admitted.body, admitted.bytes)
+  return serveChat(env, ctx, admitted.caller, admitted.body, admitted.bytes, request.headers.get(PROVIDER_PIN_HEADER))
 }
 
 /**
  * One OpenAI chat/completions request from an admitted caller. `promptBytes` bounds the prompt
  * tokens (one token is at least one byte of the request).
  */
-export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller, body: Record<string, unknown>, promptBytes: number): Promise<Response> => {
+export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller, body: Record<string, unknown>, promptBytes: number, pin?: string | null): Promise<Response> => {
   const model = typeof body.model === "string" ? modelById(body.model) : undefined
   if (!model) return err(404, "model.not_found", "unknown model; GET /v1/inference/models lists the models")
   if (!Array.isArray(body.messages) || body.messages.length === 0) return err(400, "validation.invalid", "messages must be a non-empty array")
@@ -184,7 +202,9 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
   const free = caller.kind === "free"
   if (free && !model.free) return err(403, "free.model", "the free tier serves only the free models; sign in for the others")
   const maxTokens = Math.min(requested, model.maxOutput, free ? Number(env.INFERENCE_FREE_MAX_TOKENS ?? "4096") || 4096 : model.maxOutput)
-  const routes = liveRoutes(env, model)
+  const pinned = env.ENVIRONMENT !== "production" && pin ? pin : undefined
+  const routes = liveRoutes(env, model).filter((r) => pinned === undefined || r.provider === pinned)
+  if (pinned !== undefined && routes.length === 0) return err(400, "provider.not_on_route", `${pinned} does not serve this model on this deployment`)
   if (routes.length === 0) return err(503, "provider.unavailable", "no provider can serve this model now")
 
   const id = crypto.randomUUID()
@@ -196,6 +216,12 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
   if (caller.kind === "free") {
     const admitted = await freeAdmit(env, caller.device, id, Math.min(promptBound, model.context) + maxTokens)
     if (admitted) return admitted
+  } else if (caller.kind === "credits") {
+    const held = await env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team)).creditReserve(caller.team, `inference:${id}`, Math.max(maxMicros, creditFloorMicros(env)), null, null)
+    if (!held.ok) {
+      const d = "available_micros" in held ? { available_usd: held.available_micros / 1_000_000, needed_usd: held.needed_micros / 1_000_000 } : { available_usd: 0, needed_usd: maxUsd }
+      return err(402, "credits.insufficient", "Not enough cmux credits for this call. Add credits or use your own API key.", { details: { ...d, plan: INFERENCE_ENTRY_PLAN, actions: ACCESS_ACTIONS, credits: { topup_path: TOPUP_PATH } } })
+    }
   } else {
     const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team))
     const check = await meter.check(caller.team)
@@ -214,7 +240,14 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
    * call writes the call's fact, the member's spend and the team's model spend in one transaction
    * (cx-y79zh S1): the limit and the team counter read the same fact.
    */
-  const settleMember = (micros: number | null) => (caller.kind === "team" ? env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team)).settleCall(caller.team, id, micros) : Promise.resolve())
+  const settleMember = (micros: number | null): Promise<unknown> => {
+    if (caller.kind === "team") return env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team)).settleCall(caller.team, id, micros)
+    if (caller.kind !== "credits") return Promise.resolve()
+    // Prepaid: the hold becomes the real price (cost x margin), or is dropped when nothing was billed.
+    const m = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team))
+    const request = `inference:${id}`
+    return micros === null ? m.creditRelease(caller.team, request) : m.creditSettle(caller.team, request, Math.round(micros * creditsMargin(env)), Math.round(micros), null, null)
+  }
 
   const upstreamBody: Record<string, unknown> = {}
   for (const k of PASS_FIELDS) if (body[k] !== undefined) upstreamBody[k] = body[k]

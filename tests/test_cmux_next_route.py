@@ -36,16 +36,64 @@ PR_17470 = [
 ]
 
 
+def call_arguments(text: str, index: int) -> str:
+    """The top-level arguments of the call open at INDEX (just inside its parenthesis), up to the parenthesis
+    that closes it. String literals ("...", \"\"\"...\"\"\", raw #"..."#) are kept whole at the top level;
+    comments (//, nested /* */) and everything inside a nested call, array or closure become spaces, so
+    `path:` matches only the target's own argument."""
+    out: list[str] = []
+    depth = 0
+    closers = {"(": ")", "[": "]", "{": "}"}
+    while index < len(text):
+        if text.startswith("//", index):
+            newline = text.find("\n", index)
+            index = len(text) if newline < 0 else newline
+            continue
+        if text.startswith("/*", index):
+            nesting, index = 1, index + 2
+            while index < len(text) and nesting:
+                if text.startswith("/*", index):
+                    nesting, index = nesting + 1, index + 2
+                elif text.startswith("*/", index):
+                    nesting, index = nesting - 1, index + 2
+                else:
+                    index += 1
+            out.append(" ")
+            continue
+        literal = re.match(r'(#*)("""|")', text[index:])
+        if literal:
+            hashes, quote = literal.groups()
+            close = quote + hashes
+            cursor = index + len(literal.group(0))
+            while cursor < len(text) and not text.startswith(close, cursor):
+                cursor += 2 if (text[cursor] == "\\" and not hashes) else 1
+            cursor = min(len(text), cursor + len(close))
+            out.append(text[index:cursor] if depth == 0 else " ")
+            index = cursor
+            continue
+        char = text[index]
+        if char in closers:
+            depth += 1
+        elif char in ")]}":
+            if depth == 0:
+                return "".join(out)
+            depth -= 1
+        elif depth == 0:
+            out.append(char)
+        index += 1
+    return "".join(out)
+
+
 def manifest_target_paths() -> set[str]:
     """The path of each target Package.swift declares: its own `path:` when it sets one
     (CmuxNextTestExitTrace lives in Tests/Support), else Tests/<name> for a test target and
     Sources/<name> otherwise."""
     manifest = (ROOT / PACKAGE / "Package.swift").read_text(encoding="utf-8")
-    starts = list(re.finditer(r'\.(target|testTarget|executableTarget)\(\s*name:\s*"([^"]+)"', manifest))
     paths = set()
-    for index, start in enumerate(starts):
-        end = starts[index + 1].start() if index + 1 < len(starts) else len(manifest)
-        own = re.search(r'\bpath:\s*"([^"]+)"', manifest[start.end():end])
+    for start in re.finditer(r'\.(target|testTarget|executableTarget)\(\s*name:\s*"([^"]+)"', manifest):
+        # Only the target's own top-level `path:` argument: the last target in the list must not read one further
+        # down (the package dependencies' `.package(path:)` follow it since #24978), nor one in a nested call.
+        own = re.search(r'\bpath:\s*"([^"]+)"', call_arguments(manifest, start.end()))
         kind, name = start.groups()
         default = f"{'Tests' if kind == 'testTarget' else 'Sources'}/{name}"
         paths.add(f"{PACKAGE}/{own.group(1) if own else default}")
@@ -125,6 +173,29 @@ class GraphCoversThePackage(unittest.TestCase):
                 self.assertLessEqual(set(target["packages"]), set(GRAPH["packages"]))
 
 
+class ManifestReader(unittest.TestCase):
+    def path_of(self, manifest: str) -> str | None:
+        start = re.search(r'\.target\(\s*name:\s*"T"', manifest)
+        own = re.search(r'\bpath:\s*"([^"]+)"', call_arguments(manifest, start.end()))
+        return own.group(1) if own else None
+
+    def test_a_path_after_the_call_is_not_the_target_s(self):
+        self.assertIsNone(self.path_of('.target(name: "T", dependencies: ["A"])\n] + [x]\n.package(path: "../Other")'))
+
+    def test_the_target_s_own_path_is_read(self):
+        self.assertEqual(self.path_of('.target(name: "T", path: "Tests/Support/T")'), "Tests/Support/T")
+
+    def test_a_nested_path_argument_is_not_the_target_s(self):
+        self.assertEqual(self.path_of('.target(name: "T", resources: [helper(path: "Nested")], path: "Actual")'), "Actual")
+        self.assertIsNone(self.path_of('.target(name: "T", resources: [.copy(path: "Nested")])'))
+
+    def test_parentheses_in_strings_and_comments_do_not_end_the_call(self):
+        manifest = ('.target(name: "T", /* ) /* nested ) */ ) */ swiftSettings: [.define("A)")],\n'
+                    '  // a comment )\n  exclude: [#"raw ) \\"#, """\n  ) multi\n  """], path: "Real")\n'
+                    '.package(path: "../Other")')
+        self.assertEqual(self.path_of(manifest), "Real")
+
+
 class GraphGenerator(unittest.TestCase):
     def test_a_literal_too_long_for_a_path_is_not_a_read(self):
         """macOS stat fails with ENAMETOOLONG on a base64 certificate in a test (run 37411671734)."""
@@ -149,7 +220,53 @@ class GraphGenerator(unittest.TestCase):
                 self.assertEqual(generator.literal_reads(Path(directory)), ["plans/cmux-next/actions.md"])
 
 
+class MacReleaseInputs(unittest.TestCase):
+    """mac_release: what the Mac Release compile (the package through xcodebuild) sees and the fleet SwiftPM compile check does not."""
+
+    def test_package_sources_stay_on_the_compile_check(self):
+        for changed in ([f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"],
+                        [f"{PACKAGE}/Sources/CmuxNextApp/Resources/Localizable.xcstrings"],
+                        # The Xcode app target is not in this compile (the scheme compile builds it).
+                        ["App/main.swift"], ["cmux.xcodeproj/project.pbxproj"]):
+            with self.subTest(changed=changed):
+                self.assertEqual(outputs(route(ROOT, "pull_request", changed, set()))["mac_release"], "false")
+
+    def test_inputs_only_xcodebuild_sees_need_the_mac(self):
+        for changed in ([f"{PACKAGE}/Package.swift"], [f"{PACKAGE}/Package.resolved"],
+                        ["Packages/Shared/CmuxTheme/Package.swift"], [f"{PACKAGE}/Sources/CmuxNextApp/Info.plist"],
+                        [f"{PACKAGE}/Sources/CmuxNextApp/Resources/Media.xcassets/Contents.json"],
+                        ["scripts/ci/xcode-pins.txt"], ["scripts/cmux-next/check-release-compile.sh"],
+                        ["scripts/cmux-next/lib/fleet-only.sh"], ["scripts/cmux-next/stale-pcm-retry-needed.sh"]):
+            with self.subTest(changed=changed):
+                self.assertEqual(outputs(route(ROOT, "pull_request", changed, set()))["mac_release"], "true")
+
+    def test_every_tier_includes_it(self):
+        self.assertEqual(outputs(route(ROOT, "push", [], set()))["mac_release"], "true")
+        source = f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"
+        self.assertEqual(outputs(route(ROOT, "pull_request", [source], {"full-ci"}))["mac_release"], "true")
+
+
 class PullRequestTiers(unittest.TestCase):
+    def test_changed_swift_suite_is_prioritized(self):
+        result = tiers([f"{PACKAGE}/Tests/CmuxNextAppTests/CloudAPIClientRunTests.swift"])
+        self.assertEqual(result["swift_priority_filter"], r".*(CloudAPIClientRunTests)\.")
+
+    def test_changed_swift_source_prioritizes_its_matching_suite(self):
+        result = tiers([f"{PACKAGE}/Sources/CmuxNextApp/CloudStartSessionAsks.swift"])
+        self.assertEqual(result["swift_priority_filter"], r".*(CloudStartSessionAsksTests)\.")
+
+    def test_nested_changed_swift_suite_is_prioritized(self):
+        result = tiers([f"{PACKAGE}/Sources/CmuxNextPopups/WebAuth/WebAuthCallback.swift"])
+        self.assertEqual(result["swift_priority_filter"], r".*(WebAuthCallbackTests)\.")
+
+    def test_isolated_suites_are_left_to_their_dedicated_steps(self):
+        result = tiers([f"{PACKAGE}/Tests/CmuxNextControlTests/CLISurfaceParityTests.swift"])
+        self.assertEqual(result["swift_priority_filter"], "")
+
+    def test_cloud_bring_back_stays_prioritized_for_new_cases(self):
+        result = tiers([f"{PACKAGE}/Tests/CmuxNextAppTests/CloudBringBackTests.swift"])
+        self.assertEqual(result["swift_priority_filter"], r".*(CloudBringBackTests)\.")
+
     def test_ui_pr_runs_its_own_tests_without_the_daemon(self):
         result = tiers(PR_17470)
         self.assertEqual(result["swift_targets"], "CmuxNextAppTests")

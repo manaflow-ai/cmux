@@ -65,6 +65,10 @@ extension ScreenContentView {
             applyDrag(at: windowPoint, phase: .changed)
             context.requestFrames()
         case let .ended(windowPoint):
+            // A press and release with no move between them is a click, not a resize: saving
+            // the ratio the divider is drawn at (clamped by a narrow window) would replace the
+            // stored one.
+            if activeDrag?.pointer == nil { return endDrag() }
             if case .split = kind, let drag = activeDrag {
                 // The layout this release makes springs on from the pointer's velocity.
                 releasedDivider = (kind, drag.releaseVelocity(at: CACurrentMediaTime()), CACurrentMediaTime())

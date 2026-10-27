@@ -140,6 +140,28 @@
             "name": "uint32"
           },
           "description": "The profile's place in the person's order."
+        },
+        "proxy": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "BrowserProfileProxy"
+          },
+          "description": "The profile's own proxy (#24432); absent when the profile is direct. Never a secret."
+        }
+      },
+      "extra": false
+    },
+    "BrowserProfileProxy": {
+      "kind": "object",
+      "fields": {
+        "scheme": {"required": true, "type": {"kind": "enum", "values": ["http", "https", "socks5"]}},
+        "host": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 253}},
+        "port": {"required": true, "type": {"kind": "primitive", "name": "uint32"}},
+        "bypass": {
+          "required": false,
+          "type": {"kind": "array", "items": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 253}},
+          "description": "Hosts that skip the proxy (Chromium bypass rules)."
         }
       },
       "extra": false
@@ -525,6 +547,19 @@
             }
           },
           "description": "Every live Chief, the default first, then in creation order."
+        },
+        "deleted": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            }
+          },
+          "description": "The ids of deleted Chiefs (their tombstones), in deletion order, so a client hides their conversations."
         }
       },
       "extra": false
@@ -15915,7 +15950,7 @@
         "fields": {},
         "extra": false,
         "constraints": [
-          "Answers {browser_profiles}: every browser profile in the person's order, the default profile included. Each has its id, name, color, icon and index only: never its import origin, cookies, history or site data."
+          "Answers {browser_profiles}: every browser profile in the person's order, the default profile included. Each has its id, name, color, icon, index and proxy (absent when direct; never a secret) only: never its import origin, cookies, history or site data."
         ]
       },
       "result": {
@@ -25921,7 +25956,8 @@
         "fields": {
           "event": {"required": true, "type": {"kind": "ref", "name": "JournalIngressEvent"}},
           "live_prompt": {"required": false, "description": "An agent hook's turn prompt for the hover card task line: kept in daemon memory only (at most 200 characters), never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}},
-          "live_reply": {"required": false, "description": "A finished or failed turn's last agent message for its banner preview: kept in daemon memory only (at most 200 characters) until the turn's notification event carries it as preview, never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}}
+          "live_reply": {"required": false, "description": "A finished or failed turn's last agent message for its banner preview: kept in daemon memory only (at most 200 characters) until the turn's notification event carries it as preview, never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}},
+          "live_question": {"required": false, "description": "A question hook's question (Claude Code AskUserQuestion, Codex request_user_input) as compact JSON {harness, tool_use_id?, questions: [{id?, question, header?, multiSelect, isOther?, options: [{label, description?}]}]} (at most 16 KiB, 4 questions, 8 options each): kept in daemon memory only while the agent waits on it, carried by the question notification event as question and by its list-notifications row; never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}}
         },
         "extra": false
       },
@@ -29731,6 +29767,19 @@
             },
             "description": "tab-mark-unread-v1: true marks the tab unread by hand (no notification needed), false clears the mark. Shown as the tab's extra.marked_unread (present only while marked) on every client; a client clears it when the person views the tab."
           },
+          "attention": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 200
+              }
+            },
+            "description": "tab-attention-v1: an agent needs the person to act in this tab (confirm, log in, approve, pick). The reason is one line the person reads, at most 200 bytes of UTF-8; null clears the mark. Shown as the tab's extra.attention {reason, at_ms} (present only while marked) on every client, which draw it as needs-you. It never moves focus. Viewing the tab keeps it; the agent's clear, a browser tab's navigation to another page, or the tab's close clears it."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -29742,7 +29791,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one field is present. back and forward apply only to browser tabs; owner only to frontend-rendered browser tabs; icon applies to every tab kind."
+          "At least one field is present. back and forward apply only to browser tabs; owner only to frontend-rendered browser tabs; icon and attention apply to every tab kind."
         ]
       },
       "result": {

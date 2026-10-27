@@ -75,7 +75,7 @@ final class ComputerUseSetup {
     @ObservationIgnored private let notifications: NotificationCenter
     @ObservationIgnored private let distributed: NotificationCenter
     @ObservationIgnored private let clock: any Clock<Duration>
-    @ObservationIgnored private var observers: [any NSObjectProtocol] = []
+    @ObservationIgnored private var observers: [MainActorObservation] = []
     @ObservationIgnored private var observation: Task<Void, Never>?
     @ObservationIgnored private var reading: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
@@ -109,16 +109,10 @@ final class ComputerUseSetup {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            observation?.cancel()
-            reading?.cancel()
-            for observer in observers {
-                notifications.removeObserver(observer)
-                distributed.removeObserver(observer)
-            }
-        }
+        observation?.cancel()
+        reading?.cancel()
     }
 
     /// Follows the inputs and the recheck events for the app's life. Idempotent.
@@ -142,15 +136,11 @@ final class ComputerUseSetup {
             }
         }
         // The person comes back from System Settings: the grant may have changed.
-        observers.append(notifications.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
-                                                   queue: .main) { [weak self] _ in
-            // main-proof: observer on queue: .main
-            MainActor.assumeIsolated { self?.recheck() }
+        observers.append(MainActorObservation(NSApplication.didBecomeActiveNotification, center: notifications) { [weak self] in
+            self?.recheck()
         })
-        observers.append(distributed.addObserver(forName: Self.accessibilityTrustChanged, object: nil,
-                                                 queue: .main) { [weak self] _ in
-            // main-proof: observer on queue: .main
-            MainActor.assumeIsolated { self?.recheck() }
+        observers.append(MainActorObservation(Self.accessibilityTrustChanged, center: distributed) { [weak self] in
+            self?.recheck()
         })
     }
 

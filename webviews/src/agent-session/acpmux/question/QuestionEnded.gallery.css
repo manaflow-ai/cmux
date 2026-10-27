@@ -1,0 +1,11 @@
+/* Gallery only: two other looks of the line an unanswered ask leaves, beside the shipped one
+   (styles.css .acpmux-question-cancelled, a muted line under the turn). */
+.acpmux-question-ended-gallery[data-ended-look="pill"] .acpmux-question-cancelled {
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: var(--acpmux-question-bg);
+}
+.acpmux-question-ended-gallery[data-ended-look="rule"] .acpmux-question-cancelled {
+  padding: 2px 0 2px 10px;
+  box-shadow: inset var(--cmux-hairline, 0.5px) 0 0 color-mix(in srgb, var(--agent-text) 30%, transparent);
+}

@@ -11,7 +11,7 @@ import os
 /// names a session, a folder or a command: the daemon pins the session from its tab record.
 public actor AgentSessionAttachClient {
     public typealias EndpointProvider = @Sendable () async throws -> DaemonEndpoint
-    /// One push for the attachment: `agent-session-record`, `-permission` or `-closed`, with
+    /// One push for the attachment: `agent-session-record`, `-permission`, `-changed`, `-presence` or `-closed`, with
     /// the line's JSON object.
     public typealias EventHandler = @Sendable (_ event: String, _ line: Data) -> Void
 
@@ -23,8 +23,8 @@ public actor AgentSessionAttachClient {
 
         var capability: String {
             switch self {
-            case .attach: return DaemonCapabilities.shared.agentSessionAttach
-            case .observe: return DaemonCapabilities.shared.agentSessionObserve
+            case .attach: return DaemonCapability.agentSessionAttach.rawValue
+            case .observe: return DaemonCapability.agentSessionObserve.rawValue
             }
         }
 
@@ -49,7 +49,7 @@ public actor AgentSessionAttachClient {
         }
     }
 
-    public static let capability = DaemonCapabilities.shared.agentSessionAttach
+    public static let capability = DaemonCapability.agentSessionAttach.rawValue
 
     private let surface: UInt64
     private let mode: Mode
@@ -68,6 +68,8 @@ public actor AgentSessionAttachClient {
     private var servesKeyedReason = false
     /// The connected daemon serves `agent-session-children-v1`.
     private var servesChildren = false
+    /// The connected daemon serves `agent-session-presence-v1`.
+    private var servesPresence = false
 
     /// A start that needs the app's person key in that machine's acpmux (cx-0w0jj): `instance`
     /// is the acpmux run the app holds a key for, nil when it holds none.
@@ -155,15 +157,17 @@ public actor AgentSessionAttachClient {
         _ = try await call("agent-session-cancel", [:])
     }
 
-    /// `agent-session-permission`, with the person's decision proof of a relayed allow when there
-    /// is one (cx-0q7o): the daemon passes it to acpmux unchanged, and acpmux decides.
-    public func permission(id: String, option: String, decisionNonce: String? = nil, personDecision: String? = nil) async throws {
+    /// `agent-session-permission`, with a question's `answers` and `annotations` (JSON objects)
+    /// and the person's decision proof of a relayed allow when there is one (cx-0q7o): the daemon
+    /// passes them to acpmux unchanged, and acpmux decides (an answer's proof covers both).
+    public func permission(id: String, option: String, answers: Data? = nil, annotations: Data? = nil,
+                           decisionNonce: String? = nil, personDecision: String? = nil) async throws {
         var params: [String: any Sendable] = ["permission_id": id, "option_id": option]
         if let decisionNonce, let personDecision {
             params["decision_nonce"] = decisionNonce
             params["person_decision"] = personDecision
         }
-        _ = try await call("agent-session-permission", params)
+        _ = try await call("agent-session-permission", params, json: ["answers": answers, "annotations": annotations])
     }
 
     public func detach() async {
@@ -177,6 +181,28 @@ public actor AgentSessionAttachClient {
         _ = try await liveTransport()
         guard servesChildren else { return Data(#"{"sessions":[]}"#.utf8) }
         return try await call("agent-session-children", [:])
+    }
+
+    /// `agent-session-typing` (`agent-session-presence-v1`): the person starts or stops typing in
+    /// the attached chat. A daemon without the verb hears nothing (no one else is shown there).
+    public func typing(_ on: Bool) async throws {
+        _ = try await liveTransport()
+        guard servesPresence else { return }
+        _ = try await call("agent-session-typing", ["on": on])
+    }
+
+    /// `agent-session-view` (`agent-session-presence-v1`): whether the person's window shows the
+    /// attached chat now. A daemon without the verb keeps counting the attach as shown.
+    public func view(_ visible: Bool) async throws {
+        _ = try await liveTransport()
+        guard servesPresence else { return }
+        _ = try await call("agent-session-view", ["visible": visible])
+    }
+
+    /// Reads one image from the attached session's host acpmux (`agent-session-media`).
+    public func media(path: String) async throws -> Data {
+        _ = try await liveTransport()
+        return try await call("agent-session-media", ["path": path])
     }
 
     /// Ends the attachment and the connection; no push after it.
@@ -200,10 +226,14 @@ public actor AgentSessionAttachClient {
         return params
     }
 
-    /// One verb on the tab; the result's `data` as JSON, or the daemon's refusal.
-    private func call(_ cmd: String, _ params: [String: any Sendable]) async throws -> Data {
+    /// One verb on the tab; the result's `data` as JSON, or the daemon's refusal. Each of `json`
+    /// (a question's answers and annotations, as JSON) goes in the request as it is.
+    private func call(_ cmd: String, _ params: [String: any Sendable], json: [String: Data?] = [:]) async throws -> Data {
         let transport = try await liveTransport()
-        var object = params
+        var object: [String: Any] = params
+        for case let (key, data?) in json {
+            object[key] = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+        }
         object["cmd"] = cmd
         object["surface"] = surface
         // Integers stay integers (the daemon reads u64 seqs and surface ids).
@@ -259,12 +289,16 @@ public actor AgentSessionAttachClient {
                 transport.close()
                 throw AgentSessionAttachError(code: "agent_session.unsupported", message: mode.unsupportedMessage)
             }
-            servesStart = identity.supports(DaemonCapabilities.shared.agentSessionStart)
-            servesTrust = identity.supports(DaemonCapabilities.shared.agentSessionTrust)
-            servesKeyedReason = identity.supports(DaemonCapabilities.shared.agentSessionStartKeyedReason)
-            servesChildren = identity.supports(DaemonCapabilities.shared.agentSessionChildren)
+            servesStart = identity.supports(DaemonCapability.agentSessionStart.rawValue)
+            servesTrust = identity.supports(DaemonCapability.agentSessionTrust.rawValue)
+            servesKeyedReason = identity.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue)
+            servesChildren = identity.supports(DaemonCapability.agentSessionChildren.rawValue)
+            servesPresence = identity.supports(DaemonCapability.agentSessionPresence.rawValue)
             _ = try await DaemonConnection.perform(
-                SetClientInfoRequest(name: mode.clientInfoName, kind: mode.clientInfoKind, capabilities: []),
+                // `agent-session-presence-v1` echoed: the daemon then streams presence (an app
+                // from before it would end its attachment on an event it does not know).
+                SetClientInfoRequest(name: mode.clientInfoName, kind: mode.clientInfoKind,
+                                     capabilities: servesPresence ? [DaemonCapability.agentSessionPresence.rawValue] : []),
                 on: transport, timeout: requestTimeout)
         } catch {
             transport.close()

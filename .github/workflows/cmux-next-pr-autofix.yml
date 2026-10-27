@@ -9,7 +9,7 @@ name: cmux-next PR autofix
 #
 # The action exports (plans/cmux-next/action-surfaces.json, actions.md,
 # links.json) and the settings exports (schemas/settings/settings-schema.json,
-# its source stamp, docs/mdm) need a Mac swift test: when the pull request
+# docs/mdm) need a Mac swift test: when the pull request
 # changes their inputs (autofix-areas.sh: actions, settings), action-exports
 # regenerates them on a Mac (scripts/cmux-next/regenerate-action-exports.sh,
 # regenerate-settings-exports.sh) and repair copies them in before it rewrites
@@ -159,10 +159,11 @@ jobs:
     permissions:
       contents: read
     outputs:
-      exports: ${{ steps.regenerate.outputs.exports || steps.settings.outputs.exports }}
-      # The exports on this tree are current: regenerated, or already fresh.
-      verified: ${{ steps.regenerate.outcome == 'success' }}
-      settings-verified: ${{ steps.settings.outcome == 'success' }}
+      # Changed exports are available and verified only after upload succeeds.
+      # A verified no-op needs no artifact; a failed upload withholds changed exports.
+      exports: ${{ steps.upload-exports.outcome == 'success' }}
+      verified: ${{ steps.require-exports.outcome == 'success' && steps.regenerate.outcome == 'success' && (steps.require-exports.outputs.exports != 'true' || steps.upload-exports.outcome == 'success') }}
+      settings-verified: ${{ steps.require-exports.outcome == 'success' && steps.settings.outcome == 'success' && (steps.require-exports.outputs.exports != 'true' || steps.upload-exports.outcome == 'success') }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -213,7 +214,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Give this job its own bun
         run: scripts/cmux-next/private-bun.sh
@@ -257,14 +258,14 @@ jobs:
           # The base's copy, or the pull request's before the base has one.
           regenerate="$RUNNER_TEMP/autofix/scripts/cmux-next/regenerate-action-exports.sh"
           [[ -x "$regenerate" ]] || regenerate=scripts/cmux-next/regenerate-action-exports.sh
-          "$regenerate" "$RUNNER_TEMP/action-exports" | tee "$RUNNER_TEMP/action-exports.txt"
+          "$regenerate" "$RUNNER_TEMP/action-exports" 2>&1 | tee "$RUNNER_TEMP/action-exports.txt"
           if grep -q '^regenerated: ' "$RUNNER_TEMP/action-exports.txt"; then
             echo "exports=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # The settings exports and their source stamp, as cmux-next-base-autofix.yml
-      # regenerates them after a merge. The script copies each export before its
-      # final stamp check, so it writes into a folder of its own, and the files
+      # The settings exports, as cmux-next-base-autofix.yml regenerates them after
+      # a merge. The script copies each export before its final freshness check
+      # (each export rewritten by this run), so it writes into a folder of its own, and the files
       # join the action-exports artifact only when the whole regeneration
       # succeeded: a failed one hands repair nothing half-made.
       - name: Regenerate the settings exports
@@ -276,15 +277,60 @@ jobs:
           # The base's copy, or the pull request's before the base has one.
           regenerate="$RUNNER_TEMP/autofix/scripts/cmux-next/regenerate-settings-exports.sh"
           [[ -x "$regenerate" ]] || regenerate=scripts/cmux-next/regenerate-settings-exports.sh
-          "$regenerate" "$RUNNER_TEMP/settings-exports" | tee "$RUNNER_TEMP/settings-exports.txt"
+          "$regenerate" "$RUNNER_TEMP/settings-exports" 2>&1 | tee "$RUNNER_TEMP/settings-exports.txt"
           if grep -q '^regenerated: ' "$RUNNER_TEMP/settings-exports.txt"; then
             mkdir -p "$RUNNER_TEMP/action-exports"
             cp -R "$RUNNER_TEMP/settings-exports/." "$RUNNER_TEMP/action-exports/"
             echo "exports=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # A generator can report its exact missing input and continue-on-error can otherwise
+      # let this job pass. A successful exporter copies only changed files; a verified
+      # no-op needs no artifact. Promised changed files must exist before repair uses them.
+      # The source stamp is intentionally derived and ignored, so an old exporter that still
+      # requires the retired stamp names an input that must not enter this artifact.
+      - name: Require generated exports
+        id: require-exports
+        if: always()
+        env:
+          ACTIONS_REQUESTED: ${{ needs.action-areas.outputs.actions }}
+          SETTINGS_REQUESTED: ${{ needs.action-areas.outputs.settings }}
+          ACTIONS_EXPORTS: ${{ steps.regenerate.outputs.exports }}
+          SETTINGS_EXPORTS: ${{ steps.settings.outputs.exports }}
+          ACTIONS_OUTCOME: ${{ steps.regenerate.outcome }}
+          SETTINGS_OUTCOME: ${{ steps.settings.outcome }}
+        run: |
+          set -euo pipefail
+          failed=0
+          if [[ "$ACTIONS_REQUESTED" == true && "$ACTIONS_OUTCOME" != success ]]; then
+            echo "::error::action exporter did not complete successfully (outcome: $ACTIONS_OUTCOME)"
+            if [[ -f "$RUNNER_TEMP/action-exports.txt" ]]; then
+              grep -E '::error::' "$RUNNER_TEMP/action-exports.txt" || true
+            fi
+            failed=1
+          fi
+          if [[ "$SETTINGS_REQUESTED" == true && "$SETTINGS_OUTCOME" != success ]]; then
+            echo "::error::settings exporter did not complete successfully (outcome: $SETTINGS_OUTCOME); required input/output mismatch follows"
+            if [[ -f "$RUNNER_TEMP/settings-exports.txt" ]]; then
+              grep -E '::error::' "$RUNNER_TEMP/settings-exports.txt" || true
+            fi
+            failed=1
+          fi
+          if [[ "$failed" != 0 ]]; then exit 1; fi
+          if [[ "$ACTIONS_EXPORTS" != true && "$SETTINGS_EXPORTS" != true ]]; then
+            echo "::notice::Requested exports verified fresh; no changed files to upload"
+            echo "exports=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ ! -d "$RUNNER_TEMP/action-exports" ]] || ! find "$RUNNER_TEMP/action-exports" -type f -print -quit | grep -q .; then
+            echo "::error::exporter reported changed files but uploaded no files"
+            exit 1
+          fi
+          echo "exports=true" >> "$GITHUB_OUTPUT"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: steps.regenerate.outputs.exports == 'true' || steps.settings.outputs.exports == 'true'
+        id: upload-exports
+        if: steps.require-exports.outcome == 'success' && steps.require-exports.outputs.exports == 'true'
         with:
           name: action-exports
           path: ${{ runner.temp }}/action-exports
@@ -407,7 +453,7 @@ jobs:
         if: steps.areas.outputs.shortcuts == 'true' || steps.areas.outputs.apphost == 'true' || needs.action-exports.outputs.exports == 'true' || steps.areas.outputs.cloud == 'true' || steps.areas.outputs.webviews == 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Set up pinned cmux-tui Rust
         if: steps.areas.outputs.fmt == 'true' || steps.areas.outputs.clippy == 'true'
@@ -417,6 +463,7 @@ jobs:
         if: steps.areas.outputs.clippy == 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-pr-autofix-clippy
 
@@ -452,6 +499,7 @@ jobs:
           GRAPH: ${{ steps.areas.outputs.graph }}
           STRINGS: ${{ steps.areas.outputs.strings }}
           SDK: ${{ steps.areas.outputs.sdk }}
+          CAPABILITIES: ${{ steps.areas.outputs.capabilities }}
           SHORTCUTS: ${{ steps.areas.outputs.shortcuts }}
           APPHOST: ${{ steps.areas.outputs.apphost }}
           ACTIONS: ${{ steps.areas.outputs.actions || needs.action-areas.outputs.actions }}
@@ -477,6 +525,8 @@ jobs:
           [[ "$GRAPH" == true ]] && args+=(--package-dump "$RUNNER_TEMP/package-dump.json")
           [[ "$STRINGS" == true ]] && args+=(--strings)
           [[ "$SDK" == true ]] && args+=(--sdk)
+          # The source parser regenerates the daemon capability export without a Swift build.
+          [[ "$CAPABILITIES" == true ]] && grep -q -- '--capabilities)' "$AUTOFIX/base-autofix.sh" && args+=(--capabilities)
           [[ "$SHORTCUTS" == true ]] && args+=(--docs-shortcuts)
           # The base's script takes --app-host once this repair has landed there.
           [[ "$APPHOST" == true ]] && grep -q -- '--app-host)' "$AUTOFIX/base-autofix.sh" && args+=(--app-host)

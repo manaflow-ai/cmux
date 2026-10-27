@@ -20,10 +20,13 @@ public nonisolated struct ChiefBackend: Hashable, Sendable, Identifiable {
     public static let claude = ChiefBackend(id: "claude", createsOnThisMac: false)
     /// Codex.
     public static let codex = ChiefBackend(id: "codex", createsOnThisMac: true)
+    /// Muse Code (Meta) through the cmux-muse-acp adapter (acpmux harness `muse`), on this
+    /// Mac's Muse sign-in (`muse login`).
+    public static let muse = ChiefBackend(id: "muse", createsOnThisMac: true)
     /// UniiChat: acpmux's built-in `unii` harness (`acpmux uniichat-agent`), on the person's UniiChat account.
     public static let unii = ChiefBackend(id: "unii", createsOnThisMac: true)
     /// Every official engine, in the order the pickers offer them.
-    public static let official: [ChiefBackend] = [.claude, .codex, .unii]
+    public static let official: [ChiefBackend] = [.claude, .codex, .muse, .unii]
 
     /// The engine whose harness id is `id`; nil for an id that is not an official engine.
     public init?(id: String) {
@@ -43,6 +46,7 @@ public nonisolated struct ChiefBackend: Hashable, Sendable, Identifiable {
     public var title: String {
         switch id {
         case "codex": String(localized: "home.chief.backend.codex", defaultValue: "Codex", bundle: .module)
+        case "muse": String(localized: "home.chief.backend.muse", defaultValue: "Muse Code", bundle: .module)
         case "unii": String(localized: "home.chief.backend.unii", defaultValue: "UniiChat", bundle: .module)
         default: String(localized: "home.chief.backend.claude", defaultValue: "Claude", bundle: .module)
         }
@@ -54,6 +58,10 @@ public nonisolated struct ChiefBackend: Hashable, Sendable, Identifiable {
         case "unii":
             String(localized: "home.chief.backend.uniiHint",
                    defaultValue: "Runs on your UniiChat account. Sign in first with `unii login`.", bundle: .module)
+        case "muse":
+            String(localized: "home.chief.backend.museHint",
+                   defaultValue: "Runs on this Mac with your Muse sign-in (`muse login`) through the muse-acp adapter.",
+                   bundle: .module)
         case "codex":
             String(localized: "home.chief.backend.codexHint",
                    defaultValue: "Runs on this Mac with your Codex sign-in.", bundle: .module)

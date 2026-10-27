@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextPages
 import CmuxNextFocus
 import CmuxNextSidebar
+import CmuxNextTerminal
 
 // The context keys of the window a key goes to (plans/cmux-next/keybindings.md
 // section 4): built from that window's focus, never from the process-wide
@@ -37,9 +38,7 @@ extension KeyRouter {
         if implied.browser { bits.insert(.browserFocused) }
         if implied.agent { bits.insert(.agentPaneFocused) }
         if case .addressBar = focus.resolved { bits.insert(.omnibarFocused) }
-        if facts.pageID == Self.markdownPageID { bits.formUnion(.markdown(readOnly: facts.markdownReadOnly)) }
-        if facts.pageID == Self.diffPageID { bits.insert(.diffViewerFocused) }
-        if facts.pageID == Self.codeEditorPageID { bits.insert(.codeEditorFocused) }
+        bits.formUnion(pageContext(pageID: facts.pageID, markdownReadOnly: facts.markdownReadOnly))
         if facts.textBoxFocused { bits.insert(.textBoxFocused) }
         if isPhone(focus.resolved, internalPage: facts.internalPage) { bits.insert(.simulatorFocused) }
         if facts.fileExplorerFocused { bits.insert(.fileExplorerFocused) }
@@ -61,6 +60,22 @@ extension KeyRouter {
         if facts.sidebarMultiSelection, case .sidebar = resolved { context[KeyContext.sidebarMultiSelection] = .bool(true) }
         if facts.workspacesAsTabs { context[KeyContext.workspacesAsTabs] = .bool(true) }
         return context
+    }
+
+    /// The context bits a focused page with `pageID` sets (the markdown, diff viewer and code editor pages).
+    nonisolated static func pageContext(pageID: String?, markdownReadOnly: Bool) -> ActionContext {
+        switch pageID {
+        case markdownPageID?: .markdown(readOnly: markdownReadOnly)
+        case diffPageID?: .diffViewerFocused
+        case codeEditorPageID?: .codeEditorFocused
+        default: []
+        }
+    }
+
+    /// Whether a focused page with `pageID` can own bare keys (``ActionContext/bareKeyOwners``), in the
+    /// most permissive reading of its facts (a markdown page read-only): the cheap check before the facts.
+    nonisolated static func pageMayOwnBareKeys(_ pageID: String) -> Bool {
+        !pageContext(pageID: pageID, markdownReadOnly: true).isDisjoint(with: .bareKeyOwners)
     }
 
     /// Whether a phone tab has the keyboard (`simulatorFocused`: the Simulator shortcuts).
@@ -133,7 +148,19 @@ extension KeyRouter {
                      textBoxFocused: window.firstResponder is TextBoxTextView,
                      sidebarMultiSelection: controller.sidebar.model.selection.count > 1,
                      fileExplorerFocused: FileExplorerService.hasKeyboard(window),
-                     workspacesAsTabs: SidebarTunables.workspacesAsTabs.value)
+                     workspacesAsTabs: SidebarTunables.workspacesAsTabs.value,
+                     pageReportsUnhandledKeys: chromiumPageHasKeys(window, controller: controller))
+    }
+
+    /// The focused live Chromium tab's page window is `window`, the key window: the key reaches
+    /// the page, and Chromium reports it if the page leaves it unhandled. While the shell window
+    /// itself is key (a page the model names but Chromium has not been handed the keyboard), the
+    /// key would reach no page, so cmux runs its action first as before.
+    private func chromiumPageHasKeys(_ window: NSWindow, controller: WindowController) -> Bool {
+        guard case .browserPage = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
+              case .browser(let entry)? = controller.content?.paneController(key: pane)?.currentContent,
+              let tab = entry.tab as? CEFTab else { return false }
+        return tab.isPageWindow(window)
     }
 
     /// The page id of the focused internal page tab.

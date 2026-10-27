@@ -110,4 +110,219 @@ import Testing
             }
         }
     }
+
+    // MARK: Every row kind (Lawrence msg 11914)
+
+    /// Lawrence msg 11914: "the home blue dot isn't lined up with the other trailing dots", and msg 11959:
+    /// "trailing dots and spinners must line up horizontally across sections"; msg 12086: "loading spinners must
+    /// align too". Every visible trailing dot and spinner centers on the column in every row kind: Home, a
+    /// selected band item that needs you, a band item that works (a spinner alone), the band's pinned
+    /// collapsed-loading group header, a selected list row that works (its disclosure shown), a row that
+    /// needs you, an unread row, a busy row (a spinner alone), open group headers' chevrons at depth 0 and 1, collapsed groups'
+    /// resting spinners at depth 0 and 2, a member and a nested member, at every density with Minimal Mode
+    /// on and off. The band item drew its yellow dot after its title, 3.5 pt
+    /// right of the column. Each case prints a `TRAILCOL|` line so a fleet log shows the numbers.
+    nonisolated struct KindCase: CustomTestStringConvertible, Sendable {
+        var density: SidebarDensity
+        var minimal: SidebarMinimalMode
+        var width: CGFloat
+        var testDescription: String { "\(density.rawValue)/minimal-\(minimal.rawValue)/\(Int(width))pt" }
+    }
+
+    nonisolated static let kindCases: [KindCase] = SidebarDensity.allCases.flatMap { density in
+        [SidebarMinimalMode.off, .both].flatMap { minimal in [220, 300].map { KindCase(density: density, minimal: minimal, width: $0) } }
+    }
+
+    static let home = LayoutItemID("itm_home"), lead = LayoutItemID("itm_lead"), browserLead = LayoutItemID("itm_browser_lead")
+    static let selected = WorkspaceID("tc-selected"), unread = WorkspaceID("tc-unread"), busy = WorkspaceID("tc-busy")
+    static let waiting = WorkspaceID("tc-waiting")
+    static let member = WorkspaceID("tc-member"), nested = WorkspaceID("tc-nested"), loading = WorkspaceID("tc-loading")
+    static let open = GroupID("tc-open"), sub = GroupID("tc-sub"), folded = GroupID("tc-folded")
+    static let pinned = GroupID("tc-pinned"), deep = GroupID("tc-deep")
+    static let pinnedMember = WorkspaceID("tc-pinned-member"), deepMember = WorkspaceID("tc-deep-member")
+    static let topKey = SidebarRowKey.block(SidebarLayoutDocument.topSectionID.rawValue)
+
+    /// The band (Home unread, a selected band workspace that needs you) over a list with every row kind.
+    final class KindHarness {
+        let model: SidebarModel
+        let sidebar: SidebarView
+        let window: NSWindow
+        var list: SidebarListView { sidebar.list }
+
+        init(width: CGFloat) {
+            _ = NSApplication.shared
+            typealias T = SidebarTrailingColumnTests
+            let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+            let top = LayoutSection(id: SidebarLayoutDocument.topSectionID, region: .top, look: .builtIn, items: [
+                LayoutItem(id: T.home, ref: .builtIn(.home)),
+                LayoutItem(id: T.lead, ref: .workspace("tc-band-lead")),
+                LayoutItem(id: T.browserLead, ref: .workspace("tc-band-browser")),
+            ])
+            // Lawrence msg 11959: the band's pinned group header ("Agents & routing", collapsed, loading).
+            let block = SidebarSection(kind: .custom(SidebarCustomSection(id: SidebarLayoutDocument.topSectionID.rawValue)), nodes: [
+                .group(SidebarGroup(id: T.pinned, name: "Agents & routing", color: .purple, isCollapsed: true, isPinned: true,
+                                    workspaces: [SidebarWorkspace(id: T.pinnedMember, title: "subrouter", agentWorking: true, activity: .working)])),
+            ])
+            // A header two levels in (it reaches left over its rail), collapsed and loading.
+            var deepGroup = SidebarGroup(id: T.deep, name: "Deep loading", color: .green, isCollapsed: true,
+                                         workspaces: [SidebarWorkspace(id: T.deepMember, title: "Deep member", agentWorking: true, activity: .working)])
+            deepGroup.parent = T.sub
+            var subgroup = SidebarGroup(id: T.sub, name: "Perf", color: .yellow,
+                                        workspaces: [SidebarWorkspace(id: T.nested, title: "Nested unread", unread: .dot)])
+            subgroup.parent = T.open
+            let nodes: [SidebarNode] = [
+                // Lawrence msg 12086: "loading spinners must align too": the selected row works (a spinner).
+                .workspace(SidebarWorkspace(id: T.selected, title: "Selected working", agentWorking: true, activity: .working,
+                                            tabs: [SidebarTab(id: TabID("tc-tab-1"), title: "zsh"), SidebarTab(id: TabID("tc-tab-2"), title: "vim")])),
+                .group(SidebarGroup(id: T.open, name: "cmux-next app", color: .blue,
+                                    workspaces: [SidebarWorkspace(id: T.member, title: "Member unread", unread: .dot)])),
+                .group(subgroup),
+                .group(deepGroup),
+                .group(SidebarGroup(id: T.folded, name: "Folded loading", color: .blue, isCollapsed: true,
+                                    workspaces: [SidebarWorkspace(id: T.loading, title: "Loading member", agentWorking: true, activity: .working)])),
+                .workspace(SidebarWorkspace(id: T.busy, title: "subrouter 2", agentWorking: true, activity: .working)),
+                .workspace(SidebarWorkspace(id: T.unread, title: "Tailscale SSH audit", unread: .dot)),
+                .workspace(SidebarWorkspace(id: T.waiting, title: "Needs you", agentWorking: true, activity: .waiting)),
+            ]
+            model = SidebarModel(sections: [block, SidebarSection(kind: .machine(machine), nodes: nodes)], activeWorkspaceID: T.selected)
+            // The selected row's disclosure keeps its slot (cx-fo2t) where tab rows list.
+            model.showWorkspaceTabs = true
+            let layout = SidebarLayoutDocument(sections: [top])
+            model.layout = layout
+            var homeInfo = SidebarItemInfo(title: "Home", symbol: "house")
+            homeInfo.unreadDot = true
+            var leadInfo = SidebarItemInfo(title: "cmux Performance Lead", symbol: "textformat", isActive: true)
+            leadInfo.textOnly = true
+            leadInfo.activity = .waiting
+            // A band item that works: its spinner and nothing else (msg 12086).
+            var browserInfo = SidebarItemInfo(title: "Computer & browser use lead", symbol: "textformat")
+            browserInfo.textOnly = true
+            browserInfo.activity = .working
+            model.itemInfo = [T.home: homeInfo, T.lead: leadInfo, T.browserLead: browserInfo]
+            model.docDrag = SidebarDocDrag(item: { _ in nil }, section: { _ in nil }, begin: { _ in [:] }, drop: { _, _ in }, adoptRef: { _ in nil })
+            sidebar = SidebarView(model: model, design: DesignSettings.shared)
+            sidebar.frame = NSRect(x: 0, y: 0, width: width, height: 700)
+            window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: width, height: 700), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView?.addSubview(sidebar)
+            window.orderFrontRegardless()
+            sidebar.layoutSubtreeIfNeeded()
+            list.reload(animated: false)
+            sidebar.layoutSubtreeIfNeeded()
+            list.fitToClip()
+            sidebar.layoutSubtreeIfNeeded()
+            for row in list.rowViews.values {
+                row.layoutSubtreeIfNeeded()
+                if let block = row as? SidebarBlockRowView { block.region.itemViews.values.forEach { $0.layoutSubtreeIfNeeded() } }
+            }
+        }
+
+        func bandRow(_ id: LayoutItemID) throws -> SidebarItemRowView {
+            let block = try #require(list.rowViews[SidebarTrailingColumnTests.topKey] as? SidebarBlockRowView, "no top block")
+            return try #require(block.region.itemViews[id], "no band row \(id.rawValue)")
+        }
+
+        func row(_ key: SidebarRowKey) throws -> NSView {
+            try #require(list.rowViews[key], "no row \(key)")
+        }
+    }
+
+    /// One visible trailing indicator: what drew it and its center x in list points.
+    struct Mark: CustomStringConvertible {
+        var what: String
+        var midX: CGFloat
+        var description: String { "\(what)@\(midX)" }
+    }
+
+    /// The opacity `view` draws with, up to `root`.
+    static func drawnAlpha(_ view: NSView, below root: NSView) -> CGFloat {
+        var alpha: CGFloat = 1, cursor: NSView? = view
+        while let v = cursor, v !== root { alpha *= v.alphaValue; cursor = v.superview }
+        return alpha
+    }
+
+    /// Every visible dot and spinner in `row` (and a group header's shown chevron), in list x.
+    static func marks(in row: NSView, named name: String, list: SidebarListView) -> [Mark] {
+        var found: [Mark] = []
+        func visit(_ view: NSView) {
+            guard !view.isHidden, drawnAlpha(view, below: list) > 0.01 else { return }
+            if let badge = view as? RowBadgeView, let glyph = badge.glyphFrames.last {
+                found.append(Mark(what: "\(name).dot", midX: list.convert(glyph, from: badge).midX))
+            } else if let indicator = view as? StatusIndicatorView, indicator.showsGlyph {
+                found.append(Mark(what: "\(name).status", midX: list.convert(indicator.bounds, from: indicator).midX))
+            } else if let badge = view as? UnreadBadgeView, badge.state == .dot {
+                found.append(Mark(what: "\(name).unreadDot", midX: list.convert(badge.bounds, from: badge).midX))
+            }
+            view.subviews.forEach(visit)
+        }
+        visit(row)
+        if let header = row as? GroupHeaderRowView, let chevron = header.debugDisclosure, chevron.shown {
+            found.append(Mark(what: "\(name).chevron", midX: list.convert(chevron.frame, from: header).midX))
+        }
+        return found
+    }
+
+    /// The column x itself: where the open group header's chevron centers.
+    static func columnX(_ h: KindHarness) throws -> CGFloat {
+        let header = try #require(h.list.rowViews[.group(open)] as? GroupHeaderRowView)
+        let chevron = try #require(header.debugDisclosure)
+        return h.list.convert(chevron.frame, from: header).midX
+    }
+
+    @Test(arguments: kindCases)
+    func everyRowKindCentersItsIndicatorOnTheColumn(_ c: KindCase) throws {
+        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
+            let h = KindHarness(width: c.width)
+            defer { h.window.close() }
+            let column = try Self.columnX(h)
+            let rows: [(String, NSView)] = [
+                ("home", try h.bandRow(Self.home)), ("bandSelected", try h.bandRow(Self.lead)),
+                ("bandWorking", try h.bandRow(Self.browserLead)), ("waiting", try h.row(.workspace(Self.waiting))),
+                ("selected", try h.row(.workspace(Self.selected))), ("unread", try h.row(.workspace(Self.unread))),
+                ("busy", try h.row(.workspace(Self.busy))), ("member", try h.row(.workspace(Self.member))),
+                ("nested", try h.row(.workspace(Self.nested))), ("openHeader", try h.row(.group(Self.open))),
+                ("nestedOpenHeader", try h.row(.group(Self.sub))), ("deepLoadingHeader", try h.row(.group(Self.deep))),
+                ("foldedHeader", try h.row(.group(Self.folded))), ("pinnedLoadingHeader", try h.row(.group(Self.pinned))),
+            ]
+            var marks: [Mark] = []
+            for (name, row) in rows {
+                let own = Self.marks(in: row, named: name, list: h.list)
+                #expect(!own.isEmpty, "\(c.testDescription): \(name) shows no trailing dot, spinner or chevron")
+                marks += own
+            }
+            print("TRAILCOL|\(c.testDescription)|column \(column)|\(marks.map(\.description).joined(separator: " "))")
+            for mark in marks {
+                #expect(abs(mark.midX - column) <= 0.5, "\(c.testDescription): \(mark.what) centers at \(mark.midX), the column at \(column)")
+            }
+        }
+    }
+
+    /// Hover brings the close and more buttons left of the column; the dot or spinner keeps its x and stays
+    /// drawn, and the buttons stay inside the row (`SidebarRowView.hitTest` routes clicks by frame).
+    @Test(arguments: SidebarDensity.allCases)
+    func hoverControlsSitLeftOfTheColumn(_ density: SidebarDensity) throws {
+        try SidebarGroupRailAlignmentTests.with(density, .off) {
+            let h = KindHarness(width: 260)
+            defer { h.window.close() }
+            let column = try Self.columnX(h)
+            let slotStart = column - SidebarStyle.trailingSlotSide / 2
+            for id in [Self.unread, Self.selected, Self.busy, Self.waiting] {
+                let row = try #require(h.list.rowViews[.workspace(id)] as? WorkspaceRowView)
+                row.isHovered = true
+                row.layoutSubtreeIfNeeded()
+                let label = "\(density.rawValue) \(id.rawValue) hovered"
+                let marks = Self.marks(in: row, named: id.rawValue, list: h.list)
+                #expect(!marks.isEmpty, "\(label): its indicator hid under the hover controls")
+                for mark in marks {
+                    #expect(abs(mark.midX - column) <= 0.5, "\(label): \(mark.what) centers at \(mark.midX), the column at \(column)")
+                }
+                for control in [row.closeButton, row.moreButton] as [NSView] where !control.isHidden {
+                    let frame = h.list.convert(control.frame, from: row)
+                    #expect(frame.maxX <= slotStart + 0.5, "\(label): a hover control ends at \(frame.maxX), over the column from \(slotStart)")
+                    #expect(control.frame.minX >= 0 && control.frame.maxX <= row.bounds.width, "\(label): a hover control leaves its row")
+                }
+            }
+        }
+    }
 }

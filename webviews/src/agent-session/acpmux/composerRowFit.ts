@@ -53,8 +53,8 @@ export type FitForm = "full" | "short" | "family" | "icon" | "hidden";
 
 /** The row's steps: at its width (COMPOSER_FIT_STEPS) `unit` takes the form `to`. Labels shorten
  *  early and whole, a little before the row runs out of room: effort's short name, the model's
- *  family, the permission label (its glyph stays), the model's mark alone (its name only while the
- *  row can hold it, #20548). The mic never leaves (Leo 2026-10-19, as Claude Code's): the prompt gives way instead. A row too long
+ *  family, the permission label (its glyph stays), and the model's mark alone (its name only while
+ *  the row can hold it, #20548). The mic never leaves (Leo 2026-10-19, as Claude Code's): the prompt gives way instead. A row too long
  *  for its width's steps takes the next ones too, in this order.
  *  One table: the steps change here. */
 export const ROW_FIT_STEPS: readonly { step: keyof typeof COMPOSER_FIT_STEPS; unit: FitUnit; to: FitForm }[] = [

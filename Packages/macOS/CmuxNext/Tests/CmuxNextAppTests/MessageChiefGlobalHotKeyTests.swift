@@ -4,6 +4,7 @@ import CmuxNextDesign
 @testable import CmuxNextSettings
 import Foundation
 import Testing
+import CmuxNextFocusUI
 
 /// Message the Chief from Any App (`home.messageChiefFromAnyApp`): Message the Chief's system-wide
 /// key, Ctrl-Opt-Cmd-C by default. GlobalHotKeyService registers it like Show/Hide All Windows and

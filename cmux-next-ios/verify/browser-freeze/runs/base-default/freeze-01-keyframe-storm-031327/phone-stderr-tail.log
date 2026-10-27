@@ -1,0 +1,10 @@
+2026-10-23 20:12:56.708 CmuxMobileApp[6547:609089884] CoreText performance note: Client called CTFontCreateWithName() using name "Apple Color Emoji" and got font with PostScript name "AppleColorEmoji". For best performance, only use PostScript names when calling this API.
+2026-10-23 20:12:56.708 CmuxMobileApp[6547:609089884] CoreText performance note: Set a breakpoint on CTFontLogSuboptimalRequest to debug.
+IOSurfaceClientSetSurfaceNotify failed e00002c7
+2026-10-23 20:12:57.134 CmuxMobileApp[6547:609089884] void * _Nullable NSMapGet(NSMapTable * _Nonnull, const void * _Nullable): map table argument is NULL
+2026-10-24T03:12:57.147742Z  INFO cmux_mobile_link::dial::turn: TURN allocation for WireGuard relayed=104.30.136.11:21439 server="turn.cloudflare.com:3478" transport=Udp
+objc[6547]: Class UIAccessibilityLoaderWebShared is implemented in both /Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebKit.axbundle/WebKit (0x12a570398) and /Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebCore.axbundle/WebCore (0x12ac78310). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.
+2026-10-24T03:12:57.351077Z DEBUG cmux_mobile_link::link: input lane attached role=Phone
+2026-10-24T03:12:57.415802Z DEBUG cmux_mobile_link::dial::wireguard: peer confirmed our datagrams reach it direct=Some(Route { carrier: Turn, addr: 104.184.154.177:63489 })
+2026-10-24T03:13:21.964073Z  INFO cmux_mobile_link::hybrid: media session did not open; video stays in the tunnel error=the peer ended the session: transport: the media session's peer connection failed
+2026-10-24T03:13:23.128375Z  INFO cmux_mobile_link::hybrid: media session up session="5c2a6ff7-8f6e-4760-8ed8-311577687cdb"

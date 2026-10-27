@@ -77,10 +77,12 @@ import Testing
             #expect(abs(title.midY - circle.midY) <= 0.5, "name \(title) off the avatar's center \(circle)")
         }
 
-        // The avatar fills its square but a hairline, as big as the Search button's glyph box reads
-        // (Leo 2026-10-21: "make the icon slightly bigger"), and the Search button sits flush
-        // against that square: the two controls' own insets are the gap, as a toolbar's buttons.
-        #expect(abs(circle.width - (chip.height - Metrics.space1)) <= 0.25, "avatar \(circle) in its square \(chip)")
+        // The avatar is the sidebar's icon box (16 pt at compact), as before #23757 (Lawrence
+        // 2026-10-21: "bottom footer thing too big, revert to old icon sizes"), centered in its
+        // square, and the Search button sits flush against that square: the two controls' own
+        // insets are the gap, as a toolbar's buttons.
+        #expect(abs(circle.width - SidebarStyle.iconBox) <= 0.25, "avatar \(circle) is not the icon box \(SidebarStyle.iconBox)")
+        #expect(abs(circle.midX - chip.midX) <= 0.25, "avatar \(circle) off its square's center \(chip)")
         #expect(abs(search.minX - chip.maxX) <= 0.25, "search \(search) flush after the avatar's square \(chip)")
 
         // The line's taller control ends exactly the bottom margin above the window's edge (flipped: maxY is the bottom).

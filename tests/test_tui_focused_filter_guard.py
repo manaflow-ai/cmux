@@ -53,7 +53,12 @@ def test_macos_job_runs_the_focused_filter() -> None:
         assert '"$TEST_FILTER"' in step["run"]
         assert step["env"]["TEST_FILTER"] == "${{ inputs.test_filter }}"
     macos_step = next(step for step in workflow["jobs"]["macos"]["steps"] if "cmux-tui-focused-test.sh" in str(step.get("run", "")))
-    assert macos_step["if"] == "inputs.mode == 'focused'"
+    # Chief's real-daemon selector has its own Linux job; other filters still
+    # execute on macOS after Clippy has run, including when it reports a red.
+    assert macos_step["if"] == (
+        "${{ !cancelled() && steps.clippy.outcome != 'skipped' && "
+        "inputs.mode == 'focused' && inputs.test_filter != 'optchat_chief' }}"
+    )
 
 
 def _run_focused(listing: str, ignored: str, extra_env: dict[str, str] | None = None) -> tuple[int, str]:
@@ -112,7 +117,7 @@ def test_a_host_that_compiles_none_of_the_filtered_tests_passes_when_allowed() -
 def test_focused_script_runs_the_selected_tests_with_extra_args() -> None:
     code, calls = _run_focused("tui::a_test: test\\n", "")
     assert code == 0
-    assert "test --workspace --locked some_filter -- --test-threads=2" in calls
+    assert "test --workspace --locked --no-fail-fast some_filter -- --test-threads=2" in calls
 
 
 def test_ignored_only_guard_returns_failure() -> None:
@@ -208,15 +213,15 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     oses = lambda job: [row["os"] for row in job["strategy"]["matrix"]["include"]]
     assert oses(test) == oses(lint) == ["linux"]
     assert "cargo fmt --check" in lint_commands
-    assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in lint_commands
+    assert "cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked --keep-going -- -D warnings" in lint_commands
     # Formatting is gated once, by lint; a format diff must not stop the tests.
     assert "cargo fmt --check" not in test_commands
-    assert "cargo clippy --workspace --all-targets --locked -- -D warnings" not in test_commands
+    assert "cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked --keep-going -- -D warnings" not in test_commands
     macos_commands = "\n".join(str(step.get("run", "")) for step in macos["steps"])
     assert macos["name"] == "macOS lint and tests"
     # Formatting is host-independent and runs once, on Linux (#17095).
     assert "cargo fmt --check" not in macos_commands
-    assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in macos_commands
+    assert "cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked --keep-going -- -D warnings" in macos_commands
     assert "platform::tests::" in macos_commands
     # mac_process_scope / macos_pty_ unit tests were deleted with the unit suites (c38b54db5a6e, cx-034r).
     assert "a_daemon_integrated_zsh_titles_a_long_command_with_every_argument" in macos_commands
@@ -251,50 +256,24 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
         clippy_steps = [step for step in steps if step.get("name") == "cargo clippy"]
         assert len(clippy_steps) == 1
         assert clippy_steps[0]["working-directory"] == "cmux-tui"
-        assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in clippy_steps[0]["run"]
+        assert "cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked --keep-going -- -D warnings" in clippy_steps[0]["run"]
 
 
-MACOS_RELAY_RUNNER = (
-    "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-    "vars.CI_PR_POOL_OWNED == '1' && "
-    "contains(fromJSON('[\"pull_request\",\"push\",\"schedule\",\"workflow_dispatch\"]'), github.event_name) && "
-    "github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || "
-    "vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"
-)
+def test_relay_filter_runs_on_the_linux_test_job() -> None:
+    """The focused relay selector is handled by the Linux test job.
 
-
-def test_macos_runs_the_chatmux_relay_tests() -> None:
-    """The relay crate's tests run on macOS again.
-
-    9f4acf5b2787 (#17051) dropped the `test (macos)` matrix entry, and with it
-    the only macOS run of `cargo test -p chatmux-relay` (full mode, and focused
-    mode with the chatmux_relay selector). The relay job takes the owned minis
-    through CI_SIDE_LANE_RUNNER on attempt 1, and a rerun returns to the
-    background lane.
+    The full Linux workspace test already covers chatmux-relay. Keeping a
+    separate Mac-only invocation duplicated that work and spent a Mac runner.
     """
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    job = workflow["jobs"]["macos-relay"]
+    test_job = workflow["jobs"]["test"]
     gate = workflow["jobs"]["hosted-verification"]
-
-    assert job["name"] == "chatmux-relay tests (macOS)"
-    assert job["needs"] == "validate-inputs"
-    assert job["runs-on"] == MACOS_RELAY_RUNNER
-    condition = str(job["if"])
-    assert "inputs.mode == 'full'" in condition
-    assert "inputs.test_filter == 'chatmux_relay'" in condition
-    assert "inputs.test_filter == 'chatmux-relay'" in condition
-
-    steps = {step.get("name"): step for step in job["steps"]}
-    assert steps["Require exact checkout"]["run"] == 'test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"'
-    relay = steps["cargo test -p chatmux-relay"]
-    assert relay["working-directory"] == "cmux-tui"
-    assert "cargo test -p chatmux-relay --locked" in relay["run"]
-
+    test_commands = "\n".join(str(step.get("run", "")) for step in test_job["steps"])
+    assert 'cmux-tui-focused-test.sh "$TEST_FILTER"' in test_commands
+    assert "macos-relay" not in workflow["jobs"]
+    assert "macos-relay" not in gate["needs"]
     gate_commands = "\n".join(str(step.get("run", "")) for step in gate["steps"])
-    assert "macos-relay" in gate["needs"]
-    assert gate["env"]["MACOS_RELAY_RESULT"] == "${{ needs.macos-relay.result }}"
-    assert gate["env"]["TEST_FILTER"] == "${{ inputs.test_filter }}"
-    assert 'require_success "macOS chatmux-relay tests" "$MACOS_RELAY_RESULT"' in gate_commands
+    assert "MACOS_RELAY_RESULT" not in gate_commands
 
 
 ARTIFACTS_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"

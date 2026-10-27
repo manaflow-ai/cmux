@@ -1,12 +1,25 @@
 //! Push notifications for Feed-worthy agent events (PROTOCOL.md
-//! `POST /v1/devices/:deviceId/notify`).
+//! `POST /v1/devices/:deviceId/notify`, "Push notifications (API 0.13.0)").
 //!
 //! The notifier holds its own acpmux connection with `_acpmux/watch` (the
 //! same events the phone's Feed uses) and reports, for each new question,
 //! permission request and finished turn, one event to the backend, which
-//! pushes it to the owner's phones. Content is minimized here: only the kind,
-//! a short agent name, the session's folder name and ids leave the Mac; never
-//! prompts, agent output, tool arguments or paths. `CMUX_MOBILE_PUSH=0` turns it off.
+//! pushes it to the owner's phones. Terminal notifications (OSC 9, 777, 99,
+//! `cmux notify`, agent hooks in a terminal) come from the daemon
+//! (`notify_terminal.rs`). `CMUX_MOBILE_PUSH=0` turns both off.
+//!
+//! Content (changed in API 0.13.0 by the person's decision, rich
+//! notifications): each event carries what a person needs to act on it from
+//! the notification: the question and its options, a permission's title and
+//! acpmux options, the session's last lines (`preview`), a Chief reply's first
+//! lines, an error's text, and the workspace and tab the session is in
+//! (`notify_content.rs`). A permission's title is the tool's own title, which
+//! for a shell command is the whole command line, and last lines are what the
+//! agent printed: both can name paths and command arguments. Every such text
+//! is redacted first (`notify_redact`: tokens, `Bearer` values, `password=`
+//! assignments, PEM blocks, high-entropy runs), and the terminal's screen is
+//! never sent. Never the person's prompts (a session's `name`). Kinds no phone wants
+//! are not sent (`Reporter`, the answer's `wants`).
 //!
 //! Only what a person can act on is pushed:
 //! - never a Chief's compactor (`cmux.chief.role` `compactor`, or an
@@ -25,7 +38,7 @@
 //! phone drops a banner for the tab on its screen itself (`NotificationRouter`).
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use cmux_mobile_link::api::{ApiClient, NotifyEvent};
@@ -35,6 +48,8 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::auth::Tokens;
 use crate::config::AcpmuxTarget;
+use crate::notify_content::Places;
+use crate::notify_terminal::Wants;
 
 /// What the notifier remembers about a session (labels only).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -59,6 +74,10 @@ pub struct Classifier {
     order: VecDeque<String>,
     /// Per session (or Chief) and finished-or-error: the last push and the newest turn held since.
     turns: HashMap<(String, bool), TurnGate>,
+    /// Each session's last lines (its `preview`), for the push's `tail`.
+    previews: HashMap<String, String>,
+    /// Where each session's tab is (the daemon's tree, kept by the terminal watcher).
+    places: Option<Arc<Places>>,
 }
 
 #[derive(Debug)]
@@ -72,14 +91,57 @@ const SEEN_LIMIT: usize = 512;
 /// At most one finished-turn push per session in this window.
 pub const TURN_WINDOW: Duration = Duration::from_secs(30);
 
-/// A printable label of at most `max` characters.
+/// A printable label of at most `max` characters: control and bidi
+/// characters become spaces, runs of whitespace one space, combining marks
+/// past two on one letter are dropped, and a cut label ends with "…" so the
+/// end of a long command is never hidden without a sign.
 pub fn label(text: &str, max: usize) -> String {
     let hidden = |c: char| {
         c.is_control()
             || matches!(c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}')
     };
-    let cleaned: String = text.chars().map(|c| if hidden(c) { ' ' } else { c }).collect();
-    cleaned.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(max).collect()
+    let mut marks = 0;
+    let cleaned: String = text
+        .chars()
+        .filter_map(|c| {
+            if is_combining_mark(c) {
+                marks += 1;
+                return (marks <= 2).then_some(c);
+            }
+            marks = 0;
+            Some(if hidden(c) { ' ' } else { c })
+        })
+        .collect();
+    let joined = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    if joined.chars().count() <= max {
+        return joined;
+    }
+    let mut cut: String = joined.chars().take(max.saturating_sub(1)).collect();
+    cut.truncate(cut.trim_end().len());
+    cut.push('…');
+    cut
+}
+
+/// Text a person reads (a title, a body, a last line, a question): secrets
+/// redacted (`notify_redact`), then cleaned and cut like `label`.
+pub fn text_label(text: &str, max: usize) -> String {
+    label(&crate::notify_redact::redact(text), max)
+}
+
+/// A combining mark (Unicode `Mn` in the common blocks).
+fn is_combining_mark(c: char) -> bool {
+    matches!(c, '\u{0300}'..='\u{036f}' | '\u{0483}'..='\u{0489}' | '\u{0591}'..='\u{05bd}' | '\u{0610}'..='\u{061a}'
+        | '\u{064b}'..='\u{065f}' | '\u{0e31}' | '\u{0e34}'..='\u{0e3a}' | '\u{0e47}'..='\u{0e4e}' | '\u{1ab0}'..='\u{1aff}'
+        | '\u{1dc0}'..='\u{1dff}' | '\u{20d0}'..='\u{20ff}' | '\u{fe20}'..='\u{fe2f}')
+}
+
+/// An id as it is, when the backend accepts it (`[A-Za-z0-9._:-]{1,max}`);
+/// None otherwise: an id changed to fit would name something else.
+pub fn valid_id(id: &str, max: usize) -> Option<String> {
+    (!id.is_empty()
+        && id.len() <= max
+        && id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-')))
+    .then(|| id.to_owned())
 }
 
 /// An id the backend accepts (`[A-Za-z0-9._:-]{1,64}`).
@@ -158,6 +220,11 @@ pub fn is_question(request: &Value) -> bool {
 }
 
 impl Classifier {
+    /// A classifier that names each session's workspace and tab from `places`.
+    pub fn with_places(places: Arc<Places>) -> Self {
+        Self { places: Some(places), ..Self::default() }
+    }
+
     /// Sessions from the `_acpmux/watch` result: labels only, no events.
     pub fn load(&mut self, watch_result: &Value) {
         for session in watch_result.get("sessions").and_then(Value::as_array).into_iter().flatten() {
@@ -198,15 +265,38 @@ impl Classifier {
                 }
                 // The agent now waits on the person: a held "finished" would say otherwise.
                 self.drop_held(session_id);
-                let kind =
-                    if params.get("request").is_some_and(is_question) { "question" } else { "permission" };
-                Some(self.event(id, kind, session_id))
+                let request = params.get("request").unwrap_or(&Value::Null);
+                let kind = if is_question(request) { "question" } else { "permission" };
+                let mut event = self.event(id, kind, session_id);
+                event.permission_id = valid_id(permission_id, 128);
+                event.questions = crate::notify_content::questions(request);
+                if kind == "permission" {
+                    event.options = crate::notify_content::permission_options(request);
+                }
+                let tool_title =
+                    request.pointer("/toolCall/title").and_then(Value::as_str).map(|t| text_label(t, 200));
+                event.title = event
+                    .questions
+                    .first()
+                    .map(|q| q.question.clone())
+                    .or(tool_title)
+                    .filter(|t| !t.is_empty());
+                event.state = Some("waiting".into());
+                Some(event)
             }
             "_acpmux/session_changed" => {
                 let session = params.get("session")?;
                 if let Some((id, label)) = session_label(session) {
                     if self.sessions.len() >= SESSIONS_LIMIT && !self.sessions.contains_key(&id) {
                         self.sessions.clear();
+                        self.previews.clear();
+                    }
+                    if let Some(preview) = session.get("preview").and_then(Value::as_str) {
+                        // Only the end is ever shown: keep at most a few KB.
+                        let start = preview.len().saturating_sub(4096);
+                        let start =
+                            (start..preview.len()).find(|&i| preview.is_char_boundary(i)).unwrap_or(0);
+                        self.previews.insert(id.clone(), preview[start..].to_owned());
                     }
                     self.sessions.insert(id, label);
                 }
@@ -231,12 +321,12 @@ impl Classifier {
                     return None;
                 }
                 let status = session.pointer("/lastTurn/status").and_then(Value::as_str);
-                let label = self.sessions.get(session_id).cloned().unwrap_or_default();
+                let known = self.sessions.get(session_id).cloned().unwrap_or_default();
                 // A Chief's compactor; a sub-session's or a child's turn: the parent reports.
-                if label.internal || label.sub {
+                if known.internal || known.sub {
                     return None;
                 }
-                let chief = label.chief;
+                let chief = known.chief;
                 let kind = match status {
                     // A stopped turn is the person's own doing: nothing to tell them.
                     Some("cancelled") => return None,
@@ -244,7 +334,23 @@ impl Classifier {
                     _ if chief => "chief",
                     _ => "completed",
                 };
-                let event = self.event(id, kind, session_id);
+                let mut event = self.event(id, kind, session_id);
+                match kind {
+                    "failed" => {
+                        event.state = Some("failed".into());
+                        event.body = session
+                            .pointer("/lastTurn/errorText")
+                            .and_then(Value::as_str)
+                            .map(|t| text_label(t, 400))
+                            .filter(|t| !t.is_empty());
+                    }
+                    _ => event.state = Some("finished".into()),
+                }
+                if kind == "chief" {
+                    event.conversation_id = known.chief_home.as_deref().map(label_id_text);
+                    event.body =
+                        self.previews.get(session_id).map(|p| text_label(p, 400)).filter(|t| !t.is_empty());
+                }
                 self.gate((self.scope(session_id), kind == "failed"), event, now)
             }
             _ => None,
@@ -307,14 +413,26 @@ impl Classifier {
 
     fn event(&self, event_id: String, kind: &str, session_id: &str) -> NotifyEvent {
         let label = self.sessions.get(session_id).cloned().unwrap_or_default();
+        let place = self.places.as_ref().and_then(|p| p.session(session_id));
+        let tail = self.previews.get(session_id).map(|p| crate::notify_content::tail(p)).unwrap_or_default();
         NotifyEvent {
+            workspace: place.as_ref().map(|p| p.workspace.clone()),
+            workspace_id: place.as_ref().and_then(|p| valid_id(&p.workspace_id, 128)),
+            tab_id: place.map(|p| p.tab_id),
+            tail,
             event_id,
             kind: kind.into(),
             agent: Some(label.agent).filter(|a| !a.is_empty()),
             place: Some(label.place).filter(|p| !p.is_empty()),
             session_id: Some(label_id(session_id)).filter(|s| !s.is_empty()),
+            ..NotifyEvent::default()
         }
     }
+}
+
+/// A Chief home id as the phone names a conversation.
+fn label_id_text(id: &str) -> String {
+    label_id(id)
 }
 
 fn label_id(id: &str) -> String {
@@ -326,12 +444,82 @@ pub fn enabled() -> bool {
     std::env::var("CMUX_MOBILE_PUSH").map(|v| v.trim() != "0").unwrap_or(true)
 }
 
-/// Runs until the process stops: watch acpmux, report events, reconnect.
-pub async fn run(base_url: String, device_id: String, tokens: Arc<Tokens>, acpmux: AcpmuxTarget) {
-    let mut classifier = Classifier::default();
+/// Sends events to the backend, skipping kinds no phone wants (`Wants`).
+#[derive(Clone)]
+pub struct Reporter {
+    base_url: String,
+    device_id: String,
+    tokens: Arc<Tokens>,
+    wants: Arc<Mutex<Wants>>,
+    /// Paired phones that gave a push key get the content sealed (`sealed_notify.rs`).
+    sealer: Option<Arc<crate::sealed_notify::Sealer>>,
+}
+
+impl Reporter {
+    pub fn new(base_url: String, device_id: String, tokens: Arc<Tokens>) -> Self {
+        Self { base_url, device_id, tokens, wants: Arc::default(), sealer: None }
+    }
+
+    /// With the sealer of a supervised hostd.
+    pub fn with_sealer(mut self, sealer: Option<Arc<crate::sealed_notify::Sealer>>) -> Self {
+        self.sealer = sealer;
+        self
+    }
+
+    /// Whether a `kind` event would be sent now (the terminal watcher asks before reading the screen).
+    pub fn wants(&self, kind: &str) -> bool {
+        self.wants.lock().unwrap_or_else(std::sync::PoisonError::into_inner).allows(kind, Instant::now())
+    }
+
+    /// Sends one event in the background.
+    pub fn send(&self, event: NotifyEvent) {
+        if !self.wants(&event.kind) {
+            return tracing::debug!(kind = event.kind, "push skipped: no phone wants it");
+        }
+        let this = self.clone();
+        tokio::spawn(async move {
+            let token = match this.tokens.access_token().await {
+                Ok(token) => token,
+                Err(error) => return tracing::warn!("no access token for a push ({error:#})"),
+            };
+            // Sealed to each paired phone's push key when it gave one (sealed_notify.rs).
+            let body = serde_json::to_value(&event).unwrap_or_default();
+            let body = match &this.sealer {
+                Some(sealer) => sealer.body(body).await,
+                None => body,
+            };
+            match ApiClient::new(&this.base_url, &token).notify_body(&this.device_id, &body).await {
+                Ok(result) => {
+                    this.wants
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .learn(&result, Instant::now());
+                    tracing::info!(kind = event.kind, %result, "push reported");
+                }
+                Err(error) => tracing::warn!(kind = event.kind, %error, "push report failed"),
+            }
+        });
+    }
+}
+
+/// Runs until the process stops: watch acpmux and the daemon's notifications, report events, reconnect.
+pub async fn run(
+    base_url: String,
+    device_id: String,
+    tokens: Arc<Tokens>,
+    acpmux: AcpmuxTarget,
+    daemon_socket: Option<std::path::PathBuf>,
+    sealer: Option<Arc<crate::sealed_notify::Sealer>>,
+) {
+    let reporter = Reporter::new(base_url, device_id, tokens).with_sealer(sealer);
+    let places = Arc::new(Places::default());
+    if let Some(socket) = daemon_socket {
+        tokio::spawn(crate::notify_terminal::run(socket, Arc::clone(&places), reporter.clone()));
+    }
+    let mut classifier = Classifier::with_places(places);
     let mut backoff = Duration::from_secs(2);
     loop {
-        match watch_once(&base_url, &device_id, &tokens, &acpmux, &mut classifier).await {
+        match watch_once(&reporter, &acpmux, &mut classifier).await {
             Ok(()) => backoff = Duration::from_secs(2),
             Err(reason) => {
                 tracing::debug!(reason, "push watch ended");
@@ -345,7 +533,7 @@ pub async fn run(base_url: String, device_id: String, tokens: Arc<Tokens>, acpmu
                 Some(at) if at < until => {
                     tokio::time::sleep_until(at).await;
                     for event in classifier.due(Instant::now()) {
-                        report(&base_url, &device_id, &tokens, event);
+                        reporter.send(event);
                     }
                 }
                 _ => break tokio::time::sleep_until(until).await,
@@ -355,9 +543,7 @@ pub async fn run(base_url: String, device_id: String, tokens: Arc<Tokens>, acpmu
 }
 
 async fn watch_once(
-    base_url: &str,
-    device_id: &str,
-    tokens: &Arc<Tokens>,
+    reporter: &Reporter,
     acpmux: &AcpmuxTarget,
     classifier: &mut Classifier,
 ) -> Result<(), String> {
@@ -382,7 +568,7 @@ async fn watch_once(
                 }
             } => {
                 for event in classifier.due(Instant::now()) {
-                    report(base_url, device_id, tokens, event);
+                    reporter.send(event);
                 }
                 continue;
             }
@@ -401,30 +587,16 @@ async fn watch_once(
             continue;
         }
         let Some(event) = classifier.handle(&value) else { continue };
-        report(base_url, device_id, tokens, event);
+        reporter.send(event);
     }
     Err("acpmux closed".into())
-}
-
-/// Sends one event to the backend in the background.
-fn report(base_url: &str, device_id: &str, tokens: &Arc<Tokens>, event: NotifyEvent) {
-    let tokens = Arc::clone(tokens);
-    let (base_url, device_id) = (base_url.to_owned(), device_id.to_owned());
-    tokio::spawn(async move {
-        let token = match tokens.access_token().await {
-            Ok(token) => token,
-            Err(error) => return tracing::warn!("no access token for a push ({error:#})"),
-        };
-        match ApiClient::new(&base_url, &token).notify(&device_id, &event).await {
-            Ok(result) => tracing::info!(kind = event.kind, %result, "push reported"),
-            Err(error) => tracing::warn!(kind = event.kind, %error, "push report failed"),
-        }
-    });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::notify_content::PlaceMap;
+    use cmux_mobile_link::api::{NotifyChoice, NotifyQuestion};
 
     fn watch() -> Value {
         json!({"sessions":[
@@ -434,11 +606,11 @@ mod tests {
     }
 
     #[test]
-    fn questions_permissions_and_turns_become_minimized_events() {
+    fn questions_permissions_and_turns_carry_what_the_person_acts_on() {
         let mut c = Classifier::default();
         c.load(&watch());
         let question = c
-            .handle(&json!({"method":"_acpmux/permission_pending","params":{"sessionId":"s1","permissionId":"perm/1","request":{"toolCall":{"_meta":{"claude":{"tool":"AskUserQuestion"}},"rawInput":{"questions":[{"question":"API key is sk-123?"}]}}}}}))
+            .handle(&json!({"method":"_acpmux/permission_pending","params":{"sessionId":"s1","permissionId":"perm/1","request":{"toolCall":{"title":"Question","_meta":{"claude":{"tool":"AskUserQuestion"}},"rawInput":{"questions":[{"question":"Deploy to staging?","header":"Deploy","options":[{"label":"Yes"},{"label":"No"}]}]}}}}}))
             .unwrap();
         assert_eq!(
             question,
@@ -448,29 +620,60 @@ mod tests {
                 agent: Some("Claude".into()),
                 place: Some("cmuxterm-hq".into()),
                 session_id: Some("s1".into()),
+                // "perm/1" is no id the Worker accepts: dropped, never changed.
+                permission_id: None,
+                title: Some("Deploy to staging?".into()),
+                questions: vec![NotifyQuestion {
+                    question: "Deploy to staging?".into(),
+                    header: Some("Deploy".into()),
+                    multi_select: false,
+                    allows_other: true,
+                    options: vec![
+                        NotifyChoice { label: "Yes".into(), description: None },
+                        NotifyChoice { label: "No".into(), description: None },
+                    ],
+                }],
+                state: Some("waiting".into()),
+                ..NotifyEvent::default()
             }
         );
-        // The JSON sent to the backend carries no prompt, question text or path.
+        // Never the session's path or its name (the person's prompt).
         let body = serde_json::to_string(&question).unwrap();
-        assert!(!body.contains("sk-123") && !body.contains("secret-dir") && !body.contains("fix the bug"));
+        assert!(!body.contains("secret-dir") && !body.contains("fix the bug"));
         // The same ask again (a re-watch) is not pushed twice.
         assert!(c.handle(&json!({"method":"_acpmux/permission_pending","params":{"sessionId":"s1","permissionId":"perm/1","request":{}}})).is_none());
         let permission = c
-            .handle(&json!({"method":"_acpmux/permission_pending","params":{"sessionId":"s1","permissionId":"p2","request":{"toolCall":{"title":"rm -rf /"}}}}))
+            .handle(&json!({"method":"_acpmux/permission_pending","params":{"sessionId":"s1","permissionId":"p2","request":{"toolCall":{"title":"rm -rf build","rawInput":{"command":"rm -rf build","env":{"TOKEN":"sk-123"}}},"options":[{"optionId":"a1","name":"Allow once","kind":"allow_once"},{"optionId":"a2","name":"Always allow","kind":"allow_always"},{"optionId":"r1","name":"Deny","kind":"reject_once"}]}}}))
             .unwrap();
         assert_eq!(permission.kind, "permission");
+        assert_eq!(
+            (permission.title.as_deref(), permission.permission_id.as_deref()),
+            (Some("rm -rf build"), Some("p2"))
+        );
+        assert_eq!(
+            permission.options.iter().map(|o| (o.id.as_str(), o.kind.as_deref())).collect::<Vec<_>>(),
+            [("a1", Some("allow_once")), ("a2", Some("allow_always")), ("r1", Some("reject_once")),]
+        );
+        assert!(permission.questions.is_empty());
+        // Tool arguments beyond the title never leave.
+        assert!(!serde_json::to_string(&permission).unwrap().contains("sk-123"));
         let done = c
-            .handle(&json!({"method":"_acpmux/session_changed","params":{"recordKind":"turn_result","seq":9,"session":{"sessionId":"s1","harness":"claude-code","cwd":"/x/repo","lastTurn":{"turnId":"t9","status":"completed"},"preview":"secret output"}}}))
+            .handle(&json!({"method":"_acpmux/session_changed","params":{"recordKind":"turn_result","seq":9,"session":{"sessionId":"s1","harness":"claude-code","cwd":"/x/repo","lastTurn":{"turnId":"t9","status":"completed"},"preview":"Fixed the flaky test.\nAll 31 pass."}}}))
             .unwrap();
         assert_eq!(
             (done.kind.as_str(), done.event_id.as_str(), done.place.as_deref()),
             ("completed", "t-s1-t9", Some("repo"))
         );
-        assert!(!serde_json::to_string(&done).unwrap().contains("secret output"));
+        assert_eq!(done.tail, ["Fixed the flaky test.", "All 31 pass."]);
+        assert_eq!(done.state.as_deref(), Some("finished"));
         let failed = c
-            .handle(&json!({"method":"_acpmux/session_changed","params":{"recordKind":"turn_result","session":{"sessionId":"s1","lastTurn":{"turnId":"t10","status":"failed"}}}}))
+            .handle(&json!({"method":"_acpmux/session_changed","params":{"recordKind":"turn_result","session":{"sessionId":"s1","lastTurn":{"turnId":"t10","status":"failed","errorText":"Rate limited\n(429)"}}}}))
             .unwrap();
         assert_eq!(failed.kind, "failed");
+        assert_eq!(
+            (failed.state.as_deref(), failed.body.as_deref()),
+            (Some("failed"), Some("Rate limited (429)"))
+        );
         assert!(c
             .handle(&json!({"method":"_acpmux/session_changed","params":{"recordKind":"turn_result","session":{"sessionId":"s1","lastTurn":{"turnId":"t11","status":"cancelled"}}}}))
             .is_none());
@@ -480,6 +683,34 @@ mod tests {
         assert_eq!((chief.kind.as_str(), chief.agent.as_deref()), ("chief", Some("Chief")));
         // Other record kinds are not pushed.
         assert!(c.handle(&json!({"method":"_acpmux/session_changed","params":{"recordKind":"message","session":{"sessionId":"s1"}}})).is_none());
+    }
+
+    #[test]
+    fn a_chief_reply_names_its_conversation_and_says_its_first_lines() {
+        let mut c = Classifier::default();
+        let reply = json!({"sessionId":"ct1","harness":"claude","cwd":"/Users/me/.cmux/chief","preview":"Both branches merged.\nGates are green.",
+            "tags":{"cmux.chief":"c39c6f72","cmux.chief.role":"turn"},"lastTurn":{"turnId":"a","status":"completed"}});
+        let e = c.handle_at(&turn_msg(reply), Instant::now()).unwrap();
+        assert_eq!(e.kind, "chief");
+        assert_eq!(e.conversation_id.as_deref(), Some("c39c6f72"));
+        assert_eq!(e.body.as_deref(), Some("Both branches merged. Gates are green."));
+        assert_eq!(e.tail, ["Both branches merged.", "Gates are green."]);
+    }
+
+    #[test]
+    fn a_session_in_a_workspace_tab_names_the_workspace_and_tab() {
+        let places = Arc::new(Places::default());
+        places.set(PlaceMap::from_workspaces(&json!({"data":{"workspaces":[{"key":"ws_a","title":"Release prep","screens":[{"panes":[{"tabs":[
+            {"surface":8,"kind":"conversation","conversation":{"agent_session":{"session":"s1","harness":"claude"}}}]}]}]}]}})));
+        let mut c = Classifier::with_places(Arc::clone(&places));
+        c.load(&watch());
+        let e = c
+            .handle(&json!({"method":"_acpmux/permission_pending","params":{"sessionId":"s1","permissionId":"p9","request":{"toolCall":{"title":"git push"}}}}))
+            .unwrap();
+        assert_eq!(
+            (e.workspace.as_deref(), e.workspace_id.as_deref(), e.tab_id.as_deref(), e.place.as_deref()),
+            (Some("Release prep"), Some("ws_a"), Some("s8"), Some("cmuxterm-hq"))
+        );
     }
 
     fn turn(session: Value, seq: u64) -> Value {

@@ -4,7 +4,9 @@
 import type { PageClient } from "../shared/pageClient";
 import {
   AppsOps,
+  type AppContribution,
   type AppDetail,
+  type AppIconRef,
   type AppSource,
   type AppTier,
   type AppVersion,
@@ -49,6 +51,8 @@ export interface WireDetail extends WireListing {
   versions?: AppVersion[];
   repository?: string;
   screenshots?: string[];
+  /** The manifest's contributions; the owner's `catalog.get` does not send them yet. */
+  contributes?: AppContribution[];
 }
 
 export interface WireCatalogPage {
@@ -101,13 +105,29 @@ export function fromListing(listing: WireListing): CatalogApp {
     keywords: listing.keywords,
     latest_version: listing.version,
     install_count: 0,
-    // The store loads an asset through cmux.apps.asset.get; a symbol is never drawn on the web.
-    icon: listing.icon && "asset" in listing.icon ? { asset: listing.icon.asset } : undefined,
+    // The store loads an asset through cmux.apps.asset.get; a symbol is the host's own drawing
+    // of it (`glyph/<symbol>`), never Apple's symbol.
+    icon: wireIcon(listing.icon),
     installed: listing.install?.installed === true,
     enabled: listing.install?.enabled,
     hidden: listing.install?.hidden,
     hide_only: listing.hide_only,
   };
+}
+
+function wireIcon(icon: WireIcon): AppIconRef | undefined {
+  if (!icon) return undefined;
+  if ("asset" in icon) return { asset: icon.asset };
+  return icon.symbol ? { symbol: icon.symbol } : undefined;
+}
+
+/** The owner's contributions, keeping only entries with a string kind and a non-blank title. */
+function contributionsFrom(value: unknown): AppContribution[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.filter(
+    (item): item is AppContribution =>
+      typeof item?.kind === "string" && typeof item.title === "string" && item.title.trim() !== "",
+  );
 }
 
 export function fromDetail(detail: WireDetail): AppDetail {
@@ -117,6 +137,7 @@ export function fromDetail(detail: WireDetail): AppDetail {
     versions: detail.versions ?? [],
     repository: detail.repository,
     screenshots: detail.screenshots ?? [],
+    contributes: contributionsFrom(detail.contributes),
   };
 }
 

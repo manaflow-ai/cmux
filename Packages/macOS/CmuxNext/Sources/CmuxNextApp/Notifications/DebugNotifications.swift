@@ -60,7 +60,7 @@ enum DebugNotifications {
             return [
                 "id": .string(controller.state.id),
                 "attention": .array(marks.keys.sorted().map { .string($0.rawValue) }),
-                "focused_tab": NotificationCenterService.contentTab(controller.focus.state.resolved).map(JSONValue.string) ?? .null,
+                "focused_tab": NotificationCenterService.shownFocus(controller).flatMap(NotificationCenterService.contentTab).map(JSONValue.string) ?? .null,
             ]
         }
         let prefs = center.preferences

@@ -9,7 +9,9 @@ name: nightly-next feed watch
 # `nightly-next-feed-stale` issue naming the stuck stage
 # (scripts/ci/nightly_next_feed_watch.py, tested by
 # tests/test_nightly_next_feed_watch.py). It also requests the continuation
-# run that publishes a build Apple accepted after its run stopped waiting.
+# run that publishes a build Apple accepted after its run stopped waiting, and
+# dispatches a current-tip build after 25 minutes without a publication when
+# no nightly or promotion run is active. The guard covers classic NIGHTLY too.
 on:
   schedule:
     - cron: "7,37 * * * *"
@@ -27,7 +29,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
-      actions: write # read nightly-next runs and artifacts; dispatch a continuation run
+      actions: write # read runs and dispatch continuation/starvation builds
       contents: read # the nightly-next release body's published commit
       issues: write # the nightly-next-feed-stale issue
     steps:

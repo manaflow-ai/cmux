@@ -168,8 +168,10 @@ test("a chat that starts while the page is hidden moves nothing, then or when it
   expect(started).toEqual([]);
   // A later change while it shows still moves: its places were kept while hidden.
   await render([card("m", "A chat started here"), card("n", "A chat another tab started"), chats[0]]);
-  expect(started).toContain("A chat started here");
-  // It slides from the place it was drawn at while hidden; a lost place would make it fade in.
+  // The new chat is drawn in its place at once (no entry animations on the New Tab).
+  expect(started).not.toContain("A chat started here");
+  // The one under it slides from the place it was drawn at while hidden; a lost place would leave
+  // it still.
   expect(kinds).toContain("A chat another tab started: transform");
 });
 
@@ -181,8 +183,9 @@ test("a motion in flight when the page hides ends there, instead of finishing wh
   expect([...running]).toEqual([]);
 });
 
-test("a page that shows still fades a new chat in", async () => {
+test("on a page that shows, a new chat appears at once and the chats under it slide", async () => {
   await render(chats);
   await render([card("n", "A new chat"), ...chats.slice(0, 2)]);
-  expect(started).toContain("A new chat");
+  expect(started).not.toContain("A new chat");
+  expect(kinds).toContain("Fix the flaky upload test: transform");
 });

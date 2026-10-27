@@ -26,6 +26,7 @@ extension PaletteModel {
         if shortcutRecorder != nil { onDropShortcutRecorder?() }
         shortcutRecorder = nil
         hoveredRowID = nil
+        keyboardLeads = false
         pendingClose = false
     }
 

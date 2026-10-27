@@ -2,10 +2,12 @@ import AppKit
 @testable import CmuxNextSidebar
 import Testing
 
-/// Leo 2026-10-21: "RIGHT CLICKING OR MOUSE DOWN DRAGGING ON A WORKSPACE SHOULDN'T BE IMMEDIATELY FOCUSING". With
+/// Leo 2026-10-21: "RIGHT CLICKING OR MOUSE DOWN DRAGGING ON A WORKSPACE SHOULDN'T BE IMMEDIATELY FOCUSING", and
+/// Lawrence 2026-10-21: "changing workspaces is laggy now" (#23977 moved every click's switch to the release). With
 /// Debug Settings `sidebar.multiView` off (the default): a right-click or control-click on a workspace row opens its
-/// menu and switches to nothing, a press alone switches to nothing, a press that drags moves the row and switches to
-/// nothing, and a click (the release on the pressed row, no drag) switches. The list is `SidebarPointerGestureTests`':
+/// menu and switches to nothing; a plain left press switches at once, on mouse-down; a press that becomes a drag moves
+/// the row and puts the shown workspace and the selection back as they were, so the dragged workspace is not left
+/// selected. The list is `SidebarPointerGestureTests`':
 /// loose `x`, `y`; group `g1` (`a`, `b`); collapsed group `g2` (`c`, `d`); `x` shown.
 @MainActor @Suite(.serialized) struct SidebarPressDoesNotFocusTests {
     typealias G = SidebarPointerGestureTests
@@ -77,22 +79,19 @@ import Testing
         }
     }
 
-    @Test func aPressAloneSwitchesToNothing() throws {
+    @Test func aPressSwitchesOnMouseDown() throws {
         try Self.withToggleOff {
             let (list, window, selects) = Self.list()
             defer { window.close() }
             list.mouseDown(with: try G.event(list, .leftMouseDown, at: try G.point(list, .workspace(WorkspaceID("y")))))
-            #expect(selects().isEmpty, "the press switched: \(selects())")
-            #expect(list.model.activeWorkspaceID == WorkspaceID("x"))
-            #expect(list.model.selection == [WorkspaceID("x")])
-            #expect(G.filledRows(list) == ["x"], "the press filled: \(G.filledRows(list))")
-            list.keyDown(with: try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                                                             windowNumber: window.windowNumber, context: nil, characters: "\u{1b}",
-                                                             charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)))
+            #expect(selects() == ["y"], "the press did not switch at once: \(selects())")
+            #expect(list.model.activeWorkspaceID == WorkspaceID("y"))
+            #expect(list.model.selection == [WorkspaceID("y")])
+            #expect(G.filledRows(list) == ["y"], "the press did not fill: \(G.filledRows(list))")
         }
     }
 
-    @Test func aPressThatDragsMovesTheRowAndSwitchesToNothing() throws {
+    @Test func aPressThatDragsMovesTheRowAndLeavesTheShownWorkspaceAsItWas() throws {
         try Self.withToggleOff {
             let (list, window, selects) = Self.list()
             defer { window.close() }
@@ -100,25 +99,26 @@ import Testing
             list.mouseDown(with: try G.event(list, .leftMouseDown, at: start))
             for dy in [CGFloat(-4), -10, -20, -30, -40] {
                 list.mouseDragged(with: try G.event(list, .leftMouseDragged, at: NSPoint(x: start.x, y: start.y + dy)))
-                #expect(selects().isEmpty, "the drag at \(dy) pt switched: \(selects())")
             }
             #expect(list.drag != nil, "a 40 pt drag did not lift the row")
+            #expect(list.model.activeWorkspaceID == WorkspaceID("x"), "the drag left y shown")
+            #expect(list.model.selection == [WorkspaceID("x")], "the drag left y selected: \(list.model.selection)")
             list.mouseUp(with: try G.event(list, .leftMouseUp, at: NSPoint(x: start.x, y: start.y - 40)))
             if let landing = list.landing { list.finishLand(landing, then: nil) }
             #expect(Array(G.ids(list).prefix(2)) == ["y", "x"], "the drop did not move y: \(G.ids(list))")
-            #expect(selects().isEmpty, "the drop switched: \(selects())")
+            #expect(selects() == ["y", "x"], "the press's switch was not undone once: \(selects())")
             #expect(list.model.activeWorkspaceID == WorkspaceID("x"))
             #expect(list.model.selection == [WorkspaceID("x")])
+            #expect(G.filledRows(list) == ["x"])
         }
     }
 
-    @Test func aClickSwitchesOnItsRelease() throws {
+    @Test func aClickSwitchesOnceOnItsPress() throws {
         try Self.withToggleOff {
             let (list, window, selects) = Self.list()
             defer { window.close() }
             let point = try G.point(list, .workspace(WorkspaceID("y")))
             list.mouseDown(with: try G.event(list, .leftMouseDown, at: point))
-            #expect(selects().isEmpty)
             list.mouseUp(with: try G.event(list, .leftMouseUp, at: point))
             #expect(selects() == ["y"], "the click did not switch once: \(selects())")
             #expect(list.model.activeWorkspaceID == WorkspaceID("y"))
@@ -127,13 +127,18 @@ import Testing
         }
     }
 
-    @Test func aReleaseOverAnotherRowSwitchesToNothing() throws {
+    @Test func aPressOnTheShownRowThatDragsSwitchesToNothing() throws {
         try Self.withToggleOff {
             let (list, window, selects) = Self.list()
             defer { window.close() }
-            list.mouseDown(with: try G.event(list, .leftMouseDown, at: try G.point(list, .workspace(WorkspaceID("y")))))
-            list.mouseUp(with: try G.event(list, .leftMouseUp, at: try G.point(list, .workspace(WorkspaceID("a")))))
-            #expect(selects().isEmpty, "a press released elsewhere switched: \(selects())")
+            let start = try G.point(list, .workspace(WorkspaceID("x")))
+            list.mouseDown(with: try G.event(list, .leftMouseDown, at: start))
+            for dy in [CGFloat(10), 20, 30, 40] {
+                list.mouseDragged(with: try G.event(list, .leftMouseDragged, at: NSPoint(x: start.x, y: start.y + dy)))
+            }
+            list.mouseUp(with: try G.event(list, .leftMouseUp, at: NSPoint(x: start.x, y: start.y + 40)))
+            if let landing = list.landing { list.finishLand(landing, then: nil) }
+            #expect(selects().allSatisfy { $0 == "x" }, "a drag of the shown row switched elsewhere: \(selects())")
             #expect(list.model.activeWorkspaceID == WorkspaceID("x"))
         }
     }

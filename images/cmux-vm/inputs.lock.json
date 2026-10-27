@@ -498,18 +498,18 @@
     },
     {
       "name": "cmux-cua",
-      "version": "0.8.7",
-      "url": "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.7/cmux-cua-0.8.7-linux-x86_64.tar.gz",
-      "sha256": "95d18427ac02ea9964a198ca844f8ad6feb2113d784c2199e171cf459686e11e",
-      "size": 8706672,
+      "version": "0.8.12",
+      "url": "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.12/cmux-cua-0.8.12-linux-x86_64.tar.gz",
+      "sha256": "3a81784562139f273e9489baefe2ce8b63cb59cf61290a10a18377ebaa15c521",
+      "size": 8741562,
       "format": "tar.gz",
-      "bin": { "cmux-cua": "cmux-cua-0.8.7-linux-x86_64/cmux-cua" },
+      "bin": { "cmux-cua": "cmux-cua-0.8.12-linux-x86_64/cmux-cua" },
       "versionArgs": ["--version"],
-      "expect": "cmux-cua 0.8.7",
-      "checksumsUrl": "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.7/checksums.txt",
-      "checksumsName": "cmux-cua-0.8.7-linux-x86_64.tar.gz",
+      "expect": "cmux-cua 0.8.12",
+      "checksumsUrl": "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.12/checksums.txt",
+      "checksumsName": "cmux-cua-0.8.12-linux-x86_64.tar.gz",
       "roles": ["cua"],
-      "source": "manaflow-ai/cmux-cua release cmux-cua-v0.8.7 (full release 2026-10-05, LICENSE in the tarball); arm64 tarball sha256 550b1c902c4f47ded822f02dd1badb812bea2ae5e59d89817e1693805c867eaf; needs libX11 (base), libXi and libxkbcommon (display role)"
+      "source": "manaflow-ai/cmux-cua release cmux-cua-v0.8.12 (full release 2026-10-08, LICENSE in the tarball; the release the macOS app builds from, scripts/build-cmux-cua.sh e8a8dbfd); sha256 checked against checksums.txt; arm64 tarball sha256 cf88895f3e68cba83691fd20de8aaf3ccd408c23a1d07e023d187f81d687bc07; needs libX11 (base), libXi and libxkbcommon (display role)"
     },
     {
       "name": "chrome-for-testing",
@@ -527,28 +527,28 @@
     },
     {
       "name": "cmux-browser-host",
-      "version": "0.1.0",
-      "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-browser-host-v0.1.0/cmux-browser-host-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
-      "sha256": "79b0945cdbe6e585a781da2530b2a3aafaa10969bc6d63b7559ae6a96e57da18",
-      "size": 2294597,
+      "version": "1.0.0-r1",
+      "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-browser-host-v1.0.0-r1/cmux-browser-host-1.0.0-r1-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "756021355332841537aad2ec102b1b9703950c9f90504c3b082b3b18e8af4fbb",
+      "size": 2474679,
       "format": "tar.gz",
       "bin": { "cmux-browser-host": "bin/cmux-browser-host" },
       "versionArgs": ["version"],
-      "expect": "cmux-browser-host 0.1.0 (db8565dfe127b2d182eb508754129c541cc7cecb)",
-      "checksumsUrl": "https://github.com/manaflow-ai/cmux/releases/download/cmux-browser-host-v0.1.0/SHA256SUMS",
-      "checksumsName": "./cmux-browser-host-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
+      "expect": "cmux-browser-host 1.0.0 (4cf5c4ccc7c5c93bf90ebdb910b31b90f075ac72)",
+      "checksumsUrl": "https://github.com/manaflow-ai/cmux/releases/download/cmux-browser-host-v1.0.0-r1/SHA256SUMS",
+      "checksumsName": "./cmux-browser-host-1.0.0-r1-x86_64-unknown-linux-gnu.tar.gz",
       "roles": ["browser"],
       "firstUse": true,
       "notices": ["LICENSE", "THIRD_PARTY_LICENSES.md"],
       "otherArches": {
         "aarch64": {
-          "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-browser-host-v0.1.0/cmux-browser-host-0.1.0-aarch64-unknown-linux-gnu.tar.gz",
-          "sha256": "cca1a3a51d89e15c1bcf2e2bb2bec0462470f59756bb471d0564dd510f4239f2",
-          "size": 2133182,
-          "checksumsName": "./cmux-browser-host-0.1.0-aarch64-unknown-linux-gnu.tar.gz"
+          "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-browser-host-v1.0.0-r1/cmux-browser-host-1.0.0-r1-aarch64-unknown-linux-gnu.tar.gz",
+          "sha256": "2a74586ca8cb215180a56b4d0b89478b2479a02b0f4b01163ba46d0b0a3afecc",
+          "size": 2286591,
+          "checksumsName": "./cmux-browser-host-1.0.0-r1-aarch64-unknown-linux-gnu.tar.gz"
         }
       },
-      "source": "manaflow-ai/cmux release cmux-browser-host-v0.1.0 (prerelease 2026-10-07; tag on db8565dfe127, a feat-cmux-next commit; tag run 37553041068). sha256 of both archives checked against SHA256SUMS after download; gh attestation verify passed for both archives and manifest-entries.json (sha256 d4f924f35d54d7db08b02f838ac1996c879343fc34ce6dd52d97256793675469). Archive: LICENSE, THIRD_PARTY_LICENSES.md, bin/cmux-browser-host (glibc floor 2.31)."
+      "source": "manaflow-ai/cmux release cmux-browser-host-v1.0.0-r1 (2026-10-24; tag on 4cf5c4ccc7c5, a feat-cmux-next commit; tag run 40082002418). A host-only release ([package.metadata.cmux-release] revision 1): the binary prints the one cmux-next version, 1.0.0. Adds to 1.0.0: goto after a router hash change, new-document snapshot diffs, the host world at once, headless clicks without the human pointer path. sha256 and size of both archives from the release SHA256SUMS and downloads. Archive: LICENSE, THIRD_PARTY_LICENSES.md, bin/cmux-browser-host (glibc floor 2.31)."
     }
   ],
   "roles": {
@@ -561,6 +561,29 @@
       "firstUse": true,
       "apt": ["fonts-liberation", "libasound2t64", "libatk1.0-0t64", "libatk-bridge2.0-0t64", "libcairo2", "libcups2t64", "libnspr4", "libnss3", "libpango-1.0-0", "libxcomposite1", "libxdamage1", "libxfixes3"],
       "env": { "CMUX_BROWSER_HOST_BACKGROUND_FULL_RATE": "0" }
+    }
+  },
+  "devTree": {
+    "repo": "https://github.com/manaflow-ai/cmux.git",
+    "branch": "feat-cmux-next",
+    "dir": "/home/cmux/cmux",
+    "submodules": ["ghostty-next"],
+    "aptRoots": ["libclang-dev"],
+    "apt": {
+      "libclang-18-dev": "1:18.1.3-1ubuntu1",
+      "libclang-common-18-dev": "1:18.1.3-1ubuntu1",
+      "libclang-dev": "1:18.0-59~exp2",
+      "libclang1-18": "1:18.1.3-1ubuntu1",
+      "libgc1": "1:8.2.6-1build1",
+      "libllvm18": "1:18.1.3-1ubuntu1",
+      "libobjc-13-dev": "13.3.0-6ubuntu2~24.04.1",
+      "libobjc4": "14.2.0-4ubuntu2~24.04.1"
+    },
+    "rustupInit": {
+      "version": "1.29.2",
+      "url": "https://static.rust-lang.org/rustup/archive/1.29.2/x86_64-unknown-linux-gnu/rustup-init",
+      "sha256": "5be191e8c70a5007074254cb74d78dbfdd25cd5a61c27de7b8e5410122ec24f4",
+      "size": 21139856
     }
   },
   "tools": {

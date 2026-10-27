@@ -2,9 +2,15 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextMacScreen
 import CmuxNextRemote
 import CmuxNextTerminal
+import CmuxNextWakeups
 import Observation
+import os
+
+private let fallbackLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser.engine")
 
 /// Owns every terminal surface and browser page in the process
 /// (architecture.md 4). Surfaces are keyed by tab, not by pane: a tab moved
@@ -52,7 +58,8 @@ final class TabContentCache {
     /// Pages revealed since their last hide: the next hide captures their
     /// thumbnail (`TabContentCache+Lifecycle`).
     var shownPages: Set<String> = []
-    let webKit = WebKitEngine()
+    /// Over the Chromium engine's stores, so both engines share them (``BrowserSharedStores``).
+    let webKit: WebKitEngine
     let cef: CEFEngine
     /// Pages visited in the default browser profile, shared by its omnibars for suggestions and
     /// inline autocomplete (in memory, durable via `HistoryService`). Others: `history(for:)`.
@@ -74,7 +81,15 @@ final class TabContentCache {
     let browserTabs: BrowserTabService
     /// Page-originated tab requests (new-tab links, popups, window.close).
     let pageRequests = BrowserPageRequests()
-    private(set) var pendingBrowsers: Set<String> = [] // Chromium pages being created (ChromiumWarmup waits)
+    /// Chromium pages being created (ChromiumWarmup waits for none, `onPagesSettled`).
+    private(set) var pendingBrowsers: Set<String> = [] {
+        didSet { if pendingBrowsers.isEmpty, !oldValue.isEmpty { onPagesSettled?() } }
+    }
+    /// No Chromium page is being created any more (ChromiumWarmup's spare window).
+    var onPagesSettled: (@MainActor () -> Void)?
+    private var framedStandIns: Set<String> = [] // stand-in tabs whose page waited for their first frame
+    /// Runs work after the current pass's frame committed (`AfterFrameCommit`); tests pass their own.
+    private let afterFrame: (@escaping @MainActor () -> Void) -> Void
     /// Restored browser tabs start as `DeferredBrowserTab` (nothing loads)
     /// until the user reloads one: set after cmux quit unexpectedly twice in
     /// a row (`LaunchRecovery.restartedSafely`).
@@ -123,9 +138,22 @@ final class TabContentCache {
     /// closed; the App routes it through the window's focus coordinator.
     var onDevToolsChange: ((String, BrowserDevToolsState, Bool) -> Void)?
 
-    init(daemon: DaemonService, cef: CEFEngine = CEFEngine()) {
+    /// The app's grid sender for every terminal it makes (``ResizeCoordinator``).
+    let resizes: ResizeCoordinator
+
+    /// - Parameters:
+    ///   - fileInput: answers a WebKit browser tab's file input (the App's made-ahead panel; tests pass a stand-in).
+    ///   - afterFrame: runs work once the current pass's frame committed (a stand-in's page follows the key's
+    ///     frame); tests pass one that collects the work or runs it at once.
+    ///   - resizes: The app's grid sender (`AppServices.resizes`); tests get their own.
+    init(daemon: DaemonService, cef: CEFEngine = CEFEngine(stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()), fileInput: any WebFileInputAnswering,
+         afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
+         resizes: ResizeCoordinator = ResizeCoordinator()) {
         self.daemon = daemon
         self.cef = cef
+        webKit = WebKitEngine(fileInput: fileInput, stores: cef.stores)
+        self.afterFrame = afterFrame
+        self.resizes = resizes
         browserTabs = BrowserTabService(daemon: daemon, cef: cef)
         wireNotices()
     }
@@ -163,8 +191,8 @@ final class TabContentCache {
         // Paused (and not claiming geometry) until a visible pane presents it.
         let render = ledger.isRendering(tab.id)
         let gate = ProvisionalTab.isProvisional(surface: tab.surface) ? TerminalTargetGate() : nil
-        let io = DaemonTerminalIO(target: target, visible: render, gate: gate, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
-                                  policyBlocked: daemon.policyBlock.check,
+        let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, gate: gate, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
+                                  burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check,
                                   endpoint: { try await daemon.endpoint() })
         let session = makeSession(io: io, tab: tab, daemon: daemon)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
@@ -221,7 +249,18 @@ final class TabContentCache {
             return nil
         }
         if let adopted = pageRequests.takeAdoption(for: tab) { return tracked(install(adopted, for: key), tab) }
+        // A stand-in's page and chrome come once its first frame (the tab selected on its themed pane) committed.
+        if ProvisionalTab.isProvisional(surface: tab.surface), framedStandIns.insert(key).inserted, pendingBrowsers.insert(key).inserted {
+            afterFrame { [weak self] in if self?.pendingBrowsers.remove(key) != nil { self?.onBrowserReady?(key) } }
+            return nil
+        }
         let url = MachineBrowserPages(cache: self).recordURL(tab) ?? recordURL(tab)
+        // A browser tab on a Mac Screen address (dev builds before Mac Screen had its own tab
+        // kind, or restored from then): the Mac Screen tab replaces it, waiting for Connect.
+        if let url, MacScreenRecord.matches(url) {
+            pageRequests.services?.macScreenTabs.replaceBrowserTab(key, url: url)
+            return nil
+        }
         if let page = appPage(for: tab, url: url) { return page }
         if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.wasOpenedHere(tab) {
             return deferred(tab, url: url)
@@ -319,6 +358,10 @@ final class TabContentCache {
     /// A WebKit page for a Chromium record, with the fallback recorded and
     /// the one-time notice shown when this is the first.
     private func fallBack(_ tab: TabModel, url: URL?, reason: CEFUnavailableReason) -> BrowserEntry {
+        // The page loads again in WebKit, without Chromium's cookies (a second copy of the app,
+        // whose Chromium cannot start while the first holds its profile, shows signed-out pages).
+        let tabID = tab.id, code = reason.code
+        fallbackLogger.notice("tab \(tabID, privacy: .public) loads in WebKit: Chromium unavailable (\(code, privacy: .public)); its page reloads without Chromium's cookies")
         let fallbacks = browserTabs.fallbacks
         fallbacks.record(reason, source: .recordedTab, machine: browserTabs.daemon(for: tab).machineID, surface: tab.surface)
         return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: tab.id, url: url), tab)
@@ -343,13 +386,22 @@ final class TabContentCache {
         page.delegate = pageRequests
         if page.engineKind == .cef { page.keyRouter = keyRouter }
         (page as? CEFTab)?.devToolsObserver = self
-        let incognito = OffTheRecordProfiles.shared.isOffTheRecord(page.profileID) ? incognitoMemory : nil
+        let incognito = cef.stores.offTheRecord.isOffTheRecord(page.profileID) ? incognitoMemory : nil
         let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine(forPage: page),
                                  history: incognito?.history ?? history(for: page.profileID))
+        pageRequests.routeOmnibarOpens(of: entry.chrome, page: page)
+        mount(entry, as: key)
+        return entry
+    }
+
+    /// Binds `entry` to tab id `key`: everything of the chrome and the cache that names the tab,
+    /// the app's hooks (`onBrowserEntryCreated`, which capture the tab) included. Runs again when a
+    /// stand-in's entry moves to its daemon tab (`moveBrowser`): each hook replaces what it set.
+    private func mount(_ entry: BrowserEntry, as key: String) {
+        let page = entry.tab
         entry.chrome.addressBar.tabKey = key
         showPendingNotice(on: entry, key: key); MachineBrowserPages(cache: self).wireChip(entry, page: page, key: key)
         entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
-        pageRequests.routeOmnibarOpens(of: entry.chrome, page: page)
         serveAppPages(entry, key: key)
         entry.chrome.addressBar.setProfileBadge(profileBadge?(key))
         entry.chrome.addressBar.profileBadgeMenu = { [weak self] in self?.profileBadgeMenu?(key) }
@@ -365,7 +417,19 @@ final class TabContentCache {
         // Pages are kept by hibernation, never by the terminal warm set.
         ledger.setRetained(key, false)
         contentDidMount(key)
-        return entry
+    }
+
+    /// Stand-in tab `key`'s page and chrome become daemon tab `tab`'s (`PaneBrowserTabOpener.openStandIn`), in the
+    /// turn the store swaps the two: nothing is rebuilt or reloaded, and the pane that shows the
+    /// stand-in keeps the same view when it moves to `tab`. False when the stand-in has no page
+    /// (yet) or `tab` has one: `tab` then makes its own.
+    func moveBrowser(_ key: String, to tab: TabModel) -> Bool {
+        guard !pendingBrowsers.contains(key), browsers[tab.id] == nil, let entry = browsers.removeValue(forKey: key) else { return false }
+        release(key, displacing: false)
+        mount(entry, as: tab.id)
+        goneTabs.track(tab.id, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
+        _ = tracked(entry, tab)
+        return true
     }
 
     /// Swaps `tab`'s page for `page` (an adopted popup that arrived after
@@ -400,11 +464,13 @@ final class TabContentCache {
     }
 
     /// The tab closed: free everything it held (a conversation tab's view: `onRelease`).
-    func release(_ key: String) {
+    func release(_ key: String, displacing: Bool = true) { // displacing false: the pane keeps its view (a stand-in's moved to its daemon tab)
         onRelease?(key)
-        if let owner = ledger.remove(key) { presenters[owner]?.value?.surfaceWasDisplaced(key) }
+        // A closed tab is mirrored nowhere any more (`TabMirrors`); a stand-in moving to its daemon tab keeps nothing to drop.
+        if displacing { pageRequests.services?.tabMirrors.remove(key) }
+        if let owner = ledger.remove(key), displacing { presenters[owner]?.value?.surfaceWasDisplaced(key) }
         applyLifecycle(lifecycle.send(.removed(key)))
-        pendingMounts[key] = nil
+        pendingMounts[key] = nil; framedStandIns.remove(key); pendingBrowsers.remove(key)
         hibernation?.forget(key)
         agentMarks.forget(key)
         pageRequests.services?.remoteViewPages.forget(key)

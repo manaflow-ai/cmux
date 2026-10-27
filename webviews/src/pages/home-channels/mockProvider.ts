@@ -31,6 +31,15 @@ const agent = (name: string): HomeParticipant => ({
 const builder = agent("Builder");
 const reviewer = agent("Reviewer");
 const docs = agent("Docs");
+/** Teammates (gallery `teammates`): people on the same Home, as `tailnet:<login>` ids. */
+const human = (login: string, name: string): HomeParticipant => ({
+  id: `tailnet:${login}`,
+  kind: "human",
+  name,
+  chief: false,
+});
+export const ana = human("ana@example.com", "Ana Ruiz");
+export const sam = human("sam@example.com", "Sam Okafor");
 
 const MINUTE = 60_000;
 const BASE = Date.UTC(2026, 9, 10, 9, 0, 0);
@@ -160,6 +169,18 @@ export function addLongThread(home: ReturnType<typeof sampleHome>): void {
   list.push(text(id, 132, chief, BASE - 90 * MINUTE, "Queue is moving again."));
   home.messages.set(id, list);
   home.conversations.push(conversation(id, "incident", "group", [chief, builder, reviewer], list));
+}
+
+/** #launch (gallery `teammates`): a channel two teammates share with you and the Chief. */
+export function addTeammates(home: ReturnType<typeof sampleHome>): void {
+  const id = "c-launch";
+  const list = [
+    text(id, 1, ana, BASE + 40 * MINUTE, "Launch checklist is up. I take the store listing."),
+    text(id, 2, sam, BASE + 41 * MINUTE, "I take the release notes."),
+    text(id, 3, chief, BASE + 42 * MINUTE, "Noted. I post each item here when it lands."),
+  ];
+  home.messages.set(id, list);
+  home.conversations.push(conversation(id, "launch", "group", [ana, sam, chief], list));
 }
 
 /** A sample file part (gallery `media`): the mock draws its pixels when the page reads it. */
@@ -496,9 +517,11 @@ export class MockHomeProvider implements PageClient {
     /** The owner refuses pins and marks (the page puts the row back and says why). */
     private readonly refuseInbox = false,
     media = false,
+    teammates = false,
   ) {
     if (longThread) addLongThread(this.data);
     if (media) addMedia(this.data);
+    if (teammates) addTeammates(this.data);
     if (runMode !== "none") {
       const done = sampleRun();
       this.runs.set(done.run.id, done);
@@ -1007,6 +1030,18 @@ export class MockHomeProvider implements PageClient {
 
   handle(_op: string, _handler: PageHandler): () => void {
     return () => undefined;
+  }
+
+  /** Who has `conversation` open, as the owner's `conversation-presence` says (gallery `teammates`). */
+  viewing(conversation: string, participants: readonly string[]): void {
+    this.emit({
+      presence: [{ conversation, participants: participants.map((participant) => ({ participant, viewing: true })) }],
+    });
+  }
+
+  /** A participant starts or stops typing (gallery `teammates`). */
+  typing(conversation: string, participant: string, on: boolean): void {
+    this.emit({ typing: [{ conversation, participant, on }] });
   }
 
   private emit(batch: HomeEventBatch): void {

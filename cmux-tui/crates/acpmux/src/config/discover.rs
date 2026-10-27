@@ -40,6 +40,12 @@ pub fn discover_harnesses(route: Option<&str>) -> BTreeMap<String, HarnessProfil
     found
 }
 
+/// The Muse Code ACP adapter's program (cmux-muse-acp).
+pub const MUSE_ACP: &str = "muse-acp";
+
+/// Muse Code in a terminal tab, when `muse` itself is the ACP harness.
+pub const MUSE_TERMINAL: &str = "muse-terminal";
+
 /// The profile name of the built-in UniiChat harness.
 pub const UNIICHAT_PROFILE: &str = "unii";
 
@@ -313,28 +319,48 @@ pub fn discover_harnesses_from(
             },
         );
     }
-    // Muse Code (Meta's `muse`) has no ACP mode: it speaks its own session
-    // protocol (`muse serve`), which acpmux does not bridge yet. It is offered
-    // as a terminal harness (`cmux harness run muse`); its chats come from the
-    // chat index (`muse resume <id>`) and its status from its hooks.
-    if !agents.contains_key("muse")
-        && let Some(path) = which("muse")
-    {
-        agents.insert(
-            "muse".to_owned(),
-            HarnessProfile {
-                kind: HarnessKind::Terminal,
-                argv: vec![path],
-                env: BTreeMap::new(),
-                description: Some("Muse Code, found on PATH; runs in a terminal tab".into()),
-                fallback: None,
-                family: Some("muse".into()),
-                models: vec![],
-                model: None,
-                effort: None,
-                policy: None,
-            },
-        );
+    // Muse Code (Meta's `muse`) has no ACP mode of its own: it speaks its own
+    // session protocol (`muse serve`). The cmux-muse-acp adapter
+    // (manaflow-ai/cmux-muse-acp, a fork of BrokkAi/muse-acp) bridges it to
+    // ACP, so with `muse-acp` on PATH `muse` is an ACP harness: chats, the
+    // Chief engine, the model picker (its `configOptions`) and modes. The
+    // adapter gets the `muse` it found as `MUSE_CLI`, so a daemon PATH that
+    // lacks it still starts Muse. Without the adapter `muse` stays a terminal
+    // harness (`cmux harness run muse`); with it the terminal one is
+    // `muse-terminal`. Its chats come from the chat index (`muse resume <id>`)
+    // either way, and its status from its hooks.
+    if let Some(muse) = which("muse") {
+        let terminal = HarnessProfile {
+            kind: HarnessKind::Terminal,
+            argv: vec![muse.clone()],
+            env: BTreeMap::new(),
+            description: Some("Muse Code, found on PATH; runs in a terminal tab".into()),
+            fallback: None,
+            family: Some("muse".into()),
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        };
+        match which(MUSE_ACP) {
+            Some(adapter) if !agents.contains_key("muse") => {
+                agents.insert(
+                    "muse".to_owned(),
+                    HarnessProfile {
+                        kind: HarnessKind::Acp,
+                        argv: vec![adapter],
+                        env: BTreeMap::from([("MUSE_CLI".to_owned(), muse)]),
+                        description: Some("Muse Code through the muse-acp adapter".into()),
+                        ..terminal.clone()
+                    },
+                );
+                agents.entry(MUSE_TERMINAL.to_owned()).or_insert(terminal);
+            }
+            Some(_) => {}
+            None => {
+                agents.entry("muse".to_owned()).or_insert(terminal);
+            }
+        }
     }
     // Codex through `codex app-server`, bridged in process (cmux-codex-acp,
     // `codex_app_server.rs`), is `codex` whenever codex is installed; an ACP
@@ -440,5 +466,52 @@ mod acpx_codex_tests {
         let acpx = r#"{"agents": {"codex": {"argv": ["/Users/me/bin/my-codex-adapter"]}}}"#;
         let found = discover_harnesses_from(Some(acpx), &which);
         assert_eq!(found["codex"].argv, ["/Users/me/bin/my-codex-adapter"]);
+    }
+}
+
+#[cfg(test)]
+mod muse_tests {
+    use super::*;
+
+    fn on_path(names: &'static [&'static str]) -> impl Fn(&str) -> Option<String> {
+        move |name| names.contains(&name).then(|| format!("/opt/bin/{name}"))
+    }
+
+    /// With the adapter installed, `muse` is an ACP chat harness that runs
+    /// the adapter and hands it the `muse` it found; the terminal stays.
+    #[test]
+    fn muse_acp_makes_muse_an_acp_harness() {
+        let found = discover_harnesses_from(None, &on_path(&["muse", "muse-acp"]));
+        let muse = &found["muse"];
+        assert_eq!(muse.kind, HarnessKind::Acp);
+        assert_eq!(muse.argv, ["/opt/bin/muse-acp"]);
+        assert_eq!(muse.env.get("MUSE_CLI").map(String::as_str), Some("/opt/bin/muse"));
+        assert_eq!(muse.family.as_deref(), Some("muse"));
+        let terminal = &found[MUSE_TERMINAL];
+        assert_eq!(terminal.kind, HarnessKind::Terminal);
+        assert_eq!(terminal.argv, ["/opt/bin/muse"]);
+    }
+
+    /// Without the adapter, `muse` stays the terminal harness it was.
+    #[test]
+    fn muse_without_the_adapter_stays_a_terminal_harness() {
+        let found = discover_harnesses_from(None, &on_path(&["muse"]));
+        assert_eq!(found["muse"].kind, HarnessKind::Terminal);
+        assert!(!found.contains_key(MUSE_TERMINAL));
+    }
+
+    /// The adapter alone starts nothing: it needs Muse itself.
+    #[test]
+    fn the_adapter_without_muse_offers_nothing() {
+        let found = discover_harnesses_from(None, &on_path(&["muse-acp"]));
+        assert!(!found.contains_key("muse"));
+    }
+
+    /// A `muse` the person imported from ~/.acpx stays theirs.
+    #[test]
+    fn an_imported_muse_stays_theirs() {
+        let acpx = r#"{"agents": {"muse": {"argv": ["/Users/me/bin/my-muse"]}}}"#;
+        let found = discover_harnesses_from(Some(acpx), &on_path(&["muse", "muse-acp"]));
+        assert_eq!(found["muse"].argv, ["/Users/me/bin/my-muse"]);
     }
 }

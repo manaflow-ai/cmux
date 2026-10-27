@@ -27,6 +27,15 @@
   --agent-link: color-mix(in oklab, var(--agent-link-base) 80%, var(--agent-ansi-12, var(--agent-link-base)));
   --agent-accent-soft: color-mix(in srgb, var(--agent-text) 20%, transparent);
   --agent-danger: var(--cmux-app-danger, #ff8d7e);
+  /* Status and diff text uses the terminal palette. AgentPaneTheme lifts every ANSI slot to
+     4.5:1 over the elevated glass surface; bright slots keep yellow and red readable on light
+     themes. The light-dark fallbacks cover first paint and pages without a palette. */
+  --agent-status-success: var(--agent-ansi-10, var(--agent-ansi-2, light-dark(#1a7f37, #3fb950)));
+  --agent-status-failure: var(--agent-ansi-9, var(--agent-ansi-1, light-dark(#b42318, #ff7b72)));
+  --agent-status-warning: var(--agent-ansi-11, var(--agent-ansi-3, light-dark(#8a5a00, #e3b341)));
+  --agent-status-merged: var(--agent-ansi-13, var(--agent-ansi-5, light-dark(#8250df, #d2a8ff)));
+  --agent-diff-add: var(--agent-status-success);
+  --agent-diff-del: var(--agent-status-failure);
   --agent-shadow: rgba(0, 0, 0, 0.2);
   --agent-control: color-mix(in srgb, var(--agent-input-bg) 44%, transparent);
   --agent-control-hover: color-mix(in srgb, var(--agent-soft) 8%, transparent);
@@ -62,7 +71,51 @@ textarea {
   font: inherit;
 }
 
-button,
-select {
-  cursor: default;
+
+/* Keyboard focus in the agent pane and on New Tab is never a thick or blue ring (Leo 2026-10-21:
+   "I HATE THE APPEARANCE OF THIS FOCUS RING"). The shared desktop ring (pages/shared/desktop.css)
+   was 1.5 px in the theme's focus color, the accent, so a blue theme drew a blue ring on whatever
+   control took keyboard focus. Here:
+   - a button takes no outline at all: the soft hover pill marks it, laid over its own fill as a
+     background image (as a focused menu row takes its tint). A control that already marks its
+     keyboard focus with a wash of its own sets `--acpmux-focus-pill: transparent`; a solid-fill
+     one takes its hover step (below);
+   - anything else that takes keyboard focus (a checkbox, a slider, a transcript row, a link) keeps
+     the shared outline, now one hairline in the text color, never the accent;
+   - text fields draw nothing themselves (desktop.css): the box that owns them shows focus, the
+     composer's and the New Tab box's hairline brightening a step (composerStates.css).
+   Increase Contrast keeps the shared, wider accent ring. test/agent-pane-hairline-focus.test.ts. */
+@media not all and (prefers-contrast: more) {
+  :root {
+    --cmux-focus-ring-width: 1px;
+    --cmux-focus-ring-color: color-mix(in srgb, var(--agent-text) 30%, transparent);
+  }
+  :root :focus-visible:where(button, [role="button"], [role="tab"], [role="switch"], summary):not(:where([role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [data-focus-ring])) {
+    outline: none !important;
+    background-image: linear-gradient(
+      var(--acpmux-focus-pill, var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent))),
+      var(--acpmux-focus-pill, var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent)))
+    ) !important;
+  }
+  /* A solid fill in the text or accent color (a ready Send, Stop, a primary action) swallows that
+     text-colored wash, so keyboard focus there takes the control's hover step instead: the base at
+     12% over the fill, which paints `color-mix(fill 88%, base)` as `.acpmux-send-ready:hover` does. */
+  :root :focus-visible:where(
+      .acpmux-send-ready,
+      .acpmux-cancel,
+      .cv-user__edit-button--send,
+      .acpmux-question-submit,
+      .nt-player-play,
+      .acpmux-task-action[data-primary],
+      .acpmux-git-primary,
+      .acpmux-ask-action.is-primary,
+      .acpmux-harness-action.is-primary,
+      .acpmux-replay-continue,
+      .acpmux-recap__yes,
+      .acpmux-pr-merge-confirm,
+      .acpmux-permission-feedback-send,
+      .acpmux-permission-surface .acpmux-permission-buttons button:not(.acpmux-permission-deny)
+    ) {
+    --acpmux-focus-pill: color-mix(in srgb, var(--acpmux-base, Canvas) 12%, transparent);
+  }
 }

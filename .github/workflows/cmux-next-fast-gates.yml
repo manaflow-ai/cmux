@@ -16,7 +16,8 @@ name: cmux-next fast gates
 # with pr=N on feat-cmux-next, which merges the PR head into the current tip and
 # runs the gates again, plus the webviews checks (a check that landed after the
 # PR's CI runs before it merges). No paths filter: every pull request gets a
-# status. About two minutes on Linux.
+# status; a draft gets it when it is marked ready (a draft cannot merge, and a
+# merger that finds no status dispatches the gates). About two minutes on Linux.
 #
 # Three jobs, so pull request code never runs next to a write token: `resolve`
 # names the head and base without running any checked-out code (a dispatch
@@ -26,6 +27,7 @@ name: cmux-next fast gates
 on:
   pull_request:
     branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       pr:
@@ -43,7 +45,10 @@ concurrency:
 jobs:
   resolve:
     name: resolve head and base
-    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
+    # A draft is gated when it is marked ready; a dispatch always runs.
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    # Fork pull requests use the same ephemeral Blacksmith lane as other
+    # Linux work; this job has read-only contents permission and no secrets.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
@@ -108,7 +113,7 @@ jobs:
   fast-gates:
     name: fast gates
     needs: resolve
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     # The pull request's code runs here: no write permission of any kind.
     permissions:
@@ -144,7 +149,7 @@ jobs:
         if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       # A dispatch runs on feat-cmux-next's ref, so a cache it saved would sit in
       # the base branch's scope after pull request code (bun install scripts)
@@ -218,7 +223,18 @@ jobs:
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ && "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no head or base sha to report"; exit 1; }
           state=failure
           if [[ "$GATES" == success ]]; then state=success; fi
-          # gh api prints GitHub's message on an error (curl -f hid the reason for a 403).
-          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
-            -f state="$state" -f context="$CONTEXT" -f target_url="$TARGET_URL" -f description="base $BASE" > /dev/null
+          # A rate-limit refusal is status-posting infrastructure, not a gate verdict. Keep the
+          # run green with a named warning; a missing status is never treated as a pass by the
+          # merger, which dispatches a fresh gate when it needs one. Other API failures stay red.
+          response=""
+          if ! response="$(gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
+            -f state="$state" -f context="$CONTEXT" -f target_url="$TARGET_URL" -f description="base $BASE" 2>&1)"; then
+            if grep -qiE 'rate limit exceeded|secondary rate limit|too many requests|HTTP 429' <<<"$response"; then
+              echo "::warning title=GitHub API budget::cmux-next/fast-gates status could not be posted because the installation API budget is exhausted; the run remains advisory."
+              echo "- cmux-next/fast-gates status could not be posted because the GitHub installation API budget is exhausted; a missing status is not a pass." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            printf '%s\n' "$response" >&2
+            exit 1
+          fi
           echo "$CONTEXT: $state on $HEAD_SHA (base $BASE)"

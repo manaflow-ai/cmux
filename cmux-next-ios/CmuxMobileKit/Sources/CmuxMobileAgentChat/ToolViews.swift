@@ -25,6 +25,7 @@ extension EnvironmentValues {
 struct ToolRowView: View {
     let call: ACPToolCall
     @State private var expanded = false
+    @Environment(\.openSessionFile) private var openFile
     private let wording = ToolWording()
 
     var body: some View {
@@ -43,6 +44,19 @@ struct ToolRowView: View {
             }
         }
         .accessibilityElement(children: .contain)
+        // The files the call read or wrote open in the preview (long press).
+        .contextMenu {
+            if openFile.isAvailable {
+                ForEach(Array(call.locations.prefix(5).enumerated()), id: \.offset) { _, location in
+                    Button("Open \((location.path as NSString).lastPathComponent)", systemImage: "doc.text.magnifyingglass") {
+                        openFile(location.path, line: location.line)
+                    }
+                }
+            }
+            if let path = call.locations.first?.path {
+                Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = path }
+            }
+        }
     }
 
     private var header: some View {
@@ -231,6 +245,7 @@ struct ThoughtRow: View {
 struct DiffSnippet: View {
     let call: ACPToolCall
     let changeSet: DiffChangeSet
+    @Environment(\.openSessionFile) private var openFile
     @Environment(\.openDiff) private var openDiff
     @State private var showAll = false
     @ScaledMetric(relativeTo: .footnote) private var codeSize: CGFloat = 13
@@ -310,6 +325,9 @@ struct DiffSnippet: View {
         }
         .contextMenu {
             Button("Open Diff", systemImage: "arrow.up.right.square") { openDiff(changeSet, file: file.id) }
+            if openFile.isAvailable, file.status != .deleted {
+                Button("Open File", systemImage: "doc.text.magnifyingglass") { openFile(file.path) }
+            }
             Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = file.path }
         }
     }

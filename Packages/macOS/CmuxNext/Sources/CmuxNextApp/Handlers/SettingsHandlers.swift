@@ -31,6 +31,7 @@ enum SettingsHandlers {
         registry.bind("browser.defaultEngine.webkit", run: { _ in try setDefaultEngine(.webkit, context) })
         registry.bind("sendFeedback", run: { _ in try context.open(StaticURL.feedback.url) })
         registry.bind("help.showCrashLogs", run: { _ in context.services.crashRecovery.showCrashLogs() })
+        HangReportsHandlers.bind(into: registry, context: context)
         registry.bind("help.documentation", run: { invocation in try context.open(documentationURL(topic: invocation["topic"]?.stringValue)) })
         registry.bind("app.shareCmux", run: { [weak services = context.services] _ in services.map(ShareCmuxPresenter.present) })
         // The changelog page's provider exists from launch, so a What's New tab that the session
@@ -40,6 +41,7 @@ enum SettingsHandlers {
                             openWhatsNew: { [weak services = context.services] in services.map { WhatsNewPage.open($0) } ?? false },
                             stateDirectories: { [weak services = context.services] in services?.environment.daemonStateDirectories ?? [nil] })
         OnboardingHandlers.bind(into: registry, context: context)
+        SessionMoveFromBuild.bind(into: registry, context: context)
         CLIInstallHandlers.bind(into: registry, context: context)
         KeymapHandlers.bind(into: registry, context: context)
 
@@ -73,23 +75,33 @@ enum SettingsHandlers {
     /// reads for every terminal: the file Ghostty.app would open
     /// (`GhosttyRuntime.editableConfigPath`), so a user whose config is
     /// `config.ghostty` or in Application Support gets that file, not a new
-    /// empty `~/.config/ghostty/config` (R92).
+    /// empty `~/.config/ghostty/config` (R92). It opens in cmux's code editor,
+    /// editable: no app may claim a `.ghostty` file, and then the system open
+    /// refused it ("Could not open file").
     private static func openGhosttyConfig(_ context: AppActionContext) throws {
         let environment = ProcessInfo.processInfo.environment
         let base = environment["XDG_CONFIG_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
             ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: ".config")
         let url = GhosttyRuntime.editableConfigPath().map { URL(fileURLWithPath: $0) }
             ?? base.appending(path: "ghostty/config")
-        try openCreatingIfMissing(url, contents: "", context)
+        try createIfMissing(url, contents: "")
+        // With no window to open it in, the system open is the only way; a refusal by the editor
+        // already showed its reason, so it is not tried again.
+        guard let pane = context.services.windows.active?.focusedPane else { return try context.open(url) }
+        context.services.linkOpener.openFile(url, from: pane, asText: true)
     }
 
     private static func openCreatingIfMissing(_ url: URL, contents: String, _ context: AppActionContext) throws {
+        try createIfMissing(url, contents: contents)
+        try context.open(url)
+    }
+
+    private static func createIfMissing(_ url: URL, contents: String) throws {
         let manager = FileManager.default
         if !manager.fileExists(atPath: url.path) {
             try manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try Data(contents.utf8).write(to: url, options: .withoutOverwriting)
         }
-        try context.open(url)
     }
 
     /// Writes a boolean setting at a dotted cmux-next.json path. Without `on`,

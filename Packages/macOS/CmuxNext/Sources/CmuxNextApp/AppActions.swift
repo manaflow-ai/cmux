@@ -4,6 +4,9 @@ import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSettings
+import CmuxNextSidebarActions
+import CmuxNextWorkspaceNaming
 import os
 
 /// Binds catalog actions to handlers. Menus, shortcuts, the palette, and
@@ -17,6 +20,9 @@ enum AppActions {
         let registry = services.registry
         let context = AppActionContext(services: services)
         WindowHandlers.bind(into: registry, context: context)
+        // Pin/Unpin Chat on a history row: bound with the app's actions, with or without a local acpmux (the
+        // Chats feed only fills the history; a launch without one used to leave the action unbound).
+        SidebarChatHistoryFeed.bind(into: registry)
         FilesPaneHandlers.bind(into: registry, context: context)
         HistoryHandlers.bind(into: registry, context: context)
         StashHandlers.bind(into: registry, context: context)
@@ -37,9 +43,13 @@ enum AppActions {
         WorkspaceVerbHandlers.bind(into: registry, context: context)
         WorkspaceStructureHandlers.bind(into: registry, context: context)
         WorkspaceMetadataHandlers.bind(into: registry, context: context)
+        WorkspaceActivityNameActions(host: services).bind(into: registry)
         WorkspaceNotesHandlers.bind(into: registry, context: context)
         WorkspaceChecklistHandlers.bind(into: registry, context: context)
         WorkspaceGroupHandlers.bind(into: registry, context: context)
+        SidebarArchiveActions(host: services).bind(into: registry)
+        AutoArchiveActions(coordinator: services.autoArchive, host: services).bind(into: registry)
+        NotificationSoundActions(host: services, gate: services.notifications.soundGate).bind(into: registry)
         RoomHandlers.bind(into: registry, context: context)
         RoomMenuHandlers.bind(into: registry, context: context)
         ThemeHandlers.bind(into: registry, context: context)
@@ -100,6 +110,8 @@ enum AppActions {
         OpenInHandlers.bind(into: registry, context: context)
         NotificationHandlers.bind(into: registry, context: context)
         AgentHandlers.bind(into: registry, context: context)
+        AgentChatMenuHandlers.bind(into: registry, context: context)
+        AgentConfigurationHandlers.bind(into: registry, context: context)
         AgentChatKeyHandlers.bind(into: registry, context: context)
         CloudHandlers.bind(into: registry, context: context)
         AccountsHandlers.bind(into: registry, context: context)
@@ -109,12 +121,14 @@ enum AppActions {
         ResumeCommandHandlers.bind(into: registry, context: context)
         RemoteGroupHandlers.bind(into: registry, context: context)
         ChiefMoveHandlers.bind(into: registry, context: context)
+        ChiefMemoryImportHandlers.bind(into: registry, context: context)
         RemoteBrowserPages.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
         LinkHandlers.bind(into: registry, context: context)
         IconMenuVisibility.install(registry, context: context)
         TabSelectionTitles(context: context).install(in: registry)
         TopPages.installTabTargetReasons(services)
+        ActionTargetReasons.refuseHeadlessNameEditors(in: registry) { RefusalStrings.nameArgumentRequired }
         HomeRules.install(services)
         TopPages.registerProviders(services)
         context.observeRefusals()

@@ -1,6 +1,8 @@
 import Foundation
 import CmuxNextActions
+import CmuxNextAgentActivity
 import CmuxNextAgentLanes
+import CmuxNextAgentPane
 import CmuxNextApps
 import CmuxNextDaemon
 import CmuxNextSidebar
@@ -36,6 +38,8 @@ enum SidebarSectionHandlers {
         ChiefSidebar.shared.bind(into: registry, host: .init(conversation: { TopHomePageView.chief(services.home) }, chiefHost: { services.agentTabs.chiefHost },
             tab: { services.agentTabs.tab(showing: $0, host: $1) }, reveal: { services.revealTab($0) },
             openWorkspace: { try AgentSessionWorkspace.open(session: $0, name: nil, cwd: nil, host: $1, services: services) }))
+        // Agent chats on other machines are not sidebar rows (the top band holds what the person put there,
+        // Lawrence 2026-10-26): `RemoteMachinesSidebar` is not bound, so it reads no peers and follows no lanes.
         SettingsAppFeatures.sidebarItems = storeItems(chief: SettingsAppFeatures.sidebarItems, document: { layout.document }, registry: registry)
         // Item adds and removes are undo steps (P4) through the one pin path,
         // named as the menu showed them.

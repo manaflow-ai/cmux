@@ -8,13 +8,15 @@ nonisolated extension AcpmuxPaneMethods {
     static let knownParams: [String: (params: Set<String>, acpmux: Set<String>)] = [
         "initialize": (["protocolVersion", "clientInfo", "clientCapabilities"], []),
         // `noProject` is the pane's own (Do not work in a project): AcpmuxPathPolicy reads and strips it.
+        // Never `workspaceId`: the host adds the pane's own after this rule (AcpmuxPathPolicy+Workspace).
         "session/new": (["cwd", "mcpServers", "_meta"], ["harness", "adopt", "peer", "noProject"]),
         // `context`: a chat's workspace context on its first prompt (cx-ihyx2); acpmux sends it to the
-        // agent and keeps it out of the transcript text. `provenance`: a reply in place to another
-        // agent's message (IncomingMessageCard.tsx); acpmux takes one from the app only as a reply
-        // from a chat it runs (prompt_provenance.rs). `surface`: the place a prompt was typed
-        // (labs.previewFeatures; acpmux hub/composers.rs, cmuxterm-hq#2580).
-        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context", "provenance", "surface"]),
+        // agent and keeps it out of the transcript text. `surface`: the place a prompt was typed
+        // (labs.previewFeatures; acpmux hub/composers.rs, cmuxterm-hq#2580). No `provenance`: a reply
+        // in place is `_acpmux/app_reply`, never a prompt (acpmux refuses one from the app too).
+        // `inlineParts`: display descriptors for the prompt's attachment blocks. The daemon
+        // validates them against those blocks and keeps them out of the agent's request.
+        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context", "surface", "inlineParts"]),
         "session/set_model": (["sessionId", "modelId"], []),
         "session/cancel": (["sessionId"], []),
         // `limit`: the newest page of the session list, the rest by `_acpmux/sessions` `cursor` (cx-2lv1k).
@@ -27,6 +29,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible"], []),
         "_acpmux/detach": (["sessionId"], []),
         "_acpmux/view": (["sessionId", "visible"], []),
+        // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
+        "_acpmux/typing": (["sessionId", "on"], []),
         "_acpmux/warm": (["sessionIds", "limit"], []),
         "_acpmux/kill": (["sessionId", "purge"], []),
         // `ifLive`: `fork` or `open` once the person chose, for a chat still live in its own app.
@@ -40,7 +44,10 @@ nonisolated extension AcpmuxPaneMethods {
         // The composer's Account menu (direct.ts routes, setChatRoute).
         "_acpmux/route/list": (["sessionId"], []),
         "_acpmux/chat/route.set": (["sessionId", "routeId", "when"], []),
-        "_acpmux/prewarm": (["harness", "cwd"], []),
+        // `server`: one of that chat's MCP servers by name; acpmux refuses a name the chat does not list.
+        "_acpmux/mcp/reconnect": (["sessionId", "server"], []),
+        // `release`: a new chat's typing prewarm taken back (cleared prompt, closed unsent; newChatPrewarm.ts).
+        "_acpmux/prewarm": (["harness", "cwd", "release"], []),
         "_acpmux/start_mode": (["harness", "cwd"], []),
         // `cwd`: the chat folder whose folder harness profiles to list (checked like every cwd).
         "_acpmux/harnesses": (["cwd"], []),
@@ -57,7 +64,7 @@ nonisolated extension AcpmuxPaneMethods {
         // the prompt's own images, so it reaches nothing the chat does not already hold.
         "_acpmux/queue_edit": (["sessionId", "promptId", "op", "text", "images", "index"], []),
         // `_meta`: only the gesture ticket of the person's pick (cx-0q7o), never anything else.
-        "_acpmux/permission_respond": (["sessionId", "permissionId", "optionId", "answers", "_meta"], []),
+        "_acpmux/permission_respond": (["sessionId", "permissionId", "optionId", "answers", "annotations", "_meta"], []),
         "_acpmux/handoff_prepare": (["sessionId", "harness", "handoffKey"], []),
         "_acpmux/handoff_get": (["sessionId", "handoffId"], []),
         "_acpmux/handoff_draft": (["handoffId", "revision", "draftKey", "capsule", "checkpoint"], []),
@@ -71,6 +78,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/archive": (["sessionId", "archived"], []),
         "_acpmux/markUnread": (["sessionId"], []),
         "_acpmux/harness/health": (["refresh", "rescan"], []),
+        "_acpmux/forum/rules": ([], []),
         "_acpmux/side": (["sessionId", "chat"], []),
         // `model`: the side session's model when the page names one; acpmux picks a fast one otherwise.
         "_acpmux/btw": (["sessionId", "question", "model"], []),
@@ -79,6 +87,12 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/subagent_stop": (["sessionId", "subagentSessionId"], []),
         // `peerSessionId`: one of that chat's paused pairs, a selector only (acpmux checks the pair has the chat).
         "_acpmux/agent_pair_resume": (["sessionId", "peerSessionId"], []),
+        // The pane's chat (`sessionId`) answers `replyTo` of `threadId`, which chat `to` sent it;
+        // `replyId` keys it. No recipient, sender name or credential: acpmux signs it, the daemon
+        // sends it to the message's sender (``AgentPaneAgentReply``).
+        "_acpmux/app_reply": (["sessionId", "to", "replyTo", "threadId", "text", "replyId"], []),
+        // `id`: the chat's tool row (`mcp:<server>`); `enabled`: on or off for this chat.
+        "_acpmux/set_tools": (["sessionId", "id", "enabled"], []),
         "acp.session.fork": (["sessionId", "throughSeq"], []),
         "acp.trust.get": (["cwd", "sessionId"], []),
         "acp.trust.set": (["cwd", "level", "sessionId"], []),

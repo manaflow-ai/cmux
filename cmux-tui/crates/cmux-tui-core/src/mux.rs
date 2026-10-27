@@ -239,7 +239,8 @@ mod notification_types;
 mod notifications;
 pub use notification_types::{
     NOTIFICATION_DESKTOP_CAPABILITY, NOTIFICATION_REPLY_CAPABILITY, NotificationEvent,
-    NotificationSource, ResourceNotification, SurfaceNotification,
+    NotificationPost, NotificationPoster, NotificationSource, ResourceNotification,
+    SurfaceNotification,
 };
 pub(crate) use notifications::NotificationClearScope;
 mod notification_level;
@@ -311,6 +312,7 @@ mod terminal_rehost;
 mod terminal_relaunch;
 pub(crate) mod terminal_respawn;
 mod terminal_sizing;
+pub(crate) use terminal_sizing::host_policy;
 mod terminal_work;
 mod topology_result;
 mod tree_close;
@@ -463,7 +465,9 @@ const MAX_PENDING_DIAGNOSTICS: usize = 8;
 const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
 const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
-const TERMINAL_HOST_CLOSE_WAIT: Duration = Duration::from_secs(4);
+/// How long a closed terminal's host gets to end its programs (SIGHUP, grace,
+/// SIGTERM, grace, SIGKILL) and publish its exit.
+const TERMINAL_HOST_CLOSE_WAIT: Duration = crate::terminal_host_runtime::HOST_TERMINATE_WAIT;
 const TERMINAL_READER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// A durable client install identity: non-empty, at most 128 ASCII graphic
@@ -637,6 +641,9 @@ pub struct Mux {
     /// pruned: only after a create commits, and only for ids the committed receipts no longer
     /// retain, so a failed create cannot orphan marks the next restart would rebuild.
     notification_read_prunes: Mutex<Vec<NotificationPublicId>>,
+    /// The event number and poster of each ledger row this run posted
+    /// (`notification_post`), dropped with the row.
+    notification_posts: Mutex<HashMap<NotificationPublicId, NotificationPost>>,
     /// The local feed owner's items (mux/feed_local.rs). Lock order: this, then
     /// `workspace_registry`, then `state`; never take it while holding either.
     feed_local: Mutex<cmux_feed_core::Feed>,

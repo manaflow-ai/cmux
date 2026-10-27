@@ -103,8 +103,7 @@ impl Driver {
                 Ok(value) => {
                     // The change is published before the answer, so the settle names its seq.
                     self.inner.changed.store(false, Ordering::Release);
-                    self.publish(lease, stream, wire, false)?;
-                    let sequence = self.inner.lock().published_seq;
+                    let sequence = self.publish_after_op(lease, stream, wire)?;
                     Answer {
                         ok: true,
                         sequence,

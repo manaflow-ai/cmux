@@ -1038,7 +1038,7 @@ dependencies = [
 [[package]]
 name = "cmux-codex-acp"
 version = "0.1.0"
-source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=e0a27f2f4210ad1a7dd1b33d5f33b273ac647e9b#e0a27f2f4210ad1a7dd1b33d5f33b273ac647e9b"
+source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=ffa7aa863bcdb3f995b0c4b96ea2349e817fed1a#ffa7aa863bcdb3f995b0c4b96ea2349e817fed1a"
 dependencies = [
  "serde_json",
 ]
@@ -1102,6 +1102,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-flow-trace"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "cmux-focus-core"
 version = "0.1.0"
 dependencies = [
@@ -1133,6 +1140,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-holder"
+version = "0.1.0"
+dependencies = [
+ "cmux-flow-trace",
+ "cmux-process",
+ "libc",
+]
+
+[[package]]
+name = "cmux-holder-v3"
+version = "0.1.0"
+dependencies = [
+ "cmux-holder",
+ "libc",
+]
+
+[[package]]
 name = "cmux-host"
 version = "0.1.0"
 dependencies = [
@@ -1148,6 +1172,16 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "cmux-kitty-media"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "libc",
+ "memchr",
+ "tempfile",
 ]
 
 [[package]]
@@ -1255,6 +1289,14 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-process"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "wait-timeout",
 ]
 
 [[package]]
@@ -1437,6 +1479,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "time",
 ]
 
 [[package]]
@@ -1530,11 +1573,14 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-agent-pane-policy",
+ "cmux-api-compat",
  "cmux-build-identity",
  "cmux-config",
+ "cmux-holder",
  "cmux-host",
  "cmux-link",
  "cmux-panic-log",
+ "cmux-process",
  "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
@@ -1618,11 +1664,15 @@ dependencies = [
  "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",
+ "cmux-flow-trace",
  "cmux-git",
  "cmux-history",
+ "cmux-holder",
+ "cmux-kitty-media",
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-process",
  "cmux-pty",
  "cmux-remote-protocol",
  "cmux-sdk",
@@ -1717,6 +1767,7 @@ name = "cmux-tui-platform"
 version = "0.1.0"
 dependencies = [
  "cmux-link",
+ "cmux-process",
  "cmux-pty",
  "cmux-sdk",
  "cmux-unix-socket",
@@ -1760,6 +1811,33 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "tempfile",
+]
+
+[[package]]
+name = "cmux-weft"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64",
+ "cmux-wg",
+ "futures-util",
+ "getrandom 0.3.4",
+ "hex",
+ "ip_network",
+ "proptest",
+ "reqwest",
+ "ring",
+ "rusqlite",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
+ "tokio",
+ "tokio-tungstenite",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]

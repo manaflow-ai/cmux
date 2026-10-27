@@ -69,6 +69,20 @@ public struct HomeColor: Hashable, Sendable {
         return opaque.mixed(with: target, hi)
     }
 
+    /// The faintest step from `surface` toward `self` (opaque) that reaches
+    /// `minimum` contrast on `surface`: a boundary ink that keeps the theme's
+    /// hue and is as soft as WCAG 1.4.11 (3:1 for a component's edge) allows.
+    func edge(on surface: HomeColor, minimum: Double = HomePalette.minimumEdgeContrast) -> HomeColor {
+        let ink = with(alpha: 1), base = surface.with(alpha: 1)
+        guard ink.contrast(with: base) > minimum else { return ink }
+        var lo: CGFloat = 0, hi: CGFloat = 1
+        for _ in 0..<20 {
+            let mid = (lo + hi) / 2
+            if base.mixed(with: ink, mid).contrast(with: base) >= minimum { hi = mid } else { lo = mid }
+        }
+        return base.mixed(with: ink, hi)
+    }
+
     /// Text on this colour: white while it keeps 3:1 (Messages' white on
     /// its blue is 3.7:1; saturated blues read better white than WCAG's
     /// black pick), else white or black, whichever has the higher contrast.
@@ -150,6 +164,11 @@ public struct HomePalette: Hashable, Sendable {
     /// receipts and captions on the page, the Chief's text on its bubble.
     public static let minimumTextContrast: Double = 4.5
 
+    /// The least WCAG contrast of the field's edge against the page (1.4.11,
+    /// non-text: a component's boundary needs 3:1) on a light theme, where the
+    /// field's white fill is otherwise as pale as the page.
+    public static let minimumEdgeContrast: Double = 3
+
     /// The palette for `theme`. `active` false is the palette of a window
     /// that is not key: lighter neutrals and an accent mixed toward grey.
     public static func themed(_ theme: Theme, active: Bool = true) -> HomePalette {
@@ -170,7 +189,7 @@ public struct HomePalette: Hashable, Sendable {
             caret: theme.accent,
             caretAfterSend: n(0.443),
             composeGlass: light ? bg.mixed(with: .gray255(255), 0.7) : n(0.13),
-            composeStroke: light ? fg.with(alpha: 0.2) : .gray255(0, alpha: 0.6),
+            composeStroke: light ? fg.edge(on: active ? bg : n(0.022)) : .gray255(0, alpha: 0.6),
             placeholder: n(0.37),
             morphUnderlay: n(0.113),
             typingDot: n(0.248),

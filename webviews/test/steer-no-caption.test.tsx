@@ -1,7 +1,7 @@
 // A steered message looks like any other sent message: no "Steering · The agent reads it when its
 // current step ends" sentence under it while it waits (Leo, 2026-10-20: "wtf have we removed this
 // yet"), and no "Steered · the agent read it" once read (Leo, 2026-10-21: "I THOUGHT WE REMOVED
-// THAT"). While the agent has not read it, only a quiet clock and Send now show (PendingSteer.tsx);
+// THAT"). While the agent has not read it, only plain Send now shows (PendingSteer.tsx);
 // once read, only the read check every prompt has (MessageActions.tsx ReadReceipt). The words
 // those captions used are gone from the catalog, so no row can draw them again.
 import { expect, test } from "bun:test";
@@ -29,6 +29,7 @@ test("a waiting steer shows Send now and no sentence", () => {
     <PendingSteer row={steer({ steer: "waiting", steerPromptId: "p1" })} send={send} />,
   );
   expect(text(html)).toBe("Send now");
+  expect(html).not.toContain("Clock");
   expect(html).not.toMatch(/Steering|reads it when|current step ends/);
 });
 

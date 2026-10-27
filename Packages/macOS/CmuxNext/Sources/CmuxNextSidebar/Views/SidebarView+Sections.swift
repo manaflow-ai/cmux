@@ -38,7 +38,9 @@ extension SidebarViewComponents {
         list.configureBlockRegion = { [weak self] region in
             guard let self else { return }
             self.wireItems(region)
-            region.contextMenuProvider = self.list.contextMenuProvider
+            // Read the list's provider at right-click time: a block region made before the app set it
+            // (the first layout after launch) kept nil, and a pinned workspace's tile opened no menu.
+            region.contextMenuProvider = { [weak self] target in self?.list.contextMenuProvider?(target) }
             region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
         }
         SidebarPinDrops.install(self)
@@ -58,6 +60,7 @@ extension SidebarViewComponents {
 
     /// A region's item activation and section folding (the bands and the list's blocks).
     private func wireItems(_ region: SidebarRegionView) {
+        region.onCloseWorkspace = { [weak self] workspace in self?.model.send(.close([workspace])) }
         region.onActivateWithModifiers = { [weak self, weak region] id, flags in
             // The profile control opens its menu over itself.
             if let view = region?.itemView(id), view.showsAvatar, self?.footerBand.showProfileMenu(from: view) == true { return }
@@ -86,7 +89,9 @@ extension SidebarViewComponents {
         let shownBelow = below.presenting(hidingItems: hidden, apps: apps)
         let isFooter = { (section: LayoutSection) in section.id == SidebarLayoutDocument.bottomSectionID }
         let look = SidebarSectionTunables.currentLook
-        let metrics = SidebarRegionMetrics.standard
+        // The footer keeps the full row (its avatar and search); the bands' rows follow Minimal Mode like the list's.
+        let footerBase = SidebarRegionMetrics.standard
+        let metrics = SidebarRegionMetrics.standard(minimal: design.sidebarSections.minimal)
         // The selection is not content: `showActiveTopItem` marks its item active (its glyph, accessibility).
         var selectedInfos = model.resolvedItemInfo
         for transient in model.transientTopItems { selectedInfos[transient.item.id] = transient.info }
@@ -133,8 +138,8 @@ extension SidebarViewComponents {
         belowRegion.update(content([]), width: width)
         let footer = shownBelow.filter(isFooter)
         // The footer line ends on the bottom margin, not on the section's padding over it.
-        var footerMetrics = metrics
-        footerMetrics.bottomPadding = footerBand.footerBottomPadding(rowHeight: metrics.rowHeight)
+        var footerMetrics = footerBase
+        footerMetrics.bottomPadding = footerBand.footerBottomPadding(rowHeight: footerBase.rowHeight)
         footerRegion.update(content(footer, metrics: footerMetrics), width: width)
         releaseAppSections(shown: shownAbove + footer)
     }

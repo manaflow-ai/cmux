@@ -30,7 +30,7 @@ import Testing
         #expect(try await second.installToken() == secondToken)
         #expect(await owner.requestedTeams == [team, other])
         #expect(await owner.mints == 3)
-        #expect(await owner.installs.count == 1)
+        #expect(await owner.installCount == 1)
         #expect(await signer.rotations == 0)
     }
 
@@ -43,7 +43,7 @@ import Testing
         await #expect(throws: InstallAuthError.refused("auth.forbidden")) { try await client.installToken() }
         #expect(await client.currentRecord == record)
         #expect(await signer.rotations == 0)
-        #expect(await owner.installs.count == 1)
+        #expect(await owner.installCount == 1)
         #expect(await owner.mints == 1)
     }
 

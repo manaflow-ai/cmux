@@ -3067,6 +3067,11 @@ def test_react_doctor_runs_as_an_independent_required_lane() -> None:
 
 
 def test_every_setup_bun_step_declares_a_version() -> None:
+    # webviews/package.json devEngines is the one bun version; every setup-bun
+    # step in every workflow installs exactly it, so a bump is one edit there
+    # plus these copies, and a copy left behind fails here.
+    package = json.loads((ROOT / "webviews" / "package.json").read_text(encoding="utf-8"))
+    pin = package["devEngines"]["packageManager"]["version"]
     workflows = ROOT / ".github" / "workflows"
     action = "oven-sh/setup-bun@"
     found = 0
@@ -3078,10 +3083,20 @@ def test_every_setup_bun_step_declares_a_version() -> None:
                 continue
             found += 1
             tail = lines[index + 1:index + 7]
-            assert any("bun-version:" in candidate for candidate in tail), (
+            versions = [
+                match.group(1)
+                for candidate in tail
+                if (match := re.match(r'^\s+bun-version:\s*"?([^"\s#]*)"?', candidate))
+            ]
+            assert versions, (
                 workflow_path.relative_to(ROOT),
                 index + 1,
                 "setup-bun must declare an explicit bun-version",
+            )
+            assert versions[0] == pin, (
+                workflow_path.relative_to(ROOT),
+                index + 1,
+                f"setup-bun installs bun {versions[0]}; webviews/package.json devEngines declares {pin}",
             )
 
     assert found >= 20, "setup-bun inventory unexpectedly disappeared"

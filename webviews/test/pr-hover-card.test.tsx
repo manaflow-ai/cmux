@@ -92,9 +92,10 @@ function expectFullCard(card: HTMLElement | null) {
   const text = card!.textContent ?? "";
   expect(text).toContain(TITLE);
   expect(text).toContain("manaflow-ai/leo-workspace#634");
-  // The state is the glyph's colour, named for screen readers: no "Draft" word on the card.
+  // The glyph follows the PR state and the status row names it for quick scanning.
   expect(card!.querySelector(".acpmux-pr-card__glyph svg")?.getAttribute("aria-label")).toBe("Draft");
-  expect(shownText(card!)).not.toContain("Draft");
+  expect(card!.querySelector(".acpmux-pr-card__state")?.textContent).toBe("Draft");
+  expect(shownText(card!)).toContain("Draft");
   expect(text).toContain("teamleaderleo");
   expect(card!.querySelector(".acpmux-pr-card__checks .acpmux-pr-card__sr")?.textContent).toBe(
     "7 of 9 checks passed, 2 failing",
@@ -216,7 +217,7 @@ test("an inline link opens the same card: favicon, page title, host, the address
 test("the card's chrome is quiet: borderless buttons, no divider, no underline, a glass surface", async () => {
   const { readFileSync } = await import("node:fs");
   const path = await import("node:path");
-  const styles = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
+  const styles = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/chips/linkCard.css"), "utf8");
   const rule = (selector: string) =>
     new RegExp(`(?:^|\\})${selector.replace(/[[\]().:]/g, "\\$&")}\\{([^}]*)\\}`, "m").exec(styles)?.[1] ?? "";
   const open = rule(".cv-link-preview__open");
@@ -225,7 +226,7 @@ test("the card's chrome is quiet: borderless buttons, no divider, no underline, 
   expect(open).not.toContain("box-shadow");
   expect(rule(".cv-link-preview .acpmux-open-in")).toContain("box-shadow:none");
   expect(rule(".cv-link-preview__head")).not.toContain("border");
-  expect(rule(".acpmux-pr-card__lines:not(:disabled)")).not.toContain("text-decoration");
+  expect(rule(".acpmux-pr-card__lines")).toContain("display:inline-flex");
   // Glass: the shared liquid glass (.ui-glass) paints the card, so the card itself sets no fill;
   // plain glass and Reduce Transparency get the tooltip's tint and blur through the glass tokens.
   const card = rule(".cv-link-preview");

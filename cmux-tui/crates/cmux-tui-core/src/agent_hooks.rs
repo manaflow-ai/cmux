@@ -41,35 +41,57 @@ const AGENT_EVENT_KINDS: [&str; 13] = [
 /// Longest prompt kept for the hover card's task line (characters).
 pub const LIVE_PROMPT_CHARS: usize = 200;
 
-/// The prompt a turn-start hook carries, for the hover card's task line: shown text (no
-/// control or invisible formatting characters), trimmed, at most [`LIVE_PROMPT_CHARS`]
-/// characters. Read before redaction; it never enters the journal or a log (Lawrence
-/// 2026-10-14: memory only). `None` for other events and empty prompts.
+/// The prompt a turn-start hook carries, for the hover card's task line and the phone's Feed
+/// quote: shown text with its line breaks (no other control or invisible formatting
+/// characters), trimmed, at most [`LIVE_MESSAGE_CHARS`] characters (the daemon cuts the hover
+/// card's copy to [`LIVE_PROMPT_CHARS`]). Read before redaction; it never enters the journal
+/// or a log (Lawrence 2026-10-14: memory only). `None` for other events and empty prompts.
 pub fn agent_hook_live_prompt(native_event: &str, native: &Value) -> Option<String> {
     if semantic_key(native_event) != "userpromptsubmit" {
         return None;
     }
     let text =
         first_string_at(native, &[&["prompt"][..], &["user_prompt"][..], &["userPrompt"][..]])?;
-    live_prompt_text(text)
+    live_message_text(text)
 }
 
-/// The agent's last message a finished or failed turn carries (Claude's
-/// `last_assistant_message`, a provider's `message`/`response`/`summary`), for the banner's
-/// preview: shown text, whitespace folded, at most [`LIVE_PROMPT_CHARS`] characters. Read
-/// before redaction; like the prompt it travels beside the event and is kept in memory only
-/// until its banner takes it (cx-kz6m0). `None` for other events and empty messages.
+/// The agent's last message a finished turn carries (Claude's `last_assistant_message`, a
+/// provider's `message`/`response`/`summary`), or the error text a failed one carries, for
+/// the banner's preview and the phone's Feed: markdown with its line breaks, at most
+/// [`LIVE_MESSAGE_CHARS`] characters (the banner's preview is cut to [`LIVE_PROMPT_CHARS`],
+/// whitespace folded). Read before redaction; like the prompt it travels beside the event and
+/// is kept in memory only until its notification takes it (cx-kz6m0). `None` for other events
+/// and empty messages.
 pub fn agent_hook_live_reply(source: &str, native_event: &str, native: &Value) -> Option<String> {
     let normalized = normalized_fields(native);
     let kind = semantic_kind(source, native_event, &normalized);
-    if !matches!(kind, "agent.turn.completed" | "agent.error.reported") {
-        return None;
+    let message = normalized.get("message").and_then(Value::as_str);
+    match kind {
+        "agent.turn.completed" => live_message_text(message?),
+        // A failed tool or turn says what went wrong in `error` (Claude's PostToolUseFailure and
+        // StopFailure), not in `message`.
+        "agent.error.reported" => live_message_text(message.or_else(|| {
+            first_string_at(
+                native,
+                &[
+                    &["error"][..],
+                    &["error", "message"][..],
+                    &["error_message"][..],
+                    &["errorMessage"][..],
+                    &["reason"][..],
+                    &["event", "error"][..],
+                    &["event", "error", "message"][..],
+                    &["properties", "error", "message"][..],
+                    &["event", "properties", "error", "message"][..],
+                ],
+            )
+        })?),
+        _ => None,
     }
-    live_prompt_text(normalized.get("message")?.as_str()?)
 }
 
 /// The texts a hook sends beside its journal event, memory only (`session.journal.append`
-/// `live_prompt`, `live_reply`). Read them before the event redacts its payload.
+/// `live_prompt`, `live_reply`, `live_question`). Read them before the event redacts its payload.
 pub fn agent_hook_live_fields(
     source: &str,
     native_event: &str,
@@ -82,7 +104,42 @@ pub fn agent_hook_live_fields(
     if let Some(reply) = agent_hook_live_reply(source, native_event, native) {
         fields.insert("live_reply".into(), Value::String(reply));
     }
+    if let Some(question) =
+        crate::agent_hook_question::agent_hook_live_question(native_event, native)
+    {
+        fields.insert("live_question".into(), Value::String(question));
+    }
     fields
+}
+
+/// Longest prompt or last message kept for the phone's Feed (characters): a terminal agent's
+/// card shows what a GUI chat's shows, memory only on the Mac.
+pub const LIVE_MESSAGE_CHARS: usize = 4000;
+
+/// `text` as a kept Feed text: markdown with its line breaks and tabs (no other control or
+/// invisible formatting characters), trimmed, cut to [`LIVE_MESSAGE_CHARS`].
+pub(crate) fn live_message_text(text: &str) -> Option<String> {
+    let lines = text.replace("\r\n", "\n").replace('\r', "\n");
+    let kept: String = lines
+        .chars()
+        .filter(|character| {
+            matches!(character, '\n' | '\t')
+                || (!character.is_control()
+                    && !crate::program_status::is_invisible_format(*character))
+        })
+        .collect();
+    let kept = kept.trim();
+    if kept.is_empty() {
+        return None;
+    }
+    let mut shown: String = kept.chars().take(LIVE_MESSAGE_CHARS).collect();
+    // A cut inside a code block would render the rest of the card as code: close it.
+    if shown.len() < kept.len()
+        && shown.lines().filter(|line| line.trim_start().starts_with("```")).count() % 2 == 1
+    {
+        shown.push_str("\n```");
+    }
+    Some(shown)
 }
 
 /// `text` as a kept prompt: shown text, whitespace folded, cut to [`LIVE_PROMPT_CHARS`].

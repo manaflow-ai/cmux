@@ -15,10 +15,15 @@
   --ui-row-bar: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
   --ui-surface: var(--cmux-elevated-background, Canvas);
   --ui-ring: var(--cmux-focus-ring-color, color-mix(in srgb, var(--cmux-app-focus-ring, var(--ui-fg)) 48%, transparent));
-  --ui-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --ui-font: var(--font-ui);
   font-family: var(--ui-font);
   -webkit-user-select: none;
   user-select: none;
+}
+/* The chrome around the controls keeps the arrow. A button (.ui-button) and a drill row (role
+   option) are not in this list: a rule here comes after the shared pointing-hand rule and would
+   beat it (clickable-cursor.test.ts). */
+:where(.ui-popup, .ui-tooltip, .ui-toolbar, .ui-crumbs, .ui-drill-section, .ui-drill-hint, .ui-listbox, .ui-dialog, .ui-backdrop) {
   cursor: default;
 }
 
@@ -62,6 +67,7 @@
   outline: none;
   /* Base UI's positioner names the side the popup grows from. */
   transform-origin: var(--transform-origin);
+  letter-spacing: var(--text-control--letter-spacing);
 }
 
 /* A menu may own a submenu. Let the safe-triangle bridge extend beyond the parent surface;
@@ -99,6 +105,7 @@
   color: var(--ui-fg-2);
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .ui-menu-item[data-highlighted] {
@@ -138,7 +145,6 @@
   color: inherit;
   font: inherit;
   text-align: start;
-  cursor: default;
 }
 
 /* A long label (a link, a path) ends in an ellipsis instead of widening the menu. */
@@ -221,12 +227,34 @@
   color: var(--ui-fg-2);
   font-size: var(--text-caption);
   font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .ui-separator {
   height: 1px;
   margin: 4px 2px;
   background: var(--ui-line);
+}
+
+/* A long menu's search field (MenuSearchField): a row-high field above its rows. */
+.ui-menu-search {
+  appearance: none;
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--ui-row-height);
+  margin: 0 0 4px;
+  padding: 0 var(--ui-row-padding-inline);
+  border: 0;
+  border-radius: var(--ui-row-radius);
+  background: var(--ui-hover);
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.ui-menu-search:focus-visible {
+  box-shadow: inset 0 0 0 var(--cmux-focus-ring-width, 1.5px) var(--ui-ring);
 }
 
 .ui-toolbar .ui-separator {
@@ -343,12 +371,6 @@
   white-space: nowrap;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .ui-popup {
-    animation: ui-popup-open var(--ui-popup-open) ease-out;
-  }
-}
-
 /* Sheets only fade, so they fade under Reduce Motion too. Tooltips fade (and rise) with the
    tooltip surface (pages/shared/desktop.css). */
 .ui-sheet {
@@ -373,4 +395,5 @@
   line-height: 1;
   color: var(--ui-fg-2);
   opacity: 0.9;
+  letter-spacing: var(--text-caption--letter-spacing);
 }

@@ -36,6 +36,16 @@ extension BrowserHibernation {
         let profile = cache.tabModel(key) == nil ? placeholder.profileID : cache.browserProfile?(key) ?? placeholder.profileID
         let history = profile == placeholder.profileID ? placeholder.restoreState : nil
         wakeLog.start(key, engine: placeholder.engineKind, snapshot: snapshotImage(key) != nil)
+        // The page was discarded (logged with its cause); restoring it loads it again.
+        // The kind of request only: a URL is the person's browsing and stays out of the log.
+        let reason = switch pendingWakes[key] {
+        case .load?: "navigation"
+        case .reload?: "reload"
+        case .goBack?: "back"
+        case .goForward?: "forward"
+        case nil: "shown or woken"
+        }
+        logger.notice("restore \(key, privacy: .public): the discarded page reloads from its saved history (\(reason, privacy: .public))")
         var configuration = BrowserTabConfiguration(id: placeholder.id, profile: profile, zoom: placeholder.state.zoom)
         switch placeholder.engineKind {
         case .webkit:
@@ -67,6 +77,17 @@ extension BrowserHibernation {
             // Closed or superseded while it restored.
             page.close()
             return
+        }
+        // The new page starts unmuted: a tab muted when it slept wakes muted.
+        if asleep.state.isAudioMuted, let muting = page as? BrowserAudioMuting { muting.setAudioMuted(true) }
+        // Its last frame stays over the new page until the page paints: no blank frame on a wake.
+        // The pixels the placeholder shows now are already decoded, so the cover has them in the
+        // swap's own frame. A page that cannot show one (a Chromium page in its own child window) is counted.
+        let shown = asleep.shownPicture
+        if let picture = shown ?? snapshotImage(key) {
+            let covered = (page as? any BrowserWakeStandIn)?.showStandIn(picture, decoded: shown != nil, cap: Self.standInCap,
+                                                                         clock: standInClock) ?? false
+            if !covered { uncoveredWakes += 1 }
         }
         cache.swapPage(key, with: page, asleep: asleep.state)
         cache.dormantTabs.set(key, false)

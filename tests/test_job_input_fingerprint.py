@@ -322,7 +322,7 @@ MAC_TOOLCHAIN = {
 # The env flags each Mac job passes; '' is a value (an empty swift filter runs every selected target).
 MAC_FLAGS = {
     "swift-test": {"swift_targets": "CmuxNextAppTests", "swift_filter": "", "mini": "true",
-                   "xcode_app": "/Applications/Xcode_26.6.app", "web_bundles": "0123abcd"},
+                   "xcode_app": "/Applications/Xcode_26.6.app", "web_bundles": "0123abcd", "layout_reducer": "false"},
     "generated-files": {"mini": "true", "xcode_app": "/Applications/Xcode_26.6.app", "web_bundles": "0123abcd"},
     "release-compile": {"mini": "true", "xcode_app": "/Applications/Xcode_26.6.app"},
 }
@@ -340,7 +340,9 @@ COMMON_INPUTS = (
 JOB_INPUTS = {
     "swift-test": ("webviews/src/app.ts", "cmux-tui/Cargo.lock", "cmux-tui/crates/cmux-layout-reducer/src/lib.rs"),
     "generated-files": ("webviews/src/app.ts", "scripts/ci/defaults_guard.py", "docs/mdm/index.md"),
-    "release-compile": (),
+    "release-compile": ("LICENSE", "scripts/verify-app-bundle-licenses.sh",
+                        "cmux-tui/build-support/notices", "cmux-tui/rust-toolchain.toml",
+                        "cmux-tui/crates/ghostty-vt-sys/build.rs"),
 }
 # Files no Mac job reads: a base move that touches only these keeps every key.
 OUTSIDE = ("docs/readme.md", "web/app/page.tsx", "cmux-tui/crates/cmux-daemon/src/lib.rs", "plans/other/notes.md",
@@ -423,7 +425,7 @@ class MacJobInputs(unittest.TestCase):
         changed = {"xcode": "Xcode 26.6 Build version 17F56", "macos": "26.0.2", "macos_build": "25A363",
                    "arch": "x86_64", "pool": "blacksmith", "image": "macos26-20261012.1", "mini": "false",
                    "xcode_app": "/Applications/Xcode_26.7.app", "web_bundles": "4567cdef",
-                   "swift_targets": "all", "swift_filter": "^(CmuxNextAppTests)\\\\."}
+                   "swift_targets": "all", "swift_filter": "^(CmuxNextAppTests)\\\\.", "layout_reducer": "true"}
         for job in MAC_JOBS:
             base = self.key(job)
             for name, value in changed.items():
@@ -442,6 +444,14 @@ class MacJobInputs(unittest.TestCase):
             # A value the job does not declare is refused too, so a typo never keys silently.
             with self.subTest(job=job, name="unknown"):
                 self.assertEqual(self.run_job(job, unknown_flag="1")[0], "")
+
+    def test_swift_test_keys_whether_the_layout_reducer_tests_ran(self):
+        # cmux-next.yml skips the reducer tests on feat-cmux-next PRs (the Linux fast tier
+        # runs them), so a PR pass never stands in for a dispatch or main push that runs them.
+        ran, skipped = self.key("swift-test", layout_reducer="true"), self.key("swift-test", layout_reducer="false")
+        self.assertTrue(ran)
+        self.assertTrue(skipped)
+        self.assertNotEqual(ran, skipped)
 
     def test_an_empty_flag_is_a_value_but_an_empty_toolchain_or_bundle_key_is_not(self):
         self.key("swift-test", swift_filter="")

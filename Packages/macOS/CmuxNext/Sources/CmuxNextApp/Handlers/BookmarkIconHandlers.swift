@@ -13,7 +13,7 @@ import Foundation
 enum BookmarkIconHandlers {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         let services = ctx.services, resolver = BookmarkResolver(services: services)
-        let capability = DaemonCapabilities.shared.bookmarkIcon
+        let capability = DaemonCapability.bookmarkIcon.rawValue
         registry.bind("bookmark.setIcon", requires: capability, daemon: services.machines.local, run: { invocation in
             let node = try folder(invocation, resolver)
             let history = IconHistory.bookmark(ctx), id = node.id, profile = resolver.profile(invocation)
@@ -85,7 +85,7 @@ extension IconHistory {
             let bookmarks = ctx.services.bookmarks
             guard let profile = bookmarks.trees.first(where: { $0.value.node(id)?.isFolder == true })?.key else { return false }
             guard bookmarks.supportsFolderIcons else {
-                throw ActionFailure(message: bookmarks.iconOwner.missingCapabilityMessage(DaemonCapabilities.shared.bookmarkIcon))
+                throw ActionFailure(message: bookmarks.iconOwner.missingCapabilityMessage(DaemonCapability.bookmarkIcon.rawValue))
             }
             let change: BookmarkFieldChange<String> = switch update {
             case .unchanged: .unchanged

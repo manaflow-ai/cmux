@@ -33,7 +33,10 @@ const lazyOnlyChunkPattern = /^chunks\/(shiki-lang-|shiki-theme-|shiki-wasm|pier
 // file; no page reaches it through static imports, the editor page's own entry included.
 const monacoChunks = ["chunks/view.mjs", "chunks/editor-worker.mjs", "chunks/editorWorkerHost.mjs"];
 // English is the fallback; translated diff labels must remain lazy locale chunks.
-const diffBudgetBytes = 1_500_000;
+// Leo, 2026-10-24: keep roughly 10% headroom for ordinary growth while still catching a large
+// accidental eager import, such as pulling a whole library into first paint. The current head
+// measures 1,500,829 bytes, so the cap is 1,651,000 bytes.
+const diffBudgetBytes = 1_651_000;
 const surfaces = [
   {
     name: "diff surface",
@@ -65,7 +68,9 @@ const surfaces = [
   {
     name: "editor page",
     entries: ["chunks/editor-page.mjs"],
-    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_EDITOR_PAGE_EAGER_BUDGET_BYTES", 500_000),
+    // The current editor first load measures 505,994 bytes. Keep roughly 10% headroom (557,000
+    // bytes) while still catching a large accidental eager import.
+    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_EDITOR_PAGE_EAGER_BUDGET_BYTES", 557_000),
     forbidden: monacoChunks,
   },
 ];

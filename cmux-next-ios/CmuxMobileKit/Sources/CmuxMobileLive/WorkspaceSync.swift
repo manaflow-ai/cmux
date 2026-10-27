@@ -19,7 +19,7 @@ public final class WorkspaceSync {
 
     @ObservationIgnored public var onTree: (@MainActor (DaemonTree) -> Void)?
     /// A notification was posted on the Mac (terminal agents, `cmux notify`).
-    @ObservationIgnored public var onNotification: (@MainActor () -> Void)?
+    @ObservationIgnored public var onNotification: (@MainActor (NotificationPost) -> Void)?
     @ObservationIgnored private var client: DaemonClient?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var refreshing = false
@@ -81,7 +81,8 @@ public final class WorkspaceSync {
             let replies = await client.requests([
                 ("set-client-info", [
                     "name": deviceName, "kind": "ios", "device_kind": "iphone", "device_name": deviceName, "device_id": deviceID,
-                    "capabilities": ["conversation-tabs-v1", "agent-session-tabs-v1"],
+                    // `page-tabs-v1`: the Mac's page tabs read as their page (a phone tab is a simulator tab).
+                    "capabilities": ["conversation-tabs-v1", "agent-session-tabs-v1", "page-tabs-v1"],
                 ]),
                 ("identify", [:]),
                 ("subscribe", ["tree_events": "deltas"]),
@@ -153,8 +154,8 @@ public final class WorkspaceSync {
         case .treeChanged:
             arrangementStale = true
             Task { await refresh() }
-        case .notification:
-            onNotification?()
+        case .notification(let post):
+            onNotification?(post)
             Task { await refresh() }
         case .resubscribe:
             Task {

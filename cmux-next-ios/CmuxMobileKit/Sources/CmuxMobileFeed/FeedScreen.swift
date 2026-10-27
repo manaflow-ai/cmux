@@ -11,10 +11,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     let sidebarItem: SidebarItem
     @State private var store = FeedStore.shared
     @Binding private var path: [AgentChatDestination]
-    @State private var position = ScrollPosition(idType: String.self)
-    @State private var atTop = true
-    @State private var expanded: Set<String> = []
-    @State private var columnWidth: CGFloat = 0
+    /// The list's scroll commands, whether it shows its top, and the events that arrived above the reader.
+    @State private var list = FeedListControl()
     @State private var swipe = FeedSwipeCoordinator()
     /// Why Clear All Notifications failed, shown once.
     @State private var clearFailure: String?
@@ -29,66 +27,22 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     public init(path: Binding<[AgentChatDestination]>, @ToolbarContentBuilder sidebarItem: () -> SidebarItem) {
         _path = path
         self.sidebarItem = sidebarItem()
-        WebMarkdownRenderer.shared.prewarm(count: 6)
+        WebMarkdownRenderer.shared.prewarm(count: 2)
     }
 
     public var body: some View {
         NavigationStack(path: $path) {
-            ScrollView {
-                VStack(spacing: 0) {
-                    chips
-                        .id("top")
-                    if let refreshError = store.refreshError {
-                        refreshErrorRow(refreshError)
-                    }
-                    if store.visibleItems.isEmpty {
-                        if store.syncState == .connecting {
-                            connectingState
-                        } else {
-                            emptyState
-                        }
-                    }
-                    LazyVStack(spacing: 0) {
-                        ForEach(store.visibleItems) { item in
-                            FeedRow(item: item, expanded: expanded.contains(item.id), context: rowContext, swipe: swipe)
-                                .equatable()
-                                .id(item.id)
-                            .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity))
-                            Divider()
-                        }
-                    }
-                    .scrollTargetLayout()
+            // UIKit rows (FeedRowCell), laid out off the main thread (verify/feed-perf-20261022.md).
+            Color.clear
+                .background {
+                    FeedCollection(
+                        items: store.visibleItems, context: rowContext, swipe: swipe, control: list,
+                        header: AnyView(header), headerSignature: AnyHashable(headerSignature),
+                        headerContent: AnyHashable(store.needsYouCount)
+                    )
+                    .ignoresSafeArea(.container, edges: .vertical)
                 }
-                #if DEBUG
-                .background { if FeedStressRig.shared.config.autoscrollPasses != nil { EnclosingScrollViewProbe { FeedScreenRig.scroller.attach($0) } } }
-                #endif
-            }
-            .scrollPosition($position)
-            // An inline reply's keyboard comes down with a downward drag, as
-            // in Messages.
-            .scrollDismissesKeyboard(.interactively)
-            .onScrollPhaseChange { _, phase in
-                if phase == .interacting, swipe.openID != nil { swipe.openID = nil }
-                #if DEBUG
-                // G-04: a finger-driven scroll is one frame-interval window (CMUX_MOBILE_FRAMELOG=1).
-                if FeedStressRig.shared.config.autoscrollPasses == nil {
-                    if phase == .interacting { FrameIntervalLog.shared.begin("feed-scroll") }
-                    if phase == .idle { FrameIntervalLog.shared.end() }
-                }
-                #endif
-            }
             .overlay(alignment: .bottom) { DoneUndoBar(store: store) }
-            .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top < 60 } action: { _, top in
-                atTop = top
-                if top { store.clearUnseen() }
-            }
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
-                columnWidth = width - 16 * 2 - 40 - 12
-                prefetch()
-            }
-            .onChange(of: store.items.count) { prefetch() }
-            // Re-reads the Mac's sessions and open asks (acpmux watch).
-            .refreshable { await store.refresh() }
             .overlay(alignment: .top) { newPill }
             .background(Color.cmuxMobileBackground)
             .navigationTitle("Feed")
@@ -106,11 +60,15 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         }
         .onAppear {
             rowContext.open = { open($0) }
-            rowContext.setExpanded = { id, on in
-                if on { expanded.insert(id) } else { expanded.remove(id) }
-            }
             #if DEBUG
             FeedStressRig.shared.start(store: store)
+            // Screenshot rig: CMUX_MOBILE_FEED_SHOT_EVENT=<event id> scrolls that event to the top.
+            if let event = ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_SHOT_EVENT"], !event.isEmpty {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(1.5))
+                    DemoDirector.shared.post(.feedScroll(toEvent: event))
+                }
+            }
             #endif
             FeedRouting.shared.sendPrompt = { item, text in
                 guard let workspace = appStore.workspaces.first(where: { $0.id == item.workspaceID }),
@@ -140,11 +98,30 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         path.append(AgentChatDestination(workspaceID: item.workspaceID, tabID: item.tabID))
     }
 
-    /// Measures upcoming bodies off screen so cells are sized before they scroll in.
-    private func prefetch() {
-        guard columnWidth > 0 else { return }
-        WebMarkdownRenderer.shared.lastWidth = columnWidth
-        WebMarkdownRenderer.shared.prefetchHeights(store.items.map(\.markdown), style: .body, width: columnWidth)
+    /// What can change the list header's height: it is measured again only when this changes (a
+    /// chip's count or the selected chip redraw in place; the header cell re-reads its view).
+    private var headerSignature: [String] {
+        [store.refreshError ?? "", "\(store.visibleItems.isEmpty)", "\(store.syncState)", "\(store.needsYouCount > 0)", store.filter.rawValue]
+    }
+
+    /// The filter chips, a refresh error and an empty or connecting state, above the events.
+    private var header: some View {
+        VStack(spacing: 0) {
+            chips
+            if let refreshError = store.refreshError {
+                refreshErrorRow(refreshError)
+            }
+            if store.visibleItems.isEmpty {
+                if store.syncState == .connecting {
+                    connectingState
+                } else {
+                    emptyState
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .background(Color.cmuxMobileBackground)
+        .environment(appStore)
     }
 
     private var chips: some View {
@@ -211,12 +188,13 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
 
     @ViewBuilder
     private var newPill: some View {
-        if !store.unseenNewIDs.isEmpty, !atTop {
+        let count = list.newAbove + store.unseenNewIDs.count
+        if count > 0, !list.atTop {
             Button {
-                withAnimation(.cmuxMobileSmooth) { position.scrollTo(id: "top") }
+                list.scrollToTop()
                 store.clearUnseen()
             } label: {
-                Label("\(store.unseenNewIDs.count) new", systemImage: "arrow.up")
+                Label("\(count) new", systemImage: "arrow.up")
                     .font(.footnote.weight(.semibold))
                     .padding(.horizontal, 14)
                     .frame(height: 36)
@@ -265,9 +243,9 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         guard let command = director.command else { return }
         switch command {
         case .feedScroll(let id):
-            withAnimation(.smooth(duration: 0.9)) { position.scrollTo(id: id, anchor: .top) }
+            list.scrollTo(id: id)
         case .feedScrollTop:
-            withAnimation(.cmuxMobileSmooth) { position.scrollTo(id: "top") }
+            list.scrollToTop()
             store.clearUnseen()
         case .feedOpen(let id):
             if let item = store.items.first(where: { $0.id == id }) { open(item) }
@@ -281,6 +259,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             swipe.demoSerial += 1
         case .feedSwipeClose:
             swipe.openID = nil
+        case .feedExpand, .feedReply, .answerQuestion:
+            list.demo(command)
         default:
             break
         }

@@ -70,7 +70,7 @@ extension HomeService {
     /// is cancelled by the next local connection).
     private func chiefConnection() async -> DaemonConnection? {
         let chief = chief
-        for await connection in ObservationStream({ chief.supports(DaemonCapabilities.shared.localConversations) ? chief.connection : nil }) {
+        for await connection in ObservationStream({ chief.supports(DaemonCapability.localConversations.rawValue) ? chief.connection : nil }) {
             if let connection { return connection }
         }
         return nil
@@ -112,13 +112,13 @@ extension HomeService {
         // The Chief moved to a server: that server's session joins the sidebar too.
         services.serverReach.refresh()
         guard let connection = services.machines.local.connection,
-              services.machines.local.supports(DaemonCapabilities.shared.workspaceKind) else { return }
+              services.machines.local.supports(DaemonCapability.workspaceKind.rawValue) else { return }
         ensureHomeWorkspace(connection)
     }
 
     private func ensureChiefTab(_ connection: DaemonConnection, home: ResourceID) async throws {
         let local = services.machines.local
-        guard local.supports(DaemonCapabilities.shared.conversationTabs) else {
+        guard local.supports(DaemonCapability.conversationTabs.rawValue) else {
             homeWorkspaceStep = "no chief tab: the daemon lacks conversation tabs"
             return
         }
@@ -133,6 +133,8 @@ extension HomeService {
         guard !Task.isCancelled else { return }
         // The local Chief keeps the tab until its history is in the Hosted Chief (``HostedChiefMigration/pending``).
         hostedChief.start(cloudChiefs.hosted)
+        // The default Chief is this Mac's while its optchat-chief runs (HomeService+ChiefDefault).
+        await refreshLocalChiefRunning()
         let cloud = tabChiefs
         let shown = cloudChief
         // Local conversations live in the Chief home's owner, not this build's
@@ -145,7 +147,7 @@ extension HomeService {
             owner = await chiefConnection()
             guard owner != nil, !Task.isCancelled else { return }
         } else {
-            owner = chief.supports(DaemonCapabilities.shared.localConversations) ? chief.connection : nil
+            owner = chief.supports(DaemonCapability.localConversations.rawValue) ? chief.connection : nil
         }
         var listedAll: [ConversationSummary] = []
         if let owner { listedAll = try await ConversationClient(owner).list() }
@@ -154,7 +156,8 @@ extension HomeService {
         // The local Chief is looked up (never created) while a cloud Chief has the tab.
         let localChief = if shown == nil, let owner { try await chiefConversation(owner) } else { listed?.id }
         let localHasHistory = shown == nil || (listed?.lastSeq ?? 0) > 0
-        guard let chief = cloud.chiefTab(local: localChief, localHasHistory: localHasHistory, choice: hostedChief.choice), HomeDock.classic else { return }
+        guard let chief = cloud.chiefTab(local: localChief, localHasHistory: localHasHistory, choice: hostedChief.choice,
+                                         prefersLocal: prefersLocalChief), HomeDock.classic else { return }
         homeWorkspaceStep = "waiting for the home workspace in the tree"
         // The tree reports a just-created home after its event; wait for it
         // (this task is cancelled by the next connection).
@@ -224,6 +227,8 @@ extension HomeService {
         if let id, let chief = cloudChiefs.chief(for: id) {
             return chief.displayName.isEmpty ? HomeStrings.chiefName : chief.displayName
         }
+        // A cloud Chief renamed since the list was read: the directory keeps the rename.
+        if let id, let name = chiefNames.first(where: { $0.key.rawValue == id })?.value { return name }
         let title = conversations.first { $0.id == id }?.title ?? ""
         return title.isEmpty ? HomeStrings.title : title
     }

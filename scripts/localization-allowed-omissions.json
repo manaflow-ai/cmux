@@ -2224,6 +2224,119 @@
       "fr": "Reviewed native UI spelling: German and French write this effort level the same way; an explicit translated entry remains required."
     }
   },
+  "home.chief.name": {
+    "class": "brand",
+    "source": "Chief"
+  },
+  "home.compose.source.agent": {
+    "class": "brand",
+    "source": "Chief"
+  },
+  "home.list.section.chiefs": {
+    "source": "Chiefs",
+    "identityLocales": {
+      "de": "Chiefs is the plural of the product name Chief (cmux's lead agent), kept in Latin letters.",
+      "fr": "Chiefs is the plural of the product name Chief (cmux's lead agent), kept in Latin letters.",
+      "ar": "Chiefs is the plural of the product name Chief (cmux's lead agent), kept in Latin letters.",
+      "es": "Chiefs is the plural of the product name Chief (cmux's lead agent), kept in Latin letters."
+    }
+  },
+  "home.title": {
+    "source": "Home",
+    "identityLocales": {
+      "de": "Home is the product name of cmux's Home area (the Chief and its conversations), kept in Latin letters in German so it matches the command and setting names that say Home (action.home.show, action.home.switchView, settings.labs.classicHome)."
+    }
+  },
+  "argument.home.view.messages": {
+    "source": "Home",
+    "identityLocales": {
+      "de": "Home is the product name of cmux's Home area (the Chief and its conversations), kept in Latin letters in German so it matches the command and setting names that say Home (action.home.show, action.home.switchView, settings.labs.classicHome)."
+    }
+  },
+  "home.list.title": {
+    "source": "Conversations",
+    "identityLocales": {
+      "fr": "Conversations is the French word for conversations, spelled as in English."
+    }
+  },
+  "home.list.untitled": {
+    "source": "Conversation",
+    "identityLocales": {
+      "fr": "Conversation is the French word for a conversation, spelled as in English."
+    }
+  },
+  "home.compose.source.team": {
+    "source": "Team",
+    "identityLocales": {
+      "de": "Team is the standard German word for a team, spelled as in English (as pricing.team.name and cloudMenu.team)."
+    }
+  },
+  "home.compose.source.connection": {
+    "source": "Contact",
+    "identityLocales": {
+      "fr": "Contact is the French word for a contact, spelled as in English."
+    }
+  },
+  "home.chief.new.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name has the same spelling in German (as devices.nameField)."
+    }
+  },
+  "home.engine.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name has the same spelling in German (as devices.nameField)."
+    }
+  },
+  "home.chief.new.backend": {
+    "source": "Backend",
+    "identityLocales": {
+      "de": "Backend is the established German IT noun (in the Duden), spelled as in English."
+    }
+  },
+  "home.info.title.direct": {
+    "source": "Info",
+    "identityLocales": {
+      "de": "Info is the standard German short word for information, spelled as in English."
+    }
+  },
+  "home.info.agent": {
+    "source": "Agent",
+    "identityLocales": {
+      "de": "Agent is the standard noun for an AI agent in German, spelled as in English (as home.engine.section.agent).",
+      "fr": "Agent is the standard noun for an AI agent in French, spelled as in English (as home.engine.section.agent)."
+    }
+  },
+  "home.info.role.admin": {
+    "source": "Admin",
+    "identityLocales": {
+      "de": "Admin is the standard German short word for an administrator (in the Duden), spelled as in English."
+    }
+  },
+  "home.list.chief.cloud": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Cloud is the established German UI noun for the cmux Cloud product area (as sidebar.cloud.button).",
+      "fr": "Cloud is the established French UI noun for the cmux Cloud product area (as sidebar.cloud.button)."
+    }
+  },
+  "home.engine.effort": {
+    "source": "Effort",
+    "identityLocales": {
+      "fr": "Effort is the French word for effort, spelled as in English (as the effort level home.engine.effort.minimal)."
+    }
+  },
+  "home.engine.harness": {
+    "source": "Harness",
+    "identityLocales": {
+      "de": "Harness is the borrowed developer noun for an agent harness (the CLI that runs the model, such as Claude Code or Codex); German developer UIs keep the English word, as Klassifikator-Harness does.",
+      "fr": "Harness is the borrowed developer noun for an agent harness (the CLI that runs the model, such as Claude Code or Codex); French developer UIs keep the English word, as Harness du classificateur does.",
+      "es": "Harness is the borrowed developer noun for an agent harness (the CLI that runs the model, such as Claude Code or Codex); Spanish developer UIs keep the English word, as Harness del clasificador does.",
+      "zh-Hans": "Harness is the borrowed developer noun for an agent harness (the CLI that runs the model, such as Claude Code or Codex); Chinese developer UIs keep the English word, as 分类器 Harness does.",
+      "zh-Hant": "Harness is the borrowed developer noun for an agent harness (the CLI that runs the model, such as Claude Code or Codex); Chinese developer UIs keep the English word, as 分類器 Harness does."
+    }
+  },
   "settings.automation.kiro.notificationLevel.minimal": {
     "source": "Minimal",
     "identityLocales": {
@@ -2860,6 +2973,14 @@
     "identityLocales": {
       "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
     }
+  },
+  "sidebar.remoteMachines.cpu": {
+    "class": "technical",
+    "source": "CPU %1$lld/%2$lld"
+  },
+  "sidebar.remoteMachines.resourcesLabel": {
+    "class": "format",
+    "source": "%1$@: %2$@"
   },
   "sidebar.status.compactLabel": {
     "source": "Status: %@",
@@ -4336,6 +4457,12 @@
     }
   },
   "settings.group.tabs": {
+    "source": "Tabs",
+    "identityLocales": {
+      "de": "\"Tabs\" is the standard German plural for browser or app tabs."
+    }
+  },
+  "settings.tabs.commandDigits.tabs": {
     "source": "Tabs",
     "identityLocales": {
       "de": "\"Tabs\" is the standard German plural for browser or app tabs."
@@ -6631,6 +6758,77 @@
       "pl": "Agent is the standard noun for an AI agent in this language; the translated entry is still required."
     }
   },
+  "devices.platform.mac": {
+    "class": "brand",
+    "source": "Mac"
+  },
+  "devices.platform.ios": {
+    "class": "brand",
+    "source": "iPhone"
+  },
+  "macScreen.keys.missionControl": {
+    "source": "Mission Control (⌃↑)",
+    "identityLocales": {
+      "de": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "fr": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "ar": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "es": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "ko": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "ja": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required."
+    }
+  },
+  "macScreen.home.online": {
+    "source": "Online",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
+  "macScreen.home.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
+  "macScreen.hub.unknownDevice": {
+    "class": "brand",
+    "source": "Mac"
+  },
+  "devices.history.host": {
+    "source": "Host",
+    "identityLocales": {
+      "de": "Host is the usual German term for the computer that shares its screen."
+    }
+  },
+  "devices.nameField": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name has the same spelling in German."
+    }
+  },
+  "devices.relays.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name has the same spelling in German."
+    }
+  },
+  "devices.section.relays": {
+    "source": "Relays",
+    "identityLocales": {
+      "de": "Relays is the German plural used for network relay servers."
+    }
+  },
+  "devices.online": {
+    "source": "Online",
+    "identityLocales": {
+      "de": "Online has the same spelling in German."
+    }
+  },
+  "devices.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Offline has the same spelling in German."
+    }
+  },
   "importSuggestions.request.chief": {
     "class": "brand",
     "source": "Chief"
@@ -6700,6 +6898,48 @@
     "source": "Updates",
     "identityLocales": {
       "de": "Updates is the standard German UI word for software updates, spelled as in English."
+    }
+  },
+  "home.chief.backend.claude": {
+    "class": "brand",
+    "source": "Claude"
+  },
+  "home.chief.backend.codex": {
+    "class": "brand",
+    "source": "Codex"
+  },
+  "home.chief.backend.unii": {
+    "class": "brand",
+    "source": "UniiChat"
+  },
+  "home.chief.backend.muse": {
+    "class": "brand",
+    "source": "Muse Code"
+  },
+  "home.engine.reactions.prompt": {
+    "source": "Instructions",
+    "identityLocales": {
+      "fr": "Instructions is the standard French noun for a prompt's instructions, spelled as in English; the translated entry is still required."
+    }
+  },
+  "addDevice.platform.windows": {
+    "class": "brand",
+    "source": "Windows"
+  },
+  "addDevice.platform.phone": {
+    "class": "brand",
+    "source": "iPhone"
+  },
+  "devices.state.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Offline is the standard German UI word for a device that is not connected (macOS and iOS use it), spelled as in English; the translated entry is still required."
+    }
+  },
+  "textbox.action.textEntry": {
+    "source": "Text",
+    "identityLocales": {
+      "de": "Text is the German noun, spelled as in English; the translated entry is still required."
     }
   }
 }

@@ -109,6 +109,23 @@ extension WorkspaceContentController {
     }
 }
 
+extension FocusTopology {
+    /// This topology without `pane`, as the daemon's tree without it will show it: its column keeps
+    /// its id and loses the pane, and a column left empty goes (`PaneController.showPaneClose`).
+    func removing(pane id: String) -> FocusTopology {
+        var topology = self
+        topology.panes.removeAll { $0.id == id }
+        topology.screens = screens.map { columns in
+            columns.compactMap { column in
+                var column = column
+                column.panes.removeAll { $0 == id }
+                return column.panes.isEmpty ? nil : column
+            }
+        }
+        return topology
+    }
+}
+
 extension FocusTopology.Kind {
     static func of(_ tab: TabModel) -> FocusTopology.Kind {
         // An agent chat tab is a conversation tab on an acpmux session; its content is the agent page.

@@ -437,6 +437,53 @@ def debt_raises(counts: dict[str, dict[str, int]], baseline: dict[str, dict[str,
     return raised
 
 
+def catalog_keys(path: Path) -> set[str]:
+    """The string keys a catalog file holds (empty when it cannot be read as a catalog)."""
+    try:
+        return {entry.key for entry in catalog_entries(path.read_text(encoding="utf-8"))}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return set()
+
+
+def same_strings(old: set[str], new: set[str]) -> bool:
+    """Most of OLD's keys are in NEW and most of NEW's keys came from OLD: the same catalog moved
+    (perhaps edited on the way), not an unrelated catalog that happens to share its file name."""
+    shared = len(old & new)
+    return bool(old) and bool(new) and shared * 2 > len(old) and shared * 2 > len(new)
+
+
+def follow_moves(current: dict[str, dict[str, int]], previous: dict[str, dict[str, int]], root: Path,
+                 previous_root: Path | None = None) -> tuple[dict[str, dict[str, int]], list[str]]:
+    """PREVIOUS's counts with each moved catalog's counts under its new path, and the moves.
+
+    A catalog moved between packages keeps its debt: a key of PREVIOUS that CURRENT does not
+    list and whose file left ROOT passes its counts to the one new key of CURRENT with the same
+    file name. Without this, every `git mv` of a catalog reads as new debt at the new path and a
+    raised baseline. Most catalogs are named Localizable.xcstrings, so when the old file is in
+    PREVIOUS_ROOT (the base tree) the candidate must also hold mostly the same string keys
+    (``same_strings``), even when it is the only one with that name: deleting one package's
+    catalog and adding an unrelated one with new untranslated strings must not hand the new one
+    the old debt allowance. Several matching candidates are narrowed to the byte-identical one.
+    A move it cannot pair stays unpaired, so the check still fails.
+    """
+    followed, moves = dict(previous), []
+    new = [catalog for catalog in current if catalog not in previous and (root / catalog).is_file()]
+    for old in sorted(catalog for catalog in previous if catalog not in current and not (root / catalog).exists()):
+        candidates = [catalog for catalog in new if Path(catalog).name == Path(old).name]
+        if previous_root is not None and (previous_root / old).is_file():
+            old_keys = catalog_keys(previous_root / old)
+            candidates = [catalog for catalog in candidates if same_strings(old_keys, catalog_keys(root / catalog))]
+            if len(candidates) > 1:
+                content = (previous_root / old).read_bytes()
+                candidates = [catalog for catalog in candidates if (root / catalog).read_bytes() == content]
+        if len(candidates) != 1:
+            continue
+        followed[candidates[0]] = followed.pop(old)
+        new.remove(candidates[0])
+        moves.append(f"{old} -> {candidates[0]}")
+    return followed, moves
+
+
 def debt_findings(root: Path, locales, omissions: dict, counts: dict) -> list[tuple[str, str]]:
     """(catalog, error) for every parity error in the catalogs under root."""
     findings = []
@@ -600,6 +647,9 @@ def main() -> int:
     debt = debt_counts(findings)
     if args.write_baseline:
         if baseline is not None:
+            baseline, moves = follow_moves(debt, baseline, args.root)
+            for move in moves:
+                print(f"note: a catalog moved and keeps its baseline: {move}")
             raised = debt_raises(debt, baseline, DEBT_ENFORCED)
             if raised:
                 print("refusing to raise the localization debt baseline:", file=sys.stderr)
@@ -656,7 +706,9 @@ def main() -> int:
         for line in raised:
             print(f"  {line}", file=sys.stderr)
     if args.base_baseline:
-        base = load_debt_baseline(args.base_baseline) or {}
+        base, moves = follow_moves(baseline, load_debt_baseline(args.base_baseline) or {}, args.root, args.base_root)
+        for move in moves:
+            print(f"note: a catalog moved and keeps the base's baseline: {move}")
         grown = debt_raises(baseline, base)
         if grown:
             failed = True

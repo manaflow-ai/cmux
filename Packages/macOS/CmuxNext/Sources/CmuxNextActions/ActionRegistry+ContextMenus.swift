@@ -77,7 +77,7 @@ extension ActionRegistry {
                 if let last = items.last, !last.isSeparatorItem { items.append(.separator()) }
             case .action(let id):
                 let invocation = ActionInvocation(target: target, arguments: arguments)
-                guard let descriptor = descriptor(for: id), ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil, Self.isAvailable(descriptor, in: context),
+                guard let descriptor = descriptor(for: id), isAvailable(descriptor.id, in: context),
                       !ActionTargetVisibility.isHidden(id, invocation: invocation, in: self), let item = makeMenuItem(for: id) else { continue }
                 item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: arguments, implied: implied)
                 item.image = Self.menuIcon(descriptor.symbol)
@@ -105,7 +105,7 @@ extension ActionRegistry {
                 item.submenu = submenu
                 items.append(item)
             case .choices(let id):
-                guard let descriptor = descriptor(for: id), ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil, Self.isAvailable(descriptor, in: context),
+                guard let descriptor = descriptor(for: id), isAvailable(descriptor.id, in: context),
                       let item = makeChoicesItem(for: descriptor, target: target, in: context)
                 else { continue }
                 item.image = Self.menuIcon(descriptor.symbol)
@@ -122,7 +122,11 @@ extension ActionRegistry {
     /// A right-click row's icon: its action's SF Symbol as a template, inked like the row's text.
     /// Nil for `ActionDescriptor`'s default symbol (`command`), so a row without its own icon shows none.
     static func menuIcon(_ symbol: String) -> NSImage? {
-        guard symbol != "command", let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) else { return nil }
+        // The menu font's size, as `NSImage.menuSymbol` (CmuxNextDesign) sizes every hand-built row's symbol.
+        let configuration = NSImage.SymbolConfiguration(pointSize: NSFont.menuFont(ofSize: 0).pointSize, weight: .regular, scale: .medium)
+        guard symbol != "command",
+              let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(configuration)
+        else { return nil }
         image.isTemplate = true
         return image
     }

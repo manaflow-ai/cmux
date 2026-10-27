@@ -5,7 +5,7 @@ import { deferredDiffReason } from "../deferred-diffs";
 import { fileName, fileStats, type DiffItem, type FileTreeSource, type StreamMetrics } from "../diff-stream";
 import { collapsedFileKey } from "../collapsed-files";
 import { defaultDiffFileFilter, type DiffFileFilter } from "../file-filter";
-import { type DiffViewerOptions } from "../pierre-options";
+import { type DiffViewerOptions, type DrawnDiffOptions } from "../pierre-options";
 import { createDiffViewerStatus } from "../status";
 import {
   type ViewedChange,
@@ -60,6 +60,12 @@ export type AppState = {
   viewedScopeKey: string;
   /** The viewer's width in px, measured in the page; 0 until measured. */
   viewerWidth: number;
+  /**
+   * Whether the shown session's patch leaves white space changes out (`SessionOpened.ignoreWhitespace`);
+   * null until a session answers. While true its hunks are not the files' real hunks: the patch is not
+   * copied as a `git apply` command, and no write of one hunk may run.
+   */
+  whitespaceHidden: boolean | null;
 };
 
 export type AppAction =
@@ -74,6 +80,7 @@ export type AppAction =
   | { type: "replace-viewed"; scopeKey: string; entries: ViewedFileEntry[] }
   | { type: "set-file-filter"; filter: Partial<DiffFileFilter> }
   | { type: "set-generated-paths"; paths: string[] }
+  | { type: "set-whitespace-hidden"; hidden: boolean }
   | { type: "refresh"; status: DiffViewerStatus }
   | { type: "reset-diff"; status: DiffViewerStatus }
   | { type: "remove-comment"; id: string }
@@ -144,6 +151,7 @@ export function initialAppState(config: DiffViewerConfig, initialStatus: DiffVie
     viewedLocalEdits: new Map(),
     viewedScopeKey: "",
     viewerWidth: 0,
+    whitespaceHidden: null,
   };
 }
 
@@ -164,8 +172,14 @@ export function defaultDiffViewerOptions(payload: DiffViewerPayload): Omit<DiffV
     diffIndicators: "bars",
     expandUnchanged: false,
     groupByKind: false,
+    // Off: the diff shows every change, as git does, unless the reader hides white space.
+    hideWhitespace: false,
+    hideImports: false,
+    loadFullFiles: false,
+    richPreview: false,
     lineNumbers: true,
     showBackgrounds: true,
+    showBulkActions: true,
     wordDiffs: payload.transport?.kind === "page",
     wordWrap: false,
   };
@@ -291,8 +305,12 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, fileFilter: { ...state.fileFilter, ...action.filter } };
     case "set-generated-paths":
       return { ...state, generatedPaths: action.paths };
+    case "set-whitespace-hidden":
+      return { ...state, whitespaceHidden: action.hidden };
     case "apply-persisted-options": {
-      const { layout, collapsedFiles, ...prefs } = action.prefs;
+      // `hideWhitespace` changes the diff, so only the toolbar (set-option, then a refresh) changes it
+      // after boot; first paint takes it from the payload's seeded prefs, as the session opens.
+      const { layout, collapsedFiles, hideWhitespace: _hideWhitespace, ...prefs } = action.prefs;
       const withCollapsed = { ...state, collapsedFiles: collapsedFiles ?? state.collapsedFiles };
       return {
         ...withCollapsed,
@@ -323,6 +341,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         status: action.status,
         streamComplete: false,
         treeSource: null,
+        whitespaceHidden: null,
       };
     case "append-items": {
       const generatedPaths = new Set(state.generatedPaths);
@@ -359,6 +378,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         status: action.status,
         streamComplete: false,
         treeSource: null,
+        whitespaceHidden: null,
       };
     case "remove-comment": {
       const comments = state.comments.filter((comment) => comment.id !== action.id);
@@ -471,27 +491,35 @@ function initialDiffViewerLayout(payload: Record<string, any>): DiffViewerLayout
   // The CLI bakes the globally persisted layout into the payload at generation
   // time; local storage only matters for pages opened outside cmux. The
   // viewerPrefs bridge re-syncs the live value right after boot.
-  return readLocalViewerPrefs().layout ?? payloadLayout ?? "unified";
+  return readLocalViewerPrefs().layout ?? payloadLayout ?? "auto";
 }
 
 function parseDiffViewerLayout(value: unknown): DiffViewerLayout | null {
-  return value === "split" || value === "unified" ? value : null;
+  return value === "split" || value === "unified" || value === "auto" ? value : null;
 }
 
-/// The viewer width two readable split sides need. Below it the viewer draws unified, as GitHub
-/// does, and keeps the stored preference for a wider pane.
-export const SPLIT_MIN_WIDTH = 760;
+/// The viewer width two readable split sides need (at 760 px both sides cut long lines). The auto
+/// layout draws split at this width and up, unified below it (cx-7tsus: split in a narrow pane
+/// wrapped or clipped every line), and changes as the pane is resized. An explicit split or
+/// unified layout is drawn at every width.
+export const SPLIT_MIN_WIDTH = 1000;
 
 /** Whether a split diff fits the viewer; an unmeasured viewer counts as wide. */
 export function splitFits(viewerWidth: number): boolean {
   return viewerWidth === 0 || viewerWidth >= SPLIT_MIN_WIDTH;
 }
 
-/** The options the viewer draws with: unified while a split preference does not fit. */
-export function renderedDiffOptions(state: Pick<AppState, "options" | "viewerWidth">): DiffViewerOptions {
+/** The options the viewer draws with: the auto layout resolved for the viewer's width. */
+export function renderedDiffOptions(state: Pick<AppState, "options" | "viewerWidth">): DrawnDiffOptions {
   return drawnDiffOptions(state.options, splitFits(state.viewerWidth));
 }
 
-export function drawnDiffOptions(options: DiffViewerOptions, fits: boolean): DiffViewerOptions {
-  return options.layout === "split" && !fits ? { ...options, layout: "unified" } : options;
+export function drawnDiffOptions(options: DiffViewerOptions, fits: boolean): DrawnDiffOptions {
+  const { layout } = options;
+  return { ...options, layout: layout === "auto" ? (fits ? "split" : "unified") : layout };
+}
+
+/** The layout after `layout` on the layout button: auto, then split, then unified (Settings' order). */
+export function nextDiffViewerLayout(layout: DiffViewerLayout): DiffViewerLayout {
+  return layout === "auto" ? "split" : layout === "split" ? "unified" : "auto";
 }

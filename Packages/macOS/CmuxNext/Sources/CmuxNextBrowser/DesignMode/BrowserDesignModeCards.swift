@@ -134,6 +134,13 @@ public nonisolated struct BrowserDesignModeCards: Sendable {
         if let components = selection["react_components"] as? [String], !components.isEmpty {
             lines.append("React components: " + components.joined(separator: " > "))
         }
+        if let source = selection["source_location"] as? [String: Any],
+           let file = source["file"] as? String, let line = source["line"] {
+            let column = (source["column"] as? NSNumber).map { ":\($0.intValue)" } ?? ""
+            lines.append("Component source: \(file):\(line)\(column)")
+        } else {
+            lines.append("Component source: unavailable")
+        }
         if let text = selection["text_content"] as? String, !text.isEmpty { lines.append("Text: \(text)") }
         if let styles = selection["computed_styles"] as? [String: Any], !styles.isEmpty {
             lines.append("Computed styles:")

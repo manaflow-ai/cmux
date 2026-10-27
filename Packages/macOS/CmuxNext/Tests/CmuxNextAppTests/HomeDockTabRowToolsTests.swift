@@ -70,21 +70,26 @@ import Testing
         #expect(dock.subviews.first?.frame == dock.bounds)
     }
 
-    /// The Chief's tools: its status on the mark, Subagents only with a subagent, and Chief
-    /// Actions from the catalog in order.
-    @Test func theChiefsToolsShowItsStatusSubagentsAndActions() {
+    /// The Chief's tools: only its status on the mark; Chief Actions from the catalog in order, then
+    /// Subagents (enabled only with a subagent), as rows of the pane's one ⋮ (Lawrence 2026-10-22).
+    @Test func theChiefsToolsShowItsStatusAndPutActionsInThePanesMenu() {
         let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
         let tools = ChiefPaneTools(chief: ChiefSidebar(lanes: AgentLaneStore()), registry: registry)
         tools.show(.init(), subagents: 0)
         #expect(tools.indicator.state == .idle)
-        #expect(!tools.subagentsButton.isEnabled)
+        #expect(!tools.hasSubagents)
         tools.show(.init(activity: .waiting, badge: 1), subagents: 2)
         #expect(tools.indicator.state == .waiting)
-        #expect(tools.subagentsButton.isEnabled)
+        #expect(tools.hasSubagents)
         #expect(tools.subagentsMenu().items.isEmpty) // this store has no lanes
-        let ids = tools.actionsMenu()?.items.compactMap { $0.identifier?.rawValue }
-        #expect(ids == ChiefPaneTools.actions.map { "cmux.action.\($0.rawValue)" })
-        #expect(tools.intrinsicContentSize.width > 0)
+        let rows = tools.paneMoreMenuItems()
+        let ids = rows.compactMap { $0.identifier?.rawValue }
+        #expect(ids == ChiefPaneTools.actions.map { "cmux.action.\($0.rawValue)" } + ["cmux.chief.paneTools.subagents"])
+        #expect(rows.allSatisfy { $0.menu == nil }, "fresh rows, free to go into the pane's menu")
+        let subagents = rows.last
+        #expect(subagents?.submenu != nil)
+        #expect(subagents?.isEnabled == false) // no lanes, nothing to open
+        #expect(tools.intrinsicContentSize.width == TitlebarBandButton.side)
     }
 
     /// Each Subagents row runs Open Chief Subagent on its row's sidebar item through the registry (the one
@@ -137,15 +142,35 @@ import Testing
         #expect(refusal == notices.shown.first)
     }
 
-    /// Chief Actions is the app's one more button (⋮, OverflowButton): VoiceOver's press opens the
-    /// same menu a pointer press does.
-    @Test func chiefActionsIsTheOverflowButton() {
+    /// One ⋮, not two (Lawrence 2026-10-22: "like tf are these buttons for"): the Chief's tools draw
+    /// no button of their own, only the status mark; their rows sit at the top of the pane's more menu,
+    /// above a separator and the pane's own rows.
+    @Test func theChiefsToolsAreNoButtonsAndLeadThePanesOneMoreMenu() throws {
         let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
         let tools = ChiefPaneTools(chief: ChiefSidebar(lanes: AgentLaneStore()), registry: registry)
-        var shown: NSMenu?
-        tools.actionsButton.presentMenu = { menu, _ in shown = menu }
-        #expect(tools.actionsButton.accessibilityPerformPress())
-        #expect(shown?.items.count == ChiefPaneTools.actions.count)
-        #expect(tools.actionsButton.accessibilityLabel() == tools.actionsButton.label)
+        #expect(tools.subviews.count == 1)
+        #expect(tools.subviews.first === tools.indicator)
+        #expect(!tools.subviews.contains { $0 is NSButton })
+        let dock = Dock(mode: .messages)
+        dock.rowTools = [.messages: tools]
+        let chiefRows = ChiefPaneTools.actions.count + 2 // the actions, a separator, Subagents
+        #expect(dock.paneMoreMenuItems().count == chiefRows)
+        let channels = Dock(mode: .channels)
+        channels.rowTools = [.messages: ChiefPaneTools(chief: ChiefSidebar(lanes: AgentLaneStore()), registry: registry)]
+        #expect(channels.paneMoreMenuItems().isEmpty)
+        let standard = ActionRegistry.standard()
+        let toolbar = PaneToolbar(registry: { standard }, newTabMenu: { nil }, contentMenu: { dock.paneMoreMenuItems() })
+        toolbar.update(target: "tab0", kind: .other)
+        let menu = try #require(toolbar.view.moreMenu?())
+        let ids = menu.items.prefix(ChiefPaneTools.actions.count).compactMap { $0.identifier?.rawValue }
+        #expect(ids == ChiefPaneTools.actions.map { "cmux.action.\($0.rawValue)" })
+        #expect(menu.items[chiefRows].isSeparatorItem, "the Chief's rows end above the pane's own")
+        #expect(menu.items.count > chiefRows + 1)
+    }
+
+    /// The Home header's second row of toggles (Memory, Right Sidebar) is off by default: the
+    /// header keeps one row (Memory is in Chief Actions; the right sidebar is View > Toggle Right Sidebar).
+    @Test func theHomeHeaderHasNoSecondRowByDefault() {
+        #expect(HomeTunables.headerPanelToggles.defaultValue == false)
     }
 }

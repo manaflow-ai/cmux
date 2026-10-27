@@ -320,6 +320,7 @@ impl Mux {
             notification_ledger: Mutex::new(notification_ledger),
             notification_reads: Mutex::new(notification_reads),
             notification_read_prunes: Mutex::new(Vec::new()),
+            notification_posts: Mutex::new(HashMap::new()),
             feed_local,
             presentation: Mutex::new(Arc::new(presentation)),
             git_heads: Mutex::new(HashMap::new()),

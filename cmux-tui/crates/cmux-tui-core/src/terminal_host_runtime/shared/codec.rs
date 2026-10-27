@@ -657,6 +657,10 @@ pub(crate) struct HostLaunch {
     /// VT replay applied to the host's parser before the child's first
     /// byte (cx-6so.49 L2 respawn); an optional trailing blob.
     pub(crate) seed: Vec<u8>,
+    /// The workspace the host's first record names (its recovery mirror),
+    /// so the daemon does not rewrite the record after launch
+    /// (new-terminal-100x); optional, after the seed. Empty: none yet.
+    pub(crate) workspace_key: String,
 }
 
 impl HostLaunch {
@@ -722,8 +726,11 @@ impl HostLaunch {
         if output.len() > MAX_LAUNCH_PAYLOAD {
             anyhow::bail!("terminal-host launch payload is too large");
         }
-        if !self.seed.is_empty() {
+        if !self.seed.is_empty() || !self.workspace_key.is_empty() {
             put_blob(&mut output, &self.seed)?;
+        }
+        if !self.workspace_key.is_empty() {
+            put_string(&mut output, &self.workspace_key)?;
         }
         Ok(output)
     }
@@ -757,6 +764,7 @@ impl HostLaunch {
         let kitty_graphics_limits = decode_kitty_graphics_limits(&mut decoder)?;
         anyhow::ensure!(decoder.offset <= MAX_LAUNCH_PAYLOAD, "launch is too large");
         let seed = if decoder.has_remaining() { decoder.blob()?.to_vec() } else { Vec::new() };
+        let workspace_key = if decoder.has_remaining() { decoder.string()? } else { String::new() };
         decoder.finish()?;
         Ok(Self {
             endpoint,
@@ -772,6 +780,7 @@ impl HostLaunch {
             default_colors,
             kitty_graphics_limits,
             seed,
+            workspace_key,
         })
     }
 }

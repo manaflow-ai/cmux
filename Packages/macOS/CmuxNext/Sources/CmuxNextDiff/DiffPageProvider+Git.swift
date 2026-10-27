@@ -17,6 +17,16 @@ public protocol DiffGitRunning: AnyObject {
     /// `git add` / `git restore --staged` (or one hunk) in `repository`; nil on success, else
     /// why it failed.
     func stage(_ request: AgentPaneGitStage, in repository: String) async -> String?
+    /// The session host's `git.checkpoint.diff` of `repository`, checkpoint `from` against `to`,
+    /// with each file's patch (a chat turn, Last turn).
+    func checkpointDiff(_ repository: String, from: String, to: String) async throws(AgentPaneGitFailure) -> JSONValue
+}
+
+extension DiffGitRunning {
+    /// A git without checkpoint reads (tests): every turn read fails.
+    public func checkpointDiff(_ repository: String, from: String, to: String) async throws(AgentPaneGitFailure) -> JSONValue {
+        throw AgentPaneGitFailure.failed
+    }
 }
 
 /// The diff tab's Stage, Commit and Push (cx-ueuc8): `cmux.diff.git.status {}`,
@@ -84,7 +94,8 @@ extension DiffPageProvider {
     /// `config` listing the git ops, when this tab serves them.
     func withGit(_ config: JSONValue) -> JSONValue {
         guard git != nil, case .object(var members) = config, members["pick"] == nil else { return config }
-        members["ops"] = .array((members["ops"]?.arrayValue ?? []) + Self.gitOps.sorted().map(JSONValue.string))
+        let ops = Self.gitOps.union(git is any DiffGitReverting ? Self.revertOps : [])
+        members["ops"] = .array((members["ops"]?.arrayValue ?? []) + ops.sorted().map(JSONValue.string))
         return .object(members)
     }
 
@@ -94,7 +105,7 @@ extension DiffPageProvider {
     }
 
     /// The repository the tab's grant covers.
-    private func gitRepository() async throws -> String {
+    func gitRepository() async throws -> String {
         guard let ready else { throw PageError(code: "sidecarUnavailable", message: "No repository is open") }
         do {
             return try await ready.value.grant.repository
@@ -138,6 +149,10 @@ public final class DiffAgentGit: DiffGitRunning {
 
     public func stage(_ request: AgentPaneGitStage, in repository: String) async -> String? {
         await AgentPaneGitStage.run(request, roots: [repository])
+    }
+
+    public func checkpointDiff(_ repository: String, from: String, to: String) async throws(AgentPaneGitFailure) -> JSONValue {
+        try Self.parse(try await link.read(.checkpointDiff(cwd: repository, from: from, to: to, includePatch: true)))
     }
 
     private static func parse(_ data: Data) throws(AgentPaneGitFailure) -> JSONValue {

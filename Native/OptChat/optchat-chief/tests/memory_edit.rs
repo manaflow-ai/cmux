@@ -383,6 +383,7 @@ fn the_chief_and_its_agents_cannot_change_the_memory() {
             )),
             chief: None,
             turn: None,
+            peers: None,
         },
     )
     .unwrap();

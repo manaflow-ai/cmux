@@ -16,6 +16,9 @@ on:
       - "scripts/*remote_daemon*"
       - "tests/*remote_daemon*"
       - "tests/fixtures/remote-daemon-notices/**"
+      # The license guard's classifier and allowlist.
+      - "cmux-tui/build-support/notices/license_match.py"
+      - "scripts/cmux-next/check_app_crate_licenses.py"
       - ".github/workflows/cmux-next-remote-daemon.yml"
   push:
     branches: [feat-cmux-next]
@@ -24,6 +27,9 @@ on:
       - "scripts/*remote_daemon*"
       - "tests/*remote_daemon*"
       - "tests/fixtures/remote-daemon-notices/**"
+      # The license guard's classifier and allowlist.
+      - "cmux-tui/build-support/notices/license_match.py"
+      - "scripts/cmux-next/check_app_crate_licenses.py"
       - ".github/workflows/cmux-next-remote-daemon.yml"
   workflow_dispatch:
 
@@ -50,6 +56,13 @@ jobs:
           # build_remote_daemon_release_assets.sh refuses any other.
           go-version-file: daemon/remote/go.mod
           cache: false
+
+      # The fast guard: the licenses cmuxd-remote links, read the way nightly's "Build immutable
+      # SSH daemon assets" reads them. An allowed license is approved with a warning that names
+      # it (generate --update-review records it in review.json); only an unknown or
+      # disallowed license fails, here, long before the nightly.
+      - name: cmuxd-remote licenses are allowed (fast guard)
+        run: python3 scripts/remote_daemon_notices.py check --daemon-root daemon/remote
 
       - name: Reject broken app bundles and daemon artifacts
         if: ${{ !cancelled() }}

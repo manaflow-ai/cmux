@@ -271,3 +271,61 @@ test("projects a chat used come first, newest chat first; the rest keep their or
   const projects = ["/a", "/b", "/c", "/d"].map((cwd) => ({ cwd }));
   expect(byRecentUse(projects, ["/c/", "/a"]).map((project) => project.cwd)).toEqual(["/c", "/a", "/b", "/d"]);
 });
+
+// Leo 2026-10-21 on the New Tab picker: "cmux · ~/Projects" twice, then lane folders as projects
+// ("leo--ask-cost-dollar" lived in `checkouts/cmux/`, "cmux-new-tab-order.noindex"). A main checkout,
+// three Git worktrees (the host read their `.git` files), a second clone of the same GitHub
+// repository, a `.noindex` folder, the lane mirror, and lane checkouts the host said nothing about.
+test("one row per repository with its worktrees under it, and no scratch rows", () => {
+  const p = "/Users/me/Projects";
+  const app = { name: "app", github: "acme/app" };
+  const worktree = (id: string, branch: string): RepoFolder => ({
+    id,
+    label: id.split("/").pop()!,
+    repo: { ...app, root: `${p}/app`, top: id, branch },
+  });
+  const fixture: RepoFolder[] = [
+    { id: `${p}/app`, label: "app", repo: { ...app, root: `${p}/app`, top: `${p}/app`, branch: "main" } },
+    worktree(`${p}/checkouts/app/feat--icons`, "feat/icons"),
+    { id: `${p}/app-new-tab-order.noindex`, label: "app-new-tab-order.noindex" },
+    worktree("/Users/me/.cmux/worktrees.noindex/app/fix-dots", "fix-dots"),
+    { id: `${p}/checkouts/app/leo--ask-cost-dollar`, label: "leo--ask-cost-dollar" },
+    {
+      id: `${p}/app-next-dev`,
+      label: "app-next-dev",
+      repo: { ...app, root: `${p}/app-next-dev`, top: `${p}/app-next-dev` },
+    },
+    { id: `${p}/.wt-mirrors/acme/app.git/hooks`, label: "hooks" },
+    worktree(`${p}/app-dedupe`, "dedupe"),
+    { id: `${p}/notes`, label: "notes" },
+  ];
+  const groups = groupByRepo(fixture);
+  expect(groups.map((group) => [group.name, group.lead.id])).toEqual([
+    ["app", `${p}/app`],
+    ["notes", `${p}/notes`],
+  ]);
+  expect(groups[0]!.members.slice(1).map(worktreeName)).toEqual([
+    "feat/icons",
+    "fix-dots",
+    "leo/ask-cost-dollar",
+    "app-next-dev",
+    "dedupe",
+  ]);
+  // The flat pickers (New Tab hero) list the same: one project per repository, no scratch.
+  const flat = projectRows(fixture.map((folder) => ({ cwd: folder.id, label: folder.label, repo: folder.repo })));
+  expect(flat.map((project) => project.cwd)).toEqual([`${p}/app`, `${p}/notes`]);
+});
+
+// Codex review of #24310: a name is no evidence. A folder called `leo--feature` or `design--notes`
+// with no repository metadata (an older host, the gallery) is an ordinary folder and stays listed.
+test("a folder named like a lane but outside a lane root stays listed", () => {
+  const plain: RepoFolder[] = [
+    { id: "/Users/me/leo--feature", label: "leo--feature" },
+    { id: "/Users/me/Projects/design--notes", label: "design--notes" },
+  ];
+  expect(groupByRepo(plain).map((group) => group.lead.id)).toEqual([
+    "/Users/me/leo--feature",
+    "/Users/me/Projects/design--notes",
+  ]);
+  expect(projectRows(plain.map((folder) => ({ cwd: folder.id, label: folder.label }))).length).toBe(2);
+});

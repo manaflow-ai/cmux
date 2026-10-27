@@ -14,6 +14,17 @@ extension PaletteModel {
     public func handle(_ command: PaletteKeyCommand) -> Bool {
         if actionsMenu != nil, handleActionsMenu(command) { return true }
         switch command {
+        case .moveUp, .moveDown, .pageUp, .pageDown, .moveToFirst, .moveToLast:
+            keyboardLeads = true
+            defer { reportHighlight() }
+            return handleKey(command)
+        default:
+            return handleKey(command)
+        }
+    }
+
+    private func handleKey(_ command: PaletteKeyCommand) -> Bool {
+        switch command {
         case .moveUp: send(.move(-1))
         case .moveDown: send(.move(1))
         case .pageUp: moveSelection(by: -Self.pageStep, wrap: false)
@@ -187,6 +198,14 @@ extension PaletteModel {
 
     public func hover(_ rowID: String?) {
         if hoveredRowID != rowID { hoveredRowID = rowID }
+    }
+
+    /// The pointer itself moved over the list (not a scroll sliding rows
+    /// under it): hover leads the live preview again.
+    public func pointerMoved(over rowID: String?) {
+        let led = keyboardLeads
+        keyboardLeads = false
+        if hoveredRowID != rowID { hoveredRowID = rowID } else if led { reportHighlight() }
     }
 
     /// Click: select the row and run its primary command (or enter its

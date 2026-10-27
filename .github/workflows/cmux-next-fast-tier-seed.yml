@@ -190,5 +190,6 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-next-fast-tier-seed-receipt-${{ matrix.pool }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          retention-days: 3
           path: ${{ runner.temp }}/cmux-next-fast-tier.json
           if-no-files-found: ignore

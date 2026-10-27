@@ -4,6 +4,25 @@ public import Foundation
 /// `chat.upload` call (``AgentPaneReply``).
 public typealias AgentPaneUploader = @MainActor (_ files: [AgentPaneUpload]) async -> [String: Any]
 
+public nonisolated struct AgentPaneUploadBatchEntry: Sendable, Equatable {
+    public let name: String
+    public let size: Int
+
+    public init(name: String, size: Int) {
+        self.name = name
+        self.size = size
+    }
+}
+
+public nonisolated enum AgentPaneUploadStageRequest: Sendable, Equatable {
+    case begin(name: String, size: Int, batchToken: String?, batch: [AgentPaneUploadBatchEntry]?)
+    case chunk(token: String, offset: Int, data: Data)
+    case finish(token: String)
+    case cancel(token: String)
+}
+
+public typealias AgentPaneUploadStager = @MainActor (_ request: AgentPaneUploadStageRequest, _ sessionId: String?) async -> [String: Any]
+
 /// A file the person dropped or pasted into a chat that the composer can't attach, for the App to
 /// send to the chat's Cloud machine (`chat.upload {files: [{name, data}]}`, cmuxterm-hq#1874
 /// slice 6). The page reads the bytes (it never learns a dropped file's path); the host takes them
@@ -23,26 +42,26 @@ public nonisolated struct AgentPaneUpload: Sendable, Equatable, CustomStringConv
     public var debugDescription: String { description }
     public var customMirror: Mirror { Mirror(self, children: [:]) }
 
-    public static let maximumFiles = 10
-    public static let maximumFileBytes = 32 * 1024 * 1024
-    public static let maximumTotalBytes = 64 * 1024 * 1024
-    /// The most bytes one file for a chat on an ssh peer has (acpmux `file_uploads::MAX_BYTES`): it
-    /// crosses the peer link as one WebSocket frame, and an older peer reads at most 16 MiB.
-    public static let maximumPeerFileBytes = 10 * 1024 * 1024
+    /// Local and peer transports stream the bytes in bounded chunks. One GiB is also the native
+    /// daemon's abuse guard; Cloud uploads keep their smaller policy in ``CloudUploads``.
+    public static let maximumFileBytes = 1 * 1024 * 1024 * 1024
+    public static let maximumTotalBytes = 1 * 1024 * 1024 * 1024
+    public static let maximumPeerFileBytes = maximumFileBytes
 
-    /// The files of `chat.upload`'s params, nil when they break the contract: 1 to
-    /// ``maximumFiles`` files, each with a name a folder holds as one file and base64 bytes, at most
+    /// The files of `chat.upload`'s params, nil when they break the contract: one or more files,
+    /// each with a name a folder holds as one file and base64 bytes, at most
     /// ``maximumFileBytes`` each and ``maximumTotalBytes`` in all.
     static func files(_ params: [String: Any]?) -> [AgentPaneUpload]? {
         guard let params, Set(params.keys) == ["files"], let list = params["files"] as? [[String: Any]],
-              (1...maximumFiles).contains(list.count) else { return nil }
+              !list.isEmpty else { return nil }
         var files: [AgentPaneUpload] = []
         var total = 0
         for item in list {
             guard Set(item.keys) == ["name", "data"], let name = item["name"] as? String, isFileName(name),
                   let text = item["data"] as? String, text.utf8.count <= (maximumFileBytes / 3 + 1) * 4,
                   let data = Data(base64Encoded: text), data.count <= maximumFileBytes else { return nil }
-            total += data.count
+            let (sum, overflow) = total.addingReportingOverflow(data.count)
+            total = overflow ? Int.max : sum
             guard total <= maximumTotalBytes else { return nil }
             files.append(AgentPaneUpload(name: name, data: data))
         }

@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHome
+import CmuxNextHomeEngine
 import CmuxNextSettings
 import CmuxNextUpdater
 import os
@@ -18,7 +19,7 @@ import os
 /// foreground program (`process-info`) and `app.warnBeforeClosingTab` is
 /// on; a tab group follows the tab close rule (`TabCloseGuard`); those
 /// questions have "Don't ask again". Forget Machine has an undo toast and
-/// no question. The Cloud deletes, profile delete, agent extension access,
+/// no question. The Cloud deletes, profile delete, Delete Chief, agent extension access,
 /// remote install and Roll Back (it quits into the kept build) still ask.
 /// A target that does not resolve is not asked about: the handler then
 /// refuses it with the usual typed reason.
@@ -45,8 +46,8 @@ enum DestructiveConfirmation {
                 return
             }
             Task { @MainActor in
-                guard let prompt = await prompt(for: id, invocation, services) else { return proceed() }
-                present(prompt, in: services.windows.active?.window, settings: services.settings) { if $0 { proceed() } }
+                guard let prompt = await prompt(for: id, invocation, services) else { return proceed(false) }
+                present(prompt, in: services.windows.active?.window, settings: services.settings) { if $0 { proceed(true) } }
             }
         }
     }
@@ -82,6 +83,8 @@ enum DestructiveConfirmation {
             return AgentExtensionHandlers.prompt(invocation, context)
         case "space.delete":
             return await RoomConfirmation.prompt(invocation, context)
+        case "space.clearDefaults":
+            return await RoomConfirmation.clearDefaultsPrompt(invocation, context)
         case "remote.install":
             return await RemoteConfirmation.prompt(for: id, invocation, context)
         case "updates.rollback": // palette, menu and the pulled-build banner's Roll Back
@@ -97,6 +100,11 @@ enum DestructiveConfirmation {
             guard let key, services.taskManager.refusal(for: key) == nil else { return nil }
             let question = services.taskManager.prompt(for: key)
             return Prompt(title: question.title, body: question.body, button: question.button)
+        case "home.deleteChief":
+            // A Chief not listed (or the default one) is refused by the action with its reason.
+            guard let id = invocation["chief"]?.stringValue, let chief = services.home.deletableChief(id: id) else { return nil }
+            return Prompt(title: HomeStrings.deleteChiefTitle(chief.name), body: HomeStrings.deleteChiefBody,
+                          button: HomeStrings.deleteChiefButton, returnConfirms: false)
         case "home.leaveConversation":
             // The group's name in the question; a conversation not listed is refused by the action.
             let id = invocation["conversation"]?.stringValue.map { ConversationID($0) } ?? AppActions.shownPage(services)?.shown

@@ -331,10 +331,13 @@ final class TiledBody {
         }
         guard folded else { bandRect = .zero; return }
         let headH = CGFloat(LongTextFold.headLines) * lh, tailH = CGFloat(LongTextFold.tailLines) * lh
-        // Clips reach 4 pt past their line slots (descenders), never into the other region's text.
-        headClip.frame = CGRect(x: body.minX, y: body.minY, width: body.width, height: textTop + headH + 4 - body.minY)
+        // cmux: clips end at their line slots. A tile holds 16 lines, so the head's last tile also
+        // draws the hidden 41st line and the tail's first tile the line before the tail: 4 pt past
+        // the slots showed their glyph tops and descenders behind the band (Lawrence 2026-10-21).
+        // The body font's glyphs fit the 16 pt slot (baseline 13 pt down, descent about 3 pt).
+        headClip.frame = CGRect(x: body.minX, y: body.minY, width: body.width, height: textTop + headH - body.minY)
         let tailTop = textTop + headH + LongTextFold.bandHeight
-        tailClip.frame = CGRect(x: body.minX, y: tailTop - 4, width: body.width, height: body.maxY - (tailTop - 4))
+        tailClip.frame = CGRect(x: body.minX, y: tailTop, width: body.width, height: body.maxY - tailTop)
         bandRect = CGRect(x: body.minX, y: textTop + headH, width: body.width, height: LongTextFold.bandHeight)
         band.frame = bandRect
         drawBand(LongTextFold.label(layout.index.hardLines), p, scale: s)

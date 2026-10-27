@@ -9,6 +9,7 @@ import type { ComponentProps } from "react";
 import type { AcpmuxSnapshot } from "./model";
 import { ComposerContext } from "./ComposerContext";
 import type { Project } from "./ProjectChooser";
+import { fleetPeers } from "../../gallery/fixtures/acpmux";
 
 const projects: Project[] = [
   { cwd: "/Users/you/src/atlas-web", label: "atlas-web" },
@@ -45,6 +46,9 @@ const baseProps = {
   onBrowseProject: () => undefined,
   onConnect: () => undefined,
 };
+
+/// 21 machines, as `acpmux host ls` lists them on a Mac with a fleet.
+const fleetProps = { ...baseProps, ...fleetPeers() };
 
 /// The New Tab page's saved environments (SavedEnvironmentRows), with `current` picked.
 function savedProps(current?: string): ComponentProps<typeof ComposerContext> {
@@ -166,6 +170,19 @@ const laneCheckouts: Project[] = [
     label: "cg-queue--collapsed-queue",
     repo: leoMirror("cg-queue/collapsed-queue"),
   },
+  // The lane mirror itself (a bare repository) and lane folders that are no Git checkout (2026-10-21).
+  {
+    cwd: "/Users/you/Projects/.wt-mirrors/manaflow-ai/cmux.git",
+    label: "cmux.git",
+    repo: {
+      root: "/Users/you/Projects/.wt-mirrors/manaflow-ai/cmux.git",
+      top: "/Users/you/Projects/.wt-mirrors/manaflow-ai/cmux.git",
+      name: "cmux",
+      github: "manaflow-ai/cmux",
+    },
+  },
+  { cwd: "/Users/you/Projects/leo--ask-cost-dollar", label: "leo--ask-cost-dollar" },
+  { cwd: "/Users/you/Projects/codex--protocol-contract-node-version", label: "codex--protocol-contract-node-version" },
   { cwd: "/Users/you", label: "~" },
 ];
 
@@ -183,7 +200,7 @@ const repoProps = {
 };
 
 // No icon file of their own: cmux draws its GitHub owner's avatar (here a drawn stand-in), atlas-web
-// its framework, relay its language.
+// its framework, relay its language, notes (no manifest) a folder.
 const ownerAvatar =
   "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iMTYiIGZpbGw9IiMxZjIzMjgiLz48cGF0aCBkPSJNOSAyMlYxMWw3IDcgNy03djExIiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PC9zdmc+";
 const repoHost = {
@@ -193,9 +210,48 @@ const repoHost = {
   projectGlyphs: { "/Users/you/src/atlas-web": "react", "/Users/you/src/relay": "rust" },
 };
 
+// One project per kind the host tells apart (AgentPaneProjectIcon.glyph), and one it cannot.
+const frameworkGlyphs = {
+  "vite-app": "vite",
+  dashboard: "next",
+  storefront: "react",
+  docs: "astro",
+  "admin-panel": "vue",
+  "svelte-kit-site": "svelte",
+  desktop: "electron",
+  "mobile-app": "expo",
+  "api-server": "bun",
+  engine: "rust",
+  "macos-app": "swift",
+  "ml-pipeline": "python",
+  notes: undefined,
+} as const;
+const frameworkProjects = Object.keys(frameworkGlyphs).map((label) => ({ cwd: `/Users/you/src/${label}`, label }));
+const frameworkProps = {
+  ...baseProps,
+  projectChoices: frameworkProjects,
+};
+const frameworkHost = {
+  projectIcons: {},
+  projectGlyphs: Object.fromEntries(
+    Object.entries(frameworkGlyphs).flatMap(([label, glyph]) => (glyph ? [[`/Users/you/src/${label}`, glyph]] : [])),
+  ),
+};
+// Every cmux folder draws manaflow-ai's avatar (the host reads it for a chat folder in a lane checkout
+// too); a folder with no repository draws a plain folder.
+const laneHost = {
+  projectIcons: Object.fromEntries(
+    laneCheckouts.flatMap((project) =>
+      project.repo?.github || project.cwd.includes("/checkouts/cmux/") ? [[project.cwd, ownerAvatar]] : [],
+    ),
+  ),
+};
+
 const openComputer: Play = async (ctx) => {
   await ctx.click({ role: "button", name: /^Computer/ });
-  await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+  await ctx.waitFor(() =>
+    ctx.document.querySelector('.acpmux-location-menu [role="option"], [role="menu"] [role="menuitemradio"]'),
+  );
 };
 
 export default componentEntry<ComponentProps<typeof ComposerContext>>({
@@ -239,9 +295,15 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openFolder,
     },
     "folder-favicons": {
-      note: "Projects with a favicon (public/, app/, the folder itself) show it in their tile; cmux has none and keeps its letters.",
+      note: "Projects with a favicon (public/, app/, the folder itself) show it in their tile; cmux has none and draws a plain folder.",
       props: baseProps,
       chipHost: { projectIcons },
+      play: openFolder,
+    },
+    "framework-marks": {
+      note: "With no favicon, each project shows its framework or language (from package.json dependencies, Package.swift, Cargo.toml…) in its brand color; a folder with no manifest shows a folder.",
+      props: frameworkProps,
+      chipHost: frameworkHost,
       play: openFolder,
     },
     "duplicate-worktrees": {
@@ -265,7 +327,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "repo-worktrees": {
-      note: "Worktrees fold under their repository: one cmux row (the current worktree's branch dimmed, its other worktrees counted), avatars and framework glyphs before letters.",
+      note: "Worktrees fold under their repository: one cmux row (the current worktree's branch dimmed, its other worktrees counted), avatars and framework glyphs, else a plain folder.",
       props: repoProps,
       chipHost: repoHost,
       play: openFolder,
@@ -292,7 +354,8 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "lane-checkouts": {
-      note: "Leo's New Tab list: the main clone and the lane mirror's worktrees are one cmux row; chat folders join it by their lane path; .noindex scratch and the home folder are left out.",
+      note: "Leo's New Tab list: the main clone, the lane mirror and its worktrees are one cmux row with manaflow-ai's avatar; chat folders join it by their lane path; .noindex scratch, lane folders and the home folder are left out; no letter tiles and no corner dots.",
+      chipHost: laneHost,
       props: {
         ...repoProps,
         projectChoices: laneCheckouts,
@@ -302,6 +365,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     },
     "lane-checkouts-open": {
       note: "The cmux row's clones and lane checkouts open under it by their branch.",
+      chipHost: laneHost,
       props: {
         ...repoProps,
         projectChoices: laneCheckouts,
@@ -329,8 +393,18 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: baseProps,
       play: openComputer,
     },
+    "computer-search": {
+      note: "The classic machine picker uses the same searchable Combobox as environments and folders; filtering twenty machines leaves gpu-box.",
+      props: { ...baseProps, peers: ["gpu-box", ...Array.from({ length: 20 }, (_, i) => `build-${i + 1}`)] },
+      play: async (ctx) => {
+        await openComputer(ctx);
+        await ctx.focus({ role: "combobox", name: "Computer" });
+        await ctx.type("gpu");
+        await ctx.waitFor(() => ctx.document.querySelectorAll('[role="option"]').length === 1);
+      },
+    },
     "environment-picker": {
-      note: "Preview: the computer is the environment picker, one searchable list in Local, SSH and Cloud sections with ⌥⌘1–9; New Cloud Machine ends the Cloud section and New environment (SSH…) comes last. gpu-box is connected (a filled dot), Cloud machine is not (a ring); this Mac has no status.",
+      note: "Preview: the computer is the environment picker, one searchable list in Local, SSH and Cloud sections with ⌥⌘1–9; New Cloud Machine ends the Cloud section and New environment (SSH…, Connect Phone…) comes last. gpu-box is connected (a filled dot), Cloud machine is not (a ring); this Mac has no status.",
       props: {
         ...baseProps,
         environments: true,
@@ -341,6 +415,24 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "environment-picker-fleet": {
+      height: 760,
+      note: "Preview: every machine acpmux lists (21, from `host ls`), in This Mac, My machines and Cloud and VMs sections; in each the machines a chat can start on come first, in number order, and the rest are greyed with their state (Offline, Reconnecting, Connecting) and are no pick.",
+      props: { ...fleetProps, environments: true },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-env-popover [role="option"]').length > 20);
+      },
+    },
+    "computer-menu-fleet": {
+      height: 760,
+      note: "Previews off: the plain Computer menu lists the same 21 machines in the same sections, greyed the same way.",
+      props: fleetProps,
+      play: async (ctx) => {
+        await openComputer(ctx);
+        await ctx.waitFor(() => ctx.document.querySelectorAll('[role="option"]').length > 20);
       },
     },
     "machine-colors": {

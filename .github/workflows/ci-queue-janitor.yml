@@ -27,6 +27,13 @@ name: CI queue janitor
 # `macos-pool-load` artifact, which pull request CI reads to overflow off a
 # backed-up pool.
 #
+# It also alerts on starved fleet labels: a glaeda-* label with a job queued
+# over 10 minutes and no job on it running or started in that time
+# (scripts/ci/starved_labels.py). Each gets an ::error:: annotation, a summary
+# line and one open issue titled "Runner label starved: <label>", closed when
+# the label is served again. The issues use the cmux-bot token's issues: write;
+# without that token a starved label fails the alert step.
+#
 # GitHub delays scheduled runs (the */10 cron fired 55 minutes apart on
 # 2026-09-25), and pull request CI trusts a snapshot for at most
 # MAX_SNAPSHOT_MINUTES, so a CI run being requested also starts a sweep. It
@@ -143,6 +150,15 @@ jobs:
           # `warm` (scripts/ci/owned_warm_state.py) for warm affinity.
           OWNED_WARM: ${{ vars.CI_OWNED_WARM }}
         run: python3 scripts/ci/queue_janitor.py
+
+      - name: Alert on starved fleet runner labels
+        if: ${{ !cancelled() && steps.fresh.outputs.skip != 'true' }}
+        env:
+          # Not github.token: this job's GITHUB_TOKEN has no issues permission.
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          POOL_LOAD_OUT: ${{ runner.temp }}/macos-pool-load.json
+        run: python3 scripts/ci/starved_labels.py
 
       # What this sweep saw on each macOS pool. ci.yml's `changes` job reads
       # the newest copy (scripts/ci/pr_runner_pool.py) to pick the pool a

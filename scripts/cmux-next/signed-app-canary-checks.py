@@ -76,8 +76,7 @@ def visible_window(socket_path):
 
 def agent_turn(acpmux_home, harness, cwd, timeout):
     """Start a session of the test agent in the app's own acpmux and prompt it once; the
-    session id once the agent's reply is in the session's events. The visual smoke
-    (visual-smoke/drive.py) opens the same turn in a chat tab."""
+    session id once the agent's reply is in the session's events."""
     acp = soak.Acpmux(soak.acpmux_socket(acpmux_home))
     if not wait(lambda: "error" not in (acp.call("_acpmux/status", timeout=3) or {"error": 1}), timeout, 1):
         raise Failed(f"the app's acpmux did not answer within {timeout:.0f}s")

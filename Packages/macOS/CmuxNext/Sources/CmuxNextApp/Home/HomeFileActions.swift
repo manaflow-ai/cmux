@@ -12,7 +12,8 @@ import MessagesLabHome
 final class HomeFileActions: HomeFileHost {
     private weak var services: AppServices?
     private lazy var menu = FileActionsMenu(actions: .init(openInCmux: { [weak self] in self?.open($0) },
-                                                           revealInFiles: { [weak self] in self?.reveal($0) }))
+                                                           revealInFiles: { [weak self] in self?.reveal($0) },
+                                                           openAsText: { [weak self] in self?.openAsText($0) }))
 
     init(services: AppServices) {
         self.services = services
@@ -34,6 +35,13 @@ final class HomeFileActions: HomeFileHost {
 
     func menuItems(forFileNamed name: String, resolve: @escaping @MainActor @Sendable () async -> URL?) -> [NSMenuItem] {
         menu.items(forFileNamed: name, resolve: resolve)
+    }
+
+    /// Open as Text (u9489): the attachment's source in the code editor, on the right of Home as
+    /// any open is (``LinkOpener``).
+    func openAsText(_ file: URL) {
+        guard let services else { return }
+        services.linkOpener.openFile(file, from: services.windows.active?.focusedPane, asText: true)
     }
 
     private func reveal(_ file: URL) {

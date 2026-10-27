@@ -5,11 +5,16 @@
 //! a user message). Both tools name the message by the id the Chief sees in
 //! its view; the log keeps each user message's `<conversation>#<seq>`.
 
+use cmux_chief::rules::message_text;
 use cmux_conversation::{Message, Op, PartRef, ReactionKind, Tapback};
 
 use super::Brain;
+use super::transcript::{TRANSCRIPT_MAX, who};
 use crate::chief_settings::ReplyThreads;
 use crate::state::OutboxEntry;
+
+/// The most characters of a replied-to message its note keeps.
+const REPLY_PARENT_CHARS: usize = 2000;
 
 /// The reactions `react` takes: the six tapbacks, and `ack` (a like).
 pub const REACTIONS: [&str; 7] = [
@@ -126,6 +131,75 @@ impl Brain {
         self.message_seqs.insert(message.id.clone(), message.seq);
         if let Some(root) = &message.thread_root {
             self.state.note_root(&message.id, root);
+        }
+    }
+
+    /// The message a person's reply points at, logged as a note before the
+    /// reply when the log has no line for it (a host bubble, another author's
+    /// message): its id, seq, author and text, so the Chief reads what the
+    /// person replied to and zoom resolves the note's line. A parent with a
+    /// line of its own, and the Chief's own replies, log nothing.
+    pub(super) fn note_reply_parent(&mut self, message: &Message) {
+        let Some(parent) = &message.reply_to else {
+            return;
+        };
+        let me = self.settings.membership.participant.clone();
+        if message.author == me || message.retracted_at.is_some() {
+            return;
+        }
+        let main = message.conversation.clone();
+        let logged =
+            |brain: &Self, seq: u64| brain.chat.logged_id(&format!("{main}#{seq}")).is_some();
+        if self
+            .message_seqs
+            .get(&parent.message_id)
+            .is_some_and(|seq| logged(self, *seq))
+        {
+            return;
+        }
+        let Some(daemon) = self.daemon.as_mut() else {
+            return;
+        };
+        let found = match daemon.history(&main, message.seq, TRANSCRIPT_MAX) {
+            Ok(older) => older.into_iter().find(|m| m.id == parent.message_id),
+            Err(e) => {
+                (self.log)(&format!(
+                    "reading the message #{} replies to failed: {e}",
+                    message.seq
+                ));
+                return;
+            }
+        };
+        let key = format!("{main}#{}:reply-parent", message.seq);
+        let body = match found {
+            Some(parent_message) if logged(self, parent_message.seq) => return,
+            Some(parent_message) => {
+                let text = message_text(&parent_message);
+                let text = if text.trim().is_empty() {
+                    "(no text: an attachment or card)".to_owned()
+                } else {
+                    text.chars().take(REPLY_PARENT_CHARS).collect()
+                };
+                let by = who(self.summary.as_ref(), &parent_message.author, &me);
+                format!(
+                    "the message #{} replies to {} (#{}, {}): {text}",
+                    message.seq, parent.message_id, parent_message.seq, by
+                )
+            }
+            None => format!(
+                "the message #{} replies to {}, which is not among the last {TRANSCRIPT_MAX} messages of the conversation; the log has no text for it",
+                message.seq, parent.message_id
+            ),
+        };
+        let entry = optchat_host::NewMessage {
+            key: Some(key),
+            ..optchat_host::NewMessage::new(optchat_core::Kind::Note, &body)
+        };
+        if let Err(e) = self.chat.append_with(&[entry], |_| Vec::new()) {
+            (self.log)(&format!(
+                "logging the message #{} replies to failed: {e}",
+                message.seq
+            ));
         }
     }
 
@@ -247,6 +321,10 @@ impl Brain {
                 reaction: kind.clone(),
             },
         ));
+        // A tapback is the Chief's answer to the message it is on (the
+        // react tool: "instead of a reply that only acknowledges"): it
+        // leaves the reply ledger, so no retry turn adds words to it.
+        self.reply_not_needed(std::slice::from_ref(&message.id));
         self.save();
         self.flush_outbox();
         Ok(format!(

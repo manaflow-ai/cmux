@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextFloating
 import CmuxNextHomeEngine
 import struct CmuxNextLayout.MainPaneLayout
 import Foundation
@@ -107,19 +108,23 @@ extension AgentTabStore {
     /// The agent tabs' view store of `services`, wired to every machine's tree and daemon.
     static func wired(to services: AppServices) -> AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
-                                 linkScheme: services.linkScheme, settings: services.settings)
-        tabs.launchImages = AgentPaneLaunchImages(beside: services.environment.sidebarSnapshotFile)
+                                 linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel)
+        tabs.launchImages = services.launchImages
+        tabs.agentAvatars = AgentAvatars(uploads: services.chiefAvatarUploads, openPanel: services.openPanel)
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
         tabs.unsentDrafts = AgentUnsentDrafts(directory: state)
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).
-        tabs.relaunchWake = AgentPaneRelaunchWake(directory: state)
-        tabs.wakeStates = tabs.relaunchWake.take()
+        tabs.relaunchWake = services.relaunchWake
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
-        let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag), local: tabs.host) { [weak services] in
+        let home = ChiefHome.resolve(tag: services.environment.tag)
+        let chief = ChiefHomeAcpmux(home: home, local: tabs.host) { [weak services] in
             await MainActor.run { _ = services?.home.brain.ensure(asked: false) }
         }
         (tabs.chiefHost, tabs.chiefPaneHost) = (chief.host, chief.paneHost)
+        // A subagent tab made under another Chief home of this Mac attaches there (#25262).
+        tabs.chiefHomes = ChiefHomeDirectory(parents: ChiefHomeDirectory.homeParents(of: home), work: services.work,
+                                             environment: { ChiefHomeAcpmux.environment(home: $0) })
         tabs.localSessionHost = chief.localRouter(tabs.host)
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
         tabs.blankChatHandler = { [weak services] key in
@@ -178,7 +183,7 @@ extension AgentTabStore {
         // Run API here, so this is the boundary. The tab's own daemon stores the remote-terminal
         // reference (RemoteTerminalService.openTerminal does the same).
         tabs.runAttach = { [weak services] key, request in
-            let vm = request.providerVMID, tabsCapability = DaemonCapabilities.shared.remoteTerminalTabs
+            let vm = request.providerVMID, tabsCapability = DaemonCapability.remoteTerminalTabs.rawValue
             guard let services, let (_, pane) = services.locateTab(key) else { throw DaemonError.notConnected }
             let home = services.machines.daemon(forPane: pane)
             guard let homeConnection = home.connection, services.machines.session(vm) != nil, let worker = services.machines.daemon(machine: vm), !worker.isLocal,
@@ -193,7 +198,8 @@ extension AgentTabStore {
         tabs.gitLink = { [weak services, weak tabs] key in
             guard let services else { return nil }
             guard let tabs, let (tab, _) = services.locateTab(key), let record = tab.agentSession,
-                  AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost) == .remote else { return services.agentGit.local }
+                  AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost,
+                                    listedHere: services.machines.daemon(forTab: tab).isLocal) == .remote else { return services.agentGit.local }
             // A tab naming another machine than the one listing it reads nothing (never this Mac's folder).
             guard let daemon = try? services.machines.agentDaemon(forTab: tab) else { return nil }
             return services.agentGit.link(for: daemon)
@@ -222,14 +228,14 @@ extension AgentTabStore {
             }
             let machine = record.hostName ?? services.machines.machineName(daemon.machineID) ?? daemon.machineID
             let session = record.session ?? tabs.sessions[tabs.resolve(key)]
-            guard !daemon.isLocal, daemon.supports(DaemonCapabilities.shared.agentSessionAttach), let endpoint = daemon.remoteEndpoint else {
+            guard !daemon.isLocal, daemon.supports(DaemonCapability.agentSessionAttach.rawValue), let endpoint = daemon.remoteEndpoint else {
                 // A chat this app started on that machine says what to do there; an older tab
                 // recorded for another Mac keeps the "runs on" notice.
                 guard started else { return nil }
                 return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
             }
-            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapabilities.shared.agentSessionTrust),
-                                           servesKeyedReason: daemon.supports(DaemonCapabilities.shared.agentSessionStartKeyedReason))
+            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
+                                           servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
                 host.existing = { [weak tabs] in
@@ -242,7 +248,7 @@ extension AgentTabStore {
                 // daemon that serves the verb; never a fallback to this Mac (cx-k21v). It starts at
                 // the page's first send, never when the tab opens.
                 guard started else { return nil }
-                guard daemon.supports(DaemonCapabilities.shared.agentSessionStart) else { return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine)) }
+                guard daemon.supports(DaemonCapability.agentSessionStart.rawValue) else { return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine)) }
                 host.start = { [weak tabs] cwd, harness, personKey in
                     guard let tabs else { throw CancellationError() }
                     return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, personKey: personKey, endpoint: endpoint)
@@ -321,5 +327,28 @@ extension AgentTabStore {
         }
         services.madeAgentTabs = tabs
         return tabs
+    }
+
+    /// The agent avatars on `model`'s page, for every agent view (tabs, spares and standalone chats):
+    /// its cards ask for them, its chat menu sets and removes them over `view`'s window.
+    func wireAgentAvatars(_ model: AgentPaneModel, view: AgentPaneView) {
+        model.onAgentAvatar = { [weak self] session in await self?.agentAvatars?.avatar(session) }
+        model.onSetAgentAvatar = { [weak self, weak view] session in
+            guard let self, let agentAvatars else { return nil }
+            let src = await agentAvatars.choose(session, window: view?.window)
+            if src != nil { agentAvatarChanged(session) }
+            return src
+        }
+        model.onRemoveAgentAvatar = { [weak self] session in
+            self?.agentAvatars?.remove(session)
+            self?.agentAvatarChanged(session)
+        }
+    }
+
+    /// Every agent page (tabs and standalone chats) asks for session `session`'s avatar again: a
+    /// Set or Remove in one pane reaches the cards and chips that other panes draw of the same session.
+    func agentAvatarChanged(_ session: String) {
+        for view in views.values { view.agentAvatarChanged(session) }
+        for view in standaloneViews.allObjects { view.agentAvatarChanged(session) }
     }
 }

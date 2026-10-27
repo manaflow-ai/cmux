@@ -8,7 +8,7 @@ import Foundation
 public struct SaveScreenGroupRequest: DaemonRequest {
     public typealias Response = ScreenGroupResult
     public static let command = "save-screen-group"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.screenGroups
+    public static let requiredCapability: String? = DaemonCapability.screenGroups.rawValue
     public var group: ScreenGroupID
     public init(group: ScreenGroupID) { self.group = group }
 }
@@ -16,7 +16,7 @@ public struct SaveScreenGroupRequest: DaemonRequest {
 public struct UnsaveScreenGroupRequest: DaemonRequest {
     public typealias Response = ScreenGroupResult
     public static let command = "unsave-screen-group"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.screenGroups
+    public static let requiredCapability: String? = DaemonCapability.screenGroups.rawValue
     public var group: ScreenGroupID
     public init(group: ScreenGroupID) { self.group = group }
 }
@@ -26,6 +26,6 @@ public struct ListSavedScreenGroupsRequest: DaemonRequest {
         public var groups: [SavedScreenGroupSnapshot]
     }
     public static let command = "list-saved-screen-groups"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.screenGroups
+    public static let requiredCapability: String? = DaemonCapability.screenGroups.rawValue
     public init() {}
 }

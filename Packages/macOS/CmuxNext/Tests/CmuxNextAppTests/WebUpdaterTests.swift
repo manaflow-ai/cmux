@@ -16,6 +16,8 @@ import Testing
         var downloads = 0
         /// Downloads still to fail.
         var failures = 0
+        /// Runs at the start of each download (a test holds one there).
+        var hold: (@Sendable () async -> Void)?
     }
 
     static func pointerData(_ pointer: WebUpdatePointer) throws -> Data {
@@ -38,6 +40,7 @@ import Testing
             },
             download: { _ in
                 server.downloads += 1
+                await server.hold?()
                 if server.failures > 0 {
                     server.failures -= 1
                     throw URLError(.networkConnectionLost)
@@ -61,7 +64,7 @@ import Testing
         let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
         let updater = Self.updater(server, store: store)
         var ready: [URL?] = []
-        updater.onReady = { ready.append($0) }
+        updater.onReady = { tree, _ in ready.append(tree) }
         await updater.check()
         #expect(updater.phase == .idle)
         #expect(updater.state.active == pointer)
@@ -79,6 +82,7 @@ import Testing
         #expect(again.state.active == pointer)
         #expect(server.downloads == 1)
         #expect(await again.launchTree() == store.tree(for: pointer.key).root)
+        #expect(again.launchVersion == pointer)
     }
 
     @Test func offAtLaunchServesTheBundledWeb() async throws {
@@ -176,7 +180,7 @@ import Testing
         let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
         let updater = Self.updater(server, store: store)
         var ready: [URL?] = []
-        updater.onReady = { ready.append($0) }
+        updater.onReady = { tree, _ in ready.append(tree) }
         server.pointer = try Self.pointerData(first)
         await updater.check()
         server.pointer = try Self.pointerData(second)
@@ -197,6 +201,102 @@ import Testing
         // Back to the bundled web.
         try await updater.rollBack()
         #expect(updater.state.active == nil)
+        #expect(ready.last == .some(nil))
+    }
+
+    @Test func aRollBackIsRefusedWhileACheckDownloads() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (archive, first) = try await WebUpdateStoreTests.makeArchive(in: root)
+        var second = first
+        second.key = String(repeating: "e", count: 64)
+        second.committedAt = first.committedAt + 100
+        let server = Server()
+        server.archive = archive
+        let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
+        let updater = Self.updater(server, store: store)
+        server.pointer = try Self.pointerData(first)
+        await updater.check()
+        // The second check stops in its download until the test lets it go.
+        let (started, didStart) = AsyncStream<Void>.makeStream()
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        server.hold = {
+            didStart.yield()
+            for await _ in gate {}
+        }
+        server.pointer = try Self.pointerData(second)
+        server.etag = "\"2\""
+        let check = Task { await updater.check() }
+        for await _ in started { break }
+        #expect(updater.phase == .downloading)
+        await #expect(throws: WebUpdater.Busy.self) { try await updater.rollBack() }
+        open.finish()
+        await check.value
+        #expect(updater.state.active == second)
+        // Once the check ends, the roll back goes through.
+        try await updater.rollBack()
+        #expect(updater.state.active == first)
+    }
+
+    @Test func turningUpdatesOffDuringARollBackServesTheBundledWeb() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (archive, first) = try await WebUpdateStoreTests.makeArchive(in: root)
+        var second = first
+        second.key = String(repeating: "e", count: 64)
+        second.committedAt = first.committedAt + 100
+        let server = Server()
+        server.archive = archive
+        let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
+        let updater = Self.updater(server, store: store)
+        var ready: [WebUpdatePointer?] = []
+        updater.onReady = { _, pointer in ready.append(pointer) }
+        server.pointer = try Self.pointerData(first)
+        await updater.check()
+        server.pointer = try Self.pointerData(second)
+        server.etag = "\"2\""
+        await updater.check()
+        // Off, then a roll back before the channel's write ran: the roll back waits for it and
+        // finds the bundled web, so it never brings an update back.
+        updater.follow(.off)
+        try await updater.rollBack()
+        #expect(updater.state.active == nil)
+        #expect(store.readState().active == nil)
+        #expect(ready.last == .some(nil))
+    }
+
+    @Test func turningUpdatesOffDuringADownloadKeepsTheBundledWeb() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (archive, first) = try await WebUpdateStoreTests.makeArchive(in: root)
+        var second = first
+        second.key = String(repeating: "e", count: 64)
+        second.committedAt = first.committedAt + 100
+        let server = Server()
+        server.archive = archive
+        let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
+        let updater = Self.updater(server, store: store)
+        var ready: [WebUpdatePointer?] = []
+        updater.onReady = { _, pointer in ready.append(pointer) }
+        server.pointer = try Self.pointerData(first)
+        await updater.check()
+        // The second check stops in its download; updates turn off meanwhile.
+        let (started, didStart) = AsyncStream<Void>.makeStream()
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        server.hold = {
+            didStart.yield()
+            for await _ in gate {}
+        }
+        server.pointer = try Self.pointerData(second)
+        server.etag = "\"2\""
+        let check = Task { await updater.check() }
+        for await _ in started { break }
+        updater.follow(.off)
+        open.finish()
+        await check.value
+        // The check kept its result after the channel's write: the bundled web, on disk too.
+        #expect(updater.state.active == nil)
+        #expect(store.readState().active == nil)
         #expect(ready.last == .some(nil))
     }
 

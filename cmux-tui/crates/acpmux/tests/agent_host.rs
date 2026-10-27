@@ -48,6 +48,7 @@ fn spec(dir: &Path, session: &str) -> SpawnSpec {
         hosts_dir: hosts,
         buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
         router_owner_fifo: None,
+        cwd_pin: None,
     }
 }
 
@@ -417,6 +418,58 @@ async fn a_failed_start_leaves_no_live_file() {
                 || n.to_string_lossy().ends_with(".sock")),
         "a failed start left {left:?}"
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn a_start_waits_for_a_harness_binary_an_update_is_replacing() {
+    // `npm install --global` removes the package and its bin link and writes
+    // them again; a chat started in between failed with "spawn harness
+    // process: No such file or directory (os error 2)".
+    let dir = scratch("replaced");
+    let bin = dir.join("lib").join("bin");
+    let program = bin.join("agent");
+    let mut launch = spec(&dir, "s-replaced");
+    launch.program = program.to_string_lossy().into_owned();
+    launch.args.clear();
+    let host = launcher();
+    let mut start = std::pin::pin!(agent_host::program_wait::spawn_within(
+        &host,
+        &launch,
+        Duration::from_secs(20)
+    ));
+    // The start waits while the program is missing.
+    assert!(
+        tokio::time::timeout(Duration::from_millis(300), &mut start).await.is_err(),
+        "the start did not wait for the missing program"
+    );
+    // The update writes the package, then links the program into place.
+    std::fs::create_dir_all(&bin).unwrap();
+    let staged = dir.join("agent.staged");
+    write_executable(&staged, &format!("#!/bin/sh\nexec python3 {}\n", daemon_env::sh_quote(FAKE)));
+    std::fs::rename(&staged, &program).unwrap();
+    let record = start.await.expect("the start waited for the program");
+    let lock = live_lock(&dir, &record);
+    let (owner, _) = connected(&record, 0).await;
+    let mut logged = 0;
+    request(&owner, 1, "initialize", json!({"protocolVersion": 1})).await;
+    read_until(&owner, &mut logged, |e| is_response(e, 1)).await;
+    owner.terminate(Duration::from_millis(500)).await.unwrap();
+    read_until(&owner, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn a_harness_binary_that_never_comes_back_names_its_path() {
+    let dir = scratch("gone");
+    let mut launch = spec(&dir, "s-gone");
+    launch.program = dir.join("missing").join("agent").to_string_lossy().into_owned();
+    let error =
+        agent_host::program_wait::spawn_within(&launcher(), &launch, Duration::from_millis(200))
+            .await
+            .expect_err("a missing harness started");
+    assert!(error.to_string().contains(&launch.program), "{error:#}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

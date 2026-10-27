@@ -5,8 +5,9 @@ import GhosttyNextKit
 
 /// One terminal on screen: a Ghostty surface fed by a ``TerminalIO``.
 ///
-/// Embed ``view``. The session consumes `io.events` on the main actor,
-/// feeds bytes through a serial off-main output lane, and writes Ghostty's
+/// Embed ``view``. The session consumes `io.events` off the main actor: live
+/// output goes straight to a serial off-main output lane, every other event
+/// is handled on the main actor in stream order. It writes Ghostty's
 /// encoded input back to `io.write` in order. Consumption is demand-driven:
 /// the next event is taken only once the lane has room, so a slow parser
 /// pushes back on the IO (which bounds its own buffer) instead of queueing
@@ -173,17 +174,11 @@ public final class TerminalSession {
             }
         }
 
-        let events = io.events
-        eventsTask = Task { [weak self] in
-            for await event in events {
-                guard let self else { return }
-                await self.handle(event)
-            }
-        }
+        eventsTask = Self.consume(io.events, probeSource: io.typingProbeSource, for: self)
         // The first grid report fired inside the surface init, before
         // `session` was set; report it now.
         surfaceView.updateSurfaceSize(forceReport: true)
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceCreated(io: io) }
         #endif
     }
@@ -211,13 +206,57 @@ public final class TerminalSession {
     }
 
     #if DEBUG
-    /// Moves the pointer over viewport cell (`column`, `row`) with Cmd held, as a mouse
-    /// does (live checks).
-    public func hoverLinkForTesting(column: Int, row: Int) {
-        guard let surface = surfaceView.surface else { return }
-        let cell = surfaceView.cellPointSize
-        let point = CGPoint(x: (Double(column) + 0.5) * cell.width, y: (Double(row) + 0.5) * cell.height)
-        ghostty_surface_mouse_pos(surface, point.x, point.y, GhosttyInput.mods(.command))
+    /// Moves the pointer over viewport cell (`column`, `row`) as a mouse does, with
+    /// `flags` held (live checks): the view's own mouse-move path.
+    public func hoverLinkForTesting(column: Int, row: Int, flags: NSEvent.ModifierFlags = .command) {
+        guard let event = surfaceView.linkTestEvent(.mouseMoved, column: column, row: row, flags: flags) else { return }
+        surfaceView.linkPointer.testPointer = surfaceView.convert(event.locationInWindow, from: nil)
+        surfaceView.linkPointer.testFlags = flags
+        surfaceView.mouseMoved(with: event)
+    }
+
+    /// A left click on viewport cell (`column`, `row`) with `flags` held, through the
+    /// view's own press and release handlers (live checks).
+    public func clickLinkForTesting(column: Int, row: Int, flags: NSEvent.ModifierFlags = .command) {
+        guard let down = surfaceView.linkTestEvent(.leftMouseDown, column: column, row: row, flags: flags),
+              let up = surfaceView.linkTestEvent(.leftMouseUp, column: column, row: row, flags: flags) else { return }
+        surfaceView.linkPointer.testPointer = surfaceView.convert(down.locationInWindow, from: nil)
+        surfaceView.linkPointer.testFlags = flags
+        surfaceView.mouseDown(with: down)
+        surfaceView.mouseUp(with: up)
+    }
+
+    /// A left press on one cell, a drag to another and the release there, with `flags`
+    /// held throughout (live checks).
+    public func dragForTesting(from: (column: Int, row: Int), to: (column: Int, row: Int), flags: NSEvent.ModifierFlags = .command) {
+        guard let down = surfaceView.linkTestEvent(.leftMouseDown, column: from.column, row: from.row, flags: flags),
+              let drag = surfaceView.linkTestEvent(.leftMouseDragged, column: to.column, row: to.row, flags: flags),
+              let up = surfaceView.linkTestEvent(.leftMouseUp, column: to.column, row: to.row, flags: flags) else { return }
+        surfaceView.linkPointer.testPointer = surfaceView.convert(down.locationInWindow, from: nil)
+        surfaceView.linkPointer.testFlags = flags
+        surfaceView.mouseDown(with: down)
+        surfaceView.linkPointer.testPointer = surfaceView.convert(drag.locationInWindow, from: nil)
+        surfaceView.mouseDragged(with: drag)
+        surfaceView.mouseUp(with: up)
+    }
+
+    /// Modifier keys went down or up with the pointer still (live checks): the key path
+    /// when this terminal has focus, the app-wide watcher's either way.
+    public func modifiersChangedForTesting(_ flags: NSEvent.ModifierFlags) {
+        surfaceView.linkPointer.testFlags = flags
+        // A Command key event as AppKit delivers it: flagsChanged, left Command (key code 55).
+        let key = CGEvent(keyboardEventSource: nil, virtualKey: 55, keyDown: flags.contains(.command))
+        key?.type = .flagsChanged
+        key?.flags = CGEventFlags(rawValue: UInt64(flags.rawValue))
+        if surfaceView.isFirstResponder, let key, let event = NSEvent(cgEvent: key) {
+            surfaceView.flagsChanged(with: event)
+        }
+        surfaceView.linkPointer.modifiersChanged(flags)
+    }
+
+    /// The wrapped link under the pointer and whether the pointer shows the pointing hand.
+    public var linkPointerStateForTesting: (wrapped: String?, pointingHand: Bool) {
+        (surfaceView.linkPointer.wrapped?.text, surfaceView.cursor == .pointingHand)
     }
     #endif
 
@@ -279,8 +318,41 @@ public final class TerminalSession {
 
     // MARK: Events
 
-    private func handle(_ event: TerminalIOEvent) async {
-        #if DEBUG
+    /// Consumes `events` off the main actor. Output for a surface that already has content goes
+    /// straight to its output lane: a busy terminal costs the main thread nothing per chunk, and an
+    /// echo never waits behind other terminals' output or a motion frame on main. Every other event
+    /// (a replay, a snapshot, a grid, a status, a surface's first content) is handled on the main
+    /// actor, in stream order: the loop waits for it, and it hands back the lane the next output
+    /// may use (nil while the surface still waits for its first content, or none is live). Only
+    /// ``handle(_:)`` swaps surfaces, so that lane stays current until the next main-actor event.
+    /// `probeSource` names the IO's terminal to the typing probe (``TerminalIO/typingProbeSource``).
+    private nonisolated static func consume(_ events: AsyncStream<TerminalIOEvent>, probeSource: TypingLatencyProbe.Source?,
+                                            for session: TerminalSession) -> Task<Void, Never> {
+        Task.detached(priority: .high) { [weak session] in
+            var lane: TerminalOutputLane?
+            for await event in events {
+                if case .output(let data) = event, let lane {
+                    TypingLatencyProbe.shared.mark(.outputReceived, source: probeSource, next: .object(ObjectIdentifier(lane)))
+                    ExpectedActivity.shared.note(.terminalOutput)
+                    await lane.waitForCapacity()
+                    lane.processOutput(data)
+                    continue
+                }
+                guard let session else { return }
+                lane = await session.handle(event)
+            }
+        }
+    }
+
+    /// Handles one event on the main actor. Returns the lane later output may go to off the main
+    /// actor (``consume(_:for:)``).
+    private func handle(_ event: TerminalIOEvent) async -> TerminalOutputLane? {
+        await apply(event)
+        return surfaceHasContent ? surfaceView.lane : nil
+    }
+
+    private func apply(_ event: TerminalIOEvent) async {
+        #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceEvent(event) }
         #endif
         switch event {
@@ -310,7 +382,8 @@ public final class TerminalSession {
             frameHold.contentQueued()
             TerminalTimings.contentApplied()
         case .output(let data):
-            TypingLatencyProbe.shared.mark(.outputMain)
+            TypingLatencyProbe.shared.mark(.outputReceived, source: io.typingProbeSource,
+                                           next: surfaceView.lane.map { .object(ObjectIdentifier($0)) })
             ExpectedActivity.shared.note(.terminalOutput)
             guard let lane = surfaceView.lane else { return }
             await lane.waitForCapacity()
@@ -367,7 +440,7 @@ public final class TerminalSession {
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self)
         swappedSurfaces += 1
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(fresh) }
         #endif
         fresh.ownsGeometry = ownsGeometry
@@ -422,8 +495,13 @@ public final class TerminalSession {
         input.focusGained()
     }
 
-    func surfaceDidReport(grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int) {
+    /// The surface reports its grid to the PTY owner. `final`: the grid its pane's layout spring will
+    /// land at (``TerminalIO/resizeOnMain(cols:rows:final:window:)``).
+    func surfaceDidReport(grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int, final: Bool = false) {
         guard ownsGeometry else { return }
+        // An IO with a main-actor path takes every grid there, so a final grid never overtakes, or
+        // is overtaken by, an older grid still in the ordered input stream.
+        if io.resizeOnMain(cols: grid.columns, rows: grid.rows, final: final, window: surfaceView.window) { return }
         input.resize(grid, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
     }
 }

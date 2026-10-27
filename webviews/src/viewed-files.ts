@@ -32,6 +32,22 @@ export function patchFingerprint(patchText: string): string {
   return fnv1a(hunkSection(patchText));
 }
 
+/**
+ * The file's content identity: its header's `index <old>..<new>` blob ids (full, since the
+ * sidecar diffs with `--binary`) and mode lines, before the first hunk. Hide white space
+ * (`--ignore-all-space`) changes a patch's hunks but not these lines, so a Viewed mark keyed on
+ * them stays put when the option changes. Undefined when the header has no `index` line (a pure
+ * rename, a mode-only change): those files keep the patch fingerprint.
+ */
+export function blobFingerprint(patchText: string): string | undefined {
+  const firstHunk = patchText.startsWith("@@") ? 0 : patchText.indexOf("\n@@");
+  const header = (firstHunk >= 0 ? patchText.slice(0, firstHunk) : patchText).split("\n");
+  const index = header.find((line) => line.startsWith("index "));
+  if (index == null) return undefined;
+  const modes = header.filter((line) => /^(old|new|new file|deleted file) mode /.test(line));
+  return `blob:${fnv1a([index, ...modes].join("\n"))}`;
+}
+
 function hunkSection(patchText: string): string {
   const firstHunk = patchText.startsWith("@@") ? 0 : patchText.indexOf("\n@@");
   if (firstHunk >= 0) {
@@ -43,6 +59,11 @@ function hunkSection(patchText: string): string {
     .split("\n")
     .filter((line) => !line.startsWith("index "))
     .join("\n");
+}
+
+/** A hash of a file's whole patch text: equal texts, equal hashes. */
+export function textFingerprint(text: string): string {
+  return fnv1a(text);
 }
 
 function fnv1a(text: string): string {
@@ -60,6 +81,14 @@ function fnv1a(text: string): string {
  * (patches parsed from a single text blob have no per-file raw text).
  */
 export function fileDiffFingerprint(fileDiff: any): string {
+  if (typeof fileDiff?.cmuxBlobFingerprint === "string" && fileDiff.cmuxBlobFingerprint !== "") {
+    return fileDiff.cmuxBlobFingerprint;
+  }
+  return patchIdentityFingerprint(fileDiff);
+}
+
+/** The patch fingerprint: the streamed one, else a hash of the parsed hunks. */
+function patchIdentityFingerprint(fileDiff: any): string {
   if (typeof fileDiff?.cmuxPatchFingerprint === "string" && fileDiff.cmuxPatchFingerprint !== "") {
     return fileDiff.cmuxPatchFingerprint;
   }
@@ -147,11 +176,26 @@ export function applyLoadedViewed(
   return { ...session, viewedByPath };
 }
 
-export function viewedFileState(entry: ViewedFileEntry | undefined, fingerprint: string): ViewedFileState {
+export function viewedFileState(
+  entry: ViewedFileEntry | undefined,
+  fingerprint: string,
+  legacyFingerprint?: string,
+): ViewedFileState {
   if (entry == null) {
     return "unviewed";
   }
-  return entry.fingerprint === fingerprint ? "viewed" : "changed";
+  return entry.fingerprint === fingerprint || (legacyFingerprint != null && entry.fingerprint === legacyFingerprint)
+    ? "viewed"
+    : "changed";
+}
+
+/**
+ * A file's viewed state. New marks store the content fingerprint (`fileDiffFingerprint`); a mark
+ * stored before it existed holds the patch fingerprint, which still counts as viewed while the
+ * patch is the same.
+ */
+function fileViewedState(entry: ViewedFileEntry | undefined, fileDiff: any): ViewedFileState {
+  return viewedFileState(entry, fileDiffFingerprint(fileDiff), patchIdentityFingerprint(fileDiff));
 }
 
 export function viewedFilePath(item: ViewedItem): string {
@@ -159,7 +203,7 @@ export function viewedFilePath(item: ViewedItem): string {
 }
 
 export function viewedStateOfItem(item: ViewedItem, viewedByPath: ViewedByPath): ViewedFileState {
-  return viewedFileState(viewedByPath.get(viewedFilePath(item)), fileDiffFingerprint(item.fileDiff));
+  return fileViewedState(viewedByPath.get(viewedFilePath(item)), item.fileDiff);
 }
 
 /**
@@ -239,7 +283,7 @@ export function toggleViewedItem<T extends ToggleableItem>(
   const item = items[index];
   const path = viewedFilePath(item);
   const fingerprint = fileDiffFingerprint(item.fileDiff);
-  const currentlyViewed = viewedFileState(viewedByPath.get(path), fingerprint) === "viewed";
+  const currentlyViewed = fileViewedState(viewedByPath.get(path), item.fileDiff) === "viewed";
   let change: ViewedChange;
   if (currentlyViewed) {
     nextViewed.delete(path);

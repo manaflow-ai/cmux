@@ -57,9 +57,9 @@ import Testing
         try body()
     }
 
-    @Test func rowsNameWhatTheirAgentNeedsByDefault() throws {
+    @Test func rowsNameWhatTheirAgentNeeds() throws {
         let fixture = try Fixture()
-        try Self.withRowStatus(nil) {
+        try Self.withRowStatus(true) {
             let chips = fixture.chips()
             #expect(chips == ["waiting": .needsYou, "failed": .failed],
                     "a working, idle or finished chat leaves the row as it was")
@@ -68,7 +68,7 @@ import Testing
 
     @Test func theChipReadsOnTheNamesLine() throws {
         let fixture = try Fixture()
-        try Self.withRowStatus(nil) {
+        try Self.withRowStatus(true) {
             let rows = Dictionary(uniqueKeysWithValues: fixture.rows().map { ($0.title, $0) })
             let options = SidebarLayoutOptions()
             let waiting = options.rowContent(try #require(rows["waiting"]), machine: nil)
@@ -79,16 +79,25 @@ import Testing
 
     @Test func markingAChatReadClearsItsRowLikeThePriorityView() throws {
         let fixture = try Fixture()
-        try Self.withRowStatus(nil) {
+        try Self.withRowStatus(true) {
             fixture.marks.markRead(try #require(fixture.lanes.lanes["s-failed"]))
             fixture.marks.markRead(try #require(fixture.lanes.lanes["s-finished"]))
             #expect(fixture.chips() == ["waiting": .needsYou])
         }
     }
 
-    @Test func theStatusMarkFollowsTheLanesByDefault() throws {
+    /// Off by default (Lawrence 2026-10-21): no chip and no lane state unless the toggles are on.
+    @Test func rowsReadNoLanesByDefault() throws {
         let fixture = try Fixture()
-        Self.withRowStatus(nil) {
+        Self.withRowStatus(nil) { #expect(fixture.chips().isEmpty) }
+    }
+
+    @Test func theStatusMarkFollowsTheLanes() throws {
+        let fixture = try Fixture()
+        let key = SidebarTunables.laneStatus.key
+        Self.withRowStatus(true) {
+            TunableStore.shared.set(key, .bool(true))
+            defer { TunableStore.shared.set(key, nil) }
             let activity = Dictionary(uniqueKeysWithValues: fixture.rows().map { ($0.title, $0.activity) })
             #expect(activity["waiting"] == .waiting)
             #expect(activity["failed"] == .error)
@@ -120,7 +129,7 @@ import Testing
 
     @Test func manualOrderStaysWhateverTheChips() throws {
         let fixture = try Fixture()
-        Self.withRowStatus(nil) {
+        Self.withRowStatus(true) {
             #expect(fixture.rows().map(\.title) == ["working", "waiting", "failed", "idle", "finished"])
         }
     }

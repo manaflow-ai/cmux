@@ -88,6 +88,14 @@ typedef struct {
   // popup. `disposition` is a `cef_window_open_disposition_t`.
   void (*on_open_tab)(void* context, int browser_id, const char* url_utf8,
                       int disposition, int user_gesture);
+  // Whether a file: URL may load (a navigation or a subresource: frame,
+  // image, fetch). 1 allows. Called on the UI and IO threads. NULL allows all.
+  int (*on_file_load)(void* context, const char* url_utf8);
+  // The focused field's text input state (cef_cmux.h cmux_rp_text_input_fn):
+  // ui::TextInputType (0 = none), composition rects and the caret, x y w h in
+  // DIP (= the page's CSS pixels); `caret` is NULL when there is none.
+  void (*on_text_input)(void* context, int browser_id, int input_type,
+                        const int* rects, int rect_count, const int* caret);
 } rb_shim_callbacks_t;
 
 // Runs the process: helper processes return their exit code at once; the

@@ -51,12 +51,12 @@ import Testing
         try #require(row.subviews.lazy.compactMap { $0 as? StatusIndicatorView }.first)
     }
 
-    /// Where the row's text starts (the title draws at its frame's edge) and
-    /// where its last trailing mark ends.
+    /// Where the row's content starts (its leading icon slot, empty when the row has no icon)
+    /// and where its last trailing mark ends.
     private static func insets(_ row: WorkspaceRowView) throws -> (leading: CGFloat, trailing: CGFloat) {
         let marks = [try badge(row), try glyph(row), row.mutedMark, row.presenceDots, row.disclosureButton] as [NSView]
         let end = marks.filter { !$0.isHidden && $0.frame.width > 0 }.map(\.frame.maxX).max() ?? row.title.frame.maxX
-        return (row.title.frame.minX, row.bounds.width - end)
+        return (row.icon.frame.minX, row.bounds.width - end)
     }
 
     @Test func selectedAndUnselectedRowsHaveEqualLeadingAndTrailingInsets() throws {
@@ -66,7 +66,8 @@ import Testing
         let gutter = SidebarStyle.horizontalInset
         for (name, row) in [("unselected", unread), ("selected", selected)] {
             let (leading, trailing) = try Self.insets(row)
-            #expect(leading == trailing, "\(name): text \(leading) pt in, marks \(trailing) pt in")
+            #expect(leading == trailing, "\(name): icon slot \(leading) pt in, marks \(trailing) pt in")
+            #expect(row.title.frame.minX == gutter, "\(name): the title at the inset (no empty icon slot)")
             // The pill's own inset from the list's edges is the same token, plus the trim on the right.
             #expect(leading == gutter, "\(name): text \(leading) pt in, pill inset \(gutter)")
             #expect(row.frame.minX == gutter)

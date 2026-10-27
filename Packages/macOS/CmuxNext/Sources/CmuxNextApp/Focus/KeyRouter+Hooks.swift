@@ -61,14 +61,10 @@ extension KeyRouter {
     /// dispatcher decided never runs a menu item (menus are display only
     /// for keys). Other key windows (panels, sheets, windows of their own)
     /// follow the tier rule of the key window's focus.
-    /// Runs `body` while `event` is dispatched outside
-    /// `NSApplication.sendEvent` (`debug.key`), where `NSApp.currentEvent`
-    /// is not that event.
+    /// Runs `body` while `event` is dispatched outside `NSApplication.sendEvent` (`debug.key`, a
+    /// replayed held key): the same dispatch context `sendEvent` uses (``InputDispatchContext``).
     func dispatchingSynthetic<T>(_ event: NSEvent, _ body: () -> T) -> T {
-        let previous = syntheticKeyEvent
-        syntheticKeyEvent = event
-        defer { syntheticKeyEvent = previous }
-        return body()
+        inputDispatch.dispatching(event, body)
     }
 
     /// Whether a terminal may offer `event` to the main menu before Ghostty
@@ -84,7 +80,7 @@ extension KeyRouter {
     }
 
     private func menuGate(_ id: ActionID) -> Bool {
-        if let event = syntheticKeyEvent ?? NSApp.currentEvent, event.type == .keyDown, decided.contains(event),
+        if let event = inputDispatch.event, event.type == .keyDown, decided.contains(event),
            !Self.menuKeyEquivalentAllowedAfterDispatch(registry.keyTier(for: id), eventWasDecided: true) { return false }
         let (controller, kind) = keyWindowFocus()
         guard let controller else { return true }
@@ -163,6 +159,13 @@ extension KeyRouter {
     func isPageKey(_ event: NSEvent, id: ActionID) -> Bool {
         event.modifierFlags.isDisjoint(with: [.command, .control, .option])
             && registry.descriptor(for: id)?.requires.contains(.browserFocused) == true
+    }
+
+    /// Chromium's report that the page left a key-down unhandled: runs the cmux action the
+    /// dispatcher held for it (``runUnhandledPageKey(_:)``), such as Find after a page that has
+    /// no search of its own.
+    func browserTab(_ tab: any BrowserTab, unhandledKeyEquivalent event: NSEvent) -> Bool {
+        runUnhandledPageKey(event, from: ObjectIdentifier(tab))
     }
 
     func pageOwnsAllKeys(_ tab: any BrowserTab) -> Bool {

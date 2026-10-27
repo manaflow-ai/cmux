@@ -7,6 +7,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHomeEngine
+import CmuxNextMacScreen
 import CmuxNextOnboarding
 import CmuxNextSettings
 import Observation
@@ -22,14 +23,43 @@ import Observation
 /// Launch Claude/Codex Teams run `AgentTeamsLaunch`. Computer Use
 /// focus/stop are typed-unavailable.
 enum AgentHandlers {
+    /// Inspect Element (#24707) is a Debug/Labs surface: every right-click menu that places it
+    /// (the tab bar's + among them) leaves it out until Debug Settings' UI pointer inspector
+    /// (`AgentPaneTunables.pointerInspector`, off by default) is on.
+    static func gatePointerInspectorMenuRows(in registry: ActionRegistry) {
+        ActionTargetVisibility.hide("agentPane.togglePointerInspector", in: registry) { _ in
+            !AgentPaneTunables.pointerInspector.value
+        }
+    }
+
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agentPaneZoomIn", run: { invocation in try setAgentPaneZoom(by: AgentPaneZoomSetting.step, context: context, invocation: invocation) })
         registry.bind("agentPaneZoomOut", run: { invocation in try setAgentPaneZoom(by: -AgentPaneZoomSetting.step, context: context, invocation: invocation) })
         registry.bind("agentPaneZoomReset", run: { invocation in try resetAgentPaneZoom(context, invocation: invocation) })
+        // The Chief chat follows the same setting (HomeNativeTranscriptView.followZoom): no view to look up.
+        registry.bindEffect("home.zoomIn", requires: nil, effect: { _ in
+            try stepAgentPaneZoom(by: AgentPaneZoomSetting.step, context: context)
+            return .done
+        })
+        registry.bindEffect("home.zoomOut", requires: nil, effect: { _ in
+            try stepAgentPaneZoom(by: -AgentPaneZoomSetting.step, context: context)
+            return .done
+        })
+        registry.bindEffect("home.zoomReset", requires: nil, effect: { _ in
+            try resetAgentPaneZoom(context)
+            return .done
+        })
         for (id, destination) in forkActions {
             registry.bind(id, run: { try fork(destination, invocation: $0, context: context) })
         }
         registry.bind("agentActivity.open", run: { _ in context.services.agentActivityPage.open() })
+        context.services.pages.register(context.services.macScreenTabs)
+        registry.bind("macScreen.open", run: { context.services.openMacScreen(in: try? context.pane($0)) })
+        // The menu bar item's rows while a device sees or controls this Mac (MacScreenShareIndicator).
+        registry.bind("macScreen.stopSharing", unavailable: { context.services.macScreenPages.hubHost.noSessionReason },
+                      run: { _ in _ = context.services.macScreenPages.hubHost.stopSession() })
+        registry.bind("macScreen.revokeViewer", unavailable: { context.services.macScreenPages.hubHost.noSessionReason },
+                      run: { _ in _ = context.services.macScreenPages.hubHost.revokeViewer() })
         AgentSessionWorkspace.bind(into: registry, context: context)
         AgentSessionTab.bind(into: registry, context: context)
         ChiefInspectorHandlers.bind(into: registry, context: context)
@@ -60,11 +90,15 @@ enum AgentHandlers {
         registry.bind("palette.computerUse.accessibility", run: { _ in context.services.onboarding.computerUseSetup.open(.accessibility) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in context.services.onboarding.computerUseSetup.open(.screenRecording) })
         registry.bindAgentPane { invocation in
+            if openTargetedChat(invocation, context: context) { return }
             if let pane = context.scope(invocation).pane,
                DockedAgentChat.open(from: pane, invocation: invocation, services: context.services) { return }
             withAgentPane(invocation, context: context, seed: AgentPaneSeed()) { pane in
                 openNewAgentChat(in: pane, invocation: invocation, context: context)
             }
+        }
+        registry.bindAgentPaneSessionInfo { invocation in
+            focusedAgentView(context, invocation)?.toggleSessionInfo()
         }
         registry.bindAgentPaneInspector { invocation in
             guard let pane = context.scope(invocation).pane else { return context.refuse(MiscHandlerStrings.noPane) }
@@ -73,6 +107,23 @@ enum AgentHandlers {
             }
             view.toggleInspector()
         }
+        registry.bind(.stopTurn, run: { invocation in
+            guard let view = focusedAgentView(context, invocation) else { return }
+            view.stopTurn()
+        })
+        registry.bind("agentPane.togglePointerInspector", unavailable: {
+            AgentPaneTunables.pointerInspector.value ? nil :
+                "UI pointer inspector is off. Turn it on in Debug Settings."
+        }, run: { invocation in
+            // Palette, keyboard and the CLI keep the existing toggle contract.
+            // A targeted context-menu invocation starts at the right-click point.
+            if invocation.target == nil {
+                context.services.uiInspector.toggle()
+            } else {
+                context.services.uiInspector.inspectFromContextMenu()
+            }
+        })
+        gatePointerInspectorMenuRows(in: registry)
         registry.bind(.fileOpen, run: { try openFile($0, context: context) })
         // The composer's mic (CmuxNextAgentPane). Held from the keyboard, it
         // is push-to-talk. Outside an agent chat it stops a session still
@@ -206,25 +257,38 @@ enum AgentHandlers {
     private static func setAgentPaneZoom(by delta: Double, context: AppActionContext, invocation: ActionInvocation) throws {
         try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
         guard let view = focusedAgentView(context, invocation) else { return }
-        let current = context.services.settings.map { $0.snapshot.agentPaneZoom } ?? Double(context.design.agentPaneZoom)
-        let next = min(max(current + delta,
-                           AgentPaneZoomSetting.range.lowerBound), AgentPaneZoomSetting.range.upperBound)
-        context.design.agentPaneZoom = CGFloat(next)
-        view.zoom = next
-        context.writeSetting("set agent chat zoom", agentPaneZoomPath, .number(next), reloadOnFailure: true)
-        SurfaceZoomIndicator.show(percent: Int((next * 100).rounded()), in: context.services.windows.active?.window)
+        view.zoom = try stepAgentPaneZoom(by: delta, context: context)
     }
 
     private static func resetAgentPaneZoom(_ context: AppActionContext, invocation: ActionInvocation) throws {
         try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
         guard let view = focusedAgentView(context, invocation) else { return }
-        context.design.agentPaneZoom = CGFloat(AgentPaneZoomSetting.fallback)
+        try resetAgentPaneZoom(context)
         view.zoom = AgentPaneZoomSetting.fallback
+    }
+
+    /// Steps `agentPane.zoom` by `delta` (clamped), live and in cmux.json, and shows the percent: the new zoom.
+    @discardableResult
+    private static func stepAgentPaneZoom(by delta: Double, context: AppActionContext) throws -> Double {
+        try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
+        let current = context.services.settings.map { $0.snapshot.agentPaneZoom } ?? Double(context.design.agentPaneZoom)
+        let next = min(max(current + delta,
+                           AgentPaneZoomSetting.range.lowerBound), AgentPaneZoomSetting.range.upperBound)
+        context.design.agentPaneZoom = CGFloat(next)
+        context.writeSetting("set agent chat zoom", agentPaneZoomPath, .number(next), reloadOnFailure: true)
+        SurfaceZoomIndicator.show(percent: Int((next * 100).rounded()), in: context.services.windows.active?.window)
+        return next
+    }
+
+    /// `agentPane.zoom` back to 100%, live and in cmux.json.
+    private static func resetAgentPaneZoom(_ context: AppActionContext) throws {
+        try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
+        context.design.agentPaneZoom = CGFloat(AgentPaneZoomSetting.fallback)
         context.writeSetting("reset agent chat zoom", agentPaneZoomPath, nil, reloadOnFailure: true)
         SurfaceZoomIndicator.show(percent: 100, in: context.services.windows.active?.window)
     }
 
-    private static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {
+    static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {
         pane.newAgentTab()
     }
 

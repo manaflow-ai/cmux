@@ -108,34 +108,9 @@ def recheck_step():
     return next((s for s in steps if s.get("id") == "recheck"), None)
 
 
-FAKE_GH = """#!/bin/sh
-echo "gh $*" >> "$FAKE_LOG"
-case "$*" in
-  *--jq*) printf '%b' "$FAKE_ARTIFACTS" ;;
-  *"run rerun $FAKE_RERUN_FAILS"*) exit 1 ;;
-esac
-"""
-
-
 def handoff_script():
     steps = job("notify-unpublished-tree")["steps"]
     return next(s for s in steps if "deferred" in s.get("name", ""))["run"]
-
-
-def run_handoff(artifacts, rerun_fails="none"):
-    with tempfile.TemporaryDirectory() as tmp:
-        gh = os.path.join(tmp, "gh")
-        with open(gh, "w") as handle:
-            handle.write(FAKE_GH)
-        os.chmod(gh, os.stat(gh).st_mode | stat.S_IXUSR)
-        log = os.path.join(tmp, "log")
-        open(log, "w").close()
-        env = dict(os.environ, PATH=f"{tmp}:{os.environ['PATH']}", KEY=KEY, RUN_ID="5",
-                   GITHUB_REPOSITORY="manaflow-ai/cmux", GH_TOKEN="x", FAKE_LOG=log,
-                   FAKE_ARTIFACTS=artifacts, FAKE_RERUN_FAILS=rerun_fails)
-        result = subprocess.run(["bash", "-e", "-c", handoff_script()], cwd=tmp, env=env,
-                                capture_output=True, text=True, timeout=60)
-        return result, open(log).read()
 
 
 def run_wait(owner, script=None, **fake):
@@ -161,6 +136,8 @@ def run_wait(owner, script=None, **fake):
         env = {**env, "EVENT_NAME": "push", "REF": "refs/heads/feat-cmux-next", "SHA": "f" * 40,
                "FAKE_OWNER_STATUS": "in_progress", "FAKE_CLAIM_RESULT": "owner=7 granted=false",
                "DAEMON_POOL": "glaeda-side-light-xcode-26.6", **fake}
+        env["TREE_READY"] = "true" if env.get("FAKE_TREE_PUBLISHED") == "1" else "false"
+        env["DAEMON_TESTED"] = "false" if env["TREE_READY"] == "true" and env.get("FAKE_MARKER", "1") != "1" else "true"
         result = subprocess.run(["bash", "-e", "-c", script or wait_script()], cwd=tmp, env=env, capture_output=True, text=True, timeout=60)
         return result, open(output).read(), open(log).read()
 
@@ -340,6 +317,9 @@ def main():
                                     FAKE_OWNER_CONCLUSION="failure", FAKE_OWNER_BRANCH=branch)
         _check(result.returncode == 0 and "takeover=false" in out and "unmarked=true" in out,
                f"an unmarked tree whose {branch} owner ended is re-tested ({out.strip()!r})")
+    result, out, log = run_wait("", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0")
+    _check(result.returncode == 0 and "takeover=false" in out and "deferred=true" in out and "unmarked=true" in out,
+           f"a published unmarked tree with no live owner leaves a takeover marker ({out.strip()!r})")
     result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0", FAKE_OWNER_STATUS="fail")
     _check(result.returncode == 0 and "unmarked=true" in out,
            f"an unmarked tree whose owner cannot be read is re-tested ({out.strip()!r})")
@@ -357,20 +337,15 @@ def main():
     checkout = next(s for s in promote["steps"] if "checkout" in str(s.get("uses", "")))
     _check("feat-cmux-next" in str(checkout["with"]["ref"]), "that request runs from the feat-cmux-next head's own checkout")
 
+    # The hand-off's ordering, marker use, re-run cap and quota skip are tested in
+    # tests/test_cmux_tui_tree_handoff.py, which runs the script with a fake gh.
     try:
-        handoff_script()
+        script = handoff_script()
     except (StopIteration, KeyError):
         _check(False, "notify-unpublished-tree hands the key to a run that deferred to it")
     else:
-        result, log = run_handoff("11\\t9\\tlane\\n12\\t8\\tfeat-cmux-next\\n13\\t5\\tfeat-cmux-next\\n")
-        _check(result.returncode == 0 and "run rerun 8" in log and "artifacts/12" in log
-               and "run rerun 9" not in log and "rerun 5" not in log,
-               f"an owner that ends unpublished re-runs one deferred run, feat-cmux-next first, never itself ({log.strip()!r})")
-        result, log = run_handoff("11\\t9\\tlane\\n12\\t8\\tfeat-cmux-next\\n", rerun_fails="8")
-        _check(result.returncode == 0 and "run rerun 9" in log and "artifacts/11" in log and "artifacts/12" not in log,
-               f"a deferred run that cannot be re-run keeps its marker and passes the key to the next ({log.strip()!r})")
-        result, log = run_handoff("")
-        _check(result.returncode == 0 and "rerun" not in log, "no deferred run: nothing is re-run")
+        _check("scripts/ci/cmux_tui_tree_handoff.py" in script,
+               "notify-unpublished-tree hands the key on through scripts/ci/cmux_tui_tree_handoff.py")
 
     check_recheck()
 

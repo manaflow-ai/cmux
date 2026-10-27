@@ -21,6 +21,9 @@ Usage: tab-switch-stages.py --tag <tag> --app PATH [--rounds 12] [--interval 0.2
 """
 import argparse, glob, json, os, re, signal, socket, statistics, subprocess, sys, tempfile, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import BenchApp, bundle_id  # noqa: E402
+
 # `--matrix`: every tab kind at 2/10/30/60 tabs with CPU and memory (tab-switch-matrix.py), through the
 # same fleet entry (scripts/measure/tab-switch.sh passes its arguments here).
 if "--matrix" in sys.argv:
@@ -36,6 +39,7 @@ parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json", help="write the samples here")
 opts = parser.parse_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
+BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
@@ -51,7 +55,7 @@ app = None
 
 
 def run(*args, timeout=30):
-    env = {**ENV, "CMUX_TAG": TAG, "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{TAG}", "CMUX_BUNDLED_CLI_PATH": CLI}
+    env = {**ENV, "CMUX_TAG": TAG, "CMUX_BUNDLE_ID": BUNDLE_ID, "CMUX_BUNDLED_CLI_PATH": CLI}
     return subprocess.run([CLI, *args], capture_output=True, text=True, timeout=timeout, env=env)
 
 
@@ -104,11 +108,12 @@ def row(check, expected, observed, ok):
     print(f"{'PASS' if ok else 'FAIL'} | {check} | {expected} | {observed}", flush=True)
 
 
-def strip_tabs():
-    """The focused strip's tabs as (id-or-label, center point in window coordinates)."""
+def strip_tabs(minimum=1):
+    """The focused strip's tabs as (id-or-label, center point in window coordinates): the first strip with at least
+    `minimum` tabs. Setup waits for each new tab with the default; it needed 5 before, so it never saw tab 2."""
     for strip in (rpc("debug.tab_drag") or {}).get("strips") or []:
         tabs = strip.get("tabs") or []
-        if len(tabs) >= 5:
+        if len(tabs) >= minimum:
             out = []
             for tab in tabs:
                 f = tab["frame"]
@@ -204,22 +209,22 @@ def cleanup():
 
 
 def main():
-    global app
-    if os.path.exists(SOCKET):
-        ps = subprocess.run(["ps", "-axo", "command="], capture_output=True, text=True).stdout
-        if any(line.startswith(APP + "/Contents/MacOS/") for line in ps.splitlines()):
-            sys.exit(f"{SOCKET} exists and a {TAG} app runs; pick a fresh tag")
-        os.remove(SOCKET)
+    global app, SOCKET
+    # No socket check here: BenchApp.launch() refuses a live same-tag app (any bundle path) and unlinks only a
+    # socket nothing accepts on.
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900"}
-    log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
-    app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    LAUNCHED.append(app.pid)
+    # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
+    launcher = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=None, screen=None, teardown=False, env=env)
+    try:
+        launcher.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
+    finally:
+        app = launcher.process
+    SOCKET = launcher.socket
+    ENV["CMUX_SOCKET_PATH"] = SOCKET
     print(f"launched pid {app.pid}", flush=True)
-    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
-        sys.exit("the tagged app did not come up")
     for old in set(re.findall(r"(ws_[0-9a-f]+)\s+tabswitch-e2e", run("workspace", "list").stdout)):
         run("workspace", old, "close")
     made = run("workspace", "create", "--name", "tabswitch-e2e")
@@ -251,7 +256,7 @@ def main():
             row(f"setup: {name}", f"{index} tabs", f"{len(strip_tabs())}", False)
             return
         time.sleep(1.5)  # test harness: the page loads before the next tab
-    tabs = strip_tabs()
+    tabs = strip_tabs(5)
     print("tabs:", [t[0] for t in tabs], flush=True)
     # Warm: visit every tab once, slowly.
     for _ in range(len(tabs)):
@@ -263,7 +268,7 @@ def main():
     report["keys_forward"] = measure("Ctrl-Tab", lambda i: rpc("debug.key", {"key": "tab", "modifiers": ["control"]}), n * opts.rounds)
     report["keys_back"] = measure("Ctrl-Shift-Tab", lambda i: rpc("debug.key", {"key": "tab", "modifiers": ["control", "shift"]}),
                                   n * opts.rounds)
-    tabs = strip_tabs()  # frames after the warm-up (a strip may relayout)
+    tabs = strip_tabs(5)  # frames after the warm-up (a strip may relayout)
     report["clicks"] = measure("click", lambda i: rpc("debug.mouse", {"action": "click", "x": tabs[i % n][1][0], "y": tabs[i % n][1][1]}),
                                n * opts.rounds)
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "tabswitch-final.png")})

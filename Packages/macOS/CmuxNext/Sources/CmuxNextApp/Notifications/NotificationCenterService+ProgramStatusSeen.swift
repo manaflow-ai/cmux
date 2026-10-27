@@ -20,19 +20,22 @@ extension NotificationCenterService {
         Task { [weak self] in // task-owner: start(services:) keeps the handle in tasks
             for await _ in ObservationStream({ [weak self] in self?.viewedFacts(store) ?? ViewedTabsFacts(revision: 0, tabs: []) }) {
                 guard let self else { return }
-                let viewed = self.viewedTabs(store)
+                // A tab a strip press is moving is focused, not looked at (`viewHolds`).
+                let all = self.viewedTabs(store)
+                let viewed = self.unheld(all)
                 for tab in viewed { self.interacted(.focus, tab: tab) }
-                self.clearTabMarks(entering: viewed)
+                self.clearTabMarks(entering: viewed, held: Set(all.map(\.id)).subtracting(viewed.map(\.id)))
             }
         }
     }
 
     /// Clears the manual mark (Mark Tab Unread, `TabUnreadMark`) of each tab
     /// that came into view since the last pass. A tab marked while viewed
-    /// keeps the mark until it is viewed again.
-    func clearTabMarks(entering viewed: [TabModel]) {
-        let entered = Set(TabUnreadMark.entered(viewed.map(\.id), previous: viewedTabIDs))
-        viewedTabIDs = Set(viewed.map(\.id))
+    /// keeps the mark until it is viewed again. A `held` tab counts as in view
+    /// all along: its move brought it no look, so it keeps its mark.
+    func clearTabMarks(entering viewed: [TabModel], held: Set<String> = []) {
+        let entered = Set(TabUnreadMark.entered(viewed.map(\.id), previous: viewedTabIDs.union(held)))
+        viewedTabIDs = Set(viewed.map(\.id)).union(held)
         guard let services else { return }
         for tab in viewed where tab.markedUnread && entered.contains(tab.id) {
             try? TabUnreadMark.set(false, tab: tab, daemon: services.daemon)
@@ -53,9 +56,8 @@ extension NotificationCenterService {
     func viewedTabs(_ store: DaemonStore) -> [TabModel] {
         guard let services, NSApp.isActive else { return [] }
         return services.windows.controllers.compactMap { controller in
-            let resolved = controller.focus.state.resolved
-            guard controller.focus.state.windowKey, let id = Self.contentTab(resolved), let pane = resolved.pane,
-                  let model = controller.content?.paneModel(key: pane), store.pane(model.handle) === model else { return nil }
+            guard controller.focus.state.windowKey, let resolved = Self.shownFocus(controller), let id = Self.contentTab(resolved),
+                  let pane = resolved.pane, let model = controller.content?.paneModel(key: pane), store.pane(model.handle) === model else { return nil }
             return model.tabs.first { $0.id == id }
         }
     }

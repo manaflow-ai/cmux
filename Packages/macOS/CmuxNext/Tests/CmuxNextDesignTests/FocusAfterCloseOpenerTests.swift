@@ -1,5 +1,6 @@
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Closing the selected link tab goes back to its opener family first, in
 /// Chrome's order (`DetermineNewSelectedIndex`): its next child, else a

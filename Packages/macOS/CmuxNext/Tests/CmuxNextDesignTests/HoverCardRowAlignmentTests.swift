@@ -1,10 +1,11 @@
 import CoreGraphics
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Leo 2026-10-21: "WHY HAS IT NOT BEEN ALIGNED". A sidebar row's hover card sat with its top on
 /// the row's middle (#22473), so it never lined up with the row it describes. It now sits beside
-/// the sidebar with its top on the row's top, `rowGap` off the row, as Chrome's and Arc's tab
+/// the sidebar with its top on the row's top, one device pixel off the sidebar's edge, as Chrome's and Arc's tab
 /// cards do, follows the row from row to row, and stays inside the screen's visible frame.
 @MainActor @Suite struct HoverCardRowAlignmentTests {
     /// A 32 pt sidebar row on a 1440 x 900 screen (y up), and a 280 x 160 card.
@@ -12,7 +13,8 @@ import Testing
     private let size = CGSize(width: 280, height: 160)
     private let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
     private let margin: CGFloat = 8
-    private let gap = HoverCardEscapeGeometry.rowGap
+    /// One device pixel at the default scale of 2 (`HoverCardEscapeGeometry.edgeGap`).
+    private let gap = HoverCardEscapeGeometry.edgeGap(scale: 2)
 
     /// The card's frame at rest beside `anchor`, as the panel places a workspace card.
     private func card(for anchor: CGRect, visible: CGRect? = nil, scale: CGFloat = 2) -> CGRect {

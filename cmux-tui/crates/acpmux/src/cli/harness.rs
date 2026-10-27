@@ -42,6 +42,7 @@ pub const EXAMPLES: &[(&str, &str)] = &[
     ("gemini", include_str!("../../harnesses/gemini.toml")),
     ("aider", include_str!("../../harnesses/aider.toml")),
     ("muse", include_str!("../../harnesses/muse.toml")),
+    ("muse-terminal", include_str!("../../harnesses/muse-terminal.toml")),
     ("unii", include_str!("../../harnesses/unii.toml")),
 ];
 
@@ -86,9 +87,17 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
         HarnessCmd::Registry { refresh } => {
             super::harness_registry::list_cmd(refresh, json_out).await
         }
-        HarnessCmd::Add { id: Some(id), registry: true, force, .. } => {
-            super::harness_registry::add_cmd(&id, force, json_out).await
+        HarnessCmd::Add { id: Some(id), registry: true, force, icon, .. } => {
+            check_icon_arg(icon.as_deref())?;
+            super::harness_registry::add_cmd(&id, force, json_out).await?;
+            if let Some(icon) = icon {
+                let id = crate::registry::harness_id(&id).unwrap_or(id);
+                set_icon_quiet(&id, &icon)?;
+                reload_daemon().await;
+            }
+            Ok(())
         }
+        HarnessCmd::Icon { id, value, clear } => icon_cmd(&id, value, clear, json_out).await,
         HarnessCmd::Add { registry: true, .. } => {
             bail!(
                 "give the registry agent id: `cmux harness add <id> --registry` (see `cmux harness registry`)"
@@ -105,6 +114,7 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
             model,
             keychain_item,
             name,
+            icon,
         } if example.as_deref().is_some_and(|e| byo_endpoint::Kind::from_example(e).is_some())
             || base_url.is_some()
             || model.is_some()
@@ -123,12 +133,19 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
                 replace: force,
                 ..Default::default()
             };
-            add_endpoint_cmd(&p, json_out).await
+            check_icon_arg(icon.as_deref())?;
+            add_endpoint_cmd(&p, icon.as_deref(), json_out).await
         }
-        HarnessCmd::Add { id, command, protocol, example, force, registry: false, .. } => {
+        HarnessCmd::Add {
+            id, command, protocol, example, force, registry: false, icon, ..
+        } => {
+            check_icon_arg(icon.as_deref())?;
             let sources = ProfileSources::current();
             let req = AddRequest { id, command, protocol, example, force };
             let added = add(&req, &sources)?;
+            if let Some(icon) = &icon {
+                set_icon_quiet(&added.id, icon)?;
+            }
             let reloaded = reload_daemon().await;
             if json_out {
                 println!(
@@ -220,7 +237,11 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
 
 /// `cmux harness add ID --example anthropic-endpoint|openai-endpoint …`:
 /// the daemon's own add (`harness_admin`), then the next steps.
-async fn add_endpoint_cmd(p: &crate::harness_admin::AddParams, json_out: bool) -> Result<()> {
+async fn add_endpoint_cmd(
+    p: &crate::harness_admin::AddParams,
+    icon: Option<&str>,
+    json_out: bool,
+) -> Result<()> {
     if p.example.as_deref().and_then(byo_endpoint::Kind::from_example).is_none() {
         bail!(
             "--base-url, --model, --keychain-item and --name go with --example anthropic-endpoint or openai-endpoint"
@@ -228,6 +249,9 @@ async fn add_endpoint_cmd(p: &crate::harness_admin::AddParams, json_out: bool) -
     }
     let added = crate::harness_admin::add(p, &ProfileSources::current(), None, &|_| None)
         .map_err(|e| anyhow!("{e}"))?;
+    if let Some(icon) = icon {
+        set_icon_quiet(&added.id, icon)?;
+    }
     let reloaded = reload_daemon().await;
     if json_out {
         println!(
@@ -295,6 +319,93 @@ const ADD_HELP_JA: &str = "\
   または CMUX_BYO_API_KEY) で保存するか、--keychain-item でキーのあるキーチェーン項目を指定します。
   そのあと `cmux harness doctor ID` が実際のプロンプトを 1 回送り、直す点 (キー、ベース URL、
   モデル) を示します。";
+
+/// `--icon`'s value is one an icon takes, checked before anything is written.
+fn check_icon_arg(icon: Option<&str>) -> Result<()> {
+    if let Some(icon) = icon {
+        crate::config::harness_icon::IconValue::parse(icon).map_err(|e| anyhow!("--icon: {e}"))?;
+    }
+    Ok(())
+}
+
+/// Sets `id`'s icon in its user profile (`harness_icon_set`).
+fn set_icon_quiet(id: &str, icon: &str) -> Result<crate::harness_icon_set::IconSet> {
+    crate::harness_icon_set::set_icon(
+        id,
+        crate::harness_icon_set::IconChange::Value(icon.to_owned()),
+        &ProfileSources::current(),
+    )
+    .map_err(|e| anyhow!("{e}"))
+}
+
+/// `cmux harness icon ID [VALUE | --clear]`.
+async fn icon_cmd(id: &str, value: Option<String>, clear: bool, json_out: bool) -> Result<()> {
+    use crate::harness_icon_set::{IconChange, set_icon};
+    let change = match (value, clear) {
+        (_, true) => Some(IconChange::Clear),
+        (Some(v), false) => Some(IconChange::Value(v)),
+        (None, false) => None,
+    };
+    if let Some(change) = change {
+        let set = set_icon(id, change, &ProfileSources::current()).map_err(|e| anyhow!("{e}"))?;
+        let reloaded = reload_daemon().await;
+        if json_out {
+            println!(
+                "{}",
+                json!({"id": set.id, "path": set.path, "icon": set.icon, "daemonReloaded": reloaded})
+            );
+        } else {
+            match &set.icon {
+                Some(icon) => println!("{id}: icon = {icon} ({})", set.path.display()),
+                None => println!("{id}: icon removed; cmux picks it ({})", set.path.display()),
+            }
+        }
+        return Ok(());
+    }
+    let cfg = Config::load()?;
+    let profile = cfg.profile(id).ok_or_else(|| anyhow!("unknown harness {id:?}"))?;
+    let meta = cfg.profile_meta.get(id);
+    let spec = crate::config::harness_icon::resolve(
+        id,
+        meta.and_then(|m| m.display_name.as_deref()),
+        profile,
+        &crate::config::derive_family(id, profile),
+        meta.map(|m| &m.loaded_icon),
+    );
+    let mut v = serde_json::to_value(&spec)?;
+    if let Some(o) = v.as_object_mut() {
+        // An image's bytes are no use in a terminal: its file instead.
+        if o.remove("data").is_some()
+            && let Some(file) = meta.and_then(|m| m.icon.clone())
+        {
+            o.insert("file".into(), json!(file));
+        }
+    }
+    if json_out {
+        println!("{v}");
+    } else {
+        let what = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+        let why = match what("source").as_str() {
+            "profile" => "set in the profile".to_owned(),
+            "id" => "from the harness id".into(),
+            "command" => "from the program it runs".into(),
+            "family" => "from its family".into(),
+            _ => "nothing names an agent".into(),
+        };
+        let shown = match what("kind").as_str() {
+            "brand" => format!("the {} mark", what("brand")),
+            "emoji" => what("text"),
+            "symbol" | "glyph" => format!("the {} symbol", what("name")),
+            "image" => format!("the image {}", what("file")),
+            _ => format!("the monogram {} (hue {})", what("text"), v["hue"]),
+        };
+        println!("{id}: {shown}, {why}");
+        println!(
+            "set it with `cmux harness icon {id} VALUE` (an emoji, an SF Symbol name, an agent mark or an .svg/.png file)"
+        );
+    }
+    Ok(())
+}
 
 /// Ask a running daemon to reload its catalog; false when none runs.
 pub(crate) async fn reload_daemon() -> bool {
@@ -504,7 +615,7 @@ pub fn scaffold(id: &str, command: &str, protocol: &str) -> String {
 schema = 1
 id = "{id}"
 name = "{name}"
-# icon = "{id}.svg"       # a file next to this one, or: claude, openai, opencode, pi, gemini, terminal
+# icon = "{id}.svg"       # a file next to this one, an emoji, an SF Symbol (hammer.fill) or an agent mark (claude, goose, ...); unset: cmux picks one
 protocol = "{protocol}"   # "acp" (Agent Client Protocol over stdio) or "terminal" (a CLI/TUI without ACP)
 command = "{command}"     # a program on your PATH, or an absolute path
 args = []                 # for example ["acp"]; "${{model}}" becomes the chosen model
@@ -559,6 +670,10 @@ pub struct Step {
     pub detail: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -612,7 +727,7 @@ impl Report {
     fn push(&mut self, step: &'static str, status: StepStatus, detail: &str, fix: Option<String>) {
         let detail = self.mask(detail);
         let fix = fix.map(|f| self.mask(&f));
-        self.steps.push(Step { step, status, detail, fix });
+        self.steps.push(Step { step, status, detail, fix, reason: None, data: None });
     }
     fn done(self) -> DoctorReport {
         let ok = self.steps.iter().all(|s| s.status != StepStatus::Fail);
@@ -915,7 +1030,16 @@ async fn acp_steps(
         Some(_) => opts.timeout.max(Duration::from_secs(60)),
         None => opts.timeout,
     };
-    let outcome = handshake(r, &mut wire, folder, opts, prompt_limit).await;
+    let outcome = handshake(
+        r,
+        &mut wire,
+        folder,
+        opts,
+        prompt_limit,
+        crate::config::derive_family(id, profile) == "codex",
+        id,
+    )
+    .await;
     // Stop the harness and everything it started (its own process group),
     // then read the rest of its stderr: the pipe closes when it exits.
     #[cfg(unix)]
@@ -984,6 +1108,8 @@ async fn handshake(
     folder: &Path,
     opts: &DoctorOptions,
     prompt_limit: Duration,
+    codex: bool,
+    harness_id: &str,
 ) -> bool {
     let init = json!({
         "protocolVersion": 1,
@@ -1022,18 +1148,35 @@ async fn handshake(
     let session = match wire.call("session/new", new, opts.timeout).await {
         Ok(v) => v,
         Err(e) => {
-            let auth = e.contains("auth") || e.contains("-32000") || e.contains("login");
+            let lower = e.to_ascii_lowercase();
+            let protocol_mismatch = (lower.contains("unknown variant")
+                && lower.contains("session/new"))
+                || lower.contains("method not found");
+            let auth = !protocol_mismatch
+                && (e.contains("auth") || e.contains("-32000") || e.contains("login"));
             r.push(
                 "session",
                 StepStatus::Fail,
                 &e,
-                Some(if auth {
+                Some(if protocol_mismatch && codex {
+                    "this command is a Codex app-server, not the acpmux bridge; verify readiness with `acpmux daemon harnesses`, then start a real session with `acpmux new --host HOST -m codex -d`".into()
+                } else if protocol_mismatch {
+                    format!("the configured command did not speak ACP session/new; check its ACP mode, then run `acpmux harness doctor {harness_id}` again")
+                } else if auth {
                     "the harness needs a login: run its login command once, then doctor again"
                         .into()
                 } else {
                     "session/new failed; see the harness output below".into()
                 }),
             );
+            if protocol_mismatch && let Some(step) = r.steps.last_mut() {
+                step.reason = Some("harness_protocol_mismatch");
+                let mut data = json!({"try": "acpmux daemon harnesses"});
+                if codex {
+                    data["next"] = json!("acpmux new --host HOST -m codex -d");
+                }
+                step.data = Some(data);
+            }
             return false;
         }
     };

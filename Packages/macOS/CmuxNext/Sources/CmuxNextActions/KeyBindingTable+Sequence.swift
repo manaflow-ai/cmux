@@ -23,7 +23,7 @@ extension KeyBindingTable {
 
     /// The step a key with `readings` takes after the armed `keys` (empty
     /// for a first key).
-    public func step(after keys: [Shortcut], readings: [Shortcut], in context: KeyContext,
+    public func step(after keys: [Shortcut], readings: [Shortcut], in context: KeyContext, // perf-hot: 0.5ms key-dispatch (every chord key-down)
                      isRunnable: (ActionID) -> Bool) -> SequenceStep {
         // A bare sequence goes on only while the context still owns bare
         // keys: focus that moved into a text field mid-sequence types the key.

@@ -297,10 +297,10 @@ jobs:
     permissions:
       actions: read
       contents: read
-    runs-on: macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 180
     # Secrets and the job token are set only on the steps that use them, so the
-    # steps that launch the recovered app do not inherit them.
+    # steps that verify the recovered artifact do not inherit them.
     env:
       SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
       SOURCE_RUN_ATTEMPT: ${{ needs.preflight.outputs.source_run_attempt }}
@@ -384,7 +384,7 @@ jobs:
         id: wait-staple
         timeout-minutes: 150
         env:
-          # Launch smokes of the stapled DMG run in verify-stapled, which holds
+          # Runtime checks for the stapled DMG are disabled; verify-stapled holds
           # no secrets. No bundle code runs in this job.
           CMUX_DEFER_LAUNCH_SMOKES: "true"
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
@@ -594,7 +594,7 @@ jobs:
     permissions:
       actions: read
       contents: read
-    runs-on: macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 150
     env:
       SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
@@ -674,7 +674,7 @@ jobs:
         id: staple-outer
         timeout-minutes: 120
         env:
-          # Launch smokes run in verify-stapled, which holds no secrets.
+          # Runtime checks are disabled; verify-stapled holds no secrets.
           CMUX_DEFER_LAUNCH_SMOKES: "true"
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
@@ -866,7 +866,7 @@ jobs:
     permissions:
       actions: read
       contents: read
-    runs-on: macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 90
     env:
       SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
@@ -911,7 +911,7 @@ jobs:
       # ships (resume-stapled-app-notarization.sh). No new DMG is signed here.
       - name: Staple and validate accepted stapled-app DMG
         env:
-          # Launch smokes run in verify-stapled, which holds no secrets.
+          # Runtime checks are disabled; verify-stapled holds no secrets.
           CMUX_DEFER_LAUNCH_SMOKES: "true"
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
@@ -967,8 +967,8 @@ jobs:
 
   verify-stapled:
     name: Verify stapled DMG (${{ matrix.variant }})
-    # No environment and no secrets: this job launches the app inside each
-    # exact stapled DMG and records the digest it tested. publish accepts only
+    # No environment and no secrets: this job statically verifies each exact
+    # stapled DMG and records the digest it verified. publish accepts only
     # those bytes.
     needs: [preflight, wait-and-staple, staple-outer, staple-stapled]
     if: >-
@@ -981,7 +981,7 @@ jobs:
         variant: [arm64, x86_64, universal]
     permissions:
       contents: read
-    runs-on: macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     env:
       CHANNEL: ${{ needs.preflight.outputs.channel }}
@@ -1003,7 +1003,7 @@ jobs:
           name: cmux-${{ needs.preflight.outputs.channel }}-notarization-verified-${{ matrix.variant }}-${{ needs.preflight.outputs.short_sha }}
           path: verified
 
-      - name: Launch the app inside the exact stapled DMG
+      - name: Verify the exact stapled DMG artifact
         run: |
           set -euo pipefail
           manifest=verified/cmux-nightly-notarization-recovery.json
@@ -1016,15 +1016,15 @@ jobs:
           if [ -f "verified/$immutable.stapled-app-fallback" ]; then
             stapled=(--stapled-app-fallback "$(cat "verified/$immutable.stapled-app-fallback")")
           fi
-          ./scripts/ci/smoke-dmg.sh "verified/$immutable" "$CHANNEL" --expect-sha256 "$expected" "${stapled[@]}" 3>"$RUNNER_TEMP/tested.line"
-          awk '$1 == "tested" {print $2 "  " $3}' "$RUNNER_TEMP/tested.line" > "tested/tested-${VARIANT}.sha256"
+          ./scripts/ci/verify-dmg-artifact.sh "verified/$immutable" "$CHANNEL" --expect-sha256 "$expected" "${stapled[@]}" 3>"$RUNNER_TEMP/verified.line"
+          awk '$1 == "verified" {print $2 "  " $3}' "$RUNNER_TEMP/verified.line" > "tested/tested-${VARIANT}.sha256"
           test -s "tested/tested-${VARIANT}.sha256"
           cat "tested/tested-${VARIANT}.sha256"
 
       - name: Upload tested digest
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cmux-${{ needs.preflight.outputs.channel }}-launch-tested-${{ matrix.variant }}-${{ needs.preflight.outputs.short_sha }}
+          name: cmux-${{ needs.preflight.outputs.channel }}-verified-${{ matrix.variant }}-${{ needs.preflight.outputs.short_sha }}
           path: tested/tested-${{ matrix.variant }}.sha256
           if-no-files-found: error
           retention-days: 14
@@ -1073,10 +1073,10 @@ jobs:
           path: verified
           merge-multiple: false
 
-      - name: Download tested digests
+      - name: Download verified digests
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          pattern: cmux-${{ needs.preflight.outputs.channel }}-launch-tested-*-${{ needs.preflight.outputs.short_sha }}
+          pattern: cmux-${{ needs.preflight.outputs.channel }}-verified-*-${{ needs.preflight.outputs.short_sha }}
           path: tested
           merge-multiple: true
 
@@ -1109,7 +1109,7 @@ jobs:
             [ "${actual,,}" = "${expected,,}" ] || { echo "$variant stapled DMG SHA-256 mismatch" >&2; exit 1; }
             tested="$(find tested -type f -name "tested-${variant}.sha256" -print -quit)"
             if [ -z "$tested" ] || ! grep -Fxq "$actual  $immutable" "$tested"; then
-              echo "$variant DMG is not the one verify-stapled launched" >&2
+              echo "$variant DMG is not the one verify-stapled verified" >&2
               exit 1
             fi
             cp "$dir/$immutable" "nightly-out/$immutable"
@@ -1380,7 +1380,7 @@ jobs:
       fail-fast: false
       matrix:
         variant: [arm64, x86_64, universal]
-    runs-on: macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     env:
       GH_TOKEN: ${{ github.token }}

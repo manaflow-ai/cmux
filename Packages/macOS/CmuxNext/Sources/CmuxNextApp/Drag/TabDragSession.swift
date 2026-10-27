@@ -4,6 +4,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTabs
 import CmuxNextWakeups
+import CmuxNextCompat
 
 /// One drag, every destination (plans/cmux-next/REWRITE.md "Tab drag").
 ///
@@ -25,7 +26,7 @@ final class TabDragSession: NSObject {
     var drag: Drag?
     /// Ghost of the previous drag still flying home or into its slot.
     var landing: Drag?
-    var resignObserver: (any NSObjectProtocol)?
+    var resignObserver: MainActorObservation?
 
     init(services: AppServices) {
         self.services = services
@@ -99,9 +100,8 @@ final class TabDragSession: NSObject {
         drag.monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp, .leftMouseDown, .keyDown]) { [weak self] event in
             self?.handle(event) ?? event
         }
-        resignObserver = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil,
-                                                                queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.finish(commit: false) } // main-proof: observer on queue: .main
+        resignObserver = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in
+            self?.finish(commit: false)
         }
         self.drag = drag
         focusDragBegan(item, from: pane)
@@ -254,9 +254,9 @@ final class TabDragSession: NSObject {
     func providers(in controller: WindowController, near point: CGPoint, drag: Drag) -> [any TabDropTargetProviding] {
         let adapters = self.adapters(for: controller, drag: drag)
         var list: [any TabDropTargetProviding] = [adapters.sidebar]
-        // The Home Chief pane's strip (a pinned dock that takes no other tab) takes no drop: the
-        // daemon would refuse it (home-chief-pane.md H4).
-        for pane in controller.onScreenContents.flatMap(\.panes.values) where !pane.isPinnedDockPane {
+        // A pinned dock's strip that takes no other tab takes no drop: the daemon would refuse it
+        // (home-chief-pane.md H4). Home's dock takes tabs, so its strip takes drops.
+        for pane in controller.onScreenContents.flatMap(\.panes.values) where !pane.isClosedPinnedDockPane {
             let strip = pane.view.stripView
             guard let window = strip.window, !strip.isHiddenOrHasHiddenAncestor else { continue }
             let frame = window.convertToScreen(strip.convert(strip.bounds, to: nil)).insetBy(dx: 0, dy: -Metrics.space4)

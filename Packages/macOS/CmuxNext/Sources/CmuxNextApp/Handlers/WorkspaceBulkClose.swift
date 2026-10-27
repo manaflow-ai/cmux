@@ -117,7 +117,7 @@ enum WorkspaceBulkClose {
             }
             for group in others { sidebar.handle(.closeGroup(group.id)) }
         } else {
-            close(members)
+            WorkspaceClose.close(members)
         }
         guard invocation.origin == .user, members.count > 1, let window else { return }
         WorkspaceGroupClose.offerUndo("workspaces-closed", closedToast(members.count), groups: groups, after: seen, in: window, services)
@@ -161,15 +161,6 @@ enum WorkspaceBulkClose {
         return (sidebar, groups.filter { $0.id.rawValue != group.id.rawValue })
     }
 
-    /// The one close path for each workspace, on the daemon that owns it.
-    static func close(_ members: [Member]) {
-        for (workspace, daemon) in members {
-            guard let key = workspace.key else { continue }
-            let terminals = WorkspaceClose.closing(workspace, on: daemon)
-            daemon.send("close-workspace") { try await WorkspaceClose.close(key, terminals: terminals, on: $0) }
-        }
-    }
-
     /// The question before a person's run of `id`, or nil to close at once.
     static func prompt(_ id: ActionID, _ invocation: ActionInvocation, _ context: AppActionContext, warn: Bool) async -> DestructiveConfirmation.Prompt? {
         guard let (members, window) = try? plan(id, invocation, context) else { return nil }
@@ -182,7 +173,10 @@ enum WorkspaceBulkClose {
     static func prompt(_ members: [Member], warn: Bool, askWithoutUndo: Bool = false, incognito: Bool = false,
                        title: String? = nil) async -> DestructiveConfirmation.Prompt? {
         var programs: [String] = []
-        if warn { for (workspace, daemon) in members { programs += await DestructiveConfirmation.runningPrograms(in: workspace, on: daemon) } }
+        // Every workspace's terminals are asked at once: each answers within its own short deadline.
+        // task-owner: one process-info lookup per workspace, all awaited right here.
+        let lookups = (warn ? members : []).map { member in Task { @MainActor in await DestructiveConfirmation.runningPrograms(in: member.0, on: member.1) } }
+        for lookup in lookups { programs += await lookup.value }
         guard let first = members.first, !programs.isEmpty || (askWithoutUndo && members.count > 1) else { return nil }
         let count = String(localized: "confirm.closeWorkspaces.title", defaultValue: "Close \(members.count) workspaces?", table: "Handlers", bundle: .module)
         // Incognito workspaces are never saved: nothing brings them back (WindowRegistry).

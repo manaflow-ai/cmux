@@ -12,12 +12,12 @@ final class SectionHeaderRowView: SidebarRowView {
     /// "Update needed" after the status dot, for a machine whose cmux-tui
     /// is too old (the tooltip says why).
     private let badge = SidebarRowView.label(font: SidebarStyle.headerFont)
-    private var badgeText: String?
+    private(set) var badgeText: String?
     private let chevron = DecorativeImageView()
     let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.newWorkspace)
     /// The machine status dot's color, resolved in `updateLayer`.
-    private enum StatusTone { case success, attention, quiet, danger }
-    private var statusTone: StatusTone?
+    enum StatusTone { case success, attention, quiet, danger }
+    private(set) var statusTone: StatusTone?
     private var collapsed = false
     /// No workspaces: nothing to fold, so hover shows no chevron (cx-odqn).
     private var isEmpty = false
@@ -84,7 +84,8 @@ final class SectionHeaderRowView: SidebarRowView {
         case .connected: hostGroup ? Strings.statusConnected : nil
         case .connecting: hostGroup ? Strings.statusConnecting : nil
         case .offline: hostGroup ? Strings.statusOffline : nil
-        case .updateAvailable: Strings.statusUpdateAvailable
+        // Never on the header: an optional update reads as connected (the tooltip says it).
+        case .updateAvailable: hostGroup ? Strings.statusConnected : nil
         case .reconnecting: Strings.statusReconnecting
         case .updateRequired: Strings.statusUpdateRequired
         case .installRequired: Strings.statusInstallRequired
@@ -141,14 +142,17 @@ final class SectionHeaderRowView: SidebarRowView {
             ownIcon = machine.icon
             switch (machine.kind, machine.status) {
             case (.local, .connected): statusTone = nil
-            case (_, .connected), (_, .updateAvailable): statusTone = .success
+            // An optional update is not the sidebar's to say (Lawrence 2026-10-21: "wtf is chief
+            // update available"): the header reads as connected, and the tooltip says it.
+            case (_, .updateAvailable): statusTone = section.isHostGroup ? .success : nil
+            case (_, .connected): statusTone = .success
             case (_, .connecting), (_, .reconnecting), (_, .installing), (_, .installRequired): statusTone = .attention
             case (_, .offline), (_, .paused), (_, .pausedIdle): statusTone = .quiet
             case (_, .updateRequired), (_, .authFailed), (_, .unreachable), (_, .failed): statusTone = .danger
             }
             let words = Self.statusWords(machine.status)
             badgeText = Self.statusText(machine.status, hostGroup: section.isHostGroup)
-            statusTip = Self.statusToolTip(words: words, detail: machine.detail, bareDot: statusTone != nil && badgeText == nil)
+            statusTip = Self.statusToolTip(words: words, detail: machine.detail, bareDot: badgeText == nil && (statusTone != nil || machine.status == .updateAvailable))
             cost = machine.kind == .cloud ? machine.cost : nil
             themedToolTip = Self.machineToolTip(status: statusTip, cost: cost, now: Date())
             setAccessibilityLabel(machine.name + ", " + words)

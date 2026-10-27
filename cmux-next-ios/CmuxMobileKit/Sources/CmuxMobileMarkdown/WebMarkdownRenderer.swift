@@ -238,6 +238,25 @@ final class PooledWebView: UIView, WKNavigationDelegate {
         isReady = false
         webView.reload()
     }
+
+    /// A tapped link never navigates the pooled view (it left the template
+    /// and the cell blank). A web link opens in Safari; a file link opens the
+    /// event, whose chat previews the file.
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
+                 decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
+        guard action.navigationType == .linkActivated, let url = action.request.url else {
+            decisionHandler(.allow)
+            return
+        }
+        decisionHandler(.cancel)
+        // An in-page anchor stays put.
+        if url.fragment != nil, url.path == webView.url?.path, url.scheme == webView.url?.scheme { return }
+        if let scheme = url.scheme?.lowercased(), ["http", "https", "mailto", "tel", "sms", "facetime"].contains(scheme) {
+            UIApplication.shared.open(url)
+        } else {
+            onTap?()
+        }
+    }
 }
 
 /// Breaks the WKUserContentController → handler retain cycle.

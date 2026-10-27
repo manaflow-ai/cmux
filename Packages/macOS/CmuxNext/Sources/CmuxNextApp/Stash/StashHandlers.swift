@@ -13,12 +13,18 @@ import CmuxNextStash
 ///
 /// - Tab rows take browser pages only (a terminal stays open): the tab, or every selected tab
 ///   when it is one of several selected (`actingTabs`); To the Right and Others follow the
-///   strip's order and leave pinned tabs. A tab menu disables them with the reason when no page
-///   of the run qualifies.
+///   strip's order and leave pinned tabs, and Others keeps the selection, as Close Other Tabs
+///   does. A tab menu disables them with the reason when no page of the run qualifies.
 /// - Workspace rows take the right-clicked workspace, or the sidebar selection it is part of
 ///   (`WindowMembershipHandlers.rowTargets`); the group row its workspaces; the window row every
 ///   workspace of the window. The home workspace, incognito workspaces and other machines'
-///   workspaces stay. They ask first only while a terminal in them runs a program, as a close does.
+///   workspaces stay; a row whose workspaces are all another machine's leaves the action out, as
+///   a tab row on another machine's pane does. They ask first only while a terminal in them runs
+///   a program, as a close does.
+///   A workspace's remote-terminal tabs let go of their surfaces here (`RemoteTerminalService.stashed`)
+///   but, unlike a close (`WorkspaceClose.willClose`), keep their terminals kept on the other
+///   machine: Restore reopens each tab on the same terminal from the stash's record. Deleting the
+///   stash does not release those terminals yet (#24192).
 @MainActor
 enum StashHandlers {
     /// The tabs a tab row's Save and Close takes, seen from its tab.
@@ -55,8 +61,17 @@ enum StashHandlers {
                 guard !ids.isEmpty else { throw ActionFailure.invalidTarget(StashHandlerStrings.noWorkspace) }
                 // The window that keeps a workspace shows the toast; none when every window closes.
                 let window = WorkspaceBulkClose.survivor(closing: members.map(\.0.id), context)
-                save(invocation, services, workspaces: true, toastIn: window) { try await stash.stash(workspaces: ids, name: name) }
+                let remoteTabs = members.flatMap { RemoteTerminalService.remoteTabIDs(in: $0.0) }
+                save(invocation, services, workspaces: true, toastIn: window) { [weak services] in
+                    let stashID = try await stash.stash(workspaces: ids, name: name)
+                    services?.remoteTerminals.stashed(remoteTabs)
+                    return stashID
+                }
             })
+            ActionTargetVisibility.hide(id, in: registry) { invocation in
+                guard let ids = try? workspaceIDs(id, invocation, context), !ids.isEmpty else { return false }
+                return ids.allSatisfy { services.machines.workspace(id: $0).map { !$0.1.isLocal } ?? false }
+            }
         }
         registry.bind("stash.show", unavailable: { stash.unavailableReason() }, run: { invocation in
             _ = try show(services, focus: invocation.allowsViewChange)
@@ -106,7 +121,10 @@ enum StashHandlers {
             let index = strip.firstIndex { $0 === tab } ?? strip.count
             picked = strip.dropFirst(index + 1).filter { !$0.pinned }
         case .others:
-            picked = strip.filter { $0 !== tab && !$0.pinned }
+            picked = controller.map { controller in
+                let keep = context.actingTabs(invocation, controller, StripTabID(tab.id))
+                return controller.stripModel.closedByCloseOthers(keepingAll: keep).compactMap { controller.tab($0) }
+            } ?? strip.filter { $0 !== tab && !$0.pinned }
         }
         return picked.filter(isPage)
     }
@@ -123,25 +141,29 @@ enum StashHandlers {
     static func workspaces(_ id: ActionID, _ invocation: ActionInvocation,
                            _ context: AppActionContext) throws -> ([WorkspaceBulkClose.Member], String?) {
         let windows = context.services.windows
-        let ids: [String]
-        var name: String?
-        switch id {
-        case "workspaceGroup.stash":
-            let group = try context.group(invocation)
-            ids = try WindowMembershipHandlers.groupMembers(invocation, context)
-            name = group.name.isEmpty ? nil : group.name
-        case "window.stash":
-            // A row's menu takes the window that lists the row.
-            let owner = invocation.target.flatMap { $0.kind == .workspace ? windows.registry.value.owner(of: $0.id) : nil }
-            ids = try windows.registry.members(of: owner ?? context.window(invocation).state.id)
-        default:
-            ids = try WindowMembershipHandlers.rowTargets(invocation, context).map(\.id)
-        }
+        let ids = try workspaceIDs(id, invocation, context)
+        let group = try id == "workspaceGroup.stash" ? context.group(invocation).name : ""
         let members = ids.compactMap { context.services.machines.workspace(id: $0) }.filter { workspace, daemon in
             daemon.isLocal && workspace.key != nil && !HomeRules.isHome(workspace) && !workspace.ephemeral
                 && !windows.isIncognito(workspace: workspace.id)
         }
-        return (members, name)
+        return (members, group.isEmpty ? nil : group)
+    }
+
+    /// Every workspace a workspace row's `id` names, before ``workspaces(_:_:_:)`` leaves out
+    /// those that cannot go.
+    static func workspaceIDs(_ id: ActionID, _ invocation: ActionInvocation, _ context: AppActionContext) throws -> [String] {
+        let windows = context.services.windows
+        switch id {
+        case "workspaceGroup.stash":
+            return try WindowMembershipHandlers.groupMembers(invocation, context)
+        case "window.stash":
+            // A row's menu takes the window that lists the row.
+            let owner = invocation.target.flatMap { $0.kind == .workspace ? windows.registry.value.owner(of: $0.id) : nil }
+            return try windows.registry.members(of: owner ?? context.window(invocation).state.id)
+        default:
+            return try WindowMembershipHandlers.rowTargets(invocation, context).map(\.id)
+        }
     }
 
     /// The question before a person's run of a workspace row: only while a terminal in its

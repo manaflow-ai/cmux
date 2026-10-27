@@ -40,10 +40,13 @@ import Foundation
         // presets read its Chief home from the daemon's own environment (chief_builtins.rs).
         let chief = ChiefHome.resolve(tag: build?.tag, environment: environment)
         let chiefMuxHome = chief.usesAppAcpmux ? chief.muxHome.path : nil
+        // A DEV build with `CMUX_NEXT_ACPMUX_ATTACH` reads that home's daemon; its host never starts,
+        // upgrades or hands that daemon off (``AcpmuxEnvironment/isAttached``).
+        let attach = AcpmuxEnvironment.attachHome(build: build, environment: environment)
         let resolve: @Sendable () -> AcpmuxEnvironment? = {
             AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin, environment: environment,
-                                      launchEnvironment: launch.terminalEnvironment).map {
-                var resolved = $0
+                                      launchEnvironment: launch.terminalEnvironment).map { own in
+                var resolved = attach.map { own.attached(to: $0) } ?? own
                 resolved.childEnvironment.merge(upstreamEnvironment) { $1 }
                 if let chiefMuxHome { resolved.childEnvironment[AcpmuxEnvironment.chiefMuxHomeKey] = chiefMuxHome }
                 return resolved

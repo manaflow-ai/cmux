@@ -20,6 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/cmux-next-dev-daily-dispatch.yml"
+PUBLISH_WORKFLOW = ROOT / ".github/workflows/cmux-next-dev-daily.yml"
 TIP = "f" * 40
 
 failures = []
@@ -39,14 +40,63 @@ check("name: cmux-next-dev-handoff-${{ inputs.dev_daily_sha }}" in source_workfl
       "the source handoff must retain an exact-SHA receipt artifact")
 check('"queue_ms"' in source_workflow and '"runner_labels"' in source_workflow,
       "the handoff receipt must include queue and runner evidence")
+handoff_job = re.search(r"^  request-cmux-next-dev-publish:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n)",
+                        source_workflow, re.MULTILINE | re.DOTALL)
+handoff_body = handoff_job.group(1) if handoff_job else ""
+# The shared GITHUB_TOKEN budget was spent when every DEV compile finished on
+# 2026-10-26, so the handoff failed and the dispatcher published 12-46 minutes
+# later. The App token has its own budget; GITHUB_TOKEN waits through a limit.
+check("private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}" in handoff_body
+      and "permission-actions: write" in handoff_body,
+      "the handoff must dispatch with the manaflow-glaeda-route App token, not only the shared GITHUB_TOKEN")
+app_step = re.search(r"- name: Dispatch the exact source run to the publisher\n(.*?)\n        run:", handoff_body, re.DOTALL)
+check(bool(app_step) and "GH_TOKEN: ${{ steps.handoff-token.outputs.token }}" in app_step.group(1)
+      and "continue-on-error: true" in app_step.group(1),
+      "the handoff must try the App token first, and its failure must fall through to GITHUB_TOKEN")
+fallback = re.search(r"- name: Dispatch with GITHUB_TOKEN, waiting through a rate limit\n(.*?)(?=\n      - name: |\Z)",
+                     handoff_body, re.DOTALL)
+fallback_text = fallback.group(1) if fallback else ""
+check("if: steps.app-dispatch.outcome != 'success'" in fallback_text
+      and "rate limit exceeded" in fallback_text and 'sleep "$wait"' in fallback_text,
+      "the GITHUB_TOKEN fallback must wait through a rate limit instead of failing")
+check("handoff-token" not in fallback_text,
+      "the GITHUB_TOKEN fallback step must not hold the App token")
+receipt_step = re.search(r"- name: Record source queue and handoff receipt\n(.*?)\n        run:", handoff_body, re.DOTALL)
+check(bool(receipt_step) and "continue-on-error: true" in receipt_step.group(1),
+      "a refused receipt read must not stop the dispatch")
+handoff = re.search(r"^  request-cmux-next-dev-publish:\n    needs: cmux-scheme-compile\n    if: (.*)$",
+                    source_workflow, re.MULTILINE)
+handoff_if = handoff.group(1) if handoff else ""
+check(handoff_if.startswith("${{ !cancelled() && "),
+      "the handoff must not inherit success() over the skipped jobs upstream of the DEV compile "
+      "(it was skipped on every run until 2026-10-24)")
+check("needs.cmux-scheme-compile.result == 'success'" in handoff_if,
+      "the handoff must still require the DEV Release compile to succeed")
+check("(inputs.same_tree_sha == '' || inputs.same_tree_sha == github.sha)" in handoff_if,
+      "a same-tree DEV run whose head moved must not be handed over (the publisher rejects it)")
 text = WORKFLOW.read_text()
 schedule = re.findall(r'^    - cron: "([^"]+)"$', text, re.MULTILINE)
-check(schedule == ["7,22,37,52 * * * *"],
-      f"the dev dispatcher must run every 15 minutes off the hour, got {schedule}")
+check(schedule == ["2-59/5 * * * *"],
+      f"the dev dispatcher must run every five minutes, got {schedule}")
 check("run.head_sha === sha" in text and "activeOrSucceeded" in text,
       "the exact-SHA dedupe guard must remain in the dispatcher")
 check("run.conclusion === 'success'" in text and "run.status" in text,
       "a skipped or failed publisher run must not suppress a retry")
+publish_text = PUBLISH_WORKFLOW.read_text()
+verify = re.search(r"^  verify:\n(.*?)(?=^  publish:\n)", publish_text, re.MULTILINE | re.DOTALL)
+verify_text = verify.group(1) if verify else ""
+check("needs: [sign, runner]" in verify_text,
+      "DEV verify must wait for the owned-Mac placement job")
+check("needs.runner.outputs.label" in verify_text and "blacksmith-6vcpu-macos-26" in verify_text,
+      "DEV verify must prefer the picked owned Mac and retain a Blacksmith fallback")
+check("workflow_run:" not in publish_text,
+      "the publisher must be dispatch-only; unrelated cmux-next completions are not DEV artifacts")
+check("SOURCE_RUN_ID: ${{ inputs.source_run_id }}" in publish_text,
+      "the publisher must resolve the exact dispatched source run")
+check("finishedRuns.slice(0, 10)" not in text,
+      "the dispatcher must not hide an older app behind ten failed source runs")
+check("has no current Release app artifact; retry the handoff" in publish_text,
+      "a missing source artifact must fail publication so the dispatcher retries")
 
 
 def script_body():

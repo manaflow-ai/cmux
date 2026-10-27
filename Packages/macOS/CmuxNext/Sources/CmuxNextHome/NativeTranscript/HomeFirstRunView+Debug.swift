@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 
 /// DEBUG: the `home-chief` capture scene reads the listed agents and clicks one.
@@ -7,6 +7,19 @@ extension HomeFirstRunView {
     /// the rows that do not fit its height.
     var debugAgents: [HomeDebugAgentRow] {
         zip(agents, agentRows).map { HomeDebugAgentRow(id: $0.id, title: $0.title, status: $0.status, shown: !$1.isHidden) }
+    }
+
+    /// The bottom edge of the lowest part the panel shows, in its own
+    /// coordinates; nil when it shows none (`home-chief-long-draft`).
+    var debugShownBottom: CGFloat? {
+        ([hero, switchCard, agentsHeader] + rows).filter { !$0.isHiddenOrHasHiddenAncestor }
+            .map { convert($0.bounds, from: $0).maxY }.max()
+    }
+
+    /// Which of the hero, the Switching card and the action rows show.
+    var debugShownParts: [String: Bool] {
+        ["hero": !hero.isHiddenOrHasHiddenAncestor, "switch_card": !switchCard.isHiddenOrHasHiddenAncestor,
+         "action_rows": actionRows.contains { !$0.isHiddenOrHasHiddenAncestor }]
     }
 
     /// Clicks agent row `index`: a mouse down and up at its centre sent

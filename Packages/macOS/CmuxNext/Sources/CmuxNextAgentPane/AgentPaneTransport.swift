@@ -71,6 +71,8 @@ import CmuxNextCompat
     /// that machine's, so this Mac's folder rule does not read them (that machine's acpmux checks
     /// its own folder trust, cx-k21v).
     private(set) var remoteWire = false
+    /// The current remote chat's host reader, installed from the same wire that carries its ACP.
+    var remoteImageLoader: (@Sendable (String) async throws -> Data)?
     /// A `session/new` took the person's send gesture: the first `session/prompt` on that
     /// connection goes with it within ``startCreditLifetime``. On another machine the start needs
     /// that gesture; on this Mac it needs none but carries one it finds.
@@ -98,6 +100,9 @@ import CmuxNextCompat
     /// The workspace's agent-home folder: a root once it exists, and the cwd of a `session/new`
     /// that names none when there is no ``primaryRoot`` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
     public var agentHome: @MainActor () -> AgentHomeFill? = { nil }
+    /// The pane's cmux workspace key on this Mac's daemon, stamped on each local `session/new`
+    /// (``AcpmuxPathPolicy/Scope/workspaceID``); nil for none or a workspace of another machine.
+    public var workspaceID: @MainActor () -> String? = { nil }
     /// The user's home folder: never a root or a filled cwd unless the user added it
     /// (``addedRoots``), so an inherited or default `~` never opens the whole home folder.
     public var homeFolder: String? = NSHomeDirectory()
@@ -149,6 +154,18 @@ import CmuxNextCompat
         throw AcpmuxStatusClient.Failure.closed
     }
 
+    /// Sends the pane's reply in place on as its chat's cmux agent message (``AgentPaneAgentReply``),
+    /// for a chat on this Mac only; nil refuses every reply. The App wires it to this Mac's daemon.
+    public var sendAgentReply: AgentPaneAgentReply.Send?
+    /// What the socket calls: the ``sendAgentReply`` set now, not the one set when it opened. A
+    /// prewarmed spare opens before its tab wires it, and a provisional tab's rekey rewires it.
+    private var currentAgentReply: AgentPaneAgentReply.Send {
+        { [weak self] reply in
+            guard let send = self?.sendAgentReply else { throw AgentPaneAgentReply.Failure.unavailable }
+            return try await send(reply)
+        }
+    }
+
     /// Keeps the prompts acpmux has not acknowledged across the app's end (``AgentPanePromptJournal``).
     public var promptJournal: AgentPanePromptJournal? = AgentPanePromptJournal.shared
     var promptRelay: AgentPanePromptRelay?
@@ -192,6 +209,12 @@ import CmuxNextCompat
         socketPath = connection.socketPath
         remoteApprovals = connection.remote?.approvals
         remoteWire = connection.remote != nil
+        let wire = connection.remote?.makeWire()
+        if let wire {
+            remoteImageLoader = { path in try await wire.loadRemoteImage(path) }
+        } else {
+            remoteImageLoader = nil
+        }
         if !remoteWire { remoteHomeChosen = [] }
         startCredit.clear()
         pickCredit.clear()
@@ -200,8 +223,9 @@ import CmuxNextCompat
         promptRelay = AgentPanePromptRelay(connection, journal: promptJournal)
         let ids = AcpmuxRequestIds(promptAccepted: promptRelay?.forget)
         requestIds = ids
-        let socket = AcpmuxPaneSocket(request: connection.request, wire: connection.remote?.makeWire(), limits: limits,
-                                      options: permissionOptions, sessions: sessions, decisions: decisions, ids: ids) { [weak self] in
+        let socket = AcpmuxPaneSocket(request: connection.request, wire: wire, limits: limits,
+                                      options: permissionOptions, sessions: sessions, decisions: decisions, ids: ids,
+                                      agentReplies: connection.remote == nil ? currentAgentReply : nil) { [weak self] in
             // task-owner: one wake for the pacer; arrived(_:) ignores a stale connection
             Task { @MainActor [weak self] in self?.arrived(id) }
         }
@@ -278,6 +302,8 @@ import CmuxNextCompat
     /// `transport.gesture`: reserves the current gesture for one pick sent later on this connection.
     public func reserveGesture(_ intent: AgentPaneGestureIntent) -> String? {
         guard socket != nil else { return nil }
+        // A send ticket bound to a chat only for a chat of this pane.
+        if let session = intent.sessionId, !sessions.contains(session) { return nil }
         // cx-0q7o: a permission answer's ticket only for a prompt of this pane's session that the
         // pane was shown, only for an option that prompt offers as an allow, and only right after
         // the person's own click (cx-ocdz: a posted click or a keystroke's gesture never answers).
@@ -296,11 +322,19 @@ import CmuxNextCompat
         return gestures.reserve(connection: current, intent: intent)
     }
 
+    /// `uploads.begin {sessionId, promptId, ticket}`: the upload `upload` of the person's send holds
+    /// its send ticket (``AgentPaneUserGestures/holdForUpload(_:upload:connection:sessionId:promptId:)``)
+    /// on this connection, for a chat of this pane. False refuses the upload (`transport.gesture_required`).
+    public func holdSendTicket(_ ticket: String, upload: String, sessionId: String, promptId: String) -> Bool {
+        guard socket != nil, sessions.contains(sessionId) else { return false }
+        return gestures.holdForUpload(ticket, upload: upload, connection: current, sessionId: sessionId, promptId: promptId)
+    }
+
     /// Closes the connection if it is the current one.
     public func close(connection id: Int) {
         guard id == current, let socket else { return }
         socket.close(code: 1000, reason: "", error: nil)
-        self.socket = nil
+        gestures.clearTickets(connection: id)
         localAppToken = nil
         promptRelay?.ended(byDaemon: false)
     }
@@ -320,9 +354,13 @@ import CmuxNextCompat
         let event = AgentPaneTransportEvent(connection: current, frames: batch.frames, closed: batch.closed)
         if batch.closed != nil {
             self.socket = nil
+            gestures.clearTickets(connection: current)
             localAppToken = nil
-            promptRelay?.ended(byDaemon: deliver != nil)
-            Self.logger.info("agent pane transport closed connection=\(self.current, privacy: .public) code=\(batch.closed?.code ?? 0, privacy: .public) error=\(batch.closed?.error?.rawValue ?? "-", privacy: .public)")
+            // A connection the daemon closed: the page was told, so its prompts are the page's again
+            // (Retry), unless Debug Settings agentPane.debug.lostPromptReplay sends them again.
+            promptRelay?.ended(byDaemon: deliver != nil && !AgentPaneTunables.lostPromptReplay.value)
+            // Kept in the log (notice, not info): the page's "connection interrupted" needs its reason.
+            Self.logger.notice("agent pane transport closed connection=\(self.current, privacy: .public) code=\(batch.closed?.code ?? 0, privacy: .public) error=\(batch.closed?.error?.rawValue ?? "-", privacy: .public)")
         }
         let more = batch.more && self.socket != nil
         guard let deliver else { return AgentPaneFlush(delivered: false, more: more) }

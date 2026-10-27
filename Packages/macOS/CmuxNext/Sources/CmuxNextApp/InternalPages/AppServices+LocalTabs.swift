@@ -15,7 +15,8 @@ extension AppServices {
     /// Page tabs as the control snapshot lists them (bd cx-5xsi).
     var controlPageFacts: ControlPageFacts {
         ControlPageFacts(appOnlyTabs: { [weak self] pane in self?.controlPageTabs(of: pane) ?? [] },
-                         title: { [weak self] tab in self?.pages.storeTabItem(tab)?.title })
+                         title: { [weak self] tab in self?.pages.storeTabItem(tab)?.title },
+                         mirroredTabs: { [weak self] pane in self?.tabMirrors[pane.id] ?? [] })
     }
 
     /// `pane`'s app-only page tabs as the control snapshot lists them, the

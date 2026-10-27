@@ -66,6 +66,18 @@ class ResumeTests(unittest.TestCase):
         self.assertEqual(receipt["build_sha"], self.sha)
         self.assertEqual(len(receipt["artifacts"]), 5)
 
+    def test_a_helper_the_resolver_reused_is_its_producer(self):
+        helper = next(a for a in self.artifacts if a["name"] == "cmux-nightly-ghostty-cli-helper")
+        helper["created_at"] = "2026-10-16T00:00:30Z"
+        with self.assertRaises(SystemExit):
+            self.receipt()
+        self.jobs.append({"name": resume.HELPER_RESOLVER, "run_attempt": 1, "conclusion": "success",
+                          "started_at": "2026-10-16T00:00:00Z", "completed_at": "2026-10-16T00:00:45Z"})
+        self.assertEqual(self.receipt()["artifacts"]["cmux-nightly-ghostty-cli-helper"], helper)
+        self.jobs[-1]["run_attempt"] = 2
+        with self.assertRaises(SystemExit):
+            self.receipt()
+
     def test_each_untrusted_or_incomplete_source_is_rejected(self):
         for field, value in (("event", "pull_request"), ("head_branch", "feature"), ("run_attempt", 2),
                              ("path", ".github/workflows/evil.yml"), ("status", "in_progress"),
@@ -173,10 +185,10 @@ class WorkflowRoutingTests(unittest.TestCase):
         return bool(self.evaluate(step.get("if", "true"), resuming))
 
     def test_only_restore_workloads_take_linux_and_fresh_builds_keep_macos(self):
-        for name, native_runner in (("build-nightly-app", "macos-26"),
-                                    ("build-nightly-ghostty-cli-helper", "macos-15")):
+        for name, native_runner, resume_runner in (("build-nightly-app", "blacksmith-6vcpu-macos-26", "blacksmith-4vcpu-ubuntu-2404"),
+                                                   ("build-nightly-ghostty-cli-helper", "blacksmith-6vcpu-macos-26", "ubuntu-24.04")):
             with self.subTest(name=name):
-                self.assertEqual(self.evaluate(self.jobs[name]["runs-on"], True), "ubuntu-24.04")
+                self.assertEqual(self.evaluate(self.jobs[name]["runs-on"], True), resume_runner)
                 self.assertEqual(self.evaluate(self.jobs[name]["runs-on"], False), native_runner)
 
     def test_resume_selects_restore_and_zero_native_or_cache_work(self):

@@ -167,6 +167,7 @@ fn workspaces_refusing(
         host_name: "cmux-lawrence".into(),
         harness: Some("claude-sr".into()),
         personal: capabilities_personal,
+        fallback: None,
     };
     (w, requests, dir)
 }
@@ -438,4 +439,59 @@ fn in_the_users_session_a_subagent_workspace_joins_a_personal_group() {
         .cloned()
         .collect();
     assert_eq!(placed[0]["params"]["group"], "grp_new");
+}
+
+/// a622-a627 (Oct 23) and 25 more: create-workspace succeeded, create-terminal
+/// failed ("failed to spawn PTY command ... os error 2"), and the workspace stayed:
+/// an empty sidebar row with no chat, never cleaned up. A failed open closes the
+/// workspace it made.
+#[test]
+fn a_workspace_whose_terminal_fails_is_closed_not_left_empty() {
+    let (w, requests, _dir) = workspaces_refusing(GROUPED.to_vec(), vec!["create-terminal"]);
+    let key = optchat_chief::workspaces::new_key();
+    let err = w
+        .open(&key, "sess-1", "a1 · x", "Chief agents", Path::new("/tmp"))
+        .unwrap_err();
+    assert!(err.contains("create-terminal"), "{err}");
+    let closed = commands(&requests, "close-workspace");
+    assert_eq!(
+        closed.len(),
+        1,
+        "the half-made workspace is closed: {closed:?}"
+    );
+    assert_eq!(closed[0]["key"], key.as_str());
+}
+
+#[test]
+fn with_no_app_behind_its_link_a_subagent_workspace_goes_to_the_hosts_own_daemon() {
+    // A scratch Chief the `cmux chief` CLI started (Oct 25): the host gets the app links
+    // (`state/app-daemon.sock`), but no cmux app opened this home, so the link dangles. Every
+    // spawn answered "the session daemon: cannot connect to cmux session"; the workspace must
+    // go to the host's own session daemon instead.
+    let (owner, requests, dir) = workspaces(vec![
+        "workspace-registry-v1",
+        "conversation-tabs-v1",
+        "agent-session-tabs-v1",
+    ]);
+    std::fs::create_dir_all(dir.path().join("state")).unwrap();
+    let link = dir.path().join("state/app-daemon.sock");
+    std::os::unix::fs::symlink(dir.path().join("gone/daemon.sock"), &link).unwrap();
+    let w = DaemonWorkspaces {
+        daemon: link,
+        host: "chief:0123abcd".into(),
+        host_name: "cmux-lawrence".into(),
+        harness: Some("claude".into()),
+        personal: true,
+        fallback: Some(owner.daemon.clone()),
+    };
+    let key = open(&w).expect("the workspace is made on the host's own daemon");
+    let created = commands(&requests, "create-workspace");
+    assert_eq!(created.len(), 1, "made on the owner daemon");
+    assert_eq!(created[0]["key"], key.as_str());
+    assert_eq!(commands(&requests, "new-conversation-tab").len(), 1);
+    let place = w.place();
+    assert!(
+        !place.contains("beside your own workspaces"),
+        "the answer must not claim the user's session: {place}"
+    );
 }

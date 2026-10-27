@@ -21,6 +21,13 @@ pub(super) struct OpenWork {
     /// `turn_started` without `turn_result`: (seq, turnId, promptId, prompt,
     /// client, control; a Web steer's `turn_control` raises it).
     turn: Option<(u64, String, String, String, String, Control)>,
+    /// When that turn started and when its model last showed a sign of work
+    /// (`tap.rs` `logged_from_the_model`; 0 for none), Unix ms: the
+    /// recovered turn keeps its age and its stalled count (`stalled_turn.rs`).
+    turn_at: u64,
+    heard_at: u64,
+    /// That turn's tool calls with no end logged (`stalled_turn.rs`).
+    open_tools: std::collections::HashSet<String>,
     /// The `session/prompt` request id written to this host for that turn,
     /// and its answer when it is already logged.
     prompt_request: Option<Value>,
@@ -49,6 +56,9 @@ pub(super) struct OpenWork {
     /// A remote chain's Claude Code session whose current host has no
     /// passed sandbox canary just before it started (`remote_sandbox.rs`).
     unsandboxed: bool,
+    /// What that turn does, from its logged updates under this incarnation: its tool calls in
+    /// flight, its latest tool and its plan step (`hub/activity.rs`).
+    doing: super::activity::TurnActivity,
 }
 
 impl Hub {
@@ -407,7 +417,14 @@ impl Hub {
         let remote_claude = self.remote_claude(session);
         work.unsandboxed = remote_claude;
         let mut canary_passed = false;
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+        // Which logged updates are a subagent's, as the tap tells them live: by the subagents
+        // the log itself started, never by an update's own `_meta`.
+        let mut subagents = crate::subagents::SubagentTree::default();
+        subagents.set_own(session.meta().agent_session_id.as_deref());
+        let _ = self.store.scan(&session.id, 0, &mut |mut e: EventRecord| {
+            let subagents_own = e.dir == "in"
+                && e.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
+                && e.msg.get_mut("params").is_some_and(|p| subagents.annotate(p).is_some());
             if e.dir == "mux" {
                 let text = |k: &str| e.msg.get(k).and_then(Value::as_str).map(str::to_owned);
                 match e.kind.as_str() {
@@ -467,6 +484,7 @@ impl Hub {
                     work.prompt_response = None;
                     work.steers.clear();
                     work.last_host_seq = 0;
+                    work.doing = Default::default();
                 }
                 ("mux", "turn_started") => {
                     let field = |k: &str| {
@@ -480,9 +498,13 @@ impl Hub {
                         field("client"),
                         Control::from_recorded(e.msg.get("control").and_then(Value::as_str)),
                     ));
+                    work.turn_at = e.at;
+                    work.heard_at = 0;
+                    work.open_tools.clear();
                     work.prompt_request = None;
                     work.prompt_response = None;
                     work.steers.clear();
+                    work.doing = Default::default();
                 }
                 ("mux", "turn_control") => {
                     if let Some(t) = work.turn.as_mut()
@@ -496,6 +518,13 @@ impl Hub {
                     work.prompt_request = None;
                     work.prompt_response = None;
                     work.steers.clear();
+                    work.doing = Default::default();
+                }
+                // A subagent's updates are not the turn's own (`permissions.rs` `on_update`).
+                ("in", "tool_call" | "tool_call_update" | "plan")
+                    if current && work.turn.is_some() && !subagents_own =>
+                {
+                    work.doing.note(&e.msg["params"]["update"]);
                 }
                 ("mux", "permission_request") if current => {
                     if let (Some(pid), Some(aid)) = (
@@ -558,6 +587,12 @@ impl Hub {
             if current && let Some(h) = e.host_seq {
                 work.last_host_seq = work.last_host_seq.max(h);
             }
+            if work.turn.is_some() && super::tap::logged_from_the_model(&e) {
+                work.heard_at = e.at;
+                if let Some(update) = e.msg.pointer("/params/update") {
+                    super::stalled_turn::track_tool(&mut work.open_tools, update);
+                }
+            }
             true
         });
         work.requests = requests
@@ -607,8 +642,12 @@ impl Hub {
                     self.save_meta(session);
                 }
                 (Some(request_id), answer) => {
+                    // Before anything can force its end (`turn_answer`).
+                    let ended = session.steer_end.subscribe();
+                    // Its start as logged: a restart does not make it new.
+                    let started_at = if work.turn_at > 0 { work.turn_at } else { now_ms() };
                     *session.turn.lock().unwrap() = Some(TurnInfo {
-                        started_at: now_ms(),
+                        started_at,
                         client,
                         masked_preview: crate::secret_scan::mask(&prompt),
                         prompt_preview: prompt,
@@ -617,7 +656,7 @@ impl Hub {
                         turn_seq,
                         // Who prompted (`turn_started`); an older record without it is Web.
                         control,
-                        doing: Default::default(),
+                        doing: work.doing.clone(),
                     });
                     session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
                     // A Web turn in flight in an agent the sandbox did not
@@ -625,6 +664,14 @@ impl Hub {
                     if control == Control::Web && session.floor.unsandboxed.load(Ordering::SeqCst) {
                         self.remote_floor_cancel(session, "remote.unsandboxed_agent");
                     }
+                    // Nor one in a mode only a machine's Full-access setting allows: which
+                    // machine sent it is not kept across a restart (`full_access_hold`).
+                    if self.full_access_hold(&session.meta(), control, None).is_err() {
+                        self.remote_floor_cancel(session, "remote.full_access_ended");
+                    }
+                    *session.open_tools.lock().unwrap_or_else(|e| e.into_inner()) =
+                        work.open_tools.clone();
+                    self.watch_stalled_turn(session, Some(work.heard_at.max(started_at)));
                     self.set_status(session, SessionStatus::Running);
                     // The answer is either logged already, or still to come
                     // (`await_response` also takes one that arrived first).
@@ -649,7 +696,9 @@ impl Hub {
                         let guard = s.turn_lock.lock().await;
                         let result = match (answer, rx) {
                             (Some(msg), _) => response_result(&msg),
-                            (None, Some(rx)) => turn_answer(rx, steer_answers).await,
+                            (None, Some(rx)) => {
+                                turn_answer(rx, steer_answers, ended, &turn_id).await
+                            }
                             (None, None) => Err(RpcError::internal("agent answer lost")),
                         };
                         let _ = hub
@@ -729,7 +778,10 @@ impl Hub {
     ) {
         // A record from a daemon without question normalization gets it here,
         // so its answers are checked like a new ask's.
-        super::questions::normalize(&mut request);
+        super::questions::normalize(&mut request, Self::preview_format(session));
+        // The display line is acpmux's own, worked out again (`permissions/display.rs`): never
+        // one the record held.
+        self.stamp_permission_display(session, &mut request);
         let (tx, rx) = oneshot::channel();
         let decision_nonce = super::person::new_nonce();
         session.permissions.lock().unwrap().pending.insert(
@@ -793,11 +845,16 @@ fn steer_answer_ends_turn(msg: &Value) -> bool {
     msg.pointer("/result/stopReason").and_then(Value::as_str).is_some_and(|r| r != "steered")
 }
 
-/// The answer that settles a recovered turn: its own prompt's, or the first
-/// steer answer that ends the turn (`steered` answers do not).
+/// The answer that settles a recovered turn: its own prompt's, the first
+/// steer answer that ends the turn (`steered` answers do not), or the end
+/// acpmux forces on turn `turn_id` (`ended`: Stop past its grace, `cancel.rs`;
+/// a stalled turn, `stalled_turn.rs`). Without that last one Stop never ended
+/// a turn an adopted host ran whose agent did not answer the cancel.
 async fn turn_answer(
     own: tokio::sync::oneshot::Receiver<Result<Value, RpcError>>,
     steers: Vec<tokio::sync::oneshot::Receiver<Result<Value, RpcError>>>,
+    mut ended: tokio::sync::watch::Receiver<Option<(String, Value)>>,
+    turn_id: &str,
 ) -> Result<Value, RpcError> {
     use futures::StreamExt;
     let mut ending = steers
@@ -812,9 +869,24 @@ async fn turn_answer(
         })
         .collect::<futures::stream::FuturesUnordered<_>>()
         .filter_map(std::future::ready);
+    // acpmux ended this turn itself: Stop past its grace, or a stalled turn.
+    // The end may have come already, before this task ran.
+    let forced = async {
+        loop {
+            if let Some((turn, answer)) = ended.borrow_and_update().clone()
+                && turn == turn_id
+            {
+                return answer;
+            }
+            if ended.changed().await.is_err() {
+                return std::future::pending().await;
+            }
+        }
+    };
     tokio::select! {
         r = own => r.unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped"))),
         Some(r) = ending.next() => r,
+        answer = forced => Ok(answer),
     }
 }
 
@@ -895,6 +967,7 @@ impl Hub {
             Some((&session.id, &meta.name)),
         )
         .map_err(internal)?;
+        self.record_preview_format(session, crate::agent::pinned_preview_format(&cmd));
         let std_cmd = cmd.as_std();
         let hosts = crate::agent_host::hosts_dir();
         let spec = crate::agent_host::SpawnSpec {
@@ -913,16 +986,16 @@ impl Hub {
             hosts_dir: hosts,
             buffer_cap: crate::agent_host::DEFAULT_BUFFER_CAP,
             router_owner_fifo: crate::daemon::router_owner_path(),
+            cwd_pin: crate::cwd_pin::CwdPin::current(),
         };
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
         let first = match self.start_hosted(session, meta, &launcher, &spec, tap.clone()).await {
             Ok(child) => return Ok(child),
             Err(e) => e,
         };
-        // A host that started but did not answer (a wedged or dead host:
-        // its hello missed `link::connect`'s budget) is ended and one fresh
-        // host takes its place, once. A remote-origin chain is not started
-        // again: its sandbox canary proves only the start it preceded.
+        // A host that started but did not answer (a wedged or dead host: its hello missed the
+        // `link::connect` budget) is ended and one fresh host takes its place, once; never for a
+        // remote-origin chain, whose sandbox canary proves only the start it preceded.
         let Some(failed) = first.started else { return Err(internal(first.error)) };
         let ended = self.end_unanswered_host(session, &failed, &first.error).await;
         if !ended || meta.remote_origin {
@@ -953,7 +1026,7 @@ impl Hub {
         spec: &crate::agent_host::SpawnSpec,
         tap: crate::agent::Tap,
     ) -> Result<Arc<ChildAgent>, HostStartFailed> {
-        let record = crate::agent_host::link::spawn(launcher, spec)
+        let record = crate::agent_host::program_wait::spawn(launcher, spec)
             .await
             .map_err(|error| HostStartFailed { error, started: None })?;
         self.forget_adopted_caller(&session.id);

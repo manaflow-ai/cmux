@@ -252,7 +252,7 @@ impl App {
 
     pub(crate) fn use_terminal_cursor_spec(
         &mut self,
-        color: Rgb,
+        color: Option<Rgb>,
         shape: CursorShape,
         blinking: bool,
     ) {

@@ -1,3 +1,4 @@
+public import CmuxNextDesignTokens
 /// What one pane draws for its background, from one pure resolver
 /// (plans/cmux-next/pane-backgrounds-DESIGN.md): its own copy of the art, a plain cover over the
 /// window's art, and a marker tint. ``none`` (the common case) means the pane draws nothing and

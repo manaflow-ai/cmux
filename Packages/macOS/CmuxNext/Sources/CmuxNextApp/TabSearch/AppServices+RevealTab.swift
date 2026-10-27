@@ -1,4 +1,6 @@
 import AppKit
+import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -39,5 +41,24 @@ extension AppServices {
             }
         }
         return nil
+    }
+}
+
+extension AppServices {
+    /// Shows the tab that already shows agent session `session` of `harness` (`claude`, `codex`):
+    /// the agent chat resuming it, else a live terminal running it (``DeepLink/agentTabs``).
+    /// False when no tab shows it; nothing starts, resumes or attaches.
+    func revealAgentSession(harness: String, session: String, intent: WindowActivation.Intent = .raise) -> Bool {
+        revealedAgentSessionTab(harness: harness, session: session, intent: intent) != nil
+    }
+
+    /// ``revealAgentSession(harness:session:intent:)``, returning the tab it showed and whether that
+    /// tab is the adopting agent chat.
+    func revealedAgentSessionTab(harness: String, session: String,
+                                 intent: WindowActivation.Intent = .raise) -> (tab: String, adopted: Bool)? {
+        let adopted = agentTabs.tab(resuming: AgentPaneAdopt(harness: harness, agentSessionId: session))
+        let tabs = DeepLink.agentTabs(harness: harness, session: session, adopted: adopted,
+                                      harnessSessions: machines.daemons.flatMap(\.store.reachableAgentHarnessSessions))
+        return tabs.first { revealTab($0, intent: intent) }.map { ($0, $0 == adopted) }
     }
 }

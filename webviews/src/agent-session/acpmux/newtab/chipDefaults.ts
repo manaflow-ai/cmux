@@ -18,15 +18,26 @@ export function newTabStart(
   lastAgent: string | undefined,
   folder: string | undefined,
   remembered: LastPick | undefined = lastPick(folder),
+  /// acpmux answered with its harnesses (`useHarnessesListed`), even with none.
+  harnessesListed = false,
 ): { harness: string | undefined; snapshot: AcpmuxSnapshot } {
   if (snapshot.summary?.harness) return { harness: snapshot.summary.harness, snapshot };
   // The last pick's harness while it is here and its launcher runs (a failed model probe alone
   // does not count): a harness that could not start does not keep taking New Tabs.
+  // Before acpmux lists its harnesses (the launch's first page keeps no catalog), the app's copy of
+  // the last pick stands: it started a chat when it was picked. Its harness and model are then named
+  // from the first frame, and acpmux's list confirms or replaces them (Lucas 2026-10-24: the harness
+  // and the effort popped in a moment after the page showed).
   const picked = remembered?.harness;
+  // An empty list acpmux answered is a listing too: the remembered harness is gone (Add harness shows).
+  const listed = harnessesListed || snapshot.catalog.some((candidate) => !candidate.folder);
   const entry = snapshot.catalog.find((candidate) => candidate.id === picked);
   const runs = entry !== undefined && (!entry.unavailable || entry.probeFailed === true);
+  const kept = picked !== undefined && !listed;
   const harness =
-    picked && runs && agents.some((agent) => agent.id === picked) ? picked : defaultHarness(agents, lastAgent);
+    picked && ((runs && agents.some((agent) => agent.id === picked)) || kept)
+      ? picked
+      : defaultHarness(agents, lastAgent);
   if (!harness) return { harness, snapshot };
   return {
     harness,
@@ -38,7 +49,10 @@ export function newTabStart(
         turnCount: snapshot.summary?.turnCount ?? 0,
         harness,
         // The agent's model, named on the chip (its own "default" when none is known yet).
-        model: defaultModel(harness, snapshot.catalog, undefined, folder) ?? "default",
+        model:
+          (kept && harness === picked ? remembered?.model : undefined) ??
+          defaultModel(harness, snapshot.catalog, undefined, folder) ??
+          "default",
       },
     },
   };

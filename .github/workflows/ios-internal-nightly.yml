@@ -10,7 +10,7 @@ run-name: ${{ github.event_name == 'push' && 'cmux-next-ios INTERNAL builder bra
 # workflow file and the signing script therefore come from that frozen branch;
 # feat-cmux-next code (inputs.sha) runs only in `archive`, which reads no
 # secret. Archive on the dedicated mini (cmux23), sign/validate/upload on an
-# ephemeral GitHub-hosted Mac. "What to Test" is written by `notes`, which holds
+# ephemeral Blacksmith Mac. "What to Test" is written by `notes`, which holds
 # no signing secret (scripts/ci/ios_internal_notes.py).
 on:
   # A push to rc/cnx-ios-builder (an admin fast-forward) only registers this
@@ -44,8 +44,8 @@ jobs:
     name: Archive (unsigned, no secrets)
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder'
     # vars.CI_IOS_INTERNAL_RUNNER names the dedicated mini's runner label
-    # (glaeda-runner-cmux23-ios-internal); unset, the archive runs hosted.
-    runs-on: ${{ vars.CI_IOS_INTERNAL_RUNNER || 'macos-26' }} # github-hosted-required: fallback when the dedicated builder variable is unset
+    # (glaeda-runner-cmux23-ios-internal); unset, the archive runs on Blacksmith.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_IOS_INTERNAL_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 90
     outputs:
       marketing: ${{ steps.stamp.outputs.marketing }}
@@ -226,7 +226,7 @@ jobs:
     name: Sign, validate, upload to cmux INTERNAL
     needs: [archive, notes]
     if: ${{ !cancelled() && needs.archive.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder' }}
-    runs-on: macos-26 # github-hosted-required: ephemeral signer, the signing key stays off owned machines
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }} # ephemeral signer (Blacksmith is trusted like hosted); the signing key stays off owned machines
     timeout-minutes: 75
     environment: release
     env:
@@ -334,6 +334,11 @@ jobs:
         id: upload
         env:
           CMUX_MOBILE_CI_ASC: "1"
+          # The notification content extension's App Store profile that lists
+          # CI's certificate (downloaded with the release key; verify/rich-push.md).
+          CMUX_MOBILE_CONTENT_EXTENSION_PROFILE_NAME: cmux Internal Distribution CI Notification Content
+          # The same for the notification service extension (verify/notifications-trust.md).
+          CMUX_MOBILE_SERVICE_EXTENSION_PROFILE_NAME: cmux Internal Distribution CI Notification Service
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/archive"

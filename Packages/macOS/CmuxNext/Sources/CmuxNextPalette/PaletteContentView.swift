@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import Observation
 import QuartzCore
@@ -99,6 +100,7 @@ final class PaletteContentView: NSView {
         searchBar.onPopTo = { model.pop(to: $0) }
         searchBar.onKeywordHint = { model.handle(.openActions) }
         list.onHover = { model.hover($0) }
+        list.onPointerMove = { model.pointerMoved(over: $0) }
         list.onActivate = { model.activate(rowID: $0) }
         footer.onPrimary = { model.handle(.submit) }
         footer.onActions = { model.handle(.toggleActions) }
@@ -313,7 +315,7 @@ final class PaletteContentView: NSView {
             return
         }
         CATransaction.begin()
-        CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } } // main-proof: CATransaction.h: the completion block is called on the main thread
+        CATransaction.setMainCompletion(completion)
         Motion.overlays.set(layer, "opacity", to: Float(0), fade: .fadeOut)
         Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: panelScale(Motion.panelCloseScale)), movementFade: .fadeOut)
         CATransaction.commit()

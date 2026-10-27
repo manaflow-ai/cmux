@@ -1,8 +1,8 @@
 // l10n-allow-file: test fixture commands, not shipped UI.
-// The Inspector's Background tasks and Servers (Claude Code desktop's): the chat's background
+// The Inspector's Background tasks (Claude Code desktop's): the chat's background
 // processes from acpmux's registry (`_acpmux/process/list` and `process_update`), with the
 // background commands only the transcript knows (Claude's background Bash, Ctrl-B's included).
-// Dev servers go under Servers with the ports their commands name; the rest under Background tasks,
+// Dev servers come first with the ports their commands name; then the rest,
 // running ones with their elapsed time and, for the registry's, a Stop button, then "N finished",
 // folded. A row opens the command's terminal beside the chat (`chat.processTerminal`).
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
@@ -150,7 +150,6 @@ test("no section before the first background process; then running ones with ela
   const container = installDom();
   await render(container, []);
   expect(section(container, "tasks")).toBeNull();
-  expect(section(container, "servers")).toBeNull();
 
   const processes = processesOf(
     {
@@ -197,7 +196,7 @@ test("no section before the first background process; then running ones with ela
   expect(stop.disabled).toBe(true);
 });
 
-test("a dev server is listed under Servers with its port, which opens beside the chat, and Stop", async () => {
+test("a dev server heads Background tasks with its port, which opens beside the chat, and Stop", async () => {
   setSystemTime(new Date(100_000));
   const container = installDom();
   const opened: string[] = [];
@@ -208,9 +207,11 @@ test("a dev server is listed under Servers with its port, which opens beside the
     async (id) => void stopped.push(id),
     (url) => opened.push(url),
   );
-  expect(section(container, "tasks")).toBeNull();
-  const servers = section(container, "servers")!;
+  // One section for every background command, a dev server's included (no Servers card of its own).
+  const servers = section(container, "tasks")!;
   expect(servers.querySelector(".acpmux-chat-inspector-section__meta")?.textContent).toBe("1 running");
+  expect(servers.querySelectorAll(".acpmux-chat-inspector-server")).toHaveLength(1);
+  expect(servers.querySelectorAll(".acpmux-chat-inspector-task")).toHaveLength(0);
   const port = servers.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-port")!;
   expect(port.textContent).toBe(":5173");
   expect(port.getAttribute("aria-label")).toBe("Open http://localhost:5173");
@@ -499,12 +500,13 @@ test("Stop shows only on a running command the registry lists", async () => {
   expect(section(container, "tasks")!.querySelector("button.acpmux-chat-inspector-stop")).toBeNull();
 });
 
-test("a transcript task a running server stands for is listed under Servers only", async () => {
+test("a transcript task a running server stands for is listed once, as the server", async () => {
   const container = installDom();
   await renderInspector(container, {
     processes: processesOf({ processes: [wire("a", "bun run dev --port 5173", "running", 1_000)] }, "s1"),
     transcriptTasks: [task("call-a", "bun run dev --port 5173", "running", 1_000)],
   });
-  expect(section(container, "servers")).not.toBeNull();
-  expect(section(container, "tasks")).toBeNull();
+  const tasks = section(container, "tasks")!;
+  expect(tasks.querySelectorAll(".acpmux-chat-inspector-server")).toHaveLength(1);
+  expect(tasks.querySelectorAll(".acpmux-chat-inspector-task")).toHaveLength(0);
 });

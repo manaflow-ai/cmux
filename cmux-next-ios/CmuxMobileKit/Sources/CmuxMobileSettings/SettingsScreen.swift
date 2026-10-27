@@ -2,6 +2,7 @@
 import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxMobileRealtime
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -21,8 +22,14 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     let saveAppearance: (TeamAppearance, Team) -> Void
     /// The live service for the device list and account deletion (nil in mock mode).
     let directory: (any SettingsDeviceDirectory)?
+    /// The Macs' terminal sizing policies (nil in mock mode).
+    let sizing: (any TerminalSizingService)?
     @Binding var path: [SettingsRoute]
     let scrollRequest: String?
+    /// Starts a live Chief call (Settings → Chief Calls' Call Chief); nil where calls can't start.
+    let callChief: (() -> Void)?
+    private let callKeys = OpenAIKeyModel.shared
+    private let callPreferences = VoiceCallPreferences.shared
     @State private var confirmsSignOut = false
     @State private var editingTeam: Team?
     /// One device list for the "Devices" count here and the Devices page.
@@ -30,9 +37,11 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     @State private var notificationPermission: NotificationPermission?
     @Environment(\.scenePhase) private var scenePhase
 
-    public init(auth: CmuxMobileAuthModel, store: AppStore, settings: SettingsStore, path: Binding<[SettingsRoute]>, scrollRequest: String? = nil, directory: (any SettingsDeviceDirectory)? = nil, inviteToTeam: @escaping (Team) -> Void, saveAppearance: @escaping (TeamAppearance, Team) -> Void, @ToolbarContentBuilder leading: @escaping () -> Leading) {
+    public init(auth: CmuxMobileAuthModel, store: AppStore, settings: SettingsStore, path: Binding<[SettingsRoute]>, scrollRequest: String? = nil, directory: (any SettingsDeviceDirectory)? = nil, sizing: (any TerminalSizingService)? = nil, callChief: (() -> Void)? = nil, inviteToTeam: @escaping (Team) -> Void, saveAppearance: @escaping (TeamAppearance, Team) -> Void, @ToolbarContentBuilder leading: @escaping () -> Leading) {
         self.scrollRequest = scrollRequest
+        self.callChief = callChief
         self.directory = directory
+        self.sizing = sizing
         self.auth = auth
         self.store = store
         self.settings = settings
@@ -51,14 +60,16 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 if let team = store.activeTeam {
                     Section {
                         NavigationLink(value: SettingsRoute.team) {
-                            HStack(spacing: 14) {
+                            // The avatar centered on the icon column: the name at the other titles' x.
+                            CmuxMobileGutterRow {
                                 SettingsTeamAvatar(team: team, size: 28)
+                            } content: {
                                 UnbrokenText(team.name)
                             }
                         }
                     }
                 }
-                Section("Connection") {
+                Section {
                     NavigationLink(value: SettingsRoute.transport) {
                         SettingsLabel("Transport", symbol: "antenna.radiowaves.left.and.right", value: transportValue)
                     }
@@ -66,8 +77,15 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         SettingsLabel("Devices", symbol: "laptopcomputer.and.iphone", value: devicesValue)
                     }
                     .accessibilityIdentifier("settings.devices")
+                } header: {
+                    Text("Connection").cmuxMobileTextColumn()
                 }
                 Section {
+                    NavigationLink(value: SettingsRoute.chiefCalls) {
+                        SettingsLabel("Chief Calls", symbol: "phone",
+                                      value: callKeys.hasKey ? callPreferences.model.title : String(localized: "Not set up"))
+                    }
+                    .accessibilityIdentifier("settings.chiefCalls.row")
                     NavigationLink(value: SettingsRoute.terminal) {
                         SettingsLabel("Terminal", symbol: "apple.terminal", value: "\(settings.terminalFontSize) pt")
                     }
@@ -75,12 +93,14 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         SettingsLabel("Composer", symbol: "keyboard", value: settings.followUp.title)
                     }
                 }
-                Section("Appearance") {
+                Section {
                     AppearanceTiles(selection: $settings.appearance)
                         .listRowInsets(EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16))
                     Toggle(isOn: $settings.hapticsEnabled) {
                         SettingsLabel("Haptic feedback", symbol: "iphone.radiowaves.left.and.right")
                     }
+                } header: {
+                    Text("Appearance").cmuxMobileTextColumn()
                 }
                 .id("appearance")
                 Section {
@@ -92,14 +112,14 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         SettingsLabel("Require Face ID", symbol: "faceid")
                     }
                 } header: {
-                    Text("Privacy & notifications")
+                    Text("Privacy & notifications").cmuxMobileTextColumn()
                 } footer: {
-                    Text("Require Face ID or passcode to open cmux on this device.")
+                    Text("Require Face ID or passcode to open cmux on this device.").cmuxMobileTextColumn()
                 }
                 #if DEBUG
                 DeveloperSection(auth: auth)
                 #endif
-                Section("About") {
+                Section {
                     LinkRow("Help", symbol: "questionmark.circle", url: "https://cmux.com/docs")
                     LinkRow("Report a problem", symbol: "flag", url: "https://github.com/manaflow-ai/cmux/issues")
                     LinkRow("Terms of Use", symbol: "doc.text", url: "https://cmux.com/terms")
@@ -107,15 +127,17 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     NavigationLink(value: SettingsRoute.acknowledgements) {
                         SettingsLabel("Acknowledgements", symbol: "info.circle")
                     }
+                } header: {
+                    Text("About").cmuxMobileTextColumn()
                 }
                 Section {
                     Button(role: .destructive) {
                         confirmsSignOut = true
                     } label: {
-                        Label {
+                        CmuxMobileGutterRow {
+                            SettingsIcon("rectangle.portrait.and.arrow.right").accessibilityHidden(true)
+                        } content: {
                             Text("Sign out").font(theme.type.rowTitle)
-                        } icon: {
-                            SettingsIcon("rectangle.portrait.and.arrow.right")
                         }
                         .foregroundStyle(theme.colors.danger)
                     }
@@ -199,9 +221,12 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .transport: TransportPage(settings: settings, relayAvailable: directory?.relayAvailable)
         case .devices: DevicesPage(store: store, directory: directory, list: deviceList)
         case .terminal: TerminalPage(settings: settings)
+        case .terminalSizing: TerminalSizingMacsPage(store: store)
+        case .terminalSizingMac(let macID): TerminalSizingMacPage(macID: macID, store: store, service: sizing)
         case .composer: ComposerPage(settings: settings)
-        case .notifications: NotificationsPage(settings: settings)
+        case .notifications: NotificationsPage(settings: settings, macs: store.notificationMacs)
         case .acknowledgements: AcknowledgementsPage()
+        case .chiefCalls: ChiefCallsPage(keys: callKeys, preferences: callPreferences, callChief: callChief)
         }
     }
 }
@@ -209,6 +234,11 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
 /// Pushed settings pages.
 public enum SettingsRoute: Hashable, Sendable {
     case account, team, transport, devices, terminal, composer, notifications, acknowledgements
+    /// Chief Calls: the OpenAI API key, model and voice for live calls with Chief.
+    case chiefCalls
+    /// Terminal → Terminal Size When Shared, and one Mac's page under it.
+    case terminalSizing
+    case terminalSizingMac(String)
 
     /// The route named by its case name (DEBUG launch arguments). The old
     /// name "pairedMacs" opens Devices.
@@ -217,7 +247,8 @@ public enum SettingsRoute: Hashable, Sendable {
             self = .devices
             return
         }
-        let all: [SettingsRoute] = [.account, .team, .transport, .devices, .terminal, .composer, .notifications, .acknowledgements]
+        let all: [SettingsRoute] = [.account, .team, .transport, .devices, .terminal, .terminalSizing, .composer, .notifications,
+                                    .acknowledgements, .chiefCalls]
         guard let route = all.first(where: { "\($0)" == name }) else { return nil }
         self = route
     }
@@ -228,16 +259,17 @@ public enum SettingsRoute: Hashable, Sendable {
 struct SettingsIcon: View {
     let symbol: String
     @ScaledMetric(relativeTo: .body) private var size: CGFloat = 17
-    @ScaledMetric(relativeTo: .body) private var frame: CGFloat = 22
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     init(_ symbol: String) {
         self.symbol = symbol
     }
 
     var body: some View {
+        // The grouped lists' icon column, the one header and footer text start after.
         Image(systemName: symbol)
             .font(.system(size: min(size, 34)))
-            .frame(width: min(frame, theme.metrics.settingsIconFrame * 2))
+            .frame(width: CmuxMobileListColumn.grouped(typeSize).mark)
     }
 }
 
@@ -257,7 +289,7 @@ struct SettingsLabel: View {
     }
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: CmuxMobileListColumn.groupedGap) {
             SettingsIcon(symbol).foregroundStyle(theme.colors.label)
             if typeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 2) {
@@ -321,7 +353,7 @@ extension NotificationPermission {
     }
 }
 
-private struct LinkRow: View {
+struct LinkRow: View {
     let title: LocalizedStringResource
     let symbol: String
     let url: String
@@ -501,12 +533,13 @@ private struct DeveloperSection: View {
                 }
             }
         } header: {
-            Text("Developer")
+            Text("Developer").cmuxMobileTextColumn()
         } footer: {
             VStack(alignment: .leading, spacing: 8) {
                 Text(mock.forced ? "Set by the launch environment." : "Sample user, teams and Macs for checking layout. Applies at next launch.")
                 Text("Dev test account: enter 42 as the email.")
             }
+            .cmuxMobileTextColumn()
         }
     }
 }

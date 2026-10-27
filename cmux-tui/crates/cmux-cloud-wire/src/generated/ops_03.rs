@@ -4,6 +4,31 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// The VM's own machine record (the public machine view). VM installs only (kind vm, grant vm-self, its own bound machine).
+    CloudVmSelfGetOp {
+        name: "cloud.vm.self.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:CloudDO",
+        risk: "read",
+        principals: [Install],
+        params: CloudVmSelfGetParams,
+        result: CloudVmSelfGetResult,
+        error: CloudVmSelfGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmSelfGetParams {
+    pub machine: MachineId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmSelfGetResult {
+    pub machine: CloudMachine,
+}
+
 wire_errors! {
     /// The error codes cloud.vm.self.get declares.
     CloudVmSelfGetError {
@@ -872,21 +897,4 @@ pub struct FeedArchiveResultItemsItem {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FeedArchiveResult {
     pub items: Vec<FeedArchiveResultItemsItem>,
-}
-
-wire_errors! {
-    /// The error codes feed.archive declares.
-    FeedArchiveError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
 }

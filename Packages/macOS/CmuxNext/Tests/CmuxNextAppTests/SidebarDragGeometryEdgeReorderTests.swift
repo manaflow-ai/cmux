@@ -80,7 +80,7 @@ import Testing
     /// drawn at 80, below the gap at 40) by the margin: no flicker at the threshold.
     @Test func turningBackNeedsTheMargin() {
         let swapped = Self.t(before: "b")
-        let margin = SidebarGroupReorder.hysteresis(for: 40)
+        let margin = SidebarDragGeometry.hysteresis(for: 40)
         // Just past the middle: held.
         #expect(Self.target(top: 61, up: false, gapY: 40, current: swapped, reversing: true) == .none)
         // Past the middle by the margin: back after b.

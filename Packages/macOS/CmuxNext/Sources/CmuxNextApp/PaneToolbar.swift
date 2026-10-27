@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextTabs
 import os
@@ -40,6 +41,9 @@ final class PaneToolbar {
     private let registry: () -> ActionRegistry?
     /// The strip plus's menu for this pane (what opens in it).
     private let newTabMenu: () -> NSMenu?
+    /// The shown content's own rows, first in the menu (``PaneMoreMenuContributing``: the docked
+    /// Home's Chief Actions), so the pane keeps one ⋮.
+    private let contentMenu: () -> [NSMenuItem]
     private(set) var target: String?
     private(set) var kind: Kind?
     private(set) var zoomed = false
@@ -48,17 +52,19 @@ final class PaneToolbar {
     var writePinned: (PaneToolbarButtonsSetting) -> Void = { _ in }
     private var observation: Task<Void, Never>?
 
-    init(registry: @escaping () -> ActionRegistry?, newTabMenu: @escaping () -> NSMenu?) {
+    init(registry: @escaping () -> ActionRegistry?, newTabMenu: @escaping () -> NSMenu?,
+         contentMenu: @escaping () -> [NSMenuItem] = { [] }) {
         self.registry = registry
         self.newTabMenu = newTabMenu
+        self.contentMenu = contentMenu
         view.moreMenu = { [weak self] in self?.moreMenu() }
         view.onPerform = { [weak self] id in self?.perform(ActionID(rawValue: id)) }
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated { observation?.cancel() }
+        observation?.cancel()
     }
 
     /// The pane's "…": follows its selected tab and the pane's zoom.
@@ -68,7 +74,8 @@ final class PaneToolbar {
                   newTabMenu: { [weak pane] in
                       // The plus's rows, without its Chromium warmup: "…" is opened for a split as often.
                       pane.map { $0.services.registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: $0.paneKey)) }
-                  })
+                  },
+                  contentMenu: { [weak pane] in (pane?.view.content as? PaneMoreMenuContributing)?.paneMoreMenuItems() ?? [] })
         writePinned = { [weak services] next in
             guard let settings = services?.settings else { return }
             // task-owner: one write; the menu item's gesture is the user's (SettingWriter.currentRun)
@@ -92,14 +99,15 @@ final class PaneToolbar {
         let pinned = pane.services.settings.map { PaneToolbarButtonsSetting.current($0).pinned } ?? []
         let resolver = TabTitleResolver(services: pane.services)
         let paneKinds = Set(pane.pane.tabs.compactMap { kind($0, isNewTabPage: resolver.isNewTabPage($0)) })
-        guard let key = pane.stripModel.selectedID?.rawValue else { return State(pinned: pinned, paneKinds: paneKinds) }
+        // The pane's own workspace, not a store scan: this runs for every pane. Whichever tab is
+        // selected, so the zoom button's room does not follow the selection.
+        let zoomed = pane.workspace?.workspace.screens.contains { $0.zoomedPane == pane.pane.handle } ?? false
+        guard let key = pane.stripModel.selectedID?.rawValue else { return State(zoomed: zoomed, pinned: pinned, paneKinds: paneKinds) }
         guard let tab = pane.pane.tabs.first(where: { $0.id == key }) else {
             // A window's own page or browser tab is never in the store: no "…", not a stale bar.
             let local = key.hasPrefix(LocalPageTab.prefix) || key.hasPrefix(LocalBrowserTab.prefix)
-            return State(pinned: pinned, paneKinds: paneKinds, behind: !local)
+            return State(zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, behind: !local)
         }
-        // The pane's own workspace, not a store scan: this runs for every pane.
-        let zoomed = pane.workspace?.workspace.screens.contains { $0.zoomedPane == pane.pane.handle } ?? false
         return State(target: key, kind: kind(tab, isNewTabPage: resolver.isNewTabPage(tab)), zoomed: zoomed, pinned: pinned, paneKinds: paneKinds)
     }
 
@@ -126,7 +134,8 @@ final class PaneToolbar {
 
     static let zoom: ActionID = "toggleSplitZoom", search: ActionID = "tab.search"
 
-    /// Shows the `pinned` actions tab `target` of `kind` can run and "…" (nil kind: none); lit while the pane is zoomed.
+    /// Shows the `pinned` actions tab `target` of `kind` can run and "…" (nil kind: none); lit, with the
+    /// zoom button, while the pane is zoomed.
     /// `paneKinds`: the kinds of every tab in the pane that offers "…", whichever is selected.
     func update(target: String?, kind: Kind?, zoomed: Bool = false, pinned: [String] = [], paneKinds: Set<Kind> = []) {
         self.target = target
@@ -139,12 +148,24 @@ final class PaneToolbar {
         // (Lawrence 2026-10-20: "i dont like the down arrow"); it is a row of "…"'s menu.
         let kinds = kind.map { paneKinds.union([$0]) } ?? paneKinds
         let reservedPins = kinds.map { kind in pinned.count(where: { Self.actions(kind).contains(ActionID(rawValue: $0)) }) }.max() ?? 0
-        view.show(shownPins().compactMap(item), more: shown, lit: zoomed && shown,
-                  reserving: kinds.isEmpty ? 0 : reservedPins + 1)
+        // A zoomed pane keeps the zoom button's room whichever tab is selected (a chat shows none).
+        let zoomRoom = zoomed && !pinned.contains(Self.zoom.rawValue) ? 1 : 0
+        let buttons = shownButtons()
+        view.show(buttons.compactMap(item), more: shown, lit: zoomed && shown,
+                  reserving: kinds.isEmpty ? 0 : max(reservedPins + zoomRoom, buttons.count) + 1)
     }
 
     /// The pinned actions the tab can run, in the user's order, as buttons before "…".
     func shownPins() -> [ActionID] { pinned.map(ActionID.init(rawValue:)).filter(tabActions().contains) }
+
+    /// The buttons before "…": the pins, and while the pane is zoomed its lit zoom button, pinned or not
+    /// (cmux classic's zoom indicator, #25624): it shows the zoomed state without hover, and a click
+    /// restores the layout.
+    func shownButtons() -> [ActionID] {
+        let pins = shownPins()
+        guard zoomed, !pins.contains(Self.zoom), tabActions().contains(Self.zoom) else { return pins }
+        return pins + [Self.zoom]
+    }
 
     /// A pinned action's button: the New Tab page's tool symbols (cx-kk7lm), a zoomed pane's lit zoom.
     private func item(_ id: ActionID) -> PaneToolbarItem? {
@@ -168,16 +189,20 @@ final class PaneToolbar {
         return Self.actions(kind).filter { ActionTargetReasons.canPerform($0, invocation: invocation, in: registry) }
     }
 
-    /// "…": what opens in the pane, the actions without a button with their keys, Search Tabs, then Show in Tab Bar.
+    /// "…": the content's own rows (the Chief's), what opens in the pane, the actions without a button
+    /// with their keys, Search Tabs, then Show in Tab Bar.
     private func moreMenu() -> NSMenu? {
         guard let registry = registry(), let target, kind != nil else { return nil }
         let menu = newTabMenu() ?? NSMenu()
-        let buttons = shownPins()
-        let own = registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: target),
-                                           entries: tabActions().filter { !buttons.contains($0) }.map { .action($0) })
-        if !menu.items.isEmpty, !own.items.isEmpty { menu.addItem(.separator()) }
-        for item in own.items {
-            own.removeItem(item)
+        let own = contentMenu()
+        if !own.isEmpty, !menu.items.isEmpty { menu.insertItem(.separator(), at: 0) }
+        for (index, item) in own.enumerated() { menu.insertItem(item, at: index) }
+        let buttons = shownButtons()
+        let tabOwn = registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: target),
+                                              entries: tabActions().filter { !buttons.contains($0) }.map { .action($0) })
+        if !menu.items.isEmpty, !tabOwn.items.isEmpty { menu.addItem(.separator()) }
+        for item in tabOwn.items {
+            tabOwn.removeItem(item)
             menu.addItem(item)
         }
         // Search Tabs (was the bar's chevron) runs with no tab target: a tab target only reveals that tab.

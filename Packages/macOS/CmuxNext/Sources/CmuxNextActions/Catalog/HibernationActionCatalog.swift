@@ -8,7 +8,7 @@ nonisolated enum HibernationActionCatalog: ActionCatalogGroup {
             setting("browser.hibernation.off", title: t("action.hibernation.off", "Turn Off Tab Hibernation"), symbol: "moon.zzz",
                     keywords: ["browser", "hibernation", "memory", "saver", "discard", "sleep", "off", "disable"],
                     cli: "settings turn-off-tab-hibernation"),
-            setting("browser.hibernation.moderate", title: t("action.hibernation.moderate", "Hibernate Hidden Tabs After 1 Hour"),
+            setting("browser.hibernation.moderate", title: t("action.hibernation.moderate30", "Hibernate Hidden Tabs After 30 Minutes"),
                     symbol: "moon", keywords: ["browser", "hibernation", "memory", "saver", "discard", "sleep", "moderate"],
                     cli: "settings use-moderate-tab-hibernation"),
             setting("browser.hibernation.aggressive", title: t("action.hibernation.aggressive", "Hibernate Hidden Tabs After 10 Minutes"),
@@ -30,6 +30,12 @@ nonisolated enum HibernationActionCatalog: ActionCatalogGroup {
                 id: "hibernateTab", title: t("action.hibernateTab", "Hibernate Tab"),
                 keywords: ["tab", "browser", "hibernate", "sleep", "discard", "memory", "saver"], category: .tab, symbol: "moon.zzz",
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab hibernate"
+            ),
+            ActionDescriptor(
+                id: "neverHibernateSite", title: t("action.neverHibernateSite", "Never Hibernate This Site"),
+                keywords: ["tab", "browser", "hibernate", "sleep", "discard", "exception", "exclude", "site", "keep", "awake"],
+                category: .tab, symbol: "moon.circle", surfaces: [.palette, .contextMenu], targets: [.tab],
+                cliName: "tab never-hibernate-site"
             ),
             ActionDescriptor(
                 id: "wakeTab", title: t("action.wakeTab", "Wake Tab"),

@@ -2,15 +2,17 @@ import AppKit
 import CmuxNextDesign
 
 /// The terminal's scroller (SCROLLBARS-THIN), from Ghostty's scrollbar action
-/// (`TerminalScrollbar`: total, offset and visible rows). Like every scroller in cmux it is an
+/// (`TerminalScrollbar`: total, offset and visible rows). It is the shared ``ThinScroller``, an
 /// overlay one whatever the macOS "Show scroll bars" setting (``SystemScrollers/nativeStyle``):
-/// hidden at rest, shown while the viewport moves through the scrollback (wheel, keyboard,
-/// search), never for output that only follows the bottom. It takes no clicks, so the last column
-/// stays the terminal's. The style is pinned: AppKit resets a scroll view to the system's style
-/// when the setting changes, which here would briefly reserve a legacy strip and take clicks.
+/// hidden at rest, shown while the viewport moves through the scrollback (wheel, keyboard, search),
+/// never for output that only follows the bottom, and fading out after (Lawrence 2026-10-23, msg
+/// 11494). While it is shown the pointer near it widens it and it can be dragged; at rest it takes
+/// no clicks and the pointer does not reveal it, so the last column stays the terminal's. The style
+/// is pinned: AppKit resets a scroll view to the system's style when the setting changes, which
+/// here would briefly reserve a legacy strip and take clicks.
 ///
-/// It is an NSScrollView over an empty document whose height stands for the scrollback, so
-/// AppKit draws and animates a native scroller in either style.
+/// It is an NSScrollView over an empty document whose height stands for the scrollback, so the
+/// knob tracks the scrollback as any scroll view's does.
 @MainActor
 final class TerminalScroller: NSScrollView {
     private let document = TerminalScrollerDocument()
@@ -35,6 +37,10 @@ final class TerminalScroller: NSScrollView {
         contentView.drawsBackground = false
         contentView.postsBoundsChangedNotifications = true
         documentView = document
+        let thin = ThinScroller()
+        thin.showsOnScroll = false // only a move through the scrollback shows it (`update`)
+        thin.revealsNearPointerAtRest = false // the last column is the terminal's
+        verticalScroller = thin
         apply(SystemScrollers.nativeStyle)
         // AppKit resets a scroll view's style when the setting changes.
         SystemScrollers.observe(self) { [weak self] _ in
@@ -83,7 +89,7 @@ final class TerminalScroller: NSScrollView {
 
     /// The frame for a host of `bounds`: a strip at the trailing edge.
     func strip(in bounds: CGRect) -> CGRect {
-        let width = max(reservedWidth, NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay))
+        let width = max(reservedWidth, ThinScroller.width)
         return CGRect(x: bounds.maxX - width, y: bounds.minY, width: width, height: bounds.height)
     }
 
@@ -93,7 +99,7 @@ final class TerminalScroller: NSScrollView {
         shown = bar
         layoutDocument()
         if scrollerStyle == .overlay, TerminalScrollerGeometry.isUserMove(from: previous, to: bar) {
-            flashScrollers()
+            (verticalScroller as? ThinScroller)?.flash()
         }
     }
 
@@ -124,11 +130,12 @@ final class TerminalScroller: NSScrollView {
         onScrollToRow?(row)
     }
 
-    /// Overlay: never in the way of the terminal. Legacy: only the scroller itself.
+    /// Only the scroller itself: the shown knob (``ThinScroller`` takes clicks on its knob alone),
+    /// never the empty document, so everything else stays the terminal's.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard scrollerStyle == .legacy, let scroller = verticalScroller, !scroller.isHidden else { return nil }
-        let local = convert(point, from: superview)
-        return scroller.frame.contains(local) ? super.hitTest(point) : nil
+        guard let scroller = verticalScroller, !scroller.isHidden else { return nil }
+        let hit = super.hitTest(point)
+        return hit === scroller ? hit : nil
     }
 
     override func scrollWheel(with event: NSEvent) {

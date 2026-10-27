@@ -4,19 +4,7 @@ import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { ConfigOption } from "./agentOptions";
 
-/// Codex's collaboration mode (codex-acp), and a custom harness's own switches.
-const collaboration: ConfigOption = {
-  id: "collaboration_mode",
-  name: "Collaboration mode",
-  category: "collaboration_mode",
-  currentValue: "default",
-  options: [
-    { value: "default", name: "Default" },
-    { value: "plan", name: "Plan", description: "Write a plan before editing." },
-  ],
-};
 const custom: ConfigOption[] = [
-  collaboration,
   {
     id: "thinking",
     name: "Thinking",
@@ -57,7 +45,7 @@ export default componentEntry<Props>({
   load: async () => {
     const { AgentOptionsMenu } = await import("./AgentOptionsMenu");
     return function GalleryAgentOptionsMenu({ several }: Props) {
-      const [options, setOptions] = useState(several ? custom : [collaboration]);
+      const [options, setOptions] = useState(several ? custom : [custom[0]!]);
       return (
         <AgentOptionsMenu
           options={options}
@@ -71,8 +59,8 @@ export default componentEntry<Props>({
   styles: () =>
     Promise.all([import("./styles.css"), import("./composerControls.css"), import("./composerLocation.css")]),
   variants: {
-    closed: { note: "One option: the chip names it and its choice.", props: {} },
-    "one-open": { note: "Codex's collaboration mode, Default or Plan.", props: {}, play: open },
-    "several-open": { note: "A custom harness's three options, one group each.", props: { several: true }, play: open },
+    closed: { note: "One custom option: the chip names it and its choice.", props: {} },
+    "one-open": { note: "A custom harness option, Off or On.", props: {}, play: open },
+    "several-open": { note: "A custom harness's two options, one group each.", props: { several: true }, play: open },
   },
 });

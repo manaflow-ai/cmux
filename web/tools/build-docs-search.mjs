@@ -12,6 +12,9 @@ import {
 } from "../app/[locale]/components/docs-nav-items";
 import { changelogMedia } from "../app/[locale]/(landing)/docs/changelog/changelog-media";
 import { routing } from "../i18n/routing";
+import cliReference from "../data/next-docs/cli-reference.generated.json";
+import settingsReference from "../data/next-docs/settings-reference.generated.json";
+import { headingId, nextDocPages } from "../data/next-docs/pages";
 
 const projectRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const repoRoot = path.resolve(projectRoot, "..");
@@ -308,6 +311,11 @@ async function docsContentByHref() {
   const content = new Map();
   await Promise.all(
     flatNavItems(navItems).map(async (item) => {
+      const nextContent = nextDocsContent(item.href);
+      if (nextContent) {
+        content.set(item.href, nextContent);
+        return;
+      }
       const sourcePath = docsPageSourcePath(item.href);
       try {
         content.set(
@@ -325,6 +333,43 @@ async function docsContentByHref() {
     }),
   );
   return content;
+}
+
+// The cmux-next pages are data, not JSX: build their search content from the
+// same page list and generated references the renderer uses.
+function nextDocsContent(href) {
+  if (href !== "/docs/next" && !href.startsWith("/docs/next/")) return undefined;
+  const slug = href === "/docs/next" ? "getting-started" : href.slice("/docs/next/".length);
+  const page = nextDocPages.find((entry) => entry.slug === slug);
+  if (!page) return undefined;
+  const entries = [];
+  const headings = [];
+  let current = "title";
+  const text = (value) => entries.push({ headingId: current, text: normalizeSearchText(value), type: "text" });
+  const heading = (value) => {
+    current = headingId(value);
+    headings.push({ id: current, key: "", level: 2, text: normalizeSearchText(value) });
+  };
+  for (const block of page.body) {
+    if ("h2" in block) heading(block.h2);
+    else if ("p" in block) text(block.p);
+    else if ("note" in block) text(block.note);
+    else if ("code" in block) text(block.code);
+    else for (const item of block.ul) text(item);
+  }
+  if (page.generated === "cli") {
+    for (const noun of cliReference.nouns) {
+      heading(`cmux ${noun.noun}`);
+      for (const verb of noun.verbs) text(`${verb.command} ${verb.title}`);
+    }
+  }
+  if (page.generated === "settings") {
+    for (const section of settingsReference.sections) {
+      heading(section.title);
+      for (const row of section.rows) text(`${row.key} ${row.title} ${row.help}`);
+    }
+  }
+  return { entries, headings };
 }
 
 function extractDocsContent(sourceText) {

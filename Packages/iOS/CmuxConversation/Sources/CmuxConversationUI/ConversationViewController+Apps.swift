@@ -377,7 +377,9 @@ extension ConversationViewController {
     /// photo viewer; anything else opens in Quick Look.
     func openFile(_ attachment: ConversationAttachment, from fileView: ConversationFileBubbleView, model: MessageRowModel) {
         guard attachment.file?.isImage == true else {
-            presentAttachment(attachment, from: fileView.thumbnailView)
+            // Every document of the message opens, to swipe between (Messages).
+            let documents = model.message.fileAttachments.filter { $0.file?.isImage != true }
+            presentAttachments(documents.isEmpty ? [attachment] : documents, opening: attachment, from: fileView.thumbnailView)
             return
         }
         let tailed = model.showsTail && model.message.text.isEmpty && fileView === fileViews(of: model.rowID).last
@@ -442,24 +444,80 @@ extension ConversationViewController {
     /// Quick Look for any attachment: photos open titled "Photo", documents
     /// by their file name. `sourceView` is the bubble it zooms from.
     func presentAttachment(_ attachment: ConversationAttachment, from sourceView: UIView) {
+        presentAttachments([attachment], opening: attachment, from: sourceView)
+    }
+
+    /// Quick Look for several attachments, opened at `opening` (it zooms from
+    /// `sourceView`), the rest a swipe away.
+    func presentAttachments(_ attachments: [ConversationAttachment], opening: ConversationAttachment, from sourceView: UIView) {
         guard quickLookPresenter == nil else { return }
         dismissPhotoDrawer()
-        let title = attachment.file?.name ?? String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module)
-        let placeholder = ConversationQuickLookPresenter(item: ConversationQuickLookItem(url: URL(fileURLWithPath: "/"), title: title), sourceView: nil)
+        let photoTitle = String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module)
+        let placeholder = ConversationQuickLookPresenter(item: ConversationQuickLookItem(url: URL(fileURLWithPath: "/"), title: photoTitle), sourceView: nil)
         quickLookPresenter = placeholder
         Task { @MainActor [weak self, weak sourceView] in
-            let url = await ConversationImageLoader.shared.fileURL(for: attachment)
-            guard let self else { return }
-            guard let url, let sourceView, sourceView.window != nil else {
-                self.quickLookPresenter = nil
+            // The tapped one first: nothing opens without it, and the rest load together.
+            guard let url = await ConversationImageLoader.shared.fileURL(for: opening) else {
+                self?.quickLookPresenter = nil
                 return
             }
-            self.view.endEditing(true)
-            let presenter = ConversationQuickLookPresenter(item: ConversationQuickLookItem(url: url, title: title), sourceView: sourceView)
-            presenter.onDismiss = { [weak self] in self?.quickLookPresenter = nil }
-            self.quickLookPresenter = presenter
-            self.present(presenter.makeController(), animated: true)
+            let others = await withTaskGroup(of: (String, URL?).self) { group in
+                for attachment in attachments where attachment.id != opening.id {
+                    group.addTask { (attachment.id, await ConversationImageLoader.shared.fileURL(for: attachment)) }
+                }
+                var urls: [String: URL] = [:]
+                for await (id, url) in group { if let url { urls[id] = url } }
+                return urls
+            }
+            var items: [ConversationQuickLookItem] = []
+            var index = 0
+            for attachment in attachments {
+                let title = attachment.file?.name ?? photoTitle
+                if attachment.id == opening.id {
+                    index = items.count
+                    items.append(ConversationQuickLookItem(url: url, title: title))
+                } else if let other = others[attachment.id] {
+                    items.append(ConversationQuickLookItem(url: other, title: title))
+                }
+            }
+            if !attachments.contains(where: { $0.id == opening.id }) { items = [ConversationQuickLookItem(url: url, title: opening.file?.name ?? photoTitle)] }
+            self?.presentQuickLook(items, index: index, from: sourceView)
         }
+    }
+
+    /// A queued attachment was tapped in the composer: every queued
+    /// attachment opens in Quick Look, at the tapped one.
+    func openComposerAttachment(_ id: UUID, from sourceView: UIView) {
+        guard quickLookPresenter == nil else { return }
+        let queued = composer.attachments
+        guard let index = queued.firstIndex(where: { $0.id == id }) else { return }
+        let photoTitle = String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module)
+        let placeholder = ConversationQuickLookPresenter(item: ConversationQuickLookItem(url: URL(fileURLWithPath: "/"), title: photoTitle), sourceView: nil)
+        quickLookPresenter = placeholder
+        Task { @MainActor [weak self, weak sourceView] in
+            let sources = queued.map(ComposerAttachmentFile.init)
+            let files = await Task.detached(priority: .userInitiated) { sources.map { $0.write() } }.value
+            var items: [ConversationQuickLookItem] = []
+            var opening = 0
+            for (offset, file) in files.enumerated() {
+                guard let file else { continue }
+                if offset == index { opening = items.count }
+                items.append(ConversationQuickLookItem(url: file, title: queued[offset].file?.info.name ?? photoTitle))
+            }
+            self?.presentQuickLook(items, index: opening, from: sourceView)
+        }
+    }
+
+    private func presentQuickLook(_ items: [ConversationQuickLookItem], index: Int, from sourceView: UIView?) {
+        guard !items.isEmpty, let sourceView, sourceView.window != nil else {
+            quickLookPresenter = nil
+            return
+        }
+        view.endEditing(true)
+        let presenter = ConversationQuickLookPresenter(items: items, index: index, sourceView: sourceView)
+        presenter.onDismiss = { [weak self] in self?.quickLookPresenter = nil }
+        quickLookPresenter = presenter
+        present(presenter.makeController(), animated: true)
     }
 
     func presentPhotoDrawer() {

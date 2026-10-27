@@ -1,5 +1,9 @@
 #if DEBUG
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
 
 /// A stand-in for the UserDO owner (home-core text-confirm-user.ts) until its

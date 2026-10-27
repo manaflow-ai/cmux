@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 final class NullFileExplorerEffects: FileExplorerEffects {
     func openInCmux(_ file: URL, at position: FilePosition?) -> Bool { false }
+    func openAsText(_ file: URL) -> Bool { false }
     func openInDefaultApp(_ item: URL) {}
     func revealInFinder(_ item: URL) {}
     func copy(_ text: String) {}

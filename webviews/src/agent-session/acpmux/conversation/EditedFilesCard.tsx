@@ -28,6 +28,7 @@ import { FindReveal, isRevealRow } from "./chatFind";
 import { EditDiff } from "./EditDiff";
 import { Undo } from "./icons";
 import { ToolRows } from "./TurnRows";
+import { useAnchoredCollapse } from "./useAnchoredCollapse";
 
 /// `onOpenDiff` opens the turn's changes, at `path` when given; focus returns to `opener`.
 /// Find in Chat's reveal for `row` only: the card draws outside ToolRows (which passes the reveal to
@@ -81,7 +82,9 @@ function Card({
   // A one-file card's diff, open or not, kept by row like the rows' open state.
   const diffKey = `${row.id}\u0000diff`;
   const diffOpen = useCardOpen(diffKey);
-  const toggleDiff = () => setCardOpen(diffKey, !diffOpen);
+  // It opens and closes in the transcript's fold, the card's line held where it was clicked.
+  const diff = useAnchoredCollapse({ open: diffOpen, onOpenChange: (next) => setCardOpen(diffKey, next) });
+  const toggleDiff = diff.toggle;
   const edits = rows.flatMap((one) =>
     (one.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange"),
   );
@@ -182,6 +185,7 @@ function Card({
         {single && (
           <button
             type="button"
+            ref={diff.headerRef}
             className="acpmux-edited-toggle"
             aria-expanded={diffOpen}
             aria-label={diffOpen ? t("changes.collapseFile") : t("changes.expandFile")}
@@ -214,11 +218,13 @@ function Card({
       {single && undoState.phase === "done" && (
         <FileStatus status={status(single)} path={single.path} rowId={row.id} onOpenDiff={onOpenDiff} t={t} />
       )}
-      {single && diffOpen && (
-        <div className="acpmux-edited-diff">
-          <OwnFindReveal row={row}>
-            <EditDiff file={single} />
-          </OwnFindReveal>
+      {single && diff.present && (
+        <div {...diff.bodyProps}>
+          <div className="acpmux-edited-diff">
+            <OwnFindReveal row={row}>
+              <EditDiff file={single} />
+            </OwnFindReveal>
+          </div>
         </div>
       )}
       {shown.map((entry) => {

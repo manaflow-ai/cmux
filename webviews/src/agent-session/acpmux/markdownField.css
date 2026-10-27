@@ -3,9 +3,11 @@
    user formats. Theme tokens only. */
 .acpmux-md-field {
   position: relative;
-  /* Keep long drafts inside the composer. Eight lines matches the reference composer and
-     leaves the transcript and location shelf anchored while the draft grows. */
-  max-height: calc(var(--text-body--line-height, 22px) * 8 + var(--cmux-control-height, 23px));
+  /* Keep long drafts inside the composer: it grows to 40% of the pane, never less than eight
+     lines, and leaves the transcript and location shelf anchored while the draft grows (Leo,
+     2026-10-24: "I think we can afford to expand the composer text area a bit more than we do right
+     now. When there's lots of text."). A short pane still gives up height (bottomStack.css). */
+  max-height: max(calc(var(--text-body--line-height, 22px) * 8 + var(--cmux-control-height, 23px)), 40vh);
   overflow-y: auto;
   /* A long draft scrolls in this box alone (Leo 2026-10-20: reaching the top or the bottom must
      not shift anything): no chaining into the transcript, no bounce. */
@@ -27,6 +29,9 @@
   --acpmux-md-scrollbar-lane: 8px;
   /* The minimal scroller's track (scrollers.ts) stops short of the composer's rounded corners. */
   --cmux-minimal-scroller-inset: calc(10px * var(--cmux-interface-scale, 1));
+  /* Under the scrollbar fade its thumb paces with the pane's other fades (conversation.css). */
+  --cmux-scroller-fade-in: var(--agent-motion-in, 120ms);
+  --cmux-scroller-fade-out: var(--agent-motion-move, 180ms);
   /* Its lane is always reserved (scrollers.ts), so it comes out of the right padding: the
      draft keeps the same width, and never rewraps, whether or not it overflows. */
   padding-right: max(0px, calc(16px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)));
@@ -116,6 +121,7 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   vertical-align: 1px;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-md {
   min-height: var(--text-title--line-height, 22px);
@@ -158,9 +164,14 @@
   padding: 0;
   background: none;
 }
-.acpmux-md ul,
-.acpmux-md ol {
+.acpmux-md ul {
   padding-left: 22px;
+}
+/* A number hangs left of its item, and WebKit puts about 1.2em between it and the text. The
+   editor scrolls and clips at its own edge, so this padding is all the room a number has: 22px
+   cut the left of "1." (Austin 2026-10-20). 3em holds "10." in SF and in DejaVu Sans (the gallery runner). */
+.acpmux-md ol {
+  padding-left: 3em;
 }
 .acpmux-md li > p {
   margin: 0;
@@ -263,6 +274,10 @@
   bottom: -2px;
   border: 2px solid var(--agent-accent);
   pointer-events: none;
+}
+/* A selected numbered item: around its number, inside the editor's edge. */
+.acpmux-md ol > li.ProseMirror-selectednode::after {
+  left: calc(2px - 3em);
 }
 .acpmux-md img.ProseMirror-separator {
   display: inline !important;

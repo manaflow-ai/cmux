@@ -174,8 +174,15 @@ pub(crate) fn harness_command(
             }
         }
     }
+    // The durable store is bound by acpmux's profile spawn path; never
+    // inherit a controller or shell value into another harness.
+    cmd.env_remove("CMUX_HARNESS_SESSION_STORE_DIR");
     cmd.args(crate::harness_limits::launch_args(program, args, session.map(|_| (cwd, &env))))
         .envs(env.iter());
+    // The profile's PATH first, never instead of the login PATH (login_env::with_agent_path).
+    if !remote_environment && let Some(own) = env.get("PATH").filter(|p| !p.is_empty()) {
+        cmd.env("PATH", crate::login_env::with_agent_path(own));
+    }
     if opencode_ask {
         ask_opencode(&mut cmd, name, !remote_environment);
     }
@@ -193,6 +200,9 @@ pub(crate) fn harness_command(
     // job object (`job.rs`), made where the agent is spawned.
     #[cfg(unix)]
     cmd.process_group(0);
+    // A sub-session's harness execs only in the folder its start checked (`cwd_pin.rs`).
+    #[cfg(unix)]
+    crate::cwd_pin::CwdPin::pin(crate::cwd_pin::CwdPin::current(), &mut cmd);
     // Only its own session's credential: never acpmux's, a preset's or a Chief's.
     crate::launch_credential::apply(&mut cmd, session.map(|(id, _)| id));
     crate::harness_limits::lift_claude(&mut cmd, profile, session.is_some(), !remote_environment);
@@ -213,6 +223,15 @@ pub(crate) fn harness_command(
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
     }
+    // Claude Code's question previews in the format the hub labels them with
+    // (`preview_format`, which the hub records at this launch): set last, so a
+    // login or daemon value can never make the agent write HTML the hub would
+    // show as text, or the reverse. `markdown` is Claude Code's own default
+    // for this entrypoint.
+    if profile.kind == crate::config::HarnessKind::ClaudeStdio {
+        let format = preview_format(profile).claude_value();
+        cmd.env(crate::hub::questions::PREVIEW_FORMAT_ENV, format);
+    }
     // A Claude agent's sign-in inputs, for a clear message if it has none.
     match (family == Some("claude"), session) {
         (true, Some((id, _))) => {
@@ -220,6 +239,10 @@ pub(crate) fn harness_command(
         }
         (false, Some((id, _))) => crate::claude_auth::forget(id),
         _ => {}
+    }
+    #[cfg(target_os = "linux")]
+    if remote_environment {
+        crate::hub::remote_sandbox::scrub_loader_env(&mut cmd);
     }
     Ok(cmd)
 }
@@ -242,6 +265,35 @@ fn ask_opencode(cmd: &mut Command, name: &str, inherit_ambient: bool) {
             harness = %name,
             "{CONFIG_ENV} is not a JSON object: kept as it is, so OpenCode is not asked to ask before each tool"
         ),
+    }
+}
+
+/// How Claude Code started from `profile` writes its question previews
+/// (`hub/questions.rs` `PreviewFormat`): its own
+/// `CLAUDE_CODE_QUESTION_PREVIEW_FORMAT`, a reference resolved as the launch
+/// resolves it. The hub labels the questions with it (`hub/tools.rs`) and
+/// `harness_command` pins the agent to it, so the two never disagree.
+pub(crate) fn preview_format(profile: &HarnessProfile) -> crate::hub::questions::PreviewFormat {
+    use crate::hub::questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
+    let claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
+    let Some(value) = profile.env.get(PREVIEW_FORMAT_ENV).filter(|_| claude) else {
+        return PreviewFormat::Monospace;
+    };
+    let env = [(PREVIEW_FORMAT_ENV.to_owned(), value.clone())].into();
+    let only = HarnessProfile { env, ..profile.clone() };
+    resolved_profile_env(&only).map(|env| PreviewFormat::of(claude, &env)).unwrap_or_default()
+}
+
+/// The preview format `harness_command` pinned on `cmd`: what the agent it starts writes. The hub
+/// records this one (`Hub::record_preview_format`), never a second resolution of the profile,
+/// which a pooled agent started minutes earlier could disagree with.
+pub(crate) fn pinned_preview_format(cmd: &Command) -> crate::hub::questions::PreviewFormat {
+    use crate::hub::questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
+    let mut envs = cmd.as_std().get_envs();
+    let pinned = envs.find(|(name, _)| *name == PREVIEW_FORMAT_ENV).and_then(|(_, value)| value);
+    match pinned {
+        Some(value) if value == PreviewFormat::Html.claude_value() => PreviewFormat::Html,
+        _ => PreviewFormat::Monospace,
     }
 }
 
@@ -363,6 +415,23 @@ pub(crate) fn host_environment() -> Vec<(std::ffi::OsString, std::ffi::OsString)
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn remote_outer_command_scrubs_loader_env() {
+        let p = serde_json::from_value(serde_json::json!({
+            "argv": ["/usr/bin/true"], "env": {"ACPMUX_REMOTE_ENV_POLICY": "1",
+                "LD_PRELOAD": "injected", "GLIBC_TUNABLES": "injected",
+                "TMPDIR": "/injected", "MALLOC_CHECK_": "3"}
+        }))
+        .unwrap();
+        let cmd = harness_command("remote", &p, &std::env::temp_dir(), None, None).unwrap();
+        let env = command_env_cleared(&cmd);
+        assert!(!env.iter().any(|(k, _)| matches!(
+            k.as_str(),
+            "LD_PRELOAD" | "GLIBC_TUNABLES" | "TMPDIR" | "MALLOC_CHECK_"
+        )));
+    }
+
     use super::*;
 
     #[test]
@@ -383,6 +452,43 @@ mod tests {
             !env.iter().any(|(key, _)| key == "CARGO_MANIFEST_DIR"),
             "hosted projection recovered the daemon environment"
         );
+    }
+
+    /// Claude Code is pinned to the preview format the hub records for its
+    /// launch (`preview_format`); another harness is neither pinned nor HTML.
+    #[test]
+    fn claude_code_is_pinned_to_the_preview_format_the_hub_records() {
+        use crate::config::HarnessKind;
+        use crate::hub::questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
+        let profile = |kind, value: &str| {
+            let mut p: HarnessProfile =
+                serde_json::from_value(serde_json::json!({"argv": ["/usr/bin/true"]})).unwrap();
+            p.kind = kind;
+            p.env.insert(PREVIEW_FORMAT_ENV.into(), value.into());
+            p
+        };
+        let pinned = |p: &HarnessProfile| {
+            let command = harness_command("local", p, &std::env::temp_dir(), None, None).unwrap();
+            let env = command_env(&command);
+            env.into_iter().find(|(k, _)| k == PREVIEW_FORMAT_ENV).map(|(_, v)| v)
+        };
+        let html = profile(HarnessKind::ClaudeStdio, " html ");
+        assert_eq!(preview_format(&html), PreviewFormat::Html);
+        assert_eq!(pinned(&html).as_deref(), Some("html"));
+        let command = |p: &HarnessProfile| {
+            pinned_preview_format(
+                &harness_command("local", p, &std::env::temp_dir(), None, None).unwrap(),
+            )
+        };
+        assert_eq!(command(&html), PreviewFormat::Html);
+        let text = profile(HarnessKind::ClaudeStdio, "markdown");
+        assert_eq!(preview_format(&text), PreviewFormat::Monospace);
+        assert_eq!(pinned(&text).as_deref(), Some("markdown"));
+        assert_eq!(command(&text), PreviewFormat::Monospace);
+        // A reference that does not resolve starts no agent, and labels nothing HTML.
+        let missing = profile(HarnessKind::ClaudeStdio, "${env:ACPMUX_TEST_NO_SUCH_FORMAT}");
+        assert_eq!(preview_format(&missing), PreviewFormat::Monospace);
+        assert_eq!(preview_format(&profile(HarnessKind::Acp, "html")), PreviewFormat::Monospace);
     }
 
     #[test]
@@ -513,6 +619,50 @@ mod tests {
         assert_eq!(var(&env, super::super::session_tmp::SESSION_TMPDIR_ENV), None);
         assert!(!var(&env, "TMPDIR").is_some_and(|t| t.starts_with(&*base.to_string_lossy())));
         assert!(!base.exists(), "a remote session made a local temporary folder");
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// A profile or preset PATH goes first but never hides the login PATH: the Chief's
+    /// built-in subagent preset was saved with the daemon's bare launchd PATH
+    /// (`<bundle>/bin:/usr/bin:/bin:/usr/sbin:/sbin`) before the login import ran, and every
+    /// `claude` spawn then failed `spawn harness process: No such file or directory`.
+    #[cfg(unix)]
+    #[test]
+    fn a_profile_path_keeps_the_login_path_after_it() {
+        let scratch = std::env::temp_dir().join(format!(
+            "acpmux-cmd-path-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7().simple()
+        ));
+        let base = scratch.join("acpmux-u");
+        let bare = "/acpmux-test-bundle/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+        let login = crate::login_env::agent_path().expect("the test process has a PATH");
+        let login: Vec<String> =
+            std::env::split_paths(&login).map(|p| p.to_string_lossy().into_owned()).collect();
+        let extra: Vec<&String> =
+            login.iter().filter(|d| !d.is_empty() && !bare.split(':').any(|b| b == *d)).collect();
+        assert!(!extra.is_empty(), "the login PATH must list a directory the bare PATH lacks");
+        let env = session_env(
+            &base,
+            "01a15d7d-b692-76b3-b8de-a9a71809de2a",
+            serde_json::json!({"PATH": bare}),
+        );
+        let path = var(&env, "PATH").expect("a PATH");
+        let entries: Vec<&str> = path.split(':').collect();
+        let first: Vec<&str> = bare.split(':').collect();
+        assert_eq!(
+            &entries[..first.len().min(entries.len())],
+            &first[..],
+            "the profile's PATH comes first"
+        );
+        for dir in extra {
+            assert!(
+                entries.contains(&dir.as_str()),
+                "{dir} of the login PATH is missing from {path}"
+            );
+        }
+        let unique: std::collections::BTreeSet<&str> = entries.iter().copied().collect();
+        assert_eq!(entries.len(), unique.len(), "each directory once: {path}");
         let _ = std::fs::remove_dir_all(&scratch);
     }
 

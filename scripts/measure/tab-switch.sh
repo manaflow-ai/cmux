@@ -31,7 +31,17 @@ done
 RUNNER_TEMP="$out" GITHUB_PATH="$out/bun-path" ./scripts/cmux-next/private-bun.sh
 PATH="$(tail -n 1 "$out/bun-path"):$PATH"
 export PATH
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" 2>&1 | tee "$out/reload.log" | tail -n 40
+# --config=<debug|release|bench> picks reload.sh's build configuration (bench: Release optimization with the
+# debug.* control commands kept); every other argument goes to the bench.
+reload_config=() bench_args=()
+for arg in "$@"; do
+  case "$arg" in
+    --config=*) reload_config=(--config "${arg#--config=}") ;;
+    *) bench_args+=("$arg") ;;
+  esac
+done
+set -- ${bench_args[@]+"${bench_args[@]}"}
+CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log" | tail -n 40
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
 if [[ -z "$app" || ! -d "$app" ]]; then
   echo "tab-switch: the tagged reload printed no app path" >&2

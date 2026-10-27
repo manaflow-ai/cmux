@@ -57,7 +57,7 @@ public final class BrowserPopupWindow: NSWindow {
     private var observation: Task<Void, Never>?
     private let separator = NSBox()
     private var toolbarHeightConstraint: NSLayoutConstraint?
-    private var fullscreenObservers: [any NSObjectProtocol] = []
+    private var fullscreenObservers: [MainActorObservation] = []
 
     /// A popup window showing `page`.
     ///
@@ -175,9 +175,8 @@ public final class BrowserPopupWindow: NSWindow {
     private func observeFullscreen() {
         let center = NotificationCenter.default
         for (name, isFull) in [(NSWindow.didEnterFullScreenNotification, true), (NSWindow.didExitFullScreenNotification, false)] {
-            fullscreenObservers.append(center.addObserver(forName: name, object: self, queue: .main) { [weak self] _ in
-                // main-proof: observer on queue: .main
-                MainActor.assumeIsolated { self?.showToolbar(!isFull) }
+            fullscreenObservers.append(MainActorObservation(name, object: self, center: center) { [weak self] in
+                self?.showToolbar(!isFull)
             })
         }
     }
@@ -213,8 +212,7 @@ public final class BrowserPopupWindow: NSWindow {
     override public func close() {
         observation?.cancel()
         observation = nil
-        for observer in fullscreenObservers { NotificationCenter.default.removeObserver(observer) }
-        fullscreenObservers = []
+        fullscreenObservers.removeAll()
         omnibar.stop()
         let closed = onClose
         onClose = nil

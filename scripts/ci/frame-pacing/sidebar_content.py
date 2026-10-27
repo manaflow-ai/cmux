@@ -7,10 +7,13 @@ area, and each pane resizes what it holds.
 
 Reported, not judged (no threshold fails a run):
 
-- `relayouts`: display frames on which a pane's content view changed width. One per frame of
-  the slide is the cost; the animation needs it to look right, so this is context for the rest.
-- `stalled`: frames on which the sidebar's own width moved and no pane's content width did,
-  so a pane that stops following the edge shows up. Counted per frame against the same
+- `relayouts`: display frames on which a pane's content view changed width. With
+  `sidebar.slideHoldsContent` on (the default since the GPU audit of 2026-10-21) the content keeps
+  one width through the slide and rides the moving edge, so this is about one per toggle; with it
+  off it is one per frame of the slide.
+- `stalled`: frames on which the sidebar's own width moved and no pane's content width did.
+  With the hold on that is every frame of the slide by design; with it off, a pane that stops
+  following the edge shows up. Counted per frame against the same
   sample, not by matching one series against the other: a slide is a change on every frame,
   so "how many frames did the content trail by" has no well-defined answer, while "the edge
   moved and nothing followed" does.

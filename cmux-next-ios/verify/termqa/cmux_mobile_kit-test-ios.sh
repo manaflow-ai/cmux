@@ -4,7 +4,8 @@
 # mini-cmux11s (never on the laptop). The coordinator tests are `#if os(iOS)`, so
 # `cmux_mobile_kit-test.sh` (`swift test` on macOS) skips them.
 #
-# Syncs this checkout's Packages, vendor and cmux-next-ios into ~/$dir/src on the mini.
+# Syncs this checkout's Packages, vendor, cmux-next-ios and cmux-tui (the link crate
+# depends on cmux-tui crates) into ~/$dir/src on the mini.
 # The FFI xcframework is not committed: the first run builds it there
 # (rust/scripts/build-xcframework.sh); later runs reuse it. The simulator is this
 # script's own (`kit-$dir`), shut down at the end. Code coverage is off: its counters
@@ -18,7 +19,8 @@ tests=${1:?usage: cmux_mobile_kit-test-ios.sh CmuxMobileLiveTests[/Suite[/test]]
 ssh $host "mkdir -p ~/${dir}/src ~/${dir}/logs"
 rsync -a --delete --exclude '.build' --exclude 'build/' --exclude 'target/' --exclude 'Frameworks/' \
   --exclude 'cmux-next-ios/verify/' --exclude 'cmux-next-ios/design/' \
-  $repo/Packages $repo/vendor $repo/cmux-next-ios ${host}:${dir}/src/
+  --exclude 'cmux-tui/frontends/' --exclude 'node_modules/' \
+  $repo/Packages $repo/vendor $repo/cmux-next-ios $repo/cmux-tui ${host}:${dir}/src/
 only=$(for t in "$@"; do print -n " -only-testing:$t"; done)
 ssh $host "zsh -l" <<EOF
 set -euo pipefail

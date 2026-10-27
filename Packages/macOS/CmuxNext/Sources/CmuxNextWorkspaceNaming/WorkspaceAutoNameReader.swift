@@ -4,8 +4,8 @@ public import Foundation
 
 /// Reads what `WorkspaceAutoName` needs from the app's live sources: the
 /// setting, the Debug Settings variant and a front tab's names. Reading in an
-/// observation tracks each source, so the sidebar row and the one-time
-/// rename follow a chat getting its title, a page loading or a terminal's
+/// observation tracks each source, so the sidebar row and the persisted
+/// name follow a chat getting its title, a page loading or a terminal's
 /// title changing. The app supplies what only it knows: the setting, its New
 /// Tab pages, its rendered browser pages and `TabMoves.nameInput`.
 @MainActor
@@ -25,6 +25,8 @@ public struct WorkspaceAutoNameReader {
     let turns: AgentTurnStateStore
     /// The last name each row's front tab gave it.
     let hold: WorkspaceAutoNameHold
+    /// Whether an old daemon's missing provenance may use `~` or an empty name as automatic.
+    let allowsLegacyDefaults: @MainActor (WorkspaceModel) -> Bool
 
     /// - Parameters:
     ///   - enabled: `workspaces.autoName`.
@@ -38,7 +40,7 @@ public struct WorkspaceAutoNameReader {
     public init(enabled: @escaping @MainActor () -> Bool, isNewTabPage: @escaping @MainActor (TabModel) -> Bool,
                 livePage: @escaping @MainActor (TabModel) -> LivePage?, incognitoTitle: @escaping @MainActor (TabModel) -> String??,
                 terminal: @escaping @MainActor (TabModel) -> NewWorkspaceName.Tab, turns: AgentTurnStateStore = .shared,
-                hold: WorkspaceAutoNameHold) {
+                hold: WorkspaceAutoNameHold, allowsLegacyDefaults: @escaping @MainActor (WorkspaceModel) -> Bool = { _ in true }) {
         self.enabled = enabled
         self.isNewTabPage = isNewTabPage
         self.livePage = livePage
@@ -46,6 +48,7 @@ public struct WorkspaceAutoNameReader {
         self.terminal = terminal
         self.turns = turns
         self.hold = hold
+        self.allowsLegacyDefaults = allowsLegacyDefaults
     }
 
     /// The rule as `workspaces.autoName` and `workspaces.autoName.variant` set it now.
@@ -63,8 +66,13 @@ public struct WorkspaceAutoNameReader {
     /// resync) never drops the row back to the daemon's `workspace-N`.
     public func label(_ workspace: WorkspaceModel, front tab: TabModel, work: TabModel?) -> String? {
         let rule = self.rule
-        let label = rule.label(name: workspace.name, title: workspace.title, front: front(tab), anchor: work.flatMap { front($0) })
-        guard rule.enabled, !WorkspaceAutoName.isUserNamed(name: workspace.name, title: workspace.title) else {
+        let legacyDefaults = self.allowsLegacyDefaults(workspace)
+        let label = rule.label(name: workspace.name, title: workspace.title, front: front(tab), anchor: work.flatMap { front($0) },
+                               nameSource: workspace.nameSource, nameRevision: workspace.nameRevision,
+                               allowsLegacyDefaults: legacyDefaults)
+        guard rule.enabled, !WorkspaceAutoName.isUserNamed(name: workspace.name, title: workspace.title,
+                                                           nameSource: workspace.nameSource, nameRevision: workspace.nameRevision,
+                                                           allowsLegacyDefaults: legacyDefaults) else {
             hold.forget(workspace: workspace.id)
             return label
         }

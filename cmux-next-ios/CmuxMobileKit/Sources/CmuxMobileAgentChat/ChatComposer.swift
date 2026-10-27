@@ -13,7 +13,9 @@ struct ChatComposer: View {
     let store: AgentChatStore
     @Binding var text: String
     @Binding var attachments: [AgentAttachment]
-    var focus: FocusState<Bool>.Binding
+    /// The field's focus (the field is a UITextView, so this is a plain binding
+    /// it follows both ways, not a `FocusState`).
+    var focus: Binding<Bool>
     var collapsible: Bool
     /// Expand and focus as soon as the composer appears (Reply instead,
     /// which swaps the permission bar back to the composer).
@@ -26,6 +28,8 @@ struct ChatComposer: View {
     @State private var showFiles = false
     @State private var showCamera = false
     @State private var photoItems: [PhotosPickerItem] = []
+    /// An attachment tapped before sending: previewed full screen.
+    @State private var preview: FilePreviewRequest?
     @State private var sendCount = 0
     @State private var planMode = false
     /// Set by a tap on the collapsed capsule: the text field only exists
@@ -57,6 +61,7 @@ struct ChatComposer: View {
         }
         .animation(.cmuxMobileSmooth, value: collapsed)
         .animation(.cmuxMobileSnappy, value: attachments)
+        .filePreview($preview)
         .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 10, matching: .images)
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             if case .success(let urls) = result {
@@ -145,17 +150,12 @@ struct ChatComposer: View {
                 if !attachments.isEmpty {
                     attachmentStrip
                 }
-                TextField(placeholder, text: $text, axis: .vertical)
-                    // Prompts are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    .font(.body)
-                    .lineLimit(1...8)
-                    .focused(focus)
+                // Return starts a new line, the send button sends; a hardware
+                // keyboard's Return sends, Shift-Return starts a new line.
+                ChatComposerField(text: $text, placeholder: placeholder, isFocused: focus, onSend: sendFromKeyboard)
                     .padding(.horizontal, 16)
                     .padding(.top, 14)
                     .padding(.bottom, 6)
-                    .accessibilityLabel(placeholder)
                     .onAppear { if expandRequested { focus.wrappedValue = true } }
             }
             HStack(spacing: 8) {
@@ -288,8 +288,9 @@ struct ChatComposer: View {
                 }
             }
             // ACP `session/set_mode` over the link. The Mac accepts from the phone only the
-            // modes that still ask before running tools; a refused one comes back as the
-            // chat's error line.
+            // modes that still ask before running tools, and the harness's Full access mode
+            // when this phone's Full-access setting covers it (`ACPMode.phoneChoices`); a
+            // refused one comes back as the chat's error line.
             if !store.modes.isEmpty {
                 Section("Mode") {
                     ForEach(store.modes) { mode in
@@ -404,6 +405,15 @@ struct ChatComposer: View {
         .accessibilityLabel(state == .stop ? "Stop" : "Send")
     }
 
+    /// A hardware Return: what the send button would do with a draft (never Stop).
+    private func sendFromKeyboard() {
+        switch primaryState {
+        case .send: send(steer: false)
+        case .queue: send(steer: CmuxMobilePreferences.steersFollowUps())
+        case .stop, .empty: break
+        }
+    }
+
     private func send(steer: Bool) {
         store.send(prompt: text, attachments: attachments, steer: steer, denyingPermission: denyingPermission)
         text = ""
@@ -418,7 +428,9 @@ struct ChatComposer: View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 ForEach(attachments) { attachment in
-                    AttachmentThumb(attachment: attachment) {
+                    AttachmentThumb(attachment: attachment, open: {
+                        preview = FilePreviewRequest(files: attachments.map(\.localFile), startingAt: attachment.id)
+                    }) {
                         attachments.removeAll { $0.id == attachment.id }
                     }
                     .transition(.scale(scale: 0.8).combined(with: .opacity))
@@ -584,9 +596,12 @@ struct QueuedPromptsView: View {
 
 }
 
-/// 56 x 56 thumbnail (images) or a 56 h chip (files) with an X badge.
+/// 56 x 56 thumbnail (images) or a 56 h chip (files) with an X badge. A tap
+/// opens it (`open`) full screen.
 struct AttachmentThumb: View {
     let attachment: AgentAttachment
+    /// Opens the attachment's preview.
+    var open: (() -> Void)?
     /// nil: a sent attachment (no remove badge).
     var remove: (() -> Void)?
 
@@ -610,6 +625,13 @@ struct AttachmentThumb: View {
                 }
             }
             .clipShape(.rect(cornerRadius: 12, style: .continuous))
+            .contentShape(.rect(cornerRadius: 12, style: .continuous))
+            .onTapGesture { open?() }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(Text(attachment.kind == .image ? "Image, \(attachment.name)" : attachment.name))
+            .accessibilityAddTraits(open == nil ? [] : .isButton)
+            .accessibilityHint(open == nil ? "" : "Opens a preview")
+            .accessibilityIdentifier("attachment.thumb")
             if let remove {
                 Button(action: remove) {
                     // Opaque, ringed badge (as in Messages): readable over any thumbnail.

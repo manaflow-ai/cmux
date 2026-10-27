@@ -47,7 +47,7 @@ public struct CloudConnectOpResolver: CloudLinkResolver {
             throw CloudLinkError.invalidAnswer("not a carrier")
         }
         guard answer.machine == key.machine else { throw CloudLinkError.invalidAnswer("carrier of another machine") }
-        guard answer.state == "up" else { throw CloudLinkError.invalidAnswer("carrier is \(answer.state)") }
+        guard answer.state == "up" else { throw CloudLinkError.notUp(state: answer.state) }
         guard let socket = answer.socket, !socket.isEmpty else { throw CloudLinkError.invalidAnswer("no socket") }
         try check(socket)
         return CloudLinkSocket(key: key, path: socket, generation: answer.generation)

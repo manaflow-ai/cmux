@@ -11,6 +11,8 @@
 // Inspector's Background tasks, the summary card, the running turn's line and the tray above the
 // composer (subagents/runningTray.ts) read. The registry wins: a transcript task whose call started a
 // listed process is that process.
+import { acpmuxSend } from "../conversation/acpmuxSends";
+import type { Translate } from "../i18n";
 import { useEffect, useState } from "react";
 import type { SummaryBackgroundTask } from "../summary/sessionSummary";
 
@@ -268,6 +270,20 @@ export function commandLabel(command: BackgroundCommand): string {
   return text.slice(begin).trim() || command.command;
 }
 
+/// A background command that sends another agent a message (conversation/acpmuxSends.ts) reads as
+/// its transcript row does: "Sending message to tests", "Sent message to tests", "Couldn't send to
+/// tests". Nil for every other command.
+export function sendLabel(t: Translate, command: Pick<BackgroundCommand, "command" | "state">): string | undefined {
+  const send = acpmuxSend(command.command);
+  // Stopped or lost: whether it went is not known, so the command stays as typed. So does an ended
+  // one whose exit status is another command's (`acpmux send … | tail -1`, `… && make`).
+  if (!send || (command.state !== "running" && command.state !== "failed" && command.state !== "completed"))
+    return undefined;
+  if (command.state !== "running" && !send.ownsExit) return undefined;
+  const key = command.state === "running" ? "send.sending" : command.state === "failed" ? "send.failed" : "send.sent";
+  return t(key, { target: send.target });
+}
+
 const newestFirst = (a: BackgroundCommand, b: BackgroundCommand) =>
   (b.startedAt ?? -Infinity) - (a.startedAt ?? -Infinity);
 
@@ -363,15 +379,9 @@ export function inspectorLists(
 }
 
 /// The Inspector section a background command opens (App.tsx `openCommands` and
-/// `openTrayCommand`): Background tasks while a command that is not a dev server runs, Servers when
-/// every running command is one (the Inspector draws no Background tasks for those), else
-/// Subagents (only subagents and started chats run). `running` is the chat's running commands,
-/// servers included, as the running line counts them.
-export function backgroundSection(
-  processes: readonly InspectorProcess[],
-  running: readonly BackgroundCommand[],
-): "tasks" | "servers" | "subagents" {
-  const serving = servingIds(processes);
-  if (running.some((command) => !served(command, serving))) return "tasks";
-  return running.length > 0 ? "servers" : "subagents";
+/// `openTrayCommand`): Background tasks while any command runs, a dev server included (its rows head
+/// that section), else Subagents (only subagents and started chats run). `running` is the chat's
+/// running commands, servers included, as the running line counts them.
+export function backgroundSection(running: readonly BackgroundCommand[]): "tasks" | "subagents" {
+  return running.length > 0 ? "tasks" : "subagents";
 }

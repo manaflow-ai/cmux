@@ -42,6 +42,11 @@ final class LayoutViewContext {
     var requestFrames: () -> Void = {}
     /// Pane hosts or dividers moved: the overlay plane follows them.
     var overlayNeedsSync: () -> Void = {}
+    /// A user gesture moves the layout (a strip, row or scroll-area pan with the finger down): the root reads
+    /// as in layout motion until the motion after it lands (`LayoutRootView.setLayoutInMotion`).
+    var userMotionStepped: () -> Void = {}
+    /// A user gesture ended with nothing left to spring: the motion it started ends.
+    var userMotionEnded: () -> Void = {}
     /// A pane's strip clip changed (`PaneHostView.setStripClip`): Chromium pages re-read their clips.
     var stripClipsDidChange: () -> Void = {}
     /// Screens whose panes spring to a split's or a close's sizes now (`ScreenContentView.holdsGrids`).

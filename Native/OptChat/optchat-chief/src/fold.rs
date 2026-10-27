@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 
+use chief_turn::stream::{self as claude_stream, StreamEvent};
 use cmux_chief::acp::AcpmuxEvent;
 use optchat_core::Kind;
 use serde_json::Value;
@@ -35,31 +36,9 @@ struct Tool {
     done: bool,
 }
 
-/// Token counts of one Messages API response (or a turn's sum), as Claude
-/// Code reports them. Section 8 says to verify caching with these: each
-/// request should read what the previous one wrote.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Usage {
-    /// Uncached input tokens (full price).
-    pub input: u64,
-    pub cache_read: u64,
-    pub cache_write: u64,
-    pub output: u64,
-}
-
-impl Usage {
-    /// The Anthropic `usage` object; None when it has no token counts.
-    pub fn parse(usage: &Value) -> Option<Usage> {
-        let n = |k: &str| usage.get(k).and_then(Value::as_u64);
-        let input = n("input_tokens")?;
-        Some(Usage {
-            input,
-            cache_read: n("cache_read_input_tokens").unwrap_or(0),
-            cache_write: n("cache_creation_input_tokens").unwrap_or(0),
-            output: n("output_tokens").unwrap_or(0),
-        })
-    }
-}
+/// Token counts of one Messages API response (or a turn's sum): the type
+/// the Cloud Chief's turn runner counts with too (`chief_turn`).
+pub use chief_turn::Usage;
 
 /// The token use a prompt's answer reports, and what it covers: Claude
 /// Code's `_meta.claude.usage` (the whole turn, "turn total"), else the ACP
@@ -260,8 +239,7 @@ impl TurnFold {
         if event.kind.starts_with("claude.") {
             // Claude Code's raw stream-json line; one with `parent_tool_use_id`
             // is a subagent's, whose results and usage are not the turn's.
-            self.in_subagent =
-                matches!(event.msg.get("parent_tool_use_id"), Some(Value::String(_)));
+            self.in_subagent = claude_stream::is_subagent_of(&event.msg);
             if !self.in_subagent && event.dir != "out" {
                 self.time_request(event);
             }
@@ -408,33 +386,25 @@ impl TurnFold {
             "claude.user" if event.msg.get("isReplay") != Some(&Value::Bool(true)) => {
                 self.request_start = Some(at)
             }
-            "claude.stream_event" => {
-                let ev = event.msg.get("event");
-                match ev.and_then(|e| e.get("type")).and_then(Value::as_str) {
-                    Some("message_start") => {
-                        let id = ev
-                            .and_then(|e| e.pointer("/message/id"))
-                            .and_then(Value::as_str)
-                            .unwrap_or("")
-                            .to_owned();
-                        let start = self.request_start;
-                        self.stream = Some(Stream {
-                            id,
-                            headers_ms: start.map(|s| at.saturating_sub(s)),
-                            ttft_ms: None,
-                            start,
-                        });
-                    }
-                    Some("content_block_delta") => {
-                        if let Some(stream) = self.stream.as_mut()
-                            && stream.ttft_ms.is_none()
-                        {
-                            stream.ttft_ms = stream.start.map(|s| at.saturating_sub(s));
-                        }
-                    }
-                    _ => {}
+            "claude.stream_event" => match StreamEvent::parse(event.msg.get("event")) {
+                StreamEvent::MessageStart { id } => {
+                    let start = self.request_start;
+                    self.stream = Some(Stream {
+                        id,
+                        headers_ms: start.map(|s| at.saturating_sub(s)),
+                        ttft_ms: None,
+                        start,
+                    });
                 }
-            }
+                StreamEvent::BlockDelta { .. } => {
+                    if let Some(stream) = self.stream.as_mut()
+                        && stream.ttft_ms.is_none()
+                    {
+                        stream.ttft_ms = stream.start.map(|s| at.saturating_sub(s));
+                    }
+                }
+                _ => {}
+            },
             _ => {}
         }
     }
@@ -538,10 +508,16 @@ impl TurnFold {
         self.run
             .tool_update(&id, &tool.name, update, &result_text(update), at);
         if !tool.done && matches!(status, "completed" | "failed") {
-            log_tool(tool, out);
+            let failed = status == "failed";
+            // A stop that worked logs nothing (`unlogged`); a failed one does.
+            let quiet = !failed && unlogged(&tool.name);
+            if failed {
+                log_tool_always(tool, out);
+            } else {
+                log_tool(tool, out);
+            }
             tool.done = true;
             let text = result_text(update);
-            let failed = status == "failed";
             self.tools_done += 1;
             self.tools_failed += usize::from(failed);
             self.traces.push(ToolTrace {
@@ -565,10 +541,12 @@ impl TurnFold {
             } else {
                 text
             };
-            out.push(Entry {
-                kind: Kind::Echo,
-                text,
-            });
+            if !quiet {
+                out.push(Entry {
+                    kind: Kind::Echo,
+                    text,
+                });
+            }
         }
     }
 }
@@ -588,7 +566,21 @@ pub fn is_cancelled(error: Option<&str>) -> bool {
     error == stop_error("cancelled").as_deref()
 }
 
+/// Tools whose call and echo the log leaves out when they work: `stop` only
+/// ends the turn, so its two entries told the memory nothing (710 of the
+/// Chief's 11,530 logged messages by 2026-10-23).
+fn unlogged(name: &str) -> bool {
+    matches!(name, "mcp__optchat__stop" | "stop")
+}
+
 fn log_tool(tool: &mut Tool, out: &mut Vec<Entry>) {
+    if unlogged(&tool.name) {
+        return;
+    }
+    log_tool_always(tool, out);
+}
+
+fn log_tool_always(tool: &mut Tool, out: &mut Vec<Entry>) {
     if tool.logged {
         return;
     }

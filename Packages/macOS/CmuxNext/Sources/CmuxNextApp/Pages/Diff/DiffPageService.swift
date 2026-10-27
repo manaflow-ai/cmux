@@ -1,5 +1,9 @@
 import AppKit
+import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextCompat
+import CmuxNextDesign
 import typealias CmuxNextDaemon.SurfaceID
 import CmuxNextDiff
 import CmuxNextIcons
@@ -32,9 +36,13 @@ final class DiffPageService: InternalPageProvider {
     private struct Tab {
         var repository: DiffRepository?
         var source: DiffOpenSource
+        /// The chat turn its Last turn scope shows (D2), from the chat that opened it.
+        var turn: DiffTurn?
         var page: PageWebView?
         var provider: DiffPageProvider?
         var host: DiffTabHost?
+        /// The reopen on a card's turn in flight (``retarget(_:to:source:)``), one at a time.
+        var reopen: Task<Void, Never>?
     }
 
     // crash-allow: AppServices owns this service for the app's whole life (ViewerService's lazy page services), so it outlives it.
@@ -76,23 +84,62 @@ final class DiffPageService: InternalPageProvider {
     /// window that already shows it. A user run (`focus`) selects and focuses
     /// it. Throws ``DiffOpenFailure/notRepository`` and opens nothing when the
     /// folder is in no repository.
+    /// A chat's open names its `turn` (D1, D2): the tab offers it as Last turn, and with `source`
+    /// `.turn` (an edited-files card) opens on it, at its file.
     @discardableResult
-    func open(folder: URL, source: DiffOpenSource = .default, in pane: PaneController,
+    func open(folder: URL, source: DiffOpenSource = .default, turn: DiffTurn? = nil, in pane: PaneController,
               focus: Bool, created: (@MainActor (SurfaceID) -> Void)? = nil) async throws(DiffOpenFailure) -> String {
         guard let repository = await runtime.repository(at: folder) else { throw .notRepository }
-        return open(repository: repository, source: source, in: pane, focus: focus, created: created)
+        return open(repository: repository, source: source, turn: turn, in: pane, focus: focus, created: created)
     }
 
-    /// ``open(folder:source:in:focus:)`` once the repository is known.
+    /// ``open(folder:source:turn:in:focus:)`` once the repository is known. One tab per
+    /// repository and scope in the window, as before; a turn open (``DiffTabReuse``) takes the
+    /// window's tab of the repository in any scope and switches it to the turn.
     @discardableResult
-    func open(repository: DiffRepository, source: DiffOpenSource = .default, in pane: PaneController, focus: Bool,
-              created: (@MainActor (SurfaceID) -> Void)? = nil) -> String {
+    func open(repository: DiffRepository, source: DiffOpenSource = .default, turn: DiffTurn? = nil, in pane: PaneController,
+              focus: Bool, created: (@MainActor (SurfaceID) -> Void)? = nil) -> String {
         record(repository, source: source)
-        return show(in: pane, focus: focus, Tab(repository: repository, source: source), created: created) {
-            $0.repository?.root == repository.root && $0.source == source
+        let before = Set(tabs.keys)
+        let key = show(in: pane, focus: focus, Tab(repository: repository, source: source, turn: turn), created: created) {
+            DiffTabReuse.reuses(root: $0.repository?.root, source: $0.source, for: repository.root, source)
+        }
+        // A tab already there takes the chat's turn: a card's reloads it on the turn and file; a
+        // header's newer turn is what its Last turn shows from then on, with no reload.
+        guard before.contains(key), let shown = tabs[key] else { return key }
+        switch DiffTabReuse.change(shownTurn: shown.turn, source, turn) {
+        case .keep: break
+        case .newTurn:
+            tabs[key]?.turn = turn
+        case .reload:
+            tabs[key]?.source = .turn
+            tabs[key]?.turn = turn
+            retarget(key, to: repository)
+        }
+        return key
+    }
+
+    /// Shows a card's turn in tab `key`: a new grant, then the page loads again. Reopens run one
+    /// at a time, the newest last, so two never retire the same grant. A tab whose view is not
+    /// made yet reads the turn when it is.
+    private func retarget(_ key: String, to repository: DiffRepository) {
+        guard let provider = tabs[key]?.provider, let page = tabs[key]?.page else { return }
+        let previous = tabs[key]?.reopen
+        previous?.cancel()
+        // task-owner: one reopen of this tab's repository, after the one before it; ends when the page reloads or a newer card takes over
+        tabs[key]?.reopen = Task {
+            await previous?.value
+            guard !Task.isCancelled,
+                  (try? await provider.open(folder: URL(fileURLWithPath: repository.root, isDirectory: true), source: .turn)) != nil,
+                  !Task.isCancelled else { return }
+            page.reload()
         }
     }
 
+    /// The turn tab `key` shows in `repository` now.
+    fileprivate func turn(for key: String, in repository: String) -> DiffTurn? {
+        tabs[key].flatMap { $0.repository?.root == repository ? $0.turn : nil }
+    }
 
     /// The tab opens as a store tab where the pane's daemon holds page tabs
     /// (page-tabs-v1), so it moves between panes and columns like any daemon
@@ -145,14 +192,14 @@ final class DiffPageService: InternalPageProvider {
 
     func provider(_ key: String) -> DiffPageProvider? { tabs[key]?.provider }
 
-    var openKeys: [String] { tabs.keys.sorted() }
-
     // MARK: Tab host
 
     fileprivate func repository(at folder: URL) async -> DiffRepository? { await runtime.repository(at: folder) }
 
-    fileprivate func prepare(_ repository: DiffRepository, source: DiffOpenSource) -> Task<DiffTabReady, any Error> {
-        runtime.prepare(repository: repository, source: source)
+    /// The tab's turn goes with a grant of its own repository only.
+    fileprivate func prepare(_ repository: DiffRepository, source: DiffOpenSource, for key: String) -> Task<DiffTabReady, any Error> {
+        let turn = turn(for: key, in: repository.root)
+        return runtime.prepare(repository: repository, source: turn == nil && source == .turn ? .default : source, turn: turn)
     }
 
     fileprivate func chooseFolder(start: URL?, for key: String) async -> URL? {
@@ -166,9 +213,56 @@ final class DiffPageService: InternalPageProvider {
     /// The tab `key` now shows `repository`: record it and retitle the tab.
     fileprivate func opened(_ repository: DiffRepository, source: DiffOpenSource, in key: String) {
         record(repository, source: source)
+        if tabs[key]?.repository?.root != repository.root { tabs[key]?.turn = nil }
         tabs[key]?.repository = repository
         tabs[key]?.source = source
         if let pane = services.paneController(showingTab: key) { pane.apply(pane.snapshot()) }
+    }
+
+    /// The page a file of the diff opens on in a tab (D4): its source in the code editor, at the
+    /// line, so a web page (HTML, SVG) never renders and runs a repository's script there; a
+    /// Markdown file its page, unless a line was asked for (the page has no lines); images, PDFs
+    /// and media the browser tab's preview, which runs nothing.
+    enum FilePage: Equatable {
+        case editor
+        case viewer
+    }
+
+    nonisolated static func filePage(for file: URL, line: Int?) -> FilePage {
+        switch FilePageOpener.kind(for: file) {
+        case .editor?: .editor
+        case .markdown?: line == nil ? .viewer : .editor
+        case nil: .viewer
+        }
+    }
+
+    /// `cmux.diff.openFile` (D4): a file of tab `key`'s repository, checked by its provider.
+    /// A tab opens where a page's file link opens (``LinkOpener``, from the diff tab's pane), on
+    /// ``filePage(for:line:)``; the editor app goes through `file.open`, Finder through the reveal.
+    /// False when nothing opened (the page then says so).
+    fileprivate func openFile(_ file: URL, line: Int?, target: DiffFileTarget, from key: String) -> Bool {
+        guard let pane = services.linkOpener.source(tab: key) else { return false }
+        switch target {
+        case .tab:
+            let position = line.map { FilePosition(line: $0) }
+            let page = Self.filePage(for: file, line: line)
+            return services.linkOpener.open(from: pane) { pane, placed in
+                switch page {
+                case .editor:
+                    pane.services.viewers.editorPages.open(file, in: pane, focus: placed == nil, userChose: true,
+                                                           at: position, placed: placed)
+                    return true
+                case .viewer:
+                    return pane.services.viewers.openFile(file, in: pane, markdown: FilePageKind.isMarkdown(file),
+                                                          at: position, placed: placed)
+                }
+            }
+        case .editor:
+            return services.registry.openAgentFile(path: file.path, target: .editor, pane: pane.paneKey)
+        case .finder:
+            NSWorkspace.shared.revealInBackground([file])
+            return true
+        }
     }
 
     // MARK: InternalPageProvider
@@ -178,7 +272,7 @@ final class DiffPageService: InternalPageProvider {
         // its page) shows the empty state: recents and a folder chooser.
         var tab = tabs[key] ?? Tab(repository: nil, source: .default)
         let host = DiffTabHost(service: self, key: key)
-        let ready = tab.repository.map { runtime.prepare(repository: $0, source: tab.source) }
+        let ready = tab.repository.map { runtime.prepare(repository: $0, source: tab.source, turn: tab.turn) }
         let provider = DiffPageProvider(ready: ready, sidecar: runtime.sidecar, languages: runtime.languages, host: host,
                                         stores: stores, git: diffGit)
         let native = AppPageNativeProvider(services: services, page: .diff)
@@ -189,12 +283,23 @@ final class DiffPageService: InternalPageProvider {
             return NSView()
         }
         native.anchor = { [weak page] in page }
+        provider.confirmRevert = { [weak page] prompt in await DiffPageService.confirmRevert(prompt, over: page) }
         page.fileDrop = Self.folderDrop(provider: provider, page: page)
         tab.page = page
         tab.provider = provider
         tab.host = host
         tabs[key] = tab
         return page
+    }
+
+    /// The Revert sheet over the tab (a cmux dialog, drawn natively so page script cannot answer
+    /// it). Revert is destructive, so Return presses nothing; Escape cancels.
+    static func confirmRevert(_ prompt: DiffRevertPrompt, over page: PageWebView?) async -> Bool {
+        let spec = CmuxDialogSpec(title: prompt.title, lines: prompt.lines,
+                                  buttons: [.cancel(), CmuxDialogButton(id: "revert", title: prompt.confirm, role: .destructive)],
+                                  identifier: "cmux.dialog.diffRevert")
+        let scope: CmuxDialogScope = page.map { .tab($0) } ?? .app
+        return await CmuxDialogCenter.shared.present(spec, in: scope).button == "revert"
     }
 
     /// An empty diff tab opens a folder dropped from Finder (the page cannot
@@ -215,6 +320,7 @@ final class DiffPageService: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         guard let tab = tabs.removeValue(forKey: key) else { return }
+        tab.reopen?.cancel()
         tab.page?.close()
         guard let provider = tab.provider else { return }
         let teardown = Task { await provider.close() }
@@ -251,7 +357,7 @@ final class DiffTabHost: DiffTabHosting {
     func repository(at folder: URL) async -> DiffRepository? { await service?.repository(at: folder) }
 
     func prepare(_ repository: DiffRepository, source: DiffOpenSource) -> Task<DiffTabReady, any Error> {
-        service?.prepare(repository, source: source)
+        service?.prepare(repository, source: source, for: key)
             ?? Task { throw DiffTabFailure(title: repository.name, message: DiffPageStrings.unavailable) }
     }
 
@@ -262,4 +368,9 @@ final class DiffTabHost: DiffTabHosting {
     func opened(_ repository: DiffRepository, source: DiffOpenSource) {
         service?.opened(repository, source: source, in: key)
     }
+
+    func openFile(_ file: URL, line: Int?, target: DiffFileTarget) -> Bool {
+        service?.openFile(file, line: line, target: target, from: key) ?? false
+    }
+    func turn(for repository: String) -> DiffTurn? { service?.turn(for: key, in: repository) }
 }

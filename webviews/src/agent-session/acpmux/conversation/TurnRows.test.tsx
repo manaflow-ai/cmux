@@ -37,7 +37,7 @@ test("folds a run the Codex-style runs settled, made only of tool groups", () =>
     { kind: "tool", text: "Read config", tool: { id: "read", title: "Read", kind: "read", status: "completed" } },
   ];
   expect(toolGroups(items)).toHaveLength(2);
-  expect(shouldFoldToolRun(row(items), toolGroups(items), items)).toBe(true);
+  expect(shouldFoldToolRun(row(items), toolGroups(items))).toBe(true);
 });
 
 test("keeps each group of an ended turn's run on its own line", () => {
@@ -45,14 +45,14 @@ test("keeps each group of an ended turn's run on its own line", () => {
     command("one", "bun test one"),
     { kind: "tool", text: "Read config", tool: { id: "read", title: "Read", kind: "read", status: "completed" } },
   ];
-  expect(shouldFoldToolRun(row(items, false), toolGroups(items), items)).toBe(false);
+  expect(shouldFoldToolRun(row(items, false), toolGroups(items))).toBe(false);
 });
 
 test("keeps a coordination message visible beside settled tool calls", () => {
   const items = [message("message"), command("command", "bun test")];
   const groups = toolGroups(items);
   expect(groups.some((group) => group.type === "message")).toBe(true);
-  expect(shouldFoldToolRun(row(items), groups, items)).toBe(false);
+  expect(shouldFoldToolRun(row(items), groups)).toBe(false);
 });
 
 test("keeps a sub-session card visible beside settled tool calls", () => {
@@ -70,7 +70,7 @@ test("keeps a sub-session card visible beside settled tool calls", () => {
   const items = [start, command("command", "bun test")];
   const groups = toolGroups(items);
   expect(groups.some((group) => group.type === "subsession")).toBe(true);
-  expect(shouldFoldToolRun(row(items), groups, items)).toBe(false);
+  expect(shouldFoldToolRun(row(items), groups)).toBe(false);
 });
 
 // Consecutive thoughts in one step are one row (Leo 2026-10-20): a call a permission ask holds out

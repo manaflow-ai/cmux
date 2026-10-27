@@ -20,6 +20,8 @@
 1 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserFitFrameView.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserToolbarButtonsView.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/ExtensionsMenu.swift
+# 2026-10-23 (base red): c7f7095c0b64 renders a page's own right-click rows (webviews ui/ContextMenu.tsx) as a native NSMenu and answers the chosen row id; the page runs the row, so there is no registered action for the host to call.
+1 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/WebContextMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextFileGrid/FileGridView.swift
 # 2026-10-20 (base red): one row builder for every file row; was an NSMenuItem subclass the check could not see until d2af2d78b672 made it a target object. File rows have no file-target registered action yet.
 1 Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI/FileActionsMenu.swift
@@ -29,6 +31,8 @@
 1 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/TitlebarHistoryMenu.swift
 2 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefSettingsView.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomePageMenus.swift
+# 2026-10-23: the one row builder (NSMenuItem.macScreen) of Mac Screen's toolbar Display, Quality and Send Keys menus and the device row's More menu; ported from SwiftUI Menu buttons (#22788, no-SwiftUI rule), which the check could not see. Those per-tab choices have no registered action yet.
+1 Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenButtons.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageSelectionMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Pane/RemoteHoverToolbar.swift
 2 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarNoticeCardView.swift

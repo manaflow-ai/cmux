@@ -76,6 +76,7 @@ export class MockAppsProvider implements PageClient {
           versions: detail.versions,
           repository: detail.repository,
           screenshots: detail.screenshots,
+          contributes: detail.contributes,
         };
         return wire as R;
       }
@@ -315,6 +316,10 @@ export function sampleApps(): {
       ],
       repository: "https://github.com/manaflow-ai/cmux-apps",
       screenshots: [ICON],
+      contributes: [
+        { kind: "section", title: "Pull Requests" },
+        { kind: "command", title: "Open Pull Request" },
+      ],
     },
     "cmux.coderouter": {
       ...base,

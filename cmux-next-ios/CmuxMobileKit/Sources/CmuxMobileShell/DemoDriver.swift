@@ -210,7 +210,11 @@ struct DemoDriver {
         await pause(0.8)
         if let index = shell.store.teams.firstIndex(where: { $0.id == shell.store.activeTeamID }) {
             let macs = shell.store.teams[index].macs
-            shell.store.teams[index].macs = macs.map { MacDevice(id: $0.id, name: $0.name, isOnline: false) }
+            shell.store.teams[index].macs = macs.map { mac in
+                var offline = mac
+                offline.isOnline = false
+                return offline
+            }
             await pause(2.0)
             shell.store.teams[index].macs = []
             await pause(2.0)

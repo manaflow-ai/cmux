@@ -32,11 +32,12 @@ nonisolated extension ActionSurfaceCatalog {
             "quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything", "globalSearch", "commandPalette",
             "palette.openTaskManager", "palette.sleepyMode", "keepMacAwake", "about", "manageLayouts",
             "palette.findWork", "reopenClosedBrowserPanel", "palette.browserClearHistory", "importFromBrowser", "password.importCSV", "browser.importFromFiles", "browser.allowAgentWithExtensions",
-            "workspace.importClassic", "fileEditor.importEditorSettings", "palette.enableBrowser", "palette.disableBrowser", "toggleRightSidebar", "switchRightSidebarToFiles",
+            "workspace.importClassic", "session.moveFromBuild", "fileEditor.importEditorSettings", "palette.enableBrowser", "palette.disableBrowser", "toggleRightSidebar", "switchRightSidebarToFiles",
             "switchRightSidebarToFind", "switchRightSidebarToSessions", "switchRightSidebarToFeed",
             "switchRightSidebarToDock", "switchRightSidebarToMachines", "palette.toggleMatchTerminalBackground",
             "showNotifications", "feed.show", "markAllNotificationsRead",
             "clearAllNotifications", "notifications.toggleBanners", "notifications.dismissal.keystroke",
+            "notifications.setAgentSound", "notifications.setEventSound", "notifications.importSound",
             "notifications.dismissal.focus", "notifications.dismissal.click", "notifications.dismissal.explicit",
             "notifications.dismissal.timeout", "notifications.dismissal.never", "palette.openTerminalChatView",
             "palette.quickAgentChat",
@@ -86,7 +87,7 @@ nonisolated extension ActionSurfaceCatalog {
             "fileExplorerOpenSelectionFinderAlias", "vaultOpenSession",
             "vaultResumeInNewWorkspace", "vaultCopyResumeCommand", "vaultOpenPullRequest", "checklistEditItem",
             "checklistMarkInProgress", "checklistCompleteItem", "checklistRemoveItem", "checklistOpenAsPane",
-            "checklistAttachImages", "cloudExec", "cloudDomainList", "cloudPublicationList",
+            "checklistAttachImages", "cloudExec", "cloudDomainList", "cloudPublicationList", "cloudListMachines",
         ],
         .focusMove: [
             "history.goTo",
@@ -133,8 +134,12 @@ nonisolated extension ActionSurfaceCatalog {
             "space.move", "browser.extension.move", "bookmark.move", "space.moveLeft", "space.moveRight",
         ],
         .minimalMenu: [
-            "space.setDefaults", "browserProfile.clearSpaceDefault",
+            "space.setDefaults", "space.clearDefaults", "browserProfile.clearSpaceDefault",
         ],
+        // Leo 2026-10-23: the workspace row menu drops this long tail; the palette keeps it.
+        .pointerMenuTrim: ["workspace.setTint", "workspace.copyPath", "copyWorkspaceSSHError", "revealWorkspaceInFinder", "palette.copyWorkspaceID",
+            "palette.copyWorkspaceIDAndRef", "palette.copyWorkspaceLink", "workspace.showResources", "palette.openWorkspacePullRequests",
+            "workspace.setRemoteLocalhost"],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",
         ],

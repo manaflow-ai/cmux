@@ -31,10 +31,13 @@ public final class WebPopupHost {
         public var width: CGFloat
         /// A tooltip: one row that takes no clicks and draws no check column.
         public var tooltip: Bool
+        /// The page shows nothing with an entrance (a New Tab, Leo 2026-10-22): the menu opens in
+        /// one frame; its close still fades.
+        public var instant: Bool
 
         /// Reads `{items:[{id,label,shortcut?,checked?,disabled?,separator?}], highlighted?,
         /// anchor:{left,top,right,bottom}, side:"bottom"|"top", align:"start"|"end", width,
-        /// kind?:"menu"|"tooltip"}`.
+        /// kind?:"menu"|"tooltip", instant?:true}`.
         public init?(_ params: [String: Any]) {
             guard let rows = params["items"] as? [[String: Any]], let anchor = params["anchor"] as? [String: Any],
                   let left = Self.number(anchor["left"]), let top = Self.number(anchor["top"]),
@@ -51,6 +54,7 @@ public final class WebPopupHost {
             side = params["side"] as? String == "top" ? .above : .below
             trailing = params["align"] as? String == "end"
             tooltip = params["kind"] as? String == "tooltip"
+            instant = params["instant"] as? Bool ?? false
             width = max(tooltip ? 40 : 120, min(Self.number(params["width"]) ?? 200, 800))
         }
 
@@ -96,7 +100,7 @@ public final class WebPopupHost {
         let anchor = window.convertToScreen(webView.convert(flipped, to: nil))
         let size = CGSize(width: model.width * scale, height: panel.rows.contentHeight)
         guard let placed = popup.show(size: size, anchor: anchor, in: window, preferred: model.side,
-                                      trailing: model.trailing) else { return ["shown": false] }
+                                      trailing: model.trailing, entrance: !model.instant) else { return ["shown": false] }
         panel.isClosing = false
         let frame = placed.frame
         return ["shown": true, "side": placed.side == .below ? "bottom" : "top",

@@ -27,6 +27,7 @@ nonisolated enum RemoteViewStrings {
         case .direct: t("rd.path.direct", "direct")
         case .viaCloudRegion: t("rd.path.viaCloudRegion", "via cloud region")
         case .relayed: t("rd.path.relayed", "relayed")
+        case .compatibility: t("rd.path.compatibility", "VNC compatibility")
         }
     }
 
@@ -71,6 +72,15 @@ nonisolated enum RemoteViewStrings {
 
     static var controlAnyway: String { t("rd.action.controlAnyway", "Control Anyway") }
     static var reconnect: String { t("rd.action.reconnect", "Reconnect") }
+    static var signIn: String { t("rd.action.signIn", "Sign In…") }
+    static func signInTitle(_ host: String) -> String { String(format: t("rd.state.signIn.title", "Sign in to %@"), host) }
+    static func signInDetail(_ host: String) -> String {
+        String(format: t("rd.state.signIn.detail", "%@ asks for the user name and password of its screen sharing."), host)
+    }
+
+    static func signInRejectedDetail(_ host: String) -> String {
+        String(format: t("rd.state.signIn.rejected", "%@ did not accept that user name and password."), host)
+    }
     static var cancel: String { t("rd.action.cancel", "Cancel") }
     static var close: String { t("rd.action.close", "Close") }
     static var genericTabTitle: String { t("rd.tab.title.generic", "Remote Desktop") }
@@ -83,6 +93,11 @@ nonisolated enum RemoteViewStrings {
     }
     static func unavailableNotLoopback(_ host: String) -> String {
         String(format: t("rd.tab.unavailable.notLoopback", "Development builds connect only to this Mac for now, not to %@."), host)
+    }
+
+    static func unavailableNotPrivateNetwork(_ host: String) -> String {
+        String(format: t("rd.tab.unavailable.notPrivateNetwork",
+                         "VNC connects only to this Mac, your tailnet or your local network, not to %@."), host)
     }
     static var unavailableRemoteRecord: String {
         t("rd.tab.unavailable.remoteRecord", "This tab came from another machine. Remote desktop tabs open only on the Mac that made them.")

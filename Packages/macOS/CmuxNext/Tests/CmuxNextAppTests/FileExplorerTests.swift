@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextFocus
 import Foundation
 import Testing
+import CmuxNextFilesUI
 
 /// The right sidebar's Files section (classic's file explorer) and its seven actions: Open
 /// Selection (Return), Open Selection (Finder Style) (Cmd-Down), Open in cmux, Reveal in Finder,
@@ -26,6 +27,7 @@ struct FileExplorerTests {
             openedInCmuxAt.append(position)
             return true
         }
+        func openAsText(_ file: URL) -> Bool { true }
         func openInDefaultApp(_ item: URL) { openedInDefaultApp.append(item) }
         func revealInFinder(_ item: URL) { revealed.append(item) }
         func copy(_ text: String) { copied.append(text) }

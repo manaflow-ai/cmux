@@ -5,6 +5,7 @@
   min-width: 0;
   font-size: var(--text-body);
   color: var(--page-text);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .ds-empty {
@@ -80,6 +81,7 @@
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .ds-dot {
@@ -135,6 +137,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  letter-spacing: var(--text-heading--letter-spacing);
 }
 
 .ds-title-count,
@@ -143,6 +146,7 @@
 .ds-row-default {
   font-size: var(--text-caption);
   color: var(--page-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* Actions on their own row, so a narrow pane never truncates them. */
@@ -190,6 +194,7 @@
   font-size: var(--text-detail);
   font-weight: 600;
   color: var(--page-text-2);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .ds-card-body {
@@ -291,6 +296,7 @@
   min-width: 24px;
   font-size: var(--text-caption);
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .ds-switch {
@@ -363,11 +369,61 @@
 .ds-spring-label {
   font-size: var(--text-caption);
   color: var(--page-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .ds-footer {
   font-size: var(--text-caption);
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+/* Recent hangs: the folder and its button on the title line, then one row per hang file. */
+.ds-hangs-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-bottom: 6px;
+}
+
+.ds-hangs-head .ds-card-title {
+  margin: 0;
+}
+
+.ds-hangs-head .ds-row-key {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-inline-start: 0;
+  overflow-wrap: anywhere;
+}
+
+.ds-card-body > .ds-none {
+  margin: 0;
+  padding: 8px 14px;
+}
+
+.ds-hang-duration {
+  color: var(--page-text-2);
+}
+
+.ds-hang[data-ongoing="true"] .ds-hang-duration {
+  color: var(--cmux-app-danger, light-dark(rgba(196, 43, 28, 1), rgba(255, 105, 97, 1)));
+}
+
+.ds-hang-frame {
+  padding-inline-start: 12px;
+  font-family: ui-monospace, monospace;
+  font-size: var(--text-caption);
+  color: var(--page-text-3);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.ds-hang-actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
 }
 
 /* A narrow pane (cx-bbe2): the label and help take the row's width, the control and its default

@@ -12,12 +12,35 @@ public struct CloudAPIClient: Sendable {
     public let baseURL: URL
     let backendIsLocalOnly: Bool
     let tokens: Tokens
-    let teamID: TeamID
+    private(set) var teamID: TeamID
     let session: URLSession
     let appVersion: String
 
+    /// Requests that carry the account's bearer token: ephemeral, no URL
+    /// cache, no cookies, so no answer (or the request headers stored with
+    /// it) lands in `~/Library/Caches/<bundle id>/Cache.db`.
+    public static let noStoreTransport: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieAcceptPolicy = .never
+        return URLSession(configuration: configuration)
+    }()
+
+    /// The team requests go to now (`X-Cmux-Team-Id`).
+    public func currentTeam() async -> String? { await teamID() }
+
+    /// This client with its team fixed to `team`: every request of a create and its retries
+    /// goes to the same team whatever the app switches to meanwhile.
+    public func pinningTeam(_ team: String?) -> CloudAPIClient {
+        var copy = self
+        copy.teamID = { team }
+        return copy
+    }
+
     public init(configuration: CloudConfiguration, tokens: @escaping Tokens, teamID: @escaping TeamID,
-                session: URLSession = .shared, appVersion: String = "cmux-next") {
+                session: URLSession = CloudAPIClient.noStoreTransport, appVersion: String = "cmux-next") {
         baseURL = configuration.apiBaseURL
         if case .localOnly = configuration.backend { backendIsLocalOnly = true } else { backendIsLocalOnly = false }
         self.tokens = tokens
@@ -48,11 +71,18 @@ public struct CloudAPIClient: Sendable {
     /// `onSent` runs once the request goes on the wire (sign-in token and
     /// team resolved), so a caller can tell its request stage from the
     /// server's create.
-    public func createMachine(displayName: String?, memoryMb: Int? = nil, idempotencyKey: String = UUID().uuidString,
+    /// `idlePauseMinutes`: the machine's idle auto-pause from its create (0 is Off, a persistent
+    /// machine); a server that does not store it answers without it (or with its default).
+    public func createMachine(displayName: String?, memoryMb: Int? = nil, idlePauseMinutes: Int? = nil,
+                              idempotencyKey: String = UUID().uuidString,
                               onSent: (@Sendable () async -> Void)? = nil) async throws -> CloudMachine {
         var body: [String: any Sendable] = [:]
         if let displayName, !displayName.isEmpty { body["displayName"] = displayName }
         if let memoryMb { body["memoryMb"] = memoryMb }
+        if let idlePauseMinutes {
+            let value: any Sendable = idlePauseMinutes == 0 ? "off" : idlePauseMinutes
+            body["idlePauseMinutes"] = value
+        }
         return try await send("POST", "/api/vm", body: body, idempotencyKey: idempotencyKey, timeout: .seconds(620),
                               onSent: onSent, as: CloudMachine.self)
     }
@@ -317,9 +347,50 @@ public struct CloudAPIClient: Sendable {
         value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(.init(charactersIn: "/?&=#"))) ?? value
     }
 
+    // MARK: Runs
+
+    /// `POST /api/runs` for a sandboxed Run (hq#3367): one task on a throwaway VM from a
+    /// pinned image. The key makes a retry after a lost response return the same Run.
+    /// Answers the server's JSON as is; the Run API's views already hold no secrets.
+    public func createSandboxRun(task: String, agent: String? = nil, image: String? = nil, timeoutMs: Int? = nil,
+                                 idempotencyKey: String = UUID().uuidString) async throws -> Data {
+        var body: [String: any Sendable] = ["environment": "sandboxed", "task": task]
+        if let agent, !agent.isEmpty { body["agent"] = agent }
+        if let image, !image.isEmpty { body["image"] = image }
+        if let timeoutMs { body["timeoutMs"] = timeoutMs }
+        return try await sendData("POST", "/api/runs", body: body, idempotencyKey: idempotencyKey)
+    }
+
+    /// `GET /api/runs/:id/wait`: the snapshot once the Run is terminal or after
+    /// `timeoutMs` (the server caps it at 10 s), with its receipt when it has one.
+    public func waitRun(_ id: String, timeoutMs: Int) async throws -> Data {
+        let wait = max(0, min(timeoutMs, 10_000))
+        return try await sendData("GET", "/api/runs/\(queryComponent(id))/wait?timeoutMs=\(wait)", timeout: .milliseconds(wait + 10_000))
+    }
+
+    /// `POST /api/runs/:id/cancel`; a sandbox's VM is destroyed before it answers.
+    public func cancelRun(_ id: String) async throws -> Data {
+        try await sendData("POST", "/api/runs/\(queryComponent(id))/cancel", timeout: .seconds(60))
+    }
+
     // MARK: Transport
 
     struct Ignored: Decodable {}
+
+    /// One request whose JSON body the caller reads itself.
+    func sendData(_ method: String, _ path: String, body: [String: any Sendable]? = nil, idempotencyKey: String? = nil,
+                  timeout: Duration = .seconds(20)) async throws -> Data {
+        try await send(method, path, body: body, idempotencyKey: idempotencyKey, timeout: timeout, as: RawBody.self).data
+    }
+
+    /// The undecoded body; ``send(_:_:body:bodyStream:idempotencyKey:timeout:onSent:as:)`` hands it over as is.
+    struct RawBody: Decodable {
+        let data: Data
+        init(data: Data) { self.data = data }
+        init(from decoder: any Decoder) throws {
+            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "RawBody is not decoded"))
+        }
+    }
 
     func send<T: Decodable>(_ method: String, _ path: String, body: [String: any Sendable]? = nil,
                             bodyStream: (stream: InputStream, length: Int, contentType: String)? = nil, idempotencyKey: String? = nil,
@@ -366,6 +437,7 @@ public struct CloudAPIClient: Sendable {
             throw CloudAPIError.from(status: http.statusCode, data: data, headerCode: http.value(forHTTPHeaderField: "x-cmux-vm-error"))
         }
         if T.self == Ignored.self, let ignored = Ignored() as? T { return ignored }
+        if T.self == RawBody.self, let raw = RawBody(data: data) as? T { return raw }
         do {
             return try JSONDecoder().decode(T.self, from: data)
         } catch {

@@ -80,6 +80,15 @@ final class SidebarIconButton: NSButton {
 
     @objc private func pressed() { onPress?() }
 
+    /// A first click in a window that is not key presses the button rather than only making the
+    /// window key (a card's x over a page: a Chromium page's own window holds the key while the
+    /// person works in a chat). Off by default, AppKit's answer.
+    var takesFirstClick = false
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        takesFirstClick || super.acceptsFirstMouse(for: event)
+    }
+
     /// AXPress runs `onPress` and reports success. NSButton's own press ran the action yet
     /// answered -25205 (kAXErrorActionUnsupported) for the sidebar's New Workspace, so a
     /// computer-use agent that read the error pressed again and made a second workspace.

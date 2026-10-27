@@ -1,7 +1,10 @@
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
+import CmuxNextBrowserTabs
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextRemoteLocalhostService
 import CmuxNextSettings
 import Foundation
 
@@ -72,7 +75,7 @@ final class BrowserTabService {
     /// memory (`ClosedBrowserHistories`): the daemon's copy is not applied.
     var restoredInMemory: @MainActor (String, BrowserEngineKind) -> Bool = { _, _ in false }
     /// Whether `daemon` serves `frontend-browser-tabs-v1`.
-    var serves: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapabilities.shared.frontendBrowserTabs) }
+    var serves: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapability.frontendBrowserTabs.rawValue) }
     /// Why Chromium cannot open a tab now; nil when it can (or may still
     /// start).
     var cefUnavailable: @MainActor () -> CEFUnavailableReason?
@@ -84,6 +87,9 @@ final class BrowserTabService {
     /// a new TabModel in its destination pane), nil when it closed.
     var tabModel: @MainActor (_ id: String) -> TabModel?
     var writeBackDelay: Duration = .milliseconds(500)
+    /// How long a record write waits for the store to apply its events before the writer reads
+    /// the record anyway.
+    static let settleLimit: Duration = .seconds(2)
     // wakeup-allow: one-shot debounce of browser record write-back (injected for tests)
     var sleep: BrowserRecordWriter.Sleep = { try await ContinuousClock().sleep(for: $0) }
     private(set) var writers: [String: BrowserRecordWriter] = [:]
@@ -92,12 +98,16 @@ final class BrowserTabService {
     private var historyFetches: [String: Task<Void, Never>] = [:]
     /// Restored pages that start once their saved history is read.
     let historyStarts = BrowserHistoryStarts()
+    /// The App's incognito profiles (the engines' ``BrowserSharedStores``).
+    let offTheRecord: OffTheRecordProfiles
     /// Per tab: the page follows the tab record's `extra.emulation` (`trackEmulation`).
     var emulationFollowers: [String: Task<Void, Never>] = [:]
     /// True for a pane of an incognito window (the App sets it).
     var isIncognitoPane: @MainActor (PaneModel) -> Bool = { _ in false }
     /// True for a tab of an incognito window, by tab id (the App sets it).
     var isIncognitoTab: @MainActor (String) -> Bool = { _ in false }
+    /// Where `localhost` goes for a new tab of `pane` on `daemon` with `engine` (the notice says so).
+    var localhostRoute: @MainActor (DaemonService, PaneModel, BrowserEngineKind) -> RemoteLocalhostRoute? = { _, _, _ in nil }
     /// Start URLs of incognito tabs, by surface, in memory only.
     private var incognitoURLs: [SurfaceKey: String] = [:]
     /// Surfaces created in this process (`open`): pages the user asked for
@@ -115,14 +125,15 @@ final class BrowserTabService {
     }
 
     init(daemon local: DaemonService, cef: CEFEngine) {
+        offTheRecord = cef.stores.offTheRecord
         // The service lives in the cache, which the App owns beside the local daemon (no cycle).
         daemonForPane = { [local] _ in local }
         daemonForTab = { [local] _ in local }
         daemons = { [local] in [local] }
         create = { daemon, pane, url, engine, profile, activate, after in
             // An older daemon without the capability would ignore the field: send it only when served.
-            let background = !activate && daemon.supports(DaemonCapabilities.shared.frontendBrowserActivate)
-            let slot = daemon.supports(DaemonCapabilities.shared.frontendBrowserInsertAfter) ? after : nil
+            let background = !activate && daemon.supports(DaemonCapability.frontendBrowserActivate.rawValue)
+            let slot = daemon.supports(DaemonCapability.frontendBrowserInsertAfter.rawValue) ? after : nil
             // Through the funnel: the action scope waits for the tab's echo
             // before it maps `created` to public ids.
             return try await daemon.perform(NewFrontendBrowserTabRequest.command) { connection in
@@ -132,7 +143,7 @@ final class BrowserTabService {
         }
         settled = { daemon in
             guard let connection = daemon.connection else { return }
-            await daemon.store.applied(through: await connection.eventSequence())
+            await daemon.appliedThroughReply(on: connection, after: "new browser tab")
         }
         update = { daemon, surface, update in
             await daemon.run("update-frontend-browser-tab") { connection in
@@ -146,13 +157,13 @@ final class BrowserTabService {
         }
         keepsState = { _ in false }
         storeHistory = { daemon, surface, history in
-            guard daemon.supports(DaemonCapabilities.shared.frontendBrowserHistory) else { return false }
+            guard daemon.supports(DaemonCapability.frontendBrowserHistory.rawValue) else { return false }
             return await daemon.run(SetFrontendBrowserHistoryRequest.command) { connection in
                 _ = try await connection.request(SetFrontendBrowserHistoryRequest(surface: surface, history: history))
             }
         }
         fetchHistory = { daemon, surface in
-            guard daemon.supports(DaemonCapabilities.shared.frontendBrowserHistory), let connection = daemon.connection else { return nil }
+            guard daemon.supports(DaemonCapability.frontendBrowserHistory.rawValue), let connection = daemon.connection else { return nil }
             return try? await connection.request(GetFrontendBrowserHistoryRequest(surface: surface)).history
         }
         tabModel = { _ in nil }
@@ -190,7 +201,7 @@ final class BrowserTabService {
     /// silent no-op): its machine is not connected. Nil otherwise; a
     /// connected machine whose cmux-tui lacks daemon browser tabs gets the
     /// session-local fallback where the caller has one
-    /// (`PaneBrowserTabOpener.machineRoute`), else the caller's capability refusal.
+    /// (`BrowserTabRoute`), else the caller's capability refusal.
     func refusal(in pane: PaneModel) -> String? {
         let daemon = daemonForPane(pane)
         guard !daemon.isLocal, daemon.connection == nil else { return nil }
@@ -209,7 +220,10 @@ final class BrowserTabService {
     func takeNotice(forKey key: String) -> String? { pendingTabNotices.removeValue(forKey: key) }
 
     /// Whether `tab` was created in this process (`open`), not restored.
-    func wasOpenedHere(_ tab: TabModel) -> Bool { openedSurfaces.contains(key(daemonForTab(tab), tab.surface)) }
+    /// A stand-in tab (`PaneBrowserTabOpener.openStandIn`) is opened here by definition.
+    func wasOpenedHere(_ tab: TabModel) -> Bool {
+        ProvisionalTab.isProvisional(surface: tab.surface) || openedSurfaces.contains(key(daemonForTab(tab), tab.surface))
+    }
 
     /// The daemon record URL of an incognito tab.
     static let incognitoPlaceholderURL = "about:blank"
@@ -242,8 +256,8 @@ final class BrowserTabService {
     /// WebKit fallback for the last two.
     /// `url` is the page the tab opens, for its `browser.siteEngines` rule.
     func resolve(requested: String?, inherited: String? = nil, url: URL? = nil) -> BrowserEngineResolver.Outcome {
-        BrowserEngineResolver.resolve(requested: requested, inherited: inherited, siteEngine: preference.siteEngines.engine(for: url),
-                                      defaultEngine: preference.defaultEngine, cefUnavailable: cefUnavailable())
+        BrowserEngineResolver(defaultEngine: preference.defaultEngine, cefUnavailable: cefUnavailable())
+            .resolve(requested: requested, inherited: inherited, siteEngine: preference.siteEngines.engine(for: url))
     }
 
     /// Whether someone asked for the engine of `tab` (`BrowserEngineChoice.pinned`).
@@ -273,7 +287,8 @@ final class BrowserTabService {
         let profile = offTheRecord ? nil : resolveProfile(pane, explicit)
         // A machine browser record runs there: no "runs on this Mac" notice.
         let runsHere = !daemon.isLocal && !MachineBrowserRecord.matches(URL(string: url))
-        let shown = notice ?? (runsHere ? RemoteStrings.browserRunsOnThisMac(machineName(daemon)) : nil)
+        let shown = notice ?? (runsHere ? RemoteStrings.browserRunsOnThisMac(
+            machineName(daemon), route: localhostRoute(daemon, pane, choice.engine == .cef ? .cef : .webkit)) : nil)
         return try await open(choice, in: pane.handle, on: daemon, url: url, offTheRecord: offTheRecord, profile: profile,
                               notice: shown, activate: activate, after: after)
     }
@@ -334,9 +349,11 @@ final class BrowserTabService {
     }
 
     func track(_ page: any BrowserTab, for tab: TabModel) {
+        // A stand-in has no daemon record to write back to: the daemon's tab tracks the page it adopts.
+        guard !ProvisionalTab.isProvisional(surface: tab.surface) else { return }
         trackEmulation(page, id: tab.id)
         guard tab.isFrontendOwned, writers[tab.id] == nil, !isIncognitoTab(tab.id) else { return }
-        let update = update, updateState = updateState, id = tab.id, daemonForTab = daemonForTab
+        let update = update, updateState = updateState, settled = settled, id = tab.id, daemonForTab = daemonForTab
         let keeps = keepsState(tab)
         if keeps, let zoom = tab.zoom, abs(page.state.zoom - zoom) > 0.001 { page.setZoom(zoom) }
         // The surface is looked up by tab id at send time. A moved tab (a
@@ -351,10 +368,21 @@ final class BrowserTabService {
         ) { [weak self] fields in
             guard let tab = self?.tabModel(id) else { return false }
             let daemon = daemonForTab(tab)
-            if fields.hasRecordFields, !(await update(daemon, tab.surface, fields)) { return false }
-            guard fields.hasStateFields else { return true }
-            guard let resource = tab.resourceID else { return false }
-            return await updateState(daemon, resource, fields)
+            let write: @MainActor () async -> Bool = {
+                if fields.hasRecordFields, !(await update(daemon, tab.surface, fields)) { return false }
+                guard fields.hasStateFields else { return true }
+                guard let resource = tab.resourceID else { return false }
+                return await updateState(daemon, resource, fields)
+            }
+            let sent = await write()
+            // The daemon publishes the record before it answers and the store applies it after:
+            // the writer reads the record only once the store holds the write's own events
+            // (BrowserRecordWriter, causal order). Bounded, so a store that stops applying (a
+            // resync that never lands) cannot hold quit, close or later writes.
+            _ = try? await ControlDeadline.shared.run(method: "browser.record.settle", deadline: .now + Self.settleLimit) {
+                @MainActor in await settled(daemon)
+            }
+            return sent
         }
         writers[id] = writer
         trackHistory(page, id: id, daemon: daemonForTab(tab), surface: tab.surface, recordURL: tab.url, while: writer)
@@ -388,7 +416,7 @@ final class BrowserTabService {
                 restoring.restoreSession(session.entries, current: session.current)
             }
             self.historyWriters[id] = BrowserHistoryWriter(page: restoring, recorded: saved, keepsEngineState: daemon.isLocal
-                                                           && !OffTheRecordProfiles.shared.isOffTheRecord(page.profileID),
+                                                           && !self.offTheRecord.isOffTheRecord(page.profileID),
                                                            delay: self.writeBackDelay, sleep: self.sleep) { [weak self] history in
                 guard let tab = self?.tabModel(id) else { return false }
                 // Engine state stays on this Mac, also for a tab that moved to another machine.

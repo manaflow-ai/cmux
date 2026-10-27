@@ -11,6 +11,17 @@ struct AgentPaneDisplayRequestTests {
         #expect(request == .displaySetting(path: ["agentPane", "display", "font", "size"], value: .number(16)))
     }
 
+    @Test func environmentPlacementWritesItsValue() {
+        let request = AgentPaneRequest(body: [
+            "method": "pane.setDisplay",
+            "params": ["key": "agentPane.display.environment.placement", "value": "right"],
+        ])
+        #expect(request == .displaySetting(
+            path: ["agentPane", "display", "environment", "placement"],
+            value: .string("right"),
+        ))
+    }
+
     @Test func nullRemovesTheKey() {
         let request = AgentPaneRequest(body: ["method": "pane.setDisplay", "params": ["key": "agentPane.display.code.family", "value": NSNull()]])
         #expect(request == .displaySetting(path: ["agentPane", "display", "code", "family"], value: nil))

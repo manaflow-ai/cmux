@@ -23,6 +23,8 @@ extension HomeNativeTranscriptView {
     func connectAttachments() {
         transcript.onPickAttachments = { [weak self] in self?.pickFiles() }
         transcript.onAttachmentPasteboard = { [weak self] board in self?.handlePaste(board) ?? false }
+        // The words a taken paste carries beside its attachments: the field inserts them.
+        transcript.attachmentPasteText = { board in HomeAttachmentIntake.textBeside(board) }
         transcript.acceptsAttachmentDrag = { [weak self] board in
             self?.attachmentPreparer != nil && HomeAttachmentIntake.offers(board)
         }
@@ -37,10 +39,7 @@ extension HomeNativeTranscriptView {
         transcript.onAttachmentDropTarget = { [weak self] targeted in self?.drop.highlight.show(targeted) }
         drop.install(in: self)
         transcript.onAttachmentRefusal = { [weak self] refusal in self?.showAttachmentRefusal(refusal) }
-        transcript.onDraftTextChange = { [weak self] in
-            guard let self, self.notice != nil, !self.transcript.draftText.isEmpty else { return }
-            self.showNotice(nil)
-        }
+        transcript.onDraftTextChange = { [weak self] in self?.draftTextChanged() }
         transcript.fetchAttachment = binding.fetchAttachment
         transcript.onCancelSend = { [weak binding] key in binding?.cancelSend(key) ?? false }
         transcript.onRefusal = { [weak self] _, rejection in self?.showRefusal(rejection) }
@@ -83,8 +82,8 @@ extension HomeNativeTranscriptView {
     /// Opens the file picker as a sheet (the attach button, `home.attachFiles`), in the
     /// click's own turn and from the panel made ahead (`HomeAttachmentPanel`).
     public func pickFiles() {
-        guard let window, attachmentPreparer != nil else { return }
-        HomeAttachmentPanel.present(for: window) { [weak self] urls in
+        guard let window, attachmentPreparer != nil, let attachmentPanel else { return }
+        attachmentPanel.present(for: window) { [weak self] urls in
             // Chosen or cancelled, the person goes back to typing in the box.
             defer { self?.transcript.focusPrimaryInputForTyping() }
             guard let urls else { return }
@@ -268,5 +267,14 @@ extension HomeNativeTranscriptView {
     /// on their way, the notice and whether the drop highlight shows.
     public var debugDraftState: (attachments: [(name: String, mimeType: String, bytes: Int)], pending: Int, notice: String?, highlighted: Bool) {
         (transcript.draftAttachments.map { ($0.ref.name, $0.ref.mimeType, $0.ref.byteCount) }, drop.pending, notice, drop.highlight.isShowing)
+    }
+}
+
+extension HomeNativeTranscriptView {
+    /// Every key typed into the composer ends here (`ChatController.textDidChange`, vendored MessagesLab, carries
+    /// the other home-key marker): a notice the person typed past goes. Keep it O(1): no transcript or row work.
+    func draftTextChanged() { // perf-hot: 0.1ms home-key (every key typed into the Home composer)
+        guard notice != nil, !transcript.draftText.isEmpty else { return }
+        showNotice(nil)
     }
 }

@@ -124,6 +124,10 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
     }
 
     private static func symbol(_ name: String, label: String) -> NSImage? {
-        NSImage(systemSymbolName: name, accessibilityDescription: label)
+        // A template at the menu font's size, as every right-click row's symbol (`ActionRegistry.menuIcon`).
+        let configuration = NSImage.SymbolConfiguration(pointSize: NSFont.menuFont(ofSize: 0).pointSize, weight: .regular, scale: .medium)
+        let image = NSImage(systemSymbolName: name, accessibilityDescription: label)?.withSymbolConfiguration(configuration)
+        image?.isTemplate = true
+        return image
     }
 }

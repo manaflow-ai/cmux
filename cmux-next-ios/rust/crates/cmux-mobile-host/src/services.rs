@@ -76,11 +76,12 @@ pub async fn serve(
         "echo" => echo(&sender, receiver).await,
         "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,
         "chief" => chief(&config, &peer, &sender, receiver).await,
-        "acpmux" => acpmux(&config, &sender, receiver).await,
+        "acpmux" => acpmux(&config, &peer.device_id, &sender, receiver).await,
         "file" => file(&config, &args, &sender).await,
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
         "version" => version(&config, &sender).await,
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
+        "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
         _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
     };
     match result {
@@ -127,6 +128,9 @@ pub const BROWSER_STREAM: &str = "browser-stream-v1";
 /// With [`BROWSER_STREAM`]: `browser {"video": "track"}` carries the page's
 /// video on the link's media lane when the link has one.
 pub const BROWSER_VIDEO_TRACK: &str = "browser-video-track-v1";
+/// Added when this Mac streams its phone tabs' simulators (`surface`), with
+/// `video: "track"` as for browser tabs.
+pub const SURFACE_STREAM: &str = "surface-stream-v1";
 
 /// What this host does that a phone may rely on.
 pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
@@ -134,6 +138,9 @@ pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
     if config.browser.available() {
         out.push(BROWSER_STREAM);
         out.push(BROWSER_VIDEO_TRACK);
+    }
+    if config.surface.available() {
+        out.push(SURFACE_STREAM);
     }
     out
 }
@@ -247,6 +254,7 @@ async fn daemon(
         LinePolicy::Daemon(
             DaemonPolicy::new(&peer.device_id).with_agent_tab_host(config.agent_tab_host.clone()),
         ),
+        config.pairing.as_ref().map(|pairing| std::sync::Arc::clone(&pairing.spent_replies)),
         sender,
         receiver,
     )
@@ -274,7 +282,7 @@ async fn chief(
         }),
         None => ChiefPolicy::new(),
     };
-    splice(&path, "chief", LinePolicy::Chief(policy), sender, receiver).await
+    splice(&path, "chief", LinePolicy::Chief(policy), None, sender, receiver).await
 }
 
 /// Splices one phone channel to a daemon socket. Responses and refusals
@@ -283,20 +291,31 @@ async fn splice(
     path: &Path,
     label: &str,
     policy: LinePolicy,
+    spent_replies: Option<std::sync::Arc<crate::mailbox::SpentReplies>>,
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
 ) -> Result<(), Refusal> {
     // The daemon lane: a phone's new terminal opens in its pane's folder (with_pane_folder).
     let terminal_folders = matches!(policy, LinePolicy::Daemon(_)).then(|| path.to_path_buf());
+    let reply_phone = match &policy {
+        LinePolicy::Daemon(daemon) => Some(daemon.device_id().to_owned()),
+        LinePolicy::Chief(_) => None,
+    };
     let socket = UnixStream::connect(path)
         .await
         .map_err(|e| Refusal::new("unavailable", format!("cmux-tui session {label}: {e}")))?;
     let (daemon_read, mut daemon_write) = socket.into_split();
     let (lines_tx, mut lines_rx) = mpsc::channel::<Vec<u8>>(256);
+    // The daemon lane: the phone's terminal size claims, released when it
+    // leaves on purpose (size_release.rs).
+    let claims = terminal_folders.is_some();
+    let _active = claims.then(crate::size_release::ActiveSplice::begin);
+    let pending = Arc::new(crate::size_release::PendingReleases::default());
 
     // Daemon → phone, whole lines.
     let daemon_lines = lines_tx.clone();
     let reply_policy = policy.clone();
+    let answers = Arc::clone(&pending);
     let mut from_daemon = tokio::spawn(async move {
         let mut reader = BufReader::with_capacity(64 * 1024, daemon_read);
         loop {
@@ -304,6 +323,10 @@ async fn splice(
             match reader.read_until(b'\n', &mut line).await {
                 Ok(0) | Err(_) => return,
                 Ok(_) => {
+                    // hostd's own releases: answered to hostd, not the phone.
+                    if answers.answer(&line) {
+                        continue;
+                    }
                     let Some(line) = reply_policy.reply(line) else { continue };
                     if daemon_lines.send(line).await.is_err() {
                         return;
@@ -315,9 +338,30 @@ async fn splice(
 
     // Phone → daemon, filtered.
     let refusals = lines_tx;
+    let releases = Arc::clone(&pending);
+    let mut stopping = crate::size_release::stopping();
     let mut to_daemon = tokio::spawn(async move {
         let mut pending: Vec<u8> = Vec::new();
-        while let Some(ChannelEvent::Data(bytes)) = receiver.recv().await {
+        let mut sized = crate::size_release::SizeClaims::default();
+        loop {
+            let event = tokio::select! {
+                event = receiver.recv() => event,
+                // hostd is stopping (iPhone connections off, the app quitting).
+                () = async { drop(stopping.wait_for(|stopping| *stopping).await) }, if claims => {
+                    release_claims(&sized, &releases, &mut daemon_write, crate::size_release::ReleaseReason::Stopping).await;
+                    return;
+                }
+            };
+            let bytes = match event {
+                Some(ChannelEvent::Data(bytes)) => bytes,
+                Some(ChannelEvent::Closed(info)) => {
+                    if claims && let Some(reason) = crate::size_release::ReleaseReason::for_close(&info) {
+                        release_claims(&sized, &releases, &mut daemon_write, reason).await;
+                    }
+                    return;
+                }
+                None => return,
+            };
             pending.extend_from_slice(&bytes);
             while let Some(newline) = pending.iter().position(|&b| b == b'\n') {
                 let mut line: Vec<u8> = pending.drain(..=newline).collect();
@@ -340,10 +384,33 @@ async fn splice(
                     }
                     (_, verdict) => verdict,
                 };
+                // A reply to a terminal notification: hostd answers it itself
+                // (the daemon has no such command), into that terminal only.
+                if matches!(verdict, Verdict::Forward)
+                    && let (Some(path), Some(phone)) = (&terminal_folders, &reply_phone)
+                    && is_notification_reply(&line)
+                {
+                    let mut answer = crate::mailbox_apply::answer_notification_reply(
+                        path,
+                        phone,
+                        spent_replies.as_deref(),
+                        &line,
+                    )
+                    .await
+                    .into_bytes();
+                    answer.push(b'\n');
+                    if refusals.send(answer).await.is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 match verdict {
                     Verdict::Forward => {
                         if let Some(path) = &terminal_folders {
                             line = with_pane_folder(path, line).await;
+                        }
+                        if claims {
+                            sized.observe(&line);
                         }
                         line.push(b'\n');
                         if daemon_write.write_all(&line).await.is_err() {
@@ -353,6 +420,9 @@ async fn splice(
                     Verdict::Rewrite(mut line) => {
                         if let Some(path) = &terminal_folders {
                             line = with_pane_folder(path, line).await;
+                        }
+                        if claims {
+                            sized.observe(&line);
                         }
                         line.push(b'\n');
                         if daemon_write.write_all(&line).await.is_err() {
@@ -383,6 +453,24 @@ async fn splice(
             line = lines_rx.recv() => match line {
                 Some(line) => {
                     if sender.send(Bytes::from(line)).await.is_err() {
+                        // The phone is gone (its close frame, a removed phone). Its
+                        // close reaches the phone-to-daemon task, which releases its
+                        // sizes: let that finish (bounded) instead of aborting it,
+                        // or the daemon reads end of file first and holds the grid.
+                        if claims {
+                            let _ = tokio::time::timeout(
+                                crate::size_release::RELEASE_WAIT + std::time::Duration::from_millis(300),
+                                async {
+                                    loop {
+                                        tokio::select! {
+                                            _ = &mut to_daemon => return,
+                                            line = lines_rx.recv() => if line.is_none() { return },
+                                        }
+                                    }
+                                },
+                            )
+                            .await;
+                        }
                         break;
                     }
                 }
@@ -407,6 +495,40 @@ async fn splice(
     to_daemon.abort();
     from_daemon.abort();
     Ok(())
+}
+
+/// Whether `line` is a `notification-reply` request.
+fn is_notification_reply(line: &[u8]) -> bool {
+    serde_json::from_slice::<Value>(line)
+        .ok()
+        .is_some_and(|v| v.get("cmd").and_then(Value::as_str) == Some("notification-reply"))
+}
+
+/// Releases every terminal size the phone claimed on this channel and waits
+/// (at most `RELEASE_WAIT`) for the daemon's answers, keeping the socket open
+/// meanwhile: an end of file the daemon read before a release would be a
+/// dropped view, which holds the grid.
+async fn release_claims(
+    claims: &crate::size_release::SizeClaims,
+    pending: &crate::size_release::PendingReleases,
+    daemon: &mut tokio::net::unix::OwnedWriteHalf,
+    reason: crate::size_release::ReleaseReason,
+) {
+    if claims.is_empty() {
+        return;
+    }
+    let lines = claims.release_lines();
+    tracing::info!(?reason, terminals = lines.len(), "releasing the phone's terminal sizes");
+    let mut batch = Vec::new();
+    for (id, line) in lines {
+        pending.add(id);
+        batch.extend_from_slice(&line);
+        batch.push(b'\n');
+    }
+    if daemon.write_all(&batch).await.is_err() {
+        return;
+    }
+    pending.wait(crate::size_release::RELEASE_WAIT).await;
 }
 
 /// The acpmux WebSocket address and token.
@@ -444,7 +566,14 @@ pub(crate) type AcpmuxSocket =
 
 /// Opens the acpmux loopback WebSocket with its bearer token.
 pub(crate) async fn connect_acpmux(target: &AcpmuxTarget) -> Result<AcpmuxSocket, Refusal> {
+    connect_acpmux_as(target, None).await
+}
+
+/// `connect_acpmux` with `credential` (a phone's own acpmux credential) in place of the
+/// dashboard token.
+async fn connect_acpmux_as(target: &AcpmuxTarget, credential: Option<&str>) -> Result<AcpmuxSocket, Refusal> {
     let (url, token) = acpmux_endpoint(target)?;
+    let token = credential.map(str::to_owned).or(token);
     let mut request = url.into_client_request().map_err(|e| Refusal::new("unavailable", e.to_string()))?;
     if !request.uri().host().is_some_and(is_loopback_host) {
         return Err(Refusal::new("forbidden", "acpmux listener is not on loopback"));
@@ -463,23 +592,28 @@ pub(crate) async fn connect_acpmux(target: &AcpmuxTarget) -> Result<AcpmuxSocket
 
 /// `acpmux`: splice to the acpmux loopback WebSocket. One link data frame
 /// carries one WebSocket text message in each direction.
+///
+/// A phone the app gave its own acpmux credential (`control::phone_credential`) connects
+/// with it, so acpmux knows which phone it is (still a Web connection, with every Web
+/// rule). What `acpmux_policy` refuses then goes on marked, and acpmux runs it only when
+/// that phone's Full-access setting (Settings > Devices on the Mac, off by default)
+/// covers it. Without a credential, or when acpmux refuses it, the dashboard token and
+/// the refusal here stay as they were.
 async fn acpmux(
     config: &ServiceConfig,
+    phone: &str,
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
 ) -> Result<(), Refusal> {
-    let socket = match (connect_acpmux(&config.acpmux).await, &config.acpmux) {
-        (Ok(socket), _) => socket,
-        // Supervised: the app's acpmux may have restarted on another port.
-        // Ask the app once and retry with what it sends.
-        (Err(refusal), AcpmuxTarget::Supplied(endpoint)) if refusal.code == "unavailable" => {
-            let mut endpoint = endpoint.clone();
-            endpoint.borrow_and_update();
-            control::emit(&control::Event::NeedAcpmux);
-            let _ = tokio::time::timeout(ACPMUX_WAIT, endpoint.changed()).await;
-            connect_acpmux(&config.acpmux).await?
-        }
-        (Err(refusal), _) => return Err(refusal),
+    let credential = control::phone_credential(phone);
+    let own = match credential.as_deref() {
+        Some(credential) => connect_acpmux_as(&config.acpmux, Some(credential)).await.ok(),
+        None => None,
+    };
+    let as_phone = own.is_some();
+    let socket = match own {
+        Some(socket) => socket,
+        None => connect_dashboard(&config.acpmux).await?,
     };
     let (mut ws_sink, mut ws_source) = socket.split();
     let mut message = MessageAssembler::default();
@@ -501,6 +635,14 @@ async fn acpmux(
                             }
                             None => None,
                         },
+                    };
+                    // On the phone's own credential acpmux decides by its Full-access setting.
+                    let (text, refused) = match (refused, as_phone) {
+                        (Some(answer), true) => match crate::acpmux_policy::marked(&text) {
+                            Some(marked) => (marked, None),
+                            None => (text, Some(answer)),
+                        },
+                        (refused, _) => (text, refused),
                     };
                     if let Some(answer) = refused {
                         if sender.send(Bytes::from(answer.into_bytes())).await.is_err() {
@@ -532,6 +674,22 @@ async fn acpmux(
     }
     let _ = ws_sink.close().await;
     Ok(())
+}
+
+/// The acpmux WebSocket on the dashboard token. Supervised, the app's acpmux may have
+/// restarted on another port: ask the app once and retry with what it sends.
+async fn connect_dashboard(target: &AcpmuxTarget) -> Result<AcpmuxSocket, Refusal> {
+    match (connect_acpmux(target).await, target) {
+        (Ok(socket), _) => Ok(socket),
+        (Err(refusal), AcpmuxTarget::Supplied(endpoint)) if refusal.code == "unavailable" => {
+            let mut endpoint = endpoint.clone();
+            endpoint.borrow_and_update();
+            control::emit(&control::Event::NeedAcpmux);
+            let _ = tokio::time::timeout(ACPMUX_WAIT, endpoint.changed()).await;
+            connect_acpmux(target).await
+        }
+        (Err(refusal), _) => Err(refusal),
+    }
 }
 
 /// A session's current mode (`_acpmux/info` `currentModeId`) over hostd's own
@@ -857,12 +1015,21 @@ impl crate::browser_policy::MacPages for ServiceConfig {
     }
 }
 
-impl ServiceConfig {
-    /// The app's daemon socket (`default_socket`, else the default session's).
-    fn daemon_socket(&self) -> PathBuf {
-        self.default_socket
-            .clone()
-            .unwrap_or_else(|| self.tui_socket_dir.join(format!("{}.sock", self.default_session)))
+/// A phone tab is one this Mac's daemon lists now (`list-workspaces`); no
+/// answer streams nothing.
+impl crate::surface::SurfaceTabs for ServiceConfig {
+    fn is_phone_tab(&self, surface: u64) -> futures_util::future::BoxFuture<'_, bool> {
+        Box::pin(async move {
+            // Page tabs read as their record (`conversation.page`) only for a client
+            // that negotiated `page-tabs-v1`; without it every page tab reads `browser`.
+            daemon_query(
+                &self.daemon_socket(),
+                b"{\"cmd\":\"set-client-info\",\"id\":\"cmux-mobile-surface-hello\",\"name\":\"cmux-mobile-host\",\"kind\":\"cli\",\"capabilities\":[\"conversation-tabs-v1\",\"page-tabs-v1\"]}\n{\"cmd\":\"list-workspaces\",\"id\":\"cmux-mobile-surface\"}\n",
+                "cmux-mobile-surface",
+            )
+            .await
+            .is_ok_and(|reply| crate::surface::phone_tab_in(&reply, surface))
+        })
     }
 }
 
@@ -1182,6 +1349,7 @@ mod tests {
             upload_max_bytes: 1,
             chief_socket: None,
             browser: crate::browser::BrowserConfig::default(),
+            surface: Default::default(),
         };
         let view = config.view().await;
         assert!(view.browser_urls.is_empty());
@@ -1273,6 +1441,7 @@ mod tests {
             upload_max_bytes: 1,
             chief_socket: None,
             browser: crate::browser::BrowserConfig::default(),
+            surface: Default::default(),
         };
         assert_eq!(capabilities(&config), ["removal-v1"]);
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {

@@ -41,10 +41,13 @@ extension UpdateDriver {
     }
 
     /// The staged update, or nil when nothing waits for the user: this driver's held download,
-    /// else the one Sparkle's silent driver staged while its install still waits.
+    /// the update whose relaunch the gate holds, else the one Sparkle's silent driver staged
+    /// while its install still waits.
     var stagedItem: SUAppcastItem? {
         if stagedInstall != nil { return backgroundItem }
-        guard case .installing(let installing) = model.state, installing.isAutoUpdate else { return nil }
+        guard case .installing(let installing) = model.state else { return nil }
+        if installing.relaunchBlockers != nil { return heldRelaunchItem }
+        guard installing.isAutoUpdate else { return nil }
         return quitInstallItem
     }
 
@@ -60,17 +63,64 @@ extension UpdateDriver {
     /// Sends the held install reply once; Sparkle installs and relaunches. False when this driver
     /// holds no staged update. `automatic` marks an idle-policy install nobody clicked, whose
     /// relaunch also waits for quiet input and a confirmed daemon mirror.
+    ///
+    /// An automatic install whose host reopens itself (``UpdateActionDelegate/updaterQuitsForAutomaticInstall(build:)``)
+    /// leaves the held reply unanswered: Sparkle's prepared installer installs when the app exits
+    /// and does not relaunch it. The relaunch gate is not involved, so only a host without it
+    /// (`holdsUserInstalls` off) is asked.
     @discardableResult
     func installStaged(automatic: Bool = false) -> Bool {
         guard let install = stagedInstall else { return false }
         log.append("background install: installing staged update (automatic=\(automatic))")
+        let item = backgroundItem, cancel = stagedCancel
         stagedInstall = nil
         stagedCancel = nil
         installsWhenStaged = false
         backgroundItem = nil
+        if automatic, !holdsUserInstalls, let item {
+            // Set before asking: the host may start its quit at once.
+            quitInstall = (item, install, cancel)
+            if actionDelegate?.updaterQuitsForAutomaticInstall(build: item.versionString) == true {
+                log.append("background install: the app quits for the install; Sparkle installs as it exits, the app reopens itself")
+                setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
+                return true
+            }
+            quitInstall = nil
+        }
         setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
         relaunchIsAutomatic = automatic
         install()
+        return true
+    }
+
+    /// The automatic install the host quit for did not end the app (its quit was refused, or the
+    /// host could not reopen itself): the update is staged again, with Sparkle's reply still held,
+    /// so a click installs it and Sparkle still installs it when the app quits. False when no
+    /// such install waits.
+    @discardableResult
+    func restageAfterDeclinedQuit() -> Bool {
+        guard let pending = quitInstall else { return false }
+        quitInstall = nil
+        log.append("background install: the app did not quit for the install; staged again, waiting for the user")
+        backgroundItem = pending.item
+        stagedInstall = pending.install
+        stagedCancel = pending.cancel
+        setState(.installing(.init(
+            isAutoUpdate: true,
+            retryTerminatingApplication: { [weak self] in _ = self?.installStaged() },
+            dismiss: {}
+        )))
+        return true
+    }
+
+    /// The automatic install the host meant to quit for is now one the user is in the app for:
+    /// Sparkle installs and relaunches (activating), once. False when no such install waits.
+    @discardableResult
+    func relaunchHeldInstallThroughSparkle() -> Bool {
+        guard let pending = quitInstall else { return false }
+        quitInstall = nil
+        log.append("background install: relaunching through Sparkle")
+        pending.install()
         return true
     }
 

@@ -35,6 +35,10 @@ final class DividerHandleView: NSView {
         didSet { if showsActiveLine != oldValue { applyColors() } }
     }
     var onDrag: ((DragEvent) -> Void)?
+    /// The screen's uncovered rect and this handle's scroll area window when it was last placed
+    /// (`applyPresentation`): its hidden state and cursor clip follow from them and the frame, so
+    /// equal ones skip the work.
+    var placedClips: [CGRect?]?
     /// The pointer crossed this handle's tracking area. The screen that owns
     /// the handles decides hover from the pointer and the current frames
     /// (`ScreenContentView.refreshDividerHover`); the handle keeps no hover

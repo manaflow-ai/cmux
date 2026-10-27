@@ -23,6 +23,12 @@ final class FieldTextView: NSTextView {
     /// cmux: whether the host's intake would take a drag's pasteboard (a drag also counts
     /// file promises, which a paste cannot receive); nil uses `acceptsPastePasteboard`.
     var acceptsDropPasteboard: ((NSPasteboard) -> Bool)?
+    /// cmux: the words a paste the host's intake took carries beside its attachments (a note's
+    /// text around its pictures); the field inserts them at the caret. Nil: none.
+    var pasteTextBesideAttachments: (NSPasteboard) -> String? = { _ in nil }
+    /// cmux: a draft attachment's file, named like it: Copy of a selection holding attachments
+    /// writes the files (ComposeSelectionCopy.swift). Nil: none here.
+    var draftAttachmentFile: (ID) -> URL? = { _ in nil }
     /// cmux: the field became (true) or stopped being (false) the target of a drag the host's
     /// intake takes: the pane's drop highlight follows it.
     var onDropTargetChange: (Bool) -> Void = { _ in }
@@ -61,7 +67,9 @@ final class FieldTextView: NSTextView {
     /// it has no window (the offscreen harness and captures). AppKit sets it again on each backing
     /// change and window move, so this runs after AppKit does (and from `ComposeView.rescale`).
     func applyScale() {
-        let s = window?.backingScaleFactor ?? DisplayScale.current
+        // cmux: in a zoomed Chief chat (MessagesLabHomeView.zoom) the text draws at the window's scale times the zoom,
+        // so the magnified field text stays sharp.
+        let s = window.map { $0.backingScaleFactor * enclosingContentZoom } ?? DisplayScale.current
         if let l = layer, l.contentsScale != s { l.contentsScale = s }
     }
     override func viewDidChangeBackingProperties() { super.viewDidChangeBackingProperties(); applyScale() }
@@ -83,6 +91,8 @@ final class FieldTextView: NSTextView {
             if flags.contains(.option) || flags.contains(.shift) { insertText("\n", replacementRange: selectedRange()); return }
             onSend(); return
         }
+        // cmux: Ctrl+J (keyCode 38) is a newline, as in a terminal.
+        if event.keyCode == 38, flags == .control { insertText("\n", replacementRange: selectedRange()); return }
         if event.keyCode == 53 { onEscape(); return }
         super.keyDown(with: event)
     }
@@ -258,6 +268,14 @@ final class FieldTextView: NSTextView {
     /// Spell checking while typing, off the keystroke frame (SpellCheck.swift); the Edit
     /// menu's "Check Spelling While Typing" switches it.
     lazy var spell = DeferredSpellChecker(view: self)
+    /// Enables the host's opt-in composer spell checking without changing the system-wide setting.
+    func setSpellCheckingEnabled(_ enabled: Bool) {
+        if DeferredSpellChecker.useAppKit {
+            isContinuousSpellCheckingEnabled = enabled
+        } else {
+            spell.enabled = enabled
+        }
+    }
     override func toggleContinuousSpellChecking(_ sender: Any?) {
         if DeferredSpellChecker.useAppKit { super.toggleContinuousSpellChecking(sender) } else { spell.enabled.toggle() }
     }
@@ -511,7 +529,10 @@ final class FieldTextView: NSTextView {
 
     override func paste(_ sender: Any?) {
         let pb = pasteboard
-        if onPastePasteboard(pb) { return }  // cmux
+        if onPastePasteboard(pb) {  // cmux: the words beside the attachments go in too
+            if let text = pasteTextBesideAttachments(pb), !text.isEmpty { insertPlainText(text) }
+            return
+        }
         if let onPasteImage, pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }  // cmux
         super.paste(sender)
     }
@@ -521,6 +542,11 @@ final class FieldTextView: NSTextView {
     /// step. Rich text, HTML, files and pictures never reach the host's intake.
     override func pasteAsPlainText(_ sender: Any?) {
         guard isEditable, let text = plainText(pasteboard), !text.isEmpty else { return }
+        insertPlainText(text)
+    }
+
+    /// cmux: TEXT at the caret (replacing the selection) in the typing style, as its own undo step.
+    private func insertPlainText(_ text: String) {
         let range = selectedRange()
         guard shouldChangeText(in: range, replacementString: text), let storage = textStorage else { return }
         breakUndoCoalescing()
@@ -534,6 +560,18 @@ final class FieldTextView: NSTextView {
     /// `.string`; nil for a picture or a file alone). A check stubs it: the CI
     /// Macs' pasteboard server answers reads of a fresh private board inconsistently.
     var plainText: (NSPasteboard) -> String? = { $0.string(forType: .string) }
+
+    /// cmux: Copy, Cut and a drag of a selection holding attachments write their words without
+    /// the U+FFFC marks, then the attachments' files (ComposeSelectionCopy.swift); a selection of
+    /// words alone keeps NSTextView's own.
+    override func writeSelection(to pboard: NSPasteboard, types: [NSPasteboard.PasteboardType]) -> Bool {
+        let copy = ComposeSelectionCopy(file: draftAttachmentFile)
+        guard let storage = textStorage, let pieces = copy.pieces(storage, ranges: selectedRanges.map(\.rangeValue)) else {
+            return super.writeSelection(to: pboard, types: types)
+        }
+        pboard.clearContents()
+        return pboard.writeObjects(copy.items(pieces))
+    }
 
     // cmux: files and pictures dropped on the field go to the host's intake
     // (Home's type rule, as paste); text drags keep NSTextView's own handling.
@@ -845,10 +883,26 @@ final class ComposeView: UIView {
         // Its one line (a space) does not depend on the width: a live resize's every width
         // typeset it again (cx-3cb resize-drops).
         if text.isEmpty, let e = emptyLinesMemo, e.0 == w || (e.1 == 1 && w >= ComposeView.emptyLineMinWidth) { return e.1 }
-        if let m = linesMemo, m.0 == text, m.1 == w { return m.2 }
-        let n = TextLayout.make(text.isEmpty ? " " : text, runs: [], maxWidth: w, font: ComposeView.font).lines.count
-        if text.isEmpty { emptyLinesMemo = (w, n) } else { linesMemo = (text, w, n) }
-        return n
+        if let m = linesMemo, m.text == text, m.width == w { return m.count }
+        if text.isEmpty {
+            let n = TextLayout.make(" ", runs: [], maxWidth: w, font: ComposeView.font).lines.count
+            emptyLinesMemo = (w, n)
+            return n
+        }
+        // cmux: typing at the end of the draft (each key's case) lays out only from the start of the
+        // memo's second-to-last line: a greedy break before it cannot move when text is appended. The
+        // cost follows the change, not the draft (perf-lead.md issue 5, typing-frame-bench.py).
+        let u = text as NSString
+        var keep = 0, from = 0
+        if let m = linesMemo, m.width == w, u.length > (m.text as NSString).length, text.hasPrefix(m.text),
+           let second = m.starts.dropLast().last {
+            keep = m.starts.count - 2
+            from = second
+        }
+        let tail = TextLayout.make(u.substring(from: from), runs: [], maxWidth: w, font: ComposeView.font).lines
+        let starts = Array((linesMemo?.starts ?? []).prefix(keep)) + tail.map { $0.range.location + from }
+        linesMemo = (text, w, starts.count, starts)
+        return starts.count
     }
     /// The field's tallest text part. Real Messages (compose-e2e messages, 2026-10-10, 628 pt
     /// wide): the glass stops at the same height in a 940, 740 and 600 pt window (a fixed height,
@@ -866,7 +920,9 @@ final class ComposeView: UIView {
         }
         return min(ComposeView.height(lines: lines(text, windowWidth: width), chips: false), ComposeView.maxHeight) + strip.height
     }
-    private var linesMemo: (String, CGFloat, Int)?
+    /// cmux: the last draft's line count and where each of its lines starts (UTF-16), for the
+    /// incremental layout of the next key.
+    private var linesMemo: (text: String, width: CGFloat, count: Int, starts: [Int])?
     /// The empty draft's one line at any text width from this (a space is about 4 pt wide).
     static let emptyLineMinWidth: CGFloat = 20
     private var emptyLinesMemo: (CGFloat, Int)?
@@ -1325,7 +1381,7 @@ final class ComposeView: UIView {
         guard size.width > 0, size.height > 0, var rep = tv.bitmapImageRepForCachingDisplay(in: shown) else { return }
         // AppKit sizes the cache for the main screen when the view has no window (1x on a Mac
         // whose main display is 1x); the snapshot is drawn at the scale of the tree it goes into.
-        let scale = tv.window?.backingScaleFactor ?? renderScale
+        let scale = tv.window.map { $0.backingScaleFactor * tv.enclosingContentZoom } ?? renderScale  // cmux: a zoomed Chief chat
         // no trap on a NaN or huge size (crash ratchet)
         let wide = CrashGuard.int((size.width * scale).rounded(.up), in: 0...1 << 16), high = CrashGuard.int((size.height * scale).rounded(.up), in: 0...1 << 16)
         if rep.pixelsWide != wide || rep.pixelsHigh != high,

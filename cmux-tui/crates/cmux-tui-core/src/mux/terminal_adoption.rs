@@ -374,13 +374,9 @@ impl Mux {
                 self.record_terminal_end(&terminal.terminal_id);
                 continue;
             }
-            self.mark_terminal_ended(
-                &terminal.terminal_id,
-                "terminal-record-missing",
-                "missing-host-record",
-                &options,
-            )?;
+            self.adopt_from_holder_or_end(&terminal, &options)?;
         }
+        self.release_unclaimed_holder_terminals(&options);
         Ok(())
     }
 
@@ -841,7 +837,11 @@ impl Mux {
                     let deadline = Instant::now() + STARTUP_READY_WAIT;
                     while !mux.server_lifecycle_ready()
                         && !mux.startup_adoptions_released.load(Ordering::Acquire)
-                        && !mux.terminal_adoptions_now.lock().unwrap().contains(&terminal_id)
+                        && !mux
+                            .terminal_adoptions_now
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .contains(&terminal_id)
                         && !mux.shutting_down.load(Ordering::Acquire)
                         && Instant::now() < deadline
                     {
@@ -1078,9 +1078,12 @@ impl Mux {
     /// ended, and has it start at once instead of after the owner says ready.
     /// Holds no other lock while it waits.
     pub(crate) fn wait_for_terminal_adoption(&self, terminal_id: &str, bound: Duration) {
-        self.terminal_adoptions_now.lock().unwrap().insert(terminal_id.to_owned());
+        self.terminal_adoptions_now
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(terminal_id.to_owned());
         let deadline = Instant::now() + bound;
-        let mut adoptions = self.terminal_adoptions.lock().unwrap();
+        let mut adoptions = self.terminal_adoptions.lock().unwrap_or_else(PoisonError::into_inner);
         while adoptions.contains(terminal_id) {
             let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
@@ -1093,7 +1096,10 @@ impl Mux {
                 .0;
         }
         drop(adoptions);
-        self.terminal_adoptions_now.lock().unwrap().remove(terminal_id);
+        self.terminal_adoptions_now
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(terminal_id);
     }
 
     /// The running terminal `terminal_id` names, for a reopen that gives it a

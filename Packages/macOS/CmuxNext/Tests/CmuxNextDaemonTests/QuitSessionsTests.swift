@@ -84,7 +84,7 @@ struct QuitSessionsTests {
     @Test func endEverythingWithHomeEndsTheRestAndKeepsHome() async throws {
         let h = try await BranchDaemonHarness.start()
         defer { try? FileManager.default.removeItem(at: h.root) }
-        guard h.identity.supports(DaemonCapabilities.shared.workspaceKind) else { return await h.stop() }
+        guard h.identity.supports(DaemonCapability.workspaceKind.rawValue) else { return await h.stop() }
         let hosts: Set<Int32>
         do {
             _ = try await HomeWorkspaceClient(h.connection).ensureHome()
@@ -128,8 +128,8 @@ struct QuitSessionsTests {
     @Test func endKeepLayoutRestartsEachTabInTheSameSplit() async throws {
         let h = try await BranchDaemonHarness.start()
         defer { try? FileManager.default.removeItem(at: h.root) }
-        guard h.identity.supports(DaemonCapabilities.shared.endTerminalsKeepLayout),
-              h.identity.supports(DaemonCapabilities.shared.tabRestartKeptLayout) else { return await h.stop() }
+        guard h.identity.supports(DaemonCapability.endTerminalsKeepLayout.rawValue),
+              h.identity.supports(DaemonCapability.tabRestartKeptLayout.rawValue) else { return await h.stop() }
         let other = h.root.appendingPathComponent("other")
         let hosts: Set<Int32>
         let before: DaemonTree

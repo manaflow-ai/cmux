@@ -160,7 +160,7 @@ public final class WhatsNewCenter {
 extension WhatsNewCenter {
     /// The update harness's evidence (DEV only; no-op without a harness).
     func markLoadedForHarness() {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("whats_new.loaded.updated_\(isUpdated).unseen_\(unseen.count)")
         if let lastUpdate {
             UpdateHarness.mark("whats_new.last_update.\(lastUpdate.fromBuild)_to_\(lastUpdate.toBuild).lines_\(lastUpdate.changelog.lines.count)")

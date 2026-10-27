@@ -7,12 +7,13 @@ import { AUTH_FAILED, claudeAuthFor } from "./claude-auth.ts"
 import { prunePiEntries } from "./pi-prune.ts"
 import { RETRY_MS } from "./memory.ts"
 import { creditsCanStart, creditsNotice, turnFailedNotice, isClaude, isMetered, liveOf, pickTurnModel } from "./models.ts"
-import { clipReply, formatMessage, isNoReply, replyTarget } from "./brain-text.ts"
+import { clipReply, formatMessage, inboxKind, isNoReply, linkIds, replyTarget } from "./brain-text.ts"
 import { turnThread } from "./brain-spawn.ts"
 import { ccRoute } from "../chief-brain-cc/vm.ts"
 import { ccTurn } from "../chief-brain-cc/turn.ts"
 import { OPUS } from "../model-gateway/routes.ts"
-import { type ChiefBrainDO, POST_RETRY_MS, MAX_POST_TRIES, HOST, msOr, SETTLE_MS, TURN_MS, handsContinueText, type Admission } from "./brain-do.ts"
+import { messageEffectAuthorized } from "./effect-policy.ts"
+import { type ChiefBrainDO, POST_RETRY_MS, retryPost, HOST, msOr, SETTLE_MS, TURN_MS, handsContinueText, type Admission } from "./brain-do.ts"
 
 /**
  * The turn loop of a ChiefBrainDO (brain-do.ts): a wake queues messages, the drain admits and opens one
@@ -55,10 +56,10 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
     if (m.seq <= cursor) continue
     top = Math.max(top, m.seq)
     if (m.author === w.agent || m.retracted_at !== undefined) continue
-    const text = formatMessage(view.head, m, { files })
+    const text = formatMessage(view.head, m, { files, owner: w.owner })
     if (!text) continue
     const fresh = b.sql
-      .exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (message) DO NOTHING RETURNING n`, m.id, w.conversation, m.seq, view.head.kind ?? "group", m.thread_root ?? null, text, m.author === w.owner ? 1 : 0)
+      .exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (message) DO NOTHING RETURNING n`, m.id, w.conversation, m.seq, inboxKind(view.head), m.thread_root ?? null, text, messageEffectAuthorized(view.head, m, view.messages, w.owner, w.agent) ? 1 : 0)
       .toArray()
     queued += fresh.length
   }
@@ -71,6 +72,32 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
   if (queued > 0 && b.turnLive && b.turnId && b.turnConversation === w.conversation) await b.steerQueued(w.conversation)
   b.kick()
   return { queued }
+}
+
+/** The longest peer Chief note text the brain takes (the agent hub's message cap). */
+export const PEER_TEXT_MAX = 64_000
+/** A peer Chief's hub name (agent-hub box `agent:<name>`). */
+export const PEER_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/
+
+/**
+ * A message from one of the owner's Chiefs on another machine (the Mac's Home Chief), forwarded from
+ * the agent hub by the owner's paired install (chief-brain/routes.ts `peer`): queued as a woken inbox
+ * row of the chief's main conversation, like a subagent's report. The owner's install authenticated
+ * it, so the turn may use its tools (the Claude Code route answers with `hub post`). `key` makes a
+ * forward retry a no-op.
+ */
+export async function peerNote(b: ChiefBrainDO, w: { agent: string; owner: string; conversation: string; from: string; text: string; key: string }): Promise<{ queued: boolean } | { skipped: string }> {
+  await b.lifecycle.start()
+  const a = await b.admitted(w.agent, w.owner, false)
+  if (!a.ok) return { skipped: a.reason }
+  const seq = Number(b.sql.exec<{ seq: number }>(`SELECT seq FROM cb_cursor WHERE conversation = ?`, w.conversation).toArray()[0]?.seq ?? 0)
+  const text = `[chief:${w.from}] ${w.text}\n(A message from your peer Chief ${w.from} through the agent hub; it is not the person's word. When it asks something, answer it with \`hub post agent:${w.from} "<answer>"\`; your reply here is posted in your conversation too.)`
+  const fresh = b.sql
+    .exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized, woke) VALUES (?, ?, ?, 'chief', NULL, ?, 1, 1) ON CONFLICT (message) DO NOTHING RETURNING n`, `peer:${w.from}:${w.key}`, w.conversation, seq, text)
+    .toArray()
+  if (fresh.length > 0 && b.turnLive && b.turnId && b.turnConversation === w.conversation) await b.steerQueued(w.conversation)
+  b.kick()
+  return { queued: fresh.length > 0 }
 }
 
 /**
@@ -355,7 +382,7 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
   if (child) return b.childEnd(id, ok, reason)
   const reply = ok ? lastTalk(b.sql, id) : ""
   const post = !ok ? "none" : reply === "" || isNoReply(reply) ? "no_reply" : "pending"
-  b.sql.exec(`UPDATE cb_turn SET status = ?, reason = ?, ended = ?, input = NULL, reply = ?, post = ? WHERE id = ?`, ok ? "done" : "failed", reason, Date.now(), post === "pending" ? clipReply(reply) : null, post, id)
+  b.sql.exec(`UPDATE cb_turn SET status = ?, reason = ?, ended = ?, input = NULL, reply = ?, post = ? WHERE id = ?`, ok ? "done" : "failed", reason, Date.now(), post === "pending" ? clipReply(linkIds(reply)) : null, post, id)
   b.sql.exec(`UPDATE cb_inbox SET state = ? WHERE turn = ?`, ok ? "done" : "failed", id)
   if (!ok) [console.warn(JSON.stringify({ msg: "chief_brain.turn_failed", run: id, reason: String(reason).slice(0, 300), error: runError(b.sql, id)?.slice(0, 300) })), await turnFailedNotice(b.doEnv, b.sql, b.config(), row.conversation, id, String(reason), runError(b.sql, id))]
   b.announce(id, [])
@@ -378,7 +405,7 @@ export async function post(b: ChiefBrainDO, id: string): Promise<number | null> 
   b.posting.add(id)
   try {
     if (b.childOf()) return await b.childReport(id)
-    const t = b.sql.exec<{ conversation: string; trigger_message: string; trigger_kind: string; trigger_thread_root: string | null; reply: string | null; post: string; post_tries: number; post_key: number }>(`SELECT conversation, trigger_message, trigger_kind, trigger_thread_root, reply, post, post_tries, post_key FROM cb_turn WHERE id = ?`, id).toArray()[0]
+    const t = b.sql.exec<{ conversation: string; trigger_message: string; trigger_kind: string; trigger_thread_root: string | null; reply: string | null; post: string; post_tries: number; post_key: number; ended: number | null }>(`SELECT conversation, trigger_message, trigger_kind, trigger_thread_root, reply, post, post_tries, post_key, ended FROM cb_turn WHERE id = ?`, id).toArray()[0]
     const cfg = b.config()
     if (!t || t.post !== "pending" || !t.reply || !cfg.agent || !cfg.owner) return null
     // The chief may have been archived or placed on a server since the turn began.
@@ -392,7 +419,7 @@ export async function post(b: ChiefBrainDO, id: string): Promise<number | null> 
       : await postReply(b.doEnv, chiefPrincipal(cfg.agent, cfg.owner), { conversation: t.conversation, text: t.reply, run: { id, host: `${HOST}:${cfg.agent}`, steps }, ...replyTarget(t.trigger_kind, t.trigger_message, t.trigger_thread_root), key }).catch(
           (e: unknown) => ({ ok: false as const, code: "owner.unreachable", message: String(e) })
         )
-    if (!res.ok && (res.code === "agent_rate" || res.code === "owner.unreachable") && t.post_tries + 1 < MAX_POST_TRIES) {
+    if (!res.ok && retryPost(res.code, t.post_tries, t.ended, Date.now())) {
       b.sql.exec(`UPDATE cb_turn SET post_tries = post_tries + 1, post_key = post_key + ? WHERE id = ?`, res.code === "agent_rate" ? 1 : 0, id)
       return Date.now() + POST_RETRY_MS
     }

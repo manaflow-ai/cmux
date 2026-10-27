@@ -47,13 +47,39 @@ import Testing
         #expect(mark.symbol == nil)
     }
 
-    /// The local Chief's workspaces run on this Mac: no mark, and it is not a second machine.
-    @Test func theLocalChiefIsThisMac() {
-        let chief = SidebarMachine(id: MachineID(MachineID.localChiefPrefix + "home"), name: "Chief", kind: .server)
-        #expect(marks([mac, chief]).isEmpty)
-        #expect(marks(showsLocalMachine: true, [mac, chief]).isEmpty)
-        #expect(marks([mac, chief, vm])[chief.id] == nil)
-        #expect(marks([mac, chief, vm])[vm.id] != nil)
+    /// The row's label names the machine once (VoiceOver read "gpu-box" twice after #22763): the
+    /// one-list second line leads with it, so the mark adds nothing; with no such line, the mark names it.
+    @Test func theRowsLabelNamesTheMachineOnce() throws {
+        let model = SidebarModel(sections: [mac, vm].map(section))
+        let o = model.listOptions()
+        let ws = SidebarWorkspace(id: WorkspaceID("w"), machineID: vm.id, title: "w", directory: "~/code/app")
+        func label(_ content: WorkspaceRowContent) -> String {
+            WorkspaceRowView.accessibilityText(ws, content: content, tabCount: nil, presence: [])
+        }
+        func names(_ text: String) -> Int { text.components(separatedBy: "gpu-box").count - 1 }
+        let oneList = o.rowContent(ws, machine: SidebarLayout.machineLabel(section(vm), options: o))
+        #expect(oneList.machine != nil)
+        #expect(label(oneList).hasPrefix("w, gpu-box · "))
+        #expect(names(label(oneList)) == 1)
+        var grouped = o
+        grouped.flattensMachines = false
+        let underHeader = grouped.rowContent(ws, machine: SidebarLayout.machineLabel(section(vm), options: grouped))
+        #expect(names(label(underHeader)) == 1)
+        var minimal = o
+        minimal.minimal = true
+        #expect(names(label(minimal.rowContent(ws, machine: SidebarLayout.machineLabel(section(vm), options: minimal)))) == 1)
+    }
+
+    /// A machine whose name holds the row's separator (`gpu · box`) is still named once.
+    @Test func aNameWithTheSeparatorIsNamedOnce() throws {
+        let dotted = SidebarMachine(id: MachineID("dotted"), name: "gpu · box", kind: .ssh)
+        let o = SidebarModel(sections: [mac, dotted].map(section)).listOptions()
+        let ws = SidebarWorkspace(id: WorkspaceID("w"), machineID: dotted.id, title: "w", directory: "~/code/app")
+        let content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section(dotted), options: o))
+        #expect(content.machine != nil)
+        let text = WorkspaceRowView.accessibilityText(ws, content: content, tabCount: nil, presence: [])
+        #expect(text.hasPrefix("w, gpu · box · "))
+        #expect(text.components(separatedBy: "gpu · box").count - 1 == 1, "\(text)")
     }
 
     @Test func oneMachineDrawsNoMark() {

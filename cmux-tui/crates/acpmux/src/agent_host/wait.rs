@@ -5,6 +5,7 @@
 //! that does not die share that thread instead of leaving one each.
 
 use super::*;
+use crate::no_panic::LockExt;
 use std::collections::HashMap;
 use std::sync::{Arc, Condvar, Mutex as StdMutex, OnceLock};
 use std::time::Duration;
@@ -80,16 +81,14 @@ fn watches() -> &'static StdMutex<HashMap<PathBuf, Arc<DeathWatch>>> {
 
 /// Death watches running now (one per host incarnation being waited on).
 pub fn death_watches() -> usize {
-    // crash-allow: pre-existing lock unwraps; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
-    watches().lock().unwrap().len()
+    watches().lock_or_recover().len()
 }
 
 /// The one watch on a live lock file; None when the file is gone (the host
 /// is dead). Its thread takes a blocking lock, which returns when the host's
 /// descriptor closes at its death, then ends.
 fn watch(path: &Path) -> Option<Arc<DeathWatch>> {
-    // crash-allow: pre-existing lock unwraps; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
-    let mut map = watches().lock().unwrap();
+    let mut map = watches().lock_or_recover();
     if let Some(w) = map.get(path) {
         return Some(w.clone());
     }
@@ -103,9 +102,8 @@ fn watch(path: &Path) -> Option<Arc<DeathWatch>> {
     let (key, watch) = (path.to_owned(), w.clone());
     std::thread::spawn(move || {
         let end = take_death_lock(file);
-        // crash-allow: pre-existing lock unwraps; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
-        watches().lock().unwrap().remove(&key);
-        *watch.state.lock().unwrap() = end;
+        watches().lock_or_recover().remove(&key);
+        *watch.state.lock_or_recover() = end;
         watch.changed.notify_all();
         watch.ended.send_replace(end);
     });
@@ -147,10 +145,11 @@ fn take_death_lock(_file: std::fs::File) -> Watch {
 /// `budget`: call it off the async runtime (or use [`wait_dead_async`]).
 pub fn wait_dead_within(dir: &Path, session_id: &str, start_nonce: &str, budget: Duration) -> bool {
     let Some(w) = watch(&live_path(dir, session_id, start_nonce)) else { return true };
-    // crash-allow: pre-existing lock unwraps; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
-    let state = w.state.lock().unwrap();
-    // crash-allow: pre-existing lock unwraps; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
-    let (state, _) = w.changed.wait_timeout_while(state, budget, |s| *s == Watch::Waiting).unwrap();
+    let state = w.state.lock_or_recover();
+    let (state, _) = w
+        .changed
+        .wait_timeout_while(state, budget, |s| *s == Watch::Waiting)
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     *state == Watch::Dead
 }
 

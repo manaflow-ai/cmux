@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { holdWebSwap } from "../../pages/shared/webSwap";
 
 /**
  * A new chat's inherited draft (a terminal selection, a page's URL), or undefined when
@@ -30,6 +31,9 @@ let draftActionsVersion = 0;
 let draftWriteSequence = 0;
 let flushingDraftWrites = false;
 const pendingDraftWrites = new Map<string, { sessionId: string; text: string; sequence: number }>();
+// WEB-SWAP: a web update's reload waits until acpmux holds every draft (pages/shared/webSwap.ts):
+// a reload before a clear lands would bring the old draft back from acpmux.
+holdWebSwap(() => (pendingDraftWrites.size || flushingDraftWrites ? "composer.draft-unsaved" : null));
 
 function pageDraftAction(name: "chat.readDraft" | "chat.writeDraft"): DraftAction | undefined {
   const page = (

@@ -38,6 +38,8 @@ export type HarnessModel = {
   efforts?: EffortValue[];
   defaultEffort?: EffortValue;
   fast?: boolean;
+  inlineFast?: boolean;
+  serviceTiers?: (string | { id: string; name?: string; description?: string })[];
   aliases?: string[];
   status?: ModelStatus;
   /** Context window for a user-added model with no feed ref. */
@@ -85,6 +87,8 @@ export type PickerModel = {
   efforts: EffortValue[];
   defaultEffort?: EffortValue;
   fast: boolean;
+  inlineFast?: boolean;
+  serviceTiers?: (string | { id: string; name?: string; description?: string })[];
   contextWindow?: number;
   reasoning?: boolean;
   input?: string[];
@@ -92,8 +96,13 @@ export type PickerModel = {
   unavailable?: string;
   /** The catalog release an alias row stands for; `id` is the alias the harness offers. */
   release?: string;
+  /** What the profile's declaration or the user's override set: the session's options keep it. */
+  own?: Own;
   searchText: string;
 };
+
+/** The fields a profile declared or the user overrode, over the catalog's. */
+type Own = { efforts?: true; fast?: true };
 
 export type PickerHarness = {
   id: string;
@@ -111,6 +120,9 @@ export type PickerHarness = {
   probeFailed?: boolean;
   defaultModel?: string;
   docsUrl?: string;
+  /** The catalog harness whose releases a profile the catalog does not map runs ("claude-sr2" runs
+   *  Claude Code's): its curated top models apply, and its releases name the profile's models. */
+  kin?: string;
   models: PickerModel[];
 };
 
@@ -219,6 +231,7 @@ function modelFields(raw: Record<string, unknown>): Partial<HarnessModel> {
   if (typeof raw.defaultEffort === "string" && EFFORT_ORDER.includes(raw.defaultEffort as EffortValue))
     fields.defaultEffort = raw.defaultEffort as EffortValue;
   if (typeof raw.fast === "boolean") fields.fast = raw.fast;
+  if (typeof raw.inlineFast === "boolean") fields.inlineFast = raw.inlineFast;
   if (typeof raw.contextWindow === "number" && Number.isInteger(raw.contextWindow) && raw.contextWindow > 0)
     fields.contextWindow = raw.contextWindow;
   return fields;
@@ -230,8 +243,9 @@ export type PickerInputs = {
   user?: unknown;
   /** acpmux's harnesses and probed models (snapshot.catalog), each with its `family` when known. */
   acpmux: AcpmuxCatalog;
-  /** The attached session: its harness and live config options win for effort and fast mode. */
-  session?: { harness?: string; configOptions?: ConfigOptions };
+  /** The attached session: its harness and live config options win for effort and fast mode.
+   *  `model` is the model it reports running (summary.model), also when no model option names it. */
+  session?: { harness?: string; model?: string; configOptions?: ConfigOptions };
   /** Profiles whose chats' last turn completed, the latest first (workedProfiles). */
   worked?: string[];
   provisional?: boolean;
@@ -262,7 +276,14 @@ export function buildPickerCatalog({
   // folder profile must never stand in for a catalog harness of its family.
   acpmux = acpmux.filter((entry) => !entry.folder);
   const layered = applyUserLayer(catalog, user);
-  const join: Join = { catalog: layered, session, worked, overrides: userOverrides(user) };
+  const join: Join = {
+    catalog: layered,
+    sourceCatalog: catalog,
+    session,
+    worked,
+    overrides: userOverrides(user),
+    releaseNames: releaseNames(catalog),
+  };
   const hidden = hiddenHarnesses(user);
   const covered = new Set<string>();
   const harnesses = layered.harnesses.map((harness) => {
@@ -282,10 +303,23 @@ export function buildPickerCatalog({
 
 type Join = {
   catalog: ModelCatalog;
+  /** The unlayered catalog keeps alias declarations that hidden overrides remove from `catalog`. */
+  sourceCatalog: ModelCatalog;
   session: PickerInputs["session"];
   worked: string[];
   overrides: Record<string, Record<string, unknown>>;
+  /** Each catalog release's own names, before the user layer renames it: what a harness alias's
+   *  reported name is matched against (`foldAliases`). */
+  releaseNames: Map<string, string[]>;
 };
+
+function releaseNames(catalog: ModelCatalog): Join["releaseNames"] {
+  const names = new Map<string, string[]>();
+  for (const harness of catalog.harnesses)
+    for (const model of harness.models)
+      names.set(model.id, [...(names.get(model.id) ?? []), model.name, model.shortName].filter(Boolean));
+  return names;
+}
 
 function userOverrides(user: unknown): Join["overrides"] {
   const overrides = isRecord(user) && isRecord(user.overrides) ? user.overrides : {};
@@ -309,18 +343,28 @@ function layeredModel(
   harnessId: string,
   probe: AcpmuxModel | undefined,
   join: Join,
-): HarnessModel {
+): HarnessModel & { own?: Own } {
   // A profile declares metadata, not the model's identity: its name and provider stay the catalog's.
   const {
     name: _name,
     provider: _provider,
     ...declared
   } = probe ? modelFields(probe as unknown as Record<string, unknown>) : {};
-  const user = {
-    ...join.overrides[`*/${model.id}`],
-    ...join.overrides[`${harnessId}/${model.id}`],
+  // An override of a catalog alias ("<harness>/opus") is one of its release, as applyUserLayer has it.
+  const user = Object.assign(
+    {},
+    ...[...(model.aliases ?? []), model.id].flatMap((id) => [
+      join.overrides[`*/${id}`],
+      join.overrides[`${harnessId}/${id}`],
+    ]),
+  ) as Record<string, unknown>;
+  const fields = modelFields(user);
+  const own: Own = {
+    ...(model as { own?: Own }).own,
+    ...(declared.efforts || fields.efforts ? { efforts: true } : {}),
+    ...(declared.fast !== undefined || fields.fast !== undefined ? { fast: true } : {}),
   };
-  return { ...model, ...declared, ...modelFields(user) };
+  return { ...model, ...declared, ...fields, ...(own.efforts || own.fast ? { own } : {}) };
 }
 
 function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join: Join): PickerHarness {
@@ -336,16 +380,22 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
     members[0];
   const probed = chosen?.models ?? [];
   const listed = harness.modelSource === "catalog" ? harness.models : [];
+  const live = session?.harness !== undefined && chosen?.id === session.harness ? session.configOptions : undefined;
+  const reported = reportedNames(probed, live);
+  const hiddenReleases = hiddenReleaseIds(harness.id, harness.id, reported, join);
   const models: PickerModel[] = listed.map((model) => listedModel(model, harness.id, probed, join));
   for (const probe of probed) {
     if (listed.some((model) => model.id === probe.id)) continue;
     if (isHiddenByUser(harness.id, probe.id, join)) continue;
+    if (hiddenReleases.has(probe.id)) continue;
     models.push(probedModel(probe, harness.id, join));
   }
-  const live = session?.harness !== undefined && chosen?.id === session.harness ? session.configOptions : undefined;
-  addSessionModels(models, live, harness.id, listed, join);
-  const current = live?.find((option) => option.category === "model" || option.id === "model")?.currentValue;
-  const offered = foldAliases(models, listed, current);
+  addSessionModels(models, live, harness.id, listed, join, hiddenReleases);
+  const releases = models.filter((model) => listed.some((pinned) => pinned.id === model.id));
+  const runs = chosen?.id === session?.harness ? runningModel(session, live) : undefined;
+  const offered = foldAliases(models, releases, runs, reported, join, (release, alias) =>
+    aliasRow(listed, release, alias, harness.id, probed, join),
+  );
   return {
     id: harness.id,
     name: harness.name,
@@ -367,10 +417,32 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
 
 function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   const live = entry.id === join.session?.harness ? join.session.configOptions : undefined;
+  // A profile of a catalogued agent ("claude-sr2" is Claude Code) runs that agent's releases: they
+  // name the release its session pins, and the aliases the agent names as one fold into it.
+  const key = agentKey(familyOf(entry));
+  const kin = join.catalog.harnesses.find(
+    (harness) => harness.modelSource === "catalog" && key !== undefined && harness.families.includes(key),
+  );
+  const reported = reportedNames(entry.models, live);
+  const hiddenReleases = hiddenReleaseIds(entry.id, kin?.id, reported, join);
+  // A release the user hid here, by its id, a catalog alias or an alias the harness reports as it,
+  // is not one of this profile's releases (applyUserLayer drops it so from its own harness).
+  const listed = (kin?.models ?? []).filter(
+    (model) =>
+      ![...(model.aliases ?? []), model.id].some((id) => isHiddenByUser(entry.id, id, join)) &&
+      ![...reported].some(([id, name]) => isHiddenByUser(entry.id, id, join) && namesRelease(name, model, join)),
+  );
   const models = entry.models
-    .filter((probe) => !isHiddenByUser(entry.id, probe.id, join))
+    .filter((probe) => !isHiddenByUser(entry.id, probe.id, join) && !hiddenReleases.has(probe.id))
     .map((probe) => probedModel(probe, entry.id, join));
-  addSessionModels(models, live, entry.id, [], join);
+  addSessionModels(models, live, entry.id, listed, join, hiddenReleases);
+  const releases = listed.map((model) => listedModel(model, entry.id, entry.models, join));
+  const runs = entry.id === join.session?.harness ? runningModel(join.session, live) : undefined;
+  const offered = kin
+    ? foldAliases(models, releases, runs, reported, join, (release, alias) =>
+        aliasRow(listed, release, alias, entry.id, entry.models, join),
+      )
+    : models;
   const declaredBrand = entry.icon ? agentBrand(entry.icon) : undefined;
   const iconUrl = entry.icon && !declaredBrand && isIconFile(entry.icon) ? entry.icon : undefined;
   return {
@@ -383,7 +455,8 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
     pickable: entryPickable(entry),
     ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
     ...(entry.probeFailed ? { probeFailed: true } : {}),
-    models: live ? models.map((model) => withLiveOptions(model, live)) : models,
+    ...(kin ? { kin: kin.id } : {}),
+    models: live ? offered.map((model) => withLiveOptions(model, live)) : offered,
   };
 }
 
@@ -397,40 +470,139 @@ function listedModel(model: HarnessModel, harnessId: string, probed: AcpmuxModel
   return pickerModel(layeredModel(model, harnessId, probe, join), join.catalog, probe?.unavailable);
 }
 
+/** The model the session runs: its model option's value, else the model it reports (a session can
+ *  report `summary.model` with no model option, direct.ts). */
+function runningModel(session: Join["session"], options: ConfigOptions | undefined): string | undefined {
+  const current = options?.find((option) => option.category === "model" || option.id === "model")?.currentValue;
+  if (typeof current === "string" && current) return current;
+  return session?.model || undefined;
+}
+
+/** "Claude Opus 5.5" and "Opus 5.5" name one model. */
+const nameKey = (name: string | undefined) =>
+  name
+    ?.replace(/^claude\s+/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+/** The names the harness itself gives its models (its probe, then its session's model option),
+ *  by id: a user's rename of an alias does not change which release it is. */
+function reportedNames(probes: readonly AcpmuxModel[], options: ConfigOptions | undefined): Map<string, string> {
+  const names = new Map<string, string>();
+  for (const probe of probes) if (probe.name) names.set(probe.id, probe.name);
+  const option = options?.find((candidate) => candidate.category === "model" || candidate.id === "model");
+  for (const choice of option?.options ?? [])
+    if (choice.name && !names.has(choice.value)) names.set(choice.value, choice.name);
+  return names;
+}
+
+/** The harness's name for a model is the catalog's name for this release (a model the user added
+ *  has only the names the user gave it). */
+function namesRelease(
+  name: string | undefined,
+  release: { id: string; name: string; shortName: string },
+  join: Join,
+): boolean {
+  const key = nameKey(name);
+  if (!key) return false;
+  const own = join.releaseNames.get(release.id) ?? [release.name, release.shortName];
+  return own.some((candidate) => nameKey(candidate) === key);
+}
+
 /**
- * A model the harness reports under an alias and names as a catalog release ("opus" named
- * "Opus 5.5", from Claude Code's initialize reply) replaces that release's pinned row: one row,
- * the alias (so a pick follows the harness's newest), with the release's catalog metadata.
+ * One row per model. A model the harness reports under an alias and names as a catalog release
+ * ("opus" named "Opus 5.5", from Claude Code's initialize reply) is that release: one row, the
+ * alias (so a pick follows the harness's newest), with the release's catalog metadata. A session
+ * that runs the pinned release itself (`current`) keeps the release's row, checked, and the alias
+ * folds into it (Leo 2026-10-21: Opus 5.5 was listed twice, the alias and the release the chat runs).
+ * `releases` are the catalog's rows for the harness's releases.
  */
-function foldAliases(models: PickerModel[], listed: HarnessModel[], current?: string): PickerModel[] {
-  // The release the session runs keeps its own row, so the chip's model stays pickable and checked.
-  const listedIds = new Set(listed.map((model) => model.id).filter((id) => id !== current));
-  // release id -> the alias that takes its row (the first alias the harness names as it)
+function foldAliases(
+  models: PickerModel[],
+  releases: PickerModel[],
+  current: string | undefined,
+  reported: Map<string, string>,
+  join: Join,
+  asAlias: (release: PickerModel, alias: PickerModel) => PickerModel,
+): PickerModel[] {
+  const releaseIds = new Set(releases.map((model) => model.id));
+  // release id -> the alias that is it (the first alias the harness names as it)
   const takenBy = new Map<string, PickerModel>();
   for (const model of models) {
-    if (listedIds.has(model.id)) continue;
-    const release = models.find(
-      (candidate) =>
-        listedIds.has(candidate.id) &&
-        !takenBy.has(candidate.id) &&
-        (candidate.shortName === model.name || candidate.name === model.name),
-    );
+    if (releaseIds.has(model.id)) continue;
+    const name = reported.get(model.id) ?? model.name;
+    const release = releases.find((candidate) => !takenBy.has(candidate.id) && namesRelease(name, candidate, join));
     if (release) takenBy.set(release.id, model);
   }
-  const aliases = new Set([...takenBy.values()].map((model) => model.id));
-  return models
-    .filter((model) => !aliases.has(model.id))
-    .map((model) => {
-      const alias = takenBy.get(model.id);
-      if (!alias) return model;
-      return {
-        ...model,
-        id: alias.id,
-        release: model.id,
-        ...(alias.unavailable ? { unavailable: alias.unavailable } : {}),
-        searchText: `${alias.id} ${model.searchText}`,
-      };
-    });
+  const aliasFor = new Map([...takenBy].map(([release, alias]) => [alias.id, release]));
+  const rowOf = new Map(models.map((model) => [model.id, model]));
+  // The running release keeps its own id (so it stays the checked row), with what is declared and
+  // overridden for the alias it stands for: the same model, the same limits.
+  const asRunning = (row: PickerModel, id: string): PickerModel => {
+    const { release: _release, ...running } = row;
+    return { ...running, id };
+  };
+  const folded = models.flatMap((model): PickerModel[] => {
+    const releaseId = aliasFor.get(model.id);
+    if (releaseId !== undefined) {
+      // Where the release has a row, that row stands for both (below); else the alias takes the
+      // release's catalog row here, under the release's id when the session runs the release (a
+      // direct session reports `summary.model` with no model option, and the probe lists the alias).
+      if (rowOf.has(releaseId)) return [];
+      const row = asAlias(
+        releases.find((release) => release.id === releaseId)!,
+        model,
+      );
+      return [releaseId === current ? asRunning(row, releaseId) : row];
+    }
+    const alias = takenBy.get(model.id);
+    if (!alias) return [model];
+    const row = asAlias(model, alias);
+    return [model.id === current ? asRunning(row, model.id) : row];
+  });
+  // A release the session runs that nothing lists still gets its row, so the running model is shown.
+  const running = releases.find((release) => release.id === current);
+  return running && !folded.some((model) => model.id === running.id) ? [...folded, running] : folded;
+}
+
+/**
+ * The release's row under the alias's id: the release's catalog metadata (and what is declared and
+ * overridden for the release), then what the harness declares for the alias and the user's
+ * overrides of the alias on top, so an alias the user limited (`<harness>/opus`: no fast, one
+ * effort) stays limited once it takes the release's row.
+ */
+function aliasRow(
+  listed: HarnessModel[],
+  release: PickerModel,
+  alias: PickerModel,
+  harnessId: string,
+  probed: AcpmuxModel[],
+  join: Join,
+): PickerModel {
+  const pinned = listed.find((model) => model.id === release.id);
+  if (!pinned)
+    return {
+      ...release,
+      id: alias.id,
+      release: release.id,
+      ...(alias.unavailable ? { unavailable: alias.unavailable } : {}),
+      searchText: `${alias.id} ${release.searchText}`,
+    };
+  const asRelease = layeredModel(
+    pinned,
+    harnessId,
+    probed.find((probe) => probe.id === pinned.id),
+    join,
+  );
+  const asAlias = layeredModel(
+    { ...asRelease, id: alias.id },
+    harnessId,
+    probed.find((probe) => probe.id === alias.id),
+    join,
+  );
+  const row = pickerModel(asAlias, join.catalog, alias.unavailable);
+  return { ...row, release: release.id, searchText: `${alias.id} ${row.searchText}` };
 }
 
 /**
@@ -443,6 +615,7 @@ function addSessionModels(
   harnessId: string,
   listed: HarnessModel[],
   join: Join,
+  hiddenReleases: Set<string> = new Set(),
 ): void {
   const option = options?.find((candidate) => candidate.category === "model" || candidate.id === "model");
   if (!option) return;
@@ -454,6 +627,7 @@ function addSessionModels(
   for (const choice of choices) {
     if (!choice.id || models.some((model) => model.id === choice.id)) continue;
     if (isHiddenByUser(harnessId, choice.id, join)) continue;
+    if (hiddenReleases.has(choice.id)) continue;
     const pinned = listed.find((model) => model.id === choice.id);
     models.push(
       pinned
@@ -463,7 +637,7 @@ function addSessionModels(
   }
 }
 
-function pickerModel(model: HarnessModel, catalog: ModelCatalog, unavailable?: string): PickerModel {
+function pickerModel(model: HarnessModel & { own?: Own }, catalog: ModelCatalog, unavailable?: string): PickerModel {
   const info = model.ref ? catalog.models[model.ref] : undefined;
   const providerName = model.provider ? catalog.providers[model.provider]?.name : undefined;
   const contextWindow = model.contextWindow ?? info?.contextWindow;
@@ -477,11 +651,14 @@ function pickerModel(model: HarnessModel, catalog: ModelCatalog, unavailable?: s
     efforts: model.efforts ?? [],
     ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}),
     fast: model.fast === true,
+    ...(model.inlineFast === true ? { inlineFast: true } : {}),
+    ...(model.serviceTiers ? { serviceTiers: model.serviceTiers } : {}),
     ...(contextWindow ? { contextWindow } : {}),
     ...(info?.reasoning !== undefined ? { reasoning: info.reasoning } : {}),
     ...(info?.input ? { input: info.input } : {}),
     ...(status ? { status } : {}),
     ...(unavailable ? { unavailable } : {}),
+    ...(model.own ? { own: model.own } : {}),
     searchText: [model.id, model.name, model.family, providerName, ...(model.aliases ?? [])]
       .filter(Boolean)
       .join(" ")
@@ -510,6 +687,29 @@ function isHiddenByUser(harnessId: string, modelId: string, join: Join): boolean
   return join.overrides[`${harnessId}/${modelId}`]?.hidden === true || join.overrides[`*/${modelId}`]?.hidden === true;
 }
 
+/**
+ * Hidden catalog aliases must also hide a concrete release probe that is reported alongside them.
+ * The layered catalog has already removed that release, so use the source catalog's aliases here
+ * before the probe loop can re-add it as an unlisted model.
+ */
+function hiddenReleaseIds(
+  harnessId: string,
+  sourceHarnessId: string | undefined,
+  reported: Map<string, string>,
+  join: Join,
+): Set<string> {
+  const source = join.sourceCatalog.harnesses.find((harness) => harness.id === sourceHarnessId);
+  const hidden = new Set<string>();
+  for (const model of source?.models ?? []) {
+    const hiddenById = [...(model.aliases ?? []), model.id].some((id) => isHiddenByUser(harnessId, id, join));
+    const hiddenByReportedAlias = [...reported].some(
+      ([id, name]) => isHiddenByUser(harnessId, id, join) && namesRelease(name, model, join),
+    );
+    if (hiddenById || hiddenByReportedAlias) hidden.add(model.id);
+  }
+  return hidden;
+}
+
 /** A host-served icon file: an http(s) or cmux page URL, or an absolute path the host serves. */
 function isIconFile(icon: string): boolean {
   return /^(?:https?:|cmux-[a-z-]+:)\/\//.test(icon) || icon.startsWith("/");
@@ -524,12 +724,16 @@ function withLiveOptions(model: PickerModel, options: ConfigOptions): PickerMode
     ?.map((choice) => choice.value)
     .filter((value): value is EffortValue => EFFORT_ORDER.includes(value as EffortValue));
   // An adapter can list one set for every model (Claude Code's): the model's own levels bound it.
+  // Levels the profile declared or the user set (none included) are only narrowed, never widened.
   const narrowed =
-    offered && model.efforts.length > 0 ? offered.filter((value) => model.efforts.includes(value)) : offered;
-  const efforts = narrowed && narrowed.length > 0 ? narrowed : offered;
+    offered && (model.efforts.length > 0 || model.own?.efforts)
+      ? offered.filter((value) => model.efforts.includes(value))
+      : offered;
+  const efforts = narrowed && (narrowed.length > 0 || model.own?.efforts) ? narrowed : offered;
   // An adapter can offer fast mode for every model too (Claude Code's, honored on a few): a model
-  // the catalog describes keeps its own.
+  // the catalog describes keeps its own, and so does one whose profile or user set it.
   const fast =
+    !model.own?.fast &&
     model.efforts.length === 0 &&
     options.some((option) => option.id === "fast" || option.id === "fast_mode" || option.id === "fast-mode");
   return {

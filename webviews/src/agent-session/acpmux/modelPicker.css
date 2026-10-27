@@ -120,14 +120,15 @@
   color: var(--agent-muted);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-quick-menu .ui-separator {
   height: 0;
   margin: 4px var(--ui-row-padding-inline);
   border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
 }
-/* The agent pane does not load src/ui/ui.css, so its rows carry their own flex line: the check and
-   the number key can only trail the label in one. */
+/* The agent pane does not load src/ui/ui.css. Model rows use an explicit trailing column, so every
+   shortcut digit stays right-aligned even when the names have different lengths. */
 .ui-menu-item.acpmux-quick-item {
   display: flex;
   align-items: center;
@@ -138,6 +139,20 @@
   border-radius: 8px;
   color: var(--agent-text);
   font-size: var(--text-control);
+  letter-spacing: var(--text-control--letter-spacing);
+}
+.ui-menu-item.acpmux-quick-item:not(.acpmux-quick-sub):has(.ui-menu-shortcut, .ui-menu-check) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  column-gap: 8px;
+}
+.ui-menu-item.acpmux-quick-item:not(.acpmux-quick-sub):has(.ui-menu-shortcut, .ui-menu-check) > .acpmux-quick-label {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
 }
 .ui-menu-item.acpmux-quick-item[data-highlighted],
 .ui-menu-item.acpmux-quick-item[data-popup-open] {
@@ -150,17 +165,32 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.acpmux-quick-label {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
+}
 /* The check moves to the trailing edge, where the other rows show their number key. */
 .acpmux-quick-item .ui-menu-check {
-  order: 2;
-  width: auto;
-  margin-inline-start: auto;
-  padding-inline-start: 20px;
+  grid-column: 2;
+  grid-row: 1;
+  width: 24px;
+  margin: 0;
+  padding: 0;
+  justify-content: flex-end;
   color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
   font-weight: 600;
 }
 .acpmux-quick-item .ui-menu-check:empty { display: none; }
-.acpmux-quick-item .ui-menu-shortcut { order: 3; color: var(--agent-muted); }
+.acpmux-quick-item .ui-menu-shortcut {
+  grid-column: 2;
+  grid-row: 1;
+  margin: 0;
+  padding: 0;
+  color: var(--agent-muted);
+  text-align: end;
+}
 .acpmux-quick-sub .acpmux-quick-value {
   margin-inline-start: auto;
   padding-inline-start: 20px;
@@ -168,49 +198,161 @@
 }
 .acpmux-quick-sub .acpmux-quick-value + .ui-submenu-chevron { margin-inline-start: 6px; }
 .acpmux-quick-sub .ui-submenu-chevron { margin-inline-start: auto; }
+/* New Tab's More models row shows the tab's other models under it (T3 Code's menu): its chevron
+   points down, and up while they show. */
+.acpmux-quick-disclosure .ui-submenu-chevron,
+.acpmux-quick-disclosure .ui-submenu-chevron:dir(rtl) { transform: translateY(-2px) rotate(135deg); }
+.acpmux-quick-disclosure[aria-expanded="true"] .ui-submenu-chevron { transform: translateY(1px) rotate(-45deg); }
+/* The shown models scroll in about six rows, so the rows after them (Effort, Account, Fast mode)
+   stay in view. */
+.acpmux-quick-more-list { min-inline-size: 0; margin: 0; border: 0; padding: 0; max-height: calc(6.5 * var(--ui-row-height)); overflow-y: auto; overscroll-behavior: contain; }
+/* The optional Effort slider keeps the submenu's glass surface compact while the native range
+   input remains the full hit target. Its custom thumb is endpoint-inclusive (composerControls.css). */
+.acpmux-quick-effort-slider {
+  width: min(232px, calc(100vw - 24px));
+  padding: var(--ui-popup-padding);
+}
+.acpmux-quick-effort-slider .acpmux-effort-track {
+  margin-top: 8px;
+  animation: none;
+}
+/* A single menu checkbox owns both the label and the switch: no nested focus target. */
+.acpmux-quick-fast .ui-menu-check { display: none; }
+.ui-menu-item.acpmux-quick-item.acpmux-quick-fast { display: flex; }
+.acpmux-quick-fast-toggle {
+  flex: none;
+  display: flex;
+  align-items: center;
+  width: 30px;
+  box-sizing: border-box;
+  height: calc(var(--ui-row-height) * 0.65);
+  margin-inline-start: auto;
+  padding: calc(var(--ds-space-1) / 2);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--agent-text) 24%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border);
+}
+.acpmux-quick-fast-toggle > span {
+  width: calc(var(--ui-row-height) * 0.5);
+  height: calc(var(--ui-row-height) * 0.5);
+  border-radius: 50%;
+  background: var(--agent-text);
+}
+.acpmux-quick-fast[data-checked] .acpmux-quick-fast-toggle {
+  justify-content: flex-end;
+  background: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
+}
+.acpmux-quick-fast[data-checked] .acpmux-quick-fast-toggle > span {
+  background: var(--agent-accent-text, var(--agent-page-bg));
+}
 .acpmux-quick-note.ui-menu-item[data-disabled] {
   opacity: 1;
   color: var(--agent-muted);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
-/* The harness rail beside the compact list (Leo 2026-10-18): Starred, then each harness, as round
-   icon tabs on a hairline; the chosen tab keeps the row wash. The list keeps Claude Code's rows. */
-.acpmux-quick-railed { max-width: min(360px, var(--available-width, calc(100vw - 24px))); padding: 0; overflow: hidden; }
-/* A rail or list taller than the room scrolls on its own; the other stays put. */
-.acpmux-quick-layout { display: flex; align-items: stretch; max-height: var(--available-height, none); }
-.acpmux-quick-rail,
-.acpmux-quick-body { overflow-y: auto; }
+/* The compact menu's search field (Lawrence 2026-10-22: "spacing + needs search"): a row-high line
+   on the menu's glass, no box of its own, a hairline under it as under the full picker's search. The
+   caret shows focus; the field never draws a ring (check-text-focus-rings.py). */
+.acpmux-quick-search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--ui-row-height);
+  margin: 0 0 4px;
+  padding-inline: var(--ui-row-padding-inline);
+  border-block-end: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  color: var(--agent-muted);
+}
+.acpmux-quick-search:focus-within { color: var(--agent-text); }
+.acpmux-quick-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-control);
+  outline: none;
+  appearance: none;
+  letter-spacing: var(--text-control--letter-spacing);
+}
+.acpmux-quick-search input::placeholder { color: var(--agent-muted); }
+.acpmux-quick-search input::-webkit-search-cancel-button { appearance: none; }
+
+/* The chip stays quiet; its combined menu sizes to visible content and the window. Harnesses
+   appear once in a horizontal strip at the chip-facing edge. That edge stays under the pointer
+   while a tab, search or account changes the list height; no tallest-tab placeholder is needed. */
+.acpmux-quick-railed {
+  display: flex;
+  flex-direction: column;
+  max-width: min(320px, var(--available-width, calc(100vw - 24px)));
+  padding: 0;
+  overflow: hidden;
+}
+.acpmux-quick-layout {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.acpmux-quick-newtab { max-height: min(360px, var(--available-height, 100vh)); }
 .acpmux-quick-rail {
   flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   min-inline-size: 0;
   margin: 0;
   border: 0;
+  border-block-end: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   padding: 6px;
-  border-inline-end: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  overflow-x: auto;
 }
-.acpmux-quick-rail { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.acpmux-quick-menu[data-side="top"] .acpmux-quick-rail {
+  order: 1;
+  border-block-end: 0;
+  border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+}
 .acpmux-quick-rail-tab {
   flex: none;
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: var(--ui-row-height);
+  height: var(--ui-row-height);
   padding: 0;
   border: 0;
-  border-radius: 50%;
+  border-radius: 6px;
   background: transparent;
   color: var(--agent-muted);
-  cursor: default;
 }
 .acpmux-quick-rail-tab:hover,
 .acpmux-quick-rail-tab[aria-pressed="true"] {
   background: var(--acpmux-menu-hover);
   color: var(--agent-text);
 }
-.acpmux-quick-rail-initial { font-size: var(--text-control); font-weight: 600; }
-/* The list's floor gives way to the rail (a 32 px tab, its padding and hairline) in a narrow column. */
-.acpmux-quick-body { flex: 1; min-width: min(200px, calc(var(--available-width, 100vw - 24px) - 45px)); padding: 6px; }
+.acpmux-quick-body {
+  display: grid;
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 6px;
+  overflow-y: auto;
+  scroll-padding-block: 6px;
+}
+.acpmux-quick-body[data-scrolled] { mask-image: linear-gradient(to bottom, transparent, #000 6px); }
+.acpmux-quick-list,
+.acpmux-quick-spacer { grid-area: 1 / 1; min-width: 0; }
+.acpmux-quick-list { display: flex; flex-direction: column; min-height: 0; }
+.acpmux-quick-list > * { flex: none; }
+.acpmux-quick-list > .acpmux-quick-more-list { flex: 0 1 auto; min-height: var(--ui-row-height); contain: inline-size; }
+.acpmux-quick-spacer { visibility: hidden; pointer-events: none; }
+.acpmux-quick-probe { height: 0; overflow: hidden; }
 /* A filtered row names its harness in secondary text. */
 .acpmux-quick-item:not(.acpmux-quick-sub) .acpmux-quick-value {
   padding-inline-start: 12px;
@@ -222,4 +364,53 @@
 .acpmux-model .acpmux-model-detail {
   color: var(--agent-muted);
   white-space: nowrap;
+}
+
+/* The agent CLI's update (QuickModelMenu `update`): a quiet footer under the model choices, never
+   one of the numbered rows. It stays put while the list above it scrolls. */
+.acpmux-quick-update {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.acpmux-quick-update > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-menu-item.acpmux-quick-update-action {
+  flex: none;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--ui-row-radius, 5px);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+.ui-menu-item.acpmux-quick-update-action:is(:hover, [data-highlighted]) { background: var(--acpmux-menu-hover); color: var(--agent-text); }
+
+/* One row per model (Lawrence 2026-10-22: "spacing + needs search", OpenCode's DeepSeek rows): a
+   row's detail (the provider it lands, or a searched row's harness) sits at the label column's
+   trailing edge, so the details form one column next to the check and key column. A bracketed
+   note the name carried ("New") is a quiet word after the name. */
+.ui-menu-item.acpmux-quick-item:not(.acpmux-quick-sub) .acpmux-quick-value {
+  margin-inline-start: auto;
+  padding-inline-start: 16px;
+}
+.acpmux-quick-tag {
+  flex: none;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+/* The expanded version: the model's name heads its providers, which sit indented under it. */
+.acpmux-quick-model-head.ui-menu-item[data-disabled] {
+  opacity: 1;
+  color: var(--agent-text);
+}
+.ui-menu-item.acpmux-quick-offer {
+  padding-inline-start: calc(var(--ui-row-padding-inline) + 12px);
 }

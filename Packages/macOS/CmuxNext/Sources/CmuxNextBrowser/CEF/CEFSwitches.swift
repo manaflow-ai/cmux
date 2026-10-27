@@ -4,6 +4,9 @@ import Foundation
 nonisolated struct CEFSwitches: Equatable, Sendable {
     /// `cmux_cef_api_version()`; 0 for stock CEF.
     var forkAPIVersion: Int32
+    /// The fork and shim have the renderer paths (`CEFForkFeatures.rendererPaths`): no tab keeps a
+    /// DevTools session, so the per-renderer reuse switch applies.
+    var rendererPaths = false
     /// Development builds share one ad hoc identity per tag; the real
     /// keychain would prompt for "Chromium Safe Storage" on every rebuild.
     var useMockKeychain: Bool
@@ -19,6 +22,15 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Extra Chromium switches for diagnosis (development bundles only), for
     /// example `show-browser-frame-regions` or `enable-ui-devtools=9223`.
     var extraSwitches: [String] = []
+
+    /// The longest one Chromium pump pass runs before it returns to the main run loop: a quarter
+    /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass.
+    static let pumpTimeSliceMicroseconds = 2_000
+
+    /// The first fork API with the resize-sync call: the fork waits for a page's frame at a new
+    /// size only up to a deadline the app sets (the same version as `CEFLayerHosting.resizeSyncForkAPI`,
+    /// which is main-actor isolated; this value is read where the switches are worked out, off it).
+    static let resizeSyncForkAPI: Int32 = 27
 
     var arguments: [String] {
         var result: [String] = []
@@ -39,7 +51,29 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // to UMA, which cmux does not upload; in some idle sessions it raised the
         // app's energy with 20 hidden tabs from about 0.24 to 4 mW (msg 2654).
         result.append("disable-stack-profiler")
+        // Chromium's UI thread is the app's main thread (external message pump): one
+        // `CefDoMessageLoopWork` pass ran ready work for up to CEF's 10 ms slice, longer than a
+        // 120 Hz frame, so a pass during a split or a divider drag dropped the frame. The fork
+        // (cef-cmux 066b083f, `--cmux-pump-time-slice-us`) ends a pass after this slice and asks for
+        // "now" again when work is left, so display frames run between passes. Older forks ignore it.
+        result.append("cmux-pump-time-slice-us=\(Self.pumpTimeSliceMicroseconds)")
+        // The fork resizes a page's child window with its pane, and Chromium 154 then holds the
+        // app's Core Animation commit (its CATransactionCoordinator pre-commit handler, on our main
+        // thread) until it has a frame at the new size, or for up to 500 ms: each frame of a split
+        // or close that resized a page waited for that page's relayout and raster. AsyncLiveResize
+        // skips the wait in NativeWidgetNSWindowBridge::UpdateWindowGeometry; a page window is never
+        // in a live resize of its own, so the async live-resize path it also turns on never runs.
+        // From fork API 27 the fork's own default is no wait, and a layer-hosted page waits up to
+        // the deadline CEFLayerHosting sets, so AsyncLiveResize would only lose that sync.
+        if forkAPIVersion < Self.resizeSyncForkAPI { result.append("enable-features=AsyncLiveResize") }
         result.append(contentsOf: Self.chromePromptOffSwitches)
+        // Chrome shares a renderer between at most 2 main frames of one site below its process
+        // limit (kProcessPerSiteUpToMainFrameThreshold), but Chromium 154 turns that off for the
+        // whole process once any frame ever had a DevTools agent (RenderFrameHostManager,
+        // WasEverAttachedToAnyFrame), which an agent's CDP session does. The fork's switch keeps
+        // the check per renderer only (a renderer with a DevTools agent is never shared), so one
+        // agent does not end sharing everywhere (fork API 29; tab-lifecycle.md "Renderer sharing").
+        if rendererPaths { result.append(Self.processReusePerRendererDevTools) }
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
         // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
@@ -101,6 +135,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// client in this build, so DICE is off), the outdated-build bubble
     /// (Google Chrome builds only) and the Privacy Sandbox ad privacy notice
     /// (removed in Chromium 154, kPrivacySandboxAdPrivacyUxDeprecation).
+    /// The fork's switch for per-renderer DevTools checks in main-frame process reuse (fork API 29).
+    static let processReusePerRendererDevTools = "cmux-process-reuse-per-renderer-devtools"
+
     static let chromePromptOffSwitches = [
         "no-first-run",
         "no-default-browser-check",
@@ -115,6 +152,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// see plans/cmux-next/browser.md ("Chromium diagnostics").
     static func current(
         forkAPIVersion: Int32,
+        rendererPaths: Bool = false,
         bundleIdentifier: String?,
         environment: [String: String],
         builtInExtensions: [String] = [],
@@ -133,6 +171,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         #endif
         return CEFSwitches(
             forkAPIVersion: forkAPIVersion,
+            rendererPaths: rendererPaths,
             useMockKeychain: dev,
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,

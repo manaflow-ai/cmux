@@ -70,7 +70,7 @@ import Testing
                 #expect(!lines.isEmpty, "\(name): no members' line")
                 for line in lines {
                     line.updateLayer()
-                    let drawn = try Fixture.rgb(line.layer?.backgroundColor)
+                    let drawn = try Fixture.rgb(line.railShape.fillColor)
                     let want = try #require(line.color.token.themeRGB(scope.tokens))
                     #expect(Fixture.same(drawn, want), "\(name) \(line.color.token) line: \(drawn), want the theme's \(want)")
                 }

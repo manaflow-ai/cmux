@@ -42,7 +42,7 @@ Inside a cmux terminal, `$CMUX_BUNDLED_CLI_PATH` is the CLI that ships with the 
 
 ## Selectors
 
-Every instance selector is a public id (`ws_…`, `pane_…`, `tab_…`, `term_…`), `current`, or an exact name. `name:<value>` forces a name; it is required for names equal to `current`, shaped like an id, or containing `_`. An ambiguous name fails with every candidate id. `current` is the focused object in the session, not the caller; use `$CMUX_TUI_TERMINAL_ID` for the caller. Ids are stable across app and daemon restarts. The old `window:N`, `workspace:N`, `pane:N` and `surface:N` refs are gone.
+Every instance selector is a public id (`ws_…`, `pane_…`, `tab_…`, `term_…`), `caller`, `current`, or an exact name. `name:<value>` forces a name; it is required for names equal to `current` or `caller`, shaped like an id, or containing `_`. An ambiguous name fails with every candidate id. `caller` is the workspace, screen, pane, tab or terminal the command runs in (its terminal or agent chat, as `cmux identify` reports). Inside cmux, `current` means the caller's object too; it is the focused object only without a caller (a shell outside cmux) or under `--socket`/`--session`. Prefer `caller` in scripts: it fails instead of guessing. Ids are stable across app and daemon restarts. The old `window:N`, `workspace:N`, `pane:N` and `surface:N` refs are gone.
 
 ## Running a command in a new terminal
 
@@ -61,7 +61,11 @@ cmux agent open SESSION_ID [--group G]                # that agent session's cha
 cmux workspace ws_… status set build "tests passing"   # a status line on the workspace's sidebar row (--state, --ttl…)
 cmux workspace ws_… progress set 0.4 --label "3 of 8"
 cmux notify --title "Review ready" --body "PR #123"    # --desktop false: sidebar marker only
+cmux attention request --tab tab_… --reason "Confirm GitHub access"   # the person must act in this tab
+cmux attention clear --tab tab_…
 ```
+
+When the person must do something in a specific tab (confirm, log in, approve, pick), mark that tab with `cmux attention request` (MCP `tab_update {tab, attention: "reason"}`). The tab and its workspace row show as needing them, without moving their focus. The mark clears when you clear it, when a browser tab goes to another page, or when the tab closes. In what you tell the person, name the workspace and the tab by their titles ("the GitHub tab in the coord-deputy workspace"), never by a `ws_…`, `tab_…` or `pane_…` id: they cannot see or search ids. When they ask to go there, `cmux tab tab_… focus` (MCP `tab_focus`) takes them to it.
 
 To start another agent on a task and show it, use one command, `acpmux new -n NAME --worktree REPO@BASE --prompt-file BRIEF.md --report-to ME --group G -d` (the `acpmux` skill): it makes the worktree, starts the session, sends the brief and opens its chat in group G; running it again changes nothing.
 

@@ -1,9 +1,12 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCloud
 import CmuxNextDesign
 import CmuxNextImportCards
 import CmuxNextSettings
+import CmuxNextServer
 import CmuxNextSettingsWindow
+import CmuxNextWebUpdates
 
 /// What the React Settings page shows beside the schema rows (R82 commit 2): `cmux.settings.host.lists`.
 /// Spaces (nil when this daemon has no profiles), saved machines, browser profiles, and the
@@ -13,10 +16,14 @@ extension SettingsWindowService {
     func pageHostLists() -> JSONValue {
         // The app scope is not observable; reading the store's generation makes the page's
         // host-lists watch re-send the Ghostty config preview after a config edit.
-        _ = ThemeStore.shared.generation
+        _ = services.themeStore.generation
         return [
+            // The Development category (dev_only) shows only in DEV builds; Devices shows in every build.
+            "dev_build": .bool(DevTools.isDebugBuild),
             "rooms": rooms.map { .array($0.map(Self.listRow)) } ?? .null,
-            "machines": .array(machines.map(Self.listRow)),
+            "machines": .array(machines.map { vmHostRow(Self.machineRow($0), id: $0.id) }),
+            // Settings > Devices (plans/cmux-next/add-device-DESIGN.md 2.4): every device, one remove.
+            "devices": (try? JSONValue.parse(services.devices.pageData(phones: services.iphone.devicePhones))) ?? .null,
             "browser_profiles": .array(browserProfiles.map { profile in
                 [
                     "id": .string(profile.id), "name": .string(profile.name),
@@ -42,16 +49,23 @@ extension SettingsWindowService {
             "terminal": ["ghostty_config": .string(ghosttyConfigPath), "shell_integration": shellIntegration.map(JSONValue.string) ?? .null],
             // R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list).
             "ghostty_diagnostics": GhosttyDiagnosticsModel.shared.diagnostics.map { .array($0.map(GhosttyDiagnosticsControl.json)) } ?? .null,
+            // The Theme section's notice: colors the Ghostty config sets itself, which no theme changes.
+            "theme_overrides": .array(GhosttyDiagnosticsModel.shared.colorOverrides.map { override in
+                ["key": .string(override.key), "file": .string((override.file as NSString).abbreviatingWithTildeInPath), "line": .number(Double(override.line))]
+            }),
             // Computer Use Setup (Agents): the helper's grants, the same state as the palette action.
             "computer_use": services.onboarding.computerUseSetup.pageJSON,
             "iphone": services.iphone.pageJSON,
             // Accounts > This Mac on Your Tailnet: null while Labs (labs.previewFeatures) is off.
             "tailnet": services.tailnetNode.pageJSON(enabled: services.settings?.snapshot.previewFeatures == true),
+            // Settings > Server: status, version line, Restart Recommended, socket and tailnet address.
+            "server": services.serverUpdates.settingsPageJSON,
             "import_suggestions": ImportSuggestionsCenter.shared.settingsJSON,
+            "web_updates": WebUpdates.shared.pageJSON,
             // Chief > Voice input: home.voiceInput, null where the tunable does not exist (Release).
             "voice_input": ChiefVoiceInputPageRoute().hostJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
-            "backdrops": Self.backdrops.pageRows,
+            "backdrops": backdropCatalog.catalog.pageRows,
             "derived": .object(pageDerivedNumbers()),
         ]
     }
@@ -66,10 +80,13 @@ extension SettingsWindowService {
         return derived
     }
 
-    /// The wallpaper grid's choices, read each time so an image the person just added, or a
-    /// macOS wallpaper they just downloaded, is listed as it is now.
-    static var backdrops: BackdropCatalog {
-        BackdropCatalog(systemDirectory: AppleWallpapers.system.desktopPictures, fileManager: .default, userImages: userImages)
+    /// The wallpaper grid's choices (``BackdropCatalogStore``: built off main, again after a
+    /// wallpaper folder changes, so an image the person just added or a macOS wallpaper they just
+    /// downloaded is listed). Started on first read.
+    var backdropCatalog: BackdropCatalogStore {
+        let store = services.backdropCatalog
+        store.start()
+        return store
     }
 
     /// The person's own background images, in the backgrounds folder.
@@ -103,6 +120,49 @@ extension SettingsWindowService {
     static func listRow(_ row: SettingsListRow) -> JSONValue {
         ["id": .string(row.id), "title": .string(row.title), "subtitle": row.subtitle.map(JSONValue.string) ?? .null,
          "icon": .string(row.icon.wire), "active": .bool(row.isActive)]
+    }
+
+    /// A machine's row with its color (`appearance.machineColors`): `color`, the color its marks draw
+    /// in now (the person's pick, else the automatic one), and `color_key`, the key its pick is under.
+    /// Reading the color observes the store's picks, so the host lists are sent again after a pick.
+    static func machineRow(_ row: SettingsListRow) -> JSONValue {
+        guard case .object(var members) = listRow(row) else { return .null }
+        let color = MachineColor(name: row.title)
+        members["color"] = .string(hex(color.color))
+        members["color_key"] = .string(color.key)
+        return .object(members)
+    }
+
+    /// A Cloud machine's row with its "Dedicated agent machine" switch (`vm_host`: `on`, `busy`,
+    /// `error`), once the machine answered (``CloudVmHostStore``): only a machine the legacy Cloud
+    /// API can exec on, and only one cmux made for its owner (or one already on). Personal and
+    /// SSH machines never get the switch. `busy` (the switch disabled) while a set runs or the
+    /// machine is not reachable now.
+    func vmHostRow(_ row: JSONValue, id: String) -> JSONValue {
+        guard case .object(var members) = row, let reach = vmHostReach(id) else { return row }
+        let store = services.cloudVmHost
+        let state: CloudVmHost.State?, error: String?
+        switch store.state(id, readable: reach) {
+        case .known(let known): (state, error) = (known, nil)
+        case .failed(let why, _, let last): (state, error) = (last, why)
+        case nil: return row
+        }
+        guard let state, state.cmuxVM || state.on else { return row }
+        members["vm_host"] = ["on": .bool(state.on), "busy": .bool(!reach || store.setting.contains(id)),
+                              "error": error.map(JSONValue.string) ?? .null]
+        return .object(members)
+    }
+
+    /// Whether `id`'s vmHost can be read or set over the Cloud exec now (true), only shown from
+    /// what it last said (false: not connected, or Cloud turned off), or never (nil: not a
+    /// Cloud machine on the legacy link with exec). The row and every set ask this, so a switch
+    /// drawn while connected never execs (or wakes the machine) once it is not.
+    func vmHostReach(_ id: String) -> Bool? {
+        guard let session = services.machines.session(id), session.appLink == nil,
+              session.machine.allows(.exec) else { return nil }
+        guard !services.machines.isFeatureDisabled(.cloud) else { return false }
+        if case .connected = session.daemon.store.connectionState { return true }
+        return false
     }
 
     static func hex(_ color: NSColor) -> String {

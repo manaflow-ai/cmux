@@ -7,7 +7,7 @@ import Foundation
 public struct CloudAttachmentReadRequest: DaemonRequest, AttachmentReadStep {
     public typealias Response = ConversationAttachmentReadRequest.Response
     public static let command = "cloud-attachment-read"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.cloudAttachments
+    public static let requiredCapability: String? = DaemonCapability.cloudAttachments.rawValue
     /// The read, encoded as is.
     public var read: ConversationAttachmentReadRequest
 

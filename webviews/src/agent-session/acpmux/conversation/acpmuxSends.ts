@@ -1,0 +1,681 @@
+// A shell call that does nothing but send another agent a message with `acpmux send` (or `cmux acp
+// send`), read from its command line: who it went to and what it said, so the pane names it
+// "Sending message to <target>" or "Sent message to <target>" (the live line, Background tasks,
+// the transcript's row) instead of its raw command line.
+//
+// The line is read as a shell reads it (`shellCommands`): quotes, `$'…'`, backslashes,
+// here-documents and here-strings, `$(…)` and backticks kept whole, comments, and the operators
+// between commands. A wrapper that runs the command it is given is looked through: `reach HOST '…'`
+// (the target then lives on HOST), `bash -c '…'`, `timeout N`, `env X=Y`, `perl -e 'alarm N; exec
+// @ARGV'`, `nohup`, `nice`, `command`, `exec`. Only a command in command position counts: `echo
+// "acpmux send x y"` prints words. A line that also does other work (`git push && acpmux send …`)
+// stays a command row, so that work stays in sight; `cd`, `export`, an echo and filters on the
+// send's output that read no file (`| tail -1`) do none. A redirect that writes a file is work, and
+// so is a command substitution (`$(…)`, backticks) unless it only reads (`"$(cat note.md)"`).
+//
+// Options are read per `acpmux send --help`; `--status ID` (a delivery's state) and `--help` send
+// nothing. The text is unknown when the prompt comes from stdin that is not in the line (`-`, or no
+// prompt) or holds an expansion (`"$(cat note.md)"`): the row then names only the target. No list
+// of session names is involved: the target is the word the command gives (`name`, `host/name`,
+// `host:name`, `reports:person`).
+import type { AcpmuxActivity } from "../model";
+
+type Tool = NonNullable<AcpmuxActivity["tool"]>;
+
+export type AcpmuxSend = {
+  /// The session the message went to, as the command names it; `host/name` when it ran through
+  /// `reach HOST` and names no host of its own.
+  target: string;
+  /// The message, when the command line holds it.
+  text?: string;
+  /// `--no-wait`: it printed how the daemon took it (`queued`, `steered`) instead of the reply.
+  noWait: boolean;
+  /// How many other commands the line runs that do work of their own (`git push && acpmux send …`,
+  /// a redirect that writes a file): the row says "and N more", its command behind Raw.
+  others?: number;
+  /// The call's exit status is the send's: it is the line's last command, its output piped nowhere,
+  /// and no `||` before it could skip it. Otherwise (`acpmux send … | tail -1`, `… && make`) the
+  /// status is another command's.
+  ownsExit?: true;
+  /// Whether the send ran is not known from the line: a `&&` or `||` before it may have skipped it.
+  unsure?: true;
+};
+
+/// What acpmux prints when a send fails: its text line (`acpmux: no_session: no session matches
+/// "x"; …`), or with `--json` its error object (`{"error":{"code":"no_session",…}}`).
+const SEND_ERROR = /^acpmux: [a-z_]+: |"error"\s*:\s*\{\s*"code"/m;
+
+/// What acpmux prints when a `--no-wait` send went: how the daemon took it (`queued`, `steered`,
+/// `delivered`), as a word on its own line or a JSON field.
+const SEND_TAKEN = /^(?:queued|steered|delivered)\b|"(?:queued|steered|delivered)"\s*:\s*true/m;
+
+/// Whether the send failed: by the call's status and exit code when they are the send's, else by
+/// the error line acpmux printed; a failed background run counts either way.
+export function sendFailed(send: AcpmuxSend, status: { failed: boolean; output?: string }): boolean {
+  if (send.ownsExit) return status.failed;
+  return SEND_ERROR.test(status.output ?? "");
+}
+
+/// A send's state as its row reads it; `ended` when the call ended but neither its status nor its
+/// output says whether the message went (`git push && acpmux send …; git status`).
+export type SendState = "sending" | "sent" | "failed" | "ended";
+
+export type AcpmuxSendCall = AcpmuxSend & { state: SendState };
+
+/// The send a shell call makes, with its state, or nil for every other call.
+export function acpmuxSendCall(tool: Tool): AcpmuxSendCall | undefined {
+  if (tool.kind !== "execute" || !tool.command) return undefined;
+  const send = acpmuxSend(tool.command);
+  if (!send) return undefined;
+  // A send moved to the background runs, and ends, there (model.ts `background`).
+  const background = tool.background?.state;
+  // Failed by its status, a nonzero exit (toolGroups.ts `isFailed`), or its background run, even
+  // while the call that started it still reads as running.
+  const failed =
+    sendFailed(send, {
+      failed: tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0),
+      output: tool.output,
+    }) ||
+    (send.ownsExit === true && (background === "failed" || background === "stopped"));
+  const running = tool.status === "pending" || tool.status === "in_progress" || background === "running";
+  // A send that may have been skipped went when its status is its own or acpmux said it took it.
+  const went = send.ownsExit || !send.unsure || (send.noWait && SEND_TAKEN.test(tool.output ?? ""));
+  const state = failed ? "failed" : running ? "sending" : went ? "sent" : "ended";
+  return { ...send, state };
+}
+
+/// One shell word: its text after quote removal, and whether it is that text whatever the shell's
+/// state (no `$` expansion, command substitution or backtick in it).
+export type ShellWord = { text: string; literal: boolean };
+
+/// A simple command: its words, its stdin when the line gives it (a here-document, a here-string,
+/// or `file` for `< path`), the operator after it (`;` for a line break, "" at the end), whether a
+/// redirect writes a file (`> out`, not `2>&1` or `>/dev/null`), and the scripts its command
+/// substitutions run (`$(…)`, backticks, in its words or an unquoted here-document).
+export type ShellCommand = {
+  words: ShellWord[];
+  stdin?: ShellWord | "file";
+  op: "" | ";" | "&&" | "||" | "|" | "&";
+  writes?: true;
+  /// Its stdout goes somewhere other than the next command (`> out`, `>/dev/null`; not `2>&1`).
+  stdout?: true;
+  runs?: string[];
+};
+
+type Pending = Partial<Pick<ShellCommand, "stdin" | "runs">>;
+
+const REDIRECT = /^(?:\d*(?:<<<|<<-|<<|>>|>&|<&|>\||<>|>|<)|&>>|&>)/;
+/// What ends a word: the shell's blanks (a space, a tab, a line break; not U+00A0 or other Unicode
+/// spaces, which a shell keeps in the word) and its operators.
+const META = /[ \t\r\n;&|()<>]/;
+
+/// A command line's simple commands, in order, as a POSIX shell (bash, zsh) splits and quotes them.
+/// Lenient: an unclosed quote or substitution runs to the end of the line.
+export function shellCommands(line: string): ShellCommand[] {
+  const commands: ShellCommand[] = [];
+  let words: ShellWord[] = [];
+  let stdin: ShellCommand["stdin"];
+  let writes = false;
+  let stdout = false;
+  let runs: string[] = [];
+  /// Here-documents opened on the current line, read once it ends; `stdin` false when a later
+  /// redirect (`<<EOF < file`) took the command's stdin from it.
+  let pending: { delimiter: string; strip: boolean; quoted: boolean; stdin: boolean; command: Pending }[] = [];
+  /// The here-documents the command being read opened, so their bodies read after its line land on it.
+  let docs: (typeof pending)[number][] = [];
+  let index = 0;
+  /// A `)` just closed a group: the operator after it (`) | tail`, `) && x`) is its last command's.
+  let closed = false;
+  const end = (op: ShellCommand["op"]) => {
+    const empty = !(words.length || stdin || writes || runs.length || docs.length);
+    if (empty && closed && op !== ";" && commands.length) commands[commands.length - 1]!.op = op;
+    closed = false;
+    if (!empty) {
+      const command: ShellCommand = {
+        words,
+        op,
+        ...(stdin && { stdin }),
+        ...(writes && { writes: true as const }),
+        ...(stdout && { stdout: true as const }),
+        ...(runs.length && { runs }),
+      };
+      commands.push(command);
+      // The here-document's body is read after the line; it fills this command's stdin then.
+      for (const doc of docs) doc.command = command;
+    }
+    words = [];
+    stdin = undefined;
+    writes = false;
+    stdout = false;
+    runs = [];
+    docs = [];
+  };
+  const readBodies = () => {
+    for (const doc of pending) {
+      const lines: string[] = [];
+      while (index < line.length) {
+        const stop = line.indexOf("\n", index);
+        const raw = line.slice(index, stop < 0 ? line.length : stop);
+        index = stop < 0 ? line.length : stop + 1;
+        const text = doc.strip ? raw.replace(/^\t+/, "") : raw;
+        if (text === doc.delimiter) break;
+        lines.push(text);
+      }
+      const body = lines.length ? `${lines.join("\n")}\n` : "";
+      if (doc.stdin) doc.command.stdin = { text: body, literal: doc.quoted || !/[$`]/.test(body) };
+      if (!doc.quoted) {
+        const found = substitutions(body);
+        if (found.length) doc.command.runs = [...(doc.command.runs ?? []), ...found];
+      }
+    }
+    pending = [];
+  };
+  while (index < line.length) {
+    const char = line[index]!;
+    if (char === "\\" && line[index + 1] === "\n") {
+      index += 2;
+      continue;
+    }
+    if (char === " " || char === "\t" || char === "\r") {
+      index += 1;
+      continue;
+    }
+    if (char === "#" && (index === 0 || /[\s;&|()]/.test(line[index - 1]!))) {
+      while (index < line.length && line[index] !== "\n") index += 1;
+      continue;
+    }
+    if (char === "\n") {
+      index += 1;
+      end(";");
+      readBodies();
+      continue;
+    }
+    const redirect = REDIRECT.exec(line.slice(index, index + 8));
+    if (redirect) {
+      const op = redirect[0].replace(/^\d+/, "");
+      index += redirect[0].length;
+      while (line[index] === " " || line[index] === "\t") index += 1;
+      const start = index;
+      const [target, next] = readWord(line, index, runs);
+      index = next;
+      if (op === ">&" ? !/^(?:\d+|-)$/.test(target.text) : WRITES.has(op) && target.text !== "/dev/null") writes = true;
+      // Stdout leaves the pipe: `> f`, `&> f`, `>&f`, `1> f`; `2> f` and `2>&1` keep it.
+      const fd = /^\d+/.exec(redirect[0])?.[0];
+      if ((op.startsWith(">") || op.startsWith("&>")) && (fd === undefined || fd === "1") && target.text !== "1")
+        stdout = true;
+      // The last redirect of stdin wins: one after a here-document takes its place.
+      const takesStdin = (fd === undefined || fd === "0") && (op.startsWith("<") || op === "<>");
+      if (takesStdin) for (const doc of docs) doc.stdin = false;
+      if (op === "<<" || op === "<<-") {
+        const quoted = /['"\\]/.test(line.slice(start, next));
+        const doc = { delimiter: target.text, strip: op === "<<-", quoted, stdin: true, command: {} };
+        pending.push(doc);
+        docs.push(doc);
+        stdin = undefined;
+      } else if (op === "<<<") stdin = { text: `${target.text}\n`, literal: target.literal };
+      else if (op === "<" || op === "<>") stdin = "file";
+      continue;
+    }
+    if (char === ";" || char === "&" || char === "|" || char === "(" || char === ")") {
+      const two = line.slice(index, index + 2);
+      if (two === "&&" || two === "||" || two === ";;" || two === "|&") {
+        index += 2;
+        end(two === "&&" ? "&&" : two === "||" ? "||" : two === "|&" ? "|" : ";");
+      } else {
+        index += 1;
+        end(char === "|" ? "|" : char === "&" ? "&" : ";");
+        if (char === ")") closed = true;
+      }
+      continue;
+    }
+    const [word, next] = readWord(line, index, runs);
+    const raw = line.slice(index, next);
+    index = next;
+    // `{ …; }` groups commands; the braces are not words of them.
+    if (raw === "{" || raw === "}") {
+      end(";");
+      continue;
+    }
+    words.push(word);
+  }
+  end("");
+  readBodies();
+  return commands;
+}
+
+/// What an unclosed quote leaves among a command's scripts: the shell refuses the line, so the
+/// command runs nothing a send row could name (`onlyReads` reads it as no reader).
+const UNCLOSED = "\u0000";
+
+/// Redirects that write the file they name.
+const WRITES = new Set([">", ">>", ">|", "<>", "&>", "&>>"]);
+
+/// The word at `from`, and where it ends; the scripts of its command substitutions go in `runs`.
+function readWord(line: string, from: number, runs: string[] = []): [ShellWord, number] {
+  let text = "";
+  let literal = true;
+  let brace = false;
+  let index = from;
+  while (index < line.length) {
+    const char = line[index]!;
+    if (META.test(char)) break;
+    if (char === "'") {
+      const close = line.indexOf("'", index + 1);
+      const stop = close < 0 ? line.length : close;
+      if (close < 0) runs.push(UNCLOSED);
+      text += line.slice(index + 1, stop);
+      index = stop + 1;
+    } else if (char === "$" && line[index + 1] === "'") {
+      index += 2;
+      while (index < line.length && line[index] !== "'") {
+        if (line[index] === "\\" && index + 1 < line.length) {
+          const escape = line[index + 1]!;
+          // `\x41`, `\u00e9`, octal and the like: not read here, so the word is not the text shown.
+          if (!Object.prototype.hasOwnProperty.call(ANSI_C, escape)) literal = false;
+          text += ANSI_C[escape] ?? escape;
+          index += 2;
+        } else text += line[index++];
+      }
+      if (index >= line.length) runs.push(UNCLOSED);
+      index += 1;
+    } else if (char === '"') {
+      index += 1;
+      while (index < line.length && line[index] !== '"') {
+        const inner = line[index]!;
+        if (inner === "\\" && /[$`"\\\n]/.test(line[index + 1] ?? "")) {
+          if (line[index + 1] !== "\n") text += line[index + 1];
+          index += 2;
+        } else if (inner === "$" || inner === "`") {
+          const stop = expansionEnd(line, index, runs);
+          if (stop > index + 1) literal = false;
+          text += line.slice(index, stop);
+          index = stop;
+        } else text += line[index++];
+      }
+      if (index >= line.length) runs.push(UNCLOSED);
+      index += 1;
+    } else if (char === "\\") {
+      if (line[index + 1] !== "\n") text += line[index + 1] ?? "";
+      index += 2;
+    } else if (char === "$" || char === "`") {
+      const stop = expansionEnd(line, index, runs);
+      if (stop > index + 1) literal = false;
+      text += line.slice(index, stop);
+      index = stop;
+    } else {
+      // An unquoted glob (`*`, `?`, `[`) or brace expansion (`{a,b}`) is not the word as typed.
+      if (char === "*" || char === "?" || char === "[" || (char === "}" && brace)) literal = false;
+      // `~` at a word's start is a home directory.
+      if (char === "~" && index === from) literal = false;
+      if (char === "{") brace = true;
+      text += line[index++];
+    }
+  }
+  return [{ text, literal }, index];
+}
+
+const ANSI_C: Record<string, string> = { n: "\n", t: "\t", r: "\r", "'": "'", '"': '"', "\\": "\\", e: "\u001b" };
+
+/// Where an expansion at `from` (`$name`, `${…}`, `$(…)`, `` `…` ``) ends; a lone `$` is one
+/// character. A command substitution's script goes in `runs`.
+function expansionEnd(line: string, from: number, runs: string[] = []): number {
+  if (line[from] === "`") {
+    let index = from + 1;
+    while (index < line.length && line[index] !== "`") index += line[index] === "\\" ? 2 : 1;
+    runs.push(index < line.length ? line.slice(from + 1, index) : UNCLOSED);
+    return Math.min(line.length, index + 1);
+  }
+  const next = line[from + 1];
+  if (next === "(" || next === "{") {
+    const close = balancedEnd(line, from + 1);
+    if (close < 0) {
+      runs.push(UNCLOSED);
+      return line.length;
+    }
+    // `${V:-$(cmd)}` runs cmd too.
+    runs.push(...(next === "(" ? [line.slice(from + 2, close - 1)] : substitutions(line.slice(from + 2, close - 1))));
+    return close;
+  }
+  const name = /^(?:[A-Za-z_]\w*|[0-9#?$!@*-])/.exec(line.slice(from + 1));
+  return name ? from + 1 + name[0].length : from + 1;
+}
+
+/// The scripts of the command substitutions in an unquoted here-document's body.
+function substitutions(body: string): string[] {
+  const runs: string[] = [];
+  for (let index = 0; index < body.length;) {
+    const char = body[index]!;
+    if (char === "\\") index += 2;
+    else if (char === "`" || (char === "$" && body[index + 1] === "(")) index = expansionEnd(body, index, runs);
+    else index += 1;
+  }
+  return runs;
+}
+
+/// The end of the bracket at `open` and what it holds, quotes inside kept whole; -1 when it never closes.
+function balancedEnd(line: string, open: number): number {
+  const close = line[open] === "(" ? ")" : "}";
+  let depth = 0;
+  for (let index = open; index < line.length; index++) {
+    const char = line[index]!;
+    if (char === "\\") index += 1;
+    else if (char === "'") {
+      const stop = line.indexOf("'", index + 1);
+      index = stop < 0 ? line.length : stop;
+    } else if (char === '"') {
+      index += 1;
+      while (index < line.length && line[index] !== '"') index += line[index] === "\\" ? 2 : 1;
+    } else if (char === line[open]) depth += 1;
+    else if (char === close && --depth === 0) return index + 1;
+  }
+  return -1;
+}
+
+/// Words that only set the stage for the command after them.
+const RESERVED = new Set(["if", "then", "else", "elif", "do", "while", "until", "!", "time"]);
+/// Programs that run the command their arguments give: the options that take a value, and the
+/// flags, that still run it. Any other option (`--help`, `env -S`) is not looked through.
+type Runner = { values: ReadonlySet<string>; flags: RegExp };
+const RUNNERS: Record<string, Runner> = {
+  nohup: { values: new Set(), flags: /^$/ },
+  command: { values: new Set(), flags: /^-p$/ },
+  exec: { values: new Set(["-a"]), flags: /^-[cl]+$/ },
+  nice: { values: new Set(["-n", "--adjustment"]), flags: /^-\d+$/ },
+  env: { values: new Set(["-u", "--unset", "-C", "--chdir"]), flags: /^(?:-i|-|--ignore-environment)$/ },
+  timeout: {
+    values: new Set(["-s", "--signal", "-k", "--kill-after"]),
+    flags: /^(?:--foreground|--preserve-status|-v|--verbose)$/,
+  },
+};
+/// Steps that only set up the shell, or report: they do no work a send row would hide.
+const SETUP = new Set(["cd", "pushd", "popd", "export", "set", "unset", "true", ":", "wait", "echo", "printf"]);
+/// Steps a send's output may pipe through (`| tail -1`): how many operands each may have (a
+/// pattern, a jq filter) and the options it may take, none of which reads or writes a file. A word
+/// that is a number is an option's value (`-n 5`). They only cut what the send printed.
+const FILTERS: Record<string, { operands: number; options: RegExp; values?: ReadonlySet<string> }> = {
+  tail: { operands: 0, options: /^-(?:[nc]?\d*|[qv])$/, values: new Set(["-n", "-c"]) },
+  head: { operands: 0, options: /^-(?:[nc]?\d*|[qv])$/, values: new Set(["-n", "-c"]) },
+  cat: { operands: 0, options: /^-[AbeEnstuv]+$/ },
+  wc: { operands: 0, options: /^-[lwcmL]+$/ },
+  grep: { operands: 1, options: /^-[ivcnqxwoEFGPhsHmABC]+\d*$/, values: new Set(["-m", "-A", "-B", "-C"]) },
+  jq: { operands: 1, options: /^-(?:[rcjaMSCe]+|-raw-output|-compact-output|-exit-status|-join-output)$/ },
+};
+/// What a command substitution may run and still only read (`"$(cat note.md)"`).
+const READERS = new Set(["cat", "head", "tail", "date", "basename", "dirname", "pwd", "echo", "printf"]);
+const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish"]);
+/// `reach`'s options that take a value and still run the command (`reach --help`); any other
+/// option (`--help`, `--list`, `--why`, …) does something else.
+const REACH_VALUES = new Set(["--origin", "--registry", "--timeout"]);
+/// `acpmux send`'s options that take a value, and its flags (`acpmux send --help`).
+const SEND_VALUES = new Set(["--timeout", "--on-permission", "--stall", "--prompt-id", "--from", "--supersede"]);
+/// The values clap checks (`--timeout 30`, `--on-permission deny`).
+const SEND_VALUE_FORMS: Record<string, RegExp> = {
+  "--timeout": /^\d+$/,
+  "--stall": /^\d+$/,
+  "--on-permission": /^(?:wait|deny|fail)$/,
+};
+const SEND_FLAGS = new Set(["--json", "--steer", "--no-steer", "--suppress-reads", "--no-wait", "-q", "--quiet"]);
+/// `acpmux`'s own flags, which may come before `send` (`acpmux --help`).
+const ACPMUX_FLAGS = new Set(["--json", "--suppress-reads"]);
+
+const ASSIGNMENT = /^[A-Za-z_]\w*=/;
+const own = (record: object, key: string) => Object.prototype.hasOwnProperty.call(record, key);
+const program = (word: ShellWord | undefined) => (word?.literal ? (word.text.split("/").pop() ?? "") : "");
+
+/// The words of the command a wrapper runs: assignments, `env`, `timeout`, `nohup` and the like
+/// before it left out.
+function unwrapped(words: readonly ShellWord[]): ShellWord[] {
+  let rest = [...words];
+  for (let guard = 0; guard < 16 && rest.length; guard++) {
+    const head = rest[0]!;
+    const name = program(head);
+    if (head.literal && (ASSIGNMENT.test(head.text) || RESERVED.has(head.text))) rest = rest.slice(1);
+    else if (own(RUNNERS, name) || name === "gtimeout") {
+      const runner = RUNNERS[name === "gtimeout" ? "timeout" : name]!;
+      const after = afterOptions(rest.slice(1), runner, name === "env");
+      if (!after) return rest;
+      // `timeout [OPTIONS] DURATION COMMAND…`, the duration a number with an optional unit.
+      if (runner === RUNNERS.timeout && !/^\d+(?:\.\d+)?[smhd]?$/.test(after[0]?.text ?? "")) return rest;
+      rest = runner === RUNNERS.timeout ? after.slice(1) : after;
+    } else if (name === "perl") {
+      // `perl -e 'alarm N; exec @ARGV' COMMAND…`: a script that does nothing but run its arguments.
+      const flag = rest[1]?.text;
+      if ((flag !== "-e" && flag !== "-E") || !PERL_EXEC.test(rest[2]?.text ?? "")) return rest;
+      rest = rest.slice(3);
+    } else return rest;
+  }
+  return rest;
+}
+
+/// `alarm N; exec @ARGV` and nothing else.
+const PERL_EXEC = /^\s*alarm\s+\d+\s*;\s*exec\s+@ARGV\s*;?\s*$/;
+
+/// The words after a runner's options (and, for `env`, its assignments), or nil at an option that
+/// does not run the command.
+function afterOptions(words: ShellWord[], runner: Runner, assignments = false): ShellWord[] | undefined {
+  let index = 0;
+  while (index < words.length) {
+    const text = words[index]!.text;
+    if (text === "--") return words.slice(index + 1);
+    const name = text.split("=", 1)[0]!;
+    if (assignments && ASSIGNMENT.test(text)) index += 1;
+    else if (runner.values.has(name)) {
+      // A value that looks like an option is a missing value: the runner refuses the line.
+      if (!text.includes("=") && (words[index + 1]?.text ?? "-").startsWith("-")) return undefined;
+      index += text.includes("=") ? 1 : 2;
+    } else if (text.startsWith("-") && (text.length > 1 || assignments)) {
+      if (!runner.flags.test(text)) return undefined;
+      index += 1;
+    } else break;
+  }
+  return words.slice(index);
+}
+
+/// The send a command line makes, or nil when it makes none, makes more than one, or does other work.
+export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend | undefined {
+  if (depth > 3 || !/acp/.test(line)) return undefined;
+  const commands = shellCommands(line);
+  let found: AcpmuxSend | undefined;
+  let at = -1;
+  /// The send came from `acpmux send`'s own words here, not from a nested line.
+  let direct = false;
+  /// Commands that send, read or not (`acpmux send "$LANE" hi` is a send whose target is unknown).
+  let sends = 0;
+  for (const [index, command] of commands.entries()) {
+    const words = unwrapped(command.words);
+    const name = program(words[0]);
+    let send: AcpmuxSend | undefined;
+    if (name === "reach") {
+      let at = 1;
+      while (REACH_VALUES.has(words[at]?.text ?? "")) {
+        // A missing value, or one that looks like an option, is a line reach refuses.
+        if ((words[at + 1]?.text ?? "-").startsWith("-")) break;
+        at += 2;
+      }
+      const rest = words.slice(at);
+      const inner = rest.slice(1);
+      if (rest[0]?.literal && !rest[0].text.startsWith("-") && inner.length && inner.every((word) => word.literal))
+        send = acpmuxSend(inner.map((word) => word.text).join(" "), rest[0].text, depth + 1);
+    } else if (SHELLS.has(name)) {
+      // `-c` among the options before the first operand (`bash script -c …` runs script).
+      let flag = -1;
+      // Only options that still run the script (`-n` only checks it, `-o` takes a value).
+      for (let place = 1; place < words.length && words[place]!.text.startsWith("-"); place++) {
+        if (!/^-[cilex]+$/.test(words[place]!.text)) break;
+        if (words[place]!.text.includes("c")) {
+          flag = place;
+          break;
+        }
+      }
+      const script = flag > 0 ? words[flag + 1] : undefined;
+      if (script?.literal) send = acpmuxSend(script.text, host, depth + 1);
+    } else if (name === "acpmux" || name === "acpmux-debug-cli") {
+      let sub = 1;
+      while (ACPMUX_FLAGS.has(words[sub]?.text ?? "")) sub += 1;
+      if (words[sub]?.text === "send") {
+        sends += 1;
+        send = sendArgs(words.slice(sub + 1), stdinOf(commands, index), host);
+      }
+    } else if (name === "cmux" && words[1]?.text === "acp" && words[2]?.text === "send") {
+      sends += 1;
+      send = sendArgs(words.slice(3), stdinOf(commands, index), host);
+    }
+    // A nested line counts its send, read or not: two messages keep the command row.
+    const nested = name === "reach" || SHELLS.has(name);
+    if (nested && (send || NESTED_SEND.test(command.words.map((word) => word.text).join(" ")))) sends += 1;
+    if (sends > 1) return undefined;
+    if (send) {
+      if (found) return undefined;
+      found = send;
+      at = index;
+      direct = name !== "reach" && !SHELLS.has(name);
+    }
+  }
+  if (!found) return undefined;
+  // Every other step that does more than set up, report, feed the send or filter what it printed
+  // is other work, and so is a step that writes a file or runs a substitution that does more than
+  // read: the row counts them ("and 1 more"). A line the shell refuses (an unclosed quote), a send
+  // inside a substitution (a second message), or an `exit` before the send is no send row.
+  let others = found.others ?? 0;
+  let pipedFromSend = false;
+  for (const [index, command] of commands.entries()) {
+    pipedFromSend = index > at && commands[index - 1]!.op === "|" && (index === at + 1 || pipedFromSend);
+    const runs = command.runs ?? [];
+    if (runs.includes(UNCLOSED)) return undefined;
+    const busy = runs.filter((script) => !onlyReads(script, depth));
+    if (busy.some((script) => /\bacp/.test(script))) return undefined;
+    const words = unwrapped(command.words);
+    const name = program(words[0]);
+    if (name === "exit" && index < at) return undefined;
+    if (command.writes || busy.length) others += 1;
+    else if (index === at) continue;
+    else if (SETUP.has(name) || command.words.every((word) => word.literal && ASSIGNMENT.test(word.text))) continue;
+    // A filter reads the send's output only when nothing else is its stdin (`| tail -1 < log`).
+    else if (pipedFromSend && !command.stdin && own(FILTERS, name) && onlyFilters(words.slice(1), FILTERS[name]!))
+      continue;
+    // `cat <<EOF | acpmux send x -`: cat only hands the send its text.
+    else if (name === "cat" && index === at - 1 && command.op === "|" && command.words.length === 1) continue;
+    else others += 1;
+  }
+  const send: AcpmuxSend = { ...found };
+  delete send.others;
+  delete send.ownsExit;
+  delete send.unsure;
+  if (others) send.others = others;
+  // A nested line (`reach host '…'`, `bash -c '…'`) passes on whether its send owns its status
+  // and whether it surely ran.
+  const before = commands.slice(0, at).map((command) => command.op);
+  const skippable = before.includes("||");
+  if (found.unsure || skippable || before.includes("&&")) send.unsure = true;
+  // `! acpmux send …` inverts the status: it is not the send's.
+  const inverted = commands[at]!.words[0]?.literal === true && commands[at]!.words[0]!.text === "!";
+  const last = !inverted && at === commands.length - 1 && commands[at]!.op !== "|" && commands[at]!.op !== "&";
+  if (last && !skippable && (direct || found.ownsExit)) send.ownsExit = true;
+  return send;
+}
+
+/// A send somewhere in a nested line's words.
+const NESTED_SEND = /\b(?:acpmux(?:-debug-cli)?(?:\s+--[a-z-]+)*\s+send|cmux\s+acp\s+send)\b/;
+
+/// Whether a filter's words are options it may take, their numbers (`-n 5`), and at most its operands.
+function onlyFilters(words: readonly ShellWord[], filter: (typeof FILTERS)[string]): boolean {
+  let operands = 0;
+  for (const [index, word] of words.entries()) {
+    if (!word.literal) return false;
+    if (word.text.length > 1 && word.text.startsWith("-")) {
+      if (!filter.options.test(word.text)) return false;
+    } else if (filter.values?.has(words[index - 1]?.text ?? "") && /^\+?\d+$/.test(word.text)) continue;
+    else if (++operands > filter.operands) return false;
+  }
+  return true;
+}
+
+/// Whether a command substitution's script only reads: readers piped or listed, writing nothing.
+function onlyReads(script: string, depth: number): boolean {
+  if (depth > 3) return false;
+  return shellCommands(script).every(
+    (command) =>
+      !command.writes &&
+      READERS.has(program(command.words[0])) &&
+      (command.runs ?? []).every((inner) => onlyReads(inner, depth + 1)),
+  );
+}
+
+/// The text the command at `index` reads from stdin, when the line holds it: its here-document or
+/// here-string, or an `echo`, `printf` or bare `cat <<EOF` piped into it.
+function stdinOf(commands: readonly ShellCommand[], index: number): ShellWord | "file" | undefined {
+  const own = commands[index]!.stdin;
+  if (own) return own;
+  const before = commands[index - 1];
+  // Its stdout sent elsewhere (`echo x >/dev/null | …`), nothing comes down the pipe.
+  if (before?.op !== "|" || before.stdout) return undefined;
+  const words = unwrapped(before.words);
+  const name = program(words[0]);
+  if (name === "cat" && words.length === 1) return before.stdin;
+  if (name === "echo") {
+    const args = words.slice(1);
+    while (args[0] && /^-[neE]+$/.test(args[0].text)) args.shift();
+    const text = args.map((word) => word.text).join(" ");
+    // zsh's echo, and bash's with -e, turn backslash escapes into characters.
+    return { text, literal: !text.includes("\\") && args.every((word) => word.literal) };
+  }
+  // `printf 'text\n'`: its format is the text when it formats nothing.
+  if (name === "printf" && words.length === 2) {
+    const format = words[1]!;
+    return {
+      text: format.text.replace(/\\n/g, "\n").replace(/\\t/g, "\t"),
+      literal: format.literal && !/[%\\]/.test(format.text.replace(/\\[nt]/g, "")),
+    };
+  }
+  if (name === "printf") return { text: "", literal: false };
+  return undefined;
+}
+
+/// `acpmux send [OPTIONS] [SESSION] [PROMPT]...`, read as clap reads it: options anywhere until
+/// `--`, the first other word the session, the rest the prompt; none or `-` reads stdin.
+function sendArgs(args: readonly ShellWord[], stdin: ShellWord | "file" | undefined, host?: string) {
+  const positional: ShellWord[] = [];
+  let noWait = false;
+  let steer: string | undefined;
+  let options = true;
+  for (let index = 0; index < args.length; index++) {
+    const word = args[index]!;
+    const text = word.text;
+    if (options && text === "--") options = false;
+    else if (options && text.startsWith("-") && text !== "-") {
+      const name = text.split("=", 1)[0]!;
+      // `--status ID` reads a delivery's state; help prints usage. Neither sends anything.
+      if (name === "--status" || name === "--help" || /^-[a-zA-Z]*h/.test(name)) return undefined;
+      // An option acpmux does not know, a value on a flag, or both --steer and --no-steer fail the
+      // call: it sends nothing.
+      if (SEND_FLAGS.has(name) ? text.includes("=") : !SEND_VALUES.has(name)) return undefined;
+      if (name === "--steer" || name === "--no-steer") {
+        if (steer && steer !== name) return undefined;
+        steer = name;
+      }
+      if (name === "--no-wait") noWait = true;
+      if (SEND_VALUES.has(name)) {
+        const value = text.includes("=") ? text.slice(name.length + 1) : args[++index]?.text;
+        // clap parses these: a value it rejects fails the call.
+        // A missing value, or one clap would read as an option, fails the call too.
+        if (value === undefined || (!text.includes("=") && value.startsWith("-"))) return undefined;
+        if (!(SEND_VALUE_FORMS[name]?.test(value) ?? true)) return undefined;
+      }
+    } else positional.push(word);
+  }
+  const session = positional[0];
+  if (!session?.literal || !session.text.trim()) return undefined;
+  const words = positional.slice(1);
+  const fromStdin = words.length === 0 || (words.length === 1 && words[0]!.text === "-");
+  const said = fromStdin ? (stdin === "file" ? undefined : stdin) : undefined;
+  const text = fromStdin
+    ? said?.literal
+      ? said.text
+      : undefined
+    : words.every((word) => word.literal)
+      ? words.map((word) => word.text).join(" ")
+      : undefined;
+  const name = session.text.trim();
+  const target = host && !/[/:]/.test(name) ? `${host}/${name}` : name;
+  return { target, ...(text?.trim() && { text }), noWait } satisfies AcpmuxSend;
+}

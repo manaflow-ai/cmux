@@ -56,6 +56,19 @@ extension SidebarListViewComponents {
         guard let window, let row = displayed.row(for: .workspace(id)) else { return nil }
         return window.convertToScreen(convert(frame(for: row), to: nil))
     }
+    /// Where a workspace row's hover card goes: the row's band across the sidebar column
+    /// (`HoverCardEscapeGeometry.rowBand`), so the card's top is the row's top and its near edge
+    /// one device pixel off the sidebar's visible edge. Nil when the row is not laid out.
+    func hoverCardBand(for id: WorkspaceID) -> CGRect? {
+        hoverCardAnchor(for: id).flatMap(hoverCardBand(row:))
+    }
+    /// A group header's band across the sidebar column, as `hoverCardBand(for:)`.
+    func hoverCardBand(forGroup id: GroupID) -> CGRect? {
+        hoverCardAnchor(forGroup: id).flatMap(hoverCardBand(row:))
+    }
+    private func hoverCardBand(row: CGRect) -> CGRect? {
+        sidebarColumnOnScreen.map { HoverCardEscapeGeometry.rowBand(row: row, column: $0) }
+    }
 }
 
 extension SidebarViewComponents {

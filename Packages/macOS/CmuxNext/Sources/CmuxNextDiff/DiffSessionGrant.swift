@@ -9,7 +9,8 @@ import CmuxNextCompat
 ///   token may open sessions for exactly this repository;
 /// - `.manifest-<token>.json`: the files the token may read. The sidecar adds
 ///   each session's patch; it never creates a manifest, so this one starts with
-///   a placeholder entry;
+///   a placeholder entry, and the tab's turn patch (``turnPatchURL``, written
+///   when the page opens Last turn);
 /// - `.session-lease-<token>.lock`, held (flock) while the tab lives, so the
 ///   sidecar's orphan sweep never removes a live tab's patches.
 ///
@@ -50,7 +51,9 @@ nonisolated final class DiffSessionGrant: Sendable {
             let manifest: [String: Any] = [
                 "token": token,
                 "files": [["request_path": placeholderPath, "file_path": placeholder.path, "mime_type": "text/html",
-                           "remote_url": NSNull()]],
+                           "remote_url": NSNull()],
+                          ["request_path": DiffTurnPatch.requestPath, "file_path": grant.turnPatchURL.path,
+                           "mime_type": DiffPatchResolver.mimeType, "remote_url": NSNull()]],
             ]
             try write(JSONSerialization.data(withJSONObject: manifest), to: grant.manifestURL)
             let session: [String: Any] = ["token": token, "groupID": group, "allowedRepoRoots": [repository]]
@@ -63,6 +66,19 @@ nonisolated final class DiffSessionGrant: Sendable {
     }
 
     var manifestURL: URL { root.appending(path: ".manifest-\(token).json") }
+    /// The tab's turn patch (``DiffTurnPatch``); the manifest lists it from the start.
+    var turnPatchURL: URL { root.appending(path: ".turn-\(token).patch") }
+
+    /// Replaces the turn patch with `text` (a temporary file of its own, then a rename, so two
+    /// writes never share one). Blocking file IO.
+    func writeTurnPatch(_ text: String) throws {
+        let temporary = root.appending(path: "\(Self.turnTemporaryPrefix(token))\(Self.randomHex(bytes: 8))")
+        try Self.write(Data(text.utf8), to: temporary)
+        guard Darwin.rename(temporary.path, turnPatchURL.path) == 0 else {
+            try? FileManager.default.removeItem(at: temporary)
+            throw CocoaError(.fileWriteUnknown)
+        }
+    }
 
     /// Removes the grant files, the patches its manifest lists inside the root,
     /// then releases the lease. Idempotent; blocking file IO.
@@ -78,8 +94,12 @@ nonisolated final class DiffSessionGrant: Sendable {
                      ".viewer-\(token).html", ".session-lease-\(token).lock"] {
             try? FileManager.default.removeItem(at: root.appending(path: name))
         }
+        DiffSessionRoot.removeTurnTemporaries(root: root, token: token)
         Darwin.close(lease)
     }
+
+    /// The name start of a turn patch being written (a crash can leave one).
+    static func turnTemporaryPrefix(_ token: String) -> String { ".turn-\(token).patch.tmp-" }
 
     private static func write(_ data: Data, to url: URL) throws {
         guard FileManager.default.createFile(atPath: url.path, contents: data, attributes: [.posixPermissions: 0o600]) else {
@@ -130,6 +150,17 @@ nonisolated enum DiffSessionRoot {
                           ".session-lease-\(token).lock"] {
                 try? FileManager.default.removeItem(at: root.appending(path: stale))
             }
+            for stale in names where stale.hasPrefix(DiffSessionGrant.turnTemporaryPrefix(token)) {
+                try? FileManager.default.removeItem(at: root.appending(path: stale))
+            }
+        }
+    }
+
+    /// Removes the turn patches token `token` left half written.
+    static func removeTurnTemporaries(root: URL, token: String) {
+        let prefix = DiffSessionGrant.turnTemporaryPrefix(token)
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? [] where name.hasPrefix(prefix) {
+            try? FileManager.default.removeItem(at: root.appending(path: name))
         }
     }
 

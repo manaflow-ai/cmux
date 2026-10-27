@@ -85,7 +85,8 @@ export function activeSourceMenuId(source: DiffSource | null): SourceMenuId | nu
  * Builds the source menu: Last Turn | Uncommitted, Unstaged, Staged | Committed >,
  * Branch. Host `sourceOptions` win; with a typed transport and a repository, the
  * git sources the sidecar supports are offered even when the host lists none.
- * Last Turn and Committed exist only when the host supplies them.
+ * Committed has rows only when the host supplies them; Last Turn shows only when
+ * the host supplies it (a chat opened the tab) or the viewer shows a patch.
  */
 export function sourceMenuModel(input: {
   sourceOptions: unknown;
@@ -165,8 +166,10 @@ export function sourceMenuModel(input: {
     checked: commitChecked,
     children: commitChildren,
   };
+  // Last turn is a chat's: only a tab a chat opened (the host lists it) or one showing a patch has it.
+  const lastTurn = fixed("last-turn");
   const sections = [
-    [fixed("last-turn")],
+    ...(lastTurn.target || lastTurn.checked ? [[lastTurn]] : []),
     [fixed("uncommitted"), fixed("unstaged"), fixed("staged")],
     [committed, fixed("branch")],
   ];
@@ -216,12 +219,16 @@ export type OverflowMenuItem = {
   checked?: boolean;
   /** False when nothing in this build can apply the option; the row explains why. */
   available: boolean;
+  /** Why the row is unavailable, when it is not the generic "cmux does not support this option". */
+  unavailableKey?: DiffViewerLabelKey;
 };
 
 /**
- * What the viewer can apply. `fullFiles` needs a `loadDiffFiles` source of file
- * contents (expandUnchanged on a patch-parsed diff needs both sides of the file);
- * the others need the sidecar to diff with those flags. None exists yet.
+ * What the viewer can apply. `fullFiles` and `richPreview` need the host's
+ * `fileContents` on a git source (session.ts `fileContentsAvailable`): both
+ * read a file's two sides. `hideWhitespace` needs a host whose sidecar honors it, on a git source
+ * (session.ts `hideWhitespaceAvailable`). `hideImports` is the page's own
+ * (diff-viewer/importHunks.ts), so every diff has it.
  */
 export type OverflowCapabilities = {
   fullFiles: boolean;
@@ -238,34 +245,52 @@ export const NO_HOST_CAPABILITIES: OverflowCapabilities = {
 };
 
 export function overflowMenuItems(
-  options: Pick<DiffViewerOptions, "expandUnchanged" | "wordDiffs">,
+  options: Pick<DiffViewerOptions, "hideImports" | "hideWhitespace" | "loadFullFiles" | "richPreview" | "wordDiffs">,
   capabilities: OverflowCapabilities,
+  /** The shown session's answer (AppState `whitespaceHidden`); null before one answers. */
+  whitespaceHidden: boolean | null = null,
 ): OverflowMenuItem[] {
   return [
     {
       id: "load-full-files",
       icon: "file",
       labelKey: "loadFullFiles",
-      checked: capabilities.fullFiles && options.expandUnchanged,
+      checked: capabilities.fullFiles && options.loadFullFiles,
       available: capabilities.fullFiles,
     },
-    { id: "rich-preview", icon: "image", labelKey: "richPreview", checked: false, available: capabilities.richPreview },
+    {
+      id: "rich-preview",
+      icon: "image",
+      labelKey: "richPreview",
+      checked: capabilities.richPreview && options.richPreview,
+      available: capabilities.richPreview,
+    },
     { id: "word-diffs", icon: "plusMinus", labelKey: "wordDiffs", checked: options.wordDiffs, available: true },
     {
       id: "hide-whitespace",
       icon: "eye",
       labelKey: "hideWhitespace",
-      checked: false,
+      // What the shown diff does, once its session answered; the choice until then.
+      checked: capabilities.hideWhitespace && (whitespaceHidden ?? options.hideWhitespace),
       available: capabilities.hideWhitespace,
     },
     {
       id: "hide-imports",
       icon: "package",
       labelKey: "hideImports",
-      checked: false,
+      checked: capabilities.hideImports && options.hideImports,
       available: capabilities.hideImports,
     },
-    { id: "copy-git-apply", icon: "clipboard", labelKey: "copyGitApplyCommand", available: true },
+    // A patch without its white space changes would apply partly or not at all.
+    whitespaceHidden === true
+      ? {
+          id: "copy-git-apply",
+          icon: "clipboard",
+          labelKey: "copyGitApplyCommand",
+          available: false,
+          unavailableKey: "copyNeedsWhitespaceShown",
+        }
+      : { id: "copy-git-apply", icon: "clipboard", labelKey: "copyGitApplyCommand", available: true },
   ];
 }
 
@@ -288,10 +313,18 @@ export type PillButton = {
   unavailable?: boolean;
 };
 
+const LAYOUT_ICON = { unified: "unified", split: "split", auto: "auto" } as const satisfies Record<
+  DiffViewerOptions["layout"],
+  IconName
+>;
+const LAYOUT_NEXT_LABEL = {
+  auto: "switchToSplitDiff",
+  split: "switchToUnifiedDiff",
+  unified: "switchToAutoLayout",
+} as const satisfies Record<DiffViewerOptions["layout"], DiffViewerLabelKey>;
+
 export function toolbarPillButtons(state: {
   options: Pick<DiffViewerOptions, "collapsed" | "layout" | "wordWrap">;
-  /** False when the viewer is too narrow for split, which then draws unified. */
-  splitFits?: boolean;
   filesVisible: boolean;
   optionsOpen: boolean;
   findOpen: boolean;
@@ -309,12 +342,11 @@ export function toolbarPillButtons(state: {
       labelKey: options.collapsed ? "expandAllDiffs" : "collapseAllDiffs",
     },
     {
+      // Shows the chosen layout (rows, columns, or the diagonal of auto) and names the next one.
       id: "layout",
       domId: "layout-toggle",
-      icon: "pillLayout",
-      ...(state.splitFits === false
-        ? { labelKey: "splitDiffNeedsWiderPane" as const, unavailable: true }
-        : { labelKey: options.layout === "split" ? ("switchToUnifiedDiff" as const) : ("switchToSplitDiff" as const) }),
+      icon: LAYOUT_ICON[options.layout],
+      labelKey: LAYOUT_NEXT_LABEL[options.layout],
     },
     {
       id: "files",

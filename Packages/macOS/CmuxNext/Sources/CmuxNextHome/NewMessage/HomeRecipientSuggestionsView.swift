@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// The people under New Message's To: field (Messages' suggestion list):
@@ -106,8 +107,7 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
     }
 
     @objc func clicked() {
-        let row = table.clickedRow
-        guard items.indices.contains(row) else { return }
+        guard let row = table.clickedRowIfValid, items.indices.contains(row) else { return }
         onChoose(items[row])
     }
 

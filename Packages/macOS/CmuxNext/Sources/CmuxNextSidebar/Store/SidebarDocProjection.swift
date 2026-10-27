@@ -38,6 +38,8 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         public var parent: String?
         /// Group levels above it: 0 at the top level.
         public var depth = 0
+        /// The open workspace members (rows that are not a closed one's, dimmed): the window listing one owns the group.
+        public var openMembers: [SidebarDocWorkspaceRef] = []
 
         /// A url, tab or app member and the workspace member's item it follows (nil: first).
         public struct Listed: Hashable, Sendable {
@@ -79,13 +81,15 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
     public var bandGroups: [Group]
     /// The machine sections made remote groups (remote-groups-DESIGN.md slice 4), by document section id.
     public var hostGroups: Set<String> = []
+    /// The items whose rows draw archived: archived, or under an archived group (archiving-DESIGN.md).
+    public var archived: Set<String> = []
 
     /// The layout item kind of a group placed in Pinned or a custom section.
     public static let groupKind = "group"
 
     public init(rows: [SidebarDocRow], records: SidebarDocRecords, revision: UInt64) {
         var sections: [LayoutSection] = []
-        var machines: [String: [Node]] = [:]
+        var machines = SidebarDocMachineNodes()
         var items: [SidebarDocWorkspaceRef: String] = [:]
         var machineSections: [String: String] = [:]
         var unplaced: [SidebarDocWorkspaceRef] = []
@@ -93,8 +97,10 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         var sectionIndex: [String: Int] = [:]
         var bandGroups: [Group] = []
         var machineOrder: [String] = []
+        var archivedItems: Set<String> = []
 
         for row in rows {
+            if row.archived, let id = row.item { archivedItems.insert(id) }
             // A live machine without a stored section yet (`sec_m_<session>`) still lists, unplaced.
             let record = records.sections[row.section]
                 ?? SidebarDocSection(id: row.section, kind: .machine(session: row.ref?.sessionID ?? SidebarDocWire.Section.session(fromID: row.section)))
@@ -118,7 +124,7 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
                 sectionIndex[record.id] = sections.count
                 sections.append(Self.section(record))
             }
-            guard let id = row.item, let item = records.items[id], let index = sectionIndex[record.id] else { continue }
+            guard let id = row.item, let item = Self.item(of: row, id: id, records: records), let index = sectionIndex[record.id] else { continue }
             if let ref = item.body.workspace { items[ref] = id } // members of a pinned group too: they list once
             if case let .group(name, color, icon, collapsed) = item.body {
                 // A nested group (remote-groups-DESIGN.md R1) lists after its parent, with its own members.
@@ -130,6 +136,7 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
             } else if row.depth > 0, let parent = row.parent ?? item.parent,
                       let at = bandGroups.lastIndex(where: { $0.id == parent }) {
                 bandGroups[at].add(id, item) // a workspace, link, tab or app member: a member row in the list
+                if let ref = item.body.workspace, !row.dimmed { bandGroups[at].openMembers.append(ref) }
             } else if row.depth == 0 {
                 sections[index].items.append(Self.layoutItem(item))
             }
@@ -138,49 +145,52 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
             sections.append(LayoutSection(id: SidebarLayoutDocument.workspacesSectionID, region: .middle, look: .list, content: .workspaces))
         }
         layout = SidebarLayoutDocument(revision: revision, sections: sections)
-        self.machines = machines
+        self.machines = machines.nodes()
         self.items = items
         self.machineSections = machineSections
         self.machineOrder = machineOrder
         self.unplaced = unplaced
         self.bandGroups = bandGroups
+        archived = archivedItems
         hostGroups = Set(records.sections.values.filter(\.hostGroup).map(\.id))
     }
 
-    private static func place(_ row: SidebarDocRow, session: String, records: SidebarDocRecords, into machines: inout [String: [Node]],
+    private static func place(_ row: SidebarDocRow, session: String, records: SidebarDocRecords, into machines: inout SidebarDocMachineNodes,
                               items: inout [SidebarDocWorkspaceRef: String], unplaced: inout [SidebarDocWorkspaceRef]) {
-        guard let id = row.item, let item = records.items[id] else {
+        guard let id = row.item, let item = item(of: row, id: id, records: records) else {
             if let ref = row.ref { unplaced.append(ref) }
             return
-        }
-        // A member row goes to its own group, the last one listed with that id (nested groups list flat, in order).
-        func addToGroup(_ parent: String) {
-            guard var nodes = machines[session],
-                  let at = nodes.lastIndex(where: { if case let .group(group) = $0 { group.id == parent } else { false } }),
-                  case .group(var group) = nodes[at] else { return }
-            group.add(id, item)
-            nodes[at] = .group(group)
-            machines[session] = nodes
         }
         switch item.body {
         case .workspace(let ref):
             items[ref] = id
             if let parent = row.parent ?? item.parent, row.depth > 0 {
-                addToGroup(parent)
+                machines.add(id, item, toGroup: parent, session: session)
             } else {
-                machines[session, default: []].append(.workspace(ref, item: id))
+                machines.append(.workspace(ref, item: id), session: session)
             }
         case let .group(name, color, icon, collapsed):
             var group = Group(id: id, name: name, color: color, icon: icon, collapsed: collapsed, members: [], section: row.section)
             group.parent = row.depth > 0 ? row.parent ?? item.parent : nil
             group.depth = row.depth
-            machines[session, default: []].append(.group(group))
+            machines.append(group, session: session)
         case .url, .tab, .app, .builtin, .room, .savedGroup, .ref, .other:
             // Any item may sit in a machine section: it lists as a row, a group's member row inside a group.
-            guard row.depth > 0 else { return machines[session, default: []].append(.link(Self.listItem(item))) }
+            guard row.depth > 0 else { return machines.append(.link(Self.listItem(item)), session: session) }
             guard let parent = row.parent ?? item.parent else { return }
-            addToGroup(parent)
+            machines.add(id, item, toGroup: parent, session: session)
         }
+    }
+
+    /// Row `row`'s item `id`: its confirmed record, else, for a workspace row that only a pending change places (the
+    /// app's adopt and move of a new workspace into its slot, before the daemon's echo), the workspace item the row
+    /// names. The rows come from the mirror, pending changes included, and the records only from confirmed batches: a
+    /// row without a record listed as unplaced, first in its machine section under `top`, until the echo moved it to
+    /// its slot (Austin 2026-10-21: Cmd-N inside a group drew the row at the top, then moved it into the group).
+    private static func item(of row: SidebarDocRow, id: String, records: SidebarDocRecords) -> SidebarDocItem? {
+        if let item = records.items[id] { return item }
+        guard let ref = row.ref else { return nil }
+        return SidebarDocItem(id: id, section: row.section, parent: row.depth > 0 ? row.parent : nil, body: .workspace(ref))
     }
 
     static func section(_ record: SidebarDocSection) -> LayoutSection {
@@ -242,13 +252,15 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
 
 extension SidebarDocStore {
     /// The projection of the current document over `live` (memoized per
-    /// version and live set, so a rebuild costs one `view` call).
+    /// version, live set and the order of the unplaced live workspaces
+    /// (`SidebarDocProjectionCache`), so a rebuild costs one `view` call and
+    /// a daemon reorder of placed workspaces costs none).
     public func projection(live: [SidebarDocWorkspaceRef]) -> SidebarDocProjection? {
         guard isActive else { return nil }
-        if let cached = projectionCache, cached.version == version, cached.live == live { return cached.projection }
+        if let cached = projectionCache, cached.answers(version: version, live: live) { return cached.projection }
         guard let rows = rows(SidebarViewRequest(live: live)) else { return nil }
         let projection = SidebarDocProjection(rows: rows, records: records, revision: records.revision)
-        projectionCache = (version, live, projection)
+        projectionCache = SidebarDocProjectionCache(version: version, live: live, projection: projection)
         return projection
     }
 

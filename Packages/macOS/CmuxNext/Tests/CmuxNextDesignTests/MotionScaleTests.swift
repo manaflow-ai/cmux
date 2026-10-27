@@ -1,6 +1,7 @@
 @testable import CmuxNextDesign
 import Foundation
 import Testing
+import CmuxNextDesignTokens
 
 /// Leo 2026-10-20: "animations all around are a bit slow". Every animation keeps to one short
 /// scale (schemas/motion-scale/motion-scale.json, `MotionScale`): quick 80 ms, micro 120 ms,

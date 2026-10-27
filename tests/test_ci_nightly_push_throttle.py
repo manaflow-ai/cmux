@@ -457,13 +457,19 @@ def test_nightly_next_builds_for_publication_only_as_the_mac_writer() -> None:
     # cx-f76kf: one writer, NIGHTLY_NEXT_WRITER (mac, linux or none). A
     # nightly-next run that publishes builds only while it is mac; the main
     # track ignores it. publish-nightly reads it again live.
-    for writer in ("linux", "none", "", " mac-mini"):
+    for writer in ("linux", "none", " mac-mini"):
         result = run_decide(event="push", ref="refs/heads/nightly-next", tag_age_hours=0.1,
                             extra_env=dict(NEXT_ENV, NIGHTLY_NEXT_WRITER=writer))
         assert not should_build(result), writer
     padded = run_decide(event="push", ref="refs/heads/nightly-next", tag_age_hours=0.1,
                         extra_env=dict(NEXT_ENV, NIGHTLY_NEXT_WRITER=" mac\n"))
     assert should_build(padded)
+    # Unset is mac. The vars context gives '' for a variable that does not
+    # exist, so decide cannot tell it from an empty value; the final gate,
+    # which reads the variable live, refuses an empty one before any write.
+    unset = run_decide(event="push", ref="refs/heads/nightly-next", tag_age_hours=0.1,
+                       extra_env=dict(NEXT_ENV, NIGHTLY_NEXT_WRITER=""))
+    assert should_build(unset)
     main_track = run_decide(event="push", tag_age_hours=2.5, extra_env=dict(NEXT_ENV, NIGHTLY_NEXT_WRITER="linux"))
     assert should_build(main_track)
 
@@ -492,7 +498,7 @@ def test_nightly_next_publishes_its_own_track() -> None:
                                        tag_sha=HEAD_SHA, extra_env=NEXT_ENV))
 
 
-def test_nightly_next_summary_explains_active_hold_and_notary_exemption() -> None:
+def test_nightly_next_summary_ignores_the_retired_hold_and_explains_the_notary_exemption() -> None:
     held = run_decide(
         event="push",
         ref="refs/heads/nightly-next",
@@ -502,11 +508,11 @@ def test_nightly_next_summary_explains_active_hold_and_notary_exemption() -> Non
             "NIGHTLY_NEXT_BROWSER_DATA_IMPORT": "compiled-out",
         },
     )
-    assert not should_build(held)
+    assert should_build(held)
     held_summary = summary_values(held)
-    assert "69be4c7e0c5" in held_summary["publication hold"]
-    assert "15 seconds" in held_summary["required hold smoke"]
-    assert "SIGTRAP" in held["warnings"][0]
+    assert "publication hold" not in held_summary
+    assert "deterministic checks" in held_summary["required hold verification"]
+    assert not any("SIGTRAP" in warning for warning in held["warnings"]), held["warnings"]
 
     compiled_out = run_decide(
         event="push",

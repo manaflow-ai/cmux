@@ -1,5 +1,6 @@
 import CmuxAgentQuestion
 import CmuxConversationCore
+import CmuxMobileArtifacts
 import CmuxMobileModel
 import Foundation
 import Observation
@@ -73,6 +74,9 @@ public final class ChiefSession {
     public private(set) var control: ChiefControl?
     /// The Mac Chief runs on, for the settings page.
     public var macName: String?
+    /// Reads a file a Chief message links to from Chief's Mac (the link's `file`
+    /// service, inside the folders that Mac shares); nil without a Mac link.
+    @ObservationIgnored public var fileSource: (any ArtifactSource)?
     public let preferences: ChiefPreferences
     /// Chief's avatar text (``ChiefIdentity/avatar``): the Mac's, once its
     /// `chief.engine.get` reply carries one, else "C".
@@ -518,9 +522,12 @@ public final class ChiefSession {
 
     /// Sends a message to Chief: now when Chief has connected, else into the
     /// outbox, which goes out when it connects (never dropped silently).
-    public func send(_ message: ConversationComposeMessage) {
+    /// `asksForAlerts`: the composer's first send asks for notification
+    /// permission (Chief's replies alert); a live call's send doesn't, so no
+    /// system prompt lands over the call screen.
+    public func send(_ message: ConversationComposeMessage, asksForAlerts: Bool = true) {
         guard !message.isEmpty else { return }
-        ChiefAlerts.shared.requestPermissionIfUndetermined()
+        if asksForAlerts { ChiefAlerts.shared.requestPermissionIfUndetermined() }
         if store.meID != nil, store.connection == .connected {
             store.sendWhenConnected(message)
             return

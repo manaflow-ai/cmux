@@ -149,6 +149,12 @@ pub fn mcp_json_for(setup: &SessionSetup, paths: &Paths, subagent: bool) -> Valu
     // serve` (cx-wx93i, acpmux agent_tools.rs), the Chief's turns and
     // subagents included, so a second one only doubled the tool list
     // (hq-6d 2026-10-14: one cmux MCP server per turn).
+    // The MCP servers of the tool packs that are on (toolpacks.rs).
+    for (name, server) in
+        crate::toolpacks::claude_servers(&crate::toolpacks::load(&paths.home), &paths.bin)
+    {
+        servers.entry(name).or_insert(server);
+    }
     json!({"mcpServers": servers})
 }
 
@@ -156,7 +162,12 @@ pub fn mcp_json_for(setup: &SessionSetup, paths: &Paths, subagent: bool) -> Valu
 /// the launcher directory first on PATH, and `deny` (Claude Code's
 /// subagents always) denied, which takes those tools out of the list.
 pub fn settings_json(setup: &SessionSetup, paths: &Paths, deny: &[&str]) -> Value {
-    let names = ["optchat"];
+    let mut names = vec!["optchat".to_owned()];
+    names.extend(
+        crate::toolpacks::claude_servers(&crate::toolpacks::load(&paths.home), &paths.bin)
+            .into_iter()
+            .map(|(n, _)| n),
+    );
     // The user's settings env first (a session that loads no user setting
     // source keeps the user's API route), the session's own over it.
     let mut env: serde_json::Map<String, Value> = setup
@@ -252,8 +263,12 @@ pub const TURN_DENIED_TOOLS: [&str; 25] = [
 /// which always loads; cmux MCP has no conversation or Chief tools (v2_tools
 /// EXCLUDED). Every other cmux MCP tool is denied in the turn's settings
 /// and stays reachable through the `cmux` CLI on its own host. Names:
-/// `agents_*` and `render` (cmux mcp agent tools).
-pub const CHIEF_CMUX_TOOLS: [&str; 13] = [
+/// `agents_*` and `render` (cmux mcp agent tools). `agents_chat_send`,
+/// `agents_chat_read` and `agents_chat_state` reach the agent chats the user
+/// started in the app (#25571): a send is the Chief's agent message, under
+/// the daemon's agent message policy, and starts a turn in that chat, a
+/// restored chat no tab has shown yet included.
+pub const CHIEF_CMUX_TOOLS: [&str; 16] = [
     "agents_snapshot",
     "agents_workspace_create",
     "agents_workspace_select",
@@ -267,6 +282,9 @@ pub const CHIEF_CMUX_TOOLS: [&str; 13] = [
     "render",
     "agents_terminal_list",
     "agents_terminal_send",
+    "agents_chat_send",
+    "agents_chat_read",
+    "agents_chat_state",
 ];
 
 /// The turn presets' env that keeps only acpmux's `cmux` MCP server
@@ -579,6 +597,10 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
             serde_json::to_string_pretty(v).map_err(io::Error::other)?
         ))
     };
+    // The tool packs that are on: their skills in the Chief's own skills
+    // folder, their MCP servers below (toolpacks.rs).
+    let packs = crate::toolpacks::load(&paths.home);
+    crate::toolpacks::sync_skills(&paths.home, &packs);
     write_if_changed(
         &paths.session.join(".mcp.json"),
         pretty(&mcp_json(setup, paths))?.as_bytes(),
@@ -596,6 +618,10 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         .collect();
     let mut settings = settings_json(setup, paths, &deny);
     for (key, value) in TURN_SETTINGS_ENV {
+        settings["env"][key] = json!(value);
+    }
+    // git asks the tool packs' credential helpers for their hosts (toolpacks.rs).
+    for (key, value) in crate::toolpacks::git_env(&packs, &paths.bin) {
         settings["env"][key] = json!(value);
     }
     settings["permissions"]["allow"] = json!(crate::approval::turn_allowed_tools());
@@ -621,6 +647,25 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     let claude = paths.bin.join("claude");
     write_if_changed(&claude, CLAUDE_SHIM.as_bytes())?;
     std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755))?;
+    // Each pack's CLI and git with the Chief's own login when it has one
+    // (toolpacks.rs; the GitHub pack's gh as before).
+    remove_if_present(&paths.bin.join("git-credential-chief"))?;
+    let mut shims = crate::toolpacks::wrappers(&packs);
+    shims.extend(crate::toolpacks::script_wrappers(&paths.home, &packs));
+    // A pack turned off or removed takes its wrapper with it.
+    for entry in std::fs::read_dir(&paths.bin)?.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let ours = std::fs::read_to_string(entry.path())
+            .is_ok_and(|t| t.lines().take(3).any(|l| l.contains("(tool pack ")));
+        if ours && !shims.iter().any(|(n, _)| *n == name) {
+            remove_if_present(&entry.path())?;
+        }
+    }
+    for (name, text) in shims {
+        let shim = paths.bin.join(name);
+        write_if_changed(&shim, text.as_bytes())?;
+        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755))?;
+    }
     Ok(())
 }
 

@@ -1,5 +1,6 @@
 import CmuxNextDesign
 import CoreText
+import Foundation
 public import QuartzCore
 
 /// One agent's cursor: arrow, name tag, click ripple and the hidden-target indicator,
@@ -227,10 +228,10 @@ public final class AgentCursorLayer {
 
     static let tagFontSize: CGFloat = 11
     static let tagHeight: CGFloat = 22
-    /// The name tag's top-left corner from the arrow tip: in the hollow
+    /// The name tag's resting top-left corner from the arrow tip: in the hollow
     /// behind the notch, below the right wing and right of the lower one, so
-    /// it never covers the tip or the body.
-    static let tagOffset = CGPoint(x: 7, y: 14)
+    /// it never covers the tip or the body (``AgentCursorTagLayout/restingOffset``).
+    static let tagOffset = AgentCursorTagLayout.restingOffset
 
     static let captionFontSize: CGFloat = 12
     static let captionHeight: CGFloat = 22
@@ -239,13 +240,72 @@ public final class AgentCursorLayer {
         CTFontCreateUIFontForLanguage(.emphasizedSystem, captionFontSize, nil)
             ?? CTFontCreateWithName("Helvetica-Bold" as CFString, captionFontSize, nil)
     }
-    /// Where the caption's top-left corner sits from the arrow tip: right of
-    /// the arrow's tail, so it never covers the point the agent acts on.
-    static let captionOffset = tagOffset
+    /// The visible page the cursor is in, in host-layer coordinates; nil
+    /// before the host knew it (the tag then rests below-right of the tip).
+    var confinement: CGRect?
+    /// Which side of the tip the tag is on now; kept between placements so an
+    /// edge flips the tag once, not on every move (``AgentCursorTagLayout``).
+    private(set) var tagLayout = AgentCursorTagLayout.resting
 
-    /// Where the caption goes: under the name tag when there is one.
-    var captionOrigin: CGPoint {
-        !hasName ? Self.captionOffset : CGPoint(x: Self.tagOffset.x, y: nameTag.frame.maxY + 4)
+    /// Lays the name tag and caption out for the tip at `tip` (host-layer
+    /// coordinates, where the cursor is or is about to be) so they stay inside
+    /// ``confinement``. A flip moves on the shared movement spring; under
+    /// Reduce Motion or with animations off it moves at once.
+    func layOutTag(tip: CGPoint, snapCaption: Bool = false) {
+        let showsCaption = isCaptionShowing || snapCaption
+        if let bounds = confinement {
+            // The side fits the tag and the caption stacked under (or over) it,
+            // so the caption never has to be pushed back over the tag.
+            let tag = hasName ? nameTag.bounds.size : .zero
+            let note = showsCaption ? caption.bounds.size : .zero
+            let gap: CGFloat = hasName && showsCaption ? AgentCursorTagLayout.captionGap : 0
+            let block = CGSize(width: max(tag.width, note.width), height: tag.height + gap + note.height)
+            tagLayout = tagLayout.next(size: block, tip: tip, bounds: bounds)
+        } else {
+            tagLayout = .resting
+        }
+        if hasName {
+            let tag = tagLayout.frame(size: nameTag.bounds.size, tip: tip, bounds: confinement)
+            let origin = CGPoint(x: tag.minX - tip.x, y: tag.minY - tip.y)
+            if nameTag.frame.origin != origin { move(nameTag, glassTag, to: origin, snap: false) }
+        }
+        if caption.bounds.width > 0 {
+            let origin = captionFrame(size: caption.bounds.size, tip: tip).origin
+            if caption.frame.origin != origin { move(caption, glassCaption, to: origin, snap: snapCaption) }
+        }
+        hasTip = true
+    }
+
+    /// The caption shows now (typed text not faded out yet).
+    var isCaptionShowing: Bool {
+        caption.bounds.width > 0 && (caption.presentation() ?? caption).opacity > 0.01
+    }
+
+    /// Moves a pill and its blur well together (both have a zero anchor, so
+    /// `position` is the top-left corner). It glides on the movement spring
+    /// only when the cursor is already showing; a first placement, a hidden
+    /// cursor, Reduce Motion or animations off move it at once.
+    private func move(_ pill: CALayer, _ well: CALayer, to origin: CGPoint, snap: Bool) {
+        let animates = !snap && hasTip && !root.isHidden && !showsIndicator
+        for layer in [pill, well] {
+            if animates {
+                Motion.cursor.set(layer, "position", to: NSValue(point: origin), spring: .move)
+            } else {
+                layer.removeAnimation(forKey: "position")
+                layer.position = origin
+            }
+        }
+    }
+
+    /// The tip was laid out at least once, so a later flip may animate.
+    private var hasTip = false
+
+    /// The caption's frame relative to the tip: beside the tag, away from the
+    /// tip, inside ``confinement``.
+    private func captionFrame(size: CGSize, tip: CGPoint) -> CGRect {
+        let tag = hasName ? nameTag.frame.offsetBy(dx: tip.x, dy: tip.y) : nil
+        let frame = tagLayout.captionFrame(size: size, tag: tag, tip: tip, bounds: confinement)
+        return frame.offsetBy(dx: -tip.x, dy: -tip.y)
     }
     /// How long the caption stays after the last keystroke.
     static let captionHideDelay: CFTimeInterval = 1.6
@@ -265,14 +325,17 @@ public final class AgentCursorLayer {
     func showCaption(_ text: String, scale: CGFloat) {
         let padding: CGFloat = 9
         let width = Self.captionWidth(text) + padding * 2
-        caption.frame = CGRect(origin: captionOrigin, size: CGSize(width: width, height: Self.captionHeight))
+        let wasShowing = isCaptionShowing
+        let size = CGSize(width: width, height: Self.captionHeight)
+        for layer in [caption, glassCaption] { layer.bounds = CGRect(origin: .zero, size: size) }
         let lineHeight = ceil(Self.captionFontSize * 1.3)
         captionText.frame = CGRect(x: padding, y: (Self.captionHeight - lineHeight) / 2,
                                    width: width - padding * 2, height: lineHeight)
         captionText.contentsScale = scale
         captionText.string = text
         Self.layoutRim(captionRim, in: caption.bounds)
-        glassCaption.frame = caption.frame
+        // A caption that was gone appears in place; a showing one glides with a flip.
+        layOutTag(tip: root.position, snapCaption: !wasShowing)
         for layer in [caption, glassCaption] {
             layer.opacity = 1
             layer.removeAnimation(forKey: Self.captionHideKey)

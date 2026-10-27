@@ -9,6 +9,7 @@ import { addPseudoLocales } from "../pseudo";
 import type { StageContext } from "./context";
 import { installChipHost } from "./chips";
 import { resetSummaryCards } from "../../agent-session/acpmux/summary/cardState";
+import { setChatDisplay } from "../../agent-session/acpmux/chatDisplay";
 
 type Message = { id?: string; method?: string; params?: Record<string, unknown> };
 
@@ -19,6 +20,8 @@ export function agentPaneFontCSS(font: string, size: number): string {
   if (size) rules.push(`--cv-font-size: ${size}px;`, `--cv-line-height: ${Math.round(size * 1.625 * 100) / 100}px;`);
   return rules.length ? `:root { ${rules.join(" ")} }` : "";
 }
+
+const UPLOAD_STEPS = new Set(["chat.upload.begin", "chat.upload.chunk", "chat.upload.finish", "chat.upload.cancel"]);
 
 export async function mountAgentPane(state: AgentPaneVariant, context: StageContext): Promise<void> {
   const strings = (await import("../../agent-session/acpmux/generated/strings.json")).default as unknown as Record<
@@ -33,12 +36,71 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
     (globalThis as { cmuxAcpmuxMockHarnesses?: unknown[] }).cmuxAcpmuxMockHarnesses = state.mockHarnesses;
   const snapshot = structuredClone(state.snapshot);
   const answer = (value: unknown) => ({ ok: true, value });
+  // The app's staged upload (cloudUploads.ts: begin, base64 chunks, finish, cancel), so a pasted
+  // file goes through the path the app runs. A variant that answers or delays a step in `native` /
+  // `nativeDelayMs` takes it over (a refused begin is an older host: the pane uses `chat.upload`).
+  // A finished file's path is the one the variant's `chat.upload` fixture gives its name, else one
+  // under the gallery's Chat Uploads.
+  const uploads = new Map<string, { name: string; size: number; received: number; index: number }>();
+  const batches = new Map<string, { files: { name?: unknown; size?: unknown }[]; next: number }>();
+  const fixturePath = (name: string): string | undefined => {
+    const legacy = state.native?.["chat.upload"] as { uploads?: { name?: unknown; path?: unknown }[] } | undefined;
+    const path = legacy?.uploads?.find((upload) => upload.name === name)?.path;
+    return typeof path === "string" ? path : undefined;
+  };
+  const stageUpload = (message: Message): unknown => {
+    const method = message.method ?? "";
+    if (!UPLOAD_STEPS.has(method)) return undefined;
+    const taken = Object.hasOwn(state.native ?? {}, method) || Object.hasOwn(state.nativeDelayMs ?? {}, method);
+    if (taken) return undefined;
+    const params = message.params ?? {};
+    if (method === "chat.upload.begin") {
+      const name = String(params.name ?? "");
+      const size = Number(params.size ?? 0);
+      // A paste of several files: the first begin names them all (`batch`) and gets a batch token;
+      // each later file presents it and must be the manifest's next entry, as the host checks.
+      let batchToken: string | undefined;
+      if (Array.isArray(params.batch)) {
+        if (params.batchToken !== undefined) return null;
+        batchToken = `gallery-batch-${batches.size}`;
+        batches.set(batchToken, { files: params.batch as { name?: unknown; size?: unknown }[], next: 0 });
+      }
+      const batch = batches.get(batchToken ?? String(params.batchToken ?? ""));
+      if (params.batchToken !== undefined && !batch) return null;
+      if (batch) {
+        const expected = batch.files[batch.next++];
+        if (expected?.name !== name || expected?.size !== size) return null;
+      }
+      const index = uploads.size;
+      const token = `gallery-upload-${index}-${name}`;
+      uploads.set(token, { name, size, received: 0, index });
+      return { token, size, chunkSize: 256 * 1024, ...(batchToken ? { batchToken } : {}) };
+    }
+    const token = String(params.token ?? "");
+    const upload = uploads.get(token);
+    if (!upload) return null;
+    if (method === "chat.upload.chunk") {
+      if (Number(params.offset) !== upload.received) return null;
+      upload.received += atob(String(params.data ?? "")).length;
+      return { offset: upload.received };
+    }
+    if (method === "chat.upload.finish" && upload.received === upload.size)
+      return {
+        path:
+          fixturePath(upload.name) ??
+          `/Users/dev/Library/Application Support/cmux/Chat Uploads/1/${upload.index}/${upload.name}`,
+      };
+    return null;
+  };
   const deliver = () => {
     const bridge = window.cmuxAcpmuxBridge;
     if (!bridge) return;
     bridge.applyTheme({ ...context.agentTheme, ...state.theme });
     bridge.applyCustomization({ themeCSS: agentPaneFontCSS(context.env.fontFamily, context.env.fontSize) });
     bridge.applySessionStatus?.(state.sessionStatus === true);
+    // The chat's look as the app's `display` push sends it (none: the default look).
+    setChatDisplay(state.display ?? {});
+    bridge.applyWorkflowLabs?.(state.workflowLabs === true);
     bridge.receive(structuredClone(snapshot));
   };
   const next = (method: string | undefined) => {
@@ -60,6 +122,8 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
       case "file.search":
         return answer(state.native?.[message.method] ?? []);
       default: {
+        const staged = stageUpload(message);
+        if (staged !== undefined) return answer(staged);
         const value = state.native?.[message.method ?? ""] ?? null;
         // `{ nativeError: {code, userMessage?} }` answers as the app's refusal of the call.
         if (value && typeof value === "object" && "nativeError" in value)

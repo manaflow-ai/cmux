@@ -235,9 +235,15 @@ impl Hub {
             agent_info: parent_meta.agent_info.clone(),
             agent_capabilities: parent_meta.agent_capabilities.clone(),
             steering: parent_meta.steering,
+            html_previews: parent_meta.html_previews,
             // The chat's own mode, model and effort, which the fork's agent is told again when it
             // loads (`replay_config`): an agent may answer session/fork with its defaults
             // instead (Codex), and the fork would then run another model than the chat.
+            // A mode cmux set on the chat stays cmux's on its fork, which runs it too; the fork's
+            // agent gets the mark back once it is put in that mode (`restore_mode_mark`).
+            mode_set_by_cmux: parent_meta.mode_set_by_cmux.clone().filter(|mode| {
+                crate::web_modes::mode_of(&parent_meta).as_deref() == Some(mode.as_str())
+            }),
             modes: parent_meta
                 .modes
                 .clone()
@@ -253,12 +259,17 @@ impl Hub {
             title_prompt: None,
             title_asking: false,
             title_failures: 0,
+            title_thin: false,
             last_prompt: parent_meta.last_prompt.clone(),
             preview: parent_meta.preview.clone(),
             event_count: 0,
             turn_count,
             usage: None,
+            context_breakdown: None,
+            // The account's limits, which the fork shares.
+            usage_limits: parent_meta.usage_limits.clone(),
             available_commands: parent_meta.available_commands.clone(),
+            goal: None,
             permission_rules: None,
             tags: Default::default(),
             unread: false,
@@ -287,6 +298,8 @@ impl Hub {
             },
             git_branch: git.branch,
             git_head: git.head,
+            // Read for the fork's own folder when its agent starts.
+            worktree: None,
             // The fork's own spend. Claude Code restores the parent's running cost into a
             // whole-chat fork; a fork through an earlier turn has no known baseline.
             totals: None,
@@ -299,6 +312,9 @@ impl Hub {
             // A fork is the person's new chat, never a sub-session of the parent's parent.
             subsession: None,
             subsession_limits: Default::default(),
+            // A fork is the person's branch of the chat, never a spawn (`lineage.rs`).
+            lineage: None,
+            subagent_retry_open: false,
         };
         let new = self.make_session(meta);
         match made {
@@ -308,7 +324,15 @@ impl Hub {
             Made::Copy(_) | Made::Agent(..) => {}
         }
         self.store.save(&new.meta()).map_err(|e| RpcError::internal(e.to_string()))?;
-        self.sessions.lock().unwrap().insert(id.clone(), new.clone());
+        // The fork copies transcript records, never the parent's reported Git branch.
+        self.restore_git_branch(&new, new.meta().git_branch);
+        {
+            let mut sessions = self.sessions.lock().unwrap();
+            sessions.insert(id.clone(), new.clone());
+            super::admission::claim(&id);
+        }
+        // Indexed again once published (`transfer.rs` `import_into`).
+        self.child_tags.note(&new);
         // Copy the transcript-relevant history so attach replays it.
         // Read one record at a time; only these kinds are parsed.
         const COPIED: &[&str] = &[

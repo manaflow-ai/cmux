@@ -14,7 +14,7 @@ runtime (PR 6) plug into it and are not here.
 | `NIGHTLY_NEXT_TRAIN_K` | 4 | Builds per bisection round (1 to 8). |
 | `NIGHTLY_NEXT_TRAIN_ROUNDS` | 3 | Bisection rounds before the train gives up (1 to 6). |
 | `NIGHTLY_NEXT_TRAIN_CAP_MINUTES` | 120 | Wall-clock cap for one train (30 to 300). |
-| `NIGHTLY_NEXT_TRAIN_RUNNER` | hosted `macos-26` (the nightly path never uses Blacksmith) | Runner of the candidate Release compile. |
+| `NIGHTLY_NEXT_TRAIN_RUNNER` | `vars.MACOS_RUNNER_26`, then `blacksmith-6vcpu-macos-26` (never a GitHub-hosted Mac) | Runner of the candidate Release compile: a fleet pool label, or empty. |
 | `NIGHTLY_NEXT_TRAIN_CAR_GUARD` | `scripts/ci/nightly-next-car-guard.sh` when it exists | Per-car guard command (design PR 3). Exit 0 keeps the car, 1 quarantines it, anything else is a warning. |
 
 The defaults are the design's (k = 4, 2-hour cap). They are open calls for Leo,
@@ -57,7 +57,7 @@ feat-cmux-next commit by force, which is Leo's call.
 
 ## Durable verdict
 
-After each scheduled check of a feed build, `nightly-next-canary.yml` dispatches
+After each scheduled static artifact check of a feed build, `nightly-next-canary.yml` dispatches
 `nightly-next-verdict.yml` on branch `nightly-next` (environment `release-next`
 holds the feed's R2 token). It writes
 `https://files-next.cmux.com/nightly-next/next/verdicts/<build>.json`:
@@ -69,7 +69,7 @@ holds the feed's R2 token). It writes
 
 The writer reads the commit from the build's own nightly-next run (build number
 = `<run id><attempt>`). It accepts `pass` only from a scheduled
-`nightly-next-canary.yml` run whose `canary <build>` job succeeded. `fail` and
+`nightly-next-canary.yml` run whose static artifact verification job succeeded. `fail` and
 `skipped` never make a build a base, so they are written as given. The pass
 also needs the run's own `verdict pass <build>` job, because a skipped check
 leaves the canary job green too. The canary's
@@ -166,8 +166,9 @@ python3 scripts/ci/nightly_next_train.py verify --commit <train commit>
 
 ## Not built yet
 
-- The unsigned in-app smoke on the candidate (window, New Tab, agent answers,
-  no crash). The candidate gets only the Release compile; the signed app still
-  gets `verify-signed-nightly` before publication.
+- Runtime app smoke on the candidate (window, New Tab, agent answers, no crash).
+  The candidate gets only the Release compile; the signed app gets static
+  artifact verification before publication, while runtime behavior stays in the
+  daemon/app integration lane.
 - Triage of a car that fails the same guard twice (flake list), and the daily
   digest for cars out for 3 trains.

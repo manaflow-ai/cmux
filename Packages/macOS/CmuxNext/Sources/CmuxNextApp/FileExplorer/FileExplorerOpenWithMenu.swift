@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextFiles
 import UniformTypeIdentifiers
+import CmuxNextFilesUI
 
 /// The file explorer's Open With submenu, as Finder shows it: every app the
 /// system reports for the file's type, the default first and marked, the

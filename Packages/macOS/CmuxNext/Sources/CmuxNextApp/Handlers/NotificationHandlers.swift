@@ -11,7 +11,7 @@ import CmuxNextDaemon
 /// never made unread again. The row verbs act on the panel row their
 /// `notification` argument names, else on the latest unread.
 enum NotificationHandlers {
-    static let ack = DaemonCapabilities.shared.notificationAck
+    static let ack = DaemonCapability.notificationAck.rawValue
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
@@ -98,6 +98,7 @@ enum NotificationHandlers {
         })
         NotificationSettingsHandlers.bind(into: registry, context: context)
         AgentChatMuteHandlers.bind(into: registry, context: context)
+        SubagentLimitHandlers.bind(into: registry, context: context)
         AgentChatIdentifierHandlers.bind(into: registry, context: context)
         // View Chat Only (`cmux agent view <chat>`, the palette): the All chats row's View Only opener.
         registry.bind("agentChat.view", run: { invocation in
