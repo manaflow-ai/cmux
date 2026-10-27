@@ -40,11 +40,14 @@ Phases (each prints PERF-RENDERERS lines):
 
 --memory-cap-mb MB (p07-memory task 111) starts Chromium with that cap as
 cmux-shared-renderer-memory-limit (Chrome's kProcessPerSiteMainFrameTotalMemoryLimit, 2 GiB, which the app's
-budget passes otherwise) through the bench switch list, and adds a phase:
-  grown    a tab of a new site holds a heap of the cap + --grow-margin-mb, so its renderer's footprint is past
-           the cap (render_process_host_impl.cc HasEnoughMemoryForAnotherMainFrame: footprint plus 1.5 times
-           the footprint per main frame must stay under it); after --settle-grown seconds a second tab of that
-           site opens. Below the renderer limit it must get another renderer; in the same one the run fails.
+budget passes otherwise) through the bench switch list, and adds a phase before the open phase:
+  grown    a tab of a site the open phase does not use holds a heap of the cap + --grow-margin-mb, so its
+           renderer's footprint is past the cap (render_process_host_impl.cc HasEnoughMemoryForAnotherMainFrame:
+           footprint plus 1.5 times the footprint per main frame must stay under it); after --settle-grown seconds
+           a second tab of that site opens. It runs while the browser holds only these tabs, far below the
+           renderer limit, where the second tab must get another renderer; in the same one the run fails. At or
+           over the limit Chrome reuses the renderer whatever its footprint, so the rule is not tested and the run
+           fails as inconclusive. Both tabs then close, and the open phase starts as it would without the cap.
 
 The run stops (exit 1) when the first tab or 3 tabs in a row show no title in time (the .test
 mapping is not active: not a Debug or bench dev build), and exits 1 when any tab was not timed.
@@ -307,7 +310,10 @@ def grown_check(owners: dict, grown_tab: str, next_tab: str, renderers: int, lim
     violations = []
     if grown is None or after is None:
         violations.append(f"the grown phase's tabs have no renderer (grown {grown}, next {after})")
-    elif grown == after and below_limit:
+    elif not below_limit:
+        violations.append(f"the grown phase is inconclusive: {renderers} renderers are at or over the limit of {limit}, "
+                          "where Chrome reuses a same-site renderer whatever its footprint")
+    elif grown == after:
         violations.append(f"the next tab of the site joined renderer {grown}, which is past the memory cap, "
                           f"below the limit of {limit}")
     return {"grown_renderer": grown, "next_renderer": after, "same_renderer": grown is not None and grown == after,
@@ -392,20 +398,27 @@ def new_tab_summary(times):
 
 
 def grown_phase(app, sock: str, pid: int, bundle: str, port: int, args, limit: int) -> dict:
-    """Opens a tab of a site the run has not used whose heap is past --memory-cap-mb, waits --settle-grown, opens a
-    second tab of that site and checks where it went (``grown_check``)."""
+    """Opens a tab of a site the open phase does not use whose heap is past --memory-cap-mb, waits --settle-grown,
+    opens a second tab of that site and checks where it went (``grown_check``), then closes both tabs."""
     site, tabs = args.sites, []
-    for index, heap in ((args.tabs, args.memory_cap_mb + args.grow_margin_mb), (args.tabs + 1, None)):
-        url = f"http://site{site}.test:{port}/{index}" + (f"?heap={heap}" if heap else "")
-        response = app.action("openBrowser.chromium", focus=True, url=url)
-        created = [item for item in response.get("created", []) if str(item).startswith("tab_")]
-        if response.get("error") or not created or not wait_title(sock, created[0], f"site {site} tab {index}", args.load_timeout):
-            return {"violations": [f"the grown phase's tab {url} did not open or show its title: {response.get('error') or response}"]}
-        tabs.append(created[0])
-        if heap:
-            time.sleep(args.settle_grown)  # test script: the grown page's heap is touched and its footprint read
-    renderers = [row for row in bm.sample(pid, bundle, "grown", 1)["processes"] if row["kind"] == "cef-renderer"]
-    return grown_check(renderer_map(sock).get("owners") or {}, tabs[0], tabs[1], len(renderers), limit)
+    try:
+        for index, heap in ((args.tabs, args.memory_cap_mb + args.grow_margin_mb), (args.tabs + 1, None)):
+            url = f"http://site{site}.test:{port}/{index}" + (f"?heap={heap}" if heap else "")
+            response = app.action("openBrowser.chromium", focus=True, url=url)
+            created = [item for item in response.get("created", []) if str(item).startswith("tab_")]
+            tabs.extend(created[:1])
+            if response.get("error") or not created or not wait_title(sock, created[0], f"site {site} tab {index}", args.load_timeout):
+                return {"violations": [f"the grown phase's tab {url} did not open or show its title (is this a Debug or "
+                                       f"bench dev build, so the .test mapping applies?): {response.get('error') or response}"]}
+            if heap:
+                time.sleep(args.settle_grown)  # test script: the grown page's heap is touched and its footprint read
+        renderers = [row for row in bm.sample(pid, bundle, "grown", 1)["processes"] if row["kind"] == "cef-renderer"]
+        return grown_check(renderer_map(sock).get("owners") or {}, tabs[0], tabs[1], len(renderers), limit)
+    finally:
+        for tab in tabs:
+            closed = app.run("tab.close", target=tab)
+            if closed.get("error"):
+                print(f"   close {tab}: {closed['error']}", file=sys.stderr)
 
 
 def main(argv=None):
@@ -471,6 +484,16 @@ def main(argv=None):
         report["process_reuse_per_renderer_devtools"] = reuse_switch(cef)
         print(f"PERF-RENDERERS-FORK fork_api={report['fork_api']} "
               f"process_reuse_per_renderer_devtools={report['process_reuse_per_renderer_devtools']}", flush=True)
+        checked_limit = renderer_limit(bm.MemoryReport.read(app), limit, args.renderer_limit, switches[1:])
+        if args.memory_cap_mb:
+            # Before the open phase, whose tabs bring the renderer count to the limit, where the cap is not tested.
+            report["grown"] = grown = grown_phase(app, sock, pid, bundle, port, args, checked_limit)
+            print(f"PERF-RENDERERS-GROWN memory_cap_mb={args.memory_cap_mb} grown_heap_mb={grown_heap_mb} "
+                  f"same_renderer={grown.get('same_renderer')} renderers={grown.get('renderers')} "
+                  f"below_limit={grown.get('below_limit')}", flush=True)
+            for violation in grown["violations"]:
+                print(f"bench-renderer-sharing: {violation}", file=sys.stderr)
+                status = 1
         missed = 0
         for index in range(args.tabs):
             site = index % args.sites
@@ -509,7 +532,6 @@ def main(argv=None):
         kinds = sample["kinds"]
         shared = ((mapping.get("report") or {}).get("shared") or {}).get("processes") or []
         site_of = {row["tab"]: row["site"] for row in report["opened"]}
-        checked_limit = renderer_limit(bm.MemoryReport.read(app), limit, args.renderer_limit, switches[1:])
         sites = site_sharing(owners, site_of, agent["tab"] if agent else None, checked_limit, len(renderers),
                              require_sharing=bool(agent))
         if agent and report["process_reuse_per_renderer_devtools"] is not True:
@@ -549,14 +571,6 @@ def main(argv=None):
         for violation in sites["violations"]:
             print(f"bench-renderer-sharing: {violation}", file=sys.stderr)
             status = 1
-        if args.memory_cap_mb:
-            report["grown"] = grown = grown_phase(app, sock, pid, bundle, port, args, checked_limit)
-            print(f"PERF-RENDERERS-GROWN memory_cap_mb={args.memory_cap_mb} grown_heap_mb={grown_heap_mb} "
-                  f"same_renderer={grown.get('same_renderer')} renderers={grown.get('renderers')} "
-                  f"below_limit={grown.get('below_limit')}", flush=True)
-            for violation in grown["violations"]:
-                print(f"bench-renderer-sharing: {violation}", file=sys.stderr)
-                status = 1
         if len(times) < args.tabs:
             print(f"bench-renderer-sharing: only {len(times)} of {args.tabs} tabs were timed", file=sys.stderr)
             status = 1

@@ -8,6 +8,7 @@ import os
 import sys
 import types
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(ROOT, "scripts", "cmux-next", "bench_renderer_sharing.py")
@@ -25,6 +26,21 @@ BUNDLE = "/tmp/cmux DEV rsharing.app"
 class FakeReport:
     def __init__(self, raw):
         self.raw = raw
+
+
+class FakeApp:
+    """bench_memory.App's two calls the grown phase makes: each open creates tab_N, each close is recorded."""
+
+    def __init__(self):
+        self.opened, self.closed = [], []
+
+    def action(self, action, *, focus=False, **args):
+        self.opened.append(args["url"])
+        return {"created": [f"tab_{len(self.opened)}"]}
+
+    def run(self, action, target=None, **args):
+        self.closed.append(target)
+        return {}
 
 
 class HostSocketTests(unittest.TestCase):
@@ -239,10 +255,37 @@ class GrownPhaseTests(unittest.TestCase):
         self.assertTrue(result["same_renderer"])
         self.assertEqual(len(result["violations"]), 1)
 
-    def test_at_the_limit_chrome_reuses_whatever_the_footprint(self):
-        result = bench.grown_check({10: ["tab_a", "tab_b"]}, "tab_a", "tab_b", renderers=64, limit=64)
-        self.assertTrue(result["same_renderer"])
+    def test_at_the_limit_the_grown_phase_is_inconclusive(self):
+        # Chrome reuses a same-site renderer at the limit whatever its footprint, so a fork that ignores the cap
+        # would pass there: the run fails as inconclusive whether or not the tabs share.
+        for owners in ({10: ["tab_a", "tab_b"]}, {10: ["tab_a"], 11: ["tab_b"]}):
+            result = bench.grown_check(owners, "tab_a", "tab_b", renderers=64, limit=64)
+            self.assertFalse(result["below_limit"])
+            self.assertEqual(len(result["violations"]), 1)
+            self.assertIn("inconclusive", result["violations"][0])
+
+    def test_the_phase_checks_its_two_tabs_and_closes_them(self):
+        app = FakeApp()
+        args = bench.parse(["--app", BUNDLE, "--memory-cap-mb", "256", "--tabs", "100", "--sites", "20",
+                            "--settle-grown", "0"])
+        renderers = [{"kind": "cef-renderer"}] * 3 + [{"kind": "app"}]
+        with mock.patch.object(bench, "wait_title", return_value=1.0), \
+                mock.patch.object(bench.bm, "sample", return_value={"processes": renderers}), \
+                mock.patch.object(bench, "renderer_map", return_value={"owners": {10: ["tab_1"], 11: ["tab_2"], 12: []}}):
+            result = bench.grown_phase(app, "sock", 1, BUNDLE, 8080, args, limit=64)
         self.assertEqual(result["violations"], [])
+        self.assertEqual(result["renderers"], 3)
+        self.assertTrue(result["below_limit"])
+        self.assertEqual(app.opened, ["http://site20.test:8080/100?heap=320", "http://site20.test:8080/101"])
+        self.assertEqual(app.closed, ["tab_1", "tab_2"])
+
+    def test_a_tab_that_shows_no_title_still_closes(self):
+        app = FakeApp()
+        args = bench.parse(["--app", BUNDLE, "--memory-cap-mb", "256", "--settle-grown", "0"])
+        with mock.patch.object(bench, "wait_title", return_value=None):
+            result = bench.grown_phase(app, "sock", 1, BUNDLE, 8080, args, limit=64)
+        self.assertEqual(len(result["violations"]), 1)
+        self.assertEqual(app.closed, ["tab_1"])
 
     def test_a_tab_without_a_renderer_fails(self):
         result = bench.grown_check({10: ["tab_a"]}, "tab_a", "tab_b", renderers=12, limit=64)
