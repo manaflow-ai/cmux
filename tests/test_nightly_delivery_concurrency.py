@@ -125,6 +125,9 @@ def test_the_shared_group_check_tells_keyed_groups_from_fixed_ones() -> None:
     assert can_be_shared("${{ inputs.sha != '' && format('t-{0}', github.run_id) || 't' }}")
     assert can_be_shared("c-${{ github.event.pull_request.number || 'feed' }}")
     assert can_be_shared("d-${{ matrix.os }}")
+    assert can_be_shared("${{ format('nightly-{0}', inputs.build || 'feed') }}")
+    assert can_be_shared("${{ github.event_name == 'pull_request' && github.sha }}")
+    assert not can_be_shared("${{ github.event_name == 'push' && github.sha || github.run_id }}")
     assert can_be_shared("c-${{ github.event.pull_request.number }}")
     assert not can_be_shared("x-${{ github.run_id }}")
     assert not can_be_shared("x-${{ github.sha }}")
@@ -169,6 +172,10 @@ jobs:
         path.write_text(deep, encoding="utf-8")
         assert matching(Path(folder), ("nightly*.yml",)) == [path]
         assert any("job a: group 'fixed'" in p for p in findings(path, {}))
+        commented = Path(folder) / "nightly-commented.yml"
+        commented.write_text("jobs:\n  publish: # upload\n    runs-on: x\n    concurrency:\n      group: fixed\n",
+                             encoding="utf-8")
+        assert any("job publish: group 'fixed'" in p for p in findings(commented, {}))
 
 
 def test_newest_wins_jobs_take_no_concurrency_group() -> None:

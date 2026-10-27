@@ -82,21 +82,36 @@ def _strip_parens(expr: str) -> str:
     return expr
 
 
-def _values(expr: str) -> list[str]:
-    """The expressions an `a && b || c && d || e` chain can evaluate to (b, d, e), nested ones flattened."""
-    out = []
-    for alternative in _split_top(_strip_parens(expr), "||"):
-        value = _strip_parens(_split_top(alternative, "&&")[-1])
-        nested = _split_top(value, "||")
-        out.extend(_values(value) if len(nested) > 1 or len(_split_top(value, "&&")) > 1 else [value])
-    return out
+def _constant_possible(expr: str) -> bool:
+    """Whether some evaluation of an Actions expression yields a value with no per-run or per-payload
+    reference. `a && b || c`: a true guard yields b, a false one goes on to c, and a false guard in the
+    last alternative yields the guard's own (constant) false value."""
+    alternatives = _split_top(_strip_parens(expr), "||")
+    for index, alternative in enumerate(alternatives):
+        conjuncts = _split_top(alternative, "&&")
+        if _value_constant_possible(conjuncts[-1]):
+            return True
+        if len(conjuncts) > 1 and index == len(alternatives) - 1:
+            return True
+    return False
+
+
+def _value_constant_possible(value: str) -> bool:
+    value = _strip_parens(value)
+    if len(_split_top(value, "||")) > 1 or len(_split_top(value, "&&")) > 1:
+        return _constant_possible(value)
+    call = re.fullmatch(r"format\((.*)\)", value, flags=re.S)
+    if call:
+        # format('x-{0}', a, b) is constant on a path where every argument is.
+        return all(_value_constant_possible(arg) for arg in _split_top(call.group(1), ",")[1:])
+    return not VARYING.search(value)
 
 
 def can_be_shared(group: str) -> bool:
     """Whether two runs carrying different work can get the same group string: some path through every
     `${{ }}` part of it yields a value with no per-run or per-payload reference."""
     parts = re.findall(r"\$\{\{(.*?)\}\}", group, flags=re.S)
-    return all(any(not VARYING.search(value) for value in _values(part)) for part in parts)
+    return all(_constant_possible(part) for part in parts)
 
 
 def _scalar(value: str) -> str:
@@ -123,9 +138,9 @@ def concurrency_blocks(text: str) -> list[tuple[str, dict[str, str]]]:
         if indent == 0:
             in_jobs = line.startswith("jobs:")
             job, job_indent, prop_indent = "", None, None
-        elif in_jobs and (job_indent is None or indent == job_indent) and re.match(r"\s+[\w-]+:\s*$", line):
+        elif in_jobs and (job_indent is None or indent == job_indent) and re.match(r"\s+[\w-]+:\s*(?:#.*)?$", line):
             job_indent, prop_indent = indent, None
-            job = line.strip()[:-1]
+            job = line.strip().split(":", 1)[0]
             continue
         elif in_jobs and job and prop_indent is None and job_indent is not None and indent > job_indent:
             prop_indent = indent
