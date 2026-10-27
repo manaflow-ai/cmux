@@ -144,6 +144,40 @@ test("a fresh New Tab exposes the no-project path in its environment card", asyn
   expect(container.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]')).toBeTruthy();
 });
 
+test.each(["", "Implement a todo list"])("Return without a harness opens setup and keeps draft %j", async (draft) => {
+  let opened = 0;
+  const searches: string[] = [];
+  const unregister = registerHarnessesPage(() => {
+    opened += 1;
+  });
+  try {
+    await act(async () => {
+      root!.render(
+        <NewTabScreen
+          snapshot={noChat([], { catalog: [] })}
+          location={draft}
+          onAsk={() => {}}
+          onOpen={() => {}}
+          onSearch={(text) => searches.push(text)}
+          onShell={() => {}}
+          onJump={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
+        />,
+      );
+    });
+    const field = container.querySelector<HTMLTextAreaElement>(".nt-field")!;
+    await act(async () => {
+      field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    expect(opened).toBe(1);
+    expect(searches).toEqual([]);
+    expect(field.value).toBe(draft);
+  } finally {
+    unregister();
+  }
+});
+
 test("a chosen document uses the New Tab upload path and becomes sendable", async () => {
   const uploaded: File[][] = [];
   const asks: unknown[][] = [];
