@@ -503,10 +503,19 @@ impl Drop for ClearWork {
     }
 }
 
-struct ConnectionDispatcherGuard(Arc<ConnectionSurfaceScheduler>);
+struct ConnectionDispatcherGuard(Arc<ConnectionSurfaceScheduler>, MessageWriter);
 
 impl Drop for ConnectionDispatcherGuard {
     fn drop(&mut self) {
+        // A request that panicked takes its connection down with it: no
+        // dispatcher is left to answer the requests after it, so the
+        // connection closes and its client reads the end of the stream
+        // instead of waiting for replies forever. Both closes take only
+        // locks that recover from poison.
+        if std::thread::panicking() {
+            self.0.close();
+            self.1.close();
+        }
         self.0.finish_dispatcher();
     }
 }
@@ -552,7 +561,7 @@ fn run_connection_surface_dispatcher(
     client: u64,
     writer: MessageWriter,
 ) {
-    let _dispatcher = ConnectionDispatcherGuard(scheduler.clone());
+    let _dispatcher = ConnectionDispatcherGuard(scheduler.clone(), writer.clone());
     let mut resting = scheduler.resting_class(&mux);
     while writer.is_open() {
         let Some(pending) = scheduler.next_request() else { return };
