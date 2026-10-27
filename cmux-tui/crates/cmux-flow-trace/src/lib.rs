@@ -28,7 +28,7 @@
 //! `CMUX_TRACE_FLOWS` means "the recording is a file in this directory". When it cannot be (the
 //! process's `main` started its black box in another directory, or the recording could not be
 //! mapped as a file), [`init`] stops a recording it started, writes one line to stderr and leaves
-//! flows off. Ring files are unix only until task p09-observability-132, so flows are too.
+//! flows off. Ring files map on unix and Windows only, so flows do too.
 //!
 //! std and libc only (cmux-trace is too): the holder (`cmux-holder`) links it.
 
@@ -73,8 +73,8 @@ pub fn init() -> bool {
 /// switch on. When the recording is not a file in `dir`, a recording this call started stops and
 /// the error says why.
 fn start_in(dir: &Path, role: Role) -> Result<(), String> {
-    if !cfg!(unix) {
-        return Err("cmux-trace maps ring files on unix only (task p09-observability-132)".into());
+    if !cfg!(any(unix, windows)) {
+        return Err("cmux-trace maps ring files on unix and Windows only".into());
     }
     // The ring-open thread runs on its own; a process never waits for its file.
     drop(cmux_trace::init_blackbox(dir, role));
