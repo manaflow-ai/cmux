@@ -134,7 +134,9 @@ def main():
     # ---- the Mac app ------------------------------------------------------
     info = plistlib.load(open(os.path.join(a.mac_app, "Contents/Info.plist"), "rb"))
     ls_env = {k: str(v) for k, v in (info.get("LSEnvironment") or {}).items()}
-    mac_bundle, tag = info["CFBundleIdentifier"], ls_env["CMUX_TAG"]
+    mac_bundle, tag = info["CFBundleIdentifier"], ls_env.get("CMUX_TAG", "")
+    if not re.fullmatch(r"iospair-[0-9a-f]+-\d+", tag):  # the step's own tag: every path below is named by it
+        raise SystemExit(f"the Mac app is not this step's tagged build (CMUX_TAG {tag!r})")
     sock = ls_env.get("CMUX_SOCKET_PATH") or f"/tmp/cmux-debug-{tag}.sock"
     support = os.path.expanduser(f"~/Library/Application Support/{mac_bundle}")
     # The DEBUG auth's file fallback (CloudConfiguration.credentialsDirectory): this bundle id's only.
@@ -303,8 +305,12 @@ def main():
         shutil.rmtree(rig, ignore_errors=True)  # the credential file
         shutil.rmtree(support, ignore_errors=True)  # this run's bundle id only
         shutil.rmtree(auth_files, ignore_errors=True)  # its tokens, if the Keychain refused them
+        # The tag's own state, by its exact paths (the tag holds the step's PID, so they are this
+        # run's): the daemon's state root, the isolated Chief home, the iPhone link journal.
+        shutil.rmtree(os.path.expanduser(f"~/Library/Application Support/cmux/tags/{tag}"), ignore_errors=True)
+        shutil.rmtree(os.path.expanduser(f"~/.cmux/chief/isolated/{tag}"), ignore_errors=True)
         forget_keychain(mac_bundle)
-        for path in (sock, f"/tmp/cmux-debug-{tag}.log"):
+        for path in (sock, f"/tmp/cmux-debug-{tag}.log", f"/tmp/cmux-next-irx-journal-{tag}.jsonl"):
             if os.path.exists(path):
                 os.unlink(path)
     if not url and not expects_code:
