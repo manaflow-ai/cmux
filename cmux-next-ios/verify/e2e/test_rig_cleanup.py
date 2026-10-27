@@ -251,6 +251,12 @@ class RigCleanupTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 c.register_daemons()
 
+    def test_an_unreadable_process_table_counts_the_group_alive(self):
+        failed = subprocess.CompletedProcess(["ps"], 1, stdout="", stderr="ps: failed")
+        with mock.patch.object(rig_cleanup.os, "killpg"), \
+                mock.patch.object(rig_cleanup.subprocess, "run", return_value=failed):
+            self.assertTrue(rig_cleanup.group_alive(4242))
+
 
 if __name__ == "__main__":
     unittest.main()
