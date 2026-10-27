@@ -46,7 +46,12 @@ async function startFixture(previous: boolean) {
     }
     return answer(method, params);
   };
-  const client = await AcpmuxDirectClient.connect(mockHost, () => undefined, undefined, () => socket as unknown as WebSocket);
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    () => undefined,
+    undefined,
+    () => socket as unknown as WebSocket,
+  );
   if (!previous) client.leave();
   return { client, requests, requested, resolveStart, rejectStart, answer, previousSession: mockHost.sessionId };
 }
@@ -89,7 +94,9 @@ test("a send waiting for a selected harness starts only in that new chat", async
     const [session] = await Promise.all([start, send]);
     expect(session).toBeDefined();
     expect(session).not.toBe(fixture.previousSession);
-    expect(requests.filter((request) => request.method === "session/prompt").map((request) => request.params.sessionId)).toEqual([session]);
+    expect(
+      requests.filter((request) => request.method === "session/prompt").map((request) => request.params.sessionId),
+    ).toEqual([session]);
   } finally {
     client.close();
   }
