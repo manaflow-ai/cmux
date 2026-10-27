@@ -34,7 +34,7 @@ use regex::Regex;
 use serde_json::Value;
 use serde_json::json;
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 use std::time::Instant;
 
@@ -191,6 +191,93 @@ pub(super) fn send(
     }
     mux.note_terminal_input(surface.id, client);
     Ok(json!({}))
+}
+
+/// The event an INPUT frame's failure sends on its stream (spec/events.md).
+pub(super) const INPUT_FAILED_EVENT: &str = "input-failed";
+
+/// Why an INPUT frame's bytes did not reach its terminal
+/// (`input-failed.reason`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum InputFailure {
+    /// The surface closed or its terminal ended.
+    TerminalEnded,
+    /// The stream views a browser surface, which takes no PTY bytes.
+    NotATerminal,
+    /// The terminal refused the write (a host that did not come back, a
+    /// write that timed out).
+    WriteFailed,
+    /// A daemon handoff is pending, so the daemon refused the bytes without
+    /// writing them, as it refuses a line meanwhile.
+    DaemonHandoff,
+}
+
+impl InputFailure {
+    pub(super) fn reason(self) -> &'static str {
+        match self {
+            Self::TerminalEnded => "terminal_ended",
+            Self::NotATerminal => "not_a_terminal",
+            Self::WriteFailed => "write_failed",
+            Self::DaemonHandoff => "daemon_handoff",
+        }
+    }
+
+    /// Whether later INPUT fails the same way until a write reaches a
+    /// terminal again (a respawned one) or the stream is opened again.
+    pub(super) fn is_final(self) -> bool {
+        matches!(self, Self::TerminalEnded | Self::NotATerminal)
+    }
+
+    /// `input-failed{stream, reason, bytes}` for `bytes` bytes of an INPUT
+    /// frame on `stream` not delivered.
+    pub(super) fn event(self, stream: u16, bytes: usize) -> Value {
+        json!({
+            "event": INPUT_FAILED_EVENT,
+            "stream": stream,
+            "reason": self.reason(),
+            "bytes": bytes,
+        })
+    }
+}
+
+/// An INPUT frame's bytes (p05-ipc-078): the raw bytes of `send`, with no
+/// JSON and no base64, written the way `send` writes them. `flow` (0: none)
+/// is the key press's flow id, carried by the frame header: its hops and
+/// the echo that answers it carry it, as `send`'s `flow` does. The mux is
+/// held only to find the surface, not across the write, which waits while
+/// the program does not read.
+pub(super) fn write_input(
+    mux: &Weak<Mux>,
+    client: u64,
+    surface: SurfaceId,
+    bytes: &[u8],
+    flow: u64,
+) -> Result<(), InputFailure> {
+    let surface = {
+        let Some(mux) = mux.upgrade() else { return Err(InputFailure::TerminalEnded) };
+        let Some(surface) = mux.surface(surface).filter(|surface| !surface.is_dead()) else {
+            return Err(InputFailure::TerminalEnded);
+        };
+        if require_pty(&surface).is_err() {
+            return Err(InputFailure::NotATerminal);
+        }
+        // Bytes queued for this terminal while it was being created go first.
+        mux.wait_for_creating_input_flush(&surface);
+        surface
+    };
+    cmux_flow_trace::hop("daemon.send.write", flow, surface.flow_terminal_id());
+    if surface.write_bytes_flow(bytes, flow).is_err() {
+        return Err(if surface.is_dead() {
+            InputFailure::TerminalEnded
+        } else {
+            InputFailure::WriteFailed
+        });
+    }
+    cmux_flow_trace::hop("daemon.send.written", flow, surface.flow_terminal_id());
+    if let Some(mux) = mux.upgrade() {
+        mux.note_terminal_input(surface.id, client);
+    }
+    Ok(())
 }
 
 pub(super) fn read_screen(mux: &Arc<Mux>, surface: SurfaceId) -> anyhow::Result<Value> {
