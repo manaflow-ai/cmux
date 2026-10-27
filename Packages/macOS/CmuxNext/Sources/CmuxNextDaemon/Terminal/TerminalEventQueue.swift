@@ -88,13 +88,17 @@ final class TerminalEventQueue: Sendable {
             let event: TerminalChannelEvent
             switch item {
             case .span(let first):
-                let start = head - 1
+                var joined: TerminalOutputSpan? = first  // the merged bytes while they are one slice of one buffer
+                var copied = Data()  // the merged bytes once they are not
                 var end = first.end
                 var count = first.bytes.count
-                // Nil once a span does not lie right after the one before it in the same read buffer.
-                var joined: TerminalOutputSpan? = first
                 while count < mergeLimit, case .span(let next)? = items[checked: head], next.offset == end {
-                    joined = joined?.joined(with: next)
+                    if let wider = joined?.joined(with: next) {
+                        joined = wider
+                    } else {
+                        if let run = joined.take() { copied.append(run.bytes.data) }
+                        copied.append(next.bytes.data)
+                    }
                     end = next.end
                     count += next.bytes.count
                     head += 1
@@ -102,7 +106,8 @@ final class TerminalEventQueue: Sendable {
                 if let joined {
                     event = .output(joined.bytes.data, colors: nil)  // one wider slice, no copy
                 } else {
-                    event = .output(Self.copiedOutput(items[start ..< head], count: count, recorder: recorder), colors: nil)
+                    recorder?.outputCopied(copied.count)  // a merge that writes every byte of the result
+                    event = .output(copied, colors: nil)
                 }
                 outputBytes -= count
             case .event(.output(var data, nil)):
@@ -125,14 +130,6 @@ final class TerminalEventQueue: Sendable {
                 head = 0
             }
             return event
-        }
-
-        /// The spans of `run` in one new buffer: a merge that writes every byte of the result.
-        private static func copiedOutput(_ run: ArraySlice<Item>, count: Int, recorder: DaemonWireStats.Recorder?) -> Data {
-            var data = Data(capacity: count)
-            for case .span(let span) in run { data.append(span.bytes.data) }
-            recorder?.outputCopied(data.count)
-            return data
         }
     }
 
