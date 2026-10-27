@@ -23,15 +23,17 @@ pub fn mix_rgba(from: [f64; 4], to: [f64; 4], t: f64, space: ColorSpace) -> [f64
     if t == 1. {
         return to;
     }
-    let alpha = from[3] + (to[3] - from[3]) * t;
+    let [.., from_alpha] = from;
+    let [.., to_alpha] = to;
+    let alpha = from_alpha + (to_alpha - from_alpha) * t;
     if alpha <= 0. {
         return [0., 0., 0., 0.];
     }
     let a = components(from, space);
     let b = components(to, space);
     let mut mixed = [0.; 3];
-    for i in 0..3 {
-        mixed[i] = (a[i] * from[3] + (b[i] * to[3] - a[i] * from[3]) * t) / alpha;
+    for ((mixed, a), b) in mixed.iter_mut().zip(a).zip(b) {
+        *mixed = (a * from_alpha + (b * to_alpha - a * from_alpha) * t) / alpha;
     }
     let [r, g, bl] = color(mixed, space);
     [r, g, bl, alpha.clamp(0., 1.)]

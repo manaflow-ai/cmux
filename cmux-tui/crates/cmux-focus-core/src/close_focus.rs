@@ -18,8 +18,8 @@ fn neighbor<'a>(
     survives: impl Fn(&str) -> bool,
 ) -> Option<&'a String> {
     let index = old.iter().position(|id| id == closed)?;
-    let after = old[index + 1..].iter().find(|id| survives(id));
-    let before = old[..index].iter().rev().find(|id| survives(id));
+    let after = old.iter().skip(index + 1).find(|id| survives(id));
+    let before = old.iter().take(index).rev().find(|id| survives(id));
     if prefer_next { after.or(before) } else { before.or(after) }
 }
 
@@ -55,23 +55,23 @@ pub fn pane(
     let Some(column) = before.iter().position(|col| col.iter().any(|id| id == focused)) else {
         return first_pane(after, history);
     };
-    if column >= after.len() {
+    let (Some(before_column), Some(after_column)) = (before.get(column), after.get(column)) else {
         return first_pane(after, history);
-    }
-    let stayed: HashSet<&str> = after[column].iter().map(String::as_str).collect();
-    if let Some(in_column) = neighbor(focused, &before[column], false, |id| stayed.contains(id)) {
+    };
+    let stayed: HashSet<&str> = after_column.iter().map(String::as_str).collect();
+    if let Some(in_column) = neighbor(focused, before_column, false, |id| stayed.contains(id)) {
         return Some(in_column.clone());
     }
     if let Some(added) =
-        history.iter().find(|id| stayed.contains(id.as_str())).or_else(|| after[column].first())
+        history.iter().find(|id| stayed.contains(id.as_str())).or_else(|| after_column.first())
     {
         return Some(added.clone());
     }
     // The column is empty or gone: the nearest non-empty column to the
     // left, else to the right.
-    let alive = |index: usize| index < after.len() && !after[index].is_empty();
-    let left = (0..column).rev().find(|&i| alive(i));
-    let right = (column + 1..before.len()).find(|&i| alive(i));
+    let alive = |index: usize| after.get(index).filter(|panes| !panes.is_empty());
+    let left = (0..column).rev().find_map(alive);
+    let right = (column + 1..before.len()).find_map(alive);
     let Some(next) = left.or(right) else { return first_pane(after, history) };
-    history.iter().find(|id| after[next].contains(id)).or_else(|| after[next].first()).cloned()
+    history.iter().find(|id| next.contains(id)).or_else(|| next.first()).cloned()
 }

@@ -9,6 +9,13 @@ use crate::{SpringParameters, TabStripGeometry, TweenCurve, TweenParameters, eas
 
 include!(concat!(env!("OUT_DIR"), "/tokens.rs"));
 
+// Each table has one entry per variant, so `table[variant as usize]` is in range.
+const _: () = assert!(SPRINGS.len() == MotionSpring::ALL.len());
+const _: () = assert!(STRUCTURAL.len() == MotionSpring::ALL.len());
+const _: () = assert!(TWEENS.len() == MotionTween::ALL.len());
+const _: () = assert!(FADES.len() == MotionFade::ALL.len());
+const _: () = assert!(LOOPS.len() == MotionLoop::Flash as usize + 1);
+
 // ---------------------------------------------------------------------------
 // Tokens
 
@@ -116,6 +123,10 @@ impl MotionSpring {
     /// The token's tuning at speed `fast` (design-tokens.json
     /// `motion.springs`). Structural tokens are resolved further by
     /// `MotionPolicy::spring` (the bounce setting).
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "INVARIANT: build.rs emits one entry per variant in declaration order; the table lengths are checked at compile time"
+    )]
     pub const fn base(self) -> SpringParameters {
         SPRINGS[self as usize]
     }
@@ -124,6 +135,10 @@ impl MotionSpring {
     /// `disappear`; design-tokens.json `motion.structural`). These follow
     /// the bounce setting (`MotionBounce`); release, scroll and overlay
     /// springs keep their own damping.
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "INVARIANT: build.rs emits one entry per variant in declaration order; the table lengths are checked at compile time"
+    )]
     pub const fn is_structural(self) -> bool {
         STRUCTURAL[self as usize]
     }
@@ -152,6 +167,10 @@ impl MotionTween {
     pub const ALL: [Self; 3] = [Self::TabOpen, Self::TabClose, Self::TabMove];
 
     /// Duration and curve at speed `fast` (design-tokens.json `motion.tweens`).
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "INVARIANT: build.rs emits one entry per variant in declaration order; the table lengths are checked at compile time"
+    )]
     pub const fn base(self) -> TweenParameters {
         TWEENS[self as usize]
     }
@@ -218,6 +237,10 @@ impl MotionFade {
     ];
 
     /// Seconds at speed `fast` (design-tokens.json `motion.fades`).
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "INVARIANT: build.rs emits one entry per variant in declaration order; the table lengths are checked at compile time"
+    )]
     pub const fn base(self) -> f64 {
         FADES[self as usize]
     }
@@ -270,6 +293,10 @@ pub enum MotionLoop {
 
 impl MotionLoop {
     /// Seconds per cycle (design-tokens.json `motion.loops`).
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "INVARIANT: build.rs emits one entry per variant in declaration order; the table lengths are checked at compile time"
+    )]
     pub const fn period(self) -> f64 {
         LOOPS[self as usize]
     }

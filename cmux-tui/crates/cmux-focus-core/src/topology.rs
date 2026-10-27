@@ -166,7 +166,7 @@ impl Topology {
     }
 
     pub fn pane(&self, id: &str) -> Option<&Pane> {
-        self.panes_by_id.get(id).map(|&index| &self.panes[index])
+        self.panes_by_id.get(id).and_then(|&index| self.panes.get(index))
     }
 
     pub fn contains_pane(&self, id: &str) -> bool {
@@ -179,7 +179,8 @@ impl Topology {
 
     /// Pane and tab holding the tab with this id.
     pub fn location_of_tab(&self, id: &str) -> Option<(String, String)> {
-        self.tabs_by_id.get(id).map(|&(pane, _)| (self.panes[pane].id.clone(), id.to_owned()))
+        let &(pane, _) = self.tabs_by_id.get(id)?;
+        self.panes.get(pane).map(|pane| (pane.id.clone(), id.to_owned()))
     }
 
     /// Pane and tab showing this daemon surface.
@@ -198,8 +199,10 @@ impl Topology {
 
     /// Selects `tab` in `pane` in this copy (the applier makes it real).
     pub fn select(&mut self, tab: &str, pane: &str) {
-        if let Some(&index) = self.panes_by_id.get(pane) {
-            self.panes[index].selected = Some(tab.to_owned());
+        if let Some(pane) =
+            self.panes_by_id.get(pane).copied().and_then(|index| self.panes.get_mut(index))
+        {
+            pane.selected = Some(tab.to_owned());
         }
     }
 
