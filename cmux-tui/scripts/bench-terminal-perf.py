@@ -14,10 +14,19 @@ One isolated headless daemon (the bench-scale.py harness), then:
 4. busy: --busy-terminals terminals print --busy-rate lines/s; CPU % per
    role over --busy-seconds (no client attached: every terminal is hidden).
 
-Prints TERMINAL-PERF lines and writes --out JSON. Memory figures are
+Prints TERMINAL-PERF lines and writes --out FILE.json. Memory figures are
 macOS phys_footprint (proc_pid_rusage) or Linux PSS, as bench-scale.py reads.
 
+With --out DIR (the perf lab's story runner) the report goes to
+DIR/terminal-perf.json and the numbers to DIR as cmux-perf-result/v1 (perf_result.py) in story
+daemon-terminal-perf (daemon_bench_lab.py names the build and host):
+daemon.terminal_perf.idle.N.ROLE.<memory_each (bytes)|threads (count)> per
+--counts N and role (daemon, hosts), daemon.terminal_perf.scrollback.ROLE
+(bytes per 10,000 lines), daemon.terminal_perf.throughput (bytes_per_s) and
+daemon.terminal_perf.busy.ROLE.cpu (percent).
+
   bench-terminal-perf.py --bin target/release/cmux-tui --out perf.json
+  bench-terminal-perf.py --bin ... --sha SHA --build-config release --out DIR
 """
 
 import argparse
@@ -33,8 +42,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("bench_scale", os.path.join(HERE, "bench-scale.py"))
 bs = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bs)
+lab = bs.lab
 
 MB = 1048576.0
+STORY = "daemon-terminal-perf"
+METRIC_PREFIX = "daemon.terminal_perf"
+ROLES = ("daemon", "hosts")
 
 
 def role_totals(bench, detail=True):
@@ -46,11 +59,38 @@ def role_totals(bench, detail=True):
             "count": t.get("count"),
             "footprint_mb": round((t.get("pss") or 0) / MB, 2),
             "footprint_each_mb": round((t.get("pss_per") or 0) / MB, 3),
+            "footprint_each_bytes": t.get("pss_per"),
             "rss_mb": round((t.get("rss") or 0) / MB, 2),
             "threads": t.get("threads"),
             "cpu_s": t.get("cpu_s"),
         }
     return out
+
+
+def lab_series(result):
+    """result-v1 series of a report (module docstring); a phase that did not finish records nothing."""
+    series = []
+    for step in result["idle"]:
+        for role in ROLES:
+            totals = step["roles"].get(role) or {}
+            prefix = f"{METRIC_PREFIX}.idle.{step['terminals']}.{role}"
+            if totals.get("footprint_each_bytes") is not None:
+                series.append(lab.Series(f"{prefix}.memory_each", "bytes", "lower", [totals["footprint_each_bytes"]]))
+            if totals.get("threads") is not None:
+                series.append(lab.Series(f"{prefix}.threads", "count", "lower", [totals["threads"]]))
+    if result["scrollback"]:
+        per = result["scrollback"]["mb_per_10k_lines"]
+        series += [lab.Series(f"{METRIC_PREFIX}.scrollback.{role}", "bytes", "lower", [per[role] * MB])
+                   for role in ROLES]
+    # A host that ended before the bench saw it leaves the wait's timeout in `seconds`, not the cat's time.
+    if result["throughput"] and result["throughput"]["host_seen"]:
+        done = result["throughput"]
+        series.append(lab.Series(f"{METRIC_PREFIX}.throughput", "bytes_per_s", "higher",
+                                 [done["mb"] * MB / done["seconds"]]))
+    if result["busy"]:
+        series += [lab.Series(f"{METRIC_PREFIX}.busy.{role}.cpu", "percent", "lower",
+                              [result["busy"]["cpu_pct"][role]]) for role in ROLES]
+    return series
 
 
 def emit(kind, **fields):
@@ -80,7 +120,7 @@ def create(bench, argvs):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--bin", required=True)
+    p.add_argument("--bin", help="the cmux-tui daemon binary (default: the --app bundle's cmux-tui)")
     p.add_argument("--counts", default="1,10,100")
     p.add_argument("--fill-terminals", type=int, default=10)
     p.add_argument("--fill-lines", type=int, default=10000)
@@ -90,8 +130,12 @@ def main():
     p.add_argument("--busy-rate", type=float, default=200.0)
     p.add_argument("--busy-seconds", type=float, default=10.0)
     p.add_argument("--settle", type=float, default=3.0)
-    p.add_argument("--out")
+    p.add_argument("--out", help="the report FILE.json, or a folder for result-v1 and the report")
+    p.add_argument("--app", help=lab.APP_HELP)
+    p.add_argument("--tag", help=lab.TAG_HELP)
+    lab.add_arguments(p, STORY)
     a = p.parse_args()
+    a.bin, out, measured = lab.prepare(p, a, "terminal-perf.json")
 
     root = tempfile.mkdtemp(prefix="tperf.", dir="/private/tmp" if sys.platform == "darwin" else None)
     args = argparse.Namespace(
@@ -169,14 +213,20 @@ def main():
         result["busy"] = {"terminals": a.busy_terminals, "rate": a.busy_rate, "cpu_pct": cpu}
         emit("busy", terminals=a.busy_terminals, lines_per_s_each=a.busy_rate, daemon_cpu_pct=cpu["daemon"], hosts_cpu_pct=cpu["hosts"],
              daemon_cpu_pct_per_terminal=round(cpu["daemon"] / a.busy_terminals, 3))
+        tree = bench.tree()
+        lab.validate_host(out.results, tree["daemon"] + tree["hosts"])
     except Exception as e:  # noqa: BLE001
         result["error"] = repr(e)
         print("TERMINAL-PERF error", repr(e), bench.tail_log()[-1500:] if bench.daemon else "", flush=True)
         status = 1
     finally:
         bench.stop()
-        if a.out:
-            with open(a.out, "w") as f:
+        if measured:
+            path = lab.write(out.results, a.story, lab_series(result), measured)
+            result["results"] = str(path) if path else None
+            emit("result-v1", path=path)
+        if out.report:
+            with open(out.report, "w") as f:
                 json.dump(result, f, indent=1)
         shutil.rmtree(root, ignore_errors=True)
     return status
