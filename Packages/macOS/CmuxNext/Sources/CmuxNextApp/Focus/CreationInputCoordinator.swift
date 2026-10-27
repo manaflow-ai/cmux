@@ -14,6 +14,12 @@ import CmuxNextTerminal
 ///
 /// The same hold covers Ctrl-1…9 onto a terminal tab with no surface yet (hq#1925 item 3; bound
 /// in `CreationInputBuffer.holds`). Any hold ends as soon as focus leaves the content (cx-wb5.78: `earlyTab`).
+///
+/// A new workspace with a terminal (`newTab` shown in this window, `beginWorkspace`) holds the keys the same way until
+/// the window shows that workspace and its terminal has the keyboard; keys typed for it never go anywhere else (a
+/// failed or never shown workspace drops them). While a creation the person has not moved on from holds a window's
+/// keys, no primary input takes that window's keyboard by itself (``claimsKeyboard(in:generation:)``): dogfood v2.2.3, Home's
+/// Chief message box took the keys typed for a new terminal and sent a shell command to the Chief as a message.
 @MainActor
 final class CreationInputCoordinator {
     weak var router: KeyRouter?
@@ -32,6 +38,23 @@ final class CreationInputCoordinator {
     func begin(in window: NSWindow?, generation: UInt64?, earlyTab: String? = nil, tab: String? = nil) -> CreationInputBuffer.Ticket? {
         guard let window, let generation, ActionRunScope.viewChangeAllowed() else { return nil }
         return buffer(in: window).open(generation: generation, earlyTab: earlyTab, tab: tab)
+    }
+
+    /// Opens the window's buffer for a new workspace with a terminal that `window` will show (`newTab` with focus),
+    /// under a new user intent of that window's focus; nil when the run may not move focus. Resolve it with
+    /// ``resolve(_:workspace:in:)``.
+    func beginWorkspace(in controller: WindowController?) -> CreationInputBuffer.Ticket? {
+        guard let controller, let window = controller.window, ActionRunScope.viewChangeAllowed() else { return nil }
+        let generation = controller.focus.beginIntent()
+        return buffer(in: window).open(generation: generation, newWorkspace: true)
+    }
+
+    /// Whether a creation in `window` that the person has not moved on from (no user intent since it was asked for)
+    /// holds its keys: the keyboard is that creation's, so a primary input (Home's message box) does not take it by
+    /// itself (`NSWindow.pendingCreationOwnsKeyboard`).
+    func claimsKeyboard(in window: NSWindow, generation: UInt64) -> Bool {
+        guard let buffer = buffers[window.windowNumber], buffer.holdsCreation else { return false }
+        return buffer.newestGeneration == generation
     }
 
     /// The person closed provisional tab `tab` in `window` before the daemon made it: the keys held
@@ -62,8 +85,18 @@ final class CreationInputCoordinator {
     /// The keys go on in a new main-actor turn: outside the creation's task (its action scope)
     /// and after the focus events the reply queued.
     func resolve(_ ticket: CreationInputBuffer.Ticket?, landed: Bool, in window: NSWindow?) {
+        resolve(ticket, landed: landed, workspace: nil, in: window)
+    }
+
+    /// The new workspace behind `ticket` (``beginWorkspace(in:)``) was made (`workspace`, its id) or not (nil: it
+    /// failed or a close took it, and the keys typed for it go with it).
+    func resolve(_ ticket: CreationInputBuffer.Ticket?, workspace: String?, in window: NSWindow?) {
+        resolve(ticket, landed: workspace != nil, workspace: workspace, in: window)
+    }
+
+    private func resolve(_ ticket: CreationInputBuffer.Ticket?, landed: Bool, workspace: String?, in window: NSWindow?) {
         guard let ticket, let window, let buffer = buffers[window.windowNumber] else { return }
-        buffer.resolve(ticket, awaitsFocus: landed)
+        buffer.resolve(ticket, awaitsFocus: landed, workspace: workspace)
         scheduleFlush(in: window)
         // The focus it asked for may never land (a split from a page tab shows a New Tab page):
         // the keys go on `holdLimit` after the reply at the latest.
@@ -174,13 +207,22 @@ final class CreationInputCoordinator {
             buffers[window.windowNumber] = nil
             return
         }
+        // Reduced: a topology the window marked changed counts (the new workspace may show in this turn).
+        let shown = controller.focus.currentState().topology.workspace
         if !force {
             let focus = controller.focus.state
             if let expectation = focus.expectation, buffer.awaits(expectation.generation) { return }
+            // A new workspace's keys wait for the window to show it (its terminal then has the keyboard, below).
+            if let workspace = buffer.awaitedWorkspace, workspace != shown { return }
             guard Self.responderTakesKeys(controller, window: window) else { return }
         }
         buffers[window.windowNumber] = nil
-        let pending = buffer.take()
+        // A forced end (its limit, focus left the content) drops the keys of a new workspace the window does not show.
+        let unshown = buffer.waitsForWorkspace(other: shown)
+        let pending = buffer.take(shown: shown)
+        // That workspace's claim on the keyboard ends here: the window's focus applies again, so the responder matches
+        // the focus model (a primary input refused it meanwhile, `NSWindow.pendingCreationOwnsKeyboard`).
+        if unshown, let pane = controller.focus.state.pane { controller.focus.send(.contentPresented(pane: pane)) }
         for (index, event) in pending.enumerated() {
             replaying = true
             NSApp.sendEvent(event)

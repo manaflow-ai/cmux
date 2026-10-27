@@ -160,13 +160,24 @@ extension AppActions {
             && spawn.firstSession == nil && services.agentTabs.opensFirstPage(on: daemon ?? services.daemon)
         let keys = opensPage && target == windows.active?.state.id ? input.beginIncoming(in: windows.active?.window) : nil
         spawn.inputToken = keys
+        // A new workspace with a terminal shown in the window the person types in (a script's `newTab` with focus, a
+        // terminal-first Cmd-N): every key from this moment is that terminal's and waits for it, and Home's message box
+        // does not take the keyboard meanwhile (dogfood v2.2.3: the keys went to the Chief as a message).
+        let terminalWindow = show && hasOpenWindow && target == windows.active?.state.id
+            && !WorkspaceCreation.opensPage(spawn, on: daemon ?? services.daemon, tabs: services.agentTabs) ? windows.active : nil
+        let terminalKeys = services.keyRouter.creationInputCoordinator.beginWorkspace(in: terminalWindow)
+        let keyWindow = terminalWindow?.window
         // In this turn: the row, and for Cmd-N's page the workspace itself, show before any daemon reply.
         let create = BenchSpans.measure("cmdN.start") { windows.startWorkspace(spawn, on: daemon, into: target) }
         services.registry.track(Task {
             var pageMade = false
-            defer { input.endIncoming(keys, pageMade: pageMade) }
+            var made: String?
+            defer {
+                input.endIncoming(keys, pageMade: pageMade)
+                services.keyRouter.creationInputCoordinator.resolve(terminalKeys, workspace: made, in: keyWindow)
+            }
             do {
-                _ = try await create(); BenchSpans.mark("cmdN.created")
+                made = try await create(); BenchSpans.mark("cmdN.created")
                 pageMade = true
                 if focus.activatesApp, let target { focusWindow(windows, target) }
                 return nil
