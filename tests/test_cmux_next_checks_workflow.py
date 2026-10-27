@@ -675,6 +675,12 @@ class PathRoutingStructure(unittest.TestCase):
                           step["if"], step["name"])
         test = next(step for step in reducer_steps if step["name"] == "Test sidebar layout reducer")
         self.assertIn("cargo test -p cmux-layout-reducer", test["run"])
+        # A pull request's pass (no reducer tests) never stands in for a dispatch or
+        # main push (which run them): the reuse key names whether they ran.
+        fingerprint = next(step for step in jobs["swift-test"]["steps"]
+                           if step.get("name") == "Fingerprint this job's inputs")
+        self.assertIn("--extra \"layout_reducer=${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') }}\"",
+                      fingerprint["run"])
         # swift test runs on pull requests and dispatches, never a feat-cmux-next push.
         self.assertIn("!(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')",
                       jobs["swift-test"]["if"])

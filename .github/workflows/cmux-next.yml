@@ -2868,6 +2868,7 @@ jobs:
             --extra "xcode_app=$CMUX_CI_XCODE_APP" \
             --extra "swift_targets=$SWIFT_TARGETS" \
             --extra "swift_filter=$SWIFT_FILTER" \
+            --extra "layout_reducer=${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') }}" \
             --extra "web_bundles=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
 
       - name: Look for a pass on the same inputs
