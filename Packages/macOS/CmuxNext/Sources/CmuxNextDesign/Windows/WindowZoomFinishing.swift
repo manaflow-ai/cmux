@@ -12,8 +12,11 @@ public protocol WindowZoomFinishing: AnyObject {
 @MainActor
 final class WindowZoomCompletion {
     weak var window: (NSWindow & WindowZoomFinishing)?
+    /// The window whose content resizes the zoom holds (``Motion/beginFrameAnimation(_:)``).
+    weak var held: NSWindow?
 
     init(window: NSWindow) {
         self.window = window as? NSWindow & WindowZoomFinishing
+        held = window
     }
 }

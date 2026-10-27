@@ -12,13 +12,35 @@ extension Motion {
     /// springs toward a size only shows its in-between frames late.
     public static var isLiveResizing: Bool { liveResizeOverride ?? LiveResizeWindows.shared.isActive }
 
-    /// Whether `window` is in a live resize or a full screen transition: the
+    /// Whether `window` is in a live resize, a full screen transition or a frame animation
+    /// (``beginFrameAnimation(_:)``): the
     /// per-window form of ``isLiveResizing`` for views that ask about their
     /// own window (`NSView.inLiveResize` misses full screen transitions).
     public static func isLiveResizing(_ window: NSWindow?) -> Bool {
         if let liveResizeOverride { return liveResizeOverride }
         guard let window else { return false }
-        return window.inLiveResize || LiveResizeWindows.shared.isTransitioning(window)
+        return window.inLiveResize || LiveResizeWindows.shared.isTransitioning(window) || LiveResizeWindows.shared.isFrameAnimating(window)
+    }
+
+    /// AppKit starts animating `window`'s frame for cmux (a Zoom, the floating chat's fold): until
+    /// the matching ``endFrameAnimation(_:)``, its content holds its resizes as in a full screen
+    /// transition (``holdsContentResize(_:)``), so each terminal sends one grid, at the end, and
+    /// its views that ask ``isLiveResizing(_:)`` follow the frame instead of springing. Other
+    /// windows' motion is unchanged. Calls nest: every begin needs one end
+    /// (the animation's completion, which runs once whether it lands or is taken over); a close ends
+    /// them all. Chromium's maximize and restore likewise give the content its final bounds once
+    /// and animate only a layer (ash/wm/window_animations.cc `CrossFadeAnimation`).
+    public static func beginFrameAnimation(_ window: NSWindow) { LiveResizeWindows.shared.beginFrameAnimation(of: window) }
+
+    /// Ends one ``beginFrameAnimation(_:)`` of `window`.
+    public static func endFrameAnimation(_ window: NSWindow) { LiveResizeWindows.shared.endFrameAnimation(of: window) }
+
+    /// Whether content sized by `window` holds its resize until the window lands at its size: a full
+    /// screen transition or a frame animation cmux started (``beginFrameAnimation(_:)``).
+    /// `ResizeCoordinator` holds terminal grids while it is true.
+    public static func holdsContentResize(_ window: NSWindow?) -> Bool {
+        guard let window else { return false }
+        return LiveResizeWindows.shared.isTransitioning(window) || LiveResizeWindows.shared.isFrameAnimating(window)
     }
 
     /// Some window is between `willEnterFullScreen` and `didEnterFullScreen`
@@ -89,8 +111,23 @@ final class LiveResizeWindows {
     }
     private var transitionWaiters: [UInt64: AsyncStream<Void>.Continuation] = [:]
     private var lastTransitionWaiterID: UInt64 = 0
+    /// The windows whose frame AppKit animates for cmux, with how many of those animations are open.
+    private var frameAnimations: [ObjectIdentifier: Int] = [:]
 
+    /// A frame animation does not count: it holds only its own window's content (``isFrameAnimating(_:)``).
     var isActive: Bool { !resizing.isEmpty || !transitioning.isEmpty }
+    func isFrameAnimating(_ window: NSWindow) -> Bool { frameAnimations[ObjectIdentifier(window)] != nil }
+
+    /// One more frame animation of `window` is open (``Motion/beginFrameAnimation(_:)``).
+    func beginFrameAnimation(of window: NSWindow) { frameAnimations[ObjectIdentifier(window), default: 0] += 1 }
+
+    /// One frame animation of `window` ended; the window holds nothing once its last one has.
+    func endFrameAnimation(of window: NSWindow) {
+        let id = ObjectIdentifier(window)
+        guard let open = frameAnimations[id] else { return }
+        frameAnimations[id] = open > 1 ? open - 1 : nil
+    }
+
     /// Some window is entering or leaving full screen.
     var isFullScreenTransitionActive: Bool { !transitioning.isEmpty }
     func isTransitioning(_ window: NSWindow) -> Bool { transitioning.contains(ObjectIdentifier(window)) }
@@ -136,7 +173,10 @@ final class LiveResizeWindows {
                 let id = ObjectIdentifier(window)
                 MainActor.assumeIsolated { // main-proof: AppKit posts window notifications on the main thread
                     if resizing { self?.resizing.insert(id) } else { self?.resizing.remove(id) }
-                    if closes { self?.transitioning.remove(id) }
+                    if closes {
+                        self?.transitioning.remove(id)
+                        self?.frameAnimations[id] = nil
+                    }
                 }
             }
         }

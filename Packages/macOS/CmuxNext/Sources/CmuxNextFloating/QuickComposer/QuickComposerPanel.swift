@@ -18,6 +18,10 @@ public final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDel
     var expandedHeight: CGFloat?
     let frames = FloatingChatFrames(defaults: .standard)
     let grip = FloatingChatGrip()
+    /// The page held at its size while the frame animates (`QuickComposerPanel+Floating`).
+    var frameHold = FloatingChatFrameHold()
+    /// The page the panel shows (`present`), nil before the first.
+    var hostedContent: NSView? { surface.contentView.subviews.first }
 
     public init() {
         super.init(

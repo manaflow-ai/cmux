@@ -32,21 +32,23 @@ public final class ResizeCoordinator {
     private var targets: [ObjectIdentifier: any ResizeTarget] = [:]
     private var windows: [ObjectIdentifier: WeakWindow] = [:]
     private var waited: [ObjectIdentifier: Int] = [:]
-    /// Whether sizes in a window wait: its full screen enter or exit
-    /// (`Motion.isFullScreenTransitioning(_:)`). AppKit animates a snapshot to
-    /// the final size, so no in-between size shows; each one the daemon
-    /// applied was a PTY reflow and a rebuilt screen for nothing, on the
-    /// main thread the animation needs (fullscreen-lag). The newest size
-    /// goes the frame after it ends. Terminals in other windows do not wait
+    /// Whether sizes in a window wait: its full screen enter or exit, or a frame
+    /// animation cmux started on it (a Zoom, the floating chat's fold;
+    /// `Motion.holdsContentResize(_:)`). AppKit animates a snapshot to the
+    /// final size in full screen, and steps the frame in a Zoom; each
+    /// in-between size the daemon applied was a PTY reflow and a rebuilt
+    /// screen for nothing, on the main thread the animation needs
+    /// (fullscreen-lag, chrome-parity p03-rendering-105). The newest size goes
+    /// the frame after it ends. Terminals in other windows do not wait
     /// (PL-burst M6), and a drag stays real time (it does not hold).
     private let holds: (NSWindow?) -> Bool
 
     /// One coordinator for the app, made by its composition root (`AppServices`); pane sizes span
     /// windows, so the frames run on the app scheduler.
     /// - Parameter holds: Whether sizes in a window wait this frame; nil (the app) holds a window's
-    ///   sizes during its full screen transition, tests pass their own.
+    ///   sizes during its full screen transition or frame animation, tests pass their own.
     public init(holds: ((NSWindow?) -> Bool)? = nil) {
-        self.holds = holds ?? { Motion.isFullScreenTransitioning($0) }
+        self.holds = holds ?? { Motion.holdsContentResize($0) }
     }
 
     private lazy var frames = FrameClient(owner: "ResizeCoordinator.settle", isAnimation: false, on: .app) { [weak self] _ in

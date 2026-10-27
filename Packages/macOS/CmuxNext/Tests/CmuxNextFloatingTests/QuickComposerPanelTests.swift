@@ -12,4 +12,35 @@ import Testing
         #expect(!panel.hidesOnDeactivate)
         #expect(panel.styleMask.contains(.nonactivatingPanel))
     }
+
+    /// A page that records every size it is given.
+    final class SizeRecordingView: NSView {
+        var sizes: [CGSize] = []
+        override func setFrameSize(_ newSize: NSSize) {
+            if newSize != frame.size { sizes.append(newSize) }
+            super.setFrameSize(newSize)
+        }
+    }
+
+    /// chrome-parity p03-rendering-105: folding the floating chat animates the panel's frame, but
+    /// its page keeps its size until the frame lands and then resizes once, instead of a page
+    /// layout at every step of the animation.
+    @Test func aFoldResizesThePageOnceWhenTheFrameLands() throws {
+        _ = NSApplication.shared
+        let panel = QuickComposerPanel()
+        defer { panel.orderOut(nil) }
+        let page = SizeRecordingView()
+        panel.present(page, focus: nil)
+        let parent = try #require(page.superview, "the page is not in the panel")
+        page.sizes.removeAll()
+        panel.setCollapsed(true)
+        let end = Date(timeIntervalSinceNow: 2)
+        while page.frame.size != parent.bounds.size || abs(panel.frame.height - FloatingChatFrames.barHeight) > 0.5, Date() < end {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        #expect(abs(panel.frame.height - FloatingChatFrames.barHeight) <= 0.5, "the fold did not land: \(panel.frame)")
+        #expect(page.frame.size == parent.bounds.size, "the page \(page.frame) does not fill the panel \(parent.bounds)")
+        #expect(page.sizes.count == 1, "the page resized \(page.sizes.count) times during the fold: \(page.sizes)")
+        #expect(page.autoresizingMask == [.width, .height], "the page no longer follows the panel's size")
+    }
 }

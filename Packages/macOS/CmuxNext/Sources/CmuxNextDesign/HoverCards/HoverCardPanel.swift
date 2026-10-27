@@ -220,9 +220,9 @@ final class HoverCardPanel: NSPanel {
         if let previous {
             // A visible card: it slides from where it is drawn to its new place, and resizes
             // there when the next card is another size (a quick return during the fade-out
-            // fades back in from the alpha it reached).
+            // fades back in from the opacity it reached).
             if !morph(from: previous) { slide(from: offset(of: previous, to: cardFrame)) }
-            if wasDismissing || alphaValue < 1 { Self.motion.resume(self) }
+            if wasDismissing || HoverCardMotion.isFaded(self) { Self.motion.resume(self) }
         } else {
             // A first show: from clear, the card fades in while it moves the last few points
             // away from its target (`HoverCardMotion`, shared with the update card).

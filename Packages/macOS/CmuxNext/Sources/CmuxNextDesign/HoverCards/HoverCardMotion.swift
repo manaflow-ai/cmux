@@ -58,34 +58,90 @@ public nonisolated struct HoverCardMotion: Equatable, Sendable {
     /// content slides the last ``entryOffset`` points away from its target. Reduce Motion keeps
     /// only the fade. The panel's content view must be layer-backed (`adoptPopupStyle`), with
     /// at least ``entryOffset`` of clear room around the card (`PopupHostView.travelMargin`).
+    ///
+    /// Every fade runs on the content view's layer opacity, on the render server; the window's
+    /// `alphaValue` stays 1 (chrome-parity task p03-rendering-105). An `animator().alphaValue`
+    /// fade made AppKit set the window's alpha in the window server once per frame from the main
+    /// thread, and a glass card ignores window alpha. Chromium fades a widget's layer the same way
+    /// (ui/wm/core/window_animations.cc `AnimateShowWindowCommon`), and a popup's open already
+    /// does here (`NSWindow.openPopup`).
     /// - Parameters:
     ///   - panel: The card window.
     ///   - placement: Where the card sits relative to its target.
     ///   - leading: The card sits left of its target (see ``entryVector(for:leading:)``).
     @MainActor
     public func enter(_ panel: NSWindow, placement: HoverCardPlacement, leading: Bool = false) {
-        Motion.withoutAnimation { panel.animator().alphaValue = 0 }
-        panel.orderFront(nil)
-        if let layer = panel.contentView?.layer {
-            let offset = entryVector(for: placement, leading: leading)
-            Motion.hoverCards.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: entrySpring,
-                       from: NSValue(caTransform3D: CATransform3DMakeTranslation(offset.dx, offset.dy, 0)))
+        guard let layer = Self.fadingLayer(of: panel) else {
+            panel.orderFront(nil)
+            return
         }
-        Motion.hoverCards.animateTimed(fadeIn, in: panel.contentView) { panel.animator().alphaValue = 1 }
+        // Clear before it orders in: the first frame on screen is the fade's first.
+        Self.setOpacity(0, of: layer)
+        panel.orderFront(nil)
+        let offset = entryVector(for: placement, leading: leading)
+        Motion.hoverCards.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: entrySpring,
+                   from: NSValue(caTransform3D: CATransform3DMakeTranslation(offset.dx, offset.dy, 0)))
+        fade(layer, in: panel, to: 1, fadeIn, from: 0)
     }
 
     /// A return while the card fades out (the pointer came back): it fades back in from the
-    /// alpha it reached, where it is, with no second entrance.
+    /// opacity it reached, where it is, with no second entrance.
     @MainActor
     public func resume(_ panel: NSWindow) {
-        Motion.hoverCards.animateTimed(fadeIn, in: panel.contentView) { panel.animator().alphaValue = 1 }
+        guard let layer = Self.fadingLayer(of: panel) else { return }
+        fade(layer, in: panel, to: 1, fadeIn)
     }
 
     /// A hide: `panel` fades out where it is (no slide, no scale), then `completion` runs
-    /// (which orders it out).
+    /// (which orders it out). A show before the fade ends takes the fade over; the completion
+    /// still runs once, and its owner checks that it still hides.
     @MainActor
     public func exit(_ panel: NSWindow, completion: @escaping @MainActor @Sendable () -> Void) {
-        Motion.hoverCards.animateTimed(fadeOut, in: panel.contentView, { panel.animator().alphaValue = 0 }, completion: completion)
+        guard let layer = Self.fadingLayer(of: panel) else { return completion() }
+        fade(layer, in: panel, to: 0, fadeOut, completion: completion)
+    }
+
+    /// Whether `panel`'s card is not fully shown: it fades out, or a hide left it clear.
+    @MainActor
+    public static func isFaded(_ panel: NSWindow) -> Bool {
+        (fadingLayer(of: panel)?.opacity ?? 1) < 1
+    }
+
+    /// The layer the fades run on: the content view's (the card, its shadow and its slide).
+    @MainActor
+    static func fadingLayer(of panel: NSWindow) -> CALayer? {
+        guard let content = panel.contentView else { return nil }
+        content.wantsLayer = true
+        return content.layer
+    }
+
+    /// Fades `layer` to `opacity` with `token` from `from` (nil: what is on screen), or sets it at once where
+    /// the card cannot animate (no screen, a sleeping display, speed off); `completion` runs when
+    /// the fade ends or is taken over.
+    @MainActor
+    private func fade(_ layer: CALayer, in panel: NSWindow, to opacity: Float, _ token: MotionFade, from: Float? = nil,
+                      completion: (@MainActor @Sendable () -> Void)? = nil) {
+        guard Motion.hoverCards.canAnimate(in: panel.contentView), Motion.hoverCards.duration(token) > 0 else {
+            layer.removeAnimation(forKey: "opacity")
+            Self.setOpacity(opacity, of: layer)
+            completion?()
+            return
+        }
+        CATransaction.begin()
+        if let completion {
+            CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } } // main-proof: CATransaction.h: the completion block is called on the main thread
+        }
+        Motion.hoverCards.set(layer, "opacity", to: NSNumber(value: opacity), fade: token, from: from.map { NSNumber(value: $0) })
+        CATransaction.commit()
+    }
+
+    /// Writes `layer`'s opacity with no implicit animation.
+    @MainActor
+    private static func setOpacity(_ opacity: Float, of layer: CALayer) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.opacity = opacity
+        CATransaction.commit()
     }
 
     /// A card's origin (screen coordinates, y up) next to `anchor`, before the screen clamp:

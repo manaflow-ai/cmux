@@ -1,5 +1,8 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextBridge
+import struct CmuxNextDaemon.CellSize
+@testable import CmuxNextDesign
 import CmuxNextSidebar
 import CmuxNextWakeups
 import Foundation
@@ -47,5 +50,73 @@ import Testing
         runUntil { abs(window.frame.width - start.width) <= 1 && abs(window.frame.height - start.height) <= 1 }
         #expect(abs(window.frame.width - start.width) <= 1 && abs(window.frame.minY - start.minY) <= 1,
                 "the second zoom went back to \(start), the window is at \(window.frame)")
+    }
+
+    // MARK: chrome-parity p03-rendering-105: a zoom resizes each terminal's grid once
+
+    final class Terminal: ResizeTarget {
+        var applied: [CellSize] = []
+        var awaitsEcho = false
+        func applySettled(_ size: CellSize) { applied.append(size) }
+    }
+
+    /// While a zoom animates the window's frame, every step lays the terminal out at another size;
+    /// the daemon gets one grid, the newest, after the zoom lands. Another window's terminal does
+    /// not wait.
+    @Test func aFrameAnimationHoldsItsWindowsGridsUntilItEnds() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
+                             backing: .buffered, defer: true)
+        let coordinator = ResizeCoordinator()
+        let terminal = Terminal()
+        let elsewhere = Terminal()
+        Motion.beginFrameAnimation(window)
+        defer { while Motion.holdsContentResize(window) { Motion.endFrameAnimation(window) } }
+        #expect(!Motion.holdsContentResize(other), "a zoom in one window held another window's content")
+        for (step, cols) in [100, 130, 160, 190, 212].enumerated() {
+            coordinator.submit(terminal, size: CellSize(cols: cols, rows: 30 + step), window: window)
+            _ = coordinator.tick()
+        }
+        coordinator.submit(elsewhere, size: CellSize(cols: 80, rows: 24), window: other)
+        _ = coordinator.tick()
+        #expect(terminal.applied.isEmpty, "the daemon reflowed the PTY for the zoom's steps: \(terminal.applied)")
+        #expect(elsewhere.applied == [CellSize(cols: 80, rows: 24)], "another window's terminal waited for the zoom")
+        // A second press while the first animates: the hold lasts until both have ended.
+        Motion.beginFrameAnimation(window)
+        Motion.endFrameAnimation(window)
+        #expect(Motion.holdsContentResize(window), "the first zoom's end released the second's hold")
+        _ = coordinator.tick()
+        #expect(terminal.applied.isEmpty)
+        Motion.endFrameAnimation(window)
+        #expect(!Motion.holdsContentResize(window))
+        while coordinator.tick() {}
+        #expect(terminal.applied == [CellSize(cols: 212, rows: 34)], "the zoom's final grid went \(terminal.applied)")
+    }
+
+    @Test func aClosedWindowHoldsNothing() {
+        let center = NotificationCenter()
+        let windows = LiveResizeWindows(center: center)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        windows.beginFrameAnimation(of: window)
+        windows.beginFrameAnimation(of: window)
+        #expect(windows.isFrameAnimating(window))
+        #expect(!windows.isActive, "one window's zoom snapped every window's motion")
+        center.post(name: NSWindow.willCloseNotification, object: window)
+        #expect(!windows.isFrameAnimating(window), "a window closed mid-zoom held its grids")
+        windows.endFrameAnimation(of: window)
+        #expect(!windows.isFrameAnimating(window), "a late completion after the close reopened a hold")
+    }
+
+    /// The zoom itself holds its window from the press to its landing, and no longer.
+    @Test(.enabled(if: NSScreen.main != nil, "zooming needs a screen: run on a GUI host")) func aZoomHoldsItsWindowsContentUntilItLands() throws {
+        let (window, start) = try shownWindow()
+        defer { window.close() }
+        window.zoom(nil)
+        #expect(Motion.holdsContentResize(window), "the zoom's steps resize the terminals")
+        runUntil { !Motion.holdsContentResize(window) }
+        #expect(!Motion.holdsContentResize(window), "the zoom held its window's grids after it landed")
+        #expect(window.frame.width > start.width, "the zoom did not land")
     }
 }

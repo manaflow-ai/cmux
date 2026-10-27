@@ -304,6 +304,26 @@ import Testing
         #expect(bubble.isVisible)
     }
 
+    /// chrome-parity p03-rendering-105: a new notice fades its capsules' layer in on the render
+    /// server; the bubble window's alpha stays 1, so the window server gets no call per frame.
+    @Test func aNewNoticeFadesTheCapsulesLayerNotTheWindow() throws {
+        let defaults = Self.defaults()
+        let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
+                                            actions: ChiefPetActions(open: { _ in }, send: { _, _ in true }))
+        controller.sync(true)
+        defer { controller.sync(false) }
+        controller.arrive(ChiefPetNotice(id: 1, tab: "t", surface: nil, title: "Done", detail: "Build finished", kind: .done))
+        let bubble = try #require(controller.bubble)
+        #expect(bubble.isVisible, "the notice did not show")
+        #expect(bubble.alphaValue == 1, "the notice faded its window (alpha \(bubble.alphaValue)), not its layer")
+        let layer = try #require(bubble.bubble.layer, "the capsules are not layer-backed")
+        #expect(layer.opacity == 1, "the capsules do not rest at full opacity")
+        controller.hideBubble()
+        #expect(layer.opacity == 0, "a hidden bubble keeps its last notice on screen for the next show's first frame")
+        controller.render(animated: false)
+        #expect(bubble.isVisible && layer.opacity == 1, "a show without a fade is not at full opacity at once")
+    }
+
     @Test func controllerShowsThePetOnlyWhileItIsOn() async {
         let flag = Flag(false)
         let defaults = Self.defaults()

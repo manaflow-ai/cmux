@@ -202,12 +202,12 @@ public final class ChiefPetController {
         let visible = panel.visibleFrame() ?? ChiefPetPanel.screenUnderPointer()?.visibleFrame ?? panel.frame.insetBy(dx: -4000, dy: -4000)
         bubble.setFrame(ChiefPetBubblePanel.frame(height: height, over: panel.frame, in: visible), display: drew)
         guard !bubble.isVisible else { return }
-        bubble.alphaValue = animated && drew ? 0 : 1
+        let fades = animated && drew
+        // Clear before it orders in when it fades: the first frame on screen is the fade's first.
+        bubble.setOpacity(fades ? 0 : 1)
         panel.addChildWindow(bubble, ordered: .above)
         bubble.orderFrontRegardless()
-        if bubble.alphaValue == 0 {
-            Motion.home.animateTimed(.fadeIn, in: bubble.contentView) { bubble.animator().alphaValue = 1 }
-        }
+        if fades { bubble.fadeIn() }
     }
 
     /// Places the shown bubble and reply box toward the quadrant with room around the pet's frame now.
@@ -223,6 +223,8 @@ public final class ChiefPetController {
 
     func hideBubble() {
         guard let bubble, bubble.isVisible else { return }
+        // Clear as it leaves: a later show never starts from these notices' last frame.
+        bubble.setOpacity(0)
         bubble.parent?.removeChildWindow(bubble)
         bubble.orderOut(nil)
     }

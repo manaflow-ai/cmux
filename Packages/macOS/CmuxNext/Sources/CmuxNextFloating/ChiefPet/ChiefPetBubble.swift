@@ -44,7 +44,29 @@ final class ChiefPetBubblePanel: NSPanel {
         bubble.frame = contentLayoutRect
         bubble.autoresizingMask = [.width, .height]
         bubble.onOpen = { [weak self] in self?.onOpen?($0) }
+        // Layer-backed: a show fades this layer, never the window's alpha (`fadeIn()`).
+        bubble.wantsLayer = true
         contentView = bubble
+    }
+
+    /// The capsules' opacity, set at once (ending a fade): 0 before a show that fades in, and as
+    /// it orders out; 1 before a show that does not fade.
+    func setOpacity(_ opacity: Float) {
+        guard let layer = bubble.layer else { return }
+        layer.removeAnimation(forKey: "opacity")
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.opacity = opacity
+        CATransaction.commit()
+    }
+
+    /// Fades the capsules in from clear on the render server. The window's alpha stays 1, so the
+    /// window server gets no call per frame (chrome-parity task p03-rendering-105; Chromium fades
+    /// a widget's layer, ui/wm/core/window_animations.cc `AnimateShowWindowCommon`).
+    func fadeIn() {
+        guard let layer = bubble.layer else { return }
+        guard Motion.home.canAnimate(in: bubble) else { return setOpacity(1) }
+        Motion.home.set(layer, "opacity", to: NSNumber(value: Float(1)), fade: .fadeIn, from: NSNumber(value: Float(0)))
     }
 
     override var canBecomeKey: Bool { false }

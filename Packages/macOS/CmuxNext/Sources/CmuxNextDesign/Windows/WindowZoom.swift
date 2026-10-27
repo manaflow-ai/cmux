@@ -16,6 +16,11 @@ public import AppKit
 /// for ``isZoomed``. The resize goes through the panes Motion gate: with Reduce Motion or animations
 /// off it happens at once.
 ///
+/// The frame steps stay AppKit's, but the content resizes once (chrome-parity p03-rendering-105):
+/// the window holds its content's resizes while it animates (``Motion/beginFrameAnimation(_:)``), as
+/// a full screen transition does, so each terminal sends the daemon one grid, at the end, and the
+/// window's strips follow the frame instead of springing per step.
+///
 /// A window keeps one value and forwards to it:
 ///
 /// ```swift
@@ -47,8 +52,14 @@ public struct WindowZoom {
         guard let target = target(from: window.frame, standard: standard) else { return true }
         let generation = begin(to: target, standard: standard)
         let box = WindowZoomCompletion(window: window)
+        // Each animation holds until its own completion, which runs once (landed or taken over by a
+        // second press), so a reversed zoom holds until the last one lands.
+        Motion.beginFrameAnimation(window)
         Motion.panes.animateTimed(.move, in: window.contentView, { window.animator().setFrame(target, display: true) },
-                                  completion: { box.window?.windowZoomFinished(generation) })
+                                  completion: {
+                                      box.window?.windowZoomFinished(generation)
+                                      if let held = box.held { Motion.endFrameAnimation(held) }
+                                  })
         return true
     }
 
