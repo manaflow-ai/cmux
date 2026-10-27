@@ -40,6 +40,9 @@ struct DebugCloudMachineFixtureTests {
         #expect(services.machines.cloud.isEmpty, "no Cloud session")
         #expect(Self.rows(services)[MenuFolder.tools.title, default: []].isSuperset(of: Self.toolsRows),
                 "both rows show in the header menu's Tools folder")
+        let other = MachineIconTests.services()
+        other.cloudContextDidChange()
+        #expect(!other.registry.context.contains(.cloudWorkspace), "another app's services never hold it")
 
         DebugCloudMachineFixture.seed(services, false)
         #expect(!services.registry.context.contains(.cloudWorkspace))
@@ -61,7 +64,13 @@ struct DebugCloudMachineFixtureTests {
             var depth: [Bool] = [] // per open #if: whether it is DEBUG only
             var uses = 0
             for line in text.split(separator: "\n", omittingEmptySubsequences: false).map({ $0.trimmingCharacters(in: .whitespaces) }) {
-                if line.hasPrefix("#if ") { depth.append(line == "#if DEBUG") } else if line == "#endif" { _ = depth.popLast() }
+                if line.hasPrefix("#if ") {
+                    depth.append(line == "#if DEBUG")
+                } else if line.hasPrefix("#else") || line.hasPrefix("#elseif"), !depth.isEmpty {
+                    depth[depth.count - 1] = false // the other branch of a DEBUG-only #if is not DEBUG only
+                } else if line == "#endif" {
+                    _ = depth.popLast()
+                }
                 guard line.contains("DebugCloudMachineFixture") || line.contains("debug.cloud_machine_fixture") else { continue }
                 uses += 1
                 #expect(depth.contains(true), "\(file): \(line) is outside #if DEBUG")

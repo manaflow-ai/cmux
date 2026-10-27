@@ -5,7 +5,7 @@ import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSidebar
 
-/// `debug.cloud_machine_fixture {sidebar?, menu?, folder?, name?, window?}` (DEBUG builds, captures of a Cloud
+/// `debug.cloud_machine_fixture {sidebar?, fill?, menu?, folder?, name?, window?}` (DEBUG builds, captures of a Cloud
 /// machine's right-click menu). A capture slot is signed out of cmux Cloud and has no Cloud machine,
 /// so a Cloud machine header's menu there hides every row that needs `cloudWorkspace` (its Tools
 /// folder's Apply Machine Config and Deliver Secrets among them), and no menu change could show a
@@ -15,9 +15,11 @@ import CmuxNextSidebar
 ///   does while a Cloud machine's workspace is active (``seed(_:)``); `false` brings the live rows
 ///   and context back. The machine is a sidebar row and nothing else: no session, no sign-in, no
 ///   network call, no Cloud state.
-/// - `menu: true`: the window first takes its screen's visible frame (a folder of 20 rows is taller
-///   than the default window, and a capture is cut to the window), then a right-click on that header
-///   (`debug.mouse`), so its menu opens as the person's does (`SidebarContextMenus.machineMenu`).
+/// - `fill: true`: the window takes its screen's visible frame (a folder of 20 rows is taller than the
+///   default window, and a capture is cut to the window). Its own step, so the header is laid out at
+///   the new size before `menu`.
+/// - `menu: true`: a right-click on that header (`debug.mouse`), so its menu opens as the person's
+///   does (`SidebarContextMenus.machineMenu`).
 /// - `folder: "Tools"`: with that menu open, types the folder's title (the menu's type-select) and
 ///   the right arrow, so the folder opens. The keys go to the app's event queue, which the open
 ///   menu reads; `debug.key`'s sequence needs an event source a capture slot does not give.
@@ -27,14 +29,17 @@ enum DebugCloudMachineFixture {
     /// The fixture machine's id when the call names none.
     static let defaultName = "demo-cloud"
 
-    /// While true, `cloudContextDidChange` keeps `cloudWorkspace` (AppServices+Cloud). Only
-    /// ``seed(_:)`` sets it, and this whole type is DEBUG only, so a Release build never holds it.
-    private(set) static var holdsCloudWorkspace = false
+    /// The app services whose `cloudContextDidChange` keeps `cloudWorkspace` (AppServices+Cloud): one
+    /// app's, never another's (tests build their own). Only ``seed(_:_:)`` changes it, and this whole
+    /// type is DEBUG only, so a Release build never holds it.
+    private static var holders: Set<ObjectIdentifier> = []
 
-    /// Holds (or, `false`, drops) `cloudWorkspace` in the registry's context, as a Cloud machine's
+    static func holdsCloudWorkspace(_ services: AppServices) -> Bool { holders.contains(ObjectIdentifier(services)) }
+
+    /// Holds (or, `false`, drops) `cloudWorkspace` in `services`' registry context, as a Cloud machine's
     /// active workspace does, without a session or a sign-in.
     static func seed(_ services: AppServices, _ on: Bool = true) {
-        holdsCloudWorkspace = on
+        if on { holders.insert(ObjectIdentifier(services)) } else { holders.remove(ObjectIdentifier(services)) }
         services.cloudContextDidChange()
     }
 
@@ -59,9 +64,9 @@ enum DebugCloudMachineFixture {
             "machine": .string(name),
             "cloudWorkspace": .bool(services.registry.context.contains(.cloudWorkspace)),
         ]
-        if params["menu"]?.boolValue == true, let window = controller.window, let screen = window.screen {
+        if params["fill"]?.boolValue == true, let window = controller.window, let screen = window.screen {
             window.setFrame(screen.visibleFrame, display: true)
-            sidebar.container.layoutSubtreeIfNeeded()
+            window.contentView?.layoutSubtreeIfNeeded()
         }
         guard let frame = sidebar.container.machineHeaderFrameInWindow(machine), let window = controller.window else {
             answer["header"] = .null
