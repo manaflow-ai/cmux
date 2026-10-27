@@ -533,6 +533,14 @@ impl StopWait<'_> {
             };
             let mut connection = BufReader::new(stream);
             let mut id = 0_u64;
+            // A restoring owner parks a connection unread, so its reads time
+            // out until the restore ends; it drops a parked connection only
+            // at its park cap (`server/restoring.rs`). A connection closed
+            // before any of its reads timed out was read by a serving owner
+            // that ended it without an answer (its request thread died): the
+            // lifecycle exchange reports that at once, and the stop does not
+            // reconnect for its whole bound.
+            let mut parked = false;
             loop {
                 id += 1;
                 let request = IdentifyRequest::default().line(format!("stop-wait-{id}"));
@@ -555,10 +563,11 @@ impl StopWait<'_> {
                             }
                             _ => return Ok(()),
                         },
-                        Err(ExchangeError::Timeout) => {}
-                        Err(ExchangeError::Closed | ExchangeError::Transport) => {
+                        Err(ExchangeError::Timeout) => parked = true,
+                        Err(ExchangeError::Closed | ExchangeError::Transport) if parked => {
                             continue 'connect;
                         }
+                        Err(ExchangeError::Closed | ExchangeError::Transport) => return Ok(()),
                         // A refused or malformed identify: the lifecycle
                         // exchange reports it with its own codes.
                         Err(_) => return Ok(()),
