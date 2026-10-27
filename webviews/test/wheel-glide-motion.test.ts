@@ -211,7 +211,7 @@ test.each(
   [
     [20, 20, 20, 20, 20, 20, 20, 20, 20],
     [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 4],
-    [176.57, 3.43],
+    [176.57, 4.43],
   ].map((frames) => ({ frames })),
 )("subpixel travel is monotonic at every frame cadence (%j)", ({ frames }) => {
   const f = fixture();
