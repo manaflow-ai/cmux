@@ -159,7 +159,7 @@ final class AndroidFrameAssembler: Sendable {
             // base + sizes[0] (the PPS), both inside `joined`, during the call only (it copies the
             // sets into the description), and writes one +1 description to the local `format`.
             return unsafe CMVideoFormatDescriptionCreateFromH264ParameterSets(
-                allocator: kCFAllocatorDefault, parameterSetCount: 2, parameterSetPointers: [base, base + sizes[0]],
+                allocator: kCFAllocatorDefault, parameterSetCount: 2, parameterSetPointers: [base, base + sps.count],
                 parameterSetSizes: sizes, nalUnitHeaderLength: 4, formatDescriptionOut: &format)
         }
         return status == noErr ? format : nil
@@ -168,6 +168,7 @@ final class AndroidFrameAssembler: Sendable {
     /// `unit` as one length-prefixed (AVCC) sample, marked to display at once.
     static func sample(_ unit: Data, format: CMVideoFormatDescription) -> CMSampleBuffer? {
         var avcc = Data(capacity: 4 + unit.count)
+        // decode-trap-allow: AnnexBParser drops a unit past maxUnitBytes (8 MiB), so the length fits a u32.
         avcc.appendBigEndian(UInt32(unit.count))
         avcc.append(unit)
         var block: CMBlockBuffer?

@@ -208,7 +208,7 @@ struct ZRLEParser {
     private var tile: [UInt32] = []
 
     init(bytes: [UInt8]) {
-        rest = bytes.suffix(from: bytes.startIndex)
+        rest = ArraySlice(bytes)
         tile.reserveCapacity(64 * 64)
     }
 
@@ -256,7 +256,8 @@ struct ZRLEParser {
         case 0:
             for _ in 0 ..< count { tile.append(try cpixel()) }
         case 1:
-            tile.append(contentsOf: repeatElement(try cpixel(), count: count))
+            let color = try cpixel()
+            tile.append(contentsOf: repeatElement(color, count: count))
         case 2 ... 16:
             var palette: [UInt32] = []
             for _ in 0 ..< subencoding.widened { palette.append(try cpixel()) }

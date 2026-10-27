@@ -60,19 +60,23 @@ struct AnnexBParser {
     mutating func cut(_ chunk: Data) -> [Cut] {
         buffer.append(contentsOf: chunk)
         var cuts: [Cut] = []
-        var i = scanned
-        while i + 2 < buffer.count {
-            guard buffer[i] == 0, buffer[i + 1] == 0, buffer[i + 2] == 1 else {
-                i += 1
+        // One pass over the new bytes with the zero run before each: a `01` after two zeros ends a
+        // start code that began two bytes earlier. No position is read by subscript, so no adb
+        // bytes can index past the buffer (p10-stability-093).
+        var zeros = 0
+        for (position, byte) in zip(buffer.indices.dropFirst(scanned), buffer.dropFirst(scanned)) {
+            guard byte == 1, zeros >= 2 else {
+                zeros = byte == 0 ? zeros + 1 : 0
                 continue
             }
-            if inUnit, let cut = finishedCut(head..<i) { cuts.append(cut) }
+            if inUnit, let cut = finishedCut(head..<(position - 2)) { cuts.append(cut) }
             inUnit = true
             discarding = false
-            head = i + 3
-            i += 3
+            head = position + 1
+            zeros = 0
         }
-        scanned = i
+        // The last two zeros may begin a start code the next chunk ends: scan them again then.
+        scanned = buffer.count - min(zeros, 2)
         // Two bytes after the payload may be the start of the next start code, so a unit is
         // over the limit for sure only past `maxUnitBytes + 2`.
         if !inUnit || discarding || buffer.count - head > maxUnitBytes + 2 {
@@ -99,10 +103,10 @@ struct AnnexBParser {
     /// The unit in `range` (between two start codes): `.dropped` when it is over the limit, nil when empty.
     private func finishedCut(_ range: Range<Int>) -> Cut? {
         guard !discarding, range.count <= maxUnitBytes else { return .dropped }
-        var end = range.upperBound
+        let payload = buffer.dropFirst(range.lowerBound).prefix(range.count)
         // A 4-byte start code's leading zero (and trailing_zero_8bits) belong to no unit.
-        while end > range.lowerBound, buffer[end - 1] == 0 { end -= 1 }
-        return end > range.lowerBound ? .unit(Data(buffer[range.lowerBound..<end])) : nil
+        guard let last = payload.lastIndex(where: { $0 != 0 }) else { return nil }
+        return .unit(Data(payload.prefix(through: last)))
     }
 
     /// Drops the consumed bytes once they are at least half the buffer.
