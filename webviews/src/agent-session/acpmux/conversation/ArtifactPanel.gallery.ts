@@ -96,7 +96,7 @@ const writtenLive = {
     summary(0, { status: "completed" }),
   ]),
   play: async (ctx: PlayContext) => {
-    await ctx.click({ role: "button", name: "Worked for 42s" });
+    await ctx.click({ role: "button", name: /^Worked for / });
     await open(ctx);
     const page = ctx.document.defaultView as Window;
     page.cmuxAcpmuxBridge?.receive(
