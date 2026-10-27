@@ -306,7 +306,7 @@ class WorkflowShapeTests(unittest.TestCase):
     def test_check_names_are_unchanged(self):
         names = {job_id: job.get("name", job_id) for job_id, job in JOBS.items()}
         self.assertEqual(names["link"], "link")
-        self.assertEqual(names["size"], "PR size (advisory)")
+        self.assertEqual(names["size"], "PR size")
         self.assertEqual(names["split"], "split-plan advisory")
 
 

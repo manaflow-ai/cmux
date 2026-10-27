@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""Advisory size check for feat-cmux-next pull requests.
+"""Size check for feat-cmux-next pull requests: over the limit fails unless the body says why.
 
 Counts added plus deleted lines over the files a pull request changes, leaving
 out the paths scripts/ci/pr_size_exclusions.json lists (generated exports,
 lockfiles, localization catalogs, fixture and vector data). Above the limit it
-writes a workflow warning and a step summary with a hint on how to split. A
-line in the pull request body starting `Size:` followed by a reason overrides
-the warning: the check prints the reason and passes clean.
+writes a workflow error and a step summary with a hint on how to split, and
+exits OVER (3). A line in the pull request body starting `Size:` followed by a
+reason overrides it: the check prints the reason and passes clean.
 
-It never exits non-zero for a size: the check is advisory and is not a required
-check. Input is the pull request's files, one JSON object per line with
+The rulebook: "Keep a PR under about 800 changed lines; split a larger one into
+PRs that each land on their own" (Leo, 2026-10-21). Exit 3 is the PR's own red;
+any other non-zero exit is the script's own failure, which the workflow reports
+as a warning and passes. Input is the pull request's files, one JSON object per line with
 `filename`, `additions` and `deletions` (the workflow reads them from one
 paginated pulls/N/files call; JSON keeps a file name with a tab or newline in
 one record), and the pull_request event payload for the body.
@@ -30,6 +32,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 EXCLUSIONS = Path(__file__).resolve().with_name("pr_size_exclusions.json")
+OVER = 3  # the exit code for a pull request over the limit with no `Size:` line
 OVERRIDE = re.compile(r"^[ \t]*Size:[ \t]*(\S.*?)[ \t\r]*$", re.MULTILINE)
 SPLIT_HINT = (
     "How to split: one pull request per surface or directory; keep each change's tests "
@@ -125,7 +128,7 @@ def report(result: Result) -> tuple[str, str]:
         command = f"::notice title=PR size (Size: override)::{escape_command(headline + '. Size: ' + result.override)}"
     else:
         status = "over the limit"
-        command = f"::warning title=PR size over {result.limit} lines::{escape_command(headline + '. ' + SPLIT_HINT)}"
+        command = f"::error title=PR size over {result.limit} lines::{escape_command(headline + '. ' + SPLIT_HINT)}"
 
     largest = sorted((f for f in result.files if f[2] is None), key=lambda f: -f[1])[:15]
     lines = [f"## PR size: {status}", "", headline + ".", ""]
@@ -166,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
             handle.write(summary + "\n")
     else:
         print(summary)
-    return 0
+    return OVER if result.over and not result.override else 0
 
 
 if __name__ == "__main__":

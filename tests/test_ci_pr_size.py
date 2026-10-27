@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""The PR size advisory counts the right lines and can never block a merge.
+"""The PR size check counts the right lines and fails an oversized PR that does not say why.
 
   - every glob in scripts/ci/pr_size_exclusions.json still matches a tracked
     file, so a stale entry cannot quietly drop authored lines from the count;
-  - over the limit it warns with a split hint, a `Size:` line overrides it, and
-    allowlisted generated files never push a pull request over;
-  - it exits 0 for any size;
-  - its job (`size` in .github/workflows/pr-checks.yml) stays advisory:
-    pull_request only (never pull_request_target), a read-only token, no secrets
-    or environment, Linux, not a required check, draft-skipping and
-    CI_QUOTA_HOLD-gated.
+  - over the limit it errors with a split hint and exits 3, a `Size:` line with a
+    reason overrides it (exit 0), and allowlisted generated files never push a
+    pull request over;
+  - its job (`size` in .github/workflows/pr-checks.yml) fails on exit 3 only (an
+    API error or a script crash warns and passes), carries no "(advisory)" in its
+    name (next-autoland ignores such checks), and stays pull_request only (never
+    pull_request_target), a read-only token, no secrets or environment, Linux,
+    not a ruleset required check, draft-skipping and CI_QUOTA_HOLD-gated.
 """
 
 from __future__ import annotations
@@ -143,16 +144,18 @@ class MeasureTests(unittest.TestCase):
                         pr_size.os.environ[key] = value
             return code, stdout.getvalue() + summary.read_text(encoding="utf-8")
 
-    def test_over_the_limit_warns_with_a_split_hint_and_exits_zero(self) -> None:
+    def test_over_the_limit_without_a_reason_fails_with_a_split_hint(self) -> None:
         code, out = self.run_main(jsonl((700, 200, "src/a.swift")), "A change")
-        self.assertEqual(code, 0)
-        self.assertIn("::warning title=PR size over 800 lines::", out)
+        self.assertEqual(code, pr_size.OVER)
+        self.assertEqual(pr_size.OVER, 3)
+        self.assertIn("::error title=PR size over 800 lines::", out)
         self.assertIn("How to split", out)
         self.assertIn("tests", out)
 
     def test_size_line_overrides_and_prints_the_reason(self) -> None:
         code, out = self.run_main(jsonl((700, 200, "src/a.swift")), "Intro\n\nSize: one atomic rename across the tree\n")
         self.assertEqual(code, 0)
+        self.assertNotIn("::error", out)
         self.assertNotIn("::warning", out)
         self.assertIn("Size: one atomic rename across the tree", out)
 
@@ -165,7 +168,7 @@ class MeasureTests(unittest.TestCase):
         files = jsonl((300, 0, "src/a.swift"), (2000, 0, "App/Resources/Foo.xcstrings"), (500, 0, "bun.lock"))
         code, out = self.run_main(files, None)
         self.assertEqual(code, 0)
-        self.assertNotIn("::warning", out)
+        self.assertNotIn("::error", out)
         self.assertIn("300 counted lines", out)
         self.assertIn("2500 more in allowlisted", out)
 
@@ -176,6 +179,18 @@ class MeasureTests(unittest.TestCase):
         code, out = self.run_main(files, None)
         self.assertEqual(code, 0)
         self.assertIn("18 counted lines", out)
+
+    def test_a_size_word_without_a_reason_does_not_override(self) -> None:
+        for body in (None, "", "Size:", "Size:   \n", "Note the Size: is big", "size: lower case"):
+            with self.subTest(body=body):
+                code, out = self.run_main(jsonl((801, 0, "src/a.swift")), body)
+                self.assertEqual(code, pr_size.OVER)
+                self.assertIn("::error", out)
+
+    def test_within_the_limit_passes_without_a_reason(self) -> None:
+        code, out = self.run_main(jsonl((400, 400, "src/a.swift")), None)
+        self.assertEqual(code, 0)
+        self.assertNotIn("::error", out)
 
     def test_exactly_the_limit_passes(self) -> None:
         result = pr_size.measure([("a.py", 800)], None, LIMIT, GLOBS)
@@ -205,15 +220,40 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertNotIn("self-hosted", str(job["runs-on"]).lower())
         self.assertNotIn("secrets.", self.text)
 
-    def test_advisory_not_required_gated_and_draft_skipping(self) -> None:
+    def test_blocking_not_ruleset_required_gated_and_draft_skipping(self) -> None:
         job = self.job
-        self.assertEqual(job["name"], "PR size (advisory)")
+        self.assertEqual(job["name"], "PR size")
+        self.assertNotIn("advisory", job["name"].lower())
         self.assertNotIn(context_of(JOB, job, WORKFLOW, self.workflow), REQUIRED_CHECKS)
         self.assertNotIn("continue-on-error", job)
+        for step in job["steps"]:
+            self.assertNotIn("continue-on-error", step)
         self.assertIn(GATE, str(job["if"]))
         self.assertIn(DRAFT, str(job["if"]))
         self.assertIn(JOB, HOLD_GATED[WORKFLOW.name])
         self.assertIn(JOB, DRAFT_SKIPPED[WORKFLOW.name])
+
+    def run_step(self, script_exit: int, gh_exit: int = 0) -> int:
+        """The job's own count step, with gh and the script stubbed."""
+        run = self.job["steps"][-1]["run"]
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            (directory / "scripts/ci").mkdir(parents=True)
+            (directory / "scripts/ci/pr_size.py").write_text(f"import sys\nsys.exit({script_exit})\n", encoding="utf-8")
+            bin_dir = directory / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "gh").write_text(f"#!/bin/sh\nexit {gh_exit}\n", encoding="utf-8")
+            (bin_dir / "gh").chmod(0o755)
+            env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "RUNNER_TEMP": str(directory),
+                   "GITHUB_EVENT_PATH": "/dev/null", "REPOSITORY": "o/r", "PR": "1"}
+            return subprocess.run(["bash", "-c", run], cwd=directory, env=env, capture_output=True).returncode
+
+    def test_the_step_fails_only_on_a_measured_size(self) -> None:
+        self.assertEqual(self.run_step(0), 0)
+        self.assertEqual(self.run_step(3), 1)
+        self.assertEqual(self.run_step(1), 0, "a script crash warns and passes")
+        self.assertEqual(self.run_step(2), 0, "a script crash warns and passes")
+        self.assertEqual(self.run_step(3, gh_exit=1), 0, "an unread file list warns and passes")
 
     def test_script_comes_from_the_base_commit(self) -> None:
         checkout = self.job["steps"][0]

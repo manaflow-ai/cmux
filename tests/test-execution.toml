@@ -730,7 +730,7 @@ path = "tests/test_ci_quota_hold_gate.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_pr_size_advisory.py"
+path = "tests/test_ci_pr_size.py"
 lane = "linux-guard"
 
 [[test]]
