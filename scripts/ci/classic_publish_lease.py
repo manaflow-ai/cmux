@@ -21,9 +21,11 @@ share an R2 lease, and waiting writers queue by build:
     expired cannot then take it. `check` runs before each write and fails the
     job when the lease is gone.
   - A lease that expired without a release is taken over only once the
-    holder's workflow run attempt has completed (its owner names the run and
-    attempt; GitHub's API says), so a holder that lost its renewals but still
-    writes is never overlapped. An unreadable answer counts as still running.
+    holder's job has completed (its owner names the run, attempt and job;
+    GitHub's API says), so a holder that lost its renewals but still writes
+    is never overlapped, and a later job of the same run can recover a lease
+    its publish job failed to release. An unreadable answer counts as still
+    running.
 
     classic_publish_lease.py acquire --build N
         Waits for its turn (LEASE_WAIT seconds at most), takes the lease and
@@ -93,21 +95,27 @@ def withdraw(key: str, owner: str) -> None:
         _put(key, {"withdrawn": True}, etag)  # a lost race means another waiter claimed
 
 
-def run_finished(owner: str, env=os.environ) -> bool:
-    """Whether the run attempt that owner (RUN_ID-ATTEMPT-JOB) names has completed."""
+def job_finished(owner: str, env=os.environ) -> bool:
+    """Whether the job that owner (RUN_ID-ATTEMPT-JOB) names has completed.
+
+    The publishing jobs set no `name:`, so GitHub names each by its job id."""
     parts = owner.split("-", 2)
-    if len(parts) < 2 or not (parts[0].isdigit() and parts[1].isdigit()):
+    if len(parts) != 3 or not (parts[0].isdigit() and parts[1].isdigit()) or not parts[2]:
         return False
     result = subprocess.run(
-        ["gh", "api", f"repos/{env['GITHUB_REPOSITORY']}/actions/runs/{parts[0]}/attempts/{parts[1]}", "--jq", ".status"],
+        ["gh", "api", "--paginate", f"repos/{env['GITHUB_REPOSITORY']}/actions/runs/{parts[0]}/attempts/{parts[1]}/jobs?per_page=100",
+         "--jq", ".jobs[] | [.name, .status] | @tsv"],
         capture_output=True, text=True, check=False, env=env,
     )
-    return result.returncode == 0 and result.stdout.strip() == "completed"
+    if result.returncode != 0:
+        return False
+    statuses = [line.split("\t", 1)[1] for line in result.stdout.splitlines() if line.split("\t", 1)[0] == parts[2]]
+    return bool(statuses) and all(status == "completed" for status in statuses)
 
 
-def try_lock(key: str, owner: str, env=os.environ, finished=run_finished) -> bool:
+def try_lock(key: str, owner: str, env=os.environ, finished=job_finished) -> bool:
     """One attempt at the lease: free when absent or released, or expired with
-    its holder's run completed."""
+    its holder's job completed."""
     etag, body, age = r2_cas.read(key)
     current = _json(body)
     if etag is not None and not current.get("released"):
@@ -117,7 +125,7 @@ def try_lock(key: str, owner: str, env=os.environ, finished=run_finished) -> boo
 
 
 def acquire(build: int, env=os.environ, clock=time.monotonic, sleep=time.sleep, heartbeat=None,
-            finished=run_finished) -> None:
+            finished=job_finished) -> None:
     lease, claim_key, owner = env["LEASE_KEY"], env["CLAIM_KEY"], env["LEASE_OWNER"]
     deadline = clock() + int(env.get("LEASE_WAIT", "18000"))
     while True:

@@ -127,7 +127,11 @@ def test_classic_publishers_write_only_while_they_hold_the_lease() -> None:
     for name in NO_CONCURRENCY_GROUP["auto-resume-nightly-notarization.yml"]:
         job = document["jobs"][name]
         keys.add((job["env"]["LEASE_KEY"], job["env"]["CLAIM_KEY"]))
-        assert "github.run_id" in job["env"]["LEASE_OWNER"] and "github.job" in job["env"]["LEASE_OWNER"], name
+        assert job["env"]["LEASE_OWNER"] == "${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}", name
+        # A successor finds the holder's job by name in the jobs API, which
+        # names a job by its id only without `name:` or a matrix.
+        assert "name" not in job and "strategy" not in job, name
+        assert "actions" in job["permissions"], name
         steps = job["steps"]
         names = [step.get("name", "") for step in steps]
         take = names.index("Take the channel publication lease")

@@ -145,7 +145,7 @@ class ClassicPublishLeaseTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             lease.check(self.env("a"))
 
-    def test_an_expired_lease_is_taken_only_once_its_holders_run_has_completed(self):
+    def test_an_expired_lease_is_taken_only_once_its_holders_job_has_completed(self):
         self.acquire(100, "11-1-publish")
         self.fake.age(LEASE, lease.LEASE_TTL + 1)  # every renewal failed, but the job may still write
         asked = []
@@ -157,8 +157,18 @@ class ClassicPublishLeaseTests(unittest.TestCase):
         self.acquire(200, "22-1-publish", finished=lambda owner, env: owner == "11-1-publish")
         self.assertTrue(r2.holds(LEASE, "22-1-publish"))
 
-    def test_a_malformed_holder_counts_as_running(self):
-        self.assertFalse(lease.run_finished("not-a-run", {"GITHUB_REPOSITORY": "o/r"}))
+    def test_the_holders_own_job_decides_and_anything_unread_counts_as_running(self):
+        self.assertFalse(lease.job_finished("not-a-run", {"GITHUB_REPOSITORY": "o/r"}))
+        with tempfile.TemporaryDirectory() as tmp:
+            gh = Path(tmp) / "gh"
+            gh.write_text("#!/bin/sh\n[ -n \"$GH_FAIL\" ] && exit 1\nprintf 'publish\\tcompleted\\nrepublish-deltas\\tin_progress\\n'\n")
+            gh.chmod(0o755)
+            env = {"GITHUB_REPOSITORY": "o/r", "PATH": f"{tmp}:/usr/bin:/bin"}
+            # The same run's delta job runs while its publish job, which failed to unlock, has ended.
+            self.assertTrue(lease.job_finished("11-1-publish", env))
+            self.assertFalse(lease.job_finished("11-1-republish-deltas", env))
+            self.assertFalse(lease.job_finished("11-1-generate-deltas", env))  # not listed
+            self.assertFalse(lease.job_finished("11-1-publish", {**env, "GH_FAIL": "1"}))
 
     def test_a_claimant_overtaken_before_it_won_the_lock_steps_back(self):
         real = lease.try_lock
