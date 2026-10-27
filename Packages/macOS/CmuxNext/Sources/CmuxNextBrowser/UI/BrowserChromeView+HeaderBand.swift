@@ -2,7 +2,7 @@ public import AppKit
 public import CmuxNextDesign
 
 // R109 `tabs.barOrder`: an empty band between the toolbar rows and the page
-// that the pane pins its tab strip to (`PaneHeaderBandHosting`).
+// that the pane frames its tab strip on (`PaneHeaderBandHosting`).
 extension BrowserChromeView: PaneHeaderBandHosting {
     public func setPaneHeaderBandHeight(_ height: CGFloat) {
         let height = max(0, height)
@@ -11,14 +11,22 @@ extension BrowserChromeView: PaneHeaderBandHosting {
         needsLayout = true
     }
 
-    public var paneHeaderBandGuide: NSLayoutGuide { headerBand.guide }
-
     /// Lays out first: a browser outside a window (a tab switched away)
     /// gets no layout pass of its own, so the guide's frame would be stale.
     public var paneHeaderBandRect: CGRect {
         // sync-layout: the getter returns the guide's laid-out frame.
         layoutSubtreeIfNeeded()
         return headerBand.guide.frame
+    }
+
+    public var onPaneHeaderBandLayout: ((CGRect) -> Void)? {
+        get { headerBand.onLayout }
+        set { headerBand.onLayout = newValue }
+    }
+
+    /// The end of a layout pass (`layout()`): the guide's frame is final, the pane frames its strip there.
+    func reportHeaderBandLayout() {
+        headerBand.onLayout?(headerBand.guide.frame)
     }
 
     public var onPaneHeaderBandRelease: (() -> Void)? {
@@ -37,9 +45,9 @@ extension BrowserChromeView: PaneHeaderBandHosting {
 
     /// The empty band between the toolbar rows and the page (under them, or
     /// above them with the toolbar at the bottom); 0 high until a pane opens it.
-    /// The rows are framed (`BrowserChromeLayout`); the guide stays a layout
-    /// guide because the pane pins its strip to it, so its offset from the
-    /// toolbar's edge follows the rows (`syncHeaderBand`).
+    /// The rows are framed (`BrowserChromeLayout`); the guide's offset from the
+    /// toolbar's edge animates with the rows (`syncHeaderBand`), and each layout
+    /// pass reports its frame to the pane (`onPaneHeaderBandLayout`).
     func installHeaderBand() {
         let guide = headerBand.guide
         addLayoutGuide(guide)
@@ -57,7 +65,7 @@ extension BrowserChromeView: PaneHeaderBandHosting {
 
     /// Puts the band after the toolbar and accessory rows, from the toolbar's
     /// edge. `animated`: inside the toolbar's hide or show animation, so a
-    /// strip pinned to the band moves with the rows.
+    /// strip framed on the band moves with the rows.
     func syncHeaderBand(animated: Bool) {
         guard let top = headerBand.top, let bottom = headerBand.bottom else { return }
         let atTop = toolbarPosition == .top
@@ -72,7 +80,7 @@ extension BrowserChromeView: PaneHeaderBandHosting {
         if !active.isActive { active.isActive = true }
     }
 
-    /// Constraints from the pane to the band end before this view leaves
+    /// The pane stops framing its strip on the band before this view leaves
     /// its superview or window, on every path (v4 review): the pane's own
     /// detach, a renderer swap, a tab-type swap.
     override public func viewWillMove(toSuperview newSuperview: NSView?) {
@@ -85,7 +93,7 @@ extension BrowserChromeView: PaneHeaderBandHosting {
         super.viewWillMove(toWindow: newWindow)
     }
 
-    // Back in a superview inside a window: the pane may pin again
+    // Back in a superview inside a window: the pane may take the band again
     // (`viewDidMoveToWindow` in BrowserChromeView+Extensions also calls it).
     override public func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
@@ -98,13 +106,14 @@ extension BrowserChromeView: PaneHeaderBandHosting {
     }
 }
 
-/// The band's guide, its constraints and release callback.
+/// The band's guide, its constraints and the pane's callbacks.
 final class BrowserHeaderBand {
     let guide = NSLayoutGuide()
     var height: NSLayoutConstraint?
     /// The guide's offset from the view's top (toolbar on top) or bottom (toolbar at the bottom).
     var top: NSLayoutConstraint?
     var bottom: NSLayoutConstraint?
+    var onLayout: ((CGRect) -> Void)?
     var onRelease: (() -> Void)?
     var onReattach: (() -> Void)?
 }

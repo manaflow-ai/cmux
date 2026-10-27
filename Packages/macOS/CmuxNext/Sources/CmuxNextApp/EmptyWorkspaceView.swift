@@ -14,17 +14,58 @@ final class EmptyWorkspaceView: NSView {
             guard failure != oldValue else { return }
             detailLabel.stringValue = failure.map(EmptyWorkspaceStrings.failed) ?? ""
             detailLabel.isHidden = failure == nil
+            needsLayout = true // invalidate: the failure line changed (the guard above); the group centers again.
         }
     }
 
     private let titleLabel = ChromeLabel(labelWithString: EmptyWorkspaceStrings.title)
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
+    /// The failure line wraps at most this wide.
+    static let detailMaxWidth: CGFloat = 520
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
         build()
+    }
+
+    nonisolated override var isFlipped: Bool { true }
+
+    /// The title and the failure line's frames: one group centered in `bounds`, the line `spacing`
+    /// under the title, each centered and no wider than `bounds` less `inset` on each side.
+    struct Frames: Equatable {
+        var title: CGRect
+        var detail: CGRect?
+
+        /// - Parameters:
+        ///   - title: The title's one-line size.
+        ///   - detail: The failure line's size at its wrap width; nil while it is hidden.
+        init(in bounds: CGRect, title: CGSize, detail: CGSize?, spacing: CGFloat, inset: CGFloat) {
+            let room = max(0, bounds.width - 2 * inset)
+            let total = title.height + (detail.map { spacing + $0.height } ?? 0)
+            let top = bounds.midY - total / 2
+            func centered(_ size: CGSize, y: CGFloat) -> CGRect {
+                let width = min(size.width, room)
+                return CGRect(x: bounds.midX - width / 2, y: y, width: width, height: size.height)
+            }
+            self.title = centered(title, y: top)
+            self.detail = detail.map { centered($0, y: top + title.height + spacing) }
+        }
+    }
+
+    /// The failure line wraps to the view's width (at most `detailMaxWidth`), so its height fits a
+    /// narrow pane.
+    override func layout() {
+        super.layout()
+        let inset = Metrics.space6, wrap = min(Self.detailMaxWidth, max(0, bounds.width - 2 * inset))
+        let detail = detailLabel.isHidden ? nil
+            : detailLabel.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: wrap, height: .greatestFiniteMagnitude))
+        let frames = Frames(in: bounds, title: titleLabel.naturalSize, detail: detail, spacing: Metrics.space3, inset: inset)
+        let title = backingAlignedRect(frames.title, options: .alignAllEdgesNearest)
+        if titleLabel.frame != title { titleLabel.frame = title }
+        if let rect = frames.detail.map({ backingAlignedRect($0, options: .alignAllEdgesNearest) }), detailLabel.frame != rect {
+            detailLabel.frame = rect
+        }
     }
 
     convenience init(onNew: (() -> Void)? = nil) {
@@ -48,29 +89,10 @@ final class EmptyWorkspaceView: NSView {
         detail.isSelectable = true
         detail.focusRingType = .none
         detail.isHidden = true
-        detail.preferredMaxLayoutWidth = 520
 
-        let stack = NSStackView(views: [title, detail])
-        stack.orientation = .vertical
-        stack.spacing = Metrics.space3
-        stack.alignment = .centerX
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.centerXAnchor.constraint(equalTo: centerXAnchor),
-            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            stack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: Metrics.space6),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -Metrics.space6),
-        ])
+        addSubview(title)
+        addSubview(detail)
         applyColors()
-    }
-
-    /// The failure line wraps to the view's width (at most 520 pt), so its
-    /// height fits a narrow pane.
-    override func layout() {
-        let width = min(520, max(0, bounds.width - 2 * Metrics.space6))
-        if detailLabel.preferredMaxLayoutWidth != width { detailLabel.preferredMaxLayoutWidth = width }
-        super.layout()
     }
 
     // visibility-walk-allow: two label color stores in the theme scope, no layout or text measure; cheaper than a deferral

@@ -424,6 +424,7 @@ public final class BrowserChromeView: NSView {
         pageStatus.layout(over: contentContainer.frame)
         updateOcclusion()
         syncPageOverlays()
+        reportHeaderBandLayout()
     }
 
     /// Child-window pages draw above this view; tell them where the find

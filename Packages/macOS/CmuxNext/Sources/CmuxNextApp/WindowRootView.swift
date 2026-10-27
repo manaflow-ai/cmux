@@ -35,23 +35,21 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// Feature `sidebarSlideHoldsContent`, asked at each slide's start (`WindowRootView+ContentAreaMotion`).
     let slideHoldsContent: @MainActor () -> Bool
     /// The workspace content: the curved main pane, inset and rounded
-    /// (cx-rkgu), or edge to edge.
+    /// (cx-rkgu), or edge to edge. Framed in `layout()` (`WindowRootLayout`).
     let contentHost = MainPaneCardView(frame: .zero)
     /// The shade over the chrome around the curved main pane.
     let mainPaneShade = MainPaneChromeShadeView(frame: .zero)
-    /// The content host's top and bottom pins (the side pins are in
-    /// `sidePins`); their constants are the main pane's gutter.
-    var mainPaneEdges: [NSLayoutConstraint] = []
     private var mainPaneObservation: Task<Void, Never>?
     let sidebar: SidebarContainerView
     /// The edge the sidebar sits on (`sidebar.side`, R109).
     var sidebarSide: SidebarSide = .left {
         didSet { if sidebarSide != oldValue { applySidebarSide() } }
     }
-    /// The sidebar, content and title pins of each side (`applySidebarSide`).
-    var sidePins: [SidebarSide: [NSLayoutConstraint]] = [:]
+    /// The sidebar's pin to each window edge (`applySidebarSide`). The sidebar is the one child on
+    /// constraints: it sizes itself by its own width constraint (`SidebarContainerView.widthConstraint`),
+    /// so the root pins its top, bottom and edge, and frames the rest from the sidebar's frame.
+    var sidebarEdgePins: [SidebarSide: NSLayoutConstraint] = [:]
     private var placementObservation: Task<Void, Never>?
-    private var titleHeight: NSLayoutConstraint?
     private var tokenObservation: Task<Void, Never>?
     private var displayOptionsWatch: AppearanceSignals.Subscription?
     private(set) weak var content: NSView?
@@ -132,40 +130,28 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         mainPaneShade.frame = bounds
         mainPaneShade.autoresizingMask = [.width, .height]
         addSubview(mainPaneShade)
-        for view in [contentHost, titlebar] as [NSView] {
-            view.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(view)
-        }
+        addSubview(contentHost)
+        addSubview(titlebar)
         addSubview(sidebar)
         addSubview(titlebarBandBlocker)
         addSubview(trafficLightsGlass)
         addSubview(toolbarBand)
         addSubview(titlebarRevealRegion)
-        let titleHeight = titlebar.heightAnchor.constraint(equalToConstant: 0)
-        mainPaneEdges = [contentHost.topAnchor.constraint(equalTo: titlebar.bottomAnchor),
-                         contentHost.bottomAnchor.constraint(equalTo: bottomAnchor)]
-        NSLayoutConstraint.activate([
-            sidebar.topAnchor.constraint(equalTo: topAnchor),
-            sidebar.bottomAnchor.constraint(equalTo: bottomAnchor),
-            titlebar.topAnchor.constraint(equalTo: topAnchor),
-            titleHeight,
-            // When the sidebar hides, the title stops clear of the traffic
-            // lights while the content below reaches the window edge.
-            titlebar.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: Metrics.trafficLightInset),
-        ] + mainPaneEdges)
+        sidebarEdgePins = [.left: sidebar.leadingAnchor.constraint(equalTo: leadingAnchor),
+                           .right: sidebar.trailingAnchor.constraint(equalTo: trailingAnchor)]
+        NSLayoutConstraint.activate([sidebar.topAnchor.constraint(equalTo: topAnchor), sidebar.bottomAnchor.constraint(equalTo: bottomAnchor)])
         // The first window opens on the configured side (no move after).
         sidebarSide = DesignSettings.shared.sidebarSide
         sidebar.side = sidebarSide
         sidebar.sidebarView.spacesPosition = DesignSettings.shared.spacesPosition
         sidebar.sidebarView.spacesVisibility = DesignSettings.shared.spacesVisibility
-        sidePins = SidebarSide.pins(sidebar: sidebar, content: contentHost, title: titlebar, in: self)
-        NSLayoutConstraint.activate(sidePins[sidebarSide] ?? [])
-        self.titleHeight = titleHeight
+        applySidebarEdgePin()
         applyTokens()
         setUpTitlebarReveal()
         setUpCollapsedBandReveal()
         tokenObservation = Task { [weak self] in
-            for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0,
+            for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, Metrics.trafficLightInset,
+                                           DesignSettings.shared.titlebar == .minimal ? 1 : 0,
                                            DesignSettings.shared.titlebarButtons == .hover ? 1 : 0] }) {
                 self?.applyTokens()
                 self?.applyTitlebarButtonsMode()
@@ -201,7 +187,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// strip, so the list starts level with the panes' content.
     private func applyTokens() {
         let minimal = titlebarStyle == .minimal
-        titleHeight?.constant = minimal ? 0 : Metrics.titlebarHeight
         titlebar.isHidden = minimal
         sidebar.sidebarView.titlebarHeightOverride = minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight
         needsLayout = true // invalidate: init, or the token stream (it emits changed tokens only).
@@ -253,12 +238,13 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     override func layout() {
         defer { onHintGeometryChange?() }
         super.layout()
+        // After super: the sidebar's frame (its own width constraint) is final for this pass.
+        layoutMainPaneAndTitle()
         // Inside the window's layout pass the cursor order and the sidebar
         // occluder wait for its end (`windowDidLayout`): both change other
         // windows (overlay panel, pages) or this view's subviews.
         if (window as? ShellWindow)?.isInLayoutPass != true { windowDidLayout() }
         TitlebarDragPolicy.layoutBandBlocker(titlebarBandBlocker, in: self)
-        updateMainPaneTopInset()
         // Every frame is final here: the shade follows the card even when the
         // shade's own autoresizing landed after the card's frame change.
         updateMainPaneShade()

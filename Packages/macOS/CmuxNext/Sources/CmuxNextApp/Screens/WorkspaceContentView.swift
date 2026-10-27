@@ -67,20 +67,29 @@ final class WorkspaceContentView: NSView {
         emptyView?.removeFromSuperview()
         emptyView = view
         if let view {
-            view.translatesAutoresizingMaskIntoConstraints = false
+            // Framed at once, so the view never shows at a stale size; `layout()` keeps it on the bounds.
+            view.frame = bounds
             addSubview(view, positioned: .above, relativeTo: nil)
             view.reparentRootedThemeScope()
-            NSLayoutConstraint.activate([
-                view.leadingAnchor.constraint(equalTo: leadingAnchor),
-                view.trailingAnchor.constraint(equalTo: trailingAnchor),
-                view.topAnchor.constraint(equalTo: topAnchor),
-                view.bottomAnchor.constraint(equalTo: bottomAnchor),
-            ])
             layoutView.isHidden = true
             bar.isHidden = true
         } else {
             layoutView.isHidden = false
             bar.isHidden = !showsBar
+        }
+    }
+
+    /// The frames `layout()` sets: the layout above the bar, the bar along the bottom edge (0 high
+    /// while hidden), and the empty state over the whole view. The view is flipped.
+    struct Frames: Equatable {
+        var layout: CGRect
+        var bar: CGRect
+        var empty: CGRect
+
+        init(bounds: CGRect, barHeight: CGFloat) {
+            layout = CGRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - barHeight))
+            bar = CGRect(x: 0, y: bounds.height - barHeight, width: bounds.width, height: barHeight)
+            empty = CGRect(origin: .zero, size: bounds.size)
         }
     }
 
@@ -125,9 +134,10 @@ final class WorkspaceContentView: NSView {
 
     override func layout() {
         super.layout()
-        let barHeight = showsBar ? TabStripView.preferredHeight : 0
-        layoutView.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - barHeight))
-        bar.frame = NSRect(x: 0, y: bounds.height - barHeight, width: bounds.width, height: barHeight)
+        let frames = Frames(bounds: bounds, barHeight: showsBar ? TabStripView.preferredHeight : 0)
+        layoutView.frame = frames.layout
+        bar.frame = frames.bar
+        if let emptyView, emptyView.frame != frames.empty { emptyView.frame = frames.empty }
     }
 }
 
