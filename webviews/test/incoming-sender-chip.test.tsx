@@ -99,7 +99,8 @@ async function line(message: { name: string; sessionId?: string }) {
 
 test("a peer lane's chip, found by its bare name, opens it and names its machine", async () => {
   const { chip, opened } = await line({ name: "chief-ui" });
-  expect(chip?.textContent).toBe("chief-ui");
+  expect(chip?.querySelector(".acpmux-sender__name")?.textContent).toBe(t("sender.otherSession", { name: "chief-ui" }));
+  expect(chip?.querySelector(".acpmux-sender__host")?.textContent).toBe("huge-blue");
   expect(chip?.title).toBe("Open chief-ui (huge-blue)");
   expect(chip?.getAttribute("aria-label")).toBe(t("subagents.openOnHost", { name: "chief-ui", host: "huge-blue" }));
   await act(async () => chip!.click());

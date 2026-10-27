@@ -93,7 +93,10 @@ test("with Minimal Mode off a received message still starts as a one-line strip"
   expect(host.querySelector(".cv-received__body")).toBeNull();
   expect(host.querySelector(".cv-received[data-minimal]")).toBeNull();
   expect(toggle().getAttribute("aria-label")).toBe(
-    t("message.collapsedLabel", { from: "grid-lane", preview: "Rebased onto main; ready for review." }),
+    t("message.collapsedLabel", {
+      from: t("sender.otherSession", { name: "grid-lane" }),
+      preview: "Rebased onto main; ready for review.",
+    }),
   );
   expect(toggle().getAttribute("aria-expanded")).toBe("false");
   await act(async () => toggle().click());
@@ -104,14 +107,17 @@ test("in Minimal Mode the message is one line: the chip, then its first line, wh
   setChatDisplay({ [MINIMAL_MODE_KEY]: true });
   const { chip, opened, toggle } = await line("minimal-1");
   // The chip and the first line of text, as it reads, and nothing under the line.
-  expect(chip.textContent).toBe("grid-lane");
+  expect(chip.textContent).toBe(t("sender.otherSession", { name: "grid-lane" }));
   expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
   expect(host.textContent).not.toContain("Received message from");
   expect(host.querySelector(".cv-received__body")).toBeNull();
   expect(toggle().tagName).toBe("BUTTON");
   expect(toggle().getAttribute("aria-expanded")).toBe("false");
   expect(toggle().getAttribute("aria-label")).toBe(
-    t("message.collapsedLabel", { from: "grid-lane", preview: "Rebased onto main; ready for review." }),
+    t("message.collapsedLabel", {
+      from: t("sender.otherSession", { name: "grid-lane" }),
+      preview: "Rebased onto main; ready for review.",
+    }),
   );
   // The chip still opens the sender's chat, and leaves the message closed.
   await act(async () => chip.click());
