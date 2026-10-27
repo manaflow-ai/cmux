@@ -116,6 +116,8 @@ public final class IPhoneHostService {
     /// The phones the signed-in user allowed on this Mac (cmux-next-ios verify/phone-approvals.md).
     /// Settings > Mobile marks them; Remove (or ``revokePhone(id:)``) forgets one.
     internal(set) var paired: MobileHostPairedDevices?
+    /// The read of ``paired`` in flight, and the phones forgotten while it runs (``loadPaired(signedOut:)``).
+    @ObservationIgnored var pairedLoad = MobileHostPairedLoad()
     /// The owner removed this Mac from the account's devices (from a phone or the API).
     /// hostd stays stopped until the person allows iPhone connections again: Allow Again,
     /// the setting off and on, or signing in again. Then it registers as a new device.
@@ -349,7 +351,8 @@ public final class IPhoneHostService {
         refreshPhones()
     }
 
-    /// App quit: hostd ends with the app (closing its stdin ends it too).
+    /// App quit: hostd ends with the app (closing its stdin ends it too). Called only from
+    /// `applicationWillTerminate`.
     public func stop() {
         running = nil
         following?.cancel()
@@ -359,6 +362,9 @@ public final class IPhoneHostService {
         followingFolders?.cancel()
         followingPicks?.cancel()
         approverSync?.stop()
+        // The paired list's queued saves (a removal's new list among them) finish before the app
+        // ends: a bounded wait during termination, the threading model's `terminate` allowance.
+        allowBlocking(.terminate) { MobileHostPairedDevicesFile.flush() }
         quietAttention()
         let supervisor = supervisor
         // task-owner: teardown hop; the supervisor's stop is idempotent

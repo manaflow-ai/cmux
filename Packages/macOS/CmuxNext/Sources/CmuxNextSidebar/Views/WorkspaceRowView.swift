@@ -76,6 +76,9 @@ final class WorkspaceRowView: SidebarRowView {
     let statusBlock = WorkspaceStatusView()
     internal(set) var statusHeight: CGFloat = 0
     var hasSubtitle = false, isExpanded = false, timeText: String?
+    /// The workspace's name, while the row draws another (`sidebar.rowTitle` focused tab, an inherited chat): calm
+    /// mode's tooltip says it, since no hover card opens there.
+    var hiddenWorkspaceName: String?
     /// An idle workspace nobody named: its name reads in the secondary ink (`SidebarTunables.quietUnnamedRows`).
     var isQuiet = false
     /// Archived in the sidebar document: the row draws dimmed (`SidebarStyle.archivedAlpha`).
@@ -215,6 +218,7 @@ final class WorkspaceRowView: SidebarRowView {
         var fontSize: CGFloat
         var iconSize: CGFloat
         var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackLimit: Int
+        var rowTitle: SidebarRowTitleMode, rowTitleSingleChat: Bool
         var disclosure: SidebarTabDisclosure?
         var row: WorkspaceRowContent?
     }
@@ -226,6 +230,7 @@ final class WorkspaceRowView: SidebarRowView {
             ws: ws, group: row.group,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize,
             agentMark: tunables.agentMark, presenceDots: tunables.presenceDots, rowBadge: badgeStyle ?? tunables.rowBadge, stackLimit: tunables.stackCap.limit,
+            rowTitle: tunables.rowTitle, rowTitleSingleChat: tunables.rowTitleSingleChat,
             disclosure: row.tabDisclosure, row: row.content
         )
         guard needsConfigure(content) else { return }
@@ -256,18 +261,21 @@ final class WorkspaceRowView: SidebarRowView {
             placeholderBar.layer?.removeAllAnimations()
             placeholderBar.alphaValue = 1
         }
-        title.stringValue = ws.title
-        lastTitle = ws.title
+        // The name the row draws (`sidebar.rowTitle`): the workspace's, else a breadcrumb to its focused tab.
+        let shownTitle = ws.rowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)
+        title.stringValue = shownTitle
+        lastTitle = shownTitle
+        hiddenWorkspaceName = ws.namesWorkspace(shownTitle) ? nil : ws.title
         isQuiet = tunables.quietUnnamedRows && ws.isUnnamed && !ws.unread.isUnread && ws.activity == .idle && !ws.agentWorking
         isArchived = ws.isArchived
         icon.alphaValue = isArchived ? SidebarStyle.archivedAlpha : 1
-        let arrival = priorTitle?.isEmpty == true && !ws.title.isEmpty && !isPlaceholderRow
+        let arrival = priorTitle?.isEmpty == true && !shownTitle.isEmpty && !isPlaceholderRow
             && tunables.workspaceTitleMotion != .instant && Motion.sidebar.animatesMovement
         if arrival {
             titleArrivalPending = true
             titleArrivalVariant = tunables.workspaceTitleMotion
         } else {
-            animateTitleChange(from: priorTitle, to: ws.title, variant: tunables.workspaceTitleMotion,
+            animateTitleChange(from: priorTitle, to: shownTitle, variant: tunables.workspaceTitleMotion,
                                placeholder: isShowingPlaceholder || isPlaceholderRow)
         }
         title.font = ws.titleWeight.map { NSFont.systemFont(ofSize: SidebarStyle.titleFont.pointSize, weight: $0.font) } ?? SidebarStyle.titleFont
@@ -333,7 +341,8 @@ final class WorkspaceRowView: SidebarRowView {
         for (button, control) in [(closeButton, "close"), (moreButton, "more"), (pinButton, "pin"), (disclosureButton, "disclosure")] as [(NSButton, String)] {
             button.setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue).\(control)")
         }
-        setAccessibilityLabel(accessibilityText(ws, content: shown))
+        setAccessibilityLabel(accessibilityText(ws, content: shown,
+                                                title: ws.spokenRowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)))
         needsLayout = true
         needsDisplay = true
     }
