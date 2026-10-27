@@ -216,7 +216,7 @@ enum WireFuzzEnvelopeCase {
         let decoded = try? WireCoding.decoder().decode(LineTransport.Envelope.self, from: line)
         let read = try WireFuzzJSON.required(decoded, "the scan routes a line the decoder refuses: \(shown)")
         try FuzzRun.check(scan.id == read.id && scan.ok == read.ok && scan.event == read.event && scan.type == read.type
-                              && scan.streamID == read.streamID && scan.cause == read.cause,
+                              && scan.streamID == read.streamID && scan.cause == read.cause && scan.stream == read.stream,
                           "the scan read \(scan), the decoder \(read): \(shown)")
     }
 

@@ -140,7 +140,7 @@ public struct CmuxNextApp {
                                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                                               resolvesShellIntegration: environment.resolvesShellIntegration,
                                               echoesPlacementShift: SidebarMirror.isLinked, wireStats: wireStats,
-                                              hangWatch: hangWatch)
+                                              hangWatch: hangWatch, terminalStreams: Self.terminalStreams(features))
         DebugTimings.markLaunch("main.prestart")
         // The front window's picture for the first frame, read and decoded on the files lane (p08-startup-058);
         // which window is front comes from the launch snapshot, read there only when a picture was saved.
@@ -189,5 +189,13 @@ public struct CmuxNextApp {
         withExtendedLifetime(delegate) {
             app.run()
         }
+    }
+
+    /// This Mac as the sizing device of the local daemon connection's terminal streams while feature
+    /// `terminalStreams` is on (p05-ipc-095): its terminal views then attach as streams on that connection,
+    /// for the prestart's first connect and `AppServices.startLocalDaemon`'s. Nil keeps a connection per view.
+    nonisolated static func terminalStreams(_ features: FeatureList) -> TerminalStreamsDevice? {
+        guard features.isEnabled(.terminalStreams) else { return nil }
+        return { await DaemonTerminalIO.sizingDevice.value }
     }
 }

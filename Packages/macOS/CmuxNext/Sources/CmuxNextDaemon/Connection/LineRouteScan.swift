@@ -1,7 +1,7 @@
 import Foundation
 
-/// The routing fields of one line (``LineTransport/Envelope``'s `id`, `ok`, `event`, `type`, `stream_id` and
-/// `cause`), read from its bytes, so a reply or an event is parsed once: by the code that reads its body. Mojo
+/// The routing fields of one line (``LineTransport/Envelope``'s `id`, `ok`, `event`, `type`, `stream_id`,
+/// `cause` and `stream`), read from its bytes, so a reply or an event is parsed once: by the code that reads its body. Mojo
 /// routes a message by its header and leaves the payload to the receiving stub
 /// (mojo/public/cpp/bindings/lib/message.cc, `Message::name()` and `Message::request_id()`); a JSON line has no
 /// header, so the scan walks the top-level object and checks the JSON grammar of every value it skips.
@@ -17,6 +17,8 @@ struct LineRouteScan: Equatable {
     var type: String?
     var streamID: String?
     var cause: String?
+    /// An event's attach stream (attach-streams-v1).
+    var stream: UInt16?
 
     /// Containers deeper than this are left to the decoder, so the scan's recursion stays shallow.
     static let maxDepth = 64
@@ -32,11 +34,11 @@ struct LineRouteScan: Equatable {
     /// The routing fields as an envelope with no error fields: a reply that is not `ok:true` is
     /// decoded whole for those.
     var envelope: LineTransport.Envelope {
-        LineTransport.Envelope(id: id, ok: ok, event: event, type: type, streamID: streamID, cause: cause)
+        LineTransport.Envelope(id: id, ok: ok, event: event, type: type, streamID: streamID, cause: cause, stream: stream)
     }
 
     private enum Field: UInt8 {
-        case id = 1, ok = 2, event = 4, type = 8, streamID = 16, cause = 32
+        case id = 1, ok = 2, event = 4, type = 8, streamID = 16, cause = 32, stream = 64
 
         init?(key: some Sequence<UInt8>) {
             if key.elementsEqual(Byte.idKey) {
@@ -51,6 +53,8 @@ struct LineRouteScan: Equatable {
                 self = .streamID
             } else if key.elementsEqual(Byte.causeKey) {
                 self = .cause
+            } else if key.elementsEqual(Byte.streamKey) {
+                self = .stream
             } else {
                 return nil
             }
@@ -85,7 +89,7 @@ struct LineRouteScan: Equatable {
             }
             skipSpace()
             guard complete, index == bytes.endIndex else { return nil }
-            if fields.event == nil { fields.cause = nil }
+            if fields.event == nil { (fields.cause, fields.stream) = (nil, nil) }
             return fields
         }
 
@@ -128,6 +132,15 @@ struct LineRouteScan: Equatable {
         private mutating func read(_ field: Field, into fields: inout LineRouteScan) -> Bool {
             guard let first = current else { return false }
             switch field {
+            case .stream:
+                // The decoder reads a UInt16 or nothing: a string, a sign, a fraction or a bigger number is nil.
+                guard first == Byte.minus || Byte.isDigit(first) else { return skipValue(depth: 1) }
+                let start = index
+                guard skipNumber() else { return false }
+                let digits = slice(start..<index)
+                guard digits.allSatisfy(Byte.isDigit) else { return false }
+                fields.stream = UInt16(String(decoding: digits, as: UTF8.self), radix: 10)
+                return true
             case .id:
                 if first == Byte.quote {
                     guard let text = plainText() else { return false }
@@ -160,7 +173,7 @@ struct LineRouteScan: Equatable {
                 case .type: fields.type = text
                 case .streamID: fields.streamID = text
                 case .cause: fields.cause = text
-                case .id, .ok: break  // read above
+                case .id, .ok, .stream: break  // read above
                 }
                 return true
             }
@@ -287,6 +300,7 @@ struct LineRouteScan: Equatable {
         static let typeKey = Array("type".utf8)
         static let streamIDKey = Array("stream_id".utf8)
         static let causeKey = Array("cause".utf8)
+        static let streamKey = Array("stream".utf8)
         /// The one-letter escapes after a backslash: `"`, `\`, `/`, `b`, `f`, `n`, `r`, `t`.
         static let simpleEscapes: Set<UInt8> = Set("\"\\/bfnrt".utf8)
 
