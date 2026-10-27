@@ -47,6 +47,32 @@ import Testing
         }
     }
 
+    @Test func savedAttachmentRestorationCannotSendAStarter() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("chief-starter-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = EmptyChiefSource(), id = ConversationID("conv_chief")
+        let store = HomeStore(source: source, blobCacheDirectory: root)
+        let inbox = try await source.inbox()
+        store.start()
+        await store.open(id)
+        let attachment = try await store.prepareAttachment(data: Data("saved draft".utf8), typeIdentifier: "public.plain-text")
+        store.setDraftAttachments([attachment], for: id)
+        let view = HomeNativeTranscriptView(store: store, conversation: id, me: inbox.me.id)
+        defer { view.stop(); store.close(id); store.stop() }
+        view.setFirstRunStarters(HomeStarterContext())
+        #expect(!view.firstRun.isHidden)
+        #expect(view.transcript.isRestoringDraftAttachments)
+        #expect(view.transcript.draftAttachments.isEmpty)
+        #expect(!view.firstRun.starters.isEnabled)
+        view.sendStarter(HomeStarterStrings.setup)
+        #expect(!view.starterSent)
+        #expect(view.transcript.draftText.isEmpty)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while view.transcript.isRestoringDraftAttachments, ContinuousClock.now < deadline { await Task.yield() }
+        #expect(view.transcript.draftAttachments == [attachment])
+        #expect(!view.transcript.draftText.contains(HomeStarterStrings.setup))
+    }
+
     @Test func chipSendsExactlyOnceAndPreservesATypedDraft() async throws {
         let source = EmptyChiefSource()
         let id = ConversationID("conv_chief")
