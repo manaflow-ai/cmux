@@ -123,9 +123,11 @@ import Testing
                                      defaults: UserDefaults(suiteName: "UpdateRelaunchMomentTests.\(UUID().uuidString)")!,
                                      enableSparkle: false, recordsUpdates: false)
         // The test runner has no modal, sheet, menu or composition up: the install starts now.
-        // Asked outside #expect: the macro's autoclosure is @Sendable and cannot take the release.
-        let deferred = updater.updaterDefersAutomaticInstall(until: {})
-        #expect(!deferred)
+        // Called outside #expect: the macro passes a call's arguments through a @Sendable closure, and
+        // the `{}` it would capture is a plain (non-Sendable) closure there, not the @MainActor one the
+        // method takes, which Swift 6 refuses to compile.
+        let defers = updater.updaterDefersAutomaticInstall(until: {})
+        #expect(!defers)
         #expect(!updater.relaunchMomentHold.isHolding)
     }
 

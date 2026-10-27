@@ -219,6 +219,21 @@ struct CloudAPIClientRunTests {
         #expect(await page(.notSignedIn) == "not_signed_in")
     }
 
+    @Test func aRunAPIWithNoSandboxedRunsSaysSoNotThatARunMayBeGoing() async {
+        // The Run API before sandboxed Runs refuses a sandboxed body for want of a source or recipe,
+        // before it stores anything: the page hears `run_sandbox_unavailable` ("not enabled yet"), a
+        // definite refusal that frees the tab (AgentPaneSandboxRunTests), never `unavailable`.
+        let page = { (error: CloudAPIError) async -> String? in
+            let reply = await AgentPaneReply.sandbox({ throw error }, code: AgentPageChats.sandboxCode)
+            return (reply["error"] as? [String: Any])?["code"] as? String
+        }
+        for code in ["run_source_required", "run_recipe_required"] {
+            #expect(await page(.http(status: 400, code: code, message: "source.commit must be a commit SHA.")) == "run_sandbox_unavailable")
+        }
+        // The same code with another status is no proof nothing was stored.
+        #expect(await page(.http(status: 500, code: "run_source_required", message: nil)) == "unavailable")
+    }
+
     @Test func aCancelledCallerStartsNoRun() async throws {
         SandboxAPI.createKeys = []
         let api = sandboxAPI()

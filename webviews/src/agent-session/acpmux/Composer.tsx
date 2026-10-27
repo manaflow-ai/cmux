@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind } from "./environments";
+import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import { type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
@@ -296,6 +297,8 @@ type Props = {
   onRefreshMachines?(): void;
   /// The folder menu's quiet line while a new chat has no folder (ComposerContext `folderNote`).
   folderNote?: string;
+  /// A new chat's Run as rows in the environment picker (Persistent or Sandboxed, hq#3367).
+  runMode?: RunModeRows;
   /// This Mac's name for the location row.
   localName?: string;
   /// Preview features on: the location row's computer is the environment picker (ComposerContext).
@@ -371,6 +374,7 @@ export function Composer({
   offloads,
   onRefreshMachines,
   folderNote,
+  runMode,
   localName,
   environments,
   onNewChat,
@@ -1614,6 +1618,7 @@ export function Composer({
       {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
       {...(onRefreshMachines ? { onRefreshMachines } : {})}
       {...(folderNote ? { folderNote } : {})}
+      {...(runMode ? { runMode } : {})}
       environments={environments}
       {...(onComputer ? { onComputer } : {})}
       onProject={
