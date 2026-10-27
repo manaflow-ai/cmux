@@ -94,7 +94,8 @@ fn create_params_carry_the_task_timeout_key_and_only_the_options_given() {
 
 #[test]
 fn the_receipt_reads_reply_first_then_status_time_cost_and_cleanup() {
-    let messages = &crate::localization::catalog().sandbox_run;
+    // English whatever the process locale: the assertions below are the English text.
+    let messages = &crate::localization::catalog_for_locale("en").sandbox_run;
     let receipt = json!({
         "status": "succeeded",
         "exitCode": 0,
