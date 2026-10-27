@@ -426,12 +426,12 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// A JSON-RPC id as its JSON text (number or string), so the reply carries the same id.
     private static func idText(_ value: Any) -> String? {
         guard JSONSerialization.isValidJSONObject([value]),
-              let data = try? JSONSerialization.data(withJSONObject: [value]) else { return nil }
+              let data = try? CheckedJSON.data(withJSONObject: [value]) else { return nil }
         return String(decoding: data.dropFirst().dropLast(), as: UTF8.self)
     }
 
     static func json(_ object: Any) -> Data {
-        (try? JSONSerialization.data(withJSONObject: object)) ?? Data("{}".utf8)
+        (try? CheckedJSON.data(withJSONObject: object)) ?? Data("{}".utf8)
     }
 }
 

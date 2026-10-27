@@ -314,7 +314,7 @@ final class FeedService {
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.setValue("Bearer \(try await auth.tokens().access)", forHTTPHeaderField: "authorization")
         if let team { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        request.httpBody = try CheckedJSON.data(withJSONObject: body)
         // The bearer never goes through the shared, caching session.
         let (data, _) = try await CloudAPIClient.noStoreTransport.data(for: request)
         guard let reply = try JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else { throw FeedServiceError.badReply }

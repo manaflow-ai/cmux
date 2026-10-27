@@ -160,7 +160,7 @@ struct PageFactory {
             let run: MacScreenDevicesSettings.Run
             do {
                 run = try JSONDecoder().blockingDecode(MacScreenDevicesSettings.Run.self,
-                                               from: JSONSerialization.data(withJSONObject: params.foundationObject))
+                                               from: CheckedJSON.data(withJSONObject: params.foundationObject))
             } catch {
                 throw PageError.invalidParams("unknown devices action")
             }

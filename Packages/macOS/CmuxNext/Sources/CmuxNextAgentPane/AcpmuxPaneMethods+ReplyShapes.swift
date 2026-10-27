@@ -76,7 +76,7 @@ nonisolated extension AcpmuxPaneMethods {
         } else {
             reply["result"] = object["result"].flatMap { filtered($0, to: shape) } ?? [String: Any]()
         }
-        let data = (try? JSONSerialization.data(withJSONObject: reply, options: [.sortedKeys])) ?? Data()
+        let data = (try? CheckedJSON.data(withJSONObject: reply, options: [.sortedKeys])) ?? Data()
         return String(decoding: data, as: UTF8.self)
     }
 }

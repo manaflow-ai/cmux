@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The owner's hand routes on the API Worker (backend hand-routes.ts, docs/chief-hands.md), called
@@ -18,7 +19,7 @@ public struct HandsAPIClient: Sendable {
     /// `GET /v1/hands`.
     public func hands() async throws -> [HandSummary] {
         let value = try await request("GET", "/v1/hands")
-        return try JSONDecoder().decode([HandSummary].self, from: JSONSerialization.data(withJSONObject: value))
+        return try JSONDecoder().decode([HandSummary].self, from: CheckedJSON.data(withJSONObject: value))
     }
 
     /// `GET /v1/hands/<hand>/approvals`: the requests waiting for the owner.
@@ -92,7 +93,7 @@ public struct HandsAPIClient: Sendable {
         request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            request.httpBody = try CheckedJSON.data(withJSONObject: body)
         }
         let data: Data
         let response: URLResponse

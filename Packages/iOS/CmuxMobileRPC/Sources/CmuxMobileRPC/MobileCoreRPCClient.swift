@@ -281,7 +281,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             "method": method,
             "params": params,
         ]
-        return try JSONSerialization.data(withJSONObject: request)
+        return try CheckedJSON.data(withJSONObject: request)
     }
 
     /// Sends one JSON-RPC request over the paired Mac connection.
@@ -399,7 +399,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
               JSONSerialization.isValidJSONObject(hostStatus) else {
             return nil
         }
-        guard let encoded = try? JSONSerialization.data(withJSONObject: hostStatus),
+        guard let encoded = try? CheckedJSON.data(withJSONObject: hostStatus),
               (try? MobileHostStatusResponse.decode(encoded)) != nil else {
             return nil
         }
@@ -489,7 +489,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             params[Self.surfaceEventLanesParameterKey] = Self.surfaceEventLanesParameterValue
         }
         request["params"] = params
-        return (try? JSONSerialization.data(withJSONObject: request)) ?? requestData
+        return (try? CheckedJSON.data(withJSONObject: request)) ?? requestData
     }
 
     /// Force a single Stack token refresh ahead of a retry.
@@ -567,7 +567,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             id = UUID().uuidString
             dict["id"] = id
         }
-        let data = try JSONSerialization.data(withJSONObject: dict)
+        let data = try CheckedJSON.data(withJSONObject: dict)
         return (id, data)
     }
 
@@ -583,7 +583,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         if transportRequest.authorizationMode == .transportAdmission {
             request.removeValue(forKey: "auth")
             return AuthenticatedRequestPayload(
-                data: try JSONSerialization.data(withJSONObject: request),
+                data: try CheckedJSON.data(withJSONObject: request),
                 stackAccessToken: nil
             )
         }
@@ -662,7 +662,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             request["auth"] = auth
         }
         return AuthenticatedRequestPayload(
-            data: try JSONSerialization.data(withJSONObject: request),
+            data: try CheckedJSON.data(withJSONObject: request),
             stackAccessToken: requestStackAccessToken
         )
     }

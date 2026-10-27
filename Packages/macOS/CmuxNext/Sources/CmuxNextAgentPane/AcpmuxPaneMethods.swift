@@ -136,7 +136,7 @@ nonisolated enum AcpmuxPaneMethods {
         case .success(let page):
             guard isFirst, let localAppToken else { return .send(text) }
             let object = withLocalAppToken(page, localAppToken)
-            guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]) else {
+            guard let data = try? CheckedJSON.data(withJSONObject: object, options: [.withoutEscapingSlashes]) else {
                 return .refuse(.invalidFrame, method: object["method"] as? String, requestID: object["id"].flatMap(rawID))
             }
             return .send(String(decoding: data, as: UTF8.self))
@@ -247,7 +247,7 @@ nonisolated enum AcpmuxPaneMethods {
         if let reason { data["reason"] = reason }
         if rootRequested { data["rootRequested"] = true }
         let body: [String: Any] = ["code": -32601, "message": "Refused by the cmux host", "data": data]
-        let encoded = (try? JSONSerialization.data(withJSONObject: body)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+        let encoded = (try? CheckedJSON.data(withJSONObject: body)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
         return #"{"jsonrpc":"2.0","id":"# + requestID + #","error":"# + encoded + "}"
     }
 
@@ -391,7 +391,7 @@ nonisolated enum AcpmuxPaneMethods {
     static func rawID(_ value: Any) -> String? {
         if let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() { return number.stringValue }
         if let string = value as? String,
-           let data = try? JSONSerialization.data(withJSONObject: [string]) {
+           let data = try? CheckedJSON.data(withJSONObject: [string]) {
             return String(String(decoding: data, as: UTF8.self).dropFirst().dropLast())
         }
         return nil

@@ -77,7 +77,7 @@ extension AcpmuxEnvironment {
         do {
             let result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: method.rawValue, params: params,
                                                            deadline: method.deadline, detailed: true)
-            return try JSONSerialization.data(withJSONObject: result)
+            return try CheckedJSON.data(withJSONObject: result)
         } catch AcpmuxStatusClient.Failure.unreachable(let detail) {
             throw AcpmuxRPCError(name: AcpmuxRPCError.unreachable, message: detail)
         }
@@ -116,7 +116,7 @@ extension AcpmuxEnvironment {
         let watch: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": "_acpmux/watch", "params": ["enabled": true]]
         var payload = Data()
         for request in [initialize, watch] {
-            payload += try JSONSerialization.data(withJSONObject: request)
+            payload += try CheckedJSON.data(withJSONObject: request)
             payload.append(0x0A)
         }
         try await AcpmuxStatusClient.send(payload, on: connection)

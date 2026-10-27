@@ -126,7 +126,7 @@ nonisolated final class AcpmuxRequestIds: Sendable {
     }
 
     static func encode(_ object: [String: Any]) -> String? {
-        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]) else { return nil }
+        guard let data = try? CheckedJSON.data(withJSONObject: object, options: [.withoutEscapingSlashes]) else { return nil }
         return String(decoding: data, as: UTF8.self)
     }
 }

@@ -74,7 +74,7 @@ public nonisolated struct AgentPaneCustomization: Equatable, Sendable {
     /// `data` as sorted-key JSON when it holds a JSON object.
     private static func layoutObject(_ data: Data) -> String? {
         guard let object = try? JSONSerialization.blockingJSONObject(with: data), object is [String: Any],
-              let normalized = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+              let normalized = try? CheckedJSON.data(withJSONObject: object, options: [.sortedKeys])
         else { return nil }
         return String(data: normalized, encoding: .utf8)
     }

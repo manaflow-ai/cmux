@@ -336,7 +336,7 @@ nonisolated enum AcpmuxServerPeer {
         let request: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": method, "params": params]
         var payload = Data()
         for object in [initialize, request] {
-            payload += try JSONSerialization.data(withJSONObject: object)
+            payload += try CheckedJSON.data(withJSONObject: object)
             payload.append(0x0A)
         }
         try write(payload, to: descriptor, until: until)

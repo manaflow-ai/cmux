@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Darwin
 public import Foundation
 
@@ -72,7 +73,7 @@ public nonisolated struct ChiefAdoption: Sendable {
         }
         let json: [String: Any] = ["by": by, "at": ISO8601DateFormatter().string(from: now),
                                    "backup": backup?.path ?? NSNull(), "raw": raw]
-        try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]).write(to: record, options: .atomic)
+        try CheckedJSON.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]).write(to: record, options: .atomic)
         return .adopted(backup: backup)
     }
 

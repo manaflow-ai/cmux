@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// One `loopback-*` event line.
@@ -60,6 +61,6 @@ enum LoopbackForwardLine {
 
     private static func line(_ object: [String: any Sendable]) -> Data {
         // Only strings and integers: serialization cannot fail.
-        (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
+        (try? CheckedJSON.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
     }
 }

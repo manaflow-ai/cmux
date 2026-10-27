@@ -68,7 +68,7 @@ public final class AgentPaneDraftAttachments {
         let object = list.foundationObject
         // A NaN or infinite number would raise, not throw.
         guard case .array = list, JSONSerialization.isValidJSONObject(object),
-              let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
+              let data = try? CheckedJSON.data(withJSONObject: object) else { return nil }
         return try? JSONDecoder().blockingDecode([AgentPaneWakeState.Attachment].self, from: data)
     }
 

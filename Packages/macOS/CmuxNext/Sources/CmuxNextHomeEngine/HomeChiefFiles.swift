@@ -248,7 +248,7 @@ public nonisolated struct HomeChiefFiles: Sendable {
 
     /// 0600, through a temporary file and a replace, as optchat-chief writes.
     private func write(_ object: [String: Any], to file: URL) {
-        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) else { return }
+        guard let data = try? CheckedJSON.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) else { return }
         let directory = file.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let temporary = directory.appendingPathComponent(file.lastPathComponent + ".app.tmp")

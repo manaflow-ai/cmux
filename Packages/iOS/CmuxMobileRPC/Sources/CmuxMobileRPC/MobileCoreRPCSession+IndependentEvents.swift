@@ -154,7 +154,7 @@ extension MobileCoreRPCSession {
             guard let topic = envelope["topic"] as? String else { return }
             let payloadData: Data?
             if let payload = envelope["payload"] {
-                payloadData = try? JSONSerialization.data(withJSONObject: payload)
+                payloadData = try? CheckedJSON.data(withJSONObject: payload)
             } else {
                 payloadData = nil
             }
@@ -172,7 +172,7 @@ extension MobileCoreRPCSession {
               pending[id] != nil || pipelinedPending[id] != nil else { return }
         if (envelope["ok"] as? Bool) == true {
             let result = envelope["result"] ?? [:]
-            if let data = try? JSONSerialization.data(withJSONObject: result) {
+            if let data = try? CheckedJSON.data(withJSONObject: result) {
                 settlePendingRequest(
                     requestID: id,
                     settlement: .response(.success(data))

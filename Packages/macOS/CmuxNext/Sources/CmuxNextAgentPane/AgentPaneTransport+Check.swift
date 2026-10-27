@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import os
 
@@ -186,7 +187,7 @@ extension AgentPaneTransport {
     nonisolated static func configValueText(_ object: [String: Any]?) -> String {
         let value = (object?["params"] as? [String: Any])?["value"]
         guard let value else { return "" }
-        if let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]) {
+        if let data = try? CheckedJSON.data(withJSONObject: value, options: [.fragmentsAllowed]) {
             return String(decoding: data, as: UTF8.self)
         }
         return String(describing: value)

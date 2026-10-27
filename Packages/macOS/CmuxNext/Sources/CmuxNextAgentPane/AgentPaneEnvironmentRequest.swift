@@ -52,7 +52,7 @@ public nonisolated enum AgentPaneEnvironmentRequest: Equatable, Sendable {
         object = object.filter { !($0.value is NSNull) }
         object["updatedAt"] = nil
         guard JSONSerialization.isValidJSONObject(object),
-              let data = try? JSONSerialization.data(withJSONObject: object),
+              let data = try? CheckedJSON.data(withJSONObject: object),
               let environment = try? JSONDecoder().blockingDecode(AgentPaneEnvironment.self, from: data) else { return nil }
         return environment.validated()
     }

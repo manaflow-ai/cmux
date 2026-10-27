@@ -136,7 +136,7 @@ extension AgentPaneView {
 
     /// Retry, Edit and Resend, Open Image and a path's Open: the page's own actions, with the menu choice as the gesture.
     private func runMessageAction(_ name: String, _ params: [String: String]) {
-        guard let data = try? JSONSerialization.data(withJSONObject: params) else { return }
+        guard let data = try? CheckedJSON.data(withJSONObject: params) else { return }
         AgentPanePersonInput.record(model.transport.gestures, input: gestureRouter.input)
         evaluateScript("window.cmuxAcpmuxActions?.['\(name)']?.(\(String(decoding: data, as: UTF8.self)));")
     }

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextPhone
 import CmuxNextWakeups
 
@@ -204,7 +205,7 @@ enum PhoneHandlers {
     }
 
     static func json(_ object: Any) throws -> String {
-        String(decoding: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), as: UTF8.self)
+        String(decoding: try CheckedJSON.data(withJSONObject: object, options: [.sortedKeys]), as: UTF8.self)
     }
 
     /// The phone named by `device` (`sim:<udid>`, `dev:<udid>`, or a name), else the default.

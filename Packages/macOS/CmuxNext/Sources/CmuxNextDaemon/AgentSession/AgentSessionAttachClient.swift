@@ -214,7 +214,7 @@ public actor AgentSessionAttachClient {
         object["cmd"] = cmd.wire
         object["surface"] = surface
         // Integers stay integers (the daemon reads u64 seqs and surface ids).
-        let fields = try JSONSerialization.data(withJSONObject: object)
+        let fields = try CheckedJSON.data(withJSONObject: object)
         let response: LineTransport.Response
         do {
             response = try await transport.request(cmd: cmd, timeout: requestTimeout) { id in
@@ -292,7 +292,7 @@ public actor AgentSessionAttachClient {
     static func data(of line: Data) -> Data {
         guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
               let data = object["data"], JSONSerialization.isValidJSONObject(data),
-              let encoded = try? JSONSerialization.data(withJSONObject: data) else { return Data("{}".utf8) }
+              let encoded = try? CheckedJSON.data(withJSONObject: data) else { return Data("{}".utf8) }
         return encoded
     }
 }

@@ -115,7 +115,7 @@ extension MobileCoreRPCSession {
             "params": ["stream_id": probeID],
         ]
         guard timeoutNanoseconds > 0,
-              let payload = try? JSONSerialization.data(withJSONObject: request),
+              let payload = try? CheckedJSON.data(withJSONObject: request),
               let frame = try? MobileSyncFrameCodec.encodeFrame(payload),
               let queue = writeQueue else {
             return false

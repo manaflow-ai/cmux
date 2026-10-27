@@ -1,4 +1,5 @@
 public import CMUXMobileCore
+import CmuxNextCompat
 public import Foundation
 
 /// Mac-scoped attach tickets (`mobile.attach_ticket.create`) for the iOS
@@ -55,7 +56,7 @@ public struct MobileAttachTicket {
                 "attach_url": attachURL,
             ]
             if let expiresAt = ticket.expiresAt { object["expires_at"] = ISO8601DateFormatter().string(from: expiresAt) }
-            return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+            return try CheckedJSON.data(withJSONObject: object, options: [.sortedKeys])
         }
     }
 

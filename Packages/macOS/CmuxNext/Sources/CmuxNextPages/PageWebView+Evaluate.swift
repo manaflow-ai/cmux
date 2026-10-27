@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import WebKit
 
@@ -39,7 +40,7 @@ extension PageWebView {
         let names = arguments.keys.sorted()
         let values = try names.map { name in
             guard let value = arguments[name], JSONSerialization.isValidJSONObject([value]),
-                  let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]),
+                  let data = try? CheckedJSON.data(withJSONObject: value, options: [.fragmentsAllowed]),
                   let text = String(data: data, encoding: .utf8) else { throw PageScriptError.argument(name) }
             return text
         }

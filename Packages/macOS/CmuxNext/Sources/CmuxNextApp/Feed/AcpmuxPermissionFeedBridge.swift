@@ -175,7 +175,7 @@ final class AcpmuxPermissionFeedBridge {
         nextID += 1
         let id = nextID
         let request: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]
-        guard var data = try? JSONSerialization.data(withJSONObject: request) else { return nil }
+        guard var data = try? CheckedJSON.data(withJSONObject: request) else { return nil }
         data.append(0x0A)
         // A waiter dropped unanswered (the bridge went away) gets no reply, as a lost connection does.
         let reply = try? await withOnceContinuation { (waiter: OnceContinuation<Data?, OnceContinuationError>) in
@@ -202,7 +202,7 @@ final class AcpmuxPermissionFeedBridge {
                 }
             } else if let waiter = replies.removeValue(forKey: id) {
                 let result = message["error"] == nil
-                    ? try? JSONSerialization.data(withJSONObject: message["result"] as? [String: Any] ?? [:]) : nil
+                    ? try? CheckedJSON.data(withJSONObject: message["result"] as? [String: Any] ?? [:]) : nil
                 waiter.resume(returning: result)
             }
             return

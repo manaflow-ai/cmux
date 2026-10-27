@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// How the app starts one `cmux-mobile-host` (cmux-next-ios/rust/README.md lists its
@@ -186,13 +187,13 @@ public struct MobileHostLaunch: Sendable, Equatable {
     }
 
     static func anyLine(_ object: [String: Any]) -> Data {
-        var data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
+        var data = (try? CheckedJSON.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
         data.append(0x0A)
         return data
     }
 
     static func line(_ object: [String: String]) -> Data {
-        var data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
+        var data = (try? CheckedJSON.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
         data.append(0x0A)
         return data
     }

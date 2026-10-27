@@ -117,7 +117,7 @@ final class AppBrowserHost {
                 default: break
                 }
             }
-            guard let data = try? JSONSerialization.data(withJSONObject: event.foundationValue) else { return }
+            guard let data = try? CheckedJSON.data(withJSONObject: event.foundationValue) else { return }
             inputBridge.receive(data)
         }
         inputLeaseObservation = provider.observeLeases { [inputBridge] targetID, lease in

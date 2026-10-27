@@ -165,7 +165,7 @@ nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
         let object = (try? JSONSerialization.blockingJSONObject(with: line)) as? [String: Any] ?? [:]
         let member = { (key: String) -> Data in
             guard let value = object[key], JSONSerialization.isValidJSONObject(value),
-                  let data = try? JSONSerialization.data(withJSONObject: value) else { return Data("{}".utf8) }
+                  let data = try? CheckedJSON.data(withJSONObject: value) else { return Data("{}".utf8) }
             return data
         }
         switch name {

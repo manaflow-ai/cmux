@@ -208,7 +208,7 @@ extension AgentPaneTransport {
         }
         let frame: [String: Any] = ["jsonrpc": "2.0", "id": ids.hostID(), "method": "_acpmux/person_prove",
                                     "params": ["proof": proof]]
-        guard let data = try? JSONSerialization.data(withJSONObject: frame), let text = String(data: data, encoding: .utf8) else { return }
+        guard let data = try? CheckedJSON.data(withJSONObject: frame), let text = String(data: data, encoding: .utf8) else { return }
         if let error = socket.send(text) {
             Self.logger.error("agent pane transport: person proof not sent: \(error.rawValue, privacy: .public)")
         }

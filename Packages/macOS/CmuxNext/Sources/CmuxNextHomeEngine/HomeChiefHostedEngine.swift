@@ -56,7 +56,7 @@ public nonisolated struct HomeChiefHostedEngine: HomeChiefEngineSource {
     public func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
         let patch = Self.patch(fields)
         guard !patch.isEmpty else { return try await read() }
-        let body = try? JSONSerialization.data(withJSONObject: patch, options: [.sortedKeys])
+        let body = try? CheckedJSON.data(withJSONObject: patch, options: [.sortedKeys])
         return Self.snapshot(try await call("PUT", body: body), avatar: files.avatar())
     }
 

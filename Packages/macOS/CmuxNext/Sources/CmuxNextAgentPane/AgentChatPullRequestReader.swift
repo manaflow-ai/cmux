@@ -170,7 +170,7 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
             for key in ["labels", "files"] {
                 view[key] = (view[key] as? [String: Any])?["nodes"] as? [[String: Any]] ?? []
             }
-            guard let reshaped = try? JSONSerialization.data(withJSONObject: view),
+            guard let reshaped = try? CheckedJSON.data(withJSONObject: view),
                   let pullRequest = AgentPanePullRequest(ghView: reshaped) else { continue }
             result[target.url] = .some(pullRequest)
         }

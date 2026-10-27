@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// What a tab gives `BrowserRestoredSession`: its engine's own back/forward
@@ -290,7 +291,7 @@ class BrowserRestoredSession {
 
     /// `text` as a JavaScript string literal.
     static func javaScriptString(_ text: String) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: [text]),
+        guard let data = try? CheckedJSON.data(withJSONObject: [text]),
               let array = String(data: data, encoding: .utf8) else { return "\"\"" }
         return String(array.dropFirst().dropLast())
     }

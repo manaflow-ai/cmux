@@ -149,7 +149,7 @@ nonisolated enum AcpmuxPathPolicy {
         let used = Array(context.used)
         guard context.changed else { return .success(Checked(text: text, gestureRootsUsed: used)) }
         object["params"] = checked
-        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]) else {
+        guard let data = try? CheckedJSON.data(withJSONObject: object, options: [.withoutEscapingSlashes]) else {
             return .failure(Refusal(error: .invalidFrame, requestID: id, method: method))
         }
         return .success(Checked(text: String(decoding: data, as: UTF8.self), gestureRootsUsed: used))

@@ -76,7 +76,7 @@ final class IconPickerPrefsStore {
 extension IconPickerPrefsStore {
     fileprivate nonisolated static func wire(_ value: PageJSON) -> WireJSON? {
         guard JSONSerialization.isValidJSONObject(value.foundationObject),
-              let data = try? JSONSerialization.data(withJSONObject: value.foundationObject) else { return nil }
+              let data = try? CheckedJSON.data(withJSONObject: value.foundationObject) else { return nil }
         return try? JSONDecoder().blockingDecode(WireJSON.self, from: data)
     }
 

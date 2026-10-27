@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextDaemon
 import Darwin
 public import Foundation
@@ -173,7 +174,7 @@ public nonisolated enum ChiefMigration {
         let state: [String: Any] = ["conversation": conversation, "logged_seq": loggedSeq, "outbox": [Any](), "turn": NSNull(),
                                     "children": [String: Any](), "orphans": [Any]()]
         let hostJSON = optchat.appendingPathComponent("host.json")
-        try JSONSerialization.data(withJSONObject: state).write(to: hostJSON, options: .atomic)
+        try CheckedJSON.data(withJSONObject: state).write(to: hostJSON, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: hostJSON.path)
     }
 
@@ -206,7 +207,7 @@ public nonisolated enum ChiefMigration {
         let record: [String: Any] = ["status": status, "at": ISO8601DateFormatter().string(from: Date()),
                                      "sources": olds.map { ["tag": $0.tag, "mux_home": $0.muxHome.path, "store": $0.store.path] }]
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONSerialization.data(withJSONObject: record, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic)
+        try CheckedJSON.data(withJSONObject: record, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic)
     }
 
     // MARK: Locks

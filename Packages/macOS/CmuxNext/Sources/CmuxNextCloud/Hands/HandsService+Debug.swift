@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CryptoKit
 public import Foundation
 
@@ -46,7 +47,7 @@ extension HandsService {
             "result": Self.orNull(result),
             "log": log,
         ]
-        let data = (try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])) ?? Data("{}".utf8)
+        let data = (try? CheckedJSON.data(withJSONObject: report, options: [.sortedKeys])) ?? Data("{}".utf8)
         return String(decoding: data, as: UTF8.self)
     }
 
