@@ -9,17 +9,24 @@ import CmuxNextWakeups
 import Foundation
 import Observation
 
-/// Feeds the sidebar's session tree (`sidebar.sessionTree`, Claude desktop's Code tab) from data
-/// the app already has: each workspace's agent chats (their acpmux sessions), acpmux's `spawnedBy`
-/// on those sessions' lanes, the parents another machine's daemon listed for the chats a chat there
-/// started (``RemoteAgentSessionLinks``, a Cloud VM chat's children), the pull request of each session folder's branch (`gh pr view`, as the
-/// chat header's chip reads it) and each pull request a session opened (acpmux `pullRequests`,
-/// `gh pr view <url>`). Off, it leaves `SidebarSessionTree.state` nil. The pull request reads also
-/// run while only the Priority view is on (`sidebar.priorityView.enabled`), for its Red CI
-/// (``checksFailing(_:)``); the tree then stays off.
+/// Feeds the sidebar's session tree (`sidebar.sessionTree`, Claude desktop's Code tab) from data the app already
+/// has: each workspace's agent chats (their acpmux sessions), acpmux's `spawnedBy` on those sessions' lanes, the
+/// parents another machine's daemon listed for the chats a chat there started (``RemoteAgentSessionLinks``, a Cloud
+/// VM chat's children), the parent this Mac recorded when an agent opened a session's workspace
+/// (``AgentSessionParents``, for a daemon that lists none), the pull request of each session folder's branch
+/// (`gh pr view`, as the chat header's chip reads it) and each pull request a session opened (acpmux
+/// `pullRequests`, `gh pr view <url>`). Off, it leaves `SidebarSessionTree.state` nil. The pull request reads also
+/// run while only the Priority view is on (`sidebar.priorityView.enabled`), for its Red CI (``checksFailing(_:)``);
+/// the tree then stays off.
 @MainActor
 public final class SidebarSessionTreeFeed {
     public static let shared = SidebarSessionTreeFeed()
+
+    public let recordedParents: AgentSessionParents
+
+    public init(recordedParents: AgentSessionParents? = nil) {
+        self.recordedParents = recordedParents ?? AgentSessionParents(defaults: .standard)
+    }
 
     private var task: Task<Void, Never>?
     /// Also read by ``checksFailing(_:)``, the Priority view's Red CI.
@@ -38,8 +45,9 @@ public final class SidebarSessionTreeFeed {
     /// this Mac's `install:<id>`: the lanes are this Mac's acpmux sessions.
     public func start(workspaces: @escaping @MainActor @Sendable () -> [WorkspaceModel], localHost: String?,
                       lanes: AgentLaneStore = .shared, remote: RemoteAgentSessionLinks = .shared,
-                      tree: SidebarSessionTree = .shared) {
+                      recorded: AgentSessionParents? = nil, tree: SidebarSessionTree = .shared) {
         guard task == nil else { return }
+        let storedParents = recorded ?? self.recordedParents
         let pullRequests = pullRequests
         // task-owner: the app (one feed for the app's life); event-driven (Observation)
         task = Task {
@@ -55,8 +63,8 @@ public final class SidebarSessionTreeFeed {
                         if let session = ref.session, let link = lanes.links(session) { links[session] = link }
                     }
                 }
-                var pass = Self.pass(chats, links: links, remoteParents: remote.parents, localHost: localHost,
-                                     pullRequests: pullRequests.answers)
+                var pass = Self.pass(chats, links: links, remoteParents: remote.parents, recordedParents: storedParents.parents,
+                                     localHost: localHost, pullRequests: pullRequests.answers)
                 pass.showsTree = sections.sessionTree
                 return pass
             }) {
@@ -82,14 +90,15 @@ public final class SidebarSessionTreeFeed {
     }
 
     static func pass(_ chats: [(SidebarWorkspaceID, [AgentSessionRef])], lanes: [String: AgentActivityLane],
-                     remoteParents: [String: String] = [:], localHost: String?,
+                     remoteParents: [String: String] = [:], recordedParents: [String: String] = [:], localHost: String?,
                      pullRequests: [String: AgentPanePullRequest]) -> Pass {
-        pass(chats, links: lanes.mapValues(AgentLaneLinks.init), remoteParents: remoteParents, localHost: localHost, pullRequests: pullRequests)
+        pass(chats, links: lanes.mapValues(AgentLaneLinks.init), remoteParents: remoteParents, recordedParents: recordedParents,
+             localHost: localHost, pullRequests: pullRequests)
     }
 
     /// The pass over each session's links (`AgentLaneLinks`): all it reads of a lane.
     static func pass(_ chats: [(SidebarWorkspaceID, [AgentSessionRef])], links lanes: [String: AgentLaneLinks],
-                     remoteParents: [String: String] = [:], localHost: String?,
+                     remoteParents: [String: String] = [:], recordedParents: [String: String] = [:], localHost: String?,
                      pullRequests: [String: AgentPanePullRequest]) -> Pass {
         // Each workspace's acpmux sessions on this Mac (the lanes cover this Mac's acpmux only), and
         // its chats on other machines whose parent that machine's daemon listed.
@@ -123,7 +132,33 @@ public final class SidebarSessionTreeFeed {
             state.pullRequests[id] = Self.badge(wanted, answers: pullRequests)
         }
         state.states = agentStates
+        // The parent recorded when an agent opened the workspace, only for a session whose daemon lists no
+        // lineage at all: a daemon parent wins even when no workspace here shows it. Applied last, to the
+        // workspaces the daemons left without a parent, and never where it would close a loop.
+        for (id, refs) in chats where state.parents[id] == nil {
+            let recorded = refs.lazy.compactMap { ref -> SidebarWorkspaceID? in
+                guard let session = ref.session else { return nil }
+                let daemon = ref.host == localHost ? lanes[session]?.spawnedBy : remoteParents[session]
+                guard daemon == nil else { return nil }
+                return recordedParents[session].flatMap { owner[$0] }
+            }
+            if let parent = recorded.first(where: { $0 != id && !Self.reaches(from: $0, to: id, in: state.parents) }) {
+                state.parents[id] = parent
+            }
+        }
         return Pass(state: state, asks: asks)
+    }
+
+    /// True when following `parents` up from `start` reaches `target` (a new edge target -> start would loop).
+    static func reaches(from start: SidebarWorkspaceID, to target: SidebarWorkspaceID,
+                        in parents: [SidebarWorkspaceID: SidebarWorkspaceID]) -> Bool {
+        var seen: Set<SidebarWorkspaceID> = []
+        var next: SidebarWorkspaceID? = start
+        while let node = next, seen.insert(node).inserted {
+            if node == target { return true }
+            next = parents[node]
+        }
+        return false
     }
 
     /// What a workspace's sessions show: their folders (each one's branch's pull request) and the

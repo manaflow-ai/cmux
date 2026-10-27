@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -25,6 +26,10 @@ import Foundation
 /// again finds its row. A `name` that already has a row in that group (a lane
 /// re-homed to another machine, whose new session has a new key) gets the
 /// chat as a tab of that row, never a second row of the same name.
+/// An agent's call (`callerAgentSession`) records that agent's session as
+/// the opened session's lineage parent (``AgentSessionParents``), so the
+/// sidebar's session tree nests the new workspace under the caller's even
+/// when the session's daemon lists no lineage (a remote or older daemon).
 enum AgentSessionWorkspace {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agent.openSessionWorkspace", run: { invocation in
@@ -42,17 +47,19 @@ enum AgentSessionWorkspace {
         // The Chief host's own acpmux runs the session (`chief:<home id>`); absent: this Mac's.
         let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let group = invocation["group"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, group: group, services: context.services)
+        let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, group: group,
+                            parent: invocation.callerAgentSession, services: context.services)
         context.services.registry.track(task)
     }
 
     /// Starts the new workspace for `session` (see the type) and returns its
     /// work. Start Agent's Return (cx-hkat) puts its started chat in the
-    /// sidebar this way too. Throws when this build has no agent page or the
-    /// daemon is offline.
+    /// sidebar this way too. `parent` is the session of the agent that asked
+    /// (nil for a person), recorded once the chat tab opens. Throws when this
+    /// build has no agent page or the daemon is offline.
     @discardableResult
     static func open(session: String, name: String?, key: WorkspaceKey = .generate(), cwd: String?, host: String? = nil,
-                     group: String? = nil, services: AppServices) throws -> ActionWork {
+                     group: String? = nil, parent: String? = nil, services: AppServices) throws -> ActionWork {
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let daemon = services.daemon
         guard let connection = daemon.connection, case let repair = services.emptyWorkspaces else {
@@ -66,7 +73,7 @@ enum AgentSessionWorkspace {
         // Every window's sidebar: each lists only its own workspaces, and the predecessor may be in any.
         if let group, let name,
            let row = windows.controllers.lazy.compactMap({ predecessor(named: name, inGroup: group, in: $0.sidebar.model.sections) }).first {
-            return reuse(row, session: session, key: key, host: host, services: services)
+            return reuse(row, session: session, key: key, host: host, parent: parent, services: services)
         }
         // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
         // workspace the window shows, when it is in one (cx-caoh), then into
@@ -102,6 +109,7 @@ enum AgentSessionWorkspace {
                 for window in services.windows.controllers {
                     window.state.selection.select(created.key, in: pane.id)
                 }
+                AgentSessionWorkspace.recordParent(parent, of: session, in: SidebarSessionTreeFeed.shared.recordedParents)
                 logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in workspace \(key.rawValue, privacy: .public) tab \(created.key, privacy: .public)")
                 return nil
             } catch let refusal as AgentTabRefusal {
@@ -113,11 +121,20 @@ enum AgentSessionWorkspace {
         }
     }
 
+    /// Records `caller`, the session of the agent that opened `session`'s
+    /// workspace, as `session`'s lineage parent. The sidebar's tree reads it
+    /// only where the session's daemon lists no lineage of its own, so a
+    /// daemon's `spawnedBy`/`startedBy` still wins. A person's open (no
+    /// caller) records nothing.
+    @MainActor static func recordParent(_ caller: String?, of session: String, in parents: AgentSessionParents) {
+        parents.record(caller?.trimmingCharacters(in: .whitespacesAndNewlines), of: session)
+    }
+
     /// The chat of a re-homed lane's new session as a tab of its predecessor's
     /// row `row`, selected there; the caller's `key` is the tab's creation key,
     /// so a launcher run again gets the same tab.
     private static func reuse(_ row: SidebarWorkspaceID, session: String, key: WorkspaceKey, host: String?,
-                              services: AppServices) -> ActionWork {
+                              parent: String?, services: AppServices) -> ActionWork {
         let daemon = services.daemon
         let logger = daemon.logger
         return Task { @MainActor in
@@ -131,6 +148,7 @@ enum AgentSessionWorkspace {
                 for window in services.windows.controllers {
                     window.state.selection.select(created.key, in: pane.id)
                 }
+                AgentSessionWorkspace.recordParent(parent, of: session, in: SidebarSessionTreeFeed.shared.recordedParents)
                 logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in its predecessor's workspace \(row.rawValue, privacy: .public)")
                 return nil
             } catch let refusal as AgentTabRefusal {
