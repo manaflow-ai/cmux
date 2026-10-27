@@ -1807,13 +1807,15 @@ jobs:
     if: ${{ !cancelled() && needs.resolve-nightly-cmux-tui-client.result == 'success' }}
     continue-on-error: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    # Checkout, the two token mints (1 + 1) and the pick (2).
-    timeout-minutes: 6
+    # Checkout, the two token mints (1 + 1) and the pick (8: up to 5 min waiting for a busy
+    # dedicated builder, then the owned and Blacksmith reads).
+    timeout-minutes: 12
     permissions:
       # The queue janitor's pool snapshot (an artifact).
       actions: read
       contents: read
     outputs:
+      dedicated: ${{ steps.pick.outputs.dedicated }}
       owned: ${{ steps.pick.outputs.owned }}
       blacksmith: ${{ steps.pick.outputs.blacksmith }}
     steps:
@@ -1852,14 +1854,19 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
 
-      - name: Pick an idle owned Mac, else a moving Blacksmith label
+      # The dedicated nightly-next builder first (its warm DerivedData builds the tip
+      # incrementally), waiting up to 5 min while it is busy; then an idle owned Mac; then a
+      # moving Blacksmith label. `owned` carries the dedicated label when it is picked.
+      - name: Pick the dedicated builder, else an idle owned Mac, else a moving Blacksmith label
         id: pick
         if: github.ref == 'refs/heads/nightly-next'
         continue-on-error: true
-        timeout-minutes: 2
+        timeout-minutes: 8
         env:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           SNAPSHOT_TOKEN: ${{ github.token }}
+          # Unset switches the dedicated builder off; only pr_runner_pool.NIGHTLY_DEDICATED_LABEL is offered.
+          DEDICATED_LABEL: ${{ vars.CI_NIGHTLY_NEXT_DEDICATED_LABEL }}
           # In order; only labels ci-owned-pool-rescue.yml watches are offered.
           OWNED_LABELS: ${{ format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
@@ -1889,7 +1896,8 @@ jobs:
       daemon_version: ${{ steps.resume.outputs.version || steps.remote_daemon.outputs.version }}
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     # Native nightlies use the same controller-managed owned-Mac pool as dev builds.
-    # On nightly-next, pick-nightly-build-runner gives attempt 1 an owned label only
+    # On nightly-next, pick-nightly-build-runner gives attempt 1 the dedicated builder
+    # (glaeda-trusted-next-nightly) while it is free, else an owned label only
     # while one of its runners is idle now, and every other case (a busy fleet, a
     # refused or stuck attempt the rescue re-runs) the moving Blacksmith label: the
     # build never waits on one label with no fallback.
