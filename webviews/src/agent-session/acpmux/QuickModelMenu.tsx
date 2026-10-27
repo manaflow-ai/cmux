@@ -1,5 +1,5 @@
 import React, { Fragment, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { AgentMark } from "../shared/AgentMark";
+import { AgentMark, agentBrand } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import { SearchIcon, type Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
@@ -806,10 +806,12 @@ export function QuickModelMenu({
                 >
                   {family.starred ? (
                     <StarIcon />
-                  ) : family.mark ? (
+                  ) : family.mark && agentBrand(family.mark) ? (
                     <AgentMark agent={family.mark} size={16} />
                   ) : (
-                    <AgentMark agent={undefined} size={16} reserve />
+                    <span aria-hidden="true" className="acpmux-quick-rail-initial">
+                      {family.name.trim().charAt(0).toUpperCase() || "?"}
+                    </span>
                   )}
                 </button>
               ))}

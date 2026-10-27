@@ -15,6 +15,8 @@ type Props = {
   many?: boolean;
   anchorTop?: boolean;
   anchorMiddle?: boolean;
+  railLook?: "wrap" | "scroll" | "wide";
+  stress?: boolean;
 };
 
 const models = (family: string, names: string[]) => names.map((name) => ({ id: `${family}/${name}`, name, family }));
@@ -82,15 +84,36 @@ export default componentEntry<Props>({
   load: () =>
     Promise.all([import("./QuickModelMenu"), import("./newTabComposer")]).then(
       ([{ QuickModelMenu }, { OnNewTab }]) =>
-        function GalleryQuickModelMenu({ tab, expand, chat, fast = false, many, anchorTop, anchorMiddle }: Props) {
+        function GalleryQuickModelMenu({
+          tab,
+          expand,
+          chat,
+          fast = false,
+          many,
+          stress,
+          anchorTop,
+          anchorMiddle,
+          railLook = "wrap",
+        }: Props) {
           const [isOpen, setOpen] = useState(false);
           const trigger = useRef<HTMLButtonElement | null>(null);
           const [isFast, setFast] = useState(fast);
+          const extraNames = stress
+            ? [
+                "Cursor",
+                "Gemini",
+                "Copilot",
+                "Amp",
+                "Aider",
+                "Goose",
+                ...Array.from({ length: 30 }, (_, index) => "Harness " + (index + 11)),
+              ]
+            : ["Cursor", "Gemini", "Copilot", "Amp", "Aider", "Goose"];
           const available = many
             ? [
                 ...families,
-                ...["Cursor", "Gemini", "Copilot", "Amp", "Aider", "Goose"].map((name) => ({
-                  id: name.toLowerCase(),
+                ...extraNames.map((name) => ({
+                  id: name.toLowerCase().replaceAll(" ", "-"),
                   mark: name.toLowerCase(),
                   name,
                   models: models(name.toLowerCase(), [name + " model"]),
@@ -104,6 +127,7 @@ export default componentEntry<Props>({
               <div
                 style={{ padding: 16, paddingTop: anchorMiddle ? 280 : chat && !anchorTop ? 400 : 16 }}
                 data-expand={expand ? "" : undefined}
+                data-rail-look={railLook}
               >
                 <QuickModelMenu
                   open={isOpen}
@@ -150,6 +174,10 @@ export default componentEntry<Props>({
     "newtab-midpoint": { props: { anchorMiddle: true }, play: open },
     "chat-flipped": { props: { chat: true, anchorTop: true }, play: open },
     "claude-many-harnesses": { props: { many: true }, play: open },
+    "icons-wrap": { props: { many: true, railLook: "wrap" }, play: open },
+    "icons-scroll": { props: { many: true, railLook: "scroll" }, play: open },
+    "icons-wide": { props: { many: true, railLook: "wide" }, play: open },
+    "icons-stress": { props: { many: true, stress: true }, play: open },
     combined: { props: { chat: true }, play: open },
     "combined-fast": { props: { chat: true, fast: true }, play: open },
     "combined-signed-out": { props: { chat: true, tab: "unii" }, play: open },

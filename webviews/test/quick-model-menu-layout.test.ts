@@ -178,4 +178,73 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       await page.close();
     }
   });
+  test("a short pane keeps a forty-harness rail scrollable and selectable", async () => {
+    const page = await open("icons-stress", 320, 300);
+    try {
+      const rail = page.locator(".acpmux-quick-rail");
+      const tabs = page.locator(".acpmux-quick-rail-tab");
+      expect(await tabs.count()).toBe(40);
+      expect((await rail.boundingBox())!.height).toBeLessThanOrEqual(104);
+      expect(await rail.evaluate((node) => (node as HTMLElement).scrollHeight)).toBeGreaterThan(
+        await rail.evaluate((node) => (node as HTMLElement).clientHeight),
+      );
+      const last = tabs.nth(39);
+      await page.keyboard.press("ArrowLeft");
+      expect(await last.getAttribute("aria-pressed")).toBe("true");
+      expect(await page.locator(".acpmux-quick-list").innerText()).toContain("Harness 40 model");
+      const rect = (await last.boundingBox())!;
+      const box = (await rail.boundingBox())!;
+      expect(rect.y).toBeGreaterThanOrEqual(box.y);
+      expect(rect.y + rect.height).toBeLessThanOrEqual(box.y + box.height);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("every narrow rail tab has a visible mark and stays fully in the rail", async () => {
+    const page = await open("claude-many-harnesses", 320, 560);
+    try {
+      const rail = await bounds(page, ".acpmux-quick-rail");
+      const tabs = page.locator(".acpmux-quick-rail-tab");
+      expect(await tabs.count()).toBe(10);
+      const rects = await tabs.evaluateAll((nodes) =>
+        nodes.map((node) => {
+          const rect = node.getBoundingClientRect();
+          return {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            empty: !!node.querySelector(".agent-mark-empty"),
+          };
+        }),
+      );
+      for (const rect of rects) {
+        expect(rect.x).toBeGreaterThanOrEqual(rail.x + 5);
+        expect(rect.x + rect.width).toBeLessThanOrEqual(rail.x + rail.width - 5);
+        expect(rect.y).toBeGreaterThanOrEqual(rail.y + 5);
+        expect(rect.y + rect.height).toBeLessThanOrEqual(rail.y + rail.height - 5);
+        expect(rect.width).toBeGreaterThan(0);
+        expect(rect.height).toBeGreaterThan(0);
+        expect(rect.empty).toBe(false);
+      }
+      const rows = new Map<number, typeof rects>();
+      for (const rect of rects) {
+        const key = Math.round(rect.y);
+        rows.set(key, [...(rows.get(key) ?? []), rect]);
+      }
+      expect(rows.size).toBeGreaterThan(1);
+      for (const row of rows.values()) {
+        row.sort((a, b) => a.x - b.x);
+        for (let index = 1; index < row.length; index++)
+          expect(row[index]!.x - row[index - 1]!.x - row[index - 1]!.width).toBe(4);
+      }
+      const last = tabs.nth(9);
+      await last.click();
+      expect(await last.getAttribute("aria-pressed")).toBe("true");
+      expect(await page.locator(".acpmux-quick-list").innerText()).toContain("Goose model");
+    } finally {
+      await page.close();
+    }
+  });
 });

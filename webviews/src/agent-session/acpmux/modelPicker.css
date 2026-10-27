@@ -300,15 +300,18 @@
 .acpmux-quick-newtab { max-height: min(360px, var(--available-height, 100vh)); }
 .acpmux-quick-rail {
   flex: none;
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, var(--ui-row-height));
+  align-content: start;
+  justify-content: start;
   gap: 4px;
   min-inline-size: 0;
   margin: 0;
   border: 0;
   border-block-end: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   padding: 6px;
-  overflow-x: auto;
+  max-block-size: min(calc(3 * var(--ui-row-height) + 2 * 4px + 12px), calc(var(--available-height, 100vh) / 2));
+  overflow: auto;
 }
 .acpmux-quick-menu[data-side="top"] .acpmux-quick-rail {
   order: 1;
@@ -316,7 +319,6 @@
   border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
 }
 .acpmux-quick-rail-tab {
-  flex: none;
   display: grid;
   place-items: center;
   width: var(--ui-row-height);
@@ -331,6 +333,11 @@
 .acpmux-quick-rail-tab[aria-pressed="true"] {
   background: var(--acpmux-menu-hover);
   color: var(--agent-text);
+}
+.acpmux-quick-rail-initial {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  line-height: 1;
 }
 .acpmux-quick-body {
   display: grid;
@@ -408,3 +415,9 @@
 .ui-menu-item.acpmux-quick-offer {
   padding-inline-start: calc(var(--ui-row-padding-inline) + 12px);
 }
+
+/* Gallery-only overflow alternatives: compare them against production wrapping. */
+body:has([data-rail-look="scroll"]) .acpmux-quick-rail { display: flex; align-items: center; overflow-x: auto; }
+body:has([data-rail-look="scroll"]) .acpmux-quick-rail-tab { flex: none; }
+body:has([data-rail-look="wide"]) .acpmux-quick-menu.acpmux-quick-railed { width: min(420px, var(--available-width, calc(100vw - 24px))); max-width: min(420px, var(--available-width, calc(100vw - 24px))); }
+body:has([data-rail-look="wide"]) .acpmux-quick-rail { grid-template-columns: repeat(10, var(--ui-row-height)); }
