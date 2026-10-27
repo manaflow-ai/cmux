@@ -28,6 +28,9 @@ export type AcpmuxSend = {
   target: string;
   /// The message, when the command line holds it.
   text?: string;
+  /// The prompt came from a file redirect. Its body is only displayable when the event also carries
+  /// captured content; the transcript never reads this path from the live filesystem.
+  fileInput?: true;
   /// `--no-wait`: it printed how the daemon took it (`queued`, `steered`) instead of the reply.
   noWait: boolean;
   /// How many other commands the line runs that do work of their own (`git push && acpmux send …`,
@@ -677,5 +680,10 @@ function sendArgs(args: readonly ShellWord[], stdin: ShellWord | "file" | undefi
       : undefined;
   const name = session.text.trim();
   const target = host && !/[/:]/.test(name) ? `${host}/${name}` : name;
-  return { target, ...(text?.trim() && { text }), noWait } satisfies AcpmuxSend;
+  return {
+    target,
+    ...(text?.trim() && { text }),
+    ...(stdin === "file" && { fileInput: true as const }),
+    noWait,
+  } satisfies AcpmuxSend;
 }

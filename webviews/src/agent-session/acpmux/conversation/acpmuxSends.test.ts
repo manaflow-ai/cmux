@@ -106,9 +106,13 @@ describe("acpmuxSend", () => {
     // An escape echo may turn into a character (zsh, bash -e) is not read as typed.
     expect(read("echo -e 'a\\nb' | acpmux send lane -")).toEqual({ target: "lane", noWait: false });
     expect(read("cat <<'EOF' | acpmux send lane\nvia cat\nEOF")?.text).toBe("via cat\n");
-    expect(read("acpmux send lane - < /tmp/note.md")).toEqual({ target: "lane", noWait: false });
+    expect(read("acpmux send lane - < /tmp/note.md")).toEqual({ target: "lane", fileInput: true, noWait: false });
     // The last stdin redirect wins; a writer whose stdout goes elsewhere feeds nothing.
-    expect(read("acpmux send lane - <<EOF < /tmp/message\nbody\nEOF")).toEqual({ target: "lane", noWait: false });
+    expect(read("acpmux send lane - <<EOF < /tmp/message\nbody\nEOF")).toEqual({
+      target: "lane",
+      fileInput: true,
+      noWait: false,
+    });
     expect(read("acpmux send lane - < /tmp/message <<EOF\nbody\nEOF")?.text).toBe("body\n");
     expect(read("echo secret >/dev/null | acpmux send lane -")).toEqual({ target: "lane", noWait: false });
     expect(read("echo shown 2>/dev/null | acpmux send lane -")?.text).toBe("shown");
@@ -236,6 +240,7 @@ describe("acpmuxSend", () => {
     // The text from a file on stdin: the target only.
     expect(read("acpmux send --no-wait --from net-retries coord-deputy - < /tmp/report.md")).toEqual({
       target: "coord-deputy",
+      fileInput: true,
       noWait: true,
     });
     expect(

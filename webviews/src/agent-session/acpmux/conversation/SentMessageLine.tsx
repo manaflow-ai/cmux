@@ -265,12 +265,26 @@ export function AcpmuxSendLine({ tool, send }: { tool: Tool; send: AcpmuxSendCal
       : delivery === "delivered"
         ? t("subsession.delivery.nextStep")
         : undefined;
+  const inputPath = tool.inputPath;
+  const capturedFileBody =
+    send.fileInput === true && inputPath
+      ? tool.diffs?.find(
+          (diff) =>
+            diff.fromInput === true &&
+            diff.fragment === true &&
+            diff.oldText === undefined &&
+            diff.path === inputPath.path &&
+            (diff.canonical === undefined || diff.canonical === inputPath.canonical),
+        )?.newText
+      : undefined;
   return (
     <SentMessageLine
       tool={tool}
       state={send.state}
       target={send.target}
-      text={send.text}
+      // A file-backed prompt is shown only when acpmux captured its new text in the event. Never
+      // read `inputPath` here: historical transcript rendering must not inspect a live file.
+      text={send.text ?? capturedFileBody}
       detail={detail}
       disclosureKey={`send:${tool.id}`}
       others={send.others}
