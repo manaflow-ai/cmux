@@ -54,6 +54,11 @@ public nonisolated enum DaemonUpdateOutcome: Sendable, Equatable {
     /// Another path updates it (a cmux Cloud VM reached as an ssh peer goes through
     /// `cmux link machine update --to-bundled`); nothing changed and nothing shows.
     case handledElsewhere
+    /// The person held the machine off updates (`acpmux host hold`: reserved for someone else, or
+    /// not theirs); nothing reached it. `reason`: the daemon's words, with the hold's reason and
+    /// `until`. Like ``handledElsewhere`` nothing shows and nothing is recorded, so it is not asked
+    /// again in this run and the next launch asks again; only the log names the hold.
+    case held(reason: String)
     /// The machine cannot take any new build in place (a Cloud machine whose cmux predates in-place
     /// updates); nothing changed, and it keeps working on what it runs. Not a failure: no toast,
     /// one grouped line in Settings > Updates, and not tried again while it reports the same build,
