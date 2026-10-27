@@ -39,3 +39,21 @@ export async function retryFailedTurn(deps: TurnRetryDeps): Promise<RetryNote | 
     return "retry.failed";
   }
 }
+
+export type OwnedResendDeps<Client, Draft> = {
+  /// The direct client the Retry started on.
+  client: Client;
+  currentClient: () => Client | null | undefined;
+  /// Whether the pane still shows the chat the failed row was drawn for (restartReaches).
+  owns: () => boolean;
+  /// The prompt as it was sent, its attachments restored (`resendPrompt`, which may ask acpmux).
+  restore: () => Promise<Draft>;
+  send: (draft: Draft) => Promise<unknown>;
+};
+
+/// The prompt sent again, only to the chat the failed row was drawn for.
+export async function resendToOwner<Client, Draft>(deps: OwnedResendDeps<Client, Draft>): Promise<unknown> {
+  if (!deps.owns()) return undefined;
+  const draft = await deps.restore();
+  return deps.send(draft);
+}

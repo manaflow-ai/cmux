@@ -293,7 +293,7 @@ import {
   type SessionEdits,
 } from "./turnChanges/sessionRows";
 import { repositoryRoot, viewChangesBeside, viewChangesTurn } from "./turnChanges/viewChanges";
-import { retryFailedTurn } from "./conversation/turnRetry";
+import { resendToOwner, retryFailedTurn } from "./conversation/turnRetry";
 import {
   TurnActionsContext,
   chatLoginCommand,
@@ -5977,7 +5977,16 @@ function AcpmuxPane() {
                 capabilities: client.capabilities,
                 request: (method, params) => client.retry(method, params),
                 resend:
-                  rowId && prompt ? () => (reaches() ? resend(rowId, prompt) : Promise.resolve(undefined)) : undefined,
+                  rowId && prompt
+                    ? () =>
+                        resendToOwner({
+                          client,
+                          currentClient: () => directClient.current,
+                          owns: reaches,
+                          restore: () => client.resendPrompt(rowId, prompt),
+                          send: (draft) => callNative("chat.send", { text: draft.input, attachments: draft.attachments }),
+                        })
+                    : undefined,
               });
             })(restartChat),
           }),

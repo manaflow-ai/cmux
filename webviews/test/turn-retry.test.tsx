@@ -5,7 +5,7 @@
 // failed turn's Retry now asks acpmux first, and sends the prompt again only where acpmux cannot.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import { retryFailedTurn } from "../src/agent-session/acpmux/conversation/turnRetry";
+import { resendToOwner, retryFailedTurn } from "../src/agent-session/acpmux/conversation/turnRetry";
 import { RETRY_METHOD, TURN_RETRY } from "../src/agent-session/acpmux/subagents/retryState";
 
 const refusal = (reason: string, why?: string) =>
@@ -231,4 +231,33 @@ test("an attempt acpmux sent that failed again still offers Retry, and the turn 
   );
   await act(async () => cardRetry().click());
   expect(asked).toEqual([last.retryRowId]);
+});
+
+// An old daemon's fallback restores the prompt's attachments (`resendPrompt`, which may ask acpmux)
+// before it sends. A chat switch during that wait must not send the failed prompt to the next chat.
+test("the fallback send checks the chat and client again after the prompt is restored", async () => {
+  const run = async (change: (state: { owns: boolean; client: object }) => void) => {
+    const client = {};
+    const state = { owns: true, client };
+    type Draft = { input: string; attachments: never[] };
+    let restored!: (draft: Draft) => void;
+    const sent: string[] = [];
+    const going = resendToOwner({
+      client,
+      currentClient: () => state.client,
+      owns: () => state.owns,
+      restore: () => new Promise<Draft>((resolve) => (restored = resolve)),
+      send: (draft) => {
+        sent.push(draft.input);
+        return Promise.resolve();
+      },
+    });
+    change(state);
+    restored({ input: "fix the build", attachments: [] });
+    await going;
+    return sent;
+  };
+  expect(await run(() => undefined)).toEqual(["fix the build"]);
+  expect(await run((state) => (state.owns = false))).toEqual([]);
+  expect(await run((state) => (state.client = {}))).toEqual([]);
 });
