@@ -55,10 +55,15 @@ public final class OwnerPanicForwarder: Sendable {
 
     /// Reads now and each time the state root changes, off the main thread.
     public func start() {
-        queue.async { [self] in
-            forwardNew()
-            watch()
-        }
+        queue.async { [self] in forwardAndWatch() }
+    }
+
+    /// ``start()``'s work on the calling thread, which may block on files (a launch lane post,
+    /// ``CrashForwarders/run()``): reads the lines added since the last read, then watches the
+    /// log's folder on the forwarder's queue. Call it, or ``start()``, once.
+    public func forwardAndWatch() {
+        forwardNew()
+        watch()
     }
 
     /// Sends the lines added since the last read. Returns the events sent.

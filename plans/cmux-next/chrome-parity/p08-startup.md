@@ -1053,6 +1053,12 @@ consistency test.
 `OwnerPanicForwarder.swift`, `Startup/Startup+Platform.swift`. Change: forwarder starts and the DiagnosticReports listing
 become `.bestEffort` lane posts behind the fence; handlers and LayoutPassGuard stay. Acceptance: no forwarder file calls
 before completion; previous-run report still sent in the same launch.
+As built (cp/p08-startup-078): feature `crashForwardersAfterStartup` (default off). `CmuxNextCrashReporting/CrashForwarders`
+holds the three forwarders; `CrashForwarders.post(on:)` posts their first pass and watches as one
+`.afterStartup` post `CrashReporting.forwarders` on `.lane(.files, .bestEffort)`, so it waits for completion and the fence.
+Finding acpmux (`AcpmuxEnvironment.resolve`: executable checks and the signature check) moves into that post too.
+`Startup/Startup+Platform.swift` does not exist on this branch; the wiring is the one `AppServices.init` line.
+Off, the forwarders start at once as before. Sentry's handlers, the invariant sink and LayoutPassGuard install at launch.
 
 **079 Q2 remainder.** Files: `Startup/Startup+{Control,Terminal,Settings,Platform,Core}.swift`. Change: priorities for
 hangReports.start, settings.start, keybindingsFile.start, mouseSideButtons, DaemonPrompts, TerminalHooks, themes.start and
