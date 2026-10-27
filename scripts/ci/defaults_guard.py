@@ -426,7 +426,7 @@ def static_declarations(text: str) -> list[tuple[str, str, list[str]]]:
             if depth == 0 and started:
                 if value in ("}", ";"):
                     break
-                if "\n" in gap and tokens[-1] not in ("=", ",", ".", ":", "+", "-", "*", "/", "%", "&", "|", "?", "??") and value not in (".", "{", "("):
+                if "\n" in gap and tokens[-1] not in ("=", ",", ".", ":", "+", "-", "*", "/", "%", "&", "|", "?", "??") and value not in (".", "{", "(", "+", "-", "*", "/", "%", "&", "|", "?", "=", "<", ">", "!"):
                     break
             if value in ("(", "[", "{"):
                 depth += 1

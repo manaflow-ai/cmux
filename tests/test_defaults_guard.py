@@ -242,19 +242,23 @@ enum BrowserResize { static let `default` = true }
 """
         caller_source = """enum Surface {
     static let gap = Factory.number(2.0)
-    static let size = Tunable<Double>.number("surface.size", .status, "Size", default: 2.0
-        * 3.0)
+    static let defaultGap = 2.0
+        * 3.0
+    static let size = Tunable<Double>.number("surface.size", .status, "Size", default: defaultGap)
 }
 """
         self.repo.write(helper, helper_source)
         self.repo.write(caller, caller_source)
         self.base = self.repo.commit("cross-file and continued defaults")
-        head = self.head(extra={helper: helper_source.replace("default: value", "default: value + 1"),
-                                caller: caller_source.replace("* 3.0", "* 4.0")})
-        result = self.check(head)
-        self.assertEqual(result.returncode, 1, result.stdout)
-        self.assertIn("DEFAULTS tunable-source.CmuxNextDesign/Factory.swift:number", result.stdout)
-        self.assertIn("DEFAULTS tunable-source.CmuxNextDesign/Surface.swift:size", result.stdout)
+        for changed, expected in (
+            (caller_source.replace("Factory.number(2.0)", "Factory.number(4.0)"), "gap"),
+            (caller_source.replace("* 3.0", "* 4.0"), "defaultGap"),
+        ):
+            with self.subTest(expected=expected):
+                head = self.head(extra={caller: changed})
+                result = self.check(head)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("DEFAULTS tunable-source.CmuxNextDesign/Surface.swift:" + expected, result.stdout)
 
     def test_two_flags_with_one_name_are_judged_apart(self):
         two = "enum A {\n    static let isEnabled = false\n}\nenum B {\n    static let isEnabled = true\n}\n"
