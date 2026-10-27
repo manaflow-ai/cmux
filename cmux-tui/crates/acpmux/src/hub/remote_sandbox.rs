@@ -843,6 +843,13 @@ fn canary_persistence_probe(cwd: &Path, linux: bool) -> Result<Option<PathBuf>, 
     Ok(Some(probe))
 }
 
+/// Red-stage host probe check; the fix pins the probe directory and uses openat/fstatat.
+fn probe_sources_intact(probe: &Path) -> bool {
+    ["source-git", "source-claude"]
+        .iter()
+        .all(|name| std::fs::read(probe.join(name)).is_ok_and(|data| data == b"x"))
+}
+
 type CanaryFields = [Option<i32>; 9];
 
 /// Field/report scans end at the finite captured output; duplicate keys refuse.
@@ -985,11 +992,7 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
         && claude_canary.as_ref().is_none_or(|path| absent(path));
     // A denied rename must leave the ordinary source in place too. This finite
     // pair check proves the successful cwd writes independently of the report.
-    let sources_intact = persistence_probe.as_ref().is_none_or(|probe| {
-        ["source-git", "source-claude"]
-            .iter()
-            .all(|name| std::fs::read(probe.join(name)).is_ok_and(|data| data == b"x"))
-    });
+    let sources_intact = persistence_probe.as_ref().is_none_or(|probe| probe_sources_intact(probe));
     if let Some(path) = &persistence_probe {
         let _ = std::fs::remove_dir_all(path);
     }
@@ -1483,6 +1486,30 @@ mod endpoint_tests {
             assert!(!canary_verdict(true, missing, true, true));
         }
         assert!(parse_canary_report("acpmux-canary outside=1 outside=0").is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn canary_renames_are_helper_pinned_not_path_commands() {
+        assert!(!CANARY.contains("mv -T"));
+        assert!(CANARY.contains("__remote-sandbox-canary-rename"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn probe_source_symlink_is_rejected_without_reading_target() {
+        let root = std::env::temp_dir().join(format!("probe-fd-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::os::unix::fs::symlink("/dev/zero", root.join("source-git")).unwrap();
+        std::fs::write(root.join("source-claude"), b"x").unwrap();
+        let root_for_thread = root.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(probe_sources_intact(&root_for_thread));
+        });
+        let result = rx.recv_timeout(std::time::Duration::from_millis(100));
+        let _ = std::fs::remove_dir_all(root);
+        assert_eq!(result.ok(), Some(false), "probe check did not reject quickly");
     }
 
     #[test]
