@@ -143,6 +143,12 @@ pub(super) fn transient(daemon: &Client, e: &anyhow::Error) -> bool {
     e.downcast_ref::<DaemonError>().is_some_and(|DaemonError(rpc)| link_failure(rpc))
 }
 
+/// The `reason` of the daemon's error `e`, if it gave one.
+fn reason_of(e: &anyhow::Error) -> Option<&str> {
+    let DaemonError(rpc) = e.downcast_ref::<DaemonError>()?;
+    rpc.data.as_ref()?.get("reason")?.as_str()
+}
+
 /// Whether the daemon's error `rpc` says the link lost the request, not that it refused it.
 fn link_failure(rpc: &crate::rpc::RpcError) -> bool {
     let data = rpc.data.as_ref();
@@ -247,8 +253,17 @@ impl Record {
     }
 
     /// Removes it: its upload finished, was cancelled, or is gone. The lock file stays, empty.
-    pub(super) fn forget(&self) {
-        let _ = std::fs::remove_file(&self.path);
+    /// False when it is still there, naming an upload another send could take as its own.
+    pub(super) fn forget(&self) -> bool {
+        match std::fs::remove_file(&self.path) {
+            Ok(()) => true,
+            Err(e) => e.kind() == std::io::ErrorKind::NotFound,
+        }
+    }
+
+    /// Where it is, for an error that names it.
+    pub(super) fn path(&self) -> &Path {
+        &self.path
     }
 }
 
@@ -271,12 +286,13 @@ async fn resumable(
     });
     let status = match status.await {
         Ok(status) => status,
-        Err(e) if transient(daemon, &e) => return Err(e),
-        // The daemon answered: it has no such upload.
-        Err(_) => {
+        // The daemon answered that it has no such upload: the record is stale.
+        Err(e) if reason_of(&e) == Some("upload.unknown") => {
             record.forget();
             return Ok(None);
         }
+        // Anything else says nothing about the upload: the record stays for a later send.
+        Err(e) => return Err(e),
     };
     let same = status.get("size").and_then(Value::as_u64) == Some(size)
         && status.get("fileName").and_then(Value::as_str) == Some(name);
@@ -457,8 +473,9 @@ mod tests {
         let again = Record::claim_in(&records, "chat", &file, &meta).expect("let go");
         let saved = again.read().expect("the record");
         assert_eq!(saved, ("01a17d93-859c-75a2-82f8-350749c86551".into(), Some("tok".into())));
-        again.forget();
+        assert!(again.forget());
         assert!(again.read().is_none());
+        assert!(again.forget(), "a record already gone is forgotten");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

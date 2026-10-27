@@ -204,6 +204,17 @@ pub async fn blocks_for(
             }
         }
     }
+    // Finished: a later send of the same files uploads them again, for its own prompt. A record
+    // that cannot be removed would let a later send take this prompt's upload as its own, so the
+    // send fails instead and its uploads go.
+    if failure.is_none()
+        && let Some(stuck) = sent.iter().filter_map(|one| one.record.as_ref()).find(|r| !r.forget())
+    {
+        failure = Some(anyhow::anyhow!(
+            "cannot remove the upload record {}; the files were not sent",
+            stuck.path().display()
+        ));
+    }
     if let Some(e) = failure {
         // A link that stopped: each upload with a record stays for the same send to resume
         // (`attach/upload.rs`), and the age sweep takes it if that never comes. The rest go.
@@ -224,8 +235,6 @@ pub async fn blocks_for(
         return Err(e);
     }
     progress.finished();
-    // Finished: a later send of the same files uploads them again, for its own prompt.
-    sent.iter().for_each(Sent::forget);
     Ok(sent.iter().map(Sent::block).collect())
 }
 
@@ -256,7 +265,7 @@ struct Sent {
 }
 
 impl Sent {
-    /// Removes its resume record: it finished for this send, or was cancelled.
+    /// Removes its resume record: it was cancelled.
     fn forget(&self) {
         if let Some(record) = &self.record {
             record.forget();

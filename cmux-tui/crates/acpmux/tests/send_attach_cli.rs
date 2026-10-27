@@ -236,6 +236,11 @@ fn send_attach_resumes_the_upload_a_killed_sender_began() {
     assert_eq!(saved[0].parent(), Some(left[0].as_path()));
     assert_eq!(sha(&fs::read(&saved[0]).unwrap()), sha(&big));
     assert!(parts(&dir).is_empty(), "{:?}", parts(&dir));
-    let records = fs::read_dir(dir.join("run/upload-resume")).map(|d| d.count()).unwrap_or(0);
-    assert_eq!(records, 0, "a finished upload keeps no resume record");
+    let named = |ext: &str| {
+        let entries = fs::read_dir(dir.join("run/upload-resume")).unwrap().flatten();
+        entries.filter(|e| e.path().extension().is_some_and(|x| x == ext)).count()
+    };
+    assert_eq!(named("json"), 0, "a finished upload keeps no resume record");
+    // Its lock stays, so a sender that opened it never locks a file nobody else sees.
+    assert_eq!(named("lock"), 1);
 }
