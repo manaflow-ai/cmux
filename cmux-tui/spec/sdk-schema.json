@@ -37,7 +37,7 @@
   "daemon": {
    "id": 1,
    "description": "Daemon identity, liveness, configuration and machine state.",
-   "next_ordinal": 18
+   "next_ordinal": 21
   },
   "clients": {
    "id": 2,
@@ -47,7 +47,7 @@
   "terminal-io": {
    "id": 3,
    "description": "Terminal input, output streams, screen reads and terminal requests to the frontend.",
-   "next_ordinal": 26
+   "next_ordinal": 27
   },
   "terminals": {
    "id": 4,
@@ -101,8 +101,8 @@
   },
   "agents": {
    "id": 14,
-   "description": "Agents in terminals, the local feed and agent CLI updates.",
-   "next_ordinal": 13
+   "description": "Agents in terminals, the local feed, agent CLI updates and the agent CLI inventory.",
+   "next_ordinal": 16
   },
   "conversations": {
    "id": 15,
@@ -122,7 +122,7 @@
   "terminal-stream-events": {
    "id": 192,
    "description": "Content of an attach stream: output, render state, frames and sizes.",
-   "next_ordinal": 12
+   "next_ordinal": 13
   },
   "mux-events": {
    "id": 193,
@@ -2163,6 +2163,17 @@
      "nullable": true,
      "constraints": [
       "The command that updates this daemon's install (npm and PyPI only), for a client's version-skew refusal. Only with identify {revisions: true}."
+     ]
+    },
+    "bulk_frame_max": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "The longest stream frame, in bytes, a connection writes whole; longer frames leave in chunks between control replies (CMUX_IPC_BULK_FRAME_MAX). Only with identify {revisions: true}."
      ]
     },
     "capabilities": {
@@ -5790,6 +5801,123 @@
     "Latency histograms are in microseconds; batch_size counts events."
    ]
   },
+  "ServerStatsMethodLatency": {
+   "kind": "object",
+   "fields": {
+    "method": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint16"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "trace_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint16"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "class": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "latency_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsPercentiles"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "handler_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsPercentiles"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "lock_wait_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsPercentiles"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "method is the cmd tag, the cmux.protocol/2 operation, or route:<class> for a line a feature route answers.",
+    "id is the schema method_id (family << 8 | ordinal), the key of the app's debug.daemon.wire methods rows; null for a route line or a method the schema gives no id.",
+    "trace_id is the method id of the daemon.request trace slice, a row of this build's command table; class is its request_latency_us class.",
+    "latency_us is arrival to reply queued, handler_us handler start to reply queued, lock_wait_us the lock waits of the threads that handled it in between."
+   ]
+  },
+  "ServerStatsPercentiles": {
+   "kind": "object",
+   "fields": {
+    "count": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "p50": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "p95": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "p99": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "max": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Percentiles are log-linear bucket upper bounds, at most 25% above the true value."
+   ]
+  },
   "ServerStatsLockHolder": {
    "kind": "object",
    "fields": {
@@ -6473,6 +6601,17 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "ipc_methods": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsMethodLatency"
+      }
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -6486,7 +6625,8 @@
     "slow_requests is present only when the request names it in include.",
     "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start.",
     "lock_classes is present only when the request names it in include.",
-    "ipc is present only when the request names it in include."
+    "ipc is present only when the request names it in include.",
+    "ipc_methods is present only when the request names it in include; its rows are ordered by id, the rows without one last."
    ]
   },
   "ServerStatsLockClasses": {
@@ -10123,6 +10263,259 @@
     "waiting"
    ]
   },
+  "AgentInventoryFamily": {
+   "kind": "enum",
+   "values": [
+    "claude",
+    "codex",
+    "opencode",
+    "pi",
+    "chief",
+    "gemini",
+    "amp",
+    "copilot",
+    "cursor"
+   ]
+  },
+  "AgentInventoryChannel": {
+   "kind": "enum",
+   "values": [
+    "npm",
+    "bun",
+    "brew",
+    "brewCask",
+    "native",
+    "launcher",
+    "standalone",
+    "missing"
+   ]
+  },
+  "AgentInventoryAuth": {
+   "kind": "enum",
+   "values": [
+    "signedIn",
+    "signedOut",
+    "unknown"
+   ]
+  },
+  "AgentInventoryHarness": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "max_bytes": 128,
+     "description": "Harness profile id: 1-128 bytes of `[A-Za-z0-9._-]`."
+    },
+    "family": {
+     "type": {
+      "kind": "ref",
+      "name": "AgentInventoryFamily"
+     },
+     "presence": "required",
+     "nullable": true,
+     "description": "Recognized CLI family from the owner's saved health check; null for launchers, missing executables, conflicting evidence and families this daemon does not know."
+    },
+    "channel": {
+     "type": {
+      "kind": "ref",
+      "name": "AgentInventoryChannel"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "version": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true,
+     "max_bytes": 64,
+     "description": "Installed semantic version, or null when unknown."
+    },
+    "latest": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true,
+     "max_bytes": 64,
+     "description": "Latest registry version from the last successful check, or null."
+    },
+    "latestCheckedAt": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true,
+     "description": "When `latest` was checked, in Unix milliseconds; null when never checked."
+    },
+    "outdated": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "True only when `version` and `latest` are both known and `latest` is newer."
+    },
+    "auth": {
+     "type": {
+      "kind": "ref",
+      "name": "AgentInventoryAuth"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "checkedAt": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "When the owner's health check saved this row, in Unix milliseconds."
+    }
+   },
+   "additional_properties": false
+  },
+  "AgentInventoryResult": {
+   "kind": "object",
+   "fields": {
+    "view": {
+     "type": {
+      "kind": "literal",
+      "value": "inventory"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "cached": {
+     "type": {
+      "kind": "literal",
+      "value": true
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "harnesses": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "AgentInventoryHarness"
+      },
+      "max_items": 256
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "A partial cache of the owner's last health check: empty rows mean no observations, not that the machine has no agents. No paths, commands, account labels or diagnostics."
+   ]
+  },
+  "AgentInventoryRefreshResult": {
+   "kind": "object",
+   "fields": {
+    "view": {
+     "type": {
+      "kind": "literal",
+      "value": "inventory"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "cached": {
+     "type": {
+      "kind": "literal",
+      "value": true
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "harnesses": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "AgentInventoryHarness"
+      },
+      "max_items": 256
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "machine": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Canonical public machine id (`machine_…`) of the daemon that answered."
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "The agent-inventory cache after the owner's registry refresh; installed versions, auth and checkedAt stay cached."
+   ]
+  },
+  "AgentInventoryWatchActive": {
+   "kind": "object",
+   "fields": {
+    "machine": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Canonical public machine id (`machine_…`) of the daemon that answered."
+    },
+    "watch_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "max_bytes": 48,
+     "description": "Opaque lease id: `inventory_watch_` and 32 lowercase hex digits."
+    },
+    "revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The owner's inventory revision when the lease became active."
+    }
+   },
+   "additional_properties": false
+  },
+  "AgentInventoryWatchResult": {
+   "kind": "untagged_union",
+   "variants": [
+    {
+     "kind": "ref",
+     "name": "AgentInventoryWatchActive"
+    },
+    {
+     "kind": "ref",
+     "name": "EmptyResult"
+    }
+   ]
+  },
   "ProgramStatusState": {
    "kind": "enum",
    "values": [
@@ -12684,6 +13077,31 @@
     }
    },
    "additional_properties": false
+  },
+  "CancelStreamResult": {
+   "kind": "object",
+   "fields": {
+    "stream": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint16"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "outcome": {
+     "type": {
+      "kind": "enum",
+      "values": [
+       "applied",
+       "ended"
+      ]
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -12757,7 +13175,7 @@
       "nullable": false,
       "since": 12,
       "constraints": [
-       "Adds api_revision, min_api_revision, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
+       "Adds api_revision, min_api_revision, crate_version, install, update_command and bulk_frame_max to the reply. Off by default so strict older SDK decoders keep reading the reply."
       ]
      }
     },
@@ -18543,6 +18961,20 @@
         "clamped_maximum": 10000
        }
       ]
+     },
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "attach-streams-v1",
+      "constraints": [
+       "With attach-streams-v1, the attach stream this request acts on: it must be open on this connection (unknown_stream) and view surface (stream_surface_mismatch). Without lease and view it selects that stream's lease (stream_has_no_lease when it has none); with lease, the lease must be that stream's (stream_lease_mismatch)."
+      ]
      }
     },
     "additional_properties": false
@@ -18639,6 +19071,20 @@
       "constraints": [
        "Relay sub-view name; exactly one of lease or view."
       ]
+     },
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "attach-streams-v1",
+      "constraints": [
+       "With attach-streams-v1, the attach stream this request acts on: it must be open on this connection (unknown_stream) and view surface (stream_surface_mismatch). Without lease and view it selects that stream's lease (stream_has_no_lease when it has none); with lease, the lease must be that stream's (stream_lease_mismatch)."
+      ]
      }
     },
     "additional_properties": false
@@ -18697,6 +19143,20 @@
       "capability": "shared-sizing-v1",
       "constraints": [
        "Relay sub-view name; exactly one of lease or view."
+      ]
+     },
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "attach-streams-v1",
+      "constraints": [
+       "With attach-streams-v1, the attach stream this request acts on: it must be open on this connection (unknown_stream) and view surface (stream_surface_mismatch). Without lease and view it selects that stream's lease (stream_has_no_lease when it has none); with lease, the lease must be that stream's (stream_lease_mismatch)."
       ]
      }
     },
@@ -20145,7 +20605,8 @@
        "name": "Id"
       },
       "presence": "optional",
-      "nullable": true
+      "nullable": true,
+      "default": null
      },
      "mode": {
       "type": {
@@ -20249,6 +20710,20 @@
       "nullable": true,
       "default": null,
       "capability": "terminal-snapshot-v1"
+     },
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "attach-streams-v1",
+      "constraints": [
+       "A client-minted id for this view, unique among this connection's open attach streams; an id whose stream-end has not been queued is stream_in_use."
+      ]
      }
     },
     "additional_properties": false,
@@ -20256,7 +20731,8 @@
      "cols and rows must be supplied together.",
      "Browser surfaces reject mode:render.",
      "expected_generation and expected_terminal_id must be supplied together and match the current daemon and terminal.",
-     "snapshot \"ghostsnp\" with the host's snapshot_version starts the byte stream with a snapshot event instead of vt-state; another version gets the byte replay. viewer_backlog_bytes (default 8388608 = 8 MiB, set per attach, no daemon setting; clamped to 65536..8388608) bounds the viewer's backlog; overflow resyncs by snapshot."
+     "snapshot \"ghostsnp\" with the host's snapshot_version starts the byte stream with a snapshot event instead of vt-state; another version gets the byte replay. viewer_backlog_bytes (default 8388608 = 8 MiB, set per attach, no daemon setting; clamped to 65536..8388608) bounds the viewer's backlog; overflow resyncs by snapshot.",
+     "With stream, every item of the view carries stream, stream-end is its last item, and the id is free once the client reads that stream-end. A failure after the id was taken queues stream-end{reason:\"attach_failed\"} before the error reply."
     ]
    },
    "result": {
@@ -20277,6 +20753,7 @@
      "render-state",
      "resized",
      "scroll-changed",
+     "stream-end",
      "vt-state"
     ],
     "mode_field": "mode",
@@ -20289,14 +20766,16 @@
       "scroll-changed",
       "notification",
       "overflow",
-      "detached"
+      "detached",
+      "stream-end"
      ],
      "render": [
       "render-state",
       "render-delta",
       "scroll-changed",
       "overflow",
-      "detached"
+      "detached",
+      "stream-end"
      ],
      "browser": [
       "browser-state",
@@ -20304,7 +20783,8 @@
       "notification",
       "scroll-changed",
       "overflow",
-      "detached"
+      "detached",
+      "stream-end"
      ]
     },
     "ordering": "Initial state precedes the command response. Later surface events preserve order. A resized replay replaces the previous byte mirror; overflow ends that surface stream.",
@@ -20318,6 +20798,40 @@
    "clients": [
     "macos",
     "cli",
+    "sdk"
+   ]
+  },
+  "cancel-stream": {
+   "authority": "frontend",
+   "since": 12,
+   "capability": "attach-streams-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "CancelStreamResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Ends the attach stream with stream-end{reason:\"canceled\"}, dropping what it still queues, and removes its view before the reply.",
+    "Idempotent: an id with no open stream answers outcome:ended."
+   ],
+   "method_id": 794,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
     "sdk"
    ]
   },
@@ -20813,7 +21327,7 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc, lock_classes); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc, lock_classes, ipc_methods); unknown names are ignored."
    ],
    "method_id": 266,
    "priority": "background",
@@ -20821,6 +21335,81 @@
    "durability": "read_only",
    "clients": [
     "cli",
+    "sdk"
+   ]
+  },
+  "debug-daemon-locks": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "opaque_json",
+    "reason": "Per-lock wait and hold histograms by caller class and request op; the op rows are the ops that took the lock since start. See spec/commands.md debug-daemon-locks."
+   },
+   "stream": null,
+   "constraints": [
+    "Owner-only diagnostics (trusted local connection); never journaled and safe to poll."
+   ],
+   "method_id": 274,
+   "priority": "background",
+   "ordering": "independent",
+   "durability": "read_only",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "server-threads": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "server-threads-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "opaque_json",
+    "reason": "Every registered daemon thread with its declared, desired and kernel QoS and scheduler priority, the work lanes, and the process task role; the rows are the threads alive at the read. See spec/commands.md server-threads."
+   },
+   "stream": null,
+   "constraints": [
+    "Owner-only diagnostics (trusted local connection); never journaled and safe to poll."
+   ],
+   "method_id": 275,
+   "priority": "background",
+   "ordering": "independent",
+   "durability": "read_only",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "server-blocking": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "server-threads-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "opaque_json",
+    "reason": "The blocking calls made on threads that disallow blocking, by call site, with their kinds and counts since start. See spec/commands.md server-blocking."
+   },
+   "stream": null,
+   "constraints": [
+    "Owner-only diagnostics (trusted local connection); never journaled and safe to poll."
+   ],
+   "method_id": 276,
+   "priority": "background",
+   "ordering": "independent",
+   "durability": "read_only",
+   "clients": [
     "sdk"
    ]
   },
@@ -22827,8 +23416,7 @@
        "name": "string"
       },
       "presence": "optional",
-      "nullable": true,
-      "default": null
+      "nullable": true
      },
      "profile_id": {
       "type": {
@@ -22837,7 +23425,6 @@
       },
       "presence": "optional",
       "nullable": true,
-      "default": null,
       "description": "Move the frontend browser tab to this browser profile; null clears its profile."
      },
      "owner": {
@@ -28180,6 +28767,20 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "attach-streams-v1",
+      "constraints": [
+       "With attach-streams-v1, the attach stream this request acts on: it must be open on this connection (unknown_stream) and view surface (stream_surface_mismatch). The snapshot is asked of that view only."
+      ]
      }
     },
     "additional_properties": false
@@ -31941,6 +32542,152 @@
     "sdk"
    ]
   },
+  "agent-inventory": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-inventory-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "expected_machine_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "capability": "agent-inventory-owner-v1",
+      "description": "Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector."
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AgentInventoryResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted native Unix control connections only: WebSocket clients and the conversations-only relay get agent_inventory.not_trusted before params are read.",
+    "Reads this daemon's own acpmux cache (harnessInventory); never starts acpmux, scans PATH or refreshes registries.",
+    "Reads, refreshes and watch handshakes share eight concurrent owner workers per daemon; one more gets agent_inventory.busy.",
+    "Errors are agent_inventory.not_trusted, bad_request, owner_mismatch, unavailable, unsupported, busy or invalid_response."
+   ],
+   "method_id": 3597,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-inventory-refresh": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-inventory-refresh-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "expected_machine_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector."
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AgentInventoryRefreshResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted native Unix control connections only: WebSocket clients and the conversations-only relay get agent_inventory.not_trusted before params are read.",
+    "Asks the owner's fixed registries about the cached installations (harnessInventoryRefresh); the reply waits at most 25 seconds and an overlapping refresh gets agent_inventory.busy.",
+    "Reads, refreshes and watch handshakes share eight concurrent owner workers per daemon; one more gets agent_inventory.busy.",
+    "Errors are agent_inventory.not_trusted, bad_request, owner_mismatch, unavailable, unsupported, busy or invalid_response."
+   ],
+   "method_id": 3598,
+   "priority": "background",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-inventory-watch": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-inventory-watch-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "expected_machine_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector."
+     },
+     "enabled": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "true opens (or acknowledges again) this connection's lease; false retires it without an ended event."
+     },
+     "expected_watch_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "max_bytes": 48,
+      "capability": "agent-inventory-watch-fence-v1",
+      "description": "Only with enabled:false: retire the lease only while it has this id."
+     },
+     "admission_receipt": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "capability": "agent-inventory-watch-admission-v1",
+      "description": "Only with enabled:true: an unavailable, unsupported or busy refusal carries data {machine, admission:\"not_admitted\"} when this connection holds no lease."
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AgentInventoryWatchResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted native Unix control connections only: WebSocket clients and the conversations-only relay get agent_inventory.not_trusted before params are read.",
+    "One lease per control connection and at most eight per daemon; the lease ends with the connection.",
+    "While the lease is active, agent-inventory-changed and agent-inventory-watch-ended go only to this connection; enabled:false replies an empty object.",
+    "Reads, refreshes and watch handshakes share eight concurrent owner workers per daemon; one more gets agent_inventory.busy.",
+    "Errors are agent_inventory.not_trusted, bad_request, owner_mismatch, unavailable, unsupported, busy or invalid_response. The request line is at most 4096 bytes."
+   ],
+   "method_id": 3599,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
   "new-remote-terminal-tab": {
    "authority": "control",
    "since": 12,
@@ -32049,8 +32796,7 @@
        "name": "string"
       },
       "presence": "optional",
-      "nullable": true,
-      "default": null
+      "nullable": true
      },
      "session_name": {
       "type": {
@@ -32067,8 +32813,7 @@
        "name": "string"
       },
       "presence": "optional",
-      "nullable": true,
-      "default": null
+      "nullable": true
      }
     },
     "additional_properties": false
@@ -41089,6 +41834,56 @@
     "additional_properties": false
    },
    "event_id": 50947,
+   "priority": "control"
+  },
+  "stream-end": {
+   "since": 12,
+   "capability": "attach-streams-v1",
+   "streams": [
+    "attach-byte",
+    "attach-render",
+    "attach-browser"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "stream-end"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "reason": {
+      "type": {
+       "kind": "enum",
+       "values": [
+        "canceled",
+        "detached",
+        "overflow",
+        "attach_failed"
+       ]
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "The last item of a client-minted attach stream; nothing of that stream follows it, and its id is free for a new attach-surface."
+    ]
+   },
+   "event_id": 49164,
    "priority": "control"
   }
  }

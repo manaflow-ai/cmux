@@ -59,7 +59,7 @@ func admissionFrame(status: UInt8, code: UInt16 = 0) -> Data {
     var frame = Data("CMXA".utf8)
     frame.append(1)
     frame.append(status)
-    let bigEndian = code.bigEndian
-    withUnsafeBytes(of: bigEndian) { frame.append(contentsOf: $0) }
+    frame.append(UInt8(truncatingIfNeeded: code >> 8))
+    frame.append(UInt8(truncatingIfNeeded: code))
     return frame
 }

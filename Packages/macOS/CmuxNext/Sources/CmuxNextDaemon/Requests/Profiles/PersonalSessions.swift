@@ -24,6 +24,11 @@ public struct PutSessionRequest: DaemonRequest {
         self.capabilities = capabilities
         self.followWith = followWith
     }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionID = "session_id", machineName = "machine_name", sessionName = "session_name", transport
+        case capabilities, followWith = "follow_with"
+    }
 }
 
 /// The one-time copy of a remote daemon's shared groups and order into
@@ -48,6 +53,10 @@ public struct ImportSessionOrganizationRequest: DaemonRequest {
             self.workspaceKey = workspaceKey
             self.group = group
         }
+
+        enum CodingKeys: String, CodingKey {
+            case workspaceKey = "workspace_key", group
+        }
     }
     public struct Response: Decodable, Sendable, Equatable {
         public var imported: Bool
@@ -61,6 +70,10 @@ public struct ImportSessionOrganizationRequest: DaemonRequest {
         self.sessionID = sessionID
         self.groups = groups
         self.workspaces = workspaces
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionID = "session_id", groups, workspaces
     }
 }
 
@@ -78,5 +91,9 @@ public struct ForgetSessionRequest: DaemonRequest {
     public init(sessionID: String, force: Bool) {
         self.sessionID = sessionID
         self.force = force
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionID = "session_id", force
     }
 }

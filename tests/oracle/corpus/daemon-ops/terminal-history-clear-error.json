@@ -23,6 +23,9 @@
   "requires": [
     "resource_api"
   ],
+  "switches": [
+    "terminal-holder"
+  ],
   "platforms": [
     "linux",
     "mac"
@@ -49,29 +52,55 @@
       }
     },
     {
+      "id": "fx-split",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id",
+        "screen": "$step:fx-workspace#/value/screen_id",
+        "pane": "$step:fx-workspace#/value/pane_id"
+      },
+      "args": {
+        "method": "pane.split",
+        "params": {
+          "direction": "right"
+        },
+        "idempotencyKey": "terminal-history-clear-error.fx-split"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
         "machine": "current",
         "session": "current",
-        "terminal": "$step:fx-workspace#/value/terminal_id"
+        "terminal": "$step:fx-workspace#/value/terminal_id",
+        "pane": "$step:fx-split#/value/pane_id"
       },
       "args": {
         "method": "terminal.history.clear",
-        "params": {
-          "expected_revision": -1
-        },
+        "params": {},
         "idempotencyKey": "terminal-history-clear-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "selector.wrong_parent",
+        "errorDetails": {
+          "scope": "terminal",
+          "parent_scope": "pane",
+          "selector": "$step:fx-workspace#/value/terminal_id"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "expected_revision breaks its catalog type (value must be an unsigned decimal string); the daemon's catalog check refuses it"
+      "note": "the target names the split's pane as the terminal's parent: the resolver refuses it"
     }
   ],
   "invariants": [

@@ -1,6 +1,7 @@
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextTerminal
 import CmuxNextWakeups
 import Foundation
@@ -58,23 +59,28 @@ final class TerminalColorSync {
 
 extension AppServices {
     /// Starts the local daemon (AppDelegate, once per launch) once `main`'s system-lane step has read this app's
-    /// Team ID and begun the first attempt (`DaemonLaunchStart`): at once when it has landed, else when it lands.
+    /// Team ID and begun the first attempt (`DaemonLaunchStart`): at once when it has landed, else when it lands;
+    /// until then the launch window waits for the snapshot that step reads (`DaemonLaunchSnapshot.expectTake`).
     /// `terminalColors` is built here, its first reader, so every daemon holds the colors terminals are painted
     /// with before it connects: its first answers to OSC 10/11/12 queries match the screen, and each connect sends
-    /// them again.
+    /// them again. With feature `drainCauseSplit`, its program and agent changes apply in budgeted tasks of the
+    /// app's scheduler (p06-scheduler-223, `DrainTail`).
     func startLocalDaemon(after launch: LaunchRead<DaemonLaunchStart>) {
         terminalColors.apply()
+        if features.isEnabled(.drainCauseSplit) { daemon.store.drainTailScheduler = mainWork }
         let now = launch.valueNow(orPostTo: mainWork, class: .visible, owner: "daemon.startLocal") { [weak self] landed in
             self?.startLocalDaemon(landed)
         }
-        if let now { startLocalDaemon(now) }
+        if let now { startLocalDaemon(now) } else { daemon.launchSnapshot.expectTake() }
     }
 
     private func startLocalDaemon(_ landed: DaemonLaunchStart) {
         daemon.start(work: work, launch: environment.launch, team: landed.team, terminalEnvironment: environment.terminalEnvironment,
                      resolvedTerminalEnvironment: environment.resolvedTerminalEnvironment(),
                      terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
-                     resolvesShellIntegration: environment.resolvesShellIntegration, prestart: landed.prestart)
+                     resolvesShellIntegration: environment.resolvesShellIntegration, prestart: landed.prestart,
+                     launchSnapshot: landed.launchSnapshot)
+        daemon.launchSnapshot.endExpectedTake()  // a start that failed before its take holds no window
     }
 }
 

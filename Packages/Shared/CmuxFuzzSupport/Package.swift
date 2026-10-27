@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 
 import PackageDescription
 
@@ -13,7 +13,9 @@ import PackageDescription
 
 // The p10 compile-time safety settings (scripts/cmux-next/stability-settings.json); the
 // lander (scripts/cmux-next/apply-stability-settings.py) owns this literal.
-let stabilitySwiftSettings: [SwiftSetting] = []
+let stabilitySwiftSettings: [SwiftSetting] = [
+    .strictMemorySafety(),
+]
 
 let package = Package(
     name: "CmuxFuzzSupport",

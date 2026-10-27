@@ -28,6 +28,8 @@ final class CEFEnergySaver {
     /// The fork took the last call (`debug.energy` `cef.energySaver` `applied`).
     private(set) var isApplied = false
     private var observation: EnergyPolicyObservation?
+    /// The followed source, read again by ``resync()``.
+    private weak var source: EnergyPolicySource?
 
     /// - Parameter apply: Sends one state to Chromium (`cmux_shim_set_energy_saver` with ``exemptScheme``).
     init(apply: @escaping Apply) {
@@ -38,6 +40,7 @@ final class CEFEnergySaver {
     /// thread runs as a `queue` entry that reads the source's latest policy, so a late hop never sends
     /// an older state.
     func follow(_ source: EnergyPolicySource, queue: MainWakeUpQueue) {
+        self.source = source
         observation = source.observe { [weak self, weak source] policy in
             // The source tells observers on its writer's thread: the policy driver's, the main actor.
             guard Thread.isMainThread else {
@@ -59,18 +62,26 @@ final class CEFEnergySaver {
         sent = policy.isSaver
         isApplied = apply(policy.isSaver)
     }
+
+    /// Sends the source's state again, edge or not: a new Chromium (a restarted host) has not had it, and
+    /// an edge while no Chromium ran reached nobody.
+    func resync() {
+        guard let source else { return }
+        sent = nil
+        update(source.policy)
+    }
 }
 
 extension CEFEnergySaver {
-    /// `runtime`'s saver, called once Chromium is ready: it sends the policy of `runtime.wakeUps` (the
-    /// scheduler's one source, `MainWorkScheduler.energy`) now and on each edge, through
-    /// `cmux_shim_set_energy_saver` with ``exemptScheme``. Nil below ``CEFForkFeatures/energySaverForkAPI``:
-    /// no call at all. Once quit begins to stop Chromium it makes no more calls.
+    /// `runtime`'s saver, called once Chromium is first ready (each later ready calls ``resync()``): it
+    /// sends the policy of `runtime.wakeUps` (the scheduler's one source, `MainWorkScheduler.energy`) now
+    /// and on each edge, through `cmux_shim_set_energy_saver` with ``exemptScheme``. Nil below
+    /// ``CEFForkFeatures/energySaverForkAPI``: no call at all. Once quit begins to stop Chromium it makes no more calls.
     static func following(_ runtime: CEFRuntime) -> CEFEnergySaver? {
         guard runtime.forkFeatures.energySaver else { return nil }
         let saver = CEFEnergySaver { [weak runtime] on in
             guard let runtime, runtime.state == .ready, runtime.shutdownSequence == nil, let shim = runtime.shim else { return false }
-            return CEFEnergySaver.exemptScheme.withCString { shim.setEnergySaver(on ? 1 : 0, $0) } == 1
+            return shim.setEnergySaver(on ? 1 : 0, CEFEnergySaver.exemptScheme) == 1
         }
         saver.follow(runtime.wakeUps.energy, queue: runtime.wakeUps)
         runtime.logger.notice("CEF energy saver: \(saver.isApplied ? "applied" : "refused", privacy: .public) on=\(saver.sent == true, privacy: .public)")

@@ -29,6 +29,8 @@ final class MacScreenHomeView: MacScreenThemedView {
     let actions: MacScreenHomeActions
     let systemShortcuts: MacScreenSystemShortcuts?
     let devices: MacScreenHomeDevices?
+    /// The app's main-thread scheduler: the page's model follow and its switches' resync.
+    private let mainWork: MainWorkScheduler
     private let scroll = NSScrollView()
     private let document = MacScreenFlippedView()
     private let column = MacScreenStack.make(.vertical, spacing: 28, alignment: .leading)
@@ -50,7 +52,8 @@ final class MacScreenHomeView: MacScreenThemedView {
         self.actions = actions
         self.systemShortcuts = systemShortcuts
         self.devices = devices
-        super.init(frame: .zero)
+        self.mainWork = mainWork
+        super.init(frame: .zero, node: node)
         setAccessibilityIdentifier("macScreen.home")
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
@@ -100,6 +103,7 @@ final class MacScreenHomeView: MacScreenThemedView {
         if abs(columnWidth.constant - target) > 0.5 { columnWidth.constant = target }
         // Wrapping labels learn their width from one pass and report their height to the next.
         for _ in 0..<4 {
+            // sync-layout: fitLines below reads each wrapping label's laid-out width.
             column.layoutSubtreeIfNeeded()
             var changed = false
             for case let label as MacScreenText in views(under: column) where label.fitLines() { changed = true }
@@ -148,7 +152,8 @@ final class MacScreenHomeView: MacScreenThemedView {
     /// A switch shows its model's value, not the click: after a press, on the next turn (never
     /// inside the switch's own event), it shows what the model says until the model's write lands.
     func syncSwitchesSoon() {
-        Task { @MainActor [weak self] in self?.syncSwitches() }
+        // The rest of the person's press: one userBlocking task, which runs after the switch's event returns.
+        mainWork.post(.userBlocking, owner: "MacScreenHome.syncSwitches") { [weak self] in self?.syncSwitches() }
     }
 
     private func syncSwitches() {
@@ -197,8 +202,9 @@ final class MacScreenHomeView: MacScreenThemedView {
         permissionsRead?.cancel()
         permissionsRead = nil
         guard !ids.isEmpty, let hub = devices?.box.hub else { return }
-        // task-owner: one read of the listed hosts' permissions; cancelled when the list changes or the page goes
-        permissionsRead = Task {
+        // task-owner: one read of the listed hosts' permissions; cancelled when the list changes or the page goes.
+        // Off main: each read is the hub's own main-actor request, which applies its answer in the hub's job.
+        permissionsRead = Task { @concurrent in
             for id in ids {
                 guard !Task.isCancelled else { return }
                 await hub.refreshPermissions(host: id)

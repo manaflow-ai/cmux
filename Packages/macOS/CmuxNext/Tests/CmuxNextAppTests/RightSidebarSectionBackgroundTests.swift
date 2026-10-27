@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -9,12 +10,12 @@ import Testing
 @MainActor @Suite(.serialized)
 struct RightSidebarSectionBackgroundTests {
     @Test func theFilesTreePaintsNoBackground() {
-        let view = FileExplorerSectionView(model: FileExplorerModel(), rootFolder: { URL(fileURLWithPath: "/tmp") }, perform: { _ in }, rowMenu: { _ in nil })
+        let view = FileExplorerSectionView(model: FileExplorerModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget()), rootFolder: { URL(fileURLWithPath: "/tmp") }, perform: { _ in }, rowMenu: { _ in nil })
         #expect(view.table.backgroundColor.alphaComponent == 0)
     }
 
     @Test func theFindResultsPaintNoBackground() {
-        let view = FindSectionView(model: FindSectionModel(search: { _, _ in nil }), rootFolder: { URL(fileURLWithPath: "/tmp") },
+        let view = FindSectionView(model: FindSectionModel(search: { _, _ in nil }), mainWork: MainWorkScheduler(budget: MainFrameBudget()), rootFolder: { URL(fileURLWithPath: "/tmp") },
                                    effects: NullFileExplorerEffects())
         #expect(view.table.backgroundColor.alphaComponent == 0)
     }

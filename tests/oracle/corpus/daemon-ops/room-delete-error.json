@@ -38,19 +38,19 @@
       "args": {
         "method": "room.delete",
         "params": {
-          "room": ""
+          "room": "default"
         },
         "idempotencyKey": "room-delete-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "operation.failed"
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "room breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "every session has the default room, and it stays. The code only: the refusal has no typed reason yet (operation resource.runtime, a prose reason), p15-oracle-241 adds one"
     }
   ],
   "invariants": [

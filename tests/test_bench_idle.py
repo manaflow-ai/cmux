@@ -17,6 +17,15 @@
    and its startup trace (an open trace without its closing `]` too); no reveal, no scheduled task, a signpost
    loss event or a missing trace file fails closed.
 7. `bench_launch.py order` writes `{"launch": {"order_ok": ...}}` from a stubbed app and signpost stream.
+8. app-hidden and covered-window (p03-rendering-097): app-hidden only hides the app; covered-window puts a new
+   window at the shown one's exact frame, and skips while windowOcclusionFamily is off; both judge main wakeups
+   (not measured fails) and covered-window fails unless the covered window's family was occluded. Their launch
+   turns the feature on as a Labs local choice (bench_launch.write_local_features keeps the file's other choices)
+   with the user's draw of occluded windows.
+9. hidden-printing (p03-rendering-088) opens --printing-terminals terminals with focus, sends PRINT_LOOP to each
+   new daemon tab by its own `tab:<id>` target (never the selected tab), then a new workspace with focus hides
+   them; a refused step, a tab that never appears or a printing workspace that still shows skips it; it runs
+   last, and its result is reported, never judged.
 
 No app, no build, no macOS tool. Not on CI (Lawrence 2026-10-23: no new CI tests; lane = "manual"): run
 python3 -I tests/test_bench_idle.py after changing bench_idle.py, bench_launch.py's order check or
@@ -68,10 +77,52 @@ class FakeControl:
         return self.call("action.run", params, timeout=timeout)
 
 
+class FakeSession:
+    """An app session for hidden-printing: snapshot.get's topology changes as the actions run. newSurface adds a
+    terminal tab to the shown workspace (first a provisional one with no `terminal` id when `provisional_first`),
+    newTab adds a workspace and shows it unless `new_workspace_shows` is False; `refuse` names an action that
+    fails."""
+
+    def __init__(self, creates_tabs=True, provisional_first=False, new_workspace_shows=True, refuse=None):
+        self.creates_tabs, self.provisional_first = creates_tabs, provisional_first
+        self.new_workspace_shows, self.refuse = new_workspace_shows, refuse
+        self.workspaces = {"ws_1": [{"id": "tab_launch", "kind": "terminal", "terminal": "term_launch",
+                                     "selected": True}]}
+        self.shown = "ws_1"
+        self.made = []
+
+    def control(self):
+        return FakeControl({"action.run": self.run, "snapshot.get": lambda _params: {"result": {"topology": self.topology()}}})
+
+    def run(self, params):
+        name = params["action"]
+        if name == self.refuse:
+            return {"ok": False, "error": {"code": "no_terminal"}}
+        if name == "newSurface" and self.creates_tabs:
+            tabs = self.workspaces[self.shown]
+            if self.provisional_first:
+                tabs.append({"id": "tab_provisional", "kind": "terminal", "terminal": None})
+                self.provisional_first = False
+            tab = f"tab_{len(self.made) + 1}"
+            tabs.append({"id": tab, "kind": "terminal", "terminal": f"term_{len(self.made) + 1}"})
+            self.made.append(tab)
+        elif name == "newTab":
+            workspace = f"ws_{len(self.workspaces) + 1}"
+            self.workspaces[workspace] = []
+            if self.new_workspace_shows:
+                self.shown = workspace
+        return {"result": {}}
+
+    def topology(self):
+        return {"windows": [{"id": "win_1", "workspace": self.shown}],
+                "workspaces": [{"id": workspace, "screens": [{"panes": [{"id": f"pane_{workspace}", "tabs": tabs}]}]}
+                               for workspace, tabs in self.workspaces.items()]}
+
+
 def args_for(**overrides):
     values = dict(max_cpu=0.5, max_wakeups=5, max_host_cpu=0.2, max_host_wakeups=2, max_helper_cpu=1.0,
                   max_mixed_wakeups=1.0, max_main_wakeups=0.5, hidden_tabs=10, hidden_terminals=5, url="http://x/p",
-                  mixed_ready=False, has_layout_counters=True)
+                  mixed_ready=False, has_layout_counters=True, printing_terminals=10)
     values.update(overrides)
     namespace = argparse.Namespace(**values)
     namespace.next_url = lambda: namespace.url
@@ -161,10 +212,10 @@ class MeasureTests(unittest.TestCase):
             "debug.hangs": [{"result": {"main_wakes": 1000}}, {"result": {"main_wakes": 1030}},
                             {"result": {"busy_count": 0, "count": 0}}],
         })
-        samples = iter([(0, 0, 1 << 20), (0, 60, 1 << 20)])
+        samples = iter([bi.procs.Usage(footprint=1 << 20), bi.procs.Usage(interrupt_wakeups=60, footprint=1 << 20)])
         clock = iter([100.0, 160.0])
         with mock.patch.object(bi, "classify", return_value={7: "app"}), \
-                mock.patch.object(bi, "usage", side_effect=lambda pid: next(samples)), \
+                mock.patch.object(bi.procs, "usage", side_effect=lambda pid: next(samples)), \
                 mock.patch.object(bi.time, "sleep"), mock.patch.object(bi.time, "monotonic", side_effect=lambda: next(clock)):
             result = bi.measure(7, "/b.app", 60, control)
         self.assertEqual(result["main_wakeups_per_s"], 0.5)
@@ -188,11 +239,11 @@ class MeasureTests(unittest.TestCase):
 
         def sample(pid):
             order.append(("usage", pid))
-            return (0, 0, 0)
+            return bi.procs.Usage()
 
         control = FakeControl({"debug.hangs": hangs})
         clock = iter([0.0, 10.0])
-        with mock.patch.object(bi, "classify", return_value={7: "app"}), mock.patch.object(bi, "usage", side_effect=sample), \
+        with mock.patch.object(bi, "classify", return_value={7: "app"}), mock.patch.object(bi.procs, "usage", side_effect=sample), \
                 mock.patch.object(bi.time, "sleep", side_effect=lambda _: order.append(("sleep",))), \
                 mock.patch.object(bi.time, "monotonic", side_effect=lambda: next(clock)):
             bi.measure(7, "/b.app", 10, control)
@@ -274,6 +325,58 @@ class ScenarioTests(unittest.TestCase):
         self.assertEqual(skipped, "the main window is still minimized or hidden 15 s after showMainWindow")
         self.assertEqual(actions_of(control), ["showMainWindow"])
 
+    def test_hidden_printing_prints_in_each_new_tab_by_its_own_target(self):
+        session = FakeSession()
+        control = session.control()
+        self.assertIsNone(bi.prepare("hidden-printing", control, args_for(printing_terminals=3), 7, "/b.app"))
+        self.assertEqual(actions_of(control), ["newSurface", "terminal.sendText"] * 3 + ["newTab"])
+        sends = [params for _, params in control.calls if params.get("action") == "terminal.sendText"]
+        self.assertEqual([params["args"]["text"] for params in sends], [bi.PRINT_LOOP] * 3)
+        targets = [params.get("target") for params in sends]
+        # Each loop goes to a distinct tab the bench made, never the launch tab that was selected before.
+        self.assertEqual(targets, [f"tab:{tab}" for tab in session.made])
+        self.assertEqual(len(set(targets)), 3)
+        self.assertNotIn("tab:tab_launch", targets)
+        self.assertTrue(all(params.get("focus") is False for params in sends))
+        creates = [params for _, params in control.calls if params.get("action") in ("newSurface", "newTab")]
+        self.assertTrue(all(params.get("focus") is True for params in creates))
+        self.assertEqual(session.shown, "ws_2")
+
+    def test_a_provisional_tab_is_not_a_print_target(self):
+        session = FakeSession(provisional_first=True)
+        control = session.control()
+        self.assertIsNone(bi.prepare("hidden-printing", control, args_for(printing_terminals=1), 7, "/b.app"))
+        targets = [params.get("target") for _, params in control.calls if params.get("action") == "terminal.sendText"]
+        self.assertEqual(targets, [f"tab:{session.made[0]}"])
+
+    def test_a_terminal_that_never_appears_skips_hidden_printing(self):
+        session = FakeSession(creates_tabs=False)
+        with mock.patch.object(bi, "wait_for", side_effect=lambda condition, _limit: condition()):
+            skipped = bi.prepare("hidden-printing", session.control(), args_for(), 7, "/b.app")
+        self.assertEqual(skipped, "printing terminal 1: no new terminal tab in 15 s")
+
+    def test_a_printing_workspace_that_still_shows_skips_hidden_printing(self):
+        session = FakeSession(new_workspace_shows=False)
+        with mock.patch.object(bi, "wait_for", side_effect=lambda condition, _limit: condition()):
+            skipped = bi.prepare("hidden-printing", session.control(), args_for(printing_terminals=1), 7, "/b.app")
+        self.assertEqual(skipped, "the printing workspace still shows 15 s after newTab")
+
+    def test_a_refused_print_skips_hidden_printing(self):
+        session = FakeSession(refuse="terminal.sendText")
+        skipped = bi.prepare("hidden-printing", session.control(), args_for(), 7, "/b.app")
+        self.assertEqual(skipped, "printing terminal 1: terminal.sendText: {'code': 'no_terminal'}")
+
+    def test_hidden_printing_runs_last(self):
+        self.assertIsNone(bi.scenario_order_error(["terminals", "minimized", "hidden-printing"]))
+        self.assertEqual(bi.scenario_order_error(["hidden-printing", "minimized"]),
+                         "hidden-printing runs last (its terminals keep printing)")
+        self.assertEqual(bi.scenario_order_error(["tabs-10", "terminals"]), "tabs-10 runs alone (--scenarios tabs-10)")
+        self.assertIsNone(bi.scenario_order_error(["tabs-10"]))
+
+    def test_hidden_printing_is_reported_not_judged(self):
+        busy = {"processes": [row("app", 400.0, cpu=30.0), row("daemon", 90.0, cpu=5.0, pid=2)]}
+        self.assertEqual(bi.criteria("hidden-printing", busy, args_for()), [])
+
     def test_main_window_shown(self):
         self.assertTrue(bi.main_window_shown(FakeControl({"debug.window_list": [SHOWN]})))
         self.assertFalse(bi.main_window_shown(FakeControl({"debug.window_list": [MINIMIZED]})))
@@ -295,6 +398,93 @@ class ScenarioTests(unittest.TestCase):
             skipped = bi.prepare("mixed-hidden-visible", FakeControl({"action.run": reply, "debug.window_list": [SHOWN]}),
                                  args_for(hidden_tabs=1), 7, "/b")
         self.assertEqual(skipped, "terminal 1: {'code': 'no_pane'}")
+
+
+FRAME = [0, 0, 1200, 800]
+FAMILY_ON = {"result": {"features": [{"name": "windowOcclusionFamily", "state": "on", "source": "local"}]}}
+FAMILY_OFF = {"result": {"features": [{"name": "windowOcclusionFamily", "state": "off", "source": "default"}]}}
+
+
+def windows(*entries):
+    return {"result": {"windows": [{"id": wid, "visible": True, "family_occluded": occluded} for wid, occluded in entries]}}
+
+
+class OcclusionScenarioTests(unittest.TestCase):
+    def setUp(self):
+        bi.COVERED.clear()
+
+    def covering_control(self, features=FAMILY_ON):
+        def frame(params):
+            return {"result": {"frame": params.get("frame", FRAME)}}
+        return FakeControl({"action.run": [{"result": {}}], "debug.window_list": [SHOWN], "features.list": [features],
+                            "debug.windows": [windows(("w1", False)), windows(("w1", False)),
+                                              windows(("w1", False), ("w2", False))],
+                            "debug.window_frame": frame})
+
+    def test_the_occlusion_scenarios_are_scenarios_of_their_own(self):
+        self.assertEqual(bi.scenario_list("app-hidden,covered-window"), ["app-hidden", "covered-window"])
+
+    def test_app_hidden_only_hides_the_app(self):
+        control = FakeControl({"action.run": [{"result": {}}]})
+        self.assertIsNone(bi.prepare("app-hidden", control, args_for(), 7, "/b.app"))
+        self.assertEqual(actions_of(control), ["showHideAllWindows"])
+
+    def test_covered_window_puts_a_new_window_at_the_shown_ones_frame(self):
+        control = self.covering_control()
+        with mock.patch.object(bi.time, "sleep"):
+            self.assertIsNone(bi.prepare("covered-window", control, args_for(), 7, "/b.app"))
+        self.assertEqual(actions_of(control), ["newWindow"])
+        frames = [params for method, params in control.calls if method == "debug.window_frame"]
+        self.assertEqual(frames, [{"window": "w1"}, {"window": "w2", "frame": FRAME}])
+        self.assertEqual(bi.COVERED, {"window": "w1"})
+
+    def test_covered_window_skips_while_the_feature_is_off(self):
+        control = self.covering_control(FAMILY_OFF)
+        self.assertEqual(bi.prepare("covered-window", control, args_for(), 7, "/b.app"),
+                         "the feature windowOcclusionFamily is off")
+        self.assertEqual(actions_of(control), [])
+
+    def test_covered_window_skips_when_the_cover_does_not_take_the_frame(self):
+        control = self.covering_control()
+        control.replies["debug.window_frame"] = lambda params: {"result": {"frame": [10, 10, 600, 400] if "frame" in params else FRAME}}
+        with mock.patch.object(bi.time, "sleep"):
+            skipped = bi.prepare("covered-window", control, args_for(), 7, "/b.app")
+        self.assertIn("the cover window took [10, 10, 600, 400]", skipped)
+        self.assertEqual(bi.COVERED, {})
+
+    def test_the_covered_family_is_read_from_debug_windows(self):
+        bi.COVERED["window"] = "w1"
+        control = FakeControl({"debug.windows": [windows(("w1", True), ("w2", False))]})
+        self.assertIs(bi.covered_family_occluded(control), True)
+        self.assertIsNone(bi.covered_family_occluded(FakeControl({})))
+
+    def test_criteria_judge_main_wakeups_and_the_covered_family(self):
+        quiet = {"processes": [row("app", 0.2)], "main_wakeups_per_s": 0.3, "covered_family_occluded": True}
+        self.assertEqual(bi.criteria("covered-window", quiet, args_for()), [])
+        self.assertEqual(bi.criteria("app-hidden", {"processes": [], "main_wakeups_per_s": 0.9}, args_for()),
+                         ["app-hidden: main thread 0.9 wakeups/s > 0.5"])
+        self.assertEqual(bi.criteria("covered-window", {"processes": [], "main_wakeups_per_s": None,
+                                                        "covered_family_occluded": False}, args_for()),
+                         ["covered-window: main thread wakeups not measured",
+                          "covered-window: the covered window's family was not occluded (family_occluded=False)"])
+
+    def test_the_occlusion_launch(self):
+        self.assertEqual(bi.occlusion_launch(["terminals"]), ({}, None))
+        self.assertEqual(bi.occlusion_launch(["terminals", "covered-window"]),
+                         ({"CMUX_NEXT_BENCH_SHIPPING_DRAW": "1"}, {"windowOcclusionFamily": True}))
+
+    def test_local_features_keep_the_files_other_choices(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "features"))
+            with open(os.path.join(root, "features", "local-overrides.json"), "w") as handle:
+                json.dump({"energySaver": False, "windowOcclusionFamily": False, "junk": 3}, handle)
+            path = bl.write_local_features(root, {"windowOcclusionFamily": True})
+            with open(path) as handle:
+                self.assertEqual(json.load(handle), {"energySaver": False, "windowOcclusionFamily": True})
+        with tempfile.TemporaryDirectory() as root:
+            path = bl.write_local_features(os.path.join(root, "fresh"), {"windowOcclusionFamily": True})
+            with open(path) as handle:
+                self.assertEqual(json.load(handle), {"windowOcclusionFamily": True})
 
 
 def signpost(name, kind, message, at, pid=10):

@@ -101,16 +101,17 @@ nonisolated struct ServerFixLedger: Sendable {
                                                 attributes: [.posixPermissions: 0o700])
         let data = try JSONEncoder().encode(file)
         let temp = directory.appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
-        let descriptor = open(temp.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
+        // SAFETY: open, rename and unlink read the NUL-terminated copies of the paths Swift makes for each call.
+        let descriptor = unsafe open(temp.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         do {
             try handle.write(contentsOf: data)
             try handle.synchronize()
             try handle.close()
-            guard rename(temp.path, url.path) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            guard unsafe rename(temp.path, url.path) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         } catch {
-            unlink(temp.path)
+            unsafe unlink(temp.path)
             throw error
         }
     }

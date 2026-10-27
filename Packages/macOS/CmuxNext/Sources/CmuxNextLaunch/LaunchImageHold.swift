@@ -1,4 +1,7 @@
 public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The agent panes drawing their last page while the live page loads (`showLaunchImage`), as one
 /// startup ref (p08-startup task 016): while any image shows, the launch's ``StartupScheduler`` is
@@ -90,9 +93,11 @@ public final class LaunchImageHold {
         startup.whenComplete { [weak self] _ in self?.runClearWaiters() }
     }
 
-    /// Returns when ``whenClear(_:)`` work would run.
+    /// Returns when ``whenClear(_:)`` work would run, or when that work was dropped unrun.
     public func clear() async {
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in whenClear { done.resume() } }
+        _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
+            whenClear { done.resume(returning: ()) }
+        }
     }
 
     private func runClearWaiters() {

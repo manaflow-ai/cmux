@@ -176,8 +176,14 @@ struct PageLifecycleCacheTests {
         }
 
         func dropHideSnapshot() {}
-        func freeze() { log.lines.append("freeze \(name)") }
-        func discard() { log.lines.append("discard \(name)") }
+        func freeze() -> Bool {
+            log.lines.append("freeze \(name)")
+            return true
+        }
+        func discard() -> Bool {
+            log.lines.append("discard \(name)")
+            return true
+        }
 
         func thaw() {
             log.lines.append("thaw \(name)")

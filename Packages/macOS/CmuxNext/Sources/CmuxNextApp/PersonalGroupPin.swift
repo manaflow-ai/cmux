@@ -54,6 +54,7 @@ struct PersonalGroupPin {
     /// One home-daemon request; a failure re-syncs the sidebar.
     private func send(_ label: String, _ body: @escaping DaemonCommandBody) {
         let home = home, bridge = bridge
+        // main-hop-allow: the request is DaemonService's main-actor async send; a refusal resyncs in its reply's job
         Task {
             if await home.request(label, body) == nil { bridge.resync() }
         }

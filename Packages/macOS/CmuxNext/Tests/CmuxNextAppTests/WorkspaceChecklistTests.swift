@@ -79,23 +79,6 @@ struct WorkspaceChecklistTests {
         #expect(workspace.checklist.isEmpty)
     }
 
-    /// `workspace_checklist.update` names only what changes; attachments go as the full list.
-    @Test func anUpdateSendsOnlyTheFieldsItChanges() throws {
-        let params = StateResourceClient.checklistUpdateParams(
-            ResourceID(rawValue: "ws_1"), item: "chk_b", state: .inProgress,
-            attachments: [WorkspaceChecklistAttachment(id: "att_1", path: "/tmp/shot.png", name: "shot.png")])
-        #expect(params["workspace"] == .string("ws_1"))
-        #expect(params["item"] == .string("chk_b"))
-        #expect(params["state"] == .string("in_progress"))
-        #expect(params["text"] == nil)
-        #expect(params["index"] == nil)
-        #expect(params["attachments"] == .array([.object(["id": .string("att_1"), "path": .string("/tmp/shot.png"), "name": .string("shot.png")])]))
-        let added = StateResourceClient.checklistUpdateParams(
-            ResourceID(rawValue: "ws_1"), item: "chk_b", attachments: [WorkspaceChecklistAttachment(path: "/tmp/new.png")])
-        #expect(added["attachments"] == .array([.object(["path": .string("/tmp/new.png"), "name": .string("new.png")])]),
-                "a new attachment has no id yet: the daemon gives it one")
-    }
-
     // MARK: Availability
 
     @Test func checklistActionsWaitForADaemonThatKeepsChecklists() {

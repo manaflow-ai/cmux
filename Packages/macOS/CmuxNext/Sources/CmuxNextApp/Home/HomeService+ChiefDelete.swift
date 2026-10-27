@@ -1,6 +1,7 @@
 import CmuxHomeCore
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextIPC
 import Foundation
 
 /// Delete Chief (next to Archive Chief on a Chief's Home row): the Chief goes for good. A cloud
@@ -61,10 +62,9 @@ extension HomeService {
     /// person's own call, as New Chief's create is).
     private func deleteLocalChief(_ id: String) async -> String? {
         guard let connection else { return HomeStrings.deleteFailed }
-        let params: [String: JSONValue] = ["chief": .string(id), "machine": .string("current"), "session": .string("current")]
         do {
-            _ = try await ResourceRelayClient(connection: connection).send(
-                operation: "chief.profile.delete", params: params, idempotencyKey: "home-chief-delete-" + id)
+            _ = try await ResourceOperationClient(connection: connection).mutate(
+                V2ChiefProfileDeleteRequest(chief: id), idempotencyKey: "home-chief-delete-" + id, as: JSONValue.self)
             directory.deletedLocalChiefs.insert(id)
             return nil
         } catch DaemonError.command(_, let message, _, let details, _) {

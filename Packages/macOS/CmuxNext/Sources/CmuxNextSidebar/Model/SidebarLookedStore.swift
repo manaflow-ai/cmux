@@ -54,6 +54,6 @@ public final class SidebarLookedStore {
         guard defaults != nil else { return }
         dirty = true
         // A debounce deadline (the intended delay), cancelled by flush().
-        saveTimer.schedule(after: saveDelay) { @MainActor [weak self] in self?.flush() }
+        saveTimer.scheduleOnMain(after: saveDelay) { [weak self] in self?.flush() }
     }
 }

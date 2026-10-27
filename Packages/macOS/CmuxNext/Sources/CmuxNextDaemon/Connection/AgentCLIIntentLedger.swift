@@ -53,6 +53,10 @@ public nonisolated struct AgentCLIIntentLedger: Sendable {
         let expectedMachineID: ResourceID
         let expectedSessionID: ResourceID
         let intents: [AgentCLIUpdateIntent]
+
+        enum CodingKeys: String, CodingKey {
+            case expectedMachineID = "expected_machine_id", expectedSessionID = "expected_session_id", intents
+        }
     }
 
     private struct List: DaemonRequest {
@@ -60,6 +64,10 @@ public nonisolated struct AgentCLIIntentLedger: Sendable {
         static let commandName: DaemonCommandName = "agent-cli-intents-list"
         let expectedMachineID: ResourceID
         let expectedSessionID: ResourceID
+
+        enum CodingKeys: String, CodingKey {
+            case expectedMachineID = "expected_machine_id", expectedSessionID = "expected_session_id"
+        }
     }
 
     private struct Settle: DaemonRequest {
@@ -68,6 +76,10 @@ public nonisolated struct AgentCLIIntentLedger: Sendable {
         let expectedMachineID: ResourceID
         let expectedSessionID: ResourceID
         let keys: [String]
+
+        enum CodingKeys: String, CodingKey {
+            case expectedMachineID = "expected_machine_id", expectedSessionID = "expected_session_id", keys
+        }
     }
 
     private struct Attach: DaemonRequest {
@@ -77,5 +89,9 @@ public nonisolated struct AgentCLIIntentLedger: Sendable {
         let expectedSessionID: ResourceID
         let key: String
         let receipt: AgentCLIJobReceipt
+
+        enum CodingKeys: String, CodingKey {
+            case expectedMachineID = "expected_machine_id", expectedSessionID = "expected_session_id", key, receipt
+        }
     }
 }

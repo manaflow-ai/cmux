@@ -82,7 +82,7 @@ import UniformTypeIdentifiers
         let shot = try #require(rep.cgImage)
         let scale = CGFloat(shot.width) / view.bounds.width
         let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
-        let ctx = try #require(CGContext(data: nil, width: shot.width, height: shot.height, bitsPerComponent: 8, bytesPerRow: 0,
+        let ctx = try #require(CGContext.ownedBitmap(width: shot.width, height: shot.height, bitsPerComponent: 8, bytesPerRow: 0,
                                          space: space,
                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         ctx.draw(shot, in: CGRect(x: 0, y: 0, width: shot.width, height: shot.height))

@@ -29,6 +29,31 @@
   ],
   "steps": [
     {
+      "id": "observe",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "project.observe",
+        "params": {
+          "source": "oracle",
+          "entries": [
+            {
+              "path": "/srv/oracle-project",
+              "last_used_ms": "1"
+            }
+          ]
+        },
+        "idempotencyKey": "project-update-error.observe"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -38,20 +63,23 @@
       "args": {
         "method": "project.update",
         "params": {
-          "path": 7,
-          "rename": "oracle"
+          "path": "/srv/oracle-unknown",
+          "rename": "Oracle"
         },
         "idempotencyKey": "project-update-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "validation.invalid",
+        "errorDetails": {
+          "reason": "unknown_project: /srv/oracle-unknown"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "path breaks its catalog type (value must be a string); the daemon's catalog check refuses it"
+      "note": "an unknown path is validation.invalid with unknown_project (the catalog's constraint)"
     }
   ],
   "invariants": [
@@ -60,8 +88,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.path is a fixed placeholder, not a fixture object; git/_tuning.json tunes it"
   ]
 }

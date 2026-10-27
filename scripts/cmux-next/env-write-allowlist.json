@@ -10,7 +10,7 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyRuntime.swift": {
   "setenv": 1,
-  "reason": "prepareProcessEnvironment, inside ProcessEnvironmentGuard.write: the second step of CmuxNextApp.prepareLaunchEnvironment in CmuxNextApp.main, before any thread and the guard's freeze; GhosttyRuntime.init calls it again only when nothing froze the environment (tests), then freezes before ghostty_init."
+  "reason": "prepareProcessEnvironment, inside ProcessEnvironmentGuard.write: the second step of CmuxNextApp.prepareLaunchEnvironment in CmuxNextApp.main, before any thread and the guard's freeze; GhosttyRuntime.initializeLibrary (first called in CmuxNextApp.main right after the freeze, while the process has one thread) calls it again only when nothing froze the environment (tests), then freezes before ghostty_init."
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/CmuxNextApp+LaunchEnvironment.swift": {
   "setenv": 1,

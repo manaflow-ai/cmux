@@ -57,3 +57,26 @@ a `.swift-version` file into the checkout.
 | `CMUX_HQ` | Path to the cmuxterm-hq checkout that gives the hq pin |
 | `SWIFTLY_HOME_DIR`, `SWIFTLY_BIN_DIR`, `SWIFTLY_TOOLCHAINS_DIR` | swiftly's own locations |
 | `XDG_CACHE_HOME` | Parent of the image-version cache |
+
+## String tables (compile-xcstrings.py)
+
+On Linux, SwiftPM copies a `.xcstrings` catalog into the bundle as JSON, and Foundation
+cannot read it. The Linux mode of the CmuxNext manifest (`CMUX_SWIFTPM_TARGET_LINUX=1`)
+therefore gives every target with a catalog a `LinuxStringTables` resource. That folder
+holds the compiled `<lang>.lproj/<table>.strings` files. When the folder is missing, SwiftPM
+stops before it compiles any Swift, so a build without the tables reports no Swift errors.
+
+`swift-tier.sh` compiles the tables into its source copy before every SwiftPM command. You do
+not run a step first. The script gets the targets and their folders from the Linux-mode
+`swift package dump-package`. It writes only the tables that changed.
+
+For a SwiftPM run without `swift-tier.sh`, compile the tables first:
+
+```bash
+python3 -I scripts/cmux-next/linux/compile-xcstrings.py           # write tables and links in the checkout
+python3 -I scripts/cmux-next/linux/compile-xcstrings.py --check   # change nothing; exit 1 if stale
+```
+
+The tables go to `Packages/macOS/CmuxNext/.build-linux/lproj/<Target>/`. Each target folder
+gets a `LinuxStringTables` link to its tables, and git ignores both. Plural and device
+variations become their `other` form. The script refuses substitutions.

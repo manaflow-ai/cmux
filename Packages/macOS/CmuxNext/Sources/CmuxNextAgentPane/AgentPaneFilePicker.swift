@@ -1,5 +1,8 @@
 public import AppKit
 public import CmuxNextDesign
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Add Files to Project's open panel (cx-ncc.67): a sheet on the pane's window for files, several
 /// at a time. None when the user cancels, the pane has no window, or the panel came back dead (no
@@ -41,8 +44,9 @@ public struct AgentPaneFilePicker {
     /// The chosen files, read in the sheet's own handler: once it ends, the shared panel is free
     /// for the next picker, which would reconfigure it before an `await` resumed here.
     private func sheet(_ panel: NSOpenPanel, on window: NSWindow) async -> [URL] {
-        await withCheckedContinuation { done in
+        // A sheet dropped without its handler (abandoned) chose nothing.
+        (try? await withOnceContinuation { (done: OnceContinuation<[URL], OnceContinuationError>) in
             panel.beginSheetModal(for: window) { response in done.resume(returning: response == .OK ? panel.urls : []) }
-        }
+        }) ?? []
     }
 }

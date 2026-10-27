@@ -170,7 +170,9 @@ final class HeaderBackdropView: NSView {
         let sel = NSSelectorFromString("filterWithType:")
         func filter(_ type: String) -> NSObject? {
             guard filterClass.responds(to: sel) else { return nil }
-            return filterClass.perform(sel, with: type)?.takeUnretainedValue() as? NSObject
+            // SAFETY: +[CAFilter filterWithType:] returns an autoreleased (+0) object, so the unretained read takes
+            // the one reference `perform` gives and balances nothing.
+            return unsafe filterClass.perform(sel, with: type)?.takeUnretainedValue() as? NSObject
         }
         let l = cls.init()
         guard let f = filter("gaussianBlur") else { return nil }

@@ -76,8 +76,9 @@ public final class SSHSessionChannel: Sendable {
 }
 
 /// Pipeline handler that turns SSH channel traffic into ``SSHSessionEvent``s
-/// and resolves channel request replies in order.
-final class SSHSessionChannelHandler: ChannelDuplexHandler, @unchecked Sendable {
+/// and resolves channel request replies in order. Confined to its channel's
+/// event loop: code off the loop reaches it through a `NIOLoopBound`.
+final class SSHSessionChannelHandler: ChannelDuplexHandler {
     typealias InboundIn = SSHChannelData
     typealias OutboundIn = SSHChannelData
     typealias OutboundOut = SSHChannelData
@@ -88,6 +89,58 @@ final class SSHSessionChannelHandler: ChannelDuplexHandler, @unchecked Sendable 
 
     init(continuation: AsyncStream<SSHSessionEvent>.Continuation) {
         self.continuation = continuation
+    }
+
+    /// Sends the optional `env` and `pty-req` requests, then `start`, each
+    /// after the previous reply. Must run on the channel's event loop; each
+    /// later step runs in a reply callback on the same loop, reaching this
+    /// handler and its context through loop-bound handles.
+    func start(
+        pty: SSHPTYRequest?,
+        environment: [String: String],
+        start: SSHSessionStart,
+        context: ChannelHandlerContext
+    ) -> EventLoopFuture<Void> {
+        let handler = NIOLoopBound(self, eventLoop: context.eventLoop)
+        let boundContext = NIOLoopBound(context, eventLoop: context.eventLoop)
+        var chain = context.eventLoop.makeSucceededVoidFuture()
+        for (name, value) in environment.sorted(by: { $0.key < $1.key }) {
+            // Servers commonly refuse env vars (AcceptEnv); treat as best effort.
+            chain = chain.flatMap {
+                handler.value.sendRequest(
+                    SSHChannelRequestEvent.EnvironmentRequest(wantReply: true, name: name, value: value),
+                    label: "env",
+                    context: boundContext.value
+                ).recover { _ in }
+            }
+        }
+        if let pty {
+            chain = chain.flatMap {
+                handler.value.sendRequest(
+                    SSHChannelRequestEvent.PseudoTerminalRequest(
+                        wantReply: true,
+                        term: pty.term,
+                        terminalCharacterWidth: pty.columns,
+                        terminalRowHeight: pty.rows,
+                        terminalPixelWidth: pty.pixelWidth,
+                        terminalPixelHeight: pty.pixelHeight,
+                        terminalModes: SSHTerminalModes([:])
+                    ),
+                    label: "pty-req",
+                    context: boundContext.value
+                )
+            }
+        }
+        return chain.flatMap {
+            switch start {
+            case .shell:
+                handler.value.sendRequest(SSHChannelRequestEvent.ShellRequest(wantReply: true), label: "shell", context: boundContext.value)
+            case .exec(let command):
+                handler.value.sendRequest(SSHChannelRequestEvent.ExecRequest(command: command, wantReply: true), label: "exec", context: boundContext.value)
+            case .subsystem(let name):
+                handler.value.sendRequest(SSHChannelRequestEvent.SubsystemRequest(subsystem: name, wantReply: true), label: "subsystem", context: boundContext.value)
+            }
+        }
     }
 
     /// Registers a promise for the next want-reply request, then sends it.

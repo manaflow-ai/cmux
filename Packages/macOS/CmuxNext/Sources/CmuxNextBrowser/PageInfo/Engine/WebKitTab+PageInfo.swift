@@ -154,6 +154,7 @@ extension WebKitTab: PageInfoProviding {
         // An excepted host's load waits for this answer; otherwise only Page Info reads it.
         let priority: MayBlockPriority = excepted ? .userBlocking : .userVisible
         // task-owner: one trust evaluation, then the answer and the Page Info record; ends with them
+        // main-hop-allow: the evaluation runs on the system lane; its resume answers WebKit's challenge and records Page Info, main-actor state that is not Sendable
         Task {
             // nil: the trust evaluates.
             let evaluated: (chain: [Data], reason: String?)?
@@ -180,7 +181,9 @@ nonisolated struct ServerTrustBox: @unchecked Sendable {
     /// nil when the trust evaluates, else the chain and the failure reason.
     func evaluate() -> (chain: [Data], reason: String?)? {
         var error: CFError?
-        guard !blockingSecTrustEvaluate(trust, &error) else { return nil }
+        // SAFETY: SecTrustEvaluateWithError stores at most one +1 CFError in the local `error`,
+        // live for the call; the Swift import takes ownership of it.
+        guard unsafe !blockingSecTrustEvaluate(trust, &error) else { return nil }
         let chain = (SecTrustCopyCertificateChain(trust) as? [SecCertificate] ?? []).map { SecCertificateCopyData($0) as Data }
         return (chain, error.map { CFErrorCopyDescription($0) as String })
     }

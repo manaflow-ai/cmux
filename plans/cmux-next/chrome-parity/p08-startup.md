@@ -826,6 +826,15 @@ input hooks stay in init. Acceptance: init holds no start() calls; banner and up
 SentrySDK.start; keep crash and signal handlers at launch; app-hang tracking, session file I/O and swizzled breadcrumbs
 start afterStartup. Static Sentry is out of scope (personality limit, CmuxSentryTelemetry/Package.swift:54).
 Acceptance: early-crash test (0.1 s) still reports; SentrySDK.start main time <= 3 ms warm.
+As built (cp/p08-startup-032): sentry-cocoa 9.28 installs every integration inside `SentrySDK.start` and has no
+public API to install one later, so only app-hang reports move (paused at start, resumed in one afterStartup post,
+feature `sentryHandlersFirst`). Session I/O stays at start: `SessionTracker` already reads and writes its files on
+the SDK's own queue (`endCachedSession`, `startSession` dispatch async), and manual sessions would lose the
+cached-session close of a run that ended abnormally. Network breadcrumbs stay on: turning them off removes the
+URLSession swizzle from the start but loses them for the whole run. The forwarder starts stay for 078. The
+`launch.sentry_start` interval (`crash.sentry_start` to `crash.sentry_started`) measures the call; the 3 ms
+target and the early-crash test are open until the fleet measures them. If the start is still over 3 ms, the
+cost is in SentryCrash install and the binary image cache, which only a lead decision on the spec can move.
 
 **033 main().** Files: `CmuxNextApp.swift`, `AppEnvironment.swift`, `CmuxNextApp+LaunchEnvironment.swift`. Change:
 signpost each step; directory creation for scroll anchors and draft attachments, SidebarSnapshotFile paths and
@@ -1044,6 +1053,12 @@ consistency test.
 `OwnerPanicForwarder.swift`, `Startup/Startup+Platform.swift`. Change: forwarder starts and the DiagnosticReports listing
 become `.bestEffort` lane posts behind the fence; handlers and LayoutPassGuard stay. Acceptance: no forwarder file calls
 before completion; previous-run report still sent in the same launch.
+As built (cp/p08-startup-078): feature `crashForwardersAfterStartup` (default off). `CmuxNextCrashReporting/CrashForwarders`
+holds the three forwarders; `CrashForwarders.post(on:)` posts their first pass and watches as one
+`.afterStartup` post `CrashReporting.forwarders` on `.lane(.files, .bestEffort)`, so it waits for completion and the fence.
+Finding acpmux (`AcpmuxEnvironment.resolve`: executable checks and the signature check) moves into that post too.
+`Startup/Startup+Platform.swift` does not exist on this branch; the wiring is the one `AppServices.init` line.
+Off, the forwarders start at once as before. Sentry's handlers, the invariant sink and LayoutPassGuard install at launch.
 
 **079 Q2 remainder.** Files: `Startup/Startup+{Control,Terminal,Settings,Platform,Core}.swift`. Change: priorities for
 hangReports.start, settings.start, keybindingsFile.start, mouseSideButtons, DaemonPrompts, TerminalHooks, themes.start and

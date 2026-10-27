@@ -21,16 +21,20 @@ enum DebugChromiumRestorableState {
         guard !installed, let cls = NSClassFromString("NativeWidgetMacNSWindow") else { return }
         // A typed selector (`encodeRestorableStateWithCoder:`), which NativeWidgetMacNSWindow inherits.
         let selector = #selector(NSWindow.encodeRestorableState(with:))
-        guard let method = class_getInstanceMethod(cls, selector) else { return }
+        // SAFETY: `encodeRestorableStateWithCoder:` takes one NSCoder and returns void, so its IMP is
+        // (self, _cmd, NSCoder) -> Void, the Encode signature; the cast changes no argument or return layout.
+        guard let method = unsafe class_getInstanceMethod(cls, selector) else { return }
         installed = true
         typealias Encode = @convention(c) (AnyObject, Selector, NSCoder) -> Void
-        let original = unsafeBitCast(method_getImplementation(method), to: Encode.self)
+        let original = unsafe unsafeBitCast(method_getImplementation(method), to: Encode.self)
         let counting: @convention(block) (AnyObject, NSCoder) -> Void = { window, coder in
             MainActor.assumeIsolated { encodes += 1 } // main-proof: AppKit encodes window state on the main thread
             original(window, selector, coder)
         }
         // Adds the override to Chromium's class only (NSWindow's own method stays as it is).
-        class_replaceMethod(cls, selector, imp_implementationWithBlock(counting), method_getTypeEncoding(method))
+        // SAFETY: `counting` is the block form of Encode (self, NSCoder), and the type encoding is the replaced
+        // method's own, a C string the runtime owns; the runtime copies the block.
+        unsafe class_replaceMethod(cls, selector, imp_implementationWithBlock(counting), method_getTypeEncoding(method))
     }
 }
 #endif

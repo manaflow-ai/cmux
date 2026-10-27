@@ -204,8 +204,10 @@ nonisolated struct AgentPaneProjectRepoReader: Sendable {
     }
 
     private static func realPath(_ path: String) -> String? {
-        guard let resolved = realpath(path, nil) else { return nil }
-        defer { free(resolved) }
-        return String(cString: resolved)
+        // SAFETY: realpath reads the NUL-terminated copy of `path` made for the call and returns a malloc'd
+        // NUL-terminated string or nil; it is copied once into the result, then freed once.
+        guard let resolved = unsafe realpath(path, nil) else { return nil }
+        defer { unsafe free(resolved) }
+        return unsafe String(cString: resolved)
     }
 }

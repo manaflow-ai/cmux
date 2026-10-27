@@ -1,6 +1,9 @@
 import CmuxAgentQuestion
 public import Foundation
 import UniformTypeIdentifiers
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// An in-memory owner for Home, used until the messaging backend lands and in
 /// tests, previews and demos. It behaves like a real owner: it assigns seqs and
@@ -62,7 +65,7 @@ public actor MockHomeSource: HomeSource {
     /// each belongs to its attachment's record.
     private var posterBlobs: [String: Data] = [:]
     private var uploadsPaused = false
-    private var pausedUploads: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var pausedUploads: [UUID: OnceContinuation<Void, OnceContinuationError>] = [:]
     /// Paused uploads whose task was cancelled before they registered.
     private var cancelledPauses: Set<UUID> = []
     private var failingUploads: [String: (times: Int, error: HomeRejection)] = [:]
@@ -77,7 +80,7 @@ public actor MockHomeSource: HomeSource {
     private var withheldEvents: [HomeEvent] = []
     /// True while `holdSubmits` holds every submit before the owner looks at it.
     private var holdingSubmits = false
-    private var heldSubmits: [CheckedContinuation<Void, Never>] = []
+    private var heldSubmits: [OnceContinuation<Void, OnceContinuationError>] = []
     /// The progress callback of every upload call, in call order (tests
     /// replay late callbacks with `replayProgress`).
     private var progressCallbacks: [@Sendable (Double) -> Void] = []
@@ -150,7 +153,9 @@ public actor MockHomeSource: HomeSource {
 
     public func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
         if options.latency > .zero { try? await clock.sleep(for: options.latency) }
-        if holdingSubmits { await withCheckedContinuation { heldSubmits.append($0) } }
+        if holdingSubmits {
+            try? await withOnceContinuation { (submit: OnceContinuation<Void, OnceContinuationError>) in heldSubmits.append(submit) }
+        }
         guard online else { throw HomeRejection.ownerUnreachable }
         if let failing = failingSubmits[intent.key] {
             failingSubmits[intent.key] = failing.times > 1 ? (failing.times - 1, failing.error) : nil
@@ -358,9 +363,9 @@ public actor MockHomeSource: HomeSource {
     private func pause() async throws {
         let id = UUID()
         await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                 if cancelledPauses.remove(id) != nil {
-                    continuation.resume()
+                    continuation.resume(returning: ())
                 } else {
                     pausedUploads[id] = continuation
                 }
@@ -373,7 +378,7 @@ public actor MockHomeSource: HomeSource {
 
     private func cancelPause(_ id: UUID) {
         if let continuation = pausedUploads.removeValue(forKey: id) {
-            continuation.resume()
+            continuation.resume(returning: ())
         } else {
             cancelledPauses.insert(id)
         }
@@ -388,7 +393,7 @@ public actor MockHomeSource: HomeSource {
         guard !paused else { return }
         let waiting = pausedUploads.values
         pausedUploads.removeAll()
-        for continuation in waiting { continuation.resume() }
+        for continuation in waiting { continuation.resume(returning: ()) }
     }
 
     /// The next `times` uploads of this hash fail with `error`.
@@ -454,7 +459,7 @@ public actor MockHomeSource: HomeSource {
         holdingSubmits = false
         let waiting = heldSubmits
         heldSubmits.removeAll()
-        for submit in waiting { submit.resume() }
+        for submit in waiting { submit.resume(returning: ()) }
     }
 
     /// Submits waiting for `releaseSubmits` now.

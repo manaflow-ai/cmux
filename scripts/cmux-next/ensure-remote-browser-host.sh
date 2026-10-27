@@ -16,6 +16,12 @@
 # Bytes from a source that do not match the pin sha256 fail the run, also
 # with --optional: a wrong host binary is never embedded or retried around.
 #
+# A pin with a "staging" object (a fleet step artifact, no R2 object;
+# scripts/cmux-next/cef-pin-staging.sh) fails, also with --optional, in a
+# Release build (CONFIGURATION=Release), once staging.store_expires is reached,
+# and when the controller store cannot serve it, as ensure-cef.sh does for a
+# staging CEF pin (CMUX_CEF_TODAY sets the date for tests).
+#
 # Environment:
 #   CMUX_NEXT_RB_HOST_PIN         pin file (default: the one beside this script)
 #   CMUX_NEXT_RB_HOST_CACHE_DIR   cache root (default <cef-cache-root>/remote-browser-host)
@@ -57,6 +63,22 @@ PY
 sha="$(field sha256)"; asset="$(field asset)"
 r2_bucket="$(field r2_bucket)"; r2_key="$(field r2_key)"
 [[ "$sha" =~ ^[0-9a-f]{64}$ && -n "$asset" ]] || { echo "error: pin $PIN lacks a sha256 or asset" >&2; exit 1; }
+
+refuse() { echo "error: remote browser host: $*" >&2; exit 1; }  # not softened by --optional
+staging=0
+if [[ -n "$(field staging)" ]]; then
+  staging=1
+  [[ "${CONFIGURATION:-}" != "Release" ]] ||
+    refuse "$PIN is a staging pin (scripts/cmux-next/cef-pin-staging.sh): a Release build embeds only a published host (publish-remote-browser-host.sh)"
+  expires="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["staging"]["store_expires"])' "$PIN" 2>/dev/null || true)"
+  days_left="$(/usr/bin/python3 -c 'import datetime as d, sys; print((d.date.fromisoformat(sys.argv[1]) - d.date.fromisoformat(sys.argv[2])).days)' \
+    "$expires" "${CMUX_CEF_TODAY:-$(date -u +%F)}" 2>/dev/null)" ||
+    refuse "the staging pin $PIN names no valid staging.store_expires (${expires:-none})"
+  (( days_left > 0 )) ||
+    refuse "the staging pin $PIN expired on $expires: the controller store no longer keeps its artifact. Publish the host (publish-remote-browser-host.sh) or stage it again"
+  (( days_left > 3 )) ||
+    echo "warning: the staging remote browser host pin expires on $expires ($days_left days)" >&2
+fi
 
 root="${CMUX_NEXT_RB_HOST_CACHE_DIR:-$("$SCRIPT_DIR/cef-cache-root.sh")/remote-browser-host}"
 dest="$root/$sha/$asset"
@@ -150,7 +172,12 @@ fetch_r2() {
   check R2
 }
 
-fetch_store || fetch_r2 || unavailable "no source had $asset sha256:$sha (tailnet controller or CMUX_CEF_R2_* read credentials)"
+if (( staging )); then
+  fetch_store ||
+    refuse "the staging pin $PIN is served only by the fleet controller store, which gave no verified $asset here (off the tailnet, or CMUX_RB_HOST_NO_STORE=1)"
+else
+  fetch_store || fetch_r2 || unavailable "no source had $asset sha256:$sha (tailnet controller or CMUX_CEF_R2_* read credentials)"
+fi
 chmod 755 "$out"
 mv -f "$out" "$dest"
 echo "==> remote browser host ready at $dest" >&2

@@ -22,16 +22,17 @@ public struct MobileWorkspaceSortStore: Sendable {
         var computerIdentityVersion: Int?
     }
 
-    // UserDefaults is Apple-documented thread-safe; OK to hold nonisolated.
-    private nonisolated(unsafe) let defaults: UserDefaults
+    /// Opens the backing store. `UserDefaults` is not `Sendable`, so this
+    /// `Sendable` value holds a way to open it, never the object.
+    private let defaults: @Sendable () -> UserDefaults
     private var payload: Payload
 
     /// Create a store backed by the given defaults.
-    /// - Parameter defaults: The persistence store. Inject a suite-scoped
-    ///   `UserDefaults` in tests; the app passes `.standard`.
-    public init(defaults: UserDefaults = .standard) {
+    /// - Parameter defaults: Opens the persistence store. Tests open a
+    ///   suite-scoped `UserDefaults`; the app opens `.standard`.
+    public init(defaults: @escaping @Sendable () -> UserDefaults = { .standard }) {
         self.defaults = defaults
-        if let data = defaults.data(forKey: Self.defaultsKey),
+        if let data = defaults().data(forKey: Self.defaultsKey),
            let decoded = try? JSONDecoder().decode(Payload.self, from: data) {
             payload = decoded
         } else {
@@ -86,7 +87,7 @@ public struct MobileWorkspaceSortStore: Sendable {
 
     private func persist() {
         if let data = try? JSONEncoder().encode(payload) {
-            defaults.set(data, forKey: Self.defaultsKey)
+            defaults().set(data, forKey: Self.defaultsKey)
         }
     }
 }

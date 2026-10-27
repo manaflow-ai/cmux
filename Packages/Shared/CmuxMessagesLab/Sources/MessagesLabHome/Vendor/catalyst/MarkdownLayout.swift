@@ -4,6 +4,7 @@ import UIKit
 import AppKit
 #endif
 import CmuxSafeConcurrency // cmux: Mutex (p10-stability-055)
+import os
 
 // Markdown layout (shared/MARKDOWN.md): a parsed document at a column width becomes
 // a display list in body-local points (origin = the bubble's top-left; text starts
@@ -134,7 +135,8 @@ extension Markdown {
 /// never loads a URL and never reads a file for `![alt](src)`: it asks this provider, and shows
 /// the image only when the host returns one (an attachment, a local file the host allows).
 /// Without a provider (the default) an image is a link or the text "[Image: alt]".
-protocol MarkdownImageProvider: AnyObject {
+/// Sendable: layouts run on any thread and call it concurrently.
+protocol MarkdownImageProvider: AnyObject, Sendable {
     /// The image for `source` (the destination exactly as written), or nil. Called during layout,
     /// off the main thread: return only what the host already has, never fetch here. Answers
     /// must be stable per source (block layouts are cached by content and width).
@@ -142,12 +144,12 @@ protocol MarkdownImageProvider: AnyObject {
 }
 
 enum MarkdownImages {
-    private static let lock = NSLock()
-    private static weak var current: MarkdownImageProvider?
+    private struct Current: Sendable { weak var provider: MarkdownImageProvider? }
+    private static let current = OSAllocatedUnfairLock(initialState: Current())
     /// The host's provider (weak; nil by default). Set it before the first layout.
     static var provider: MarkdownImageProvider? {
-        get { lock.lock(); defer { lock.unlock() }; return current }
-        set { lock.lock(); current = newValue; lock.unlock() }
+        get { current.withLock { $0.provider } }
+        set { current.withLock { $0.provider = newValue } }
     }
     /// Largest image height in a bubble (points).
     static let maxHeight: CGFloat = 320
@@ -353,7 +355,7 @@ enum MarkdownLayoutEngine {
                 blocks(bs, x: x + inner, width: w - inner, depth: depth + 1, listDepth: listDepth)
                 quoteDepth -= 1
                 out.boxes.append(MDBox(rect: CGRect(x: x + 1, y: top + 1, width: 3, height: max(14, y - top - 2)), kind: .quoteBar, region: -1))
-                let kids = Array(out.ax.dropFirst(children0)); out.ax.removeLast(kids.count) // no range subscript
+                let kids = Array(out.ax.dropFirst(children0)); out.ax.removeLast(min(out.ax.count, kids.count)) // no range subscript
                 out.ax.append(MDAXNode(kind: .quote, range: NSRange(location: p0, length: plainLen - p0), frame: CGRect(x: x, y: top, width: w, height: y - top), children: kids))
             case let .list(l):
                 list(l, x: x, width: w, depth: depth, listDepth: listDepth)
@@ -395,9 +397,9 @@ enum MarkdownLayoutEngine {
                 // typesetter only chooses the break.
                 let sub = attr.attributedSubstring(from: range)
                 let line = CTLineCreateWithAttributedString(sub)
-                let lw = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+                let lw = CGFloat(line.typographicWidth)
                 // A wrapped line's trailing space is not part of its drawn width.
-                let tw = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) - CGFloat(CTLineGetTrailingWhitespaceWidth(line))
+                let tw = CGFloat(line.typographicWidth) - CGFloat(CTLineGetTrailingWhitespaceWidth(line))
                 var lx = x
                 switch align {
                 case .center: lx = x + max(0, (w - tw) / 2)
@@ -429,8 +431,8 @@ enum MarkdownLayoutEngine {
             sub.enumerateAttribute(.mdStyle, in: NSRange(location: 0, length: sub.length)) { v, r, _ in
                 guard let raw = v as? UInt16 else { return }
                 let st = MDStyle(rawValue: raw)
-                let x0 = CTLineGetOffsetForStringIndex(f.line, r.location, nil)
-                let x1 = CTLineGetOffsetForStringIndex(f.line, NSMaxRange(r), nil)
+                let x0 = f.line.offset(forStringIndex: r.location)
+                let x1 = f.line.offset(forStringIndex: NSMaxRange(r))
                 if st.contains(.code) {
                     out.boxes.append(MDBox(rect: CGRect(x: f.origin.x + x0 - 1.5, y: f.origin.y + 1, width: x1 - x0 + 3, height: 14.5), kind: .inlineCode, region: f.region))
                 }
@@ -466,14 +468,14 @@ enum MarkdownLayoutEngine {
                 }
                 let sub = r.length > 0 ? attr.attributedSubstring(from: r) : NSAttributedString(string: "")
                 let line = CTLineCreateWithAttributedString(sub)
-                let lw = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+                let lw = CGFloat(line.typographicWidth)
                 out.frags.append(MDFrag(attr: sub, line: line, origin: CGPoint(x: x + Markdown.codePadX, y: y), width: lw, baseline: Markdown.codeBaseline,
                                         range: NSRange(location: plainLen + r.location, length: r.length), region: rid, role: .code, links: []))
                 var lineW = lw
                 if more > 0 {
                     let label = NSAttributedString(string: "  " + Markdown.moreCharacters(more), attributes: [.font: Fixture.bodyFont, .mdRole: MDRole.more.rawValue])
                     let ml = CTLineCreateWithAttributedString(label)
-                    let mw = CGFloat(CTLineGetTypographicBounds(ml, nil, nil, nil))
+                    let mw = CGFloat(ml.typographicWidth)
                     out.frags.append(MDFrag(attr: label, line: ml, origin: CGPoint(x: x + Markdown.codePadX + lw, y: y), width: mw, baseline: Markdown.bodyBaseline,
                                             range: NSRange(location: plainLen + NSMaxRange(r), length: 0), region: rid, role: .more, links: []))
                     lineW += mw
@@ -524,7 +526,7 @@ enum MarkdownLayoutEngine {
                     let m = markerText(i, it)
                     let attr = NSAttributedString(string: m, attributes: [.font: markerFont, .kern: Fixture.bodyKern, .mdRole: MDRole.marker.rawValue])
                     let line = CTLineCreateWithAttributedString(attr)
-                    let mw = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+                    let mw = CGFloat(line.typographicWidth)
                     out.frags.append(MDFrag(attr: attr, line: line, origin: CGPoint(x: x + ind - Markdown.markerGap - mw, y: y), width: mw, baseline: Markdown.bodyBaseline,
                                             range: NSRange(location: plainLen, length: (m as NSString).length), region: -1, role: .marker, links: []))
                     appendPlain(m + " ")
@@ -563,7 +565,7 @@ enum MarkdownLayoutEngine {
                         let line = CTLineCreateWithAttributedString(a)
                         let word = MarkdownLayoutEngine.longestWord(a, line)
                         // c < cols == every width array's count; written through checked slots.
-                        if let s = maxW.checkedIndex(c) { maxW[s] = max(maxW[s], CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)).rounded(.up)) }
+                        if let s = maxW.checkedIndex(c) { maxW[s] = max(maxW[s], CGFloat(line.typographicWidth).rounded(.up)) }
                         if let s = wordW.checkedIndex(c) { wordW[s] = max(wordW[s], word) }
                         if let s = minW.checkedIndex(c) { minW[s] = max(minW[s], min(140, word)) }
                     }
@@ -657,7 +659,7 @@ enum MarkdownLayoutEngine {
         let n = s.length
         func measure(_ lo: Int, _ hi: Int) {
             guard hi > lo else { return }
-            best = max(best, CTLineGetOffsetForStringIndex(line, hi, nil) - CTLineGetOffsetForStringIndex(line, lo, nil))
+            best = max(best, line.offset(forStringIndex: hi) - line.offset(forStringIndex: lo))
         }
         for i in 0..<n {
             let c = s.character(at: i)

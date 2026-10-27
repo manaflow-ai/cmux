@@ -1,0 +1,20 @@
+{
+  "id": "renderer-sharing",
+  "tier": "T1",
+  "description": "Chromium renderer processes per site (bench_renderer_sharing.py): tabs opened one after another, round-robin over local .test sites mapped by the bench host-resolver-rules switch, each with a stand-in heap; each new tab's time to its title, then the renderer count, the renderers that hold a tab and the renderers' and app's phys_footprint after the settle, light session, hibernation off.",
+  "command": ["scripts/cmux-next/bench_renderer_sharing.py", "--tabs", "60", "--sites", "20", "--heap-mb", "20"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "renderer_sharing\\.new_tab", "unit": "ms", "better": "lower"},
+    {"name": "renderer_sharing\\.(renderers|tab_renderers)", "unit": "count", "better": "lower"},
+    {"name": "renderer_sharing\\.(renderer|total)_footprint", "unit": "bytes", "better": "lower"},
+    {"name": "renderer_sharing\\.new_tab\\.missed_runs", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 150,
+  "needs": ["debug:debug.cef"],
+  "owner": "PL-cefhost",
+  "component": "Browser>ProcessModel"
+}

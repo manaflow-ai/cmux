@@ -6,7 +6,8 @@ import Testing
 /// mapping gives (HomeMapping.parts, markdown), so the posted reply replaces the bubble with
 /// nothing moving, while each token renders only its own lines.
 @MainActor struct HomeStreamMapperTests {
-    static let reply = """
+    /// Nonisolated (with ``fenced``): `@Test(arguments:)` reads them outside the main actor.
+    nonisolated static let reply = """
     ## Plan
 
     Here is **what** changed, see https://example.com/a and `code`, [the PR](https://github.com/manaflow-ai/cmux/pull/123).
@@ -23,7 +24,7 @@ import Testing
     | 1 | 2 |
     """
 
-    static let fenced = reply + "\n\n```swift\nlet x = 1\n  https://example.com/in-fence\n```\nafter the fence\n~~~\ntilde\n~~~\n"
+    nonisolated static let fenced = reply + "\n\n```swift\nlet x = 1\n  https://example.com/in-fence\n```\nafter the fence\n~~~\ntilde\n~~~\n"
 
     @Test(arguments: [reply, fenced])
     func everyPrefixMapsAsTheFullMappingDoes(_ text: String) {

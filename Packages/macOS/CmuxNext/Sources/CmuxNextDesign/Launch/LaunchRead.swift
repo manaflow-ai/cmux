@@ -1,4 +1,7 @@
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import CmuxNextWakeups
 
 /// One read of what the last quit saved for this launch, started at once on a `BackgroundWork` lane, whose result
@@ -21,8 +24,8 @@ public nonisolated final class LaunchRead<Value: Sendable>: Sendable {
 
     private struct State {
         var value: Value?
-        var waiters: [CheckedContinuation<Value, Never>] = []
-        /// ``whenLanded(on:class:owner:file:line:_:)`` steps that wait for the result.
+        var waiters: [OnceContinuation<Value, OnceContinuationError>] = []
+        /// ``valueNow(orPostTo:class:owner:file:line:_:)`` steps that wait for the result.
         var landings: [@Sendable (Value) -> Void] = []
     }
 
@@ -102,14 +105,19 @@ public nonisolated final class LaunchRead<Value: Sendable>: Sendable {
         state.withLock { $0.value }
     }
 
-    /// The result, once the read has ended (the caller suspends; no thread waits).
+    /// The result, once the read has ended (the caller suspends; no thread waits). The state keeps each
+    /// waiter until ``end(with:)``, so a wait is never dropped; one that were waits again.
     public func finished() async -> Value {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Value, Never>) in
-            let value = state.withLock { state -> Value? in
-                if state.value == nil { state.waiters.append(continuation) }
-                return state.value
+        do {
+            return try await withOnceContinuation { (continuation: OnceContinuation<Value, OnceContinuationError>) in
+                let value = state.withLock { state -> Value? in
+                    if state.value == nil { state.waiters.append(continuation) }
+                    return state.value
+                }
+                if let value { continuation.resume(returning: value) }
             }
-            if let value { continuation.resume(returning: value) }
+        } catch {
+            return await finished()
         }
     }
 }

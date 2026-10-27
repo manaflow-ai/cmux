@@ -92,7 +92,54 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the group goes and its screen stays, ungrouped"
+    },
+    {
+      "id": "ungrouped",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/extra/screen_group_id",
+        "predicate": "absent",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "no-group",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/extra/state/screen_groups",
+        "predicate": {
+          "op": "lengthEquals",
+          "value": 0
+        },
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "screen_group.ungroup",
+        "params": {
+          "screen_group": "$step:fx-screen-group#/value/id"
+        },
+        "idempotencyKey": "screen-group-ungroup-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

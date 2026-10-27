@@ -289,6 +289,18 @@ impl Mux {
         &self.ipc_stats
     }
 
+    /// The frame cut of this daemon's connections, in bytes.
+    pub(crate) fn bulk_frame_max(&self) -> usize {
+        self.bulk_frame_max
+    }
+
+    /// The key echo path threads' handle on this mux's request watchdog:
+    /// each item of their work is watched at 100 ms (`mux-pty-input` of the
+    /// app that owns this mux takes one).
+    pub fn echo_watch(&self) -> crate::server::EchoWatch {
+        self.request_watchdog.echo_watch()
+    }
+
     pub fn uptime(&self) -> Duration {
         self.started_at.elapsed()
     }
@@ -301,7 +313,7 @@ impl Mux {
     ) {
         let _registry = self.workspace_registry.lock().unwrap();
         entered.send(()).unwrap();
-        release.recv().unwrap();
+        cmux_threads::checked::sync::recv(&release).unwrap();
     }
 
     /// Holds the registry connection lock (the journal writer's only lock)
@@ -314,7 +326,7 @@ impl Mux {
     ) {
         let _connection = self.registry_connection.get();
         entered.send(()).unwrap();
-        release.recv().unwrap();
+        cmux_threads::checked::sync::recv(&release).unwrap();
     }
 
     #[cfg(test)]
@@ -358,7 +370,8 @@ impl Mux {
     ) -> u64 {
         let mut current = self.journal_event_epoch.lock().unwrap();
         while *current == epoch && !interrupt.is_fired() {
-            current = self.journal_event_changed.wait(current).unwrap();
+            current =
+                cmux_threads::checked::sync::wait(&self.journal_event_changed, current).unwrap();
         }
         *current
     }

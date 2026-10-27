@@ -29,6 +29,7 @@ struct WebKitHTTPSignIn {
             break
         }
         // task-owner: one Keychain read on the system lane, then the answer; ends with it
+        // main-hop-allow: the read runs on the system lane; its resume answers WebKit's challenge or asks through the tab's prompt queue, main-actor state that is not Sendable
         Task {
             // The page waits for this answer: the person's load.
             let remembered: BrowserHTTPRememberedLogin?? = try? await lanes?.runSystem(.userBlocking) { memory?.remembered(key, failures: failures) }

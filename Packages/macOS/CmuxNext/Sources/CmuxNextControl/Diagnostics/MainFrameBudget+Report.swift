@@ -20,7 +20,7 @@ extension MainFrameBudget {
     public var reportParts: (fields: [String: JSONValue], turns: MainTurnMeter.Snapshot) {
         let stats = stats
         var classes: [String: JSONValue] = [:]
-        for (index, workClass) in MainWorkClass.budgeted.enumerated() {
+        for (index, workClass) in Stats.classes.enumerated() {
             classes[workClass.description] = [
                 "budget_ms": .number(Double(Self.nanos(budgets.budget(workClass) ?? .zero)) / 1_000_000),
                 "tasks": JSONValue((stats.tasks[checked: index] ?? 0)),
@@ -50,7 +50,7 @@ extension MainFrameBudget {
     private static func starvationReport(_ starvation: RenderStarvationGuard) -> JSONValue {
         let stats = starvation.stats
         var held: [String: JSONValue] = [:]
-        for (index, workClass) in MainWorkClass.budgeted.enumerated() {
+        for (index, workClass) in MainFrameBudget.Stats.classes.enumerated() {
             held[workClass.description] = JSONValue(stats.heldTasks[checked: index] ?? 0)
         }
         return ["holds_work": .bool(starvation.holdsWork), "events": JSONValue(stats.events),
@@ -107,17 +107,23 @@ extension MainTaskBoard {
     ///
     /// - Parameters:
     ///   - budget: The budget whose board this is.
-    ///   - reset: Clears the budget's counters and the ledger after reading them.
+    ///   - idle: The scheduler's idle class, reported under `idle` (``IdleScheduler/report``); nil: no `idle` member.
+    ///   - reset: Clears the budget's counters, the idle class's and the ledger after reading them.
     @concurrent
-    public func mainBudgetReport(_ budget: MainFrameBudget, reset: Bool) async -> JSONValue {
+    public func mainBudgetReport(_ budget: MainFrameBudget, idle: IdleScheduler? = nil, reset: Bool) async -> JSONValue {
         let snapshot = ownerSnapshot()
         if reset { ledger.reset() }
-        let parts = await MainActor.run {
+        let (parts, idleReport) = await MainActor.run {
             let parts = budget.reportParts
-            if reset { budget.resetStats() }
-            return parts
+            let idleReport = idle?.report
+            if reset {
+                budget.resetStats()
+                idle?.resetStats()
+            }
+            return (parts, idleReport)
         }
         var fields = parts.fields.merging(parts.turns.reportFields) { current, _ in current }
+        if let idleReport { fields["idle"] = idleReport }
         fields["owners"] = .array(snapshot.owners.map(\.report))
         fields["owner_ledger"] = .object([
             "recorded": .number(Double(snapshot.recorded)), "dropped": .number(Double(snapshot.dropped)), "pending": JSONValue(snapshot.pending),
@@ -149,5 +155,17 @@ extension MainOwnerLedger.Distribution {
             "count": JSONValue(count), "p50_ms": .number(Double(p50Nanos) / 1_000_000), "p95_ms": .number(Double(p95Nanos) / 1_000_000),
             "p99_ms": .number(Double(p99Nanos) / 1_000_000), "max_ms": .number(Double(maxNanos) / 1_000_000),
         ]
+    }
+}
+
+extension IdleScheduler {
+    /// The `idle` member of the `debug.main_budget` report: periods, tasks run, promoted and
+    /// dropped, periods ended by input or higher-class work, timer fires and tasks queued.
+    public var report: JSONValue {
+        let stats = stats
+        return ["long_periods": JSONValue(stats.longPeriods), "short_periods": JSONValue(stats.shortPeriods),
+                "tasks": JSONValue(stats.tasks), "promoted": JSONValue(stats.promoted), "dropped": JSONValue(stats.dropped),
+                "ended_by_input": JSONValue(stats.endedByInput), "ended_by_higher_work": JSONValue(stats.endedByHigherWork),
+                "timer_fires": JSONValue(stats.timerFires), "queued": JSONValue(count)]
     }
 }

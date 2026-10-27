@@ -1,0 +1,18 @@
+{
+  "id": "cmd-n-paint",
+  "tier": "T2",
+  "description": "Cmd-N and Cmd-T paint in one step (cmd-n-paint-e2e.py, bd cx-8g3sn): the window as the window server composited it, frame after frame around the key; per opening the frames that were blank or between the frame before the key and the settled one, and the warm openings that did not adopt the prewarmed New Tab page, light session.",
+  "command": ["scripts/cmux-next/cmd-n-paint-e2e.py", "--story", "cmd-n-paint", "--runs", "3", "--keys", "n,t"],
+  "session": "light",
+  "engine": "webkit",
+  "config": "bench",
+  "metrics": [
+    {"name": "cmd_n_paint(\\.split[0-9]+)?(\\.cold)?\\.cmd_[nt]\\.bad_frames", "unit": "count", "better": "lower"},
+    {"name": "cmd_n_paint(\\.split[0-9]+)?\\.cmd_[nt]\\.not_adopted", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 60,
+  "needs": ["debug:debug.new_tab", "debug:debug.key"],
+  "owner": "PL-webui",
+  "component": "Tabs>NewTabPage"
+}

@@ -1756,6 +1756,11 @@ if [[ "${CMUX_SWIFT_INCREMENTAL_DIAGNOSTICS:-0}" == "1" ]]; then
 else
   SWIFT_INCREMENTAL_DIAGNOSTICS_EFFECTIVE=0
 fi
+# Per-task-kind seconds (Ld, SwiftCompile, ...) at the end of the log, with no build
+# setting changed, so nothing rebuilds for it (pgo/lto-ab.sh reads the Ld row).
+if [[ "${CMUX_RELOAD_BUILD_TIMING_SUMMARY:-0}" == "1" && "$SWIFT_INCREMENTAL_DIAGNOSTICS_EFFECTIVE" -ne 1 ]]; then
+  XCODEBUILD_ARGS+=(-showBuildTimingSummary)
+fi
 if reload_skips_app_module_emission "$(selected_xcode_version)"; then
   # A dev build runs the app; nothing imports its Swift module (only cmuxTests,
   # which reload never builds) and no Objective-C includes its generated header.

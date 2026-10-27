@@ -18,6 +18,8 @@
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread::JoinHandle;
 
+use cmux_threads::checked;
+
 use super::*;
 
 /// Kept for API compatibility: the reaper no longer ticks. It wakes at the
@@ -267,7 +269,7 @@ impl IdleTerminalReaper {
             let _ = stop.send(ReaperMessage::Stop);
         }
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = checked::sync::join(thread);
         }
     }
 }
@@ -303,8 +305,10 @@ pub fn start_idle_terminal_reaper(
             let (_, next) = owner.reap_idle_terminals_until_next(now);
             drop(owner);
             let message = match next {
-                None => messages.recv().map_err(|_| RecvTimeoutError::Disconnected),
-                Some(next) => messages.recv_timeout(next.saturating_duration_since(now)),
+                None => checked::sync::recv(&messages).map_err(|_| RecvTimeoutError::Disconnected),
+                Some(next) => {
+                    checked::sync::recv_timeout(&messages, next.saturating_duration_since(now))
+                }
             };
             match message {
                 Ok(ReaperMessage::Wake) | Err(RecvTimeoutError::Timeout) => {}

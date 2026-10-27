@@ -96,6 +96,21 @@ struct InputLatencyRingTests {
         #expect(slot.coalescedCount == UInt16.max)
     }
 
+    @Test func variableRefreshAndAStageReadBackWhileOpen() throws {
+        let table = InputLatencySlotTable()
+        let token = try #require(table.begin(kind: .keyPress, target: .terminal, entrypoint: .automation, generated: Self.ms))
+        #expect(table.time(token, .contentSubmitted) == nil, "not stamped yet")
+        #expect(table.mark(token, .contentSubmitted, at: 3 * Self.ms))
+        #expect(table.time(token, .contentSubmitted) == 3 * Self.ms)
+        #expect(table.time(token, .generated) == Self.ms)
+        #expect(table.setVariableRefresh(token))
+        #expect(table.setPresentationSource(token, .nominalRefresh))
+        let slot = try #require(table.close(token))
+        #expect(slot.isVariableRefresh && slot.presentationSource == .nominalRefresh)
+        #expect(slot.entrypoint == .automation, "the variable-refresh bit is not the entrypoint's")
+        #expect(table.time(token, .contentSubmitted) == nil, "a closed slot reads nothing")
+    }
+
     @Test func everyKindTargetAndSourceRoundTrips() throws {
         let table = InputLatencySlotTable()
         for kind in InputEventKind.allCases {

@@ -1,5 +1,6 @@
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -30,7 +31,7 @@ struct RecentlyClosedSharedEncodeTests {
         let file = try #require(AgentPageTestRoot.page)
         let host = WebUIHost.agentPaneTestHost()
         let views = try (0..<pages).map { _ in
-            try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: host, gestures: .testing()))
+            try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: host, gestures: .testing()))
         }
         defer { for view in views { view.close() } }
 

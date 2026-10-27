@@ -151,9 +151,9 @@ function PreviewControls({ bridge, onFixture }: { bridge: MockBridge; onFixture:
         const average = values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
         setFps(`${(1000 / average).toFixed(0)} FPS · ${average.toFixed(2)} ms`);
       }
-      requestAnimationFrame(tick);
+      id = requestAnimationFrame(tick);
     };
-    const id = requestAnimationFrame(tick);
+    let id = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(id);
   }, []);
   const applyThemeFile = (css: string) => {

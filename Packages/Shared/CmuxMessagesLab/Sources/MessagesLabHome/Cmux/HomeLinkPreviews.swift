@@ -1,5 +1,8 @@
 import CmuxHomeCore
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Home's rule for MessagesLab's link previews (README, Link previews), as
 /// iMessage does it: the SENDER makes the preview. The projection store asks
@@ -52,9 +55,9 @@ final class HomeLinkPreviews: @MainActor LinkPreviewFetching {
 
     /// The preview a send attaches (an allowed URL): LinkPreviews' answer,
     /// shared with the fetch the local card started, after at most its
-    /// timeout; nil when it failed.
+    /// timeout; nil when it failed or its callback was dropped.
     func preview(_ url: String) async -> LinkMetadata? {
-        await withCheckedContinuation { continuation in
+        try? await withOnceContinuation { (continuation: OnceContinuation<LinkMetadata?, OnceContinuationError>) in
             fetch(url) { continuation.resume(returning: $0) }
         }
     }

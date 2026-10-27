@@ -38,6 +38,8 @@ mod command;
 #[cfg(unix)]
 mod dev;
 mod docs;
+#[cfg(unix)]
+mod energy;
 mod extra_help;
 mod federation;
 mod fix_command;
@@ -63,6 +65,8 @@ pub(crate) fn remote_host_requested(raw_args: &[String]) -> bool {
     Surface::current() == Surface::Cmux && crate::remote_host::handles(raw_args)
 }
 mod machine_server;
+#[cfg(unix)]
+mod metrics;
 #[cfg(test)]
 use machine_server::ServerRoute;
 pub(crate) use machine_server::is_lifecycle_scope;
@@ -349,7 +353,9 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| chief::run_avatar_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
+        .or_else(|| energy::run_if_requested(args))
         .or_else(|| trace::run_if_requested(args))
+        .or_else(|| metrics::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))

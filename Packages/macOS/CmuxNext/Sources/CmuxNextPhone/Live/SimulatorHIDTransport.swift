@@ -1,7 +1,6 @@
 import CoreGraphics
 import Darwin
 import Foundation
-import ObjectiveC.runtime
 import XPC
 
 /// One booted simulator's input path. Xcode 27's `dtuhidd` XPC service
@@ -15,38 +14,29 @@ import XPC
 final class SimulatorHIDTransport {
     private enum Path {
         case dtuhid(xpc_connection_t)
-        case indigo(client: NSObject, mouse: MouseFunction?, keyboard: KeyboardFunction?, arbitrary: ArbitraryFunction?, button: ButtonFunction?)
+        case indigo(client: NSObject)
     }
-
-    private typealias MouseFunction = @convention(c) (UnsafePointer<CGPoint>, UnsafePointer<CGPoint>?, UInt32, Int32, CGFloat, CGFloat, UInt32) -> UnsafeMutableRawPointer?
-    private typealias KeyboardFunction = @convention(c) (UInt32, UInt32) -> UnsafeMutableRawPointer?
-    private typealias ArbitraryFunction = @convention(c) (UInt32, UInt32, UInt32, UInt32) -> UnsafeMutableRawPointer?
-    private typealias ButtonFunction = @convention(c) (Int32, Int32, Int32) -> UnsafeMutableRawPointer?
 
     private static let service = "com.apple.coredevice.feature.remote.hid.digitizer"
     /// The Indigo button event source of Simulator's Toggle Software Keyboard (classic cmux's worker sent the same).
     private static let softwareKeyboardSource: Int32 = 0x3F0
     private let path: Path
     private let device: NSObject
-    private let legacyButton: ButtonFunction?
+    private let builders: IndigoBuilders
     /// The legacy Indigo client the software keyboard toggle needs on the dtuhid path, opened on first use.
     private var keyboardClient: NSObject?
 
     init(device: NSObject, runtime: SimulatorKitRuntime) throws {
         self.device = device
-        legacyButton = runtime.symbol("IndigoHIDMessageForButton").map { unsafeBitCast($0, to: ButtonFunction.self) }
-        if let connection = Self.dtuhid(device) {
+        builders = IndigoBuilders(runtime)
+        if let connection = Self.dtuhid(device, runtime: runtime) {
             path = .dtuhid(connection)
             return
         }
         guard let client = Self.legacyClient(device) else {
             throw PhoneError.unsupported(mode: .simulator, what: "touch input with this Xcode")
         }
-        path = .indigo(client: client,
-                       mouse: runtime.symbol("IndigoHIDMessageForMouseNSEvent").map { unsafeBitCast($0, to: MouseFunction.self) },
-                       keyboard: runtime.symbol("IndigoHIDMessageForKeyboardArbitrary").map { unsafeBitCast($0, to: KeyboardFunction.self) },
-                       arbitrary: runtime.symbol("IndigoHIDMessageForHIDArbitrary").map { unsafeBitCast($0, to: ArbitraryFunction.self) },
-                       button: runtime.symbol("IndigoHIDMessageForButton").map { unsafeBitCast($0, to: ButtonFunction.self) })
+        path = .indigo(client: client)
     }
 
     /// Closes the XPC connection (the simulator rebooted or the transport is replaced).
@@ -57,46 +47,37 @@ final class SimulatorHIDTransport {
     func touch(_ phase: PhoneTouch.Phase, x: Double, y: Double) throws {
         switch path {
         case .dtuhid:
-            let payload = xpc_dictionary_create(nil, nil, 0)
-            let point = xpc_dictionary_create(nil, nil, 0)
-            xpc_dictionary_set_double(point, "x", x)
-            xpc_dictionary_set_double(point, "y", y)
-            xpc_dictionary_set_value(payload, "pointOne", point)
-            xpc_dictionary_set_uint64(payload, "eventType", phase == .began ? 0 : phase == .moved ? 1 : 2)
-            xpc_dictionary_set_uint64(payload, "edge", 0)
-            xpc_dictionary_set_uint64(payload, "target", 0)
-            try send("IndigoDigitizerEvent", payload)
-        case .indigo(_, let mouse, _, _, _):
-            guard let mouse else { throw PhoneError.unsupported(mode: .simulator, what: "touch input with this Xcode") }
-            var point = CGPoint(x: x, y: y)
-            // 0x32 is the digitizer target; 1 = down/drag, 2 = up.
-            let message = withUnsafePointer(to: &point) { mouse($0, nil, 0x32, phase == .ended ? 2 : 1, 1, 1, 0) }
-            try sendIndigo(message)
+            send("IndigoDigitizerEvent", [
+                ("pointOne", .dictionary([("x", .double(x)), ("y", .double(y))])),
+                ("eventType", .uint64(phase == .began ? 0 : phase == .moved ? 1 : 2)),
+                ("edge", .uint64(0)),
+                ("target", .uint64(0)),
+            ])
+        case .indigo:
+            guard let mouse = builders.mouse else { throw PhoneError.unsupported(mode: .simulator, what: "touch input with this Xcode") }
+            try sendIndigo(mouse(CGPoint(x: x, y: y), phase == .ended))
         }
     }
 
     func key(_ usage: UInt32, down: Bool) throws {
         switch path {
         case .dtuhid:
-            let payload = xpc_dictionary_create(nil, nil, 0)
-            xpc_dictionary_set_uint64(payload, "usageCode", UInt64(usage))
-            xpc_dictionary_set_uint64(payload, "state", down ? 1 : 2)
-            try send("IndigoKeyboardButtonEvent", payload)
-        case .indigo(_, _, let keyboard, _, _):
-            guard let keyboard else { throw PhoneError.unsupported(mode: .simulator, what: "typing with this Xcode") }
-            try sendIndigo(keyboard(usage, down ? 1 : 2))
+            send("IndigoKeyboardButtonEvent", [("usageCode", .uint64(UInt64(usage))), ("state", .uint64(down ? 1 : 2))])
+        case .indigo:
+            guard let keyboard = builders.keyboard else { throw PhoneError.unsupported(mode: .simulator, what: "typing with this Xcode") }
+            try sendIndigo(keyboard(usage, down))
         }
     }
 
     func button(page: UInt32, usage: UInt32, down: Bool) throws {
         switch path {
         case .dtuhid:
-            let payload = xpc_dictionary_create(nil, nil, 0)
-            xpc_dictionary_set_uint64(payload, "usagePage", UInt64(page))
-            xpc_dictionary_set_uint64(payload, "usageCode", UInt64(usage))
-            xpc_dictionary_set_uint64(payload, "state", down ? 1 : 2)
-            try send("IndigoButtonEvent", payload)
-        case .indigo(_, _, _, let arbitrary, let button):
+            send("IndigoButtonEvent", [
+                ("usagePage", .uint64(UInt64(page))),
+                ("usageCode", .uint64(UInt64(usage))),
+                ("state", .uint64(down ? 1 : 2)),
+            ])
+        case .indigo:
             // Home, lock and Siri are Indigo "event sources" on the legacy path; volume is arbitrary HID.
             let source: Int32? = switch (page, usage) {
             case (0x0C, 0x40): 0
@@ -104,10 +85,10 @@ final class SimulatorHIDTransport {
             case (0x0C, 0xCF): 0x400002
             default: nil
             }
-            if let source, let button {
-                try sendIndigo(button(source, down ? 1 : 2, 0x33))
-            } else if let arbitrary {
-                try sendIndigo(arbitrary(0x32, page, usage, down ? 1 : 2))
+            if let source, let button = builders.button {
+                try sendIndigo(button(source, down))
+            } else if let arbitrary = builders.arbitrary {
+                try sendIndigo(arbitrary(page, usage, down))
             } else {
                 throw PhoneError.unsupported(mode: .simulator, what: "hardware buttons with this Xcode")
             }
@@ -119,7 +100,7 @@ final class SimulatorHIDTransport {
     func toggleSoftwareKeyboard() throws {
         let client: NSObject
         switch path {
-        case .indigo(let legacy, _, _, _, _): client = legacy
+        case .indigo(let legacy): client = legacy
         case .dtuhid:
             guard let opened = keyboardClient ?? Self.legacyClient(device) else {
                 throw PhoneError.unsupported(mode: .simulator, what: "the software keyboard with this Xcode")
@@ -127,60 +108,74 @@ final class SimulatorHIDTransport {
             keyboardClient = opened
             client = opened
         }
-        guard let legacyButton else { throw PhoneError.unsupported(mode: .simulator, what: "the software keyboard with this Xcode") }
-        try sendIndigo(legacyButton(Self.softwareKeyboardSource, 1, 0x33), via: client)
-        try sendIndigo(legacyButton(Self.softwareKeyboardSource, 2, 0x33), via: client)
+        guard let button = builders.button else {
+            throw PhoneError.unsupported(mode: .simulator, what: "the software keyboard with this Xcode")
+        }
+        try sendIndigo(button(Self.softwareKeyboardSource, true), via: client)
+        try sendIndigo(button(Self.softwareKeyboardSource, false), via: client)
     }
 
-    private func send(_ type: String, _ payload: xpc_object_t) throws {
+    private func send(_ type: String, _ payload: [(String, XPCValue)]) {
         guard case .dtuhid(let connection) = path else { return }
-        let message = xpc_dictionary_create(nil, nil, 0)
-        xpc_dictionary_set_string(message, "messageType", type)
-        xpc_dictionary_set_bool(message, "isBarrier", false)
-        xpc_dictionary_set_string(message, "featureIdentifier", Self.service)
-        xpc_dictionary_set_value(message, "payload", payload)
+        let message = XPCValue.xpcDictionary([
+            ("messageType", .string(type)),
+            ("isBarrier", .bool(false)),
+            ("featureIdentifier", .string(Self.service)),
+            ("payload", .dictionary(payload)),
+        ])
         xpc_connection_send_message(connection, message)
     }
 
-    private func sendIndigo(_ message: UnsafeMutableRawPointer?) throws {
-        guard case .indigo(let client, _, _, _, _) = path else {
-            if let message { free(message) }
+    private func sendIndigo(_ message: consuming IndigoMessage) throws {
+        guard case .indigo(let client) = path else {
+            // `message` is freed as it goes out of scope.
             throw PhoneError.unsupported(mode: .simulator, what: "input with this Xcode")
         }
         try sendIndigo(message, via: client)
     }
 
-    private func sendIndigo(_ message: UnsafeMutableRawPointer?, via client: NSObject) throws {
-        guard let message else {
+    private typealias SendMessage = @convention(c) (AnyObject, Selector, UnsafeMutableRawPointer, ObjCBool, AnyObject?, AnyObject?) -> Void
+
+    /// Hands `message` to SimulatorKit, which frees it once sent (`freeWhenDone`). On every
+    /// path that throws, `message` is freed as it goes out of scope.
+    private func sendIndigo(_ message: consuming IndigoMessage, via client: NSObject) throws {
+        guard let method = PrivateMethod(client, "sendWithMessage:freeWhenDone:completionQueue:completion:"),
+              // SAFETY: only resolves the function; see the call below.
+              let handOver = unsafe method.function(SendMessage.self, returns: .void,
+                                                    arguments: [.pointer, .integer(bytes: 1), .object, .object]) else {
             throw PhoneError.unsupported(mode: .simulator, what: "input with this Xcode")
         }
-        let selector = privateSelector("sendWithMessage:freeWhenDone:completionQueue:completion:")
-        guard client.responds(to: selector), let imp = class_getMethodImplementation(type(of: client), selector) else {
-            free(message)
+        // SAFETY: handOff gives up this side's ownership of the malloc'd message (or nil).
+        guard let bytes = unsafe message.handOff() else {
             throw PhoneError.unsupported(mode: .simulator, what: "input with this Xcode")
         }
-        typealias Function = @convention(c) (AnyObject, Selector, UnsafeMutableRawPointer, ObjCBool, AnyObject?, AnyObject?) -> Void
-        unsafeBitCast(imp, to: Function.self)(client, selector, message, ObjCBool(true), nil, nil)
+        // SAFETY: `bytes` is a malloc'd Indigo message nobody else owns; freeWhenDone YES hands
+        // it to SimulatorKit, which frees it once sent, and this side never touches it again.
+        // There is no completion queue or block.
+        unsafe handOver(client, method.selector, bytes, ObjCBool(true), nil, nil)
     }
 
+    private typealias Lookup = @convention(c) (AnyObject, Selector, NSString, AutoreleasingUnsafeMutablePointer<NSError?>) -> mach_port_t
+    private typealias Endpoint = @convention(c) (mach_port_t, UInt64, UInt64) -> xpc_object_t?
+    private typealias Connect = @convention(c) (xpc_object_t) -> xpc_connection_t?
+    private typealias Enable = @convention(c) (xpc_connection_t) -> Void
+
     /// Xcode 27: look up the guest's HID service port and open an XPC connection to it.
-    private static func dtuhid(_ device: NSObject) -> xpc_connection_t? {
-        typealias Endpoint = @convention(c) (mach_port_t, UInt64, UInt64) -> xpc_object_t?
-        typealias Connect = @convention(c) (xpc_object_t) -> xpc_connection_t?
-        typealias Enable = @convention(c) (xpc_connection_t) -> Void
-        let lookup = privateSelector("lookup:error:")
-        guard let process = dlopen(nil, RTLD_NOW),
-              let endpointSymbol = dlsym(process, "xpc_endpoint_create_mach_port_4sim"),
-              let connectSymbol = dlsym(process, "xpc_connection_create_from_endpoint"),
-              let enableSymbol = dlsym(process, "xpc_connection_enable_sim2host_4sim"),
-              device.responds(to: lookup), let imp = class_getMethodImplementation(type(of: device), lookup) else { return nil }
-        typealias Lookup = @convention(c) (AnyObject, Selector, NSString, AutoreleasingUnsafeMutablePointer<NSError?>) -> mach_port_t
+    private static func dtuhid(_ device: NSObject, runtime: SimulatorKitRuntime) -> xpc_connection_t? {
+        guard let method = PrivateMethod(device, "lookup:error:"),
+              // SAFETY: only resolves the function; see the call below.
+              let lookup = unsafe method.function(Lookup.self, returns: .integer(bytes: 4), arguments: [.object, .pointer]),
+              let endpoint = runtime.function("xpc_endpoint_create_mach_port_4sim", as: Endpoint.self),
+              let connect = runtime.function("xpc_connection_create_from_endpoint", as: Connect.self),
+              let enable = runtime.function("xpc_connection_enable_sim2host_4sim", as: Enable.self) else { return nil }
         var error: NSError?
-        let port = unsafeBitCast(imp, to: Lookup.self)(device, lookup, service as NSString, &error)
+        // SAFETY: `error` is a local that outlives the call; lookup:error: stores at most one
+        // autoreleased NSError in it (Cocoa's error convention).
+        let port = unsafe lookup(device, method.selector, service as NSString, &error)
         guard port != mach_port_t(MACH_PORT_NULL),
-              let endpoint = unsafeBitCast(endpointSymbol, to: Endpoint.self)(port, 0, 0),
-              let connection = unsafeBitCast(connectSymbol, to: Connect.self)(endpoint) else { return nil }
-        unsafeBitCast(enableSymbol, to: Enable.self)(connection)
+              let made = endpoint(port, 0, 0),
+              let connection = connect(made) else { return nil }
+        enable(connection)
         resume(connection)
         return connection
     }
@@ -195,12 +190,41 @@ final class SimulatorHIDTransport {
 
     private static func legacyClient(_ device: NSObject) -> NSObject? {
         guard let cls = NSClassFromString("_TtC12SimulatorKit24SimDeviceLegacyHIDClient") as? NSObject.Type else { return nil }
-        let initializer = privateSelector("initWithDevice:error:")
-        let instance = cls.perform(privateSelector("alloc"))?.takeUnretainedValue() as? NSObject
-        guard let instance, instance.responds(to: initializer),
-              let imp = class_getMethodImplementation(cls, initializer) else { return nil }
-        typealias Function = @convention(c) (AnyObject, Selector, AnyObject, AutoreleasingUnsafeMutablePointer<NSError?>) -> Unmanaged<AnyObject>?
-        var error: NSError?
-        return unsafeBitCast(imp, to: Function.self)(instance, initializer, device, &error)?.takeRetainedValue() as? NSObject
+        return privateInstance(of: cls, initializer: "initWithDevice:error:", device)
+    }
+}
+
+/// One value of a dtuhid XPC message.
+private enum XPCValue {
+    case string(String)
+    case double(Double)
+    case uint64(UInt64)
+    case bool(Bool)
+    case dictionary([(String, XPCValue)])
+
+    /// An XPC dictionary of `entries`, in order.
+    static func xpcDictionary(_ entries: [(String, XPCValue)]) -> xpc_object_t {
+        let dictionary = xpc_dictionary_create_empty()
+        for (key, value) in entries {
+            switch value {
+            case .string(let text):
+                // SAFETY: `key` and `text` are NUL-terminated copies Swift keeps alive for the
+                // call; XPC copies both.
+                unsafe xpc_dictionary_set_string(dictionary, key, text)
+            case .double(let number):
+                // SAFETY: `key` is a NUL-terminated copy Swift keeps alive for the call; XPC copies it.
+                unsafe xpc_dictionary_set_double(dictionary, key, number)
+            case .uint64(let number):
+                // SAFETY: as for .double.
+                unsafe xpc_dictionary_set_uint64(dictionary, key, number)
+            case .bool(let flag):
+                // SAFETY: as for .double.
+                unsafe xpc_dictionary_set_bool(dictionary, key, flag)
+            case .dictionary(let nested):
+                // SAFETY: as for .double; XPC retains the nested dictionary.
+                unsafe xpc_dictionary_set_value(dictionary, key, Self.xpcDictionary(nested))
+            }
+        }
+        return dictionary
     }
 }

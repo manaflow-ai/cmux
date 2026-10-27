@@ -336,6 +336,9 @@ pub mod method {
     /// The cmux daemon's trace control (`trace_control.rs`); the local unix
     /// socket only.
     pub const MUX_TRACE: &str = "_acpmux/trace";
+    /// Energy Saver for this process and its maintenance jobs
+    /// (`energy_control.rs`); the unix socket and the local app only.
+    pub const MUX_ENERGY: &str = "_acpmux/energy";
     /// Read or replace the unsent composer text for one session.
     pub const MUX_DRAFT_GET: &str = "_acpmux/draft_get";
     pub const MUX_DRAFT_SET: &str = "_acpmux/draft_set";

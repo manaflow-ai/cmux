@@ -13,7 +13,7 @@ public struct CloseTerminalRequest: DaemonRequest {
         self.terminalIncarnation = terminalIncarnation
         self.mutation = mutation
     }
-    enum CodingKeys: String, CodingKey { case terminalID, terminalIncarnation }
+    enum CodingKeys: String, CodingKey { case terminalID = "terminal_id", terminalIncarnation = "terminal_incarnation" }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(terminalID, forKey: .terminalID)

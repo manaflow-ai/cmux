@@ -5,6 +5,8 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
+// memory: fixed it keeps no bytes in memory: each fetch makes one, holds a directory URL and a byte
+// count, and returns a file URL; the cached bytes are files on disk, bounded by `limit`.
 /// Fetched attachment variants on disk, one file per hash and variant, for
 /// the Home sources whose owner reads bytes by hash through the daemon (the
 /// local owner and the Cloud proxy). An owner has no thumbnail service, so a

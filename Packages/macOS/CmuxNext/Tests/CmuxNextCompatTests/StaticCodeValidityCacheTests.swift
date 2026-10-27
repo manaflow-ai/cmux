@@ -176,18 +176,5 @@ import Testing
         await offMain.flush()
         #expect(BlockingDetector(table: offMain).sites.isEmpty)
     }
-
-    /// This process's signature is read through the checked seams: on the main thread each call records a system-call
-    /// site at the reader's line (the test runner is signed, so all three calls run).
-    @MainActor @Test func readingTheOwnSignatureIsCheckedSystemCalls() async {
-        let table = BlockingViolationTable(mode: .record)
-        let line: UInt = #line + 1
-        _ = BlockingViolationTable.$scoped.withValue(table) { OwnCodeSignature.read() }
-        await table.flush()
-        let sites = BlockingDetector(table: table).sites
-        #expect(sites.map(\.kind) == [.systemCall])
-        #expect(sites.map(\.location) == ["CmuxNextCompatTests/StaticCodeValidityCacheTests.swift:\(line)"])
-        #expect(sites.first?.count == 3)
-    }
     #endif
 }

@@ -89,6 +89,7 @@ final class BrowserTabService {
     var writeBackDelay: Duration = .milliseconds(500)
     // wakeup-allow: deadline one write-back debounce per burst of record changes; BrowserRecordWriter's Sleep seam
     // (CmuxNextBrowserHistory) owns the wait, so it stays a sleep with WakeLeeway's tolerance (injected for tests)
+    // timer-class-allow: the writers' debounce runs in their own off-main tasks (CmuxNextBrowserHistory); this is only its clock
     var sleep: BrowserRecordWriter.Sleep = { try await ContinuousClock().sleep(for: $0, tolerance: WakeLeeway.window(delay: $0).tolerance) }
     private(set) var writers: [String: BrowserRecordWriter] = [:]
     private(set) var historyWriters: [String: BrowserHistoryWriter] = [:]
@@ -99,7 +100,9 @@ final class BrowserTabService {
     /// The App's incognito profiles (the engines' ``BrowserSharedStores``).
     let offTheRecord: OffTheRecordProfiles
     /// Per tab: the page follows the tab record's `extra.emulation` (`trackEmulation`).
-    var emulationFollowers: [String: Task<Void, Never>] = [:]
+    var emulationFollowers: [String: ServiceObservation<CmuxNextDaemon.JSONValue?>] = [:]
+    /// The app's main-thread scheduler: each tab's emulation change applies as a task on it.
+    let mainWork: MainWorkScheduler
     /// True for a pane of an incognito window (the App sets it).
     var isIncognitoPane: @MainActor (PaneModel) -> Bool = { _ in false }
     /// True for a tab of an incognito window, by tab id (the App sets it).
@@ -122,9 +125,12 @@ final class BrowserTabService {
         let surface: SurfaceID
     }
 
-    /// - Parameter chromium: The App's Chromium engine slot: its stores now; the engine at the first Chromium question.
-    init(daemon local: DaemonService, chromium: ChromiumEngineSlot) {
+    /// - Parameters:
+    ///   - chromium: The App's Chromium engine slot: its stores now; the engine at the first Chromium question.
+    ///   - mainWork: The app's main-thread scheduler (`TabContentCache.mainWork`).
+    init(daemon local: DaemonService, chromium: ChromiumEngineSlot, mainWork: MainWorkScheduler) {
         offTheRecord = chromium.stores.offTheRecord
+        self.mainWork = mainWork
         // The service lives in the cache, which the App owns beside the local daemon (no cycle).
         daemonForPane = { [local] _ in local }
         daemonForTab = { [local] _ in local }
@@ -381,6 +387,7 @@ final class BrowserTabService {
         let fetchHistory = fetchHistory, storeHistory = storeHistory, daemonForTab = daemonForTab
         let restored = restoredInMemory(id, page.engineKind)
         historyFetches[id]?.cancel()
+        // main-hop-allow: fetchHistory is the daemon's main-actor async read seam; the restore applies in its resume, a newer page cancels it
         historyFetches[id] = Task { [weak self, weak record] in
             let saved = await fetchHistory(daemon, surface)
             // A cancelled read's handle may already be a newer one's.
@@ -431,6 +438,7 @@ final class BrowserTabService {
         for writer in writers.values { await writer.flushNow() }
         // Each page is asked for its scroll position at once, not in turn.
         // task-owner: every flush is awaited before quit goes on.
+        // main-hop-allow: each writer's flush is main-actor async (it asks its page for the scroll position); quit awaits them all at once
         let flushes = historyWriters.values.map { writer in Task { await writer.flushNow() } }
         for flush in flushes { await flush.value }
     }

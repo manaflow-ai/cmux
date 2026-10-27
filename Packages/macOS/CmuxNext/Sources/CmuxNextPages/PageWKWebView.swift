@@ -37,6 +37,7 @@ final class PageWKWebView: WKWebView {
         // A choice in this view's context menu is the person's input (``menuWillSendAction(_:)``).
         // queue: .main runs the block inline for AppKit's post on main, before the action is
         // sent; a selector into this main-actor view trapped on a post off main.
+        // raw-observer-allow: the check needs the notice's sender menu before AppKit sends the action; an AppEvents call carries no sender
         menuActionObserver = NotificationCenter.default.addObserver(
             forName: NSMenu.willSendActionNotification, object: nil, queue: .main
         ) { [weak self] note in
@@ -133,6 +134,7 @@ final class PageWKWebView: WKWebView {
     override func keyUp(with event: NSEvent) { noteUserEvent(event); super.keyUp(with: event) }
     override func mouseDown(with event: NSEvent) { noteUserEvent(event); menuAutoFill.noteContextClick(event); super.mouseDown(with: event) }
     override func mouseUp(with event: NSEvent) { noteUserEvent(event); super.mouseUp(with: event) }
+    // local-monitor-allow: the gesture time and the host's touch note (noteUserEvent), then the event goes to WebKit in its order and count; a drag is unbuffered until mouseUp
     override func mouseDragged(with event: NSEvent) { noteUserEvent(event); super.mouseDragged(with: event) }
     override func rightMouseDown(with event: NSEvent) { noteUserEvent(event); menuAutoFill.noteContextClick(event); super.rightMouseDown(with: event) }
 
@@ -174,6 +176,7 @@ final class PageWKWebView: WKWebView {
     }
 
     override func selectAll(_ sender: Any?) {
+        // MQ12 allowed while frozen: Select All goes to the focused page, and focus keeps a page from freezing.
         evaluateJavaScript(Self.selectAllScript, completionHandler: nil)
     }
 

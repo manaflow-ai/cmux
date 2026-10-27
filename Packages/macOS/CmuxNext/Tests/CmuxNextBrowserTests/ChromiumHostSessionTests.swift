@@ -10,9 +10,10 @@ import Testing
 
 /// The Chromium host session's lifecycle without Chromium: a stand-in
 /// launcher hands out socket pairs, and the test plays the host on the other
-/// end. A host that ends (a CHECK, a crash, a kill) restarts once with the
-/// page's last committed URL; a host that ends again within the safe-restart
-/// window stays ended; a host closed on purpose does not restart.
+/// end. A host that ends (a CHECK, a crash, a kill) after its `ready` restarts
+/// with the page's last committed URL until the crash budget is spent
+/// (ChromiumHostRestartPolicyTests); a host that dies before its `ready` cannot
+/// start and is not restarted; a host closed on purpose does not restart.
 @MainActor
 @Suite struct ChromiumHostSessionTests {
     /// One stand-in host: the test's end of the wire.
@@ -115,11 +116,6 @@ import Testing
         }
     }
 
-    /// A clock the test moves.
-    final class TestClock {
-        var now = ContinuousClock.now
-    }
-
     static let configuration = ChromiumHostConfiguration(executable: URL(filePath: "/nonexistent"), arguments: [])
 
     /// Waits until `condition` holds; re-evaluated only when an observed
@@ -173,8 +169,7 @@ import Testing
 
     @Test func aHostThatEndsRestartsWithTheSavedPage() async throws {
         let launcher = FakeLauncher()
-        let clock = TestClock()
-        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { clock.now })
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher)
         session.open("https://a.example/")
         let first = try await nextLaunch(launcher)
         let opened = try await firstFrame(of: first)
@@ -185,7 +180,6 @@ import Testing
             session.phase == .running && session.contextID == 77 && session.url == "https://b.example/"
         }
 
-        clock.now += .seconds(5)
         launcher.end(first, ChromiumHostExit(signal: SIGTRAP, status: nil))  // a Chromium CHECK
         let second = try await nextLaunch(launcher)
         let reopened = try await firstFrame(of: second)
@@ -202,8 +196,7 @@ import Testing
     /// not a hole onto whatever is behind the pane.
     @Test func thePageViewIsFilledWhileNoContextShows() async throws {
         let launcher = FakeLauncher()
-        let clock = TestClock()
-        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { clock.now })
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher)
         let theme = PageBackground.cgColor(argb: PageBackground.themeARGB(in: session.view))
         #expect(session.view.backgroundFill == nil)
         session.open("https://a.example/")
@@ -213,7 +206,7 @@ import Testing
         answer(first, context: 77, address: "https://a.example/")
         try await until("running with context 77") { session.phase == .running && session.contextID == 77 }
 
-        // A quick second end leaves the session ended, with no context and the fill.
+        // A second host that dies before its ready cannot start: ended, with no context and the fill.
         launcher.end(first, ChromiumHostExit(signal: SIGTRAP, status: nil))
         let second = try await nextLaunch(launcher)
         #expect(session.view.contextID == 0)
@@ -245,9 +238,12 @@ import Testing
     @Test(.timeLimit(.minutes(1))) func framesOfAHostThatEndedDoNotChangeTheNextHost() async throws {
         let launcher = FakeLauncher()
         var exitWaits = launcher.exitWaits.makeAsyncIterator()
-        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now })
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher)
         session.open("https://a.example/")
         let first = try await nextLaunch(launcher)
+        // It said hello, so its end is a crash that restarts it (not a host that cannot start).
+        first.wire.send(ChromiumHostFrame(.ready, v: [27, first.pid]))
+        try await until("running") { session.phase == .running }
         // The session waits for the host's exit, so its frames task (started first) waits
         // on the wire too: a frame from now on is handled in a main-actor job of its own.
         #expect(await exitWaits.next() == first.pid)
@@ -255,7 +251,7 @@ import Testing
         // No await until nextLaunch: the main actor runs nothing else meanwhile. The
         // exit is reported first, so hostEnded is queued before any frame below.
         launcher.reportExit(first, ChromiumHostExit(signal: SIGSEGV, status: nil))
-        var stale = ChromiumHostFrame(.ready, v: [27, first.pid]).encoded()
+        var stale = ChromiumHostFrame(.ready, v: [99, first.pid]).encoded()
         stale += ChromiumHostFrame(.context, v: [77]).encoded()
         // Far more bytes than the socket holds (ChromiumHostConnection.sendBuffer): the
         // write returns only after the session's reader took the ready and context
@@ -273,7 +269,7 @@ import Testing
         #expect(session.phase == .starting)
         #expect(session.contextID == 0)
         #expect(session.view.contextID == 0)
-        #expect(session.forkAPI == 0)
+        #expect(session.forkAPI == 27, "the stale ready (fork API 99) is not applied")
         #expect(session.url == "https://a.example/")
         #expect(session.exits == ["signal \(SIGSEGV)"])
     }
@@ -283,7 +279,7 @@ import Testing
     @Test(arguments: [Int32(64), 65, 66, 67])
     func aHostThatCannotStartStaysEnded(status: Int32) async throws {
         let launcher = FakeLauncher()
-        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now })
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher)
         session.open("https://a.example/")
         let host = try await nextLaunch(launcher)
         launcher.end(host, ChromiumHostExit(signal: nil, status: status))
@@ -297,32 +293,49 @@ import Testing
         #expect(launcher.count == 1)
     }
 
-    @Test func aHostThatEndsAgainSoonStaysEnded() async throws {
+    // Before the fix a host that died before its ready was started again (the first start's
+    // restart) and died the same way, and its reason never named the code signature check.
+    @Test func aHostThatDiesBeforeItsReadyCannotStart() async throws {
         let launcher = FakeLauncher()
-        let clock = TestClock()
-        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { clock.now })
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher,
+                                          signatureChecker: ChromiumHostRestartPolicyTests.Checker(.invalid(-67_061)))
         session.open("https://a.example/")
-        let first = try await nextLaunch(launcher)
-        launcher.end(first, ChromiumHostExit(signal: SIGKILL, status: nil))
-        let second = try await nextLaunch(launcher)
-        clock.now += .seconds(10)
-        launcher.end(second, ChromiumHostExit(signal: SIGSEGV, status: nil))
+        let host = try await nextLaunch(launcher)
+        launcher.end(host, ChromiumHostExit(signal: SIGKILL, status: nil))
+        let checked = "could not start (signal \(SIGKILL)): it ended before Chromium started; "
+            + "code signature invalid (OSStatus -67061)"
+        try await until("ended with the signature check") { session.phase == .ended(checked) }
+        #expect(session.restarts == 0)
+        #expect(launcher.count == 1)
+    }
+
+    // Before the fix the second quick end already left the page ended: Chrome's budget allows 3.
+    @Test func aHostThatSpendsTheCrashBudgetStaysEnded() async throws {
+        let launcher = FakeLauncher()
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher)
+        session.open("https://a.example/")
+        for crash in 1...ChromiumHostRestartPolicy.standardCrashLimit {
+            let host = try await nextLaunch(launcher)
+            answer(host, context: Int32(crash), address: "https://a.example/")
+            try await until("running with context \(crash)") { session.phase == .running && session.contextID == UInt32(crash) }
+            launcher.end(host, ChromiumHostExit(signal: SIGSEGV, status: nil))
+        }
         try await until("ended") {
             if case .ended = session.phase { return true }
             return false
         }
-        #expect(launcher.count == 2)
-        #expect(session.restarts == 1)
+        #expect(launcher.count == ChromiumHostRestartPolicy.standardCrashLimit)
+        #expect(session.restarts == ChromiumHostRestartPolicy.standardCrashLimit - 1)
 
         // The person reloads: a new host starts.
         session.open("https://a.example/")
         _ = try await nextLaunch(launcher)
-        #expect(launcher.count == 3)
+        #expect(launcher.count == ChromiumHostRestartPolicy.standardCrashLimit + 1)
     }
 
     @Test func aHostClosedOnPurposeDoesNotRestart() async throws {
         let launcher = FakeLauncher()
-        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now })
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher)
         session.open("https://a.example/")
         let host = try await nextLaunch(launcher)
         answer(host, context: 5, address: "https://a.example/")
@@ -346,7 +359,7 @@ import Testing
     /// connects: the host still loads the last URL, then quits, and no second host starts.
     @Test func aCloseDuringTheLaunchQuitsTheHostOnceItConnects() async throws {
         let launcher = FakeLauncher()
-        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now })
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher)
         session.open("https://a.example/")
         session.open("https://b.example/")
         session.close()
@@ -359,6 +372,56 @@ import Testing
         launcher.end(host, ChromiumHostExit(signal: nil, status: 0))
         try await until("idle") { session.phase == .idle }
         #expect(launcher.count == 1)
+    }
+
+    /// The presentation reports the session handed on (the app's input latency tracker), observed.
+    @MainActor @Observable
+    final class PresentedReports {
+        var reports: [[UInt64]] = []
+    }
+
+    /// The host reports when each input's frame was presented (task p04-input-066): the session hands the event time
+    /// and the presentation time on, in order, and keeps a frame that failed to present to itself.
+    @Test func hostPresentationReportsReachTheInputLatencySeam() async throws {
+        let launcher = FakeLauncher()
+        let recorded = PresentedReports()
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher,
+                                          inputPresented: { event, presented in recorded.reports.append([event, presented]) })
+        session.open("https://a.example/")
+        let host = try await nextLaunch(launcher)
+        answer(host, context: 5, address: "https://a.example/")
+        host.wire.send(.inputPresented(.init(eventNanos: 1_000, presentedNanos: 9_000,
+                                             feedbackFlags: ChromiumHostFrame.presentationFailed)))
+        host.wire.send(.inputPresented(.init(eventNanos: 2_000, presentedNanos: 20_000, feedbackFlags: 1)))
+        host.wire.send(.inputPresented(.init(eventNanos: 3_000, presentedNanos: 30_000, feedbackFlags: 1 | 1 << 2)))
+        try await until("two reports") { recorded.reports.count == 2 }
+        #expect(recorded.reports == [[2_000, 20_000], [3_000, 30_000]])
+        #expect(session.report["input_presented_failed"] as? Int == 1)
+    }
+
+    /// Whether the current host reports presentation, as the session told the seam (the app's tracker), in order.
+    @MainActor @Observable
+    final class ReportsSeen {
+        var values: [Bool] = []
+    }
+
+    /// The session tells the tracker whether page slots can expect a report: what the host's `ready` announced, and
+    /// false once that host ended, so a page slot waits for a report only while one can come (task p04-input-066).
+    @Test func theHostsReadyDecidesWhetherPageSlotsWaitForReports() async throws {
+        let launcher = FakeLauncher()
+        let seen = ReportsSeen()
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher,
+                                          reportsInputPresented: { seen.values.append($0) })
+        session.open("https://a.example/")
+        let first = try await nextLaunch(launcher)
+        first.wire.send(ChromiumHostFrame(.ready, v: [27, first.pid, ChromiumHostFrame.readyReportsInputPresented]))
+        try await until("the first host reports") { seen.values == [true] }
+        launcher.end(first, ChromiumHostExit(signal: SIGTRAP, status: nil))
+        let second = try await nextLaunch(launcher)
+        #expect(seen.values == [true, false], "no report comes from a host that ended")
+        answer(second, context: 5, address: "https://a.example/")  // an older host: no bit in its ready
+        try await until("the second host does not report") { seen.values == [true, false, false] }
+        #expect(session.phase == .running)
     }
 
     /// Reads the host's frames until one of `kind`; nil when the wire ends first.
@@ -374,7 +437,7 @@ import Testing
 
     @Test func aHostThatIgnoresQuitIsKilledAtTheQuitLimit() async throws {
         let launcher = FakeLauncher()
-        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now },
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher,
                                           quitLimit: .milliseconds(20))
         session.open("https://a.example/")
         let host = try await nextLaunch(launcher)
@@ -390,7 +453,7 @@ import Testing
 
     @Test func openWhileTheHostQuitsStartsANewHostAfterItEnds() async throws {
         let launcher = FakeLauncher()
-        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now })
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher)
         session.open("https://a.example/")
         let first = try await nextLaunch(launcher)
         answer(first, context: 5, address: "https://a.example/")
@@ -414,7 +477,7 @@ import Testing
     // macOS 27, as a flaky openWhileTheHostQuitsStartsANewHostAfterItEnds).
     @Test(.timeLimit(.minutes(1))) func anAddressFromAHostThatQuitsDoesNotReplaceTheReopenedURL() async throws {
         let launcher = FakeLauncher()
-        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now })
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher)
         session.open("https://a.example/")
         let first = try await nextLaunch(launcher)
         answer(first, context: 5, address: "https://a.example/")
@@ -448,7 +511,7 @@ import Testing
 
     @Test func aURLLongerThanAFrameIsRefusedWithoutAHost() async throws {
         let launcher = FakeLauncher()
-        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now })
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher)
         let long = "data:text/plain," + String(repeating: "a", count: ChromiumHostFrame.maxPayload)
         #expect(!session.open(long))
         #expect(launcher.count == 0)
@@ -460,7 +523,7 @@ import Testing
     // Before the fix the waits ignored cancellation and this hung: the limit turns that into a failure.
     @Test(.timeLimit(.minutes(1))) func aCancelledPingOrStatsRequestReturnsAtOnce() async throws {
         let launcher = FakeLauncher()
-        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now })
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher)
         session.open("https://a.example/")
         let host = try await nextLaunch(launcher)
         answer(host, context: 5, address: "https://a.example/")
@@ -485,7 +548,7 @@ import Testing
 
     @Test(.timeLimit(.minutes(1))) func aStatsReplyAnswersTheRequestWithItsSeq() async throws {
         let launcher = FakeLauncher()
-        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now })
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher)
         session.open("https://a.example/")
         let host = try await nextLaunch(launcher)
         answer(host, context: 5, address: "https://a.example/")
@@ -519,7 +582,7 @@ import Testing
     @Test(.timeLimit(.minutes(1))) func aClosedSessionFreesItsReaderThreadAndDescriptors() async throws {
         let launcher = FakeLauncher()
         let connections = Connections()
-        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now },
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher,
                                           connected: { connections.all.append($0) })
         session.open("https://a.example/")
         let host = try await nextLaunch(launcher)
@@ -543,13 +606,6 @@ import Testing
     /// The connections a session opened, in order.
     final class Connections {
         var all: [ChromiumHostConnection] = []
-    }
-
-    @Test func restartPolicy() {
-        let policy = ChromiumHostRestartPolicy()
-        #expect(policy.restarts(ranFor: .seconds(1), isFirstStart: true))
-        #expect(!policy.restarts(ranFor: .seconds(59), isFirstStart: false))
-        #expect(policy.restarts(ranFor: .seconds(60), isFirstStart: false))
     }
 }
 #endif

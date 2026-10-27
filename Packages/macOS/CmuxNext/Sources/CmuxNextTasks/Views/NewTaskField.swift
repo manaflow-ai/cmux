@@ -10,8 +10,14 @@ import SwiftUI
 struct NewTaskField: View {
     let model: TasksModel
     @Environment(\.tasksColors) private var colors
-    @State private var title = ""
+    /// The model's `newTaskDraft`: a typed title outlives this view.
+    @Binding private var title: String
     @State private var focused = false
+
+    init(model: TasksModel) {
+        self.model = model
+        _title = Bindable(model).newTaskDraft
+    }
 
     var body: some View {
         HStack(spacing: 8) {

@@ -26,5 +26,5 @@ if [[ -z "$app" || ! -d "$app" ]]; then
   grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2 || true
   exit 1
 fi
-# A fleet step has no LaunchServices session: run the app binary itself (bench_memory.launch).
-CMUX_BENCH_LAUNCH=direct python3 scripts/cmux-next/bench_renderer_sharing.py --app "$app" --out "$out/report.json" --agent-cdp "$@"
+# The bench runs the app binary as its child (bench_launch.BenchApp): a fleet step has no LaunchServices session.
+python3 scripts/cmux-next/bench_renderer_sharing.py --app "$app" --out "$out/report.json" --agent-cdp "$@"

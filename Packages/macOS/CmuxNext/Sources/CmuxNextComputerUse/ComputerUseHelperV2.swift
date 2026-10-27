@@ -61,9 +61,9 @@ public final class ComputerUseHelperV2 {
     /// acpmux binary) runs on their system lane. Unwired, the helper admits no acpmux bridge.
     public var lanes: (any MayBlockRunner)?
 
-    /// This app's signing team (read once, ``OwnCodeSignature``). Ad-hoc development builds have no
+    /// This app's signing team, read on the system lane at launch. Ad-hoc development builds have no
     /// team and retain the same-executable-path peer rule.
-    nonisolated static var ownTeam: String? { OwnCodeSignature.current.teamIdentifier }
+    private let signingTeam: SigningTeamInstall
 
     /// The code-signing identifier read from an executable. A raced path can
     /// at worst produce a requirement the real helper does not satisfy: the
@@ -85,15 +85,15 @@ public final class ComputerUseHelperV2 {
         let requirement: String?
     }
 
-    /// Resolves `acpmux` and reads its admission on `lanes`' system lane (both read the binary's
-    /// signature); nil when there is no acpmux or no lanes.
+    /// Resolves `acpmux` and reads its admission for `team` (this app's) on `lanes`' system lane (both
+    /// read the binary's signature); nil when there is no acpmux or no lanes.
     nonisolated static func resolveAcpmux(_ acpmux: @escaping @Sendable () -> (executable: URL, socketPath: String)?,
-                                          on lanes: (any MayBlockRunner)?) async -> ResolvedAcpmux? {
+                                          team: String?, on lanes: (any MayBlockRunner)?) async -> ResolvedAcpmux? {
         guard let lanes else { return nil }
         // The helper starts for a person who turned Computer Use on, and waits for this.
         return try? await lanes.runSystem(.userBlocking) {
             acpmux().map { found in
-                let admission = Self.acpmuxAdmission(executable: found.executable)
+                let admission = Self.acpmuxAdmission(executable: found.executable, teamIdentifier: team)
                 return ResolvedAcpmux(executable: found.executable, socketPath: found.socketPath,
                                       hashes: admission.hashes, requirement: admission.requirement)
             }
@@ -103,7 +103,7 @@ public final class ComputerUseHelperV2 {
     /// Release helpers check every bridge's live audit token against its exact
     /// identifier and this app's team. Only ad-hoc development uses a
     /// mutable-path cdhash.
-    nonisolated static func acpmuxAdmission(executable: URL, teamIdentifier: String? = ownTeam,
+    nonisolated static func acpmuxAdmission(executable: URL, teamIdentifier: String?,
                                             identifier: (URL) -> String? = codeIdentifier,
                                             hash: (URL) -> Data? = cdhash)
         -> (hashes: [String], requirement: String?) {
@@ -123,7 +123,8 @@ public final class ComputerUseHelperV2 {
          spawner: any ComputerUseHelperV2Spawning = DisclaimedHelperSpawner(),
          clock: any Clock<Duration> = ContinuousClock(),
          readyTimeout: Duration = .seconds(10),
-         exitGrace: Duration = .seconds(2)) {
+         exitGrace: Duration = .seconds(2),
+         signingTeam: SigningTeamInstall = .process) {
         self.directory = directory
         self.helperApp = helperApp
         self.acpmux = acpmux
@@ -131,6 +132,7 @@ public final class ComputerUseHelperV2 {
         self.clock = clock
         self.readyTimeout = readyTimeout
         self.exitGrace = exitGrace
+        self.signingTeam = signingTeam
     }
 
     var socketPath: String { directory + "/" + Self.socketFileName }
@@ -206,7 +208,7 @@ public final class ComputerUseHelperV2 {
             return
         }
         let secret = Self.makeSecret()
-        let resolved = await Self.resolveAcpmux(acpmux, on: lanes)
+        let resolved = await Self.resolveAcpmux(acpmux, team: signingTeam.team, on: lanes)
         await spawned.send(Self.line(["type": "configure", "socket": socketPath, "secret": Self.hex(secret),
                                 "acpmux_cdhashes": resolved?.hashes ?? [],
                                 "acpmux_requirement": resolved?.requirement.map { $0 as Any } ?? NSNull()]))

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextChromiumRuntime
+import CmuxNextDesign
 import CmuxNextInputDiagnostics
 import CmuxNextSettings
 import Darwin
@@ -10,9 +11,13 @@ import Darwin
 /// engine, why Chromium is unavailable (`unavailable`: `notBundled`,
 /// `downloading`, `downloadFailed`, `startFailed`, `shutDown`), where the
 /// runtime came from (`runtime`: Chromium on demand) and the WebKit
-/// fallbacks so far, the external pump's counters (`pump`) and what the
-/// fork's page tracker read from host views (`tracker`). Helper
-/// processes are separate; measure them with `ps`.
+/// fallbacks so far, where Chromium's browser process runs (`backend`:
+/// `inProcess` or `host`), what the fork's page tracker read from host views
+/// (`tracker`; in host mode only `tracker.hosted_pages`) and, in process only,
+/// the external pump's counters (`pump`), the page windows over each
+/// DevTools tab (`devtools[].child_windows`) and what swipe gestures asked
+/// of their pages (`swipe`: page probes, wheel acks).
+/// Helper processes are separate; measure them with `ps`.
 @MainActor
 enum DebugCEF {
     static func report(_ services: AppServices) -> JSONValue {
@@ -45,11 +50,31 @@ enum DebugCEF {
                 "notified": .bool(fallbacks.notified),
             ])
         }
+        let backend = services.chromiumRuntime.backend
+        object["backend"] = .string(backend.rawValue)
         object["runtime"] = runtime(services.chromiumRuntime)
-        object["devtools"] = .array(devTools(services))
-        if let pump = services.cache.cef.pumpStats { object["pump"] = pumpReport(pump) }
-        object["tracker"] = trackerReport(services.cache.cef.trackerStats)
+        object["devtools"] = .array(devTools(services, pageWindows: ChildPageGeometry.hasPageWindows(backend)))
+        object.merge(engineCounters(backend: backend, pump: services.cache.cef.pumpStats,
+                                    tracker: services.cache.cef.trackerStats)) { $1 }
         object["windows"] = windows(services.cache.cef.windowReport)
+        // Host mode with feature chromiumHostWidgets (p01-process-066): null without a widget host.
+        object["host_widgets"] = services.cache.cef.hostWidgets.map { .array($0.map(hostWidget)) } ?? .null
+        object["host_popup_menus"] = .bool(services.cache.cef.drawsHostPopupMenus) // p01-process-060
+        // Host mode with feature chromiumHostSuggestions (p01-process-061): null while the host draws none in cmux.
+        object["host_suggestions"] = services.cache.cef.hostSuggestions.map { .array($0.map(hostSuggestion)) } ?? .null
+        // Host mode with feature chromiumHostFileDialogs (p01-process-064): the page file choosers cmux answered.
+        object["host_file_dialogs"] = services.cache.cef.hostFileDialogs.map { report in
+            .object(["asked": .number(Double(report.asked)), "answered": .number(Double(report.answered)),
+                     "waiting": .number(Double(report.waiting))])
+        } ?? .null
+        object["host_resize"] = services.cache.cef.hostResizeCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
+        // Swipes over Chromium pages (p01-process-234): a hosted page on a host that acks wheels probes nothing.
+        let swipe = services.cache.cef.swipeStats
+        object["swipe"] = .object([
+            "gestures": .number(Double(swipe.gestures)), "probes": .number(Double(swipe.probes)),
+            "acks": .number(Double(swipe.acks)), "swipes": .number(Double(swipe.swipes)),
+            "host_acks_wheels": .bool(swipe.hostAcksWheels),
+        ])
         if let duration = report.loadDuration { object["load_ms"] = .number(milliseconds(duration)) }
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
         if let seconds = report.readyAfterLaunch { object["ready_after_launch_s"] = .number(seconds) }
@@ -57,10 +82,11 @@ enum DebugCEF {
     }
 
     /// Per shown Chromium tab: its DevTools state, the page and docked
-    /// DevTools areas and the Chromium child windows over the tab (screen
-    /// coordinates, AppKit origin), so a check can see that the DevTools
-    /// window sits exactly over its area.
-    private static func devTools(_ services: AppServices) -> [JSONValue] {
+    /// DevTools areas and, when Chromium's pages are child windows
+    /// (`pageWindows`, in process), the Chromium child windows over the tab
+    /// (screen coordinates, AppKit origin), so a check can see that the
+    /// DevTools window sits exactly over its area.
+    private static func devTools(_ services: AppServices, pageWindows: Bool) -> [JSONValue] {
         var out: [JSONValue] = []
         for controller in services.windows.controllers {
             guard let window = controller.window else { continue }
@@ -72,6 +98,16 @@ enum DebugCEF {
                     "url": tab.state.url.map { .string($0.absoluteString) } ?? .null,
                     "title": tab.state.title.map { .string($0) } ?? .null,
                     "open": .bool(state.isOpen), "dock": .string(state.dock.rawValue),
+                    // Host mode: the page's cursor (CSS name), tooltip text and accessibility element (idle, asking,
+                    // refused, connected) in its page view; null in process. `tooltip_shown`: the app's tooltip on
+                    // screen now, whoever's (chromium-host-bench.py's tooltip row: the page's shows while the
+                    // pointer stays over the page).
+                    "page_cursor": ChromiumHostPageView.first(in: tab.contentView)?.pageCursorName.map(JSONValue.string) ?? .null,
+                    "page_tooltip": ChromiumHostPageView.first(in: tab.contentView)?.pageTooltipText.map(JSONValue.string) ?? .null,
+                    "tooltip_shown": TooltipPresenter.shared.shown.map { JSONValue.string($0.text) } ?? .null,
+                    "page_accessibility": ChromiumHostPageView.first(in: tab.contentView)?.remoteAccessibilityPhaseName.map(JSONValue.string) ?? .null,
+                    // Host mode: drags the page view sent as DragTarget calls (null in process).
+                    "page_drag": ChromiumHostPageView.first(in: tab.contentView).map { pageDrag($0.dragCounts) } ?? .null,
                 ]
                 if let panel = tab.sidePanelDiagnostic {
                     object["side_panel"] = .object(["title": .string(panel.title), "pinned": .bool(panel.pinned),
@@ -81,17 +117,24 @@ enum DebugCEF {
                 if let frames = tab.devToolsDiagnosticFrames {
                     object["page_frame"] = rect(frames.page)
                     object["devtools_frame"] = frames.devTools.map(rect) ?? .null
-                    let content = frames.devTools.map { frames.page.union($0) } ?? frames.page
-                    let children = WindowOverlayLayer.contentChildWindows(of: window).filter { $0.frame.intersects(content) }
-                    object["child_windows"] = .array(children.map { child in
-                        .object(["frame": rect(child.frame), "devtools": .bool(tab.devToolsContains(window: child)),
-                                 "key": .bool(child.isKeyWindow), "visible": .bool(child.isVisible)])
-                    })
+                    if pageWindows {
+                        let content = frames.devTools.map { frames.page.union($0) } ?? frames.page
+                        let children = WindowOverlayLayer.contentChildWindows(of: window).filter { $0.frame.intersects(content) }
+                        object["child_windows"] = .array(children.map { child in
+                            .object(["frame": rect(child.frame), "devtools": .bool(tab.devToolsContains(window: child)),
+                                     "key": .bool(child.isKeyWindow), "visible": .bool(child.isVisible)])
+                        })
+                    }
                 }
                 out.append(.object(object))
             }
         }
         return out
+    }
+
+    private static func pageDrag(_ counts: ChromiumHostDragCounts) -> JSONValue {
+        .object(["takes_drags": .bool(counts.takesDrags), "enters": .number(Double(counts.enters)),
+                 "drops": .number(Double(counts.drops)), "answers": .number(Double(counts.answers))])
     }
 
     /// Runs `control` on the first shown Chromium tab with a side panel.
@@ -123,8 +166,33 @@ enum DebugCEF {
         ])
     }
 
+    /// One widget the Chromium host shows in cmux: its kind, ids and where it is on screen.
+    private static func hostWidget(_ widget: CEFHostWidgetReport) -> JSONValue {
+        .object(["kind": .string(widget.kind), "widget": .number(Double(widget.widget)), "owner": .number(Double(widget.owner)),
+                 "context_id": .number(Double(widget.contextID)), "shown": .bool(widget.shown), "frame": rect(widget.screenFrame)])
+    }
+
+    private static func hostSuggestion(_ list: CEFHostSuggestionReport) -> JSONValue {
+        .object(["browser": .number(Double(list.browser)), "token": .number(Double(list.token)), "kinds": .array(list.kinds.map { .string($0) }),
+                 "types": .array(list.types.map { .number(Double($0)) }), "highlighted": list.highlighted.map { .number(Double($0)) } ?? .null,
+                 "frame": list.screenFrame.map(rect) ?? .null, "field": list.field.map(rect) ?? .null])
+    }
+
     private static func rect(_ rect: CGRect) -> JSONValue {
         .array([rect.minX, rect.minY, rect.width, rect.height].map { .number(Double($0)) })
+    }
+
+    /// The engine's counters, by backend. In process: the external pump's (`pump`) and the fork's
+    /// page tracker's (`tracker`). In host mode the pump and the fork's tracker run in the Chromium
+    /// Host; this process still counts its hosted page views (`ChromiumHostPageView`), so `tracker`
+    /// has `hosted_pages` alone.
+    static func engineCounters(backend: BrowserBackend, pump: CEFPumpStats?, tracker: CEFTrackerStats) -> [String: JSONValue] {
+        guard backend == .inProcess else {
+            return ["tracker": .object(["hosted_pages": .number(Double(tracker.hostedPages))])]
+        }
+        var counters: [String: JSONValue] = ["tracker": trackerReport(tracker)]
+        if let pump { counters["pump"] = pumpReport(pump) }
+        return counters
     }
 
     /// Pump wakeups per second = the change of `work_runs` over an interval.
@@ -168,7 +236,14 @@ enum DebugCEF {
             "hosting_refused": .number(Double(stats.hostingRefused)),
             "hosting_widget_fallbacks": .number(Double(stats.hostingWidgetFallbacks)),
             "hosting_without_track_a": .number(Double(stats.hostingWithoutTrackA)),
+            "pages_attached": .number(Double(stats.pagesAttached)),
+            "attach_refused": .number(Double(stats.attachRefused)),
             "geometry_skips": .number(Double(stats.geometrySkips)),
+            "page_window_widget_shows": .number(Double(stats.pageWindowWidgetShows)),
+            // Keyed by the fork's widget kind (CEFNativeWidget raw value): "2" autofill, "5" print preview.
+            "page_window_widget_shows_by_kind": .object(Dictionary(stats.pageWindowWidgetShowsByKind.map {
+                (String($0.key), JSONValue.number(Double($0.value)))
+            }, uniquingKeysWith: { first, _ in first })),
         ])
     }
 
@@ -200,9 +275,12 @@ enum DebugCEF {
     static func footprintMegabytes() -> Double {
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
-        let result = withUnsafeMutablePointer(to: &info) { pointer in
-            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+        // SAFETY: `count` is task_vm_info_data_t's size in integer_t words, the capacity the rebound view
+        // covers; task_info writes at most `count` words into `info`, a local live for the call, and
+        // lowers `count` to what it wrote.
+        let result = unsafe withUnsafeMutablePointer(to: &info) { pointer in
+            unsafe pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                unsafe task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
             }
         }
         guard result == KERN_SUCCESS else { return 0 }

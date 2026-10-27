@@ -25,6 +25,12 @@ public import CmuxNextDesignTokens
 /// lens keeps its last rect (off by the distance moved until the landing) and costs the page nothing.
 /// Under `plain` glass, or with no still to lens, it does nothing.
 ///
+/// While its page is hidden (``setPageShown(_:)``) the feed stops: it hears no backdrop, asks for no
+/// frame and pushes nothing, so a hidden or frozen page gets no script from it. As Chrome's WebUI
+/// handlers drop their observers in `OnJavascriptDisallowed` and send the current state in
+/// `OnJavascriptAllowed` (content/public/browser/web_ui_message_handler.h), the show pushes what
+/// changed meanwhile once, on its next frame.
+///
 /// ```swift
 /// let feed = GlassBackdropFeed(host: pageView, zoom: { pageView.pageZoom }) { pageView.evaluate($0) }
 /// feed.refresh(newDocument: true)
@@ -45,6 +51,13 @@ public final class GlassBackdropFeed {
     private var laidOutSize: CGSize?
     /// The one-shot frame that runs the next ``update()``; made on first use.
     private var nextFrame: FrameClient?
+    /// False while the page is hidden (``setPageShown(_:)``).
+    private(set) var pageShown = true
+    /// Something asked for a push while the page was hidden: the show pushes.
+    private var updateWhenShown = false
+    /// The page holds the last push for later (``pushWasHeld()``): the next one carries every field, so it
+    /// can take the held one's place.
+    private var sendsWholeState = false
 
     /// - Parameters:
     ///   - host: The view the page's viewport fills.
@@ -76,10 +89,30 @@ public final class GlassBackdropFeed {
         }
     }
 
-    /// Pushes what changed now. `newDocument`: the page's document is new and has nothing yet.
+    /// Pushes what changed now, or when the page shows. `newDocument`: the page's document is new and has nothing yet.
     public func refresh(newDocument: Bool = false) {
         if newDocument { sent = nil }
+        guard pageShown else {
+            updateWhenShown = true
+            return
+        }
         update()
+    }
+
+    /// The page shows (true) or hides (false). Hidden, the feed stops hearing its backdrop and drops
+    /// its pending frame. Shown again, it pushes on the next frame what changed while it was hidden (a
+    /// push asked for meanwhile, or new art under a still the page lenses), and nothing when nothing did.
+    public func setPageShown(_ shown: Bool) {
+        guard shown != pageShown else { return }
+        pageShown = shown
+        guard shown else {
+            nextFrame?.deactivate()
+            follow(nil)
+            return
+        }
+        guard updateWhenShown || lenses else { return }
+        updateWhenShown = false
+        setNeedsUpdate()
     }
 
     /// A layout spring starts or retargets (`PaneMotionTargeting`). On the render server the host's frame is
@@ -117,6 +150,13 @@ public final class GlassBackdropFeed {
         setNeedsUpdate()
     }
 
+    /// The page did not run the push just sent: it holds the newest push for its thaw (a frozen page,
+    /// MQ12), and a newer push takes the held one's place. Until a push runs, each one carries every
+    /// field and the image, not only what changed since the held one.
+    public func pushWasHeld() {
+        sendsWholeState = true
+    }
+
     /// Neither a live window resize nor a pane motion moves `host` now.
     private func atRest(_ host: NSView) -> Bool { !liveResize(host) && !host.isInPaneMotion }
 
@@ -126,6 +166,10 @@ public final class GlassBackdropFeed {
     /// Pushes what changed on the next display frame its window is seen in: a hidden, minimized or
     /// covered window's page gets the push when it shows (or a capture vote holds its window).
     func setNeedsUpdate() {
+        guard pageShown else {
+            updateWhenShown = true
+            return
+        }
         let node = host?.window.map { WindowVisibilitySource.of($0).node }
         if let stale = nextFrame, stale.visibleOnly !== node {
             // The host moved to another window: the pending push follows that window's visibility.
@@ -166,9 +210,11 @@ public final class GlassBackdropFeed {
     }
 
     private func send(_ payload: GlassBackdropPayload, image: String?) {
-        guard let fields = payload.changes(since: sent, image: image), let script = GlassBackdropPayload.script(fields) else { return }
+        guard let fields = payload.changes(since: sendsWholeState ? nil : sent, image: image),
+              let script = GlassBackdropPayload.script(fields) else { return }
         sent = payload
-        evaluate(script)
+        sendsWholeState = false
+        evaluate(script) // a page that holds it calls pushWasHeld()
     }
 
     /// Hears art, blur and tint changes of `backdrop` (and of no other).

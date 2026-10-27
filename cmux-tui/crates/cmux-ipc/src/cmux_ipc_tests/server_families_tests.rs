@@ -123,9 +123,6 @@ fn server_families_keyword_fields_are_raw_identifiers() {
 #[test]
 fn server_families_refuse_what_they_cannot_generate() {
     let string = json!({"kind": "scalar", "name": "string"});
-    let required_nullable =
-        refusal(json!({"a": {"type": string, "presence": "required", "nullable": true}}));
-    assert_eq!(required_nullable.path, "$.commands.probe.request.fields.a");
     let no_default =
         refusal(json!({"a": {"type": string, "presence": "optional", "nullable": false}}));
     assert!(no_default.message.contains("needs a default"), "{no_default}");
@@ -141,4 +138,127 @@ fn server_families_refuse_what_they_cannot_generate() {
     assert_eq!(unknown.path, "$.families.no-such");
     let twice = emitter::listed_families(&json!({"families": ["a", "a"]})).unwrap_err();
     assert_eq!(twice.path, "$.families[1]");
+}
+
+/// p05-ipc-029: the tabs family's field shapes. A nullable field keeps `null`
+/// apart from absent where the schema gives it no default, and a required
+/// nullable one must be present.
+#[test]
+fn server_families_nullable_fields_keep_null_apart_from_absent() {
+    let string = json!({"kind": "scalar", "name": "string"});
+    let families = emitter::read(
+        &schema_with(json!({
+            "cleared": {"type": string, "presence": "optional", "nullable": true},
+            "plain": {"type": string, "presence": "optional", "nullable": true, "default": null},
+            "must": {"type": string, "presence": "required", "nullable": true},
+            "env": {
+                "type": {"kind": "map", "values": string},
+                "presence": "optional",
+                "nullable": false,
+                "default": {}
+            },
+        })),
+        &["probe-family".to_owned()],
+    )
+    .unwrap();
+    let field = |name: &str| {
+        families[0].commands[0].fields.iter().find(|field| field.wire == name).unwrap().clone()
+    };
+    let cleared = field("cleared");
+    assert_eq!(
+        cleared.rust_type,
+        "::core::option::Option<::core::option::Option<::std::string::String>>"
+    );
+    assert_eq!(cleared.reader, Some(emitter::Reader::PresentNullable));
+    assert!(cleared.serde.contains(&"deserialize_with = \"present_nullable\"".to_owned()));
+    let plain = field("plain");
+    assert_eq!((plain.serde.clone(), plain.reader), (vec!["default".to_owned()], None));
+    let must = field("must");
+    assert_eq!(must.serde, ["deserialize_with = \"required_nullable\""]);
+    assert_eq!(must.reader, Some(emitter::Reader::RequiredNullable));
+    let env = field("env");
+    assert_eq!(
+        env.rust_type,
+        "::std::collections::BTreeMap<::std::string::String, ::std::string::String>"
+    );
+    assert_eq!(env.serde, ["default"]);
+    let code = emitter::emit(&families);
+    assert_eq!(code.matches("fn present_nullable<").count(), 1, "one reader per family");
+    assert_eq!(code.matches("fn required_nullable<").count(), 1, "one reader per family");
+}
+
+#[test]
+fn server_families_tabs_has_every_schema_command_and_its_refused_field() {
+    let sdk = sdk_schema();
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("server-families.json");
+    let list: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let mut families = emitter::read(&sdk, &listed()).unwrap();
+    emitter::add_refused_fields(&mut families, &list).unwrap();
+    let tabs = families.iter().find(|family| family.name == "tabs").unwrap();
+    let family_id = sdk["families"]["tabs"]["id"].as_u64().unwrap();
+    let expected = sdk["commands"]
+        .as_object()
+        .unwrap()
+        .values()
+        .filter(|command| command["method_id"].as_u64().is_some_and(|id| id >> 8 == family_id))
+        .count();
+    assert_eq!(tabs.commands.len(), expected);
+    let column = tabs.commands.iter().find(|command| command.wire == "move-tab-to-column").unwrap();
+    let sticky = column.fields.iter().find(|field| field.wire == "sticky").unwrap();
+    assert_eq!(sticky.rust_type, emitter::REFUSED_TYPE);
+}
+
+#[test]
+fn server_families_refused_fields_need_a_listed_command_and_a_reason() {
+    let string = json!({"kind": "scalar", "name": "string"});
+    let schema =
+        schema_with(json!({"a": {"type": string, "presence": "required", "nullable": false}}));
+    let families = emitter::read(&schema, &["probe-family".to_owned()]).unwrap();
+    let refuse = |list: Value| emitter::add_refused_fields(&mut families.clone(), &list);
+    let unknown = refuse(json!({"refused_fields": {"other": {"x": "why"}}})).unwrap_err();
+    assert_eq!(unknown.path, "$.refused_fields.other");
+    let no_reason = refuse(json!({"refused_fields": {"probe": {"x": " "}}})).unwrap_err();
+    assert_eq!(no_reason.path, "$.refused_fields.probe.x");
+    let schema_field = refuse(json!({"refused_fields": {"probe": {"a": "why"}}})).unwrap_err();
+    assert!(schema_field.message.contains("schema field"), "{schema_field}");
+    assert!(refuse(json!({"refused_fields": {"probe": {"x": "why"}}})).is_ok());
+}
+
+#[test]
+fn server_families_boxed_needs_a_listed_command_with_params_and_a_reason() {
+    let string = json!({"kind": "scalar", "name": "string"});
+    let schema =
+        schema_with(json!({"a": {"type": string, "presence": "required", "nullable": false}}));
+    let families = emitter::read(&schema, &["probe-family".to_owned()]).unwrap();
+    let boxed = |list: Value| {
+        let mut families = families.clone();
+        emitter::box_variants(&mut families, &list).map(|()| families)
+    };
+    let unknown = boxed(json!({"boxed": {"other": "why"}})).unwrap_err();
+    assert_eq!(unknown.path, "$.boxed.other");
+    let no_reason = boxed(json!({"boxed": {"probe": " "}})).unwrap_err();
+    assert_eq!(no_reason.path, "$.boxed.probe");
+    let mut empty = emitter::read(&schema_with(json!({})), &["probe-family".to_owned()]).unwrap();
+    let no_params =
+        emitter::box_variants(&mut empty, &json!({"boxed": {"probe": "why"}})).unwrap_err();
+    assert!(no_params.message.contains("no params"), "{no_params}");
+    let unboxed = emitter::emit(&families);
+    assert!(unboxed.contains("Probe($probe_family::ProbeParams),"), "{unboxed}");
+    let code = emitter::emit(&boxed(json!({"boxed": {"probe": "why"}})).unwrap());
+    assert!(code.contains("Probe(::std::boxed::Box<$probe_family::ProbeParams>),"), "{code}");
+}
+
+#[test]
+fn server_families_boxes_create_surface_with_receipt() {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("server-families.json");
+    let list: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let mut families = emitter::read(&sdk_schema(), &listed()).unwrap();
+    emitter::box_variants(&mut families, &list).unwrap();
+    let boxed: Vec<&str> = families
+        .iter()
+        .flat_map(|family| &family.commands)
+        .filter(|command| command.boxed)
+        .map(|command| command.wire.as_str())
+        .collect();
+    assert_eq!(boxed, ["create-surface-with-receipt"]);
 }

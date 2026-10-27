@@ -26,6 +26,13 @@ pub(super) const LINK_UNAVAILABLE: &str = "link_unavailable";
 /// This CLI must finish when the peer closes, even while the stdin blocking
 /// thread is waiting for input (Tokio's stdin reads cannot be cancelled).
 const STDIO_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(100);
+/// The class of every bridge thread. The app's daemon connection relays
+/// every request and echo byte through this process, so it runs at the
+/// daemon main thread's UserInitiated (p02-threads task 207). Its spawner
+/// cannot give it that class: a posix_spawn child starts at Default, and
+/// `posix_spawnattr_set_qos_class_np` sets utility at most
+/// (`cmux_threads::process`).
+const BRIDGE_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::UserInitiated;
 
 /// Why a dial did not connect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -168,7 +175,7 @@ pub(super) fn run(args: &[String]) -> i32 {
         Ok(socket) => socket,
         Err(failure) => return report(failure),
     };
-    let Ok(runtime) = super::tokio_runtime() else { return report(Failure::LinkUnavailable) };
+    let Ok(runtime) = bridge_runtime() else { return report(Failure::LinkUnavailable) };
     let code = runtime.block_on(async {
         let stream = match connect(&socket, &host, service).await {
             Ok(stream) => stream,
@@ -180,6 +187,19 @@ pub(super) fn run(args: &[String]) -> i32 {
     });
     runtime.shutdown_timeout(STDIO_SHUTDOWN_TIMEOUT);
     code
+}
+
+/// Puts the calling thread at [`BRIDGE_QOS`] and returns the runtime that
+/// relays the stream, whose worker and blocking threads (stdin reads) run
+/// at it too.
+fn bridge_runtime() -> std::io::Result<tokio::runtime::Runtime> {
+    cmux_threads::set_current(BRIDGE_QOS);
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .on_thread_start(|| {
+            cmux_threads::set_current(BRIDGE_QOS);
+        })
+        .build()
 }
 
 fn report(failure: Failure) -> i32 {

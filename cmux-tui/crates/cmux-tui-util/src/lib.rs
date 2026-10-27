@@ -5,6 +5,8 @@
 //! reads ([`user_settings`]). cmux-tui-core re-exports each module at its old
 //! path (`crate::backoff`, ...).
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 /// The OS paths `user_settings` reads (`crate::platform::home_dir`).
 use cmux_tui_platform::platform;
 

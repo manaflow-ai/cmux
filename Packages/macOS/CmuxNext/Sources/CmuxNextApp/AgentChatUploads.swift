@@ -224,7 +224,8 @@ extension AgentChatUploads {
         for chat in realFolders(in: chats) where isSessionName(chat.lastPathComponent) {
             sweepUploads(in: chat)
             // rmdir(2) refuses a folder that is not empty: an upload written into it meanwhile stays.
-            _ = rmdir(chat.path)
+            // SAFETY: rmdir reads the NUL-terminated copy of the path Swift makes for the call.
+            _ = unsafe rmdir(chat.path)
         }
         return removed
     }

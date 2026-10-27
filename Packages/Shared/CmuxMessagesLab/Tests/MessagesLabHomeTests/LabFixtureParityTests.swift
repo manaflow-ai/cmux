@@ -218,7 +218,7 @@ import UniformTypeIdentifiers
     static func write(_ view: NSView, to path: String) throws {
         guard let layer = view.layer else { return }
         let scale: CGFloat = 2, size = view.bounds.size
-        guard let ctx = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8, bytesPerRow: 0,
+        guard let ctx = CGContext.ownedBitmap(width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
         ctx.scaleBy(x: scale, y: scale)

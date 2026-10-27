@@ -5,6 +5,7 @@ import Foundation
 import Testing
 import WebKit
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 private actor BenchHost: AgentPaneHostProviding {
     let url: URL
@@ -157,19 +158,21 @@ struct AgentPaneTransportBench {
             try Self.nativeScript.write(to: directory.appendingPathComponent("bench.js"), atomically: true, encoding: .utf8)
             let model = AgentPaneModel(host: BenchHost(url: server.url))
             // Run alone (pane-native-transport.sh): the first agent page root of a process is the one it serves.
-            let pane = try #require(AgentPaneView(model: model, source: .bundled(page), webUI: .agentPaneTestHost(), gestures: .testing()))
+            let pane = try #require(AgentPaneView(mainThread: .standalone(), model: model, work: BackgroundWork(label: "test.agent-pane"), source: .bundled(page), webUI: .agentPaneTestHost(), gestures: .testing()))
             pane.frame = window.contentView!.bounds
-            print("PANE-STAGE awake \(Self.keepAwake(pane.webView))")
+            // The bench host shows the page in WebKit: the bench drives that engine directly.
+            let paneWebView = try #require(pane.page.webKitEngine)
+            print("PANE-STAGE awake \(Self.keepAwake(paneWebView))")
             window.contentView!.addSubview(pane)
-            if mode == .hostTurns { model.transport.pacer = AgentPaneNextTurnPacer() }
+            if mode == .hostTurns { model.transport.pacer = AgentPaneNextTurnPacer(mainWork: model.transport.mainWork) }
             // The page loads on its own; wait for it, then start.
             let deadline = ContinuousClock.now + .seconds(20)
             while ContinuousClock.now < deadline {
-                if (try? await pane.webView.evaluateJavaScript("typeof startBench") as? String) == "function" { break }
+                if (try? await paneWebView.evaluateJavaScript("typeof startBench") as? String) == "function" { break }
                 try await Task.sleep(for: .milliseconds(20))
             }
-            _ = try await pane.webView.callAsyncJavaScript("return await startBench()", arguments: [:], in: nil, contentWorld: .page)
-            return Rig(mode: mode, window: window, webView: pane.webView, pane: pane, connectionIndex: before)
+            _ = try await paneWebView.callAsyncJavaScript("return await startBench()", arguments: [:], in: nil, contentWorld: .page)
+            return Rig(mode: mode, window: window, webView: paneWebView, pane: pane, connectionIndex: before)
         }
     }
 

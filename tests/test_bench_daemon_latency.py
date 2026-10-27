@@ -64,8 +64,11 @@ class Percentiles(unittest.TestCase):
     def test_stats_rows_come_from_raw_samples(self):
         vals = [float(v) for v in range(100, 0, -1)]
         row = bench.stats(vals)
+        # perf_stats.pct (linear interpolation); nearest rank gave 50, 95, 99 on this vector.
         self.assertEqual((row["n"], row["p50_ms"], row["p95_ms"], row["p99_ms"], row["max_ms"]),
-                         (100, 50.0, 95.0, 99.0, 100.0))
+                         (100, 50.5, 95.05, 99.01, 100.0))
+        for q, key in ((0.5, "p50_ms"), (0.95, "p95_ms"), (0.99, "p99_ms")):
+            self.assertEqual(row[key], round(bench.lab.perf_stats.pct(vals, q), 3))
         self.assertEqual(row["mean_ms"], 50.5)
         self.assertEqual(row["samples_ms"], vals)  # in arrival order
         self.assertNotIn("samples_ms", bench.stats(vals, keep_samples=False))
@@ -103,6 +106,29 @@ class Flattening(unittest.TestCase):
         self.assertIn("PERF-DAEMON-ERROR small ops OSError()", lines)
         self.assertIn("PERF-DAEMON-ERROR small cli boom", lines)
         self.assertTrue(any(line.startswith("PERF-DAEMON small ping n=10") for line in lines))
+
+
+class DaemonLocks(unittest.TestCase):
+    def test_lock_rows_print_frontend_and_automation_percentiles(self):
+        histogram = {"count": 4, "mean": 10, "max": 900, "p50": 5, "p95": 600, "p99": 900}
+        data = {"schema": 1, "uptime_ms": 1, "locks": [
+            {"lock": "mux.state", "ops": [], "callers": [
+                {"caller": "frontend", "wait_us": histogram, "hold_us": histogram},
+                {"caller": "program", "wait_us": histogram, "hold_us": histogram},
+            ]},
+        ]}
+        locks = bench.daemon_lock_rows(data)
+        self.assertEqual(set(locks["mux.state"]), {"frontend", "automation"})
+        self.assertEqual(locks["mux.state"]["frontend"]["wait_us"]["p95"], 600)
+        self.assertEqual(locks["mux.state"]["automation"]["hold_us"]["count"], 0)
+        res = {"daemon_locks": {"since": "daemon start", "locks": locks}}
+        self.assertEqual(list(bench.rows(res)), [])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            bench.report("scale", res)
+        self.assertIn("PERF-DAEMON-LOCKS scale mux.state frontend wait_us.count=4 wait_us.p95=600 "
+                      "wait_us.p99=900 wait_us.max=900 hold_us.count=4 hold_us.p95=600 "
+                      "hold_us.p99=900 hold_us.max=900", out.getvalue().splitlines())
 
 
 class OpSelection(unittest.TestCase):
@@ -177,6 +203,56 @@ class Storm(unittest.TestCase):
         self.assertFalse(verdict["automation_keeps_half"])
         self.assertFalse(verdict["windows_match"])
         self.assertIn("error", bench.ipc16_verdict(latency(1.0), {**storm, "split": {"n": 0}}, cover))
+
+
+def method_row(samples_us):
+    """An `ipc_methods` row as the daemon builds it: nearest-rank bucket upper bounds, exact max."""
+    ordered = sorted(samples_us)
+    latency_us = {key: bench.bucket_upper_bound(bench.bucket_index(bench.pick(ordered, q)))
+                  for key, q in bench.METHOD_PERCENTILES}
+    return {"method": "ping", "id": 257, "latency_us": {"count": len(ordered), **latency_us, "max": ordered[-1]}}
+
+
+class DaemonMethods(unittest.TestCase):
+    """ops.OP.daemon_methods: the bench's client samples against the daemon's ipc_methods row."""
+
+    def test_buckets_are_the_shared_vector(self):
+        fixture = json.loads((SOURCE / "cmux-tui/spec/fixtures/ipc-method-latency/buckets.json").read_text())
+        for row in fixture["buckets"]:
+            self.assertEqual(bench.bucket_index(row["micros"]), row["bucket"], row)
+            self.assertEqual(bench.bucket_upper_bound(row["bucket"]), row["upper_bound"], row)
+
+    def test_the_same_requests_agree_within_one_bucket(self):
+        samples_us = [20 + (i * i * i) // 12_500 + (i * 37) % 101 for i in range(1000)]
+        # The client sees each round trip 30 us later than the daemon queues its reply.
+        client_ms = [(us + 30) / 1000 for us in samples_us]
+        agreement = bench.daemon_agreement(client_ms, None, method_row(samples_us))
+        self.assertTrue(agreement["within_one_bucket"], agreement)
+        self.assertEqual(agreement["n"], 1000)
+        self.assertEqual(agreement["id"], 257)
+        self.assertEqual(set(agreement["bucket_delta"]), {"p50", "p95", "p99", "max"})
+        self.assertTrue(all(delta >= 0 for delta in agreement["bucket_delta"].values()), agreement)
+
+    def test_a_far_daemon_row_is_not_within_one_bucket(self):
+        samples_us = [100] * 50
+        agreement = bench.daemon_agreement([1.0] * 50, None, method_row(samples_us))
+        self.assertFalse(agreement["within_one_bucket"], agreement)
+        self.assertGreater(agreement["bucket_delta"]["p50"], 1)
+
+    def test_untimed_requests_of_the_method_are_a_skip(self):
+        row = method_row([100] * 10)
+        self.assertIn("ran before", bench.daemon_agreement([0.1] * 3, method_row([100] * 7), row)["skipped"])
+        self.assertIn("counted 10", bench.daemon_agreement([0.1] * 3, None, row)["skipped"])
+        self.assertIn("no ipc_methods row", bench.daemon_agreement([0.1], None, None)["skipped"])
+
+    def test_report_prints_each_compared_method(self):
+        agreement = bench.daemon_agreement([0.1] * 4, None, method_row([90] * 4))
+        res = {"ops": {"ping": {**latency(0.1, n=4), "daemon_methods": {"ping": agreement}},
+                       "send": {**latency(0.1, n=4), "daemon_methods": {"skipped": "no section"}}}}
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            bench.report("small", res)
+        self.assertIn("PERF-DAEMON-METHOD small ping ping n=4 within_one_bucket=True", out.getvalue())
 
 
 class Pump(unittest.TestCase):

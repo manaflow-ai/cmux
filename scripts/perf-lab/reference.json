@@ -1,0 +1,6 @@
+{
+ "_doc": "The weekly-frozen reference artifact (reference.py, p12-perf-process.md 3.5): the scheduler runs it on each waterfall host every 6th T0 job, beside tip, as Chrome's run_reference_build does. An alert whose .ref series stepped in the same window is lab-drift, routed to lab_owner and never bisected. Re-pin each Monday with `python3 -I scripts/perf-lab/reference.py pin --sha SHA --config bench --digest sha256:HEX --by NAME` (the digest perf-lab-build.sh printed for that sha and config) and commit this file. pin null: no reference runs yet.",
+ "schema": "cmux-perf-reference/v1",
+ "lab_owner": "PL-perf-lab",
+ "pin": null
+}

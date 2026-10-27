@@ -4,17 +4,11 @@ import CryptoKit
 /// The four fingerprint words of a pending server (plans/cmux-next/server.md
 /// 6.2 step 2), the same as `cmux_server_core::pairing::fingerprint_words`:
 /// SHA-256 of the 32-byte RFC 7638 thumbprint, the first 44 bits as four
-/// 11-bit indexes into the BIP-39 English list (`pairing-words.txt`, a copy of
-/// the Rust crate's `bip39-english.txt`).
+/// 11-bit indexes into the BIP-39 English list (``list``, compiled in from the
+/// Rust crate's `bip39-english.txt` by scripts/cmux-next/generate-word-lists.py,
+/// so no file is read on the thread that shows the words).
 public nonisolated struct PairingWords {
     public nonisolated init() {}
-    /// The 2,048 words, or empty when the resource is missing.
-    static let list: [String] = {
-        guard let url = Bundle.module.url(forResource: "pairing-words", withExtension: "txt"),
-              let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
-        let words = text.split(whereSeparator: \.isNewline).map(String.init)
-        return words.count == 2048 ? words : []
-    }()
 
     /// Words for the thumbprint the pairing preview returns (base64url,
     /// no padding). Nil when it does not decode to 32 bytes.

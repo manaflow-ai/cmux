@@ -30,9 +30,9 @@ public struct FrontendInstallKeyStores {
 public struct CodeSigningTeam {
     public init() {}
 
-    /// Read once per process (``OwnCodeSignature``): the signature of a running process does not
-    /// change. The app's first reads are on its system lane at launch (the daemon prestart and the
-    /// acpmux resolve, both posted from `main`); the daemon prestart takes the team from there by
-    /// parameter. Blocks while that first read runs: call it off the main thread, or after launch.
-    public static func current() -> String? { OwnCodeSignature.current.teamIdentifier }
+    /// Read once per process (``SigningTeamInstall/process``): the signature of a running process does
+    /// not change. The app's first reads are on its system lane at launch (the daemon prestart and the
+    /// signing team load, both posted from `main`); the daemon prestart takes the team from there by
+    /// parameter. Before that load a read asks securityd itself: call it off the main thread, or after launch.
+    public static func current() -> String? { SigningTeamInstall.process.team }
 }

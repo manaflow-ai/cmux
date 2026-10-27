@@ -43,7 +43,7 @@ public final class MockAccountsServices: AccountsServices {
 
     public func detect() async -> [ProviderDetection] {
         calls.append("detect")
-        let found = Dictionary(uniqueKeysWithValues: detections.map { ($0.provider, $0) })
+        let found = Dictionary(detections.map { ($0.provider, $0) }, uniquingKeysWith: { first, _ in first })
         return AIProvider.allCases.map { found[$0] ?? .missing($0) }
     }
 

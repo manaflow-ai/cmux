@@ -23,7 +23,7 @@ public struct CloseTabsRequest: DaemonRequest {
         self.reason = reason
     }
 
-    enum CodingKeys: String, CodingKey { case surfaces, endTerminals, transaction, reason }
+    enum CodingKeys: String, CodingKey { case surfaces, endTerminals = "end_terminals", transaction, reason }
 
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)

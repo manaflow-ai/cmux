@@ -60,7 +60,9 @@
       },
       "args": {
         "method": "tab.create_terminal",
-        "params": {},
+        "params": {
+          "name": "oracle"
+        },
         "idempotencyKey": "tab-create-terminal-ok.call"
       },
       "expect": {
@@ -71,7 +73,34 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "a named terminal tab opens in the fixture pane"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id",
+        "screen": "$step:fx-workspace#/value/screen_id",
+        "pane": "$step:fx-workspace#/value/pane_id"
+      },
+      "args": {
+        "method": "tab.create_terminal",
+        "params": {
+          "name": "oracle"
+        },
+        "idempotencyKey": "tab-create-terminal-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

@@ -1,0 +1,15 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "agentChromium",
+  "owner": "PL-webui",
+  "description": "New agent tabs (chats and the New Tab page) show in Chromium when the browser engine is Chromium; off keeps them on the page host's WebKit.",
+  "defaults": { "dev": true, "nightly": true, "release": true },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["agent-engine", "agent-stream"],
+  "sticky": false,
+  "runtimeMutable": false,
+  "replaces": ["agent.chromium"]
+}

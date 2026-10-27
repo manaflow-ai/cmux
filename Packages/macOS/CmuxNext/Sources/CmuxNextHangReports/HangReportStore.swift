@@ -1,10 +1,13 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The hang report files in one folder (the app's `Application Support/<build>/HangReports`):
-/// the watchdog aggregate saved for the next launch, the outbox of reports not yet accepted, the
-/// copy of the last report sent (View Hang Report), and the send log the daily cap reads.
+/// the watchdog aggregate, the main-thread part and the black box saved for the next launch, the outbox of reports
+/// not yet accepted, the copy of the last report sent (View Hang Report), and the send log the daily
+/// cap reads.
 ///
-/// Tests pass a temporary folder.
+/// Its methods read and write files, so the actor runs on a serial utility queue of its own, never
+/// on a cooperative pool thread. Tests pass a temporary folder.
 public actor HangReportStore {
     /// When reports were sent, for the daily cap and the 24-hour watchdog report.
     public struct SendLog: Codable, Sendable, Equatable {
@@ -27,6 +30,10 @@ public actor HangReportStore {
     /// The folder that holds every hang report file.
     public nonisolated let directory: URL
     private let manager = FileManager.default
+    /// The actor's executor: its file work blocks this queue, not the pool.
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.app.next.hang-reports.store", qos: .utility)
+
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
 
     /// Makes the value from its parts.
     public init(directory: URL) {
@@ -38,6 +45,12 @@ public actor HangReportStore {
     /// The readable preview made when nothing was sent yet.
     public nonisolated var previewURL: URL { directory.appending(path: "preview-report.json") }
     private var pendingURL: URL { directory.appending(path: "pending.json") }
+    /// The main-thread part (``MainThreadReportLedger/Saved``) a quit saved for the next launch.
+    public nonisolated var pendingMainThreadURL: URL { directory.appending(path: "pending-main-thread.json") }
+    /// The main-thread blocking site counts (``BlockingSiteLedger/Saved``) a quit saved for the next launch.
+    public nonisolated var pendingBlockingSitesURL: URL { directory.appending(path: "pending-blocking-sites.json") }
+    /// The black box a quit saved (``HangReportSavedBlackBox``).
+    nonisolated var pendingBlackBoxURL: URL { directory.appending(path: "pending-blackbox.json") }
     private var sendLogURL: URL { directory.appending(path: "send-log.json") }
     private var outboxURL: URL { directory.appending(path: "outbox", directoryHint: .isDirectory) }
 
@@ -50,13 +63,31 @@ public actor HangReportStore {
     }
 
     /// The saved aggregate, removed from disk (it joins the collector's).
-    public func takePending() -> StallAggregate? {
-        defer { removePending() }
-        guard let data = try? Data(contentsOf: pendingURL) else { return nil }
-        return try? JSONDecoder().decode(StallAggregate.self, from: data)
-    }
+    public func takePending() -> StallAggregate? { take(StallAggregate.self, from: pendingURL) }
 
     private func removePending() { try? manager.removeItem(at: pendingURL) }
+
+    /// The main-thread part a quit saved, removed from disk (it joins the ledger's).
+    public func takePendingMainThread() -> MainThreadReportLedger.Saved? {
+        take(MainThreadReportLedger.Saved.self, from: pendingMainThreadURL)
+    }
+
+    /// The blocking site counts a quit saved, removed from disk (they join the ledger's).
+    public func takePendingBlockingSites() -> BlockingSiteLedger.Saved? {
+        take(BlockingSiteLedger.Saved.self, from: pendingBlockingSitesURL)
+    }
+
+    /// The black box a quit saved, removed from disk (the collector holds it for the next report).
+    func takePendingBlackBox() -> HangReportSavedBlackBox? {
+        take(HangReportSavedBlackBox.self, from: pendingBlackBoxURL)
+    }
+
+    /// The value saved at `url`, removed from disk; nil when missing or unreadable.
+    private func take<Value: Decodable>(_ type: Value.Type, from url: URL) -> Value? {
+        defer { try? FileManager.checked.removeItem(at: url) }
+        guard let data = try? Data(blockingContentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(type, from: data)
+    }
 
     // MARK: Outbox
 
@@ -115,6 +146,9 @@ public actor HangReportStore {
     /// Deletes everything but the last report's copy (hang reports turned off).
     public func clearQueued() {
         removePending()
+        try? FileManager.checked.removeItem(at: pendingMainThreadURL)
+        try? FileManager.checked.removeItem(at: pendingBlockingSitesURL)
+        try? FileManager.checked.removeItem(at: pendingBlackBoxURL)
         try? manager.removeItem(at: outboxURL)
         try? manager.removeItem(at: previewURL)
     }

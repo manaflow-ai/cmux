@@ -1,10 +1,34 @@
 //! Cell pixel size: the creation size, deferred and completed acks, the retry worker, and fanout of cell pixel size reports to surfaces.
 
 use super::*;
+use cmux_threads::work::{Lane, Priority};
 
 impl Mux {
     pub fn set_cell_pixel_size(self: &Arc<Self>, width_px: u16, height_px: u16) -> CellPixelUpdate {
         self.set_cell_pixel_size_reporting(width_px, height_px, Arc::new(|_, _, _| {}))
+    }
+
+    /// [`Self::set_cell_pixel_size`] for a request thread: the fan-out to
+    /// the terminal hosts and its wait (up to the control response timeout)
+    /// run on the System lane, one set at a time in request order, and
+    /// `done` gets the update. Returns at once.
+    pub(crate) fn set_cell_pixel_size_then(
+        self: &Arc<Self>,
+        width_px: u16,
+        height_px: u16,
+        done: impl FnOnce(anyhow::Result<CellPixelUpdate>) + Send + 'static,
+    ) {
+        let answer = mux_work::Answer::new(done, cell_pixel_set_dropped);
+        // A refused or dropped item drops `answer`, which answers.
+        let _ = self.post_mux_work_sequenced(
+            &self.cell_pixel_sets,
+            Priority::UserVisible,
+            Lane::System,
+            move |mux| match mux.upgrade() {
+                Some(mux) => answer.send(Ok(mux.set_cell_pixel_size(width_px, height_px))),
+                None => answer.send(cell_pixel_set_dropped()),
+            },
+        );
     }
 
     pub fn cell_pixel_size(&self) -> (u16, u16) {
@@ -549,4 +573,8 @@ impl Mux {
         drop(cell_pixel_lifecycle);
         update
     }
+}
+
+fn cell_pixel_set_dropped() -> anyhow::Result<CellPixelUpdate> {
+    Err(anyhow::anyhow!("cell pixel update did not run: the daemon is shutting down"))
 }

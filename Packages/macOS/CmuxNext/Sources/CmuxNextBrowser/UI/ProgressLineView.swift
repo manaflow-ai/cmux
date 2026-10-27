@@ -54,6 +54,7 @@ final class ProgressLineView: NSView {
         bar.frame = CGRect(x: 0, y: 0, width: bounds.width * progress, height: bounds.height)
     }
 
+    // visibility-walk-allow: one layer color store in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateColor()

@@ -6,6 +6,9 @@ import Foundation
 public import Observation
 import os
 public import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 private let helperLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
 
@@ -30,7 +33,8 @@ final class WorkspaceHelperLauncher: ComputerUseHelperLaunching {
         configuration.addsToRecentItems = false
         configuration.arguments = arguments
         configuration.environment = environment
-        return await withCheckedContinuation { continuation in
+        // A completion dropped without an answer is a helper that did not start (nil).
+        return try? await withOnceContinuation { (continuation: OnceContinuation<pid_t?, OnceContinuationError>) in
             NSWorkspace.shared.openApplication(at: app, configuration: configuration) { running, error in
                 if let error { helperLogger.error("cmux Computer Use helper did not start: \(error.localizedDescription, privacy: .public)") }
                 continuation.resume(returning: running?.processIdentifier)

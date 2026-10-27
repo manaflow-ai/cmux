@@ -6,9 +6,18 @@
 pub(super) mod machine_catalog;
 
 use super::*;
-use crate::event_cause::EventCause;
-use crate::request_origin::page_router_table;
+use crate::diagnostics::{LockCaller, LockCallerScope};
+use crate::event_cause::{EventCause, RequestPriority};
 use cmux_threads::work::{Lane, Priority, Shutdown};
+
+/// The caller class the lock acquisitions of `writer`'s connection count
+/// under until this drops (`debug-daemon-locks`): the verified app is the
+/// frontend, every other connection automation. The origin gate keeps the
+/// class on the writer, so this reads an atomic and takes no lock.
+/// Scheduling telemetry only: no permission reads it.
+pub(super) fn lock_caller_scope(writer: &MessageWriter) -> LockCallerScope {
+    LockCallerScope::enter(writer.lock_caller.get())
+}
 
 /// [`handle_connection_frame_at`] for a line that arrives now (tests).
 #[cfg(test)]
@@ -40,6 +49,15 @@ pub(super) fn handle_connection_frame_at(
     // Every handler this frame reaches runs on the reader's request path
     // (`crate::request_path`): its blocking work is counted at its caller.
     let _request_path = crate::request_path::RequestPathScope::enter(mux.request_path_stats());
+    // The release hang watch: one scope per frame, at the deadline of the
+    // request it reaches from then (server/request_hang_watch.rs).
+    let _hang = request_hang_watch::RequestHang::frame();
+    // The lock acquisitions this frame's handlers make count under its
+    // connection's caller class (`debug-daemon-locks`).
+    let _lock_caller = match transport {
+        ClientTransport::Remote => LockCallerScope::enter(LockCaller::Automation),
+        ClientTransport::Unix | ClientTransport::WebSocket => lock_caller_scope(writer),
+    };
     // Every frame is watched on this thread until its handler returns: past
     // 250 ms it lands in server-stats `slow_requests` (request_watchdog.rs),
     // named by the handler it is in. A `Command` handed to the scheduler is
@@ -78,8 +96,9 @@ pub(super) fn handle_connection_frame_at(
         return pending_handoff::reject_message_during_pending_handoff(message, writer);
     }
     // An older client's line, upgraded to this daemon's API revision before
-    // any parse (server/api_revision_wire.rs); borrowed unchanged otherwise.
-    let upgraded = writer.api_revision.upgrade_request(message);
+    // any parse (server/api_revision_wire.rs); borrowed unchanged otherwise,
+    // and always for a frame (frames exist only at this revision).
+    let upgraded = writer.upgrade_request(message);
     let line = LineFrame {
         mux,
         client,
@@ -140,7 +159,7 @@ pub(super) fn dispatch_line(line: &LineFrame<'_>) -> bool {
     if let Some(route) = head.cmd().and_then(routes::find) {
         line.stage(route.stage);
         let route_line = routes::RouteLine { mux, client, message, writer, head: &head };
-        if let Some(keep_open) = (route.entry)(&route_line) {
+        if let Some(keep_open) = request_hang_watch::route(&head, || (route.entry)(&route_line)) {
             return match routed.as_mut() {
                 Some(span) => span.answered(keep_open),
                 None => keep_open,
@@ -185,35 +204,48 @@ pub(super) fn dispatch_line(line: &LineFrame<'_>) -> bool {
 
 /// A `cmux.protocol/2` line (its head has `protocol`). A routed namespace
 /// operation (page-router-v1) is not in the operation catalog, so its line
-/// goes to the page router without the catalog parse; a line the page
-/// router refuses gets the catalog parse's answer, as every other v2 line.
+/// goes to its operation route (server/routes.rs) without the catalog
+/// parse; a line the route refuses gets the catalog parse's answer, as
+/// every other v2 line.
 /// `None` only when the resource router does not take the line.
 fn resource_line(line: &LineFrame<'_>, head: &RequestHead<'_>) -> Option<bool> {
     let LineFrame { mux, client, message, writer, arrived, .. } = *line;
     let stats = mux.request_stats();
     let mut page_span = None;
-    if head.operation().is_some_and(|operation| page_router_table::routed(operation).is_some()) {
-        line.stage(FrameStage::PageRouter);
+    if let Some(route) = head.operation().and_then(routes::find_operation) {
+        line.stage(route.stage);
         let mut span = head.open(stats, RequestArrival::parsed_now(arrived));
-        if let Some(keep_open) = page_router::try_handle(mux, client, message, writer) {
+        let route_line = routes::RouteLine { mux, client, message, writer, head };
+        if let Some(keep_open) = request_hang_watch::route(head, || (route.entry)(&route_line)) {
             return Some(span.answered(keep_open));
         }
         page_span = Some(span);
     }
     let request = crate::resource_router::parse_resource_line(message)?;
-    match &request {
-        Ok(envelope) => line.watch(WatchedMethod::resource(envelope.operation)),
-        Err(_) => line.stage(FrameStage::PageRouter),
-    }
+    let _hang = match &request {
+        Ok(envelope) => {
+            line.watch(WatchedMethod::resource(envelope.operation));
+            let class = RequestMethod::of_resource(envelope.operation).class;
+            request_hang_watch::RequestHang::enter(class)
+        }
+        Err(_) => {
+            line.stage(FrameStage::PageRouter);
+            None
+        }
+    };
     // An envelope's `origin` claim may only narrow the cause, as it
     // only narrows the origin; the origin gate still checks the claim.
-    // The narrowed cause sets the class too: a claimed automation line
-    // runs at UTILITY here, as it would on the dispatcher.
+    // Its `priority` narrows the cause the same way and is never checked:
+    // it cannot raise anything. The narrowed cause sets the class too: a
+    // claimed or prioritized automation line runs at UTILITY here, as it
+    // would on the dispatcher.
     let request_qos = mux.request_qos();
-    let _claimed =
-        request.as_ref().ok().and_then(|envelope| envelope.origin.as_ref()).map(|claim| {
-            request_qos.enter(EventCause::current().narrowed_by(claim.claim.event_cause()))
-        });
+    let _narrowed = request.as_ref().ok().and_then(|envelope| {
+        let claim = envelope.origin.as_ref().map(|claim| claim.claim.event_cause());
+        let priority = envelope.priority.map(RequestPriority::event_cause);
+        let narrowest = claim.into_iter().chain(priority).min()?;
+        Some(request_qos.enter(EventCause::current().narrowed_by(narrowest)))
+    });
     let arrival = RequestArrival::parsed_now(arrived);
     let mut span = match (page_span, &request) {
         (Some(span), _) => span,
@@ -270,6 +302,9 @@ pub(super) fn handle_request_with_cancellation(
     cancellation: Option<&ConnectionCancellation>,
 ) -> bool {
     let Request { id, cmd } = request;
+    // Watched at its class deadline wherever it runs (a frame's scope, or
+    // its own on a dispatcher or worker).
+    let _hang = request_hang_watch::RequestHang::enter_command(&cmd);
     // A panic in the handler names its command (cmux-panic-log crash keys, this thread's own).
     let _crash_key = cmux_panic_log::crash_keys::scoped_thread(
         cmux_panic_log::crash_keys::Key::ActionId,
@@ -310,6 +345,10 @@ pub(super) fn handle_request_with_cancellation(
                 Err(error) => send_request_error(writer, id, &error.to_string()),
             }
         });
+    }
+
+    if deferred_commands::handles(mux, client, &cmd) {
+        return deferred_commands::start(mux, client, id, cmd, &mut span, writer);
     }
 
     let detach_self = match &cmd {
@@ -381,11 +420,13 @@ fn start_sized_browser_attach(
     writer: &MessageWriter,
 ) -> bool {
     let (worker_mux, worker_writer, worker_id) = (mux.clone(), writer.clone(), id.clone());
+    let reply = reply.hand_to_worker();
     let posted = mux.work.post(
         Priority::UserBlocking,
         Lane::System,
         Shutdown::ContinueOnShutdown,
         move || {
+            let reply = reply.start();
             let result =
                 handle_command_with_cancellation(&worker_mux, client, cmd, &worker_writer, None);
             reply.reply(|| {
@@ -548,6 +589,10 @@ pub(super) fn zeroize_string(value: &mut str) {
 #[cfg(test)]
 #[path = "event_cause_tests.rs"]
 mod event_cause_tests;
+
+#[cfg(test)]
+#[path = "request_priority_tests.rs"]
+mod request_priority_tests;
 
 #[cfg(all(test, unix))]
 mod dispatch_tests;

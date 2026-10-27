@@ -27,9 +27,6 @@ public nonisolated struct Feature: Sendable, Hashable {
 
         /// Whether local Labs and Debug overrides apply (DEV and NIGHTLY).
         public var allowsLocalOverrides: Bool { self != .release }
-
-        /// Whether field-trial arms apply (Nightly studies only).
-        public var allowsFieldTrials: Bool { self == .nightly }
     }
 
     /// What a feature is for (the registry's `kind`).
@@ -63,6 +60,8 @@ public nonisolated struct Feature: Sendable, Hashable {
         case remote
         /// A Nightly field-trial arm.
         case fieldTrial
+        /// The build's own default set: a dogfood build's switch list (``FeatureOverrides/buildDefaults``).
+        case buildDefault
         /// The channel default.
         case channelDefault
 
@@ -73,6 +72,7 @@ public nonisolated struct Feature: Sendable, Hashable {
             case .local: "local"
             case .remote: "remote"
             case .fieldTrial: "trial"
+            case .buildDefault: "build"
             case .channelDefault: "default"
             }
         }
@@ -116,6 +116,10 @@ public nonisolated struct Feature: Sendable, Hashable {
     public let sticky: Bool
     /// The feature has a tested live-teardown path.
     public let runtimeMutable: Bool
+    /// The Debug tunables and environment switches this feature took over
+    /// (`replaces` in its file): a replaced tunable the developer set is the
+    /// feature's local override (resolution step 3).
+    public let replaces: [String]
 
     /// The generated registry (`Features.generated.swift`) calls this with
     /// every label, in this order (schemas/features/README.md).
@@ -132,7 +136,8 @@ public nonisolated struct Feature: Sendable, Hashable {
         params: [FeatureParamSpec],
         stories: [String],
         sticky: Bool,
-        runtimeMutable: Bool
+        runtimeMutable: Bool,
+        replaces: [String] = []
     ) {
         self.index = index
         self.name = name
@@ -147,6 +152,7 @@ public nonisolated struct Feature: Sendable, Hashable {
         self.stories = stories
         self.sticky = sticky
         self.runtimeMutable = runtimeMutable
+        self.replaces = replaces
     }
 
     /// Duration param `name`'s value, to the microsecond: its declared default, since params have no

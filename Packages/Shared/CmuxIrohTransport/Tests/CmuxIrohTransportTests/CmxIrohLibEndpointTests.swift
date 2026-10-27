@@ -359,10 +359,13 @@ struct CmxIrohLibEndpointTests {
         var address = sockaddr_in()
         address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         address.sin_family = sa_family_t(AF_INET)
-        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+        // SAFETY: inet_addr reads the NUL-terminated copy of the literal made for this call.
+        address.sin_addr = in_addr(s_addr: unsafe inet_addr("127.0.0.1"))
         let bound = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.bind(
+            // SAFETY: a sockaddr_in begins with the sockaddr header; bind reads the
+            // sockaddr_in size passed from the local `address`, live for this call.
+            unsafe pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                unsafe Darwin.bind(
                     descriptor,
                     $0,
                     socklen_t(MemoryLayout<sockaddr_in>.size)
@@ -377,8 +380,10 @@ struct CmxIrohLibEndpointTests {
 
         var addressLength = socklen_t(MemoryLayout<sockaddr_in>.size)
         let readAddress = withUnsafeMutablePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.getsockname(descriptor, $0, &addressLength)
+            // SAFETY: getsockname writes at most addressLength bytes, sizeof(sockaddr_in),
+            // into the local `address`, live for this call.
+            unsafe pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                unsafe Darwin.getsockname(descriptor, $0, &addressLength)
             }
         }
         guard readAddress == 0 else {

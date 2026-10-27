@@ -29,15 +29,33 @@ final class CloudMachineProgressView: NSView {
     private let copyButton = ThemedBezelButton()
     private let dismissButton = ThemedBezelButton()
     private let buttons = NSStackView()
-    private var observation: Task<Void, Never>?
-    private let ticker: DemandTimer
+    /// The view's own visibility: visible while it is in a window and neither it nor an ancestor is hidden.
+    private let node: VisibilityNode
+    /// Renders the creation's stage while the view shows (R-obs: a view apply, held while hidden).
+    private var observation: VisibleObservation<ProgressFacts>?
+    /// The elapsed line's once-a-second deadline, armed only while the view shows.
+    private let ticker: MainDeadline
+    private var visibility: VisibilitySubscription?
     private let clock: ContinuousClock
 
-    init(creation: CloudMachineCreation, actions: Actions, clock: ContinuousClock = ContinuousClock()) {
+    /// What the stage rows, the title and the detail show.
+    private struct ProgressFacts: Equatable {
+        var stage: CloudMachineStage
+        var title: String?
+        var workspaceID: String?
+    }
+
+    /// - Parameters:
+    ///   - parent: The visibility node of the window that shows it.
+    ///   - mainWork: The app's main-thread scheduler.
+    ///   - deadlines: The app's one deadline scheduler.
+    init(creation: CloudMachineCreation, actions: Actions, parent: VisibilityNode, mainWork: MainWorkScheduler,
+         deadlines: MainDeadlineScheduler, clock: ContinuousClock = ContinuousClock()) {
         self.creation = creation
         self.actions = actions
         self.clock = clock
-        ticker = DemandTimer(owner: "cloud.creation.elapsed", clock: clock)
+        node = VisibilityNode("cloud-creation", own: .hidden, parent: parent)
+        ticker = MainDeadline(owner: "cloud.creation.elapsed", workClass: .visible, scheduler: deadlines)
         super.init(frame: .zero)
         wantsLayer = true
         titleLabel.font = Typography.title
@@ -95,7 +113,16 @@ final class CloudMachineProgressView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityIdentifier("cmux.cloud.creation.progress")
-        render()
+        // The first render is the observation's first apply, in this turn.
+        observation = VisibleObservation(node, owner: "cloud.creation.progress", on: mainWork) {
+            ProgressFacts(stage: creation.stage, title: creation.machineTitle, workspaceID: creation.workspaceID)
+        } apply: { [weak self] _ in
+            self?.render()
+        }
+        visibility = node.subscribe(owner: "cloud.creation.elapsed") { [weak self] state in
+            guard let self else { return }
+            if state.isVisible { startTicking() } else { ticker.cancel() }
+        }
     }
 
     @available(*, unavailable)
@@ -110,25 +137,19 @@ final class CloudMachineProgressView: NSView {
         performWithTheme { typingLabel.textColor = Palette.textPrimary }
     }
 
+    /// In a window and not hidden itself: the node follows; the window's node covers the rest.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyColors()
-        observation?.cancel()
-        ticker.cancel()
-        guard window != nil else { return }
-        let creation = creation
-        observation = Task { [weak self] in
-            for await _ in ObservationStream({ (creation.stage, creation.machineTitle, creation.workspaceID) }) {
-                self?.render()
-            }
-        }
-        tick()
+        node.set(window != nil && !isHidden ? .visible : .hidden)
     }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        applyColors()
-        render()
+        node.deferUntilVisible(key: "appearance") { [weak self] in
+            self?.applyColors()
+            self?.render()
+        }
     }
 
     private func applyColors() {
@@ -140,24 +161,26 @@ final class CloudMachineProgressView: NSView {
         }
     }
 
-    /// In a window and not hidden (a parked workspace stays in its window): only then it ticks.
-    private var isShown: Bool { window != nil && !isHiddenOrHasHiddenAncestor }
-
+    // R-hide: hiding forwards to the node (a parked workspace stays in its window); its flip stops the ticker.
     override func viewDidHide() {
         super.viewDidHide()
-        ticker.cancel()
+        node.set(.hidden)
     }
 
     override func viewDidUnhide() {
         super.viewDidUnhide()
-        if isShown, !creation.stage.isFinished, !ticker.isScheduled { tick() }
+        node.set(window != nil ? .visible : .hidden)
     }
 
-    /// The elapsed line, once a second while the creation runs.
+    private func startTicking() {
+        if !creation.stage.isFinished, !ticker.isScheduled { tick() }
+    }
+
+    /// The elapsed line, once a second while the creation runs and the view shows.
     private func tick() {
         renderElapsed()
-        guard isShown, !creation.stage.isFinished else { return }
-        ticker.schedule(after: .seconds(1)) { @MainActor [weak self] in self?.tick() }
+        guard node.isVisible, !creation.stage.isFinished else { return }
+        ticker.schedule(after: .seconds(1)) { [weak self] in self?.tick() }
     }
 
     private func renderElapsed() {
@@ -193,7 +216,7 @@ final class CloudMachineProgressView: NSView {
         retryButton.title = stage.isPaused ? CloudStrings.resume : CloudStrings.retry
         typingLabel.isHidden = stage.failure != nil || stage.isPaused
         renderElapsed()
-        if stage.isFinished { ticker.cancel() } else if isShown, !ticker.isScheduled { tick() }
+        if stage.isFinished { ticker.cancel() } else if node.isVisible, !ticker.isScheduled { tick() }
         setAccessibilityLabel([titleLabel.stringValue, CloudStrings.stage(stage), detailLabel.stringValue].joined(separator: ". "))
     }
 

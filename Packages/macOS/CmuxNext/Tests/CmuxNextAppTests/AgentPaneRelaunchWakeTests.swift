@@ -23,7 +23,7 @@ struct AgentPaneRelaunchWakeTests {
     /// A tab store of one run, as the App wires it: tab records in a tree, pages on the shared test
     /// page (no agent page script runs), the wake file of the tag's state directory.
     static func run(file: URL, records: [String: AgentSessionRef]) -> AgentTabStore {
-        let tabs = AgentTabStore(build: nil, registry: ActionRegistry(), webUI: .agentTabsTestHost(), input: InputEventTap(),
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry(), work: BackgroundWork(label: "test.agent-pane"), webUI: .agentTabsTestHost(), input: InputEventTap(),
                                  environment: AgentPageAppTestRoot.environment, showcase: true)
         tabs.localHost = thisMac
         tabs.relaunchWake = AgentPaneRelaunchWake(file: file)
@@ -97,7 +97,7 @@ struct AgentPaneRelaunchWakeTests {
         page.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: Self.thisMac))
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [page])])
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
-        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), webUI: .agentTabsTestHost(), input: InputEventTap(),
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), work: BackgroundWork(label: "test.agent-pane"), webUI: .agentTabsTestHost(), input: InputEventTap(),
                                  environment: AgentPageAppTestRoot.environment, showcase: true)
         tabs.localHost = Self.thisMac
         tabs.lookup = { key in store.tab(id: key)?.agentSession.map { ($0, store) } }

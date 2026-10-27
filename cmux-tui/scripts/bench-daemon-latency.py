@@ -4,8 +4,8 @@
 Starts an isolated headless daemon (durable state on the local disk), grows a
 scenario, and measures the client-side round trip (send to reply) of control
 requests on JSON-lines connections. Every latency row (LATENCY below) comes
-from the raw samples: n, p50_ms, p95_ms, p99_ms, max_ms (nearest rank),
-mean_ms as an extra, and samples_ms (left out of the automation rows, which
+from the raw samples: n, p50_ms, p95_ms, p99_ms (scripts/perf-lab/perf_stats.py
+pct, linear interpolation), max_ms, mean_ms as an extra, and samples_ms (left out of the automation rows, which
 are too many). No row is a mean alone. A row the daemon does not serve has
 `skipped` (a note why) and n 0; a row or section that failed has `error`,
 fails the run (exit 1) and keeps every row measured before it.
@@ -24,6 +24,14 @@ Keys of result["scenarios"][SCENARIO]:
                know the command (v12 `unknown variant `OP``) or operation (v2,
                once the bench's envelope parses on a served operation). Setup
                and cleanup run untimed on the same connection.
+               daemon_methods (when the daemon serves `server-stats
+               include=[ipc_methods]`): per method the op timed, the daemon's
+               own latency_us of the same requests (warm-ups included) beside
+               the bench's nearest-rank client_us, their log-linear buckets
+               (the daemon's: four per power of two), bucket_delta (client
+               bucket - daemon bucket, for p50, p95, p99, max) and
+               within_one_bucket; or `skipped` when the method also ran
+               untimed (the histograms cannot be split) or is not served.
   concurrent   c10-ping, c10-identify, c10-list-workspaces: LATENCY of 10
                clients at once; errors (when any).
   cli          cli-ping, cli-workspace-list, cli-terminal-write: LATENCY + argv
@@ -94,6 +102,16 @@ Keys of result["scenarios"][SCENARIO]:
                alone), windows_match (both automation rows cover their window);
                or error when echo or split samples are missing.
 
+  daemon_locks  read after every other section: `debug-daemon-locks`
+               (p06-scheduler-226), cumulative since daemon start (so scale
+               includes small). locks.LOCK.CALLER.{wait_us, hold_us}: count,
+               p50, p95, p99, max in microseconds, per lock (mux.state,
+               workspace.registry) for callers frontend and automation;
+               `skipped` on a daemon that does not serve it. frontend counts
+               only the signed, verified cmux app: the bench's own app
+               handshake is unsigned, so its requests count as automation and
+               frontend stays at count 0 unless the app is connected.
+
 Top level: host (hostname, os, os_version, macos, arch, cpu, cores, load,
 python), source (sha, dirty: the script checkout), daemon (version, protocol,
 build_commit, pid, capabilities, bin, binary {path, sha256, mtime}), args,
@@ -109,16 +127,29 @@ build_commit; a daemon without one is named by the script checkout's HEAD and
 the binary's hash; a build_commit other than HEAD is refused. It needs a passed
 run on a macOS host: VM timing is not perf evidence.
 
+--out FILE.json writes the report alone. --out DIR (the perf lab's story
+runner) writes it to DIR/daemon-latency.json and every latency row's raw
+samples to DIR as cmux-perf-result/v1 (perf_result.py) in story daemon-latency
+(daemon_bench_lab.py names the build and host): daemon.latency.SCENARIO.ROW
+(ms), ROW being the report's row path (ops.ping is `ping`, the storm's echo
+`automation_storm.storm.echo`), each part in lower case with `_` for other
+characters. The automation rows keep no samples and record nothing. A failed
+row records nothing: a failed op or CLI row drops its own row, and any other
+section with a failed row or client (a concurrent or automation client, the
+storm's window) records none of its rows.
+
 Usage:
   bench-daemon-latency.py --bin target/release/cmux-tui --out result.json
   bench-daemon-latency.py --bin ... --ops all --scenario scale \\
       --bulk-interference --streams 8 --automation-storm 8 --out r.json [--write-q16]
+  bench-daemon-latency.py --bin ... --sha SHA --build-config release --out DIR
 """
 
 import argparse
 import binascii
 import ctypes
 import hashlib
+import importlib.util
 import itertools
 import json
 import math
@@ -145,6 +176,13 @@ Q16_THRESHOLD_MS = 2.0
 V2_PROTOCOL = "cmux.protocol/2"
 V2_PROBE_OPERATION = "machine.list"  # a read every v2 daemon serves
 SCENARIOS = {"small": (1, 1, 0.0), "scale": (50, 200, 0.05)}
+STORY = "daemon-latency"
+METRIC_PREFIX = "daemon.latency"
+REPORT_NAME = "daemon-latency.json"
+
+_spec = importlib.util.spec_from_file_location("daemon_bench_lab", os.path.join(SCRIPT_DIR, "daemon_bench_lab.py"))
+lab = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(lab)
 
 
 def log(*parts):
@@ -325,26 +363,72 @@ def output_bytes(line):
 
 
 def pick(sorted_vals, q):
-    """Nearest-rank percentile of sorted raw samples."""
+    """Nearest-rank percentile of sorted raw samples: the daemon's own definition (LogLinearHistogram::percentile,
+    the sample of rank ceil(n * q)), used only to compare client samples with its ipc_methods buckets."""
     rank = max(1, math.ceil(q * len(sorted_vals) - 1e-9))
     return sorted_vals[min(len(sorted_vals), rank) - 1]
 
 
 def stats(vals, keep_samples=True):
+    """A LATENCY row of raw samples: percentiles from perf_stats.pct (linear interpolation)."""
     if not vals:
         return {"n": 0}
-    s = sorted(vals)
     row = {
-        "n": len(s),
-        "p50_ms": round(pick(s, 0.5), 3),
-        "p95_ms": round(pick(s, 0.95), 3),
-        "p99_ms": round(pick(s, 0.99), 3),
-        "max_ms": round(s[-1], 3),
-        "mean_ms": round(statistics.fmean(s), 3),
+        "n": len(vals),
+        "p50_ms": round(lab.perf_stats.pct(vals, 0.5), 3),
+        "p95_ms": round(lab.perf_stats.pct(vals, 0.95), 3),
+        "p99_ms": round(lab.perf_stats.pct(vals, 0.99), 3),
+        "max_ms": round(max(vals), 3),
+        "mean_ms": round(statistics.fmean(vals), 3),
     }
     if keep_samples:
         row["samples_ms"] = [round(v, 4) for v in vals]
     return row
+
+
+# The daemon's log-linear latency buckets (cmux-tui-core diagnostics::LogLinearHistogram, and the
+# app's DaemonMethodLatency): values under 4 have their own bucket, then four per power of two.
+# spec/fixtures/ipc-method-latency/buckets.json is the shared vector all three check.
+SUB_BUCKETS_LOG2 = 2
+SUB_BUCKETS = 1 << SUB_BUCKETS_LOG2
+METHOD_PERCENTILES = (("p50", 0.5), ("p95", 0.95), ("p99", 0.99))
+
+
+def bucket_index(micros):
+    if micros < SUB_BUCKETS:
+        return micros
+    octave = micros.bit_length() - 1
+    return octave * SUB_BUCKETS + ((micros >> (octave - SUB_BUCKETS_LOG2)) & (SUB_BUCKETS - 1))
+
+
+def bucket_upper_bound(index):
+    if index < SUB_BUCKETS:
+        return index
+    octave, sub = divmod(index, SUB_BUCKETS)
+    return ((1 << octave) - 1) + (sub + 1) * (1 << (octave - SUB_BUCKETS_LOG2))
+
+
+def daemon_agreement(samples_ms, before, after):
+    """How the bench's client round trips of one method's requests compare with the daemon's own
+    `ipc_methods` row of the same requests. `before` and `after` are the method's row before the
+    first and after the last request (None: it had not run). Only a row that counts exactly these
+    requests is compared: the daemon reports percentiles, which cannot be split, so a method that
+    also ran untimed is skipped."""
+    if after is None:
+        return {"skipped": "no ipc_methods row for the method after its requests"}
+    if before is not None and before["latency_us"]["count"]:
+        return {"skipped": f"{before['latency_us']['count']} request(s) of the method ran before the op"}
+    daemon = after["latency_us"]
+    if daemon["count"] != len(samples_ms):
+        return {"skipped": f"the daemon counted {daemon['count']} request(s), the bench timed {len(samples_ms)}"}
+    ordered = sorted(samples_ms)
+    client = {key: round(pick(ordered, q) * 1000) for key, q in METHOD_PERCENTILES}
+    client["max"] = round(ordered[-1] * 1000)
+    keys = [key for key, _ in METHOD_PERCENTILES] + ["max"]
+    delta = {key: bucket_index(client[key]) - bucket_index(daemon[key]) for key in keys}
+    return {"n": len(samples_ms), "id": after.get("id"),
+            "client_us": client, "daemon_us": {key: daemon[key] for key in keys},
+            "bucket_delta": delta, "within_one_bucket": all(abs(d) <= 1 for d in delta.values())}
 
 
 def _run(argv):
@@ -526,6 +610,8 @@ class OpsFixture:
         self.closer = "close-tabs" if bench.has("batch-close-v1") else "close-surface"
         self.ws_id = None
         self.v2_envelope_ok = False
+        # (method, ms) of every timed request, warm-ups included: the daemon counts them all.
+        self.timings = []
 
     def key(self):
         return f"bench-{os.getpid()}-{next(self.keys)}"
@@ -569,10 +655,12 @@ class OpsFixture:
 
     def timed(self, cmd, **params):
         ms, msg = self.c.timed(cmd, **params)
+        self.timings.append((cmd, ms))
         return ms, must(msg, cmd)
 
     def timed_v2(self, operation, params, mutation=False):
         ms, msg = self.c.timed_v2(operation, params, self.key() if mutation else None)
+        self.timings.append((operation, ms))
         return ms, must(msg, operation)
 
     def new_tab(self):
@@ -886,8 +974,8 @@ def collect(procs, queue, timeout):
 # Bench
 
 
-# The daemon's bulk frame cut (p05-ipc.md 3.2), once p05-ipc-072 makes it a knob: identify reports
-# it in bytes and the daemon takes it from this environment variable at start.
+# The daemon's bulk frame cut (p05-ipc.md 3.2, p05-ipc-072): identify with `revisions` reports it in
+# bytes and the daemon takes it from this environment variable at start.
 BULK_FRAME_MAX_FIELD = "bulk_frame_max"
 BULK_FRAME_MAX_ENV = "CMUX_IPC_BULK_FRAME_MAX"
 FLOOD_PERL = (
@@ -948,7 +1036,8 @@ class Bench:
             if os.path.exists(self.sock_path):
                 try:
                     c = Conn(self.sock_path)
-                    self.ident = must(c.call("identify"), "identify")
+                    # `revisions` adds the opt-in fields, bulk_frame_max among them; older daemons ignore it.
+                    self.ident = must(c.call("identify", revisions=True), "identify")
                     c.close()
                     break
                 except OSError:
@@ -1114,6 +1203,8 @@ class Bench:
                     continue
                 count = create_n if plan["kind"] == "create" else n
                 vals = []
+                methods_before = self.method_rows(c)
+                fixture.timings.clear()
                 try:
                     for i in range(-min(3, count), count):
                         ms = plan["fn"](fixture, i)
@@ -1127,10 +1218,31 @@ class Bench:
                         out[name] = {**stats(vals), **row, "error": str(e)}
                         self.failed = True
                     continue
-                out[name] = {**stats(vals), **row}
+                out[name] = {**stats(vals), **row,
+                             "daemon_methods": self.daemon_methods(c, methods_before, fixture.timings)}
         finally:
             fixture.teardown()
             c.close()
+
+    def method_rows(self, c):
+        """server-stats' `ipc_methods` rows by method name, or None when the daemon has no such section."""
+        if not self.has("server-stats-v1"):
+            return None
+        section = must(c.call("server-stats", include=["ipc_methods"]), "server-stats").get("ipc_methods")
+        if not isinstance(section, list):
+            return None
+        return {row["method"]: row for row in section if isinstance(row, dict) and "method" in row}
+
+    def daemon_methods(self, c, before, timings):
+        """daemon_agreement for each method the op timed (ops.OP.daemon_methods)."""
+        if before is None:
+            return {"skipped": "server-stats has no ipc_methods section (p05-ipc-009)"}
+        after = self.method_rows(c) or {}
+        samples = {}
+        for method, ms in timings:
+            samples.setdefault(method, []).append(ms)
+        return {method: daemon_agreement(vals, before.get(method), after.get(method))
+                for method, vals in samples.items()}
 
     def concurrent(self, clients, n):
         vals = {"ping": [], "identify": [], "list-workspaces": []}
@@ -1568,6 +1680,18 @@ class Bench:
             res[key] = {**(res.get(key) or {}), "error": repr(e)}
             self.failed = True
 
+    def daemon_locks(self):
+        """`debug-daemon-locks` after the scenario's load: the frontend and automation wait and
+        hold percentiles of each daemon lock, or `skipped` when the daemon does not serve it."""
+        c = Conn(self.sock_path)
+        try:
+            resp = c.call("debug-daemon-locks")
+        finally:
+            c.close()
+        if not resp.get("ok"):
+            return {"skipped": f"debug-daemon-locks not served: {resp.get('error')}"}
+        return {"since": "daemon start", "locks": daemon_lock_rows(must(resp, "debug-daemon-locks"))}
+
     def scenario(self, name, workspaces, terminals, busy):
         log("scenario", name, workspaces, terminals)
         res = self.result["scenarios"][name] = {}
@@ -1588,6 +1712,7 @@ class Bench:
         if a.automation_storm:
             self.section(res, "automation_storm",
                          lambda: self.automation_storm(a.automation_storm, a.storm_seconds, a.n // 3 or 1, create_n))
+        self.section(res, "daemon_locks", self.daemon_locks)
         report(name, res)
 
 
@@ -1657,6 +1782,24 @@ class EchoProbe(OutputView):
 FLAT_SECTIONS = ("ops", "concurrent", "cli", "bulk_interference")
 
 
+LOCK_CALLERS = ("frontend", "automation")
+LOCK_FIELDS = ("count", "p50", "p95", "p99", "max")
+
+
+def daemon_lock_rows(data):
+    """{lock: {caller: {wait_us, hold_us}}} of a `debug-daemon-locks` result for LOCK_CALLERS; a
+    caller the daemon did not report has zeros."""
+    out = {}
+    for table in data.get("locks") or []:
+        callers = {row.get("caller"): row for row in table.get("callers") or []}
+        out[table["lock"]] = {
+            caller: {kind: {field: (callers.get(caller) or {}).get(kind, {}).get(field, 0) for field in LOCK_FIELDS}
+                     for kind in ("wait_us", "hold_us")}
+            for caller in LOCK_CALLERS
+        }
+    return out
+
+
 def rows(res, prefix=""):
     """(metric, row) for every latency row and every skipped mode of a scenario result."""
     for key, value in res.items():
@@ -1666,6 +1809,40 @@ def rows(res, prefix=""):
             yield prefix + key, value
         else:
             yield from rows(value, prefix if (key in FLAT_SECTIONS and not prefix) else f"{prefix}{key}.")
+
+
+INDEPENDENT_SECTIONS = ("ops", "cli")  # each row is its own measurement: a failed row drops only itself
+
+
+def section_failed(value):
+    """True when a section or row failed: its own `error`, or a client of it that failed (`errors`) or did not cover
+    the window, which also leaves its sibling rows measured under less load than planned."""
+    if not isinstance(value, dict):
+        return False
+    if "error" in value or "errors" in value or value.get("clients_cover_window") is False:
+        return True
+    return any(section_failed(child) for child in value.values())
+
+
+def lab_series(result):
+    """result-v1 series of a report: every latency row that kept its raw samples, per scenario (module docstring).
+    A failed row records nothing; outside INDEPENDENT_SECTIONS its whole section records nothing."""
+    series = []
+    for scenario, res in sorted((result.get("scenarios") or {}).items()):
+        if not isinstance(res, dict) or "error" in res:
+            continue
+        sections = {}
+        for key, value in res.items():
+            if key in INDEPENDENT_SECTIONS and isinstance(value, dict) and "error" not in value:
+                sections[key] = {name: row for name, row in value.items() if not section_failed(row)}
+            elif not section_failed(value):
+                sections[key] = value
+        for metric, row in rows(sections):
+            if row.get("samples_ms"):
+                name = ".".join(lab.metric_part(part) for part in metric.split("."))
+                series.append(lab.Series(f"{METRIC_PREFIX}.{lab.metric_part(scenario)}.{name}", "ms", "lower",
+                                         list(row["samples_ms"])))
+    return series
 
 
 def report(name, res):
@@ -1687,6 +1864,18 @@ def report(name, res):
                   f"ctx/msg={s['ctx_per_msg']} idle_syscalls/s={s.get('syscalls_idle_per_s', 'n/a')}"
                   + (f" ipc/msg={json.dumps(s['server_stats_ipc_per_msg'])}" if "server_stats_ipc_per_msg" in s else ""),
                   flush=True)
+    for op_name, row in (res.get("ops") or {}).items():
+        methods = row.get("daemon_methods") if isinstance(row, dict) else None
+        for method, agreement in (methods or {}).items():
+            if isinstance(agreement, dict) and "bucket_delta" in agreement:
+                print(f"PERF-DAEMON-METHOD {name} {op_name} {method} n={agreement['n']} "
+                      f"within_one_bucket={agreement['within_one_bucket']} "
+                      f"bucket_delta={json.dumps(agreement['bucket_delta'])}", flush=True)
+    for lock, callers in ((res.get("daemon_locks") or {}).get("locks") or {}).items():
+        for caller, row in callers.items():
+            print(f"PERF-DAEMON-LOCKS {name} {lock} {caller} " + " ".join(
+                f"{kind}.{field}={row[kind][field]}" for kind in ("wait_us", "hold_us")
+                for field in ("count", "p95", "p99", "max")), flush=True)
     storm = res.get("automation_storm")
     if storm and "ipc16" in storm:
         print(f"PERF-DAEMON-IPC16 {name} " + " ".join(f"{k}={v}" for k, v in storm["ipc16"].items()), flush=True)
@@ -1756,8 +1945,8 @@ def parse_kib(value):
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--bin", required=True)
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--bin", help="the cmux-tui daemon binary (default: the --app bundle's cmux-tui)")
+    ap.add_argument("--out", required=True, help=f"the report FILE.json, or a folder for result-v1 and {REPORT_NAME}")
     ap.add_argument("--n", type=int, default=300, help="samples per read/write op (default 300)")
     ap.add_argument("--create-n", type=int, default=0, help="samples per create op (default max(10, n/10))")
     ap.add_argument("--cli-n", type=int, default=40)
@@ -1776,6 +1965,9 @@ def parse_args(argv=None):
     ap.add_argument("--storm-seconds", type=float, default=8.0)
     ap.add_argument("--write-q16", nargs="?", const=TARGETS, default=None, metavar="TARGETS",
                     help=f"write runtime.Q16 into ipc-targets.json (default {os.path.relpath(TARGETS, REPO_ROOT)})")
+    ap.add_argument("--app", help=lab.APP_HELP)
+    ap.add_argument("--tag", help=lab.TAG_HELP)
+    lab.add_arguments(ap, STORY)
     args = ap.parse_args(argv)
     wanted = [s for value in (args.scenarios or ["small,scale"]) for s in value.split(",") if s]
     unknown = [s for s in wanted if s not in SCENARIOS]
@@ -1793,7 +1985,8 @@ def parse_args(argv=None):
         ap.error("--write-q16 needs --ops all and --scenario scale (Q16's definition)")
     if args.write_q16 and sys.platform != "darwin":
         ap.error("--write-q16 runs on a macOS fleet host only: VM and Linux timing is not perf evidence")
-    return args
+    args.bin, out, measured = lab.prepare(ap, args, REPORT_NAME)
+    return args, out, measured
 
 
 def write_out(path, result):
@@ -1804,7 +1997,7 @@ def write_out(path, result):
 def main(argv=None):
     """Writes --out whatever happens (a failed section, a failed start, Ctrl-C), then --write-q16
     only when the whole run passed."""
-    args = parse_args(argv)
+    args, out, measured = parse_args(argv)
     b = Bench(args)
     b.result.update(host=host_info(), source=source_info(),
                     args={k: v for k, v in vars(args).items() if k not in ("bin", "out")})
@@ -1814,6 +2007,7 @@ def main(argv=None):
         b.result["daemon"]["binary"] = binary_info(args.bin)
         for name in args.scenarios:
             b.scenario(name, *SCENARIOS[name])
+        lab.validate_host(out.results, [b.daemon.pid])
         status = 0
     except Exception as e:  # noqa: BLE001
         log("FAILED", traceback.format_exc(), b.tail()[-1500:])
@@ -1829,7 +2023,11 @@ def main(argv=None):
                 b.result["q16"] = slow_ops(b.result)
                 print("PERF-DAEMON-Q16 scale " + json.dumps([f"{i['key']}={i['p95_ms']}" for i in b.result["q16"]]),
                       flush=True)
-            write_out(args.out, b.result)
+            if measured:
+                path = lab.write(out.results, args.story, lab_series(b.result), measured)
+                b.result["results"] = str(path) if path else None
+                log("result-v1", path)
+            write_out(out.report, b.result)
     if b.failed:
         status = 1
     if args.write_q16 and status == 0:
@@ -1839,7 +2037,7 @@ def main(argv=None):
         except (OSError, ValueError) as e:
             log("--write-q16 failed:", e)
             b.result["q16_write_error"] = str(e)
-            write_out(args.out, b.result)
+            write_out(out.report, b.result)
             status = 1
     return status
 

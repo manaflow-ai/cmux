@@ -81,21 +81,44 @@
       "args": {
         "method": "pane.swap",
         "params": {
-          "other_workspace": 7,
+          "other_workspace": "$step:fx-workspace#/value/workspace_id",
           "other_screen": "$step:fx-workspace#/value/screen_id",
-          "other_pane": "$step:fx-split#/value/pane_id"
+          "other_pane": "$step:fx-workspace#/value/pane_id"
         },
         "idempotencyKey": "pane-swap-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "operation.failed",
+        "errorDetails": {
+          "reason": "cannot swap a pane with itself"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "other_workspace breaks its catalog type (selector must be a string); the daemon's catalog check refuses it"
+      "note": "a pane swapped with itself: operation.failed, the split is unchanged"
+    },
+    {
+      "id": "first-kept",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/first/pane_id",
+        "equals": "$step:fx-workspace#/value/pane_id",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "second-kept",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/second/pane_id",
+        "equals": "$step:fx-split#/value/pane_id",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [

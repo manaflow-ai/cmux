@@ -83,6 +83,9 @@ nonisolated final class TerminalLinkFilter: Sendable {
         state.withLock { $0.cwd = cwd }
     }
 
+    /// The folder asks use now (``setWorkingDirectory(_:)``).
+    var workingDirectory: String? { state.withLock { $0.cwd } }
+
     /// The cached answer for `text`; starts a check when there is none or it is old.
     func isLink(_ text: String) -> Bool {
         let now = ContinuousClock.now
@@ -118,18 +121,26 @@ nonisolated final class TerminalLinkFilter: Sendable {
 
 /// `ghostty_surface_link_filter_cb`: userdata is the surface's ``SurfaceBridge``.
 nonisolated func ghosttyLinkFilter(_ userdata: UnsafeMutableRawPointer?, _ text: UnsafePointer<CChar>?, _ length: UInt) -> Bool {
-    guard let bridge = SurfaceBridge.from(userdata), let text else { return true }
+    // SAFETY: the bridge registered as this callback's userdata (installLinkFilter), alive past
+    // the surface (SurfaceBridge.from); Ghostty passes `length` bytes, valid for this callback,
+    // which String(decoding:) copies.
+    guard let bridge = unsafe SurfaceBridge.from(userdata), let text = unsafe text else { return true }
     // The folder comes from the view, which pushes it on every pwd report and surface swap.
-    let bytes = UnsafeRawBufferPointer(start: UnsafeRawPointer(text), count: Int(length))
-    return bridge.linkFilter.isLink(String(decoding: bytes, as: UTF8.self))
+    // SAFETY: as above.
+    let bytes = unsafe UnsafeRawBufferPointer(start: UnsafeRawPointer(text), count: Int(length))
+    // SAFETY: as above.
+    return bridge.linkFilter.isLink(unsafe String(decoding: bytes, as: UTF8.self))
 }
 
 extension SurfaceBridge {
     /// Hands Ghostty this surface's link filter, asking `check` (nil: every regex link is one).
     @MainActor func installLinkFilter(_ check: TerminalLinkCheck?) {
         linkFilter.setCheck(check)
-        guard let surface = view?.surface else { return }
-        ghostty_surface_set_link_filter(surface, ghosttyLinkFilter, Unmanaged.passUnretained(self).toOpaque())
+        guard let view, let surface = view.surface else { return }
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface); the userdata is this
+        // bridge as the view retained it for every surface callback (TerminalSurfaceView.bridge,
+        // released only after ghostty_surface_free), and the callback has the C signature ghostty.h declares.
+        unsafe ghostty_surface_set_link_filter(surface, ghosttyLinkFilter, view.bridge.toOpaque())
     }
 
     /// The pointer's position again, with the keys held now: a link filter answer that

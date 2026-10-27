@@ -1,4 +1,7 @@
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Foundation
 
 /// Bounded, demand-driven buffer between an attach connection's reader
@@ -31,7 +34,7 @@ final class TerminalEventQueue: Sendable {
         var items: [TerminalChannelEvent] = []
         var head = 0
         var outputBytes = 0
-        var waiter: CheckedContinuation<TerminalChannelEvent?, Never>?
+        var waiter: OnceContinuation<TerminalChannelEvent?, OnceContinuationError>?
         var finished = false
         var armed = false
         /// The reader waits on `readerWake`; whoever clears this signals it exactly once.
@@ -91,7 +94,7 @@ final class TerminalEventQueue: Sendable {
 
     /// Reader thread. May block while the consumer is behind.
     func push(_ event: TerminalChannelEvent) {
-        let (waiter, blocked) = state.withLock { state -> (CheckedContinuation<TerminalChannelEvent?, Never>?, Bool) in
+        let (waiter, blocked) = state.withLock { state -> (OnceContinuation<TerminalChannelEvent?, OnceContinuationError>?, Bool) in
             guard !state.finished else { return (nil, false) }
             if let waiter = state.waiter.take() { return (waiter, false) }
             state.items.append(event)
@@ -113,7 +116,7 @@ final class TerminalEventQueue: Sendable {
     /// Any thread. Queues a small, non-output event without the backpressure wait, so a caller may
     /// hold its own lock across it (a size state is pushed under the lock that orders generations).
     func pushWithoutWaiting(_ event: TerminalChannelEvent) {
-        let waiter = state.withLock { state -> CheckedContinuation<TerminalChannelEvent?, Never>? in
+        let waiter = state.withLock { state -> OnceContinuation<TerminalChannelEvent?, OnceContinuationError>? in
             guard !state.finished else { return nil }
             if let waiter = state.waiter.take() { return waiter }
             state.items.append(event)
@@ -126,7 +129,7 @@ final class TerminalEventQueue: Sendable {
     /// Ends the stream after `last` (if any) and anything already queued.
     /// Unblocks a waiting reader.
     func finish(_ last: TerminalChannelEvent? = nil) {
-        let (waiter, release) = state.withLock { state -> (CheckedContinuation<TerminalChannelEvent?, Never>?, Bool) in
+        let (waiter, release) = state.withLock { state -> (OnceContinuation<TerminalChannelEvent?, OnceContinuationError>?, Bool) in
             guard !state.finished else { return (nil, false) }
             state.finished = true
             let release = state.releaseReader()
@@ -140,7 +143,7 @@ final class TerminalEventQueue: Sendable {
 
     /// Consumer drops the stream: discard everything and release the reader.
     func cancel() {
-        let (waiter, release) = state.withLock { state -> (CheckedContinuation<TerminalChannelEvent?, Never>?, Bool) in
+        let (waiter, release) = state.withLock { state -> (OnceContinuation<TerminalChannelEvent?, OnceContinuationError>?, Bool) in
             state.finished = true
             state.items.removeAll()
             state.head = 0
@@ -151,16 +154,17 @@ final class TerminalEventQueue: Sendable {
         waiter?.resume(returning: nil)
     }
 
-    /// Next event, merging consecutive plain output chunks up to `mergeLimit`.
+    /// Next event, merging consecutive plain output chunks up to `mergeLimit`; nil once the stream ended,
+    /// or when the parked waiter was dropped unresumed.
     func next() async -> TerminalChannelEvent? {
-        await withCheckedContinuation { continuation in
+        try? await withOnceContinuation { (continuation: OnceContinuation<TerminalChannelEvent?, OnceContinuationError>) in
             takeOrWait(continuation)
         }
     }
 
     /// Resumes at once when an event is queued or the stream ended;
     /// otherwise parks the continuation for the next `push`/`finish`.
-    private func takeOrWait(_ continuation: CheckedContinuation<TerminalChannelEvent?, Never>) {
+    private func takeOrWait(_ continuation: OnceContinuation<TerminalChannelEvent?, OnceContinuationError>) {
         let (ready, release) = state.withLock { state -> (TerminalChannelEvent??, Bool) in
             if let event = state.popMerged(mergeLimit: mergeLimit, recorder: recorder) {
                 // At or below `lowWater` the reader reads again.

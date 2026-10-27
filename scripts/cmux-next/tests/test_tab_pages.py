@@ -164,6 +164,16 @@ class PageServerTests(unittest.TestCase):
         self.addCleanup(grid.close)
         self.assertEqual([grid.url(), grid.url()], [f"{grid.origin}/grid-1", f"{grid.origin}/grid-2"])
 
+    def test_engine_page_reports_its_vendor(self):
+        body = get(self.pages.url("engine", 4))[1]
+        self.assertIn(b"fetch('/loaded/4',{method:'POST'})", body)
+        self.assertIn(b"fetch('/engine/4/'+encodeURIComponent(navigator.vendor),{method:'POST'})", body)
+        self.assertIn(b"addEventListener('visibilitychange',v)", body)
+        self.assertNotIn(b"setInterval", body)
+        self.assertEqual(post(self.pages.origin + "/engine/4/Apple%20Computer%2C%20Inc."), 204)
+        self.assertEqual(post(self.pages.origin + "/engine/5/Google%20Inc."), 204)
+        self.assertEqual(self.pages.vendors, {"4": "Apple Computer, Inc.", "5": "Google Inc."})
+
     def test_pages_report_loads_visibility_and_ticks(self):
         for path in ("/loaded/0", "/vis/0/hidden", "/vis/0/visible", "/vis/1/hidden", "/tick", "/tick"):
             self.assertEqual(post(self.pages.origin + path), 204)

@@ -158,8 +158,8 @@ extension TextLayout {
             guard let kind = r.chipKind, let link = r.link else { continue }
             let lo = max(r.start, range.location), hi = min(r.start + r.length, range.location + range.length)
             guard hi > lo else { continue }
-            let x0 = CTLineGetOffsetForStringIndex(line, lo - range.location, nil)
-            var x1 = CTLineGetOffsetForStringIndex(line, hi - range.location, nil)
+            let x0 = line.offset(forStringIndex: lo - range.location)
+            var x1 = line.offset(forStringIndex: hi - range.location)
             // The chip's end on this line: Core Text's offset there leaves out the last
             // character's kern (the trailing pad, HomeLinkChip.reserve), the pill takes it.
             let next = runs[checked: n + 1]
@@ -201,7 +201,8 @@ enum HomeLinkChipIcons {
             .applying(NSImage.SymbolConfiguration(paletteColors: [rgb]))
         guard let symbol = NSImage(systemSymbolName: kind.symbolName, accessibilityDescription: nil)?.withSymbolConfiguration(config) else { return nil }
         var rect = CGRect(origin: .zero, size: CGSize(width: symbol.size.width * scale, height: symbol.size.height * scale))
-        guard let cg = symbol.cgImage(forProposedRect: &rect, context: nil, hints: nil) else { return nil }
+        // SAFETY: the proposed rect is the local `rect`, lent for the call only (AppKit may write the rect it used).
+        guard let cg = unsafe symbol.cgImage(forProposedRect: &rect, context: nil, hints: nil) else { return nil }
         cache.withLock { if $0.count > 256 { $0.removeAll() }; $0[key] = cg }
         return cg
     }
@@ -211,7 +212,7 @@ extension HomeLinkChip {
     /// The pad's own width in the body font (a no-break space is as wide as a space).
     static let padWidth: CGFloat = {
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: "\u{00A0}", attributes: [.font: Fixture.bodyFont]))
-        return CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+        return CGFloat(line.typographicWidth)
     }()
 
     /// Gives each chip in `a` its icon slot (kern on the pad) and its trailing pad (kern on the
@@ -242,7 +243,7 @@ extension HomeLinkChip {
         for s in spans {
             let rect = pillRect(s, origin: origin)
             ctx.setFillColor(fill.cgColor)
-            ctx.addPath(CGPath(roundedRect: rect, cornerWidth: 5, cornerHeight: 5, transform: nil))
+            ctx.addPath(CGPath.roundedRect(rect, cornerWidth: 5, cornerHeight: 5))
             ctx.fillPath()
             guard s.hasIcon, let icon = HomeLinkChipIcons.image(s.kind, color: tint, scale: scale) else { continue }
             let w = CGFloat(icon.width) / scale, h = CGFloat(icon.height) / scale

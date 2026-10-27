@@ -51,6 +51,7 @@ public final class AddDeviceView: NSView {
     /// Draws the model (``renderLoop`` runs it again at the next frame after a value read here changes).
     private func render() {
         build()
+        // sync-layout: fittingSize below sizes the card to the rebuilt rows.
         layoutSubtreeIfNeeded()
         onResize(fittingSize)
     }

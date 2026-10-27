@@ -2,6 +2,7 @@
 //! same terminal id (`Mux::restart_dead_tab`, plans/cmux-next/ownership.md
 //! section 3.2, cx-7e7b).
 
+use super::tabs_wire::RestartTabParams as Params;
 use super::*;
 use crate::mux::terminal_respawn::manual::TabRestartError;
 
@@ -17,15 +18,6 @@ pub(super) const CAPABILITY: &str = "tab-restart-v1";
 /// is in the tab: `relaunch` is null again, an exit closes the tab and a
 /// host loss respawns it (`terminal_respawn.rs`, `RespawnPlan::kept`).
 pub(super) const KEPT_LAYOUT_CAPABILITY: &str = "tab-restart-kept-layout-v1";
-
-/// `restart-tab`.
-#[derive(Deserialize)]
-pub(super) struct Params {
-    /// The tab: its numeric surface id or its public `tab_...` id (`tab`
-    /// is the CLI's name for the field).
-    #[serde(alias = "tab")]
-    surface: TabRef,
-}
 
 /// Accepts the restart and starts the worker; the tree shows the tab
 /// restarting, then running under a new incarnation.

@@ -229,7 +229,7 @@ enum SidebarStrings {
 
 /// Geometry of the list and the pinned grid, in points. Each value names its source in
 /// appkit-native/SIDEBAR.md ("public-source" or "to verify against a real reference").
-struct SidebarMetrics: Equatable {
+struct SidebarMetrics: Equatable, Sendable { // cmux: Sendable (Swift 6), in the render context
     // Width. The host owns the width, its storage and its reset; the list reads only the
     // width it gets and reports these two (SidebarController.minimumWidth / preferredWidth).
     static let preferredWidth: CGFloat = 320
@@ -330,7 +330,7 @@ struct SidebarMetrics: Equatable {
 
 /// Colors resolved for one appearance and window state (CGColors: the background renderer
 /// reads them off the main thread).
-struct SidebarPalette: Equatable {
+struct SidebarPalette: Equatable, Sendable { // cmux: checked Sendable (Swift 6), CGColors and a flag
     var dark: Bool
     var name: CGColor
     var secondary: CGColor
@@ -363,7 +363,8 @@ struct SidebarPalette: Equatable {
         func build() -> SidebarPalette {
             let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             func p3(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColor {
-                CGColor(colorSpace: SidebarDraw.p3, components: [r / 255, g / 255, b / 255, a])
+                // SAFETY: Core Graphics reads the space's 3 components and the alpha, 4 values, the array's count.
+                unsafe CGColor(colorSpace: SidebarDraw.p3, components: [r / 255, g / 255, b / 255, a])
                     ?? CGColor(red: r / 255, green: g / 255, blue: b / 255, alpha: a) // no force unwrap
             }
             return SidebarPalette(

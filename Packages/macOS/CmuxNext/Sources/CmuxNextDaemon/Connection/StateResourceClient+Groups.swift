@@ -1,3 +1,4 @@
+import CmuxNextIPC
 import Foundation
 
 /// Tab groups, screen metadata and groups, and personal workspace groups as
@@ -14,48 +15,53 @@ extension StateResourceClient {
 
     @discardableResult
     public func createTabGroup(tabs: [ResourceID], name: String?, color: String?) async throws -> CreatedGroup {
-        var params: [String: JSONValue] = ["tabs": Self.ids(tabs)]
-        if let name { params["name"] = .string(name) }
-        if let color { params["color"] = .string(color) }
-        return try await stateMutation("tab_group.create", params, as: CreatedGroup.self)
+        try await stateMutation(Self.tabGroupCreateRequest(tabs: tabs, name: name, color: color), as: CreatedGroup.self)
+    }
+
+    static func tabGroupCreateRequest(tabs: [ResourceID], name: String?, color: String?) -> V2TabGroupCreateRequest {
+        V2TabGroupCreateRequest(color: color, name: name, tabs: tabs.map { V2TabID(rawValue: $0.rawValue) })
     }
 
     /// `icon` (`tab-group-icon-v1`): `.clear` sends `null`, which removes it.
     public func updateTabGroup(_ group: String, name: String? = nil, color: String? = nil, collapsed: Bool? = nil,
                                icon: FieldUpdate<String> = .unchanged) async throws {
-        var params: [String: JSONValue] = ["tab_group": .string(group)]
-        if let name { params["name"] = .string(name) }
-        if let color { params["color"] = .string(color) }
-        if let collapsed { params["collapsed"] = .bool(collapsed) }
-        Self.field(icon, into: &params, "icon") { .string($0) }
-        try await stateMutation("tab_group.update", params)
+        try await stateMutation(Self.tabGroupUpdateRequest(group, name: name, color: color, collapsed: collapsed, icon: icon))
+    }
+
+    static func tabGroupUpdateRequest(_ group: String, name: String?, color: String?, collapsed: Bool?,
+                                      icon: FieldUpdate<String>) -> V2TabGroupUpdateRequest {
+        V2TabGroupUpdateRequest(collapsed: collapsed, color: color, icon: icon.resourceField { $0 }, name: name, tabGroup: group)
     }
 
     /// Adds tabs at `index` inside the group (the end when nil).
     public func addTabs(_ tabs: [ResourceID], toTabGroup group: String, index: Int? = nil) async throws {
-        var params: [String: JSONValue] = ["tab_group": .string(group), "tabs": Self.ids(tabs)]
-        if let index { params["index"] = .number(Double(max(0, index))) }
-        try await stateMutation("tab_group.add_tabs", params)
+        try await stateMutation(Self.tabGroupAddTabsRequest(tabs, group: group, index: index))
+    }
+
+    static func tabGroupAddTabsRequest(_ tabs: [ResourceID], group: String, index: Int?) -> V2TabGroupAddTabsRequest {
+        V2TabGroupAddTabsRequest(index: index.map(Self.index), tabGroup: group, tabs: tabs.map { V2TabID(rawValue: $0.rawValue) })
     }
 
     public func removeTabsFromTabGroup(_ tabs: [ResourceID]) async throws {
-        try await stateMutation("tab_group.remove_tabs", ["tabs": Self.ids(tabs)])
+        try await stateMutation(V2TabGroupRemoveTabsRequest(tabs: tabs.map { V2TabID(rawValue: $0.rawValue) }))
     }
 
     /// Moves a group to `index` of `pane` (its own pane when nil).
     public func moveTabGroup(_ group: String, toPane pane: ResourceID? = nil, index: Int) async throws {
-        var params: [String: JSONValue] = ["tab_group": .string(group), "index": .number(Double(max(0, index)))]
-        if let pane { params["pane_id"] = .string(pane.rawValue) }
-        try await stateMutation("tab_group.move", params)
+        try await stateMutation(Self.tabGroupMoveRequest(group, pane: pane, index: index))
+    }
+
+    static func tabGroupMoveRequest(_ group: String, pane: ResourceID?, index: Int) -> V2TabGroupMoveRequest {
+        V2TabGroupMoveRequest(index: Self.index(index), paneID: pane.map { V2PaneID(rawValue: $0.rawValue) }, tabGroup: group)
     }
 
     public func ungroupTabGroup(_ group: String) async throws {
-        try await stateMutation("tab_group.ungroup", ["tab_group": .string(group)])
+        try await stateMutation(V2TabGroupUngroupRequest(tabGroup: group))
     }
 
     /// Closes every member tab.
     public func closeTabGroup(_ group: String) async throws {
-        try await stateMutation("tab_group.close", ["tab_group": .string(group)])
+        try await stateMutation(V2TabGroupCloseRequest(tabGroup: group))
     }
 
     // MARK: Screens
@@ -63,36 +69,41 @@ extension StateResourceClient {
     /// Screen pin, color, and icon (`screen.update`).
     public func updateScreen(_ screen: ResourceID, pinned: Bool? = nil, color: FieldUpdate<String> = .unchanged,
                              icon: FieldUpdate<String> = .unchanged) async throws {
-        var params: [String: JSONValue] = ["screen": .string(screen.rawValue)]
-        if let pinned { params["pinned"] = .bool(pinned) }
-        Self.field(color, into: &params, "color") { .string($0) }
-        Self.field(icon, into: &params, "icon") { .string($0) }
-        try await stateMutation("screen.update", params)
+        try await stateMutation(Self.screenUpdateRequest(screen, pinned: pinned, color: color, icon: icon))
+    }
+
+    static func screenUpdateRequest(_ screen: ResourceID, pinned: Bool?, color: FieldUpdate<String>,
+                                    icon: FieldUpdate<String>) -> V2ScreenUpdateRequest {
+        V2ScreenUpdateRequest(screen: selector(screen), color: color.resourceField { $0 }, icon: icon.resourceField { $0 },
+                              pinned: pinned)
     }
 
     /// Moves a screen within its workspace; the daemon keeps pinned screens
     /// first and groups contiguous.
     public func moveScreen(_ screen: ResourceID, to index: Int) async throws {
-        try await stateMutation("screen.move", ["screen": .string(screen.rawValue), "index": .number(Double(max(0, index)))])
+        try await stateMutation(V2ScreenMoveRequest(screen: Self.selector(screen), index: Self.index(index)))
     }
 
     @discardableResult
     public func createScreenGroup(screens: [ResourceID], name: String?, color: String?) async throws -> CreatedGroup {
-        var params: [String: JSONValue] = ["screens": Self.ids(screens)]
-        if let name { params["name"] = .string(name) }
-        if let color { params["color"] = .string(color) }
-        return try await stateMutation("screen_group.create", params, as: CreatedGroup.self)
+        try await stateMutation(Self.screenGroupCreateRequest(screens: screens, name: name, color: color), as: CreatedGroup.self)
+    }
+
+    static func screenGroupCreateRequest(screens: [ResourceID], name: String?, color: String?) -> V2ScreenGroupCreateRequest {
+        V2ScreenGroupCreateRequest(color: color, name: name, screens: screens.map { V2ScreenID(rawValue: $0.rawValue) })
     }
 
     // MARK: Personal workspace groups (home session)
 
     @discardableResult
     public func createWorkspaceGroup(name: String, room: String?, color: String?, index: Int? = nil) async throws -> CreatedGroup {
-        var params: [String: JSONValue] = ["name": .string(name)]
-        if let room { params["room"] = .string(room) }
-        if let color { params["color"] = .string(color) }
-        if let index { params["index"] = .number(Double(max(0, index))) }
-        return try await stateMutation("workspace_group.create", params, as: CreatedGroup.self)
+        try await stateMutation(Self.workspaceGroupCreateRequest(name: name, room: room, color: color, index: index),
+                                as: CreatedGroup.self)
+    }
+
+    static func workspaceGroupCreateRequest(name: String, room: String?, color: String?,
+                                            index: Int?) -> V2WorkspaceGroupCreateRequest {
+        V2WorkspaceGroupCreateRequest(color: color, index: index.map(Self.index), name: name, room: room)
     }
 
     /// `topIndex` (`personal-mixed-order-v1`): the personal row index the
@@ -101,31 +112,35 @@ extension StateResourceClient {
     public func updateWorkspaceGroup(_ group: String, name: String? = nil, color: FieldUpdate<String> = .unchanged,
                                      collapsed: Bool? = nil, topIndex: FieldUpdate<Int> = .unchanged,
                                      icon: FieldUpdate<String> = .unchanged, pinned: Bool? = nil) async throws {
-        var params: [String: JSONValue] = ["workspace_group": .string(group)]
-        if let name { params["name"] = .string(name) }
-        Self.field(color, into: &params, "color") { .string($0) }
-        if let collapsed { params["collapsed"] = .bool(collapsed) }
-        Self.field(topIndex, into: &params, "top_index") { .number(Double(max(0, $0))) }
-        Self.field(icon, into: &params, "icon") { .string($0) }
-        if let pinned { params["pinned"] = .bool(pinned) }
-        try await stateMutation("workspace_group.update", params)
+        try await stateMutation(Self.workspaceGroupUpdateRequest(group, name: name, color: color, collapsed: collapsed,
+                                                                 topIndex: topIndex, icon: icon, pinned: pinned))
+    }
+
+    static func workspaceGroupUpdateRequest(_ group: String, name: String?, color: FieldUpdate<String>, collapsed: Bool?,
+                                            topIndex: FieldUpdate<Int>, icon: FieldUpdate<String>,
+                                            pinned: Bool?) -> V2WorkspaceGroupUpdateRequest {
+        V2WorkspaceGroupUpdateRequest(collapsed: collapsed, color: color.resourceField { $0 }, icon: icon.resourceField { $0 },
+                                      name: name, pinned: pinned, topIndex: topIndex.resourceField(Self.index),
+                                      workspaceGroup: group)
     }
 
     public func deleteWorkspaceGroup(_ group: String) async throws {
-        try await stateMutation("workspace_group.delete", ["workspace_group": .string(group)])
+        try await stateMutation(V2WorkspaceGroupDeleteRequest(workspaceGroup: group))
     }
 
     public func moveWorkspaceGroup(_ group: String, to index: Int) async throws {
-        try await stateMutation("workspace_group.move", ["workspace_group": .string(group), "index": .number(Double(max(0, index)))])
+        try await stateMutation(V2WorkspaceGroupMoveRequest(index: Self.index(index), workspaceGroup: group))
     }
 
     /// A live workspace of this session in the personal sidebar order:
     /// its group (`.clear` ungroups) and final position.
     public func placeWorkspace(_ workspace: ResourceID, group: FieldUpdate<String> = .unchanged, index: Int? = nil) async throws {
-        var params: [String: JSONValue] = ["workspace": .string(workspace.rawValue)]
-        Self.field(group, into: &params, "group") { .string($0) }
-        if let index { params["index"] = .number(Double(max(0, index))) }
-        try await stateMutation("workspace.place", params)
+        try await stateMutation(Self.workspacePlaceRequest(workspace, group: group, index: index))
+    }
+
+    static func workspacePlaceRequest(_ workspace: ResourceID, group: FieldUpdate<String>,
+                                      index: Int?) -> V2WorkspacePlaceRequest {
+        V2WorkspacePlaceRequest(workspace: selector(workspace), group: group.resourceField { $0 }, index: index.map(Self.index))
     }
 
     /// A workspace's personal group and order in the home session: through

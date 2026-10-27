@@ -3,6 +3,8 @@ import Foundation
 import os
 import Security
 import CmuxNextCompat
+import struct CmuxNextDaemon.POSIXErrorText
+import struct CmuxNextDaemon.UnixSocketAddress
 import CmuxNextWakeups
 
 /// Who answers on an acpmux socket path (cx-fcaq). Before the app enrolls a person key, or
@@ -134,8 +136,10 @@ nonisolated enum AcpmuxServerPeer {
         let wanted = executable.resolvingSymlinksInPath().path
         let foreign = owners.contains { pid in
             var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-            guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return true }
-            return URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().path != wanted
+            // SAFETY: proc_pidpath writes at most buffer.count bytes into the array's own storage, lent for the call.
+            guard unsafe proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return true }
+            let running = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+            return URL(fileURLWithPath: running).resolvingSymlinksInPath().path != wanted
         }
         return foreign ? .foreign : .own
     }
@@ -149,8 +153,10 @@ nonisolated enum AcpmuxServerPeer {
         if owners.isEmpty { refusal = .noPeer }
         for pid in Set(owners) where refusal == nil {
             var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-            guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { refusal = .noPeer; break }
-            let path = URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().path
+            // SAFETY: proc_pidpath writes at most buffer.count bytes into the array's own storage, lent for the call.
+            guard unsafe proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { refusal = .noPeer; break }
+            let running = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+            let path = URL(fileURLWithPath: running).resolvingSymlinksInPath().path
             if path != wanted, !foreign.contains(pid) { refusal = .otherExecutable(path); break }
         }
         guard let refusal else { return true }
@@ -171,12 +177,13 @@ nonisolated enum AcpmuxServerPeer {
     /// This user's processes' TCP sockets (libproc).
     static func tcpSockets() -> [TCPSocket] {
         let uid = getuid()
-        let needed = proc_listpids(UInt32(PROC_UID_ONLY), uid, nil, 0)
+        // SAFETY: with no buffer (nil, 0) proc_listpids only answers the byte count it needs.
+        let needed = unsafe proc_listpids(UInt32(PROC_UID_ONLY), uid, nil, 0)
         guard needed > 0 else { return [] }
         var pids = [pid_t](repeating: 0, count: Int(needed) / MemoryLayout<pid_t>.size + 32)
-        let filled = pids.withUnsafeMutableBytes { bytes in
-            proc_listpids(UInt32(PROC_UID_ONLY), uid, bytes.baseAddress, Int32(bytes.count))
-        }
+        // SAFETY: proc_listpids writes at most the given byte size, exactly the array's (pids.count pids), into the
+        // array's own storage, lent for the call.
+        let filled = unsafe proc_listpids(UInt32(PROC_UID_ONLY), uid, &pids, Int32(pids.count * MemoryLayout<pid_t>.size))
         var out: [TCPSocket] = []
         for pid in pids.prefix(Int(filled) / MemoryLayout<pid_t>.size) where pid > 0 {
             out += tcpSockets(of: pid)
@@ -185,18 +192,20 @@ nonisolated enum AcpmuxServerPeer {
     }
 
     private static func tcpSockets(of pid: pid_t) -> [TCPSocket] {
-        let bytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
+        // SAFETY: with no buffer (nil, 0) proc_pidinfo only answers the byte count it needs.
+        let bytes = unsafe proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
         guard bytes > 0 else { return [] }
         let stride = MemoryLayout<proc_fdinfo>.stride
         var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(bytes) / stride + 8)
-        let filled = fds.withUnsafeMutableBytes { buffer in
-            proc_pidinfo(pid, PROC_PIDLISTFDS, 0, buffer.baseAddress, Int32(buffer.count))
-        }
+        // SAFETY: proc_pidinfo writes at most the given byte size, exactly the array's (fds.count entries of `stride`
+        // bytes), into the array's own storage, lent for the call.
+        let filled = unsafe proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &fds, Int32(fds.count * stride))
         var out: [TCPSocket] = []
         for fd in fds.prefix(Int(filled) / stride) where fd.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
             var info = socket_fdinfo()
             let size = Int32(MemoryLayout<socket_fdinfo>.size)
-            guard proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDSOCKETINFO, &info, size) == size,
+            // SAFETY: proc_pidfdinfo writes at most `size` bytes, one socket_fdinfo, into `info`, a local.
+            guard unsafe proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDSOCKETINFO, &info, size) == size,
                   info.psi.soi_kind == Int32(SOCKINFO_TCP) else { continue }
             let tcp = info.psi.soi_proto.pri_tcp
             // The ports are in network byte order in the low 16 bits.
@@ -210,11 +219,11 @@ nonisolated enum AcpmuxServerPeer {
     }
 
     /// A strict on-disk check before a Team-signed app launches its acpmux.
-    /// DEV is ad-hoc and has no team to require. The answer is kept per
-    /// version of the file (``StaticCodeValidityCache``). Blocks (stat calls,
-    /// and the check on a miss): the app resolves its acpmux on its system
-    /// lane (`AppEnvironment.appAcpmux`), never on the main thread.
-    static func executableSignedByAppTeam(_ executable: URL, team: String? = ownTeam) -> Bool {
+    /// DEV is ad-hoc and has no team to require. `team` is this app's (``SigningTeamInstall/team``, read
+    /// on the system lane at launch). The answer is kept per version of the file (``StaticCodeValidityCache``).
+    /// Blocks (stat calls, and the check on a miss): the app resolves its acpmux on its system lane
+    /// (`AppEnvironment.appAcpmux`), never on the main thread.
+    static func executableSignedByAppTeam(_ executable: URL, team: String?) -> Bool {
         guard let team else { return true }
         guard let requirement = requirement(team: team) else { return false }
         let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate)
@@ -246,9 +255,6 @@ nonisolated enum AcpmuxServerPeer {
         guard let app = parts.last(where: { $0.hasSuffix(".app") }) else { return path }
         return String(app.dropLast(".app".count))
     }
-
-    /// This app's team when it is Team-signed; nil for an ad-hoc DEV build (read once, ``OwnCodeSignature``).
-    static var ownTeam: String? { OwnCodeSignature.current.teamIdentifier }
 
     @discardableResult
     private static func checked(_ descriptor: Int32, socketPath: String, executable: URL,
@@ -291,31 +297,22 @@ nonisolated enum AcpmuxServerPeer {
     private static func peerPID(_ descriptor: Int32) -> pid_t? {
         var pid: pid_t = 0
         var size = socklen_t(MemoryLayout<pid_t>.size)
-        return getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) == 0 && pid > 1 ? pid : nil
+        // SAFETY: getsockopt writes at most `size` bytes (one pid_t) into `pid` and the size it wrote into `size`;
+        // both are locals.
+        return unsafe getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) == 0 && pid > 1 ? pid : nil
     }
 
     private static func connect(_ socketPath: String) throws -> Int32 {
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        let capacity = MemoryLayout.size(ofValue: address.sun_path)
-        guard socketPath.utf8.count < capacity else { throw Refusal.unreachable("path too long") }
-        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
-            buffer.copyBytes(from: socketPath.utf8)
-            buffer[socketPath.utf8.count] = 0
-        }
+        guard let address = UnixSocketAddress(path: socketPath) else { throw Refusal.unreachable("path too long") }
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard descriptor >= 0 else { throw Refusal.unreachable(String(cString: strerror(errno))) }
+        guard descriptor >= 0 else { throw Refusal.unreachable(POSIXErrorText(errno).description) }
         var noSigPipe: Int32 = 1
-        _ = setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+        // SAFETY: setsockopt reads the size it is given from `noSigPipe`, a local Int32.
+        _ = unsafe setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
         _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC)
-        let connected = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                // concurrency-allow: @concurrent callers only; a local unix socket connect.
-                Darwin.connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        guard connected == 0 else {
-            let why = String(cString: strerror(errno))
+        // concurrency-allow: @concurrent callers only; a local unix socket connect.
+        guard address.connect(descriptor) == 0 else {
+            let why = POSIXErrorText(errno).description
             Darwin.close(descriptor)
             throw Refusal.unreachable(why)
         }
@@ -371,7 +368,8 @@ nonisolated enum AcpmuxServerPeer {
         guard left > 0 else { throw Refusal.timedOut }
         var entry = pollfd(fd: descriptor, events: events, revents: 0)
         // concurrency-allow: @concurrent callers only; poll(2) bounded by the call's deadline.
-        let ready = poll(&entry, 1, Int32(min(left * 1000, Double(Int32.max))))
+        // SAFETY: poll reads and writes the one pollfd it is told of, `entry`, a local.
+        let ready = unsafe poll(&entry, 1, Int32(min(left * 1000, Double(Int32.max))))
         guard ready > 0 else { throw ready == 0 ? Refusal.timedOut : Refusal.closed }
     }
 
@@ -379,9 +377,12 @@ nonisolated enum AcpmuxServerPeer {
         var offset = 0
         while offset < data.count {
             try wait(descriptor, for: Int16(POLLOUT), until: until)
-            let sent = data.withUnsafeBytes { bytes -> Int in
-                guard let base = bytes.baseAddress else { return -1 }
-                return Darwin.send(descriptor, base + offset, data.count - offset, 0)
+            // SAFETY: `bytes` is the data's contiguous storage, valid only inside this closure, which never lets a
+            // pointer out; 0 <= offset < data.count (the loop's condition), so the send covers the data.count - offset
+            // bytes from base + offset to the buffer's end.
+            let sent = unsafe data.withUnsafeBytes { bytes -> Int in
+                guard let base = unsafe bytes.baseAddress else { return -1 }
+                return unsafe Darwin.send(descriptor, base + offset, data.count - offset, 0)
             }
             guard sent > 0 else { throw Refusal.closed }
             offset += sent
@@ -391,7 +392,8 @@ nonisolated enum AcpmuxServerPeer {
     private static func read(from descriptor: Int32, until: Date) throws -> Data {
         try wait(descriptor, for: Int16(POLLIN), until: until)
         var chunk = [UInt8](repeating: 0, count: 64 * 1024)
-        let count = Darwin.recv(descriptor, &chunk, chunk.count, 0)
+        // SAFETY: recv writes at most chunk.count bytes into the array's own storage, lent for the call.
+        let count = unsafe Darwin.recv(descriptor, &chunk, chunk.count, 0)
         guard count > 0 else { throw Refusal.closed }
         return Data(chunk[0..<count])
     }

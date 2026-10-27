@@ -93,7 +93,7 @@ extension SignpostName {
         switch self {
         case .actionPerform, .stallMainTask, .motionFrame, .motionDragFrame, .keyOmnibarSuggest, .keyPaletteSearch,
              .cefPump, .cefGeometry, .stallCreateSurface, .stallPaletteOpen, .stallIconPickerOpen, .taskRun, .ghosttyRender,
-             .launchStartupTask:
+             .launchStartupTask, .cefMemoryPressureVote:
             true
         default:
             false

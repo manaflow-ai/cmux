@@ -61,6 +61,24 @@ struct DemandTimerMainQueueTests {
         #expect(!rig.timer.isScheduled)
     }
 
+    @Test("scheduleOnMainIfIdle keeps a pending deadline and schedules once it ran")
+    func syncIfIdleKeepsThePendingDeadline() {
+        let rig = Rig()
+        let log = RunLog()
+        rig.timer.scheduleOnMainIfIdle(after: .milliseconds(100)) { log.ran.append("first") }
+        rig.timer.scheduleOnMainIfIdle(after: .milliseconds(300)) { log.ran.append("ignored") }
+        #expect(rig.queue.queue.count == 1)
+        #expect(rig.queue.timer.armedDate == 104 * Self.ms, "the first deadline is not pushed back")
+        rig.queue.fire()
+        #expect(log.ran == ["first"])
+
+        rig.timer.scheduleOnMainIfIdle(after: .milliseconds(100)) { log.ran.append("second") }
+        #expect(rig.timer.isScheduled, "an idle timer takes the next deadline")
+        rig.queue.fire()
+        #expect(log.ran == ["first", "second"])
+        #expect(rig.clock.sleepRequests.isEmpty)
+    }
+
     @Test("A reset drops the old entry: only the new deadline runs, at its own time")
     func resetWins() {
         let rig = Rig()

@@ -1,0 +1,18 @@
+{
+  "id": "daemon-latency",
+  "tier": "linux",
+  "description": "Daemon request round trips (cmux-tui/scripts/bench-daemon-latency.py) on a release cmux-tui built at the commit: every op of plans/cmux-next/ipc-targets.json in the small and scale scenarios, 10 concurrent clients, CLI calls, pings behind a bulk flood, 8 attached printing views and the app's echo and split while 8 automation clients storm; client send to reply per request.",
+  "command": ["cmux-tui/scripts/bench-daemon-latency.py", "--build", "--ops", "all", "--scenario", "small,scale",
+              "--bulk-interference", "--streams", "8", "--automation-storm", "8"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "daemon\\.latency\\.(small|scale)\\.[a-z0-9_.]+", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": ["file:cmux-tui/scripts/daemon_bench_lab.py", "file:plans/cmux-next/ipc-targets.json"],
+  "owner": "PL-daemon",
+  "component": "Daemon>Requests"
+}

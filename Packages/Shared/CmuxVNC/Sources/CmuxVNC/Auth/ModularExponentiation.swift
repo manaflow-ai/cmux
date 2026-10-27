@@ -7,10 +7,9 @@ import Foundation
 struct ModularExponentiation {
     /// Little-endian 32-bit limbs of the modulus.
     private let modulus: [UInt32]
-    private let limbCount: Int
     /// -modulus^-1 mod 2^32.
     private let nPrime: UInt32
-    /// R^2 mod modulus, R = 2^(32 * limbCount).
+    /// R^2 mod modulus, R = 2^(32 * modulus.count).
     private let rSquared: [UInt32]
     private let byteCount: Int
 
@@ -19,7 +18,6 @@ struct ModularExponentiation {
         let limbs = Self.limbs(bytes)
         guard let low = limbs.first, low & 1 == 1 else { return nil }
         modulus = limbs
-        limbCount = limbs.count
         byteCount = bytes.count
         var inverse = low
         for _ in 0 ..< 5 { inverse = inverse &* (2 &- low &* inverse) }
@@ -33,7 +31,7 @@ struct ModularExponentiation {
 
     /// `base ^ exponent mod modulus`, big-endian, padded to the modulus length.
     func power(_ base: [UInt8], _ exponent: [UInt8]) -> [UInt8] {
-        let one = [UInt32](repeating: 0, count: limbCount).enumerated().map { $0.offset == 0 ? UInt32(1) : 0 }
+        let one = [UInt32](repeating: 0, count: modulus.count).enumerated().map { $0.offset == 0 ? UInt32(1) : 0 }
         let baseMont = multiply(reduce(base), rSquared)
         var accumulator = multiply(one, rSquared)
         for byte in exponent {
@@ -47,7 +45,7 @@ struct ModularExponentiation {
 
     /// Any-length big-endian value mod the modulus (bit by bit).
     private func reduce(_ bytes: [UInt8]) -> [UInt32] {
-        var value = [UInt32](repeating: 0, count: limbCount)
+        var value = [UInt32](repeating: 0, count: modulus.count)
         for byte in bytes {
             for bit in stride(from: 7, through: 0, by: -1) {
                 Self.doubleMod(&value, modulus)
@@ -59,7 +57,7 @@ struct ModularExponentiation {
 
     /// Montgomery product a * b * R^-1 mod m (inputs below m).
     private func multiply(_ a: [UInt32], _ b: [UInt32]) -> [UInt32] {
-        let n = limbCount
+        let n = modulus.count
         var t = [UInt32](repeating: 0, count: n + 2)
         for i in 0 ..< n {
             var carry: UInt64 = 0
@@ -112,7 +110,7 @@ struct ModularExponentiation {
             out.append(contentsOf: [UInt8(limb >> 24), UInt8((limb >> 16) & 0xFF), UInt8((limb >> 8) & 0xFF), UInt8(limb & 0xFF)])
         }
         if out.count > count { return Array(out.suffix(count)) }
-        return [UInt8](repeating: 0, count: count - out.count) + out
+        return [UInt8](repeating: 0, count: max(0, count - out.count)) + out
     }
 
     static func less(_ a: [UInt32], _ b: [UInt32]) -> Bool {

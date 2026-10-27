@@ -53,6 +53,32 @@
         "settled"
       ],
       "note": "the title that arrived after the navigation"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "history.visit.title",
+        "params": {
+          "profile": "oracle",
+          "url": "http://127.0.0.1:9/oracle",
+          "title": "oracle"
+        },
+        "idempotencyKey": "history-visit-title-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

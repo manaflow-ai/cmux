@@ -31,9 +31,9 @@ struct PageScriptPipelineTests {
     @Test func resetDropsInFlightBeforeLaterQueuedEnvelope() async {
         let gate = RenderGate()
         var drops: [String] = []
-        let pipeline = PageScriptPipeline(evaluate: { _ in }, render: { envelope in
+        let pipeline = PageScriptPipeline(evaluate: { _ in }, render: { envelopes in
             await gate.wait()
-            return PageRouter.receiveScript(envelope)
+            return PageRouter.receiveManyScript(envelopes)
         })
         let large = JSONValue.string(String(repeating: "x", count: 20_000))
         pipeline.send(large) { drops.append("first") }

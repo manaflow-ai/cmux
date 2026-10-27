@@ -120,7 +120,7 @@ impl Mux {
         let notification_id = notification.id.as_str().to_string();
         let created_at_ms = notification.created_at_ms;
         let write: crate::workspace_registry::OwnedTransactionWrite =
-            Box::new(move |tx: &rusqlite::Transaction<'_>| {
+            Box::new(move |tx: &crate::workspace_registry::RegistryTransaction<'_>| {
                 write_feed_local_changes(tx, &changes)?;
                 match &folded_into {
                     Some(item) => {
@@ -309,7 +309,9 @@ impl Mux {
             })
             .map(|entry| entry.id.as_str().to_string())
             .collect();
-        let write = |tx: &rusqlite::Transaction<'_>| write_feed_local_changes(tx, &changes);
+        let write = |tx: &crate::workspace_registry::RegistryTransaction<'_>| {
+            write_feed_local_changes(tx, &changes)
+        };
         self.workspace_registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -415,7 +417,9 @@ impl Mux {
         }
         let mut next = (*feed).clone();
         let (changes, _owned_elsewhere) = next.read_where(now_ms(), &matches);
-        let write = |tx: &rusqlite::Transaction<'_>| write_feed_local_changes(tx, &changes);
+        let write = |tx: &crate::workspace_registry::RegistryTransaction<'_>| {
+            write_feed_local_changes(tx, &changes)
+        };
         let wrote = !changes.is_empty();
         if commit(wrote.then_some(&write), &next)? {
             *feed = next;
@@ -508,7 +512,9 @@ impl Mux {
         // Rings follow unread items (9.1 rule 6): an item another owner holds
         // stays unread here, and so does its ring.
         let unread_left = next.items().iter().any(|item| item.is_unread() && of_tab(item));
-        let write = |tx: &rusqlite::Transaction<'_>| write_feed_local_changes(tx, &changes);
+        let write = |tx: &crate::workspace_registry::RegistryTransaction<'_>| {
+            write_feed_local_changes(tx, &changes)
+        };
         let extra: Option<crate::workspace_registry::RegistryTransactionWrite<'_>> =
             (!changes.is_empty()).then_some(&write);
         // An unread item left keeps its ring, also after a restart: the tab's

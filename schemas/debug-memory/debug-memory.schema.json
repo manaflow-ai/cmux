@@ -184,7 +184,7 @@
         "rendering": { "$ref": "#/$defs/count" },
         "hidden_nonvolatile_iosurface_bytes": {
           "$ref": "#/$defs/countOrNull",
-          "description": "Non-volatile IOSurface bytes of the surfaces that do not draw; null until the surfaces report their GPU residency (p07-memory-037)."
+          "description": "Estimated non-volatile IOSurface bytes of the hidden terminal surfaces (away, outside the keep-alive band): the two swap-chain buffers besides the volatile presented frame while GPU resident, 0 once released (terminalGPURelease, p07-memory-037). Null when unknown."
         },
         "last_frames": { "$ref": "#/$defs/count" }
       }
