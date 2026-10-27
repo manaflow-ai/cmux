@@ -9,13 +9,13 @@
 //! `WatchHangsInScope`, and one watcher thread compares the deadlines with
 //! the clock and reports a hang, never killing anything. In the daemon the
 //! scopes and the watcher thread are cmux-tui-core's request watchdog
-//! (server/request_watchdog.rs), which feeds this ledger from its own thread.
-//! [`next_wake`] is that watcher's wake rule: unlike Chrome's fixed 10 s
-//! monitoring period, it parks with no timer while no scope is armed, so an
-//! idle daemon gets 0 hang-watch wakeups.
+//! (server/request_watchdog.rs), which feeds this ledger from its own thread
+//! with [`hang_step`]'s decisions. [`next_wake`] is that watcher's wake rule:
+//! unlike Chrome's fixed 10 s monitoring period, it parks with no timer while
+//! no scope is armed, so an idle daemon gets 0 hang-watch wakeups.
 //!
 //! Every time here is microseconds on the watcher's monotonic clock, passed
-//! in by the caller, so the rule and the ledger run on a fake clock in tests.
+//! in by the caller, so the rules and the ledger run on a fake clock in tests.
 
 use std::collections::VecDeque;
 use std::sync::PoisonError;
@@ -25,7 +25,10 @@ use cmux_threads::sync::Mutex;
 use serde::Serialize;
 
 /// A scope busy this long is a hang (the lab's `over_250ms`).
-pub const HANG_THRESHOLD: Duration = Duration::from_millis(250);
+pub const HANG_THRESHOLD: Duration = Duration::from_micros(HANG_THRESHOLD_US);
+
+/// [`HANG_THRESHOLD`] in µs, the unit of every time here.
+pub const HANG_THRESHOLD_US: u64 = 250_000;
 
 /// Hang records `server-stats` keeps, newest last. Older ones leave the ring
 /// but stay counted in `over_250ms`; a gap in `sequence` shows them.
@@ -40,8 +43,8 @@ pub struct HangRecord {
     /// The scope and what it ran, `<scope>:<method>` (`mux-conn:workspace.create`,
     /// `journal-writer:commit-batch`): catalog names, never a person's text.
     pub span: String,
-    /// How long the scope ran: its final duration once it ended, how long it
-    /// had run when the watcher saw it while it still runs.
+    /// How long the scope ran: its final duration once it ended, and its
+    /// duration up to the snapshot while it still runs.
     pub duration_ms: u64,
 }
 
@@ -52,6 +55,35 @@ pub struct HangsSnapshot {
     pub over_250ms: u64,
     /// The newest [`HANG_RECORDS`] hangs, oldest first.
     pub records: Vec<HangRecord>,
+}
+
+/// What the watcher does with one scope's hang count when it looks at it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HangStep {
+    /// Nothing: under the threshold, or counted and still busy.
+    Wait,
+    /// Busy past the threshold and not counted yet: [`HangLedger::record`]
+    /// it with no end.
+    CountBusy,
+    /// Ended after it was counted busy: [`HangLedger::finish`] its record.
+    Settle,
+    /// Ended past the threshold and never seen busy: [`HangLedger::record`]
+    /// it with its end.
+    CountEnded,
+}
+
+/// The counting rule for a scope that began at `start_us`, looked at at
+/// `at_us`: the watcher's clock while it runs (`ended` false), its end once
+/// it ended. `counted`: already recorded busy. A scope over the threshold is
+/// counted exactly once, by the first look that sees it past it.
+pub fn hang_step(start_us: u64, at_us: u64, ended: bool, counted: bool) -> HangStep {
+    match (ended, counted) {
+        (true, true) => HangStep::Settle,
+        (false, true) => HangStep::Wait,
+        _ if at_us.saturating_sub(start_us) < HANG_THRESHOLD_US => HangStep::Wait,
+        (true, false) => HangStep::CountEnded,
+        (false, false) => HangStep::CountBusy,
+    }
 }
 
 /// The count and ring behind [`HangsSnapshot`]. The watcher thread writes
@@ -68,35 +100,57 @@ pub struct HangLedger {
 #[derive(Default)]
 struct Ledger {
     over: u64,
-    records: VecDeque<HangRecord>,
+    records: VecDeque<Entry>,
+}
+
+/// A hang in the ring. Its duration is taken at the snapshot, so one that
+/// still runs reads longer at every snapshot with no watcher wake.
+struct Entry {
+    sequence: u64,
+    span: String,
+    start_us: u64,
+    /// `None` while the scope still runs.
+    end_us: Option<u64>,
 }
 
 impl HangLedger {
-    /// Count one hang of `span`, busy `duration_ms` so far; returns its
-    /// sequence for [`Self::finish`].
-    pub fn record(&self, span: String, duration_ms: u64) -> u64 {
+    /// Count one hang of `span`, which began at `start_us` and ended at
+    /// `end_us` (`None`: it still runs); returns its sequence for
+    /// [`Self::finish`].
+    pub fn record(&self, span: String, start_us: u64, end_us: Option<u64>) -> u64 {
         let mut ledger = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         ledger.over = ledger.over.saturating_add(1);
         let sequence = ledger.over;
         if ledger.records.len() == HANG_RECORDS {
             ledger.records.pop_front();
         }
-        ledger.records.push_back(HangRecord { sequence, span, duration_ms });
+        ledger.records.push_back(Entry { sequence, span, start_us, end_us });
         sequence
     }
 
-    /// The hang `sequence` ended after `duration_ms` in all. Nothing when its
-    /// record already left the ring.
-    pub fn finish(&self, sequence: u64, duration_ms: u64) {
+    /// The hang `sequence` ended at `end_us`. Nothing when its record
+    /// already left the ring.
+    pub fn finish(&self, sequence: u64, end_us: u64) {
         let mut ledger = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(record) = ledger.records.iter_mut().rev().find(|r| r.sequence == sequence) {
-            record.duration_ms = duration_ms;
+        if let Some(entry) = ledger.records.iter_mut().rev().find(|e| e.sequence == sequence) {
+            entry.end_us = Some(end_us);
         }
     }
 
-    pub fn snapshot(&self) -> HangsSnapshot {
+    /// The count and the ring at `now_us`: a hang that still runs reports
+    /// its duration up to `now_us`.
+    pub fn snapshot(&self, now_us: u64) -> HangsSnapshot {
         let ledger = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        HangsSnapshot { over_250ms: ledger.over, records: ledger.records.iter().cloned().collect() }
+        let records = ledger
+            .records
+            .iter()
+            .map(|entry| HangRecord {
+                sequence: entry.sequence,
+                span: entry.span.clone(),
+                duration_ms: entry.end_us.unwrap_or(now_us).saturating_sub(entry.start_us) / 1000,
+            })
+            .collect();
+        HangsSnapshot { over_250ms: ledger.over, records }
     }
 }
 
