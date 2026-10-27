@@ -200,50 +200,53 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
 
   async function firstRunPage() {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
-    await page.addInitScript(({ endpoint, project }) => {
-      const newTab = { kind: "agent", template: "default", home: "/Users/you", projects: [] };
-      Object.assign(window, {
-        __cmuxNewTabContext: newTab,
-        webkit: {
-          messageHandlers: {
-            agentSession: {
-              postMessage: async ({ method }: { method: string }) => {
-                let value: unknown = null;
-                switch (method.replace(/^cmux\.agent\./, "")) {
-                  case "ready":
-                  case "handshake":
-                    value = {
-                      protocolVersion: 1,
-                      transport: "acpmux-websocket",
-                      endpoint,
-                      token: "t",
-                      newSession: true,
-                      newTab,
-                    };
-                    break;
-                  case "newTab.context":
-                    value = { newTab };
-                    break;
-                  case "project.list":
-                    value = { projects: [] };
-                    break;
-                  case "project.browse":
-                    value = { cwd: project };
-                    break;
-                  case "shell.run":
-                    value = { id: "install-claude" };
-                    break;
-                  case "shell.read":
-                    value = { exit: { code: 0 } };
-                    break;
-                }
-                return { ok: true, value };
+    await page.addInitScript(
+      ({ endpoint, project }) => {
+        const newTab = { kind: "agent", template: "default", home: "/Users/you", projects: [] };
+        Object.assign(window, {
+          __cmuxNewTabContext: newTab,
+          webkit: {
+            messageHandlers: {
+              agentSession: {
+                postMessage: async ({ method }: { method: string }) => {
+                  let value: unknown = null;
+                  switch (method.replace(/^cmux\.agent\./, "")) {
+                    case "ready":
+                    case "handshake":
+                      value = {
+                        protocolVersion: 1,
+                        transport: "acpmux-websocket",
+                        endpoint,
+                        token: "t",
+                        newSession: true,
+                        newTab,
+                      };
+                      break;
+                    case "newTab.context":
+                      value = { newTab };
+                      break;
+                    case "project.list":
+                      value = { projects: [] };
+                      break;
+                    case "project.browse":
+                      value = { cwd: project };
+                      break;
+                    case "shell.run":
+                      value = { id: "install-claude" };
+                      break;
+                    case "shell.read":
+                      value = { exit: { code: 0 } };
+                      break;
+                  }
+                  return { ok: true, value };
+                },
               },
             },
           },
-        },
-      });
-    }, { endpoint: `ws://127.0.0.1:${daemon!.port}/first-run`, project: PROJECT });
+        });
+      },
+      { endpoint: `ws://127.0.0.1:${daemon!.port}/first-run`, project: PROJECT },
+    );
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
     await page.locator(".nt-field").waitFor();
