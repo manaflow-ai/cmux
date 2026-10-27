@@ -64,7 +64,7 @@ extension PageWebView {
         guard let page = chromiumSession?.page else {
             return (try? await webKitPieces?.view.evaluateJavaScript(script)) as? String ?? "" // MQ12 allowed: the page the person acts on shows
         }
-        return (try? await page.evaluate(script)) as? String ?? ""
+        return (try? await page.evaluate(script)) as? String ?? "" // MQ12 allowed: the page the person acts on shows
     }
 
     /// Runs an editing action (`cut:`, `copy:`, `paste:`, `pasteAsPlainText:`) as the page's own

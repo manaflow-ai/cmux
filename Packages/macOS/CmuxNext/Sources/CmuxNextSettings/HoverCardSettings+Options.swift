@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 extension HoverCardSettings {
     /// The workspace card's options as the sidebar reads them (`DesignSettings.workspaceHoverCard`).

@@ -43,17 +43,16 @@ final class RightSidebarResizeHandle: NSView {
         setAccessibilityLabel(RightSidebarStrings.resize)
         setAccessibilityIdentifier("cmux.rightSidebar.resize")
         hover = PointerHover(self) { [weak self] hovering in self?.isHovered = hovering }
+        addCursorUpdateArea()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override func resetCursorRects() {
-        if #available(macOS 15, *) {
-            addCursorRect(bounds, cursor: .columnResize)
-        } else {
-            addCursorRect(bounds, cursor: .resizeLeftRight)
-        }
+    /// The resize cursor, set when the pointer enters (``addCursorUpdateArea(_:)``): no cursor rects
+    /// for the window to rebuild while the sidebar's width follows a drag (p04-input-090).
+    override func cursorUpdate(with event: NSEvent) {
+        if #available(macOS 15, *) { NSCursor.columnResize.set() } else { NSCursor.resizeLeftRight.set() }
     }
 
     override func layout() {

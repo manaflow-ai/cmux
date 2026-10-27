@@ -13,6 +13,7 @@ pub struct Started {
 
 /// Every process, from `ps`; empty when `ps` fails.
 fn process_table() -> Vec<Started> {
+    crate::daemon::hang_watch::will_block();
     let mut ps = std::process::Command::new("ps");
     ps.args(["-axww", "-o", "pid=,ppid=,lstart="]);
     let Ok(out) = cmux_blocking::process::output(&mut ps) else {
