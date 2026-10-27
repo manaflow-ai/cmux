@@ -380,12 +380,22 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             _ = ids.isHost(id)
             throw AgentPaneTransportError.invalidFrame
         }
-        return try await hostReply(id: id, text: text)
+        var lateReply: (@Sendable ([String: Any]) -> Void)?
+        if method == "_acpmux/file_put_begin", let sessionId = params["sessionId"] as? String {
+            lateReply = { [weak self] object in
+                if let result = object["result"] as? [String: Any], let uploadId = result["uploadId"] as? String {
+                    self?.cancelUpload(sessionId: sessionId, uploadId: uploadId)
+                }
+            }
+        }
+        return try await hostReply(id: id, text: text, lateReply: lateReply)
     }
 
-    private func hostReply(id: Int, text: String) async throws -> [String: Any] {
+    private func hostReply(id: Int, text: String, lateReply: (@Sendable ([String: Any]) -> Void)?) async throws -> [String: Any] {
         let timeout = DemandTimer(owner: "agent-pane.upload.rpc")
-        timeout.schedule(after: .seconds(AgentPaneUserGestures.uploadStallLimit)) { [weak self] in self?.cancelHostReply(id) }
+        timeout.schedule(after: .seconds(AgentPaneUserGestures.uploadStallLimit)) { [weak self] in
+            self?.cancelHostReply(id, lateReply: lateReply)
+        }
         defer { timeout.cancel() }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -405,9 +415,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                 }
                 let failed: @Sendable () -> Void = { [self] in
                     _ = ids.isHost(id)
-                    if state.withLock({ $0.hostReplies.removeValue(forKey: id) }) != nil {
-                        continuation.resume(throwing: AgentPaneTransportError.closed)
-                    }
+                    state.withLock { $0.hostReplies.removeValue(forKey: id) }?(["error": ["message": "upload connection closed"]])
                 }
                 guard registered else {
                     _ = ids.isHost(id)
@@ -417,12 +425,18 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                 if Task.isCancelled { cancelHostReply(id) }
                 else if send(text) != nil { failed() }
             }
-        } onCancel: { self.cancelHostReply(id) }
+        } onCancel: { self.cancelHostReply(id, lateReply: lateReply) }
     }
 
-    private func cancelHostReply(_ id: Int) {
-        _ = ids.isHost(id)
-        state.withLock { $0.hostReplies.removeValue(forKey: id) }?(["_cmuxCancelled": true])
+    private func cancelHostReply(_ id: Int, lateReply: (@Sendable ([String: Any]) -> Void)? = nil) {
+        let reply = state.withLock { state in
+            let reply = state.hostReplies.removeValue(forKey: id)
+            // A cancelled begin can still create a daemon upload. Keep only its cleanup handler.
+            if reply != nil, let lateReply { state.hostReplies[id] = lateReply }
+            return reply
+        }
+        if lateReply == nil { _ = ids.isHost(id) }
+        reply?(["_cmuxCancelled": true])
     }
 
     /// Cleanup never waits for the daemon's cancellation response.
