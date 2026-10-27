@@ -290,7 +290,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     }, pendingImage);
     const image = page.locator(".acpmux-attachment-image img");
     if (pendingImage)
-      await page.waitForFunction(() => typeof (window as FirstRunWindow).finishFirstRunImage === "function");
+      await page.waitForFunction(() => typeof (window as unknown as FirstRunWindow).finishFirstRunImage === "function");
     else await image.waitFor();
     return { field, image };
   }
@@ -321,7 +321,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       await page.locator(".acpmux-harnesses-close").waitFor();
       expect(await field.isVisible()).toBe(false);
       expect(await image.isVisible()).toBe(false);
-      expect(await page.evaluate(() => (window as FirstRunWindow).cmuxWebSwap.hold())).toMatch(/^newtab\./);
+      expect(await page.evaluate(() => (window as unknown as FirstRunWindow).cmuxWebSwap.hold())).toMatch(/^newtab\./);
       await page.locator(".acpmux-harnesses-close").click();
       await field.waitFor();
       expect(await field.inputValue()).toBe(DRAFT);
@@ -361,13 +361,13 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       await claude.locator(".acpmux-harness-action").click();
       if (pendingImage) {
         await field.waitFor();
-        expect(await page.evaluate(() => (window as FirstRunWindow).firstRunChatCalls)).toEqual([]);
-        await page.evaluate(() => (window as FirstRunWindow).finishFirstRunImage());
+        expect(await page.evaluate(() => (window as unknown as FirstRunWindow).firstRunChatCalls)).toEqual([]);
+        await page.evaluate(() => (window as unknown as FirstRunWindow).finishFirstRunImage());
       }
       await page.waitForFunction(() =>
-        (window as FirstRunWindow).firstRunChatCalls.some((call) => call.method === "chat.send"),
+        (window as unknown as FirstRunWindow).firstRunChatCalls.some((call) => call.method === "chat.send"),
       );
-      const calls = await page.evaluate(() => (window as FirstRunWindow).firstRunChatCalls);
+      const calls = await page.evaluate(() => (window as unknown as FirstRunWindow).firstRunChatCalls);
       expect(calls.map((call) => call.method)).toEqual(["chat.new", "chat.send"]);
       expect(calls[0]!.params).toEqual(
         noProject ? { harness: "claude", noProject: true } : { harness: "claude", cwd: PROJECT },
