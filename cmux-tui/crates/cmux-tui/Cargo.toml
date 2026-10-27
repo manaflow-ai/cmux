@@ -93,6 +93,7 @@ unicode-segmentation.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 cmux-panic-log.workspace = true
+cmux-hang-watch.workspace = true
 # `cmux agents wait --regex` checks a pattern as the daemon's terminal.wait does.
 regex.workspace = true
 # `cmux mcp serve` code mode: `cmux_exec` scripts run in an embedded engine.

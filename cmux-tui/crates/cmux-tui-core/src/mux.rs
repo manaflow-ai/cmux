@@ -828,6 +828,9 @@ pub struct Mux {
     /// The history module's session state: journal folds and revision.
     pub(crate) history: crate::history_ops::HistoryHost,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
+    /// The daemon-wide sequenced pool: every connection's control sequence
+    /// and stream sequences run on its fixed workers (p05-ipc-073).
+    pub(crate) sequenced_pool: crate::server::SequencedPool,
     /// Records requests that run past 250 ms (server-stats `slow_requests`).
     pub(crate) request_watchdog: crate::server::RequestWatchdog,
     /// The blocking, inversion and slow-request sites of this daemon life

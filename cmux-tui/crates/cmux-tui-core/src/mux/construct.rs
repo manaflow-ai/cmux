@@ -464,6 +464,7 @@ impl Mux {
             surface_operation_admission: Arc::new(
                 crate::server::ServerSurfaceOperationAdmission::default(),
             ),
+            sequenced_pool: crate::server::SequencedPool::default(),
             request_watchdog: crate::server::RequestWatchdog::default(),
             diagnostic_sites: crate::diagnostics::DiagnosticSites::default(),
             work,
