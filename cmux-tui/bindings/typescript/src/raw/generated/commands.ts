@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 73b6c0566192c6b4c7f2202fb8403a752a9671860f037d9aea4c0b257392cbb1. */
+/* cmux-tui mux protocol 12, IR 00edc32f0f56ebc69acc82e711b4e724aef3fb713906f9859de41b62bae0deba. */
 
 
 import type * as T from "./types.js";
@@ -834,6 +834,7 @@ export type ClientFocusResult = {
 /** Protocol v12; authority: local-admin. */
 export interface ClientHelloRequest extends CmuxRequestBase {
   cmd: "client-hello";
+  "features"?: (T.ClientHelloFeatures) | null;
   "install_id"?: string;
   "page"?: (string) | null;
   "proof"?: string;
