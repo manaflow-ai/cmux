@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextDevices
+import CmuxNextWakeups
 import CmuxScreenKit
 import Foundation
 public import Observation
@@ -39,13 +40,18 @@ public final class MacScreenDevicesSettings {
     }
     @ObservationIgnored var now: () -> Date = { Date() }
     @ObservationIgnored private var watchers = 0
-    @ObservationIgnored private var auditWatch: Task<Void, Never>?
+    /// Follows the hub's pushes while a Settings page shows the card.
+    @ObservationIgnored private var auditWatch: ServiceObservation<Int>?
+    /// The audit reads in order: each waits for the one before it, so an older answer never lands last.
+    @ObservationIgnored private var auditRead: Task<Void, Never>?
+    @ObservationIgnored private let mainWork: MainWorkScheduler
 
     public init(pages: MacScreenPages) {
         box = pages.hubBox
         hubHost = pages.hubHost
         share = pages.host
         store = pages.store
+        mainWork = pages.mainWork
     }
 
     var hub: DeviceHub? { box.hub }
@@ -57,11 +63,12 @@ public final class MacScreenDevicesSettings {
         watchers += 1
         guard watchers == 1 else { return }
         let box = box
-        auditWatch = Task { [weak self] in
-            // Every push (and a new hub) may have added audit entries: read them again.
-            for await _ in ObservationStream({ box.hub?.pushCount ?? -1 }) {
-                await self?.hub?.refreshAudit()
-            }
+        // Every push (and a new hub) may have added audit entries: read them again. `background`: the card's
+        // History is the only reader, and a hub push is no input of the person's.
+        auditWatch = ServiceObservation(.background, owner: "MacScreenDevicesSettings.audit", on: mainWork) {
+            box.hub?.pushCount ?? -1
+        } apply: { [weak self] _ in
+            self?.readAudit()
         }
     }
 
@@ -70,6 +77,20 @@ public final class MacScreenDevicesSettings {
         guard watchers == 0 else { return }
         auditWatch?.cancel()
         auditWatch = nil
+        auditRead?.cancel()
+        auditRead = nil
+    }
+
+    /// One more audit read after the ones in flight. Off main: the read is the hub's own main-actor request.
+    private func readAudit() {
+        guard let hub else { return }
+        let previous = auditRead
+        // task-owner: auditRead: one read per push while the card shows; endWatching cancels the chain
+        auditRead = Task { @concurrent in
+            await previous?.value
+            guard !Task.isCancelled else { return }
+            await hub.refreshAudit()
+        }
     }
 
     // MARK: State

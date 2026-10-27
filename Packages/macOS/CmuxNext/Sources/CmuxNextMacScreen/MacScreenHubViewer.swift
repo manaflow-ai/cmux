@@ -1,5 +1,5 @@
 public import CmuxNextDevices
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import CmuxScreenKit
 import Foundation
 public import Observation
@@ -36,10 +36,19 @@ public final class MacScreenHubViewer {
     @ObservationIgnored private var requestTask: Task<Void, Never>?
     /// The tab hid past its grace mid-session: showing it asks again for this scope.
     @ObservationIgnored var resumeScope: SessionScope?
+    /// The app's one deadline placer: this viewer's deadlines, and the tab's hidden grace (``MacScreenPane``).
+    @ObservationIgnored let deadlines: MainDeadlineScheduler
 
-    public init(deviceID: String, hub: @escaping @MainActor () -> DeviceHub?) {
+    /// - Parameters:
+    ///   - deviceID: The host device (the hub's id).
+    ///   - deadlines: The app's one deadline placer; its scheduler runs the hub's answers.
+    ///   - hub: The hub, while this app is signed in to one.
+    public init(deviceID: String, deadlines: MainDeadlineScheduler, hub: @escaping @MainActor () -> DeviceHub?) {
         self.deviceID = deviceID
+        self.deadlines = deadlines
         self.hub = hub
+        failureEnd = MainDeadline(owner: "mac-screen.hub-failure-grace", workClass: .background, scheduler: deadlines)
+        approvalExpiry = MainDeadline(owner: "mac-screen.hub-request-expiry", workClass: .visible, scheduler: deadlines)
     }
 
     /// The session's signaling for `ticket`: the Session DO socket signed by
@@ -70,13 +79,18 @@ public final class MacScreenHubViewer {
             return
         }
         phase = .requesting(scope)
-        let deviceID = deviceID
-        requestTask = Task { [weak self] in
+        let deviceID = deviceID, work = deadlines.work
+        // The request is the hub's own main-actor call; its answer lands as the rest of the person's
+        // Connect (userBlocking), whatever the cancel did meanwhile.
+        requestTask = Task { @concurrent [weak self] in
             let answer: Result<HubSession, DeviceHubError>
             do { answer = .success(try await hub.requestSession(host: deviceID, scope: scope)) } catch {
                 answer = .failure(error as? DeviceHubError ?? .transport("\(error)"))
             }
-            self?.requestReturned(answer, scope: scope, hub: hub, cancelled: Task.isCancelled)
+            let cancelled = Task.isCancelled
+            await work.apply(.userBlocking, owner: "mac-screen.hub.request") { [weak self] () -> Void in
+                self?.requestReturned(answer, scope: scope, hub: hub, cancelled: cancelled)
+            }
         }
     }
 
@@ -127,7 +141,7 @@ public final class MacScreenHubViewer {
     /// hears the reason first (`/end`), then the stream stops, so the other
     /// Mac reads why rather than a dropped connection. `then` runs once the
     /// stream may stop (a closing tab closes its session there).
-    public func disconnect(reason: MacScreenHubReason, closingTab: Bool = false, then: (() -> Void)? = nil) {
+    public func disconnect(reason: MacScreenHubReason, closingTab: Bool = false, then: (@MainActor () -> Void)? = nil) {
         let id = phase.sessionID
         let streaming = phase.streamingScope != nil
         cancelPending(endingSession: true)
@@ -137,12 +151,15 @@ public final class MacScreenHubViewer {
             then?()
             return
         }
-        // task-owner: one /end before the stream stops; a newer session of this tab keeps running
-        let end = endSession
-        Task { [weak self] in
-            await end(hub, id, reason.rawValue)
-            if let self, phase.sessionID == nil { stopStream() }
-            then?()
+        // task-owner: one /end before the stream stops; a newer session of this tab keeps running. The card
+        // already shows the end; the stream stops in one visible task after the hub heard why.
+        let end = endSession, work = deadlines.work, why = reason.rawValue
+        Task { @concurrent [weak self] in
+            await end(hub, id, why)
+            await work.apply(.visible, owner: "mac-screen.hub.disconnect") { [weak self] () -> Void in
+                if let self, phase.sessionID == nil { stopStream() }
+                then?()
+            }
         }
     }
 
@@ -161,8 +178,8 @@ public final class MacScreenHubViewer {
     /// How long a dropped stream waits for the hub's reason before telling it "failed":
     /// the host's cause (signed_out, sharing_off) often follows its stream's end.
     @ObservationIgnored var failureGrace: Duration = .seconds(3)
-    /// The pending "failed" end; tests give it a manual clock.
-    @ObservationIgnored var failureEnd = DemandTimer(owner: "mac-screen.hub-failure-grace")
+    /// The pending "failed" end. `background`: nobody waits on it (the card already says the stream failed).
+    @ObservationIgnored let failureEnd: MainDeadline
     /// The stream failed while this Mac's own hub link was down: the card keeps saying so after it returns.
     @ObservationIgnored private(set) var failedWhileOffline = false
 
@@ -177,9 +194,9 @@ public final class MacScreenHubViewer {
         failedWhileOffline = !hubConnected
         guard let hub = hub() else { return }
         // One delayed /end for this failed session (the wait for the hub's own reason); a push for it cancels it.
-        failureEnd.schedule(after: failureGrace) { @MainActor [weak self] in
+        failureEnd.schedule(after: failureGrace) { [weak self] in
             guard let self, phase.sessionID == id else { return }
-            await endSession(hub, id, MacScreenHubReason.failed.rawValue)
+            end(id, reason: MacScreenHubReason.failed.rawValue, on: hub)
         }
     }
 
@@ -195,17 +212,18 @@ public final class MacScreenHubViewer {
 
     /// How long a request may wait for the host (PROTOCOL.md: requests expire after 5 min).
     @ObservationIgnored var approvalTimeout: Duration = .seconds(300)
-    /// The running expiry of the request on screen; tests give it a manual clock.
-    @ObservationIgnored var approvalExpiry = DemandTimer(owner: "mac-screen.hub-request-expiry")
+    /// The running expiry of the request on screen. `visible`: it changes the card.
+    @ObservationIgnored let approvalExpiry: MainDeadline
 
     /// The host never answered: past the hub's expiry the request ends here
     /// too, with the expired card, instead of waiting for a host that may never act.
     private func scheduleExpiry(_ id: String, hub: DeviceHub?) {
         // One expiry per waiting request (the protocol's request lifetime); a decision, a cancel or a new request cancels it.
-        approvalExpiry.schedule(after: approvalTimeout) { @MainActor [weak self] in
+        approvalExpiry.schedule(after: approvalTimeout) { [weak self] in
             guard let self, case let .waitingForApproval(waiting, _) = phase, waiting == id else { return }
-            if let hub { await endSession(hub, id, "expired") }
-            if case .waitingForApproval(id, _) = phase { phase = .ended(reason: "expired") }
+            // The card says so now; the hub hears it in the background (its push for the end changes nothing here).
+            phase = .ended(reason: "expired")
+            if let hub { end(id, reason: "expired", on: hub) }
         }
     }
 
@@ -222,8 +240,9 @@ public final class MacScreenHubViewer {
     @discardableResult
     private func end(_ id: String, reason: String, on hub: DeviceHub) -> Task<Void, Never> {
         let end = endSession
-        // task-owner: one /end call; the hub's push (or its absence) settles the state
-        return Task { await end(hub, id, reason) }
+        // task-owner: one /end call; the hub's push (or its absence) settles the state. Off main: the call is
+        // the hub's own main-actor request.
+        return Task { @concurrent in await end(hub, id, reason) }
     }
 
     // MARK: Pushes

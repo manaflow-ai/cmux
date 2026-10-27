@@ -48,9 +48,12 @@ public final class DeviceHubService {
     private var url: URL?
     /// The signed-in account's user id; nil when signed out.
     private var user: String?
+    /// Waits for the restored sign-in and the saved names, then starts ``follow``.
     private var watch: Task<Void, Never>?
+    /// Follows the hub address and the account (a service: it starts and stops the hub whatever shows).
+    private var follow: ServiceObservation<Target>?
     /// Follows the running hub's socket: another device removed this Mac.
-    private var removalWatch: Task<Void, Never>?
+    private var removalWatch: ServiceObservation<Bool>?
     /// Loads this Mac's identity off the main thread, then installs the hub.
     private var loading: Task<Void, Never>?
     /// What `loading` is making a hub for.
@@ -80,21 +83,40 @@ public final class DeviceHubService {
         settingsModel.thisDeviceRenamed = { [weak pages] name in pages?.store.setHubDeviceName(name) }
     }
 
+    /// What the hub is made for: its address and the signed-in account.
+    private struct Target: Equatable {
+        var url: URL?
+        var user: String?
+    }
+
     /// Follows the hub address and the account from now on.
     public func start(settings: SettingsController) {
         guard watch == nil else { return }
-        let account = account
-        // task-owner: DeviceHubService.watch: follows deviceHub.url and sign-in for the app's life
-        watch = Task { [weak self] in
-            await account.awaitRestored()
-            await self?.pages.store.load()
-            for await (address, user) in ObservationStream({ (Self.address(settings), account.userID()) }) {
-                guard let self else { return }
-                url = address
-                self.user = user
-                pages.hubConfigured = url != nil
-                reconcile()
+        let restored = account.awaitRestored, store = pages.store, work = pages.mainWork
+        // task-owner: DeviceHubService.watch: one wait for the restored sign-in and the saved names (each its
+        // owner's main-actor call), then the follow starts in one visible task (the home page says whether this
+        // Mac is signed in).
+        watch = Task { @concurrent [weak self] in
+            await restored()
+            await store.load()
+            await work.apply(.visible, owner: "DeviceHubService.follow") { [weak self] () -> Void in
+                self?.followAccount(settings)
             }
+        }
+    }
+
+    /// `visible`: a sign-in or an address change shows on Mac Screen's home page; a person's sign-in flushes as
+    /// the rest of their action.
+    private func followAccount(_ settings: SettingsController) {
+        let userID = account.userID
+        follow = ServiceObservation(.visible, owner: "DeviceHubService.account", on: pages.mainWork) {
+            Target(url: Self.address(settings), user: userID())
+        } apply: { [weak self] target in
+            guard let self else { return }
+            url = target.url
+            user = target.user
+            pages.hubConfigured = target.url != nil
+            reconcile()
         }
     }
 
@@ -118,26 +140,37 @@ public final class DeviceHubService {
     /// Loads the identity (file Keychain, Secure Enclave) off the main thread,
     /// then installs the hub unless a stop or another start came first.
     private func startHub(url: URL, user: String) {
-        let token = account.accessToken, bundleIdentifier = bundleIdentifier, energy = energy
+        let tokens = DeviceHubAccountToken(account.accessToken), bundleIdentifier = bundleIdentifier, energy = energy
+        let work = pages.mainWork
         let name = pages.store.hubDeviceName ?? MacScreenShareHost.computerName
         loadingFor = (url, user)
-        // task-owner: DeviceHubService.loading: one identity load; stopHub cancels it
-        loading = Task { [weak self] in
-            let hub: DeviceHub
+        // task-owner: DeviceHubService.loading: one identity load (the hub loads it off main); stopHub cancels it.
+        // The result lands in one visible task: the hub's devices show on Mac Screen's home page.
+        loading = Task { @concurrent [weak self] in
+            let made: Result<DeviceHub, DeviceHubError>
             do {
-                hub = try await DeviceHub.forApp(baseURL: url, bundleIdentifier: bundleIdentifier, deviceName: name,
-                                                 tokens: DeviceHubAccountToken(token), energy: energy)
+                made = .success(try await DeviceHub.forApp(baseURL: url, bundleIdentifier: bundleIdentifier, deviceName: name,
+                                                           tokens: tokens, energy: energy))
             } catch {
-                guard let self, !Task.isCancelled else { return }
-                logger.error("device hub identity unavailable: \(String(describing: error), privacy: .public)")
-                loadingFor = nil
-                loading = nil
-                return
+                made = .failure(error as? DeviceHubError ?? .identity("\(error)"))
             }
-            guard let self, !Task.isCancelled, let loadingFor, loadingFor.url == url, loadingFor.user == user else { return }
-            self.loadingFor = nil
-            loading = nil
+            guard !Task.isCancelled else { return }
+            await work.apply(.visible, owner: "DeviceHubService.loaded") { [weak self] () -> Void in
+                self?.loaded(made, url: url, user: user)
+            }
+        }
+    }
+
+    /// The identity load ended: installs the hub unless a stop or another start came first.
+    private func loaded(_ made: Result<DeviceHub, DeviceHubError>, url: URL, user: String) {
+        guard let loadingFor, loadingFor.url == url, loadingFor.user == user else { return }
+        self.loadingFor = nil
+        loading = nil
+        switch made {
+        case let .success(hub):
             install(hub, url: url, user: user)
+        case let .failure(error):
+            logger.error("device hub identity unavailable: \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -145,17 +178,17 @@ public final class DeviceHubService {
         self.hub = hub
         running = (url, user)
         pages.hub = hub
-        // task-owner: one registration and socket start; stop() cancels the socket
-        Task { await hub.start() }
-        // task-owner: DeviceHubService.removalWatch: lives with this hub; stopHub cancels it
-        removalWatch = Task { [weak self] in
-            for await removed in ObservationStream({ hub.connection == .removed }) where removed {
-                // Another device removed this Mac: it leaves the hub until the person signs in again.
-                guard let self, self.hub === hub else { return }
-                leftHub = true
-                stopHub(endingSessions: false, removed: true)
-                return
-            }
+        // task-owner: one registration and socket start; stop() cancels the socket. Off main: start is the hub's
+        // own main-actor call.
+        Task { @concurrent in await hub.start() }
+        // Another device removed this Mac: it leaves the hub until the person signs in again. `automation`:
+        // another device's change, and the stop still runs while nothing shows.
+        removalWatch = ServiceObservation(.automation, owner: "DeviceHubService.removal", on: pages.mainWork) {
+            hub.connection == .removed
+        } apply: { [weak self] removed in
+            guard removed, let self, self.hub === hub else { return }
+            leftHub = true
+            stopHub(endingSessions: false, removed: true)
         }
         logger.info("device hub started")
     }
@@ -189,16 +222,18 @@ public final class DeviceHubService {
             logger.info("device hub stopped")
             return
         }
-        // task-owner: the sign-out call (an older hub: one /end per session), then the stop
-        Task {
+        let work = pages.mainWork, reason = MacScreenHubReason.signedOut.rawValue
+        // task-owner: the sign-out call (an older hub: one /end per session), each the hub's own main-actor
+        // request, then the stop in one background task: nobody waits on it, this Mac's sessions already ended.
+        Task { @concurrent in
             do { try await hub.signOutDevice() } catch {
                 await withTaskGroup(of: Void.self) { group in
                     for id in ids {
-                        group.addTask { try? await hub.endSession(id, reason: MacScreenHubReason.signedOut.rawValue) }
+                        group.addTask { try? await hub.endSession(id, reason: reason) }
                     }
                 }
             }
-            hub.stop()
+            await work.apply(.background, owner: "DeviceHubService.signedOut") { () -> Void in hub.stop() }
         }
         logger.info("device hub signing out")
     }
