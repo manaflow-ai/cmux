@@ -1575,38 +1575,38 @@ export function Composer({
       (onBrowseFolder !== undefined && onNewChat !== undefined));
   const context =
     locationVisible || startedStrip ? (
-    <ComposerContext
-      started={startedStrip}
-      projectChoices={projectChoices}
-      onBrowseProject={onBrowseProject}
-      onNewWorktree={onNewWorktree}
-      onBrowseFolder={onBrowseFolder}
-      onConnect={onConnect}
-      {...(onOffload ? { onOffload } : {})}
-      {...(offloads ? { offloads } : {})}
-      summary={snapshot.summary}
-      sessions={snapshot.sessions}
-      peers={snapshot.peers}
-      {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
-      {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
-      {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
-      {...(onRefreshMachines ? { onRefreshMachines } : {})}
-      {...(folderNote ? { folderNote } : {})}
-      environments={environments}
-      {...(onComputer ? { onComputer } : {})}
-      onProject={
-        onProject &&
-        ((cwd, peer) => {
-          onProject(cwd, peer);
-          field.current?.focus();
-        })
-      }
-      localName={localName}
-      onNewChat={onNewChat}
-    />
-  ) : keepLocationSlot ? (
-    <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />
-  ) : null;
+      <ComposerContext
+        started={startedStrip}
+        projectChoices={projectChoices}
+        onBrowseProject={onBrowseProject}
+        onNewWorktree={onNewWorktree}
+        onBrowseFolder={onBrowseFolder}
+        onConnect={onConnect}
+        {...(onOffload ? { onOffload } : {})}
+        {...(offloads ? { offloads } : {})}
+        summary={snapshot.summary}
+        sessions={snapshot.sessions}
+        peers={snapshot.peers}
+        {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
+        {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
+        {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
+        {...(onRefreshMachines ? { onRefreshMachines } : {})}
+        {...(folderNote ? { folderNote } : {})}
+        environments={environments}
+        {...(onComputer ? { onComputer } : {})}
+        onProject={
+          onProject &&
+          ((cwd, peer) => {
+            onProject(cwd, peer);
+            field.current?.focus();
+          })
+        }
+        localName={localName}
+        onNewChat={onNewChat}
+      />
+    ) : keepLocationSlot ? (
+      <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />
+    ) : null;
   // Stop, for the whole turn. Claude desktop's box (Leo 2026-10-20) draws it left of the mic, the
   // mic keeping the right edge; the other look keeps it at the cluster's end.
   const stopButton = running ? (
