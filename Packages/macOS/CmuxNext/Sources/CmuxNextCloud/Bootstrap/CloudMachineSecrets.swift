@@ -92,8 +92,8 @@ public struct CloudMachineSecrets: Equatable, Sendable {
     }
 
     /// A value `cmux cloud secret set` would take: at least 8 characters (Unicode scalars: the applier
-    /// masks values of 4 and more, wherever setup prints them), at most 16 KiB (100 of them fit
-    /// ``maxPayloadBytes``), one line, no NUL. Scalars, not Characters: "\r\n" is one Character.
+    /// masks every value wherever setup prints it, so a shorter one would mask ordinary output), at most
+    /// 16 KiB (100 of them fit ``maxPayloadBytes``), one line, no NUL. Scalars, not Characters: "\r\n" is one Character.
     public static func isValue(_ value: String) -> Bool {
         value.unicodeScalars.count >= 8 && value.utf8.count <= 16 * 1024
             && !value.unicodeScalars.contains { $0 == "\n" || $0 == "\r" || $0 == "\0" }
