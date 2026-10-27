@@ -173,8 +173,10 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .system: return imageURL(for: dark ? .dark : .light)
         case .desktop:
             // macOS can report a file that is gone, a folder or a wallpaper description; resolve
-            // it to a picture that decodes (the fill color when there is none).
-            return DesktopPicture(screen: NSScreen.main ?? NSScreen.screens.first).resolvedURL(dark: dark)
+            // it to a picture that decodes (the fill color when there is none). The app's watch
+            // read it off the main thread; only before its first reading lands is it read here.
+            let picture = BackdropImageStore.shared.desktop.picture ?? DesktopPicture(screen: NSScreen.main ?? NSScreen.screens.first)
+            return picture.resolvedURL(dark: dark)
         case .art, .file: return imageURL
         }
     }
