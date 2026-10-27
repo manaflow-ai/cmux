@@ -46,9 +46,20 @@ export type RefusedFile = AttachmentError & { file: File; unreadable?: boolean }
 
 export type PromptBlock =
   | { type: "text"; text: string; _meta?: { cmux: { pasted: true } } }
-  | { type: "image"; mimeType: string; data: string; name?: string }
+  | {
+      type: "image";
+      mimeType: string;
+      data?: string;
+      name?: string;
+      _meta?: { acpmux: { upload: { uploadId: string; fileName: string } } };
+    }
   | { type: "document"; mimeType: "application/pdf"; data: string; name?: string }
-  | { type: "resource_link"; uri: string; name: string }
+  | {
+      type: "resource_link";
+      uri: string;
+      name: string;
+      _meta?: { acpmux: { upload: { uploadId: string; fileName: string } } };
+    }
   | { type: "audio"; mimeType: string; data: string };
 
 /** The replacement character stored in the editor for one inline attachment. */
@@ -489,36 +500,54 @@ export function attachmentBlocks(attachment: ComposerAttachment): PromptBlock[] 
   return blocks;
 }
 
+/** Local provenance stays beside each wire block, never inside the ACP payload. */
+export type PromptEntry = { block: PromptBlock; attachment?: ComposerAttachment; companionOf?: string };
+export function attachmentEntries(attachment: ComposerAttachment): PromptEntry[] {
+  return attachmentBlocks(attachment).map((block) => ({
+    block,
+    attachment,
+    ...(attachment.kind === "image" && block.type === "resource_link" ? { companionOf: attachment.id } : {}),
+  }));
+}
+
+export function promptEntries(
+  input: string,
+  chips: ComposerAttachment[],
+  options: InlineReadOptions = {},
+): PromptEntry[] {
+  const { text, attachments } = liftInlineImages(input, chips);
+  const runs = inlineRuns(text, idsOf(attachments), options.dropped);
+  if (!placesSome(runs) && !legacyMarks(text, attachments)) {
+    const entries: PromptEntry[] = [];
+    const body = promptText(text, attachments, options);
+    if (body) entries.push({ block: { type: "text", text: body } });
+    entries.push(...pastedTextBlocks(attachments).map((block) => ({ block })));
+    for (const attachment of attachments) entries.push(...attachmentEntries(attachment));
+    return entries;
+  }
+  const entries: PromptEntry[] = [];
+  for (const part of orderedDraftParts(text, attachments, options)) {
+    if (part.type === "text") {
+      if (part.text) entries.push({ block: { type: "text", text: part.text } });
+      continue;
+    }
+    if (part.attachment.kind === "text") {
+      const body = promptText("", [part.attachment]);
+      if (body) entries.push({ block: { type: "text", text: body } });
+    } else if (part.attachment.kind === "pasted" && part.attachment.text) {
+      entries.push({ block: { type: "text", text: part.attachment.text, _meta: { cmux: { pasted: true } } } });
+    } else entries.push(...attachmentEntries(part.attachment));
+  }
+  return entries;
+}
+
 /** ACP content in the same order as the editor. Unmarked legacy drafts keep their old shape. */
 export function promptBlocks(
   input: string,
   chips: ComposerAttachment[],
   options: InlineReadOptions = {},
 ): PromptBlock[] {
-  const { text, attachments } = liftInlineImages(input, chips);
-  const runs = inlineRuns(text, idsOf(attachments), options.dropped);
-  if (!placesSome(runs) && !legacyMarks(text, attachments)) {
-    const blocks: PromptBlock[] = [];
-    const body = promptText(text, attachments, options);
-    if (body) blocks.push({ type: "text", text: body });
-    blocks.push(...pastedTextBlocks(attachments));
-    for (const attachment of attachments) blocks.push(...attachmentBlocks(attachment));
-    return blocks;
-  }
-  const blocks: PromptBlock[] = [];
-  for (const part of orderedDraftParts(text, attachments, options)) {
-    if (part.type === "text") {
-      if (part.text) blocks.push({ type: "text", text: part.text });
-      continue;
-    }
-    if (part.attachment.kind === "text") {
-      const body = promptText("", [part.attachment]);
-      if (body) blocks.push({ type: "text", text: body });
-    } else if (part.attachment.kind === "pasted" && part.attachment.text) {
-      blocks.push({ type: "text", text: part.attachment.text, _meta: { cmux: { pasted: true } } });
-    } else blocks.push(...attachmentBlocks(part.attachment));
-  }
-  return blocks;
+  return promptEntries(input, chips, options).map((entry) => entry.block);
 }
 
 /// A file or folder on this computer that a link chip names (``linkAttachment``).
