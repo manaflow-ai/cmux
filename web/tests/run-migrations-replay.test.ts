@@ -216,9 +216,10 @@ describe("Run migrations replay onto every starting shape", () => {
     expect({ ...after, indexes: [] }).toEqual({ ...before.catalog, indexes: [] });
     // The one addition: next's (status, lease_expires_at) index under the name main's databases need while
     // main's own run_attempts_lease_idx is still in use; the contract step renames it.
-    const added = after.indexes.filter((index) => !before.catalog.indexes.some((old) => old.indexname === index.indexname));
-    expect(added.map((index) => index.indexname)).toEqual(["run_attempts_lease_expires_idx"]);
-    expect(after.indexes.filter((index) => index.indexname !== "run_attempts_lease_expires_idx")).toEqual(before.catalog.indexes);
+    type Index = { indexname: string };
+    const added = after.indexes.filter((index: Index) => !before.catalog.indexes.some((old: Index) => old.indexname === index.indexname));
+    expect(added.map((index: Index) => index.indexname)).toEqual(["run_attempts_lease_expires_idx"]);
+    expect(after.indexes.filter((index: Index) => index.indexname !== "run_attempts_lease_expires_idx")).toEqual(before.catalog.indexes);
     expect(await snapshotRows()).toEqual(before.rows);
   });
 
