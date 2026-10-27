@@ -86,6 +86,16 @@ const host: Partial<HostLists> = {
       color: "#7F5FA8",
       color_key: "research build machine",
     },
+    // A Cloud machine cmux made: its Dedicated agent machine switch (acpmux vmHost), on by default.
+    {
+      id: "sample-cloud",
+      title: "Sample cloud machine",
+      subtitle: null,
+      active: true,
+      color: "#3F7FBF",
+      color_key: "sample cloud machine",
+      vm_host: { on: true, busy: false, error: null },
+    },
   ],
   settings_file: "/Users/sample/.config/cmux/cmux.json",
   // Settings › Server (ServerCard), its only card: the servers the host heard from, sent with every

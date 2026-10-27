@@ -64,8 +64,8 @@ class Pick(unittest.TestCase):
         self.assertEqual(picker.pick(SMALL, snapshot({SMALL: 40}), NOW)[0], LARGE)
 
     def test_a_wait_counts_the_snapshot_age(self) -> None:
-        self.assertEqual(picker.pick(LARGE, snapshot({LARGE: 20}, age_minutes=6), NOW)[0], SMALL)
-        self.assertEqual(picker.pick(LARGE, snapshot({LARGE: 20}, age_minutes=1), NOW)[0], LARGE)
+        self.assertEqual(picker.pick(LARGE, snapshot({LARGE: 5}, age_minutes=6), NOW)[0], SMALL)
+        self.assertEqual(picker.pick(LARGE, snapshot({LARGE: 5}, age_minutes=1), NOW)[0], LARGE)
 
     def test_no_fresh_snapshot_keeps_the_variable(self) -> None:
         self.assertEqual(picker.pick(LARGE, None, NOW)[0], LARGE)
@@ -125,7 +125,9 @@ class Workflow(unittest.TestCase):
                 self.assertEqual(step["run"].strip(), f"python3 {tooling}scripts/ci/nightly_sign_runner.py")
                 self.assertEqual(step["env"]["CANDIDATE"], "${{ vars.MACOS_RUNNER_26 }}")
                 self.assertEqual(jobs[job]["outputs"][output], "${{ steps.sign-runner.outputs.runner }}")
-                self.assertNotIn("environment", jobs[job])
+                # legacy-identity-target takes release-next only for the release App credentials of its
+                # gh calls (tests/test_gh_app_token.py); that environment has no reviewers, so nothing waits.
+                self.assertEqual(jobs[job].get("environment"), "release-next" if job == "legacy-identity-target" else None)
         self.assertEqual(jobs["pick-nightly-sign-runner"]["permissions"], {"actions": "read", "contents": "read"})
         # A failed pick never blocks signing: the jobs fall back to the variable.
         self.assertTrue(jobs["pick-nightly-sign-runner"]["continue-on-error"])
