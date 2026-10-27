@@ -22,7 +22,8 @@
 //! machine (not remote-origin) is kept: the vmHost path never touched one.
 //!
 //! When: as the session list loads (`Hub::load_from_store`), before any permission request is
-//! answered, and as a moved-in chat is imported (`transfer_guard.rs`). Every policy this daemon
+//! answered, and as a moved-in chat is imported (`transfer_guard.rs`, by the source's
+//! `remoteOrigin`, before the import marks it remote-origin). Every policy this daemon
 //! writes says who set it ([`SET`], [`VM_HOST`]), so the rule matches only what an older daemon
 //! saved: running it again changes nothing, and an approve-all the owner sets after the upgrade
 //! is never cleared. A chat the rule cleared whose agent still runs in a mode that never asks is

@@ -338,9 +338,10 @@ impl Hub {
         meta.harness_argv.clear();
         meta.spawn_argv = None;
         meta.tags.clear();
-        meta.remote_origin = true;
-        // An older daemon's approve-all that could be vmHost's asks here (`policy_source.rs`).
+        // An older daemon's approve-all that could be vmHost's asks here (`policy_source.rs`):
+        // before it becomes remote-origin, as a chat started on its own machine never was.
         super::policy_source::clear_legacy_grant(&mut meta);
+        meta.remote_origin = true;
         if let Some(sid) = meta.agent_session_id.as_deref()
             && !plain_agent_session(sid)
         {
