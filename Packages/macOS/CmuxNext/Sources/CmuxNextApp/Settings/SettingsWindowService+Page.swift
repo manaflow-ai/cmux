@@ -1,7 +1,6 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextControl
-import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextImportCards

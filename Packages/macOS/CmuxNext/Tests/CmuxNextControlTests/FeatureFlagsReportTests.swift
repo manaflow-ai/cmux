@@ -85,7 +85,7 @@ struct FeatureFlagsReportTests {
         func report(_ toggle: Bool?) -> FeatureFlagsReport {
             FeatureFlagsReport(features: Self.list(.dev), liveLocal: ["perfThing": { toggle }])
         }
-        func row(_ toggle: Bool?) throws -> JSONValue { try #require(report(toggle).json["features"]?.arrayValue?.first) }
+        func row(_ toggle: Bool?) throws -> FeatureFlagsReport.JSONValue { try #require(report(toggle).json["features"]?.arrayValue?.first) }
         #expect(try row(nil)["source"] == .string("remote"))
         #expect(try row(nil)["state"] == .string("on"))
         #expect(report(false).resolution(of: Self.registry.features[0]) == Feature.Resolution(isEnabled: false, source: .local))

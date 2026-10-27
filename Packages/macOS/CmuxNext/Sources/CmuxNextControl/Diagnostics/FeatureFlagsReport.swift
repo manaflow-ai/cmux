@@ -21,6 +21,8 @@ public import CmuxNextSettings
 /// `daemon: applied`.
 public struct FeatureFlagsReport: Sendable {
     public static let methodName = "features.list"
+    /// The settings JSON the socket answers with; CmuxNextDaemon (for the hello's report) has its own `JSONValue`.
+    public typealias JSONValue = CmuxNextSettings.JSONValue
     /// A Debug toggle's value for a feature, read with the report: nil while it is unset or does not apply.
     public typealias LiveLocalOverride = @Sendable () -> Bool?
 
@@ -89,17 +91,20 @@ public struct FeatureFlagsReport: Sendable {
         let channel = features.channel
         let reply = daemon?.lastReply
         let entries = self.entries
+        let rows: [JSONValue] = entries.map { entry in
+            Self.row(entry.feature, entry.resolution, channel: channel, daemon: reply,
+                     fromDaemon: daemonSessionValue(of: entry.feature) != nil)
+        }
+        let daemonJSON: JSONValue = reply.map(Self.daemonJSON) ?? .null
+        let safeModeJSON: JSONValue = safeMode.map(Self.safeModeJSON) ?? .null
         return .object([
             "channel": .string(channel.rawValue),
             "local_overrides": .bool(channel.allowsLocalOverrides),
-            "safe_mode": safeMode.map(Self.safeModeJSON) ?? .null,
+            "safe_mode": safeModeJSON,
             "unknown_names": .array(features.unknownNames.map(JSONValue.string)),
-            "daemon": reply.map(Self.daemonJSON) ?? .null,
+            "daemon": daemonJSON,
             "features_hash": .string(FeatureFieldState(entries).hash),
-            "features": .array(entries.map {
-                Self.row($0.feature, $0.resolution, channel: channel, daemon: reply,
-                         fromDaemon: daemonSessionValue(of: $0.feature) != nil)
-            }),
+            "features": .array(rows),
         ])
     }
 
