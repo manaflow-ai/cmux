@@ -20,7 +20,12 @@ export type FailureKind =
   | "other";
 
 /// Who served the turn, for the copy: the harness profile's display name and id (`claude`, `claude-sr`, ...).
-export type FailureRoute = { name?: string; harness?: string };
+export type FailureRoute = {
+  name?: string;
+  harness?: string;
+  hostKind?: "local" | "cloud";
+  host?: string;
+};
 
 /// CodeRouter's refusal on a team Cloud machine whose team has no account for the agent: a 403
 /// `no_account_configured` (web/services/coderouter/noAccountMessage.ts). Codex shows only the body's
@@ -38,6 +43,10 @@ const INVALID_KEY =
 const SUBSCRIPTION =
   /not logged in|login required|please (?:run )?\/login|(?:claude|codex) (?:auth )?login|oauth token (?:has )?expired|session (?:has )?expired|refresh token|invalid_grant|sign(?:ed)? ?in again/i;
 const AUTH = /\b40[13]\b|unauthori[sz]ed|forbidden|authenticat|\boauth\b/i;
+const MISSING_CREDENTIAL =
+  /(?:provider )?credentials? (?:is |are )?(?:missing|not configured|not set)|no provider credentials?/i;
+const EXPIRED_CREDENTIAL =
+  /(?:credential|token|session).{0,24}(?:expired|revoked)|(?:expired|revoked).{0,24}(?:credential|token|session)/i;
 /// A full disk, here or on the chat's machine: before every other kind, since what it broke (a
 /// write, a socket, the agent) reads as that kind too.
 const DISK_FULL = /ENOSPC|no space left on device|disk (?:is )?full|out of disk space|disk quota exceeded|EDQUOT/i;
@@ -116,8 +125,10 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   const via = failureVia(message, route);
   // A signed-out Claude CLI says "Invalid API key · Please run /login": its way out is the login.
   if (INVALID_KEY.test(message) && !(SUBSCRIPTION.test(message) && !via)) return "invalid-key";
+  if (MISSING_CREDENTIAL.test(message)) return "auth";
   if (AUTH.test(message) && via) return "proxy-auth";
   if (SUBSCRIPTION.test(message)) return "subscription-login";
+  if (EXPIRED_CREDENTIAL.test(message)) return "auth";
   if (AUTH.test(message)) return "auth";
   // Last: the cause an agent's stderr names (above) says more than that it quit, and that it quit
   // says more than a start failure's words, which may be a tool's.
@@ -163,6 +174,11 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
   const harness = route?.name || route?.harness || t("turn.failure.theAgent");
   const via = failureVia(message, route);
   const status = message ? STATUS.exec(message)?.[1] : undefined;
+  if (route?.hostKind === "cloud" && (kind === "auth" || kind === "subscription-login")) {
+    if (MISSING_CREDENTIAL.test(message ?? "")) return t("turn.failure.cloudAuthMissing", { harness });
+    if (EXPIRED_CREDENTIAL.test(message ?? "")) return t("turn.failure.cloudAuthExpired", { harness });
+    return t("turn.failure.cloudAuthRejected", { harness, status: status ? ` (HTTP ${status})` : "" });
+  }
   switch (kind) {
     case "trust-pending":
       return t("trust.answerFirst");

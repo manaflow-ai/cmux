@@ -322,5 +322,27 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertEqual(select(**{'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-4vcpu-ubuntu-2404')
 
 
+
+class PickerReRun(unittest.TestCase):
+    """The owned-pool rescue and the nightly-next tick re-run pick-nightly-build-runner, and with it every job
+    that needs it, so a re-run picks its runner fresh (scripts/ci/owned_pool_rescue.py repick_job(), on main).
+    That re-runs the Ghostty helper even after it succeeded, and an artifact name it already uploaded is
+    refused unless the upload overwrites: without that, the rescue falls back to a re-run of failed jobs,
+    which keeps attempt 1's stalled Blacksmith pick."""
+
+    def test_the_ghostty_helper_s_uploads_overwrite(self):
+        steps = DOC['jobs']['build-nightly-ghostty-cli-helper']['steps']
+        uploads = [step for step in steps if 'actions/upload-artifact@' in str(step.get('uses', ''))]
+        self.assertTrue(uploads)
+        for step in uploads:
+            self.assertIs(step['with'].get('overwrite'), True, step['with'].get('name'))
+
+    def test_the_picker_s_own_marker_upload_overwrites(self):
+        steps = DOC['jobs']['pick-nightly-build-runner']['steps']
+        for step in steps:
+            if 'actions/upload-artifact@' in str(step.get('uses', '')):
+                self.assertIs(step['with'].get('overwrite'), True, step['with'].get('name'))
+
+
 if __name__ == '__main__':
     unittest.main()
