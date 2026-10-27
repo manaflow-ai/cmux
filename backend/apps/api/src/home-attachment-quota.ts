@@ -2,8 +2,8 @@ import { conversation } from "@cmux/home-core"
 
 /**
  * Home attachment quota (home-scale.md B9 owner counters), in the UserDO's SQLite: per rolling
- * 24 h, 300 intents and 2 GB of declared bytes, and 10 GB stored (objects this user uploaded first
- * that still exist). `key` is the upload slot: every slot is charged; the ConversationDO refunds a
+ * 24 h, 300 intents. Stored and declared bytes are tracked for accounting, without rejecting
+ * originals by size. `key` is the upload slot: every slot is charged; the ConversationDO refunds a
  * slot whose commit finds the bytes already stored or that expires without a commit.
  */
 type Sql = SqlStorage
@@ -40,7 +40,7 @@ export const take = (sql: Sql, key: string, bytes: number, now: number): TakeRes
 /** Gives back a slot's declared bytes (its commit found the bytes already stored, or it expired unused). The intent still counts. */
 export const refund = (sql: Sql, key: string): void => void sql.exec(`DELETE FROM home_attachment_usage WHERE key = ?`, key)
 
-/** An object this user uploaded first now exists (counts toward the 10 GB stored cap). Idempotent by key. */
+/** An object this user uploaded first now exists (tracked for accounting). Idempotent by key. */
 export const recordStored = (sql: Sql, objectKey: string, bytes: number): void =>
   void sql.exec(`INSERT INTO home_attachment_stored (object_key, bytes) VALUES (?, ?) ON CONFLICT (object_key) DO NOTHING`, objectKey, bytes)
 

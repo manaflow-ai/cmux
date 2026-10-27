@@ -152,6 +152,9 @@ SCANNERS = (
      ["python3", "-I", "{s}/check-perf-source-guard.py", "{root}"], (PKG + "/",)),
     ("No fleet host names in gallery fixtures",
      ["python3", "-I", "{s}/check-fixture-host-names.py", "{root}"], ("Packages/", "webviews/src/")),
+    ("No MAX_*BYTES attachment caps",
+     ["python3", "-I", "{s}/check-attachment-caps.py", "{root}"],
+     ("Packages/", "webviews/", "backend/", "cmux-tui/")),
 )
 
 # Ghostty's default split keys stay Ghostty's (Lawrence 2026-10-20, after 2f3e1f95983).

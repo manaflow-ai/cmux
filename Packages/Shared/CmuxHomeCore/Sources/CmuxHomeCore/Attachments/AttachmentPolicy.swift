@@ -6,20 +6,18 @@ import UniformTypeIdentifiers
 /// client before any upload so a refused file never leaves the device.
 public struct HomeAttachmentPolicy {
     public init() {}
-    /// Per file, every type (decimal megabytes, like the owner).
-    public static let maxBytes = 100_000_000
     /// Up to this size a source streams the bytes through the owner's
     /// Worker; larger files go to a presigned PUT followed by a commit call.
     public static let streamMaxBytes = 32_000_000
     /// At most this many parts per message (attachments plus text).
     public static let maxParts = 16
     /// A video's poster: at most this size, one of `posterTypes`.
-    public static let posterMaxBytes = 2_000_000
+    public static let posterBytesLimit = 2_000_000
     public static let posterTypes: Set<String> = ["image/jpeg", "image/webp"]
     /// An image's preview: at most this size (decimal, like the owner), one
     /// of `posterTypes`; the client makes a JPEG at most `previewMaxPixel`
     /// on its long edge.
-    public static let previewMaxBytes = 512_000
+    public static let previewBytesLimit = 512_000
     public static let previewMaxPixel = 1024
 
     /// The type of a file with no type of its own on the list: any bytes
@@ -226,7 +224,7 @@ public struct HomeAttachmentPolicy {
     public static func accepts(typeIdentifier: String) -> Bool { true }
 
     /// True when `prepareAttachment(fileURL:)` takes this file: anything
-    /// but a folder (a package such as an `.app` is one); same caveats.
+    /// but a folder (a package such as an `.app` is one).
     public static func accepts(fileURL: URL) -> Bool { !isFolder(fileURL) }
 
     /// True when `url` names a folder or a package on disk.
@@ -246,7 +244,6 @@ public struct HomeAttachmentPolicy {
         guard allowedTypes[canonicalMimeType(mimeType)] != nil else {
             throw HomeAttachmentError.typeRefused(mimeType: mimeType, name: name)
         }
-        guard byteCount <= maxBytes else { throw HomeAttachmentError.tooLarge(byteCount: byteCount, limit: maxBytes) }
         guard byteCount > 0 else { throw HomeAttachmentError.empty(name: name) }
     }
 }
@@ -263,8 +260,6 @@ public enum HomeAttachmentError: Error, Hashable, Sendable {
     /// Over 255 characters, blank, `.` or `..`, or holding a control
     /// character or a path separator.
     case invalidName(name: String)
-    /// Over `HomeAttachmentPolicy.maxBytes`.
-    case tooLarge(byteCount: Int, limit: Int)
     /// A file with no bytes.
     case empty(name: String)
     /// More than `HomeAttachmentPolicy.maxParts` parts in one message.

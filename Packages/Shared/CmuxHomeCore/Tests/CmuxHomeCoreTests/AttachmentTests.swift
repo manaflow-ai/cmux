@@ -295,24 +295,16 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(posterImage.height > posterImage.width) // the transform is applied to the poster too
     }
 
-    @MainActor @Test func policyRefusesSizesBeforeCopying() async throws {
+    @MainActor @Test func policyAcceptsFilesBeyondTheFormerSizeCap() async throws {
+        // Size is metadata, not a refusal rule. A sparse source can be checked without
+        // allocating or copying a huge buffer; ingestion itself remains chunked.
+        try HomeAttachmentPolicy.check(mimeType: "application/octet-stream", byteCount: 100_000_001, name: "big.bin")
         let root = try temporaryDirectory()
+        let source = root.appendingPathComponent("streamed.txt")
+        try Data(repeating: 0x61, count: AttachmentMedia.chunkSize * 2 + 1).write(to: source)
         let cache = root.appendingPathComponent("cache")
-        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: cache)
-        let empty = root.appendingPathComponent("empty.txt")
-        try Data().write(to: empty)
-        await #expect(throws: HomeAttachmentError.empty(name: "empty.txt")) { try await store.prepareAttachment(fileURL: empty) }
-
-        // A sparse file one byte over the limit: refused from its size, never read.
-        let big = root.appendingPathComponent("big.mp4")
-        FileManager.default.createFile(atPath: big.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: big)
-        try handle.truncate(atOffset: UInt64(HomeAttachmentPolicy.maxBytes + 1))
-        try handle.close()
-        await #expect(throws: HomeAttachmentError.tooLarge(byteCount: HomeAttachmentPolicy.maxBytes + 1, limit: HomeAttachmentPolicy.maxBytes)) {
-            try await store.prepareAttachment(fileURL: big)
-        }
-        #expect(!FileManager.default.fileExists(atPath: cache.path))
+        let ingested = try AttachmentMedia.ingest(fileURL: source, root: cache)
+        #expect(ingested.byteCount == AttachmentMedia.chunkSize * 2 + 1)
     }
 
     @MainActor @Test func mimeTypesUseTheOwnersSpelling() async throws {
@@ -425,17 +417,15 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(HomeAttachmentPolicy.sendableName("  ") == "attachment")
     }
 
-    /// The copy into the cache stops one byte past the limit (the file grew
-    /// after its size was read), and leaves nothing behind.
-    @Test func ingestStopsCopyingPastTheLimit() throws {
+    /// The copy into the cache remains bounded to one hashing chunk at a time.
+    @Test func ingestStreamsWithoutAFileSizeLimit() throws {
         let root = try temporaryDirectory()
         let source = root.appendingPathComponent("growing.txt")
-        try Data(repeating: 1, count: 100).write(to: source)
+        try Data(repeating: 1, count: AttachmentMedia.chunkSize + 10).write(to: source)
         let cache = root.appendingPathComponent("cache")
-        #expect(throws: HomeAttachmentError.tooLarge(byteCount: 11, limit: 10)) {
-            try AttachmentMedia.ingest(fileURL: source, root: cache, maxBytes: 10)
-        }
-        #expect(try FileManager.default.contentsOfDirectory(atPath: cache.path).isEmpty)
+        let result = try AttachmentMedia.ingest(fileURL: source, root: cache)
+        #expect(result.byteCount == AttachmentMedia.chunkSize + 10)
+        #expect(try Data(contentsOf: result.url) == Data(repeating: 1, count: AttachmentMedia.chunkSize + 10))
     }
 
     /// Sample bytes prepare can take for `type`: a real image for a type
@@ -569,7 +559,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         let previewURL = try #require(photo.previewURL)
         let bytes = try Data(contentsOf: previewURL)
         #expect(meta == AttachmentDerivedImage(hash: sha256Hex(bytes), mimeType: "image/jpeg", byteCount: bytes.count))
-        #expect(bytes.count <= HomeAttachmentPolicy.previewMaxBytes)
+        #expect(bytes.count <= HomeAttachmentPolicy.previewBytesLimit)
         let source = try #require(CGImageSourceCreateWithData(bytes as CFData, nil))
         let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
         #expect(max(image.width, image.height) <= HomeAttachmentPolicy.previewMaxPixel)

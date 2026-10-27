@@ -42,27 +42,18 @@ public nonisolated struct AgentPaneUpload: Sendable, Equatable, CustomStringConv
     public var debugDescription: String { description }
     public var customMirror: Mirror { Mirror(self, children: [:]) }
 
-    /// Local and peer transports stream the bytes in bounded chunks. One GiB is also the native
-    /// daemon's abuse guard; Cloud uploads keep their smaller policy in ``CloudUploads``.
-    public static let maximumFileBytes = 1 * 1024 * 1024 * 1024
-    public static let maximumTotalBytes = 1 * 1024 * 1024 * 1024
-    public static let maximumPeerFileBytes = maximumFileBytes
-
     /// The files of `chat.upload`'s params, nil when they break the contract: one or more files,
-    /// each with a name a folder holds as one file and base64 bytes, at most
-    /// ``maximumFileBytes`` each and ``maximumTotalBytes`` in all.
+    /// each with a name a folder holds as one file and base64 bytes. Native staged transports
+    /// stream the bytes in bounded chunks; this legacy request remains capability-limited by its
+    /// JSON frame rather than by an arbitrary attachment policy.
     static func files(_ params: [String: Any]?) -> [AgentPaneUpload]? {
         guard let params, Set(params.keys) == ["files"], let list = params["files"] as? [[String: Any]],
               !list.isEmpty else { return nil }
         var files: [AgentPaneUpload] = []
-        var total = 0
         for item in list {
             guard Set(item.keys) == ["name", "data"], let name = item["name"] as? String, isFileName(name),
-                  let text = item["data"] as? String, text.utf8.count <= (maximumFileBytes / 3 + 1) * 4,
-                  let data = Data(base64Encoded: text), data.count <= maximumFileBytes else { return nil }
-            let (sum, overflow) = total.addingReportingOverflow(data.count)
-            total = overflow ? Int.max : sum
-            guard total <= maximumTotalBytes else { return nil }
+                  let text = item["data"] as? String,
+                  let data = Data(base64Encoded: text) else { return nil }
             files.append(AgentPaneUpload(name: name, data: data))
         }
         return files

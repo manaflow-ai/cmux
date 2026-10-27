@@ -39,7 +39,7 @@ extension HomeStore {
 
     /// A link preview's picture (LinkPreviews' downloaded file) as an image
     /// record to upload with the send that names it: a JPEG at most
-    /// `previewMaxPixel` and `previewMaxBytes` in the blob cache. Throws
+    /// `previewMaxPixel` and `previewBytesLimit` in the blob cache. Throws
     /// when the file is not an image or cannot fit.
     public func prepareLinkPreviewImage(fileURL: URL) async throws -> LocalAttachment {
         await beginPrepare()

@@ -62,10 +62,6 @@ import Testing
         #expect(Self.code(failed) == "upload_failed")
     }
 
-    @Test func peerTransportAllowsFilesLargerThanTheFormerFrameCap() {
-        #expect(AgentPaneUpload.maximumPeerFileBytes > 64 * 1024 * 1024)
-    }
-
     private static func code(_ reply: [String: Any]) -> String? {
         (reply["error"] as? [String: Any])?["code"] as? String
     }
