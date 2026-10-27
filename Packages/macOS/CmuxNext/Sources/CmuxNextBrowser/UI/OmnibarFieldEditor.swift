@@ -131,7 +131,7 @@ final class OmnibarFieldEditor: NSTextView {
         }
         handling(event) {
             guard let textInputStage else { return super.keyDown(with: event) }
-            textInputStage.interpreting { super.keyDown(with: event) }
+            textInputStage.interpreting(event) { super.keyDown(with: event) }
         }
     }
 

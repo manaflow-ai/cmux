@@ -42,7 +42,7 @@ final class FieldTextView: NSTextView {
     var onRelease: (NSEvent) -> Void = { _ in }
     /// cmux: runs the text view's own key handling (the input method call) inside the host's text input
     /// stage, which stamps it in the key's latency slot. Nil: the key handling runs alone.
-    var textInputScope: (@MainActor (() -> Void) -> Void)?
+    var textInputScope: (@MainActor (NSEvent, () -> Void) -> Void)?
     override func mouseDown(with event: NSEvent) {
         pickerAnchor = nil  // cmux
         onPress(event)
@@ -101,7 +101,7 @@ final class FieldTextView: NSTextView {
     /// cmux: the text view's key handling, inside ``textInputScope`` when the host gave one.
     private func interpret(_ event: NSEvent) {
         guard let textInputScope else { return super.keyDown(with: event) }
-        textInputScope { super.keyDown(with: event) }
+        textInputScope(event) { super.keyDown(with: event) }
     }
 
     // MARK: Caret (UIKit's, as Messages draws it)

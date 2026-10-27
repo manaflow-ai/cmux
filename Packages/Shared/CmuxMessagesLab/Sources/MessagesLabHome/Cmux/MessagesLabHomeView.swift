@@ -133,7 +133,7 @@ public final class MessagesLabHomeView: NSView {
 
     /// Runs the composer's key handling (its input method call), so the host times it in the key's latency
     /// slot. Nil: the key handling runs alone.
-    public var composerTextInputScope: (@MainActor (() -> Void) -> Void)? {
+    public var composerTextInputScope: (@MainActor (NSEvent, () -> Void) -> Void)? {
         didSet { scopedComposerField = nil; applyComposerTextInputScope() }
     }
     /// The composer field ``composerTextInputScope`` was given to (a new field gets it at the next layout).

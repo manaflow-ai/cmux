@@ -42,7 +42,7 @@ public final class InputLatencyDispatch {
         /// The event's own window (a page, a popover, a panel).
         public let eventWindow: NSWindow?
         /// A key down's slot: the key down whose dispatch this one runs inside, which ``textInput`` goes back to.
-        let outerKeyDown: InputLatencyToken?
+        let outerKeyDown: TextInputStage.KeyDown?
     }
 
     /// The tracker the slots open in.
@@ -144,7 +144,7 @@ public final class InputLatencyDispatch {
             }
         }
         guard let token else { return nil }
-        let outerKeyDown = kind == .keyPress ? textInput.keyDownDispatchBegan(token) : nil
+        let outerKeyDown = kind == .keyPress ? textInput.keyDownDispatchBegan(token, timestamp: timestamp) : nil
         return Slot(token: token, kind: kind, target: target, window: presenting, eventWindow: window,
                     outerKeyDown: outerKeyDown)
     }

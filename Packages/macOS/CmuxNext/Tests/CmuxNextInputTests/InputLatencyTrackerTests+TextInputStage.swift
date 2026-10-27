@@ -4,10 +4,11 @@ import CmuxNextInputCore
 import Testing
 
 /// TextInputStage (p04-input-101): a key's input method call is stamped between its dispatch start and end, once
-/// when calls nest, only for the key down in dispatch, and ``InputLatencyDispatch`` hands it each key press's slot.
+/// when calls nest, only for the key down in dispatch (never for another key interpreted during its dispatch), and
+/// ``InputLatencyDispatch`` hands it each key press's slot.
 extension InputLatencyTrackerTests {
-    /// A fake input context: the input method round trip, which takes `nanos` on the harness clock and may re-send a
-    /// chord (a nested call).
+    /// A fake input context: the input method round trip for `event`, which takes `nanos` on the harness clock and
+    /// may re-send a chord (a nested call).
     @MainActor
     final class FakeInputContext {
         let harness: Harness
@@ -19,18 +20,28 @@ extension InputLatencyTrackerTests {
             self.stage = stage
         }
 
-        func handle(taking nanos: UInt64, resending: Bool = false) {
-            stage.interpreting {
+        func handle(_ event: NSEvent, taking nanos: UInt64, resending: Bool = false) {
+            stage.interpreting(event) {
                 handled += 1
                 harness.advance(nanos)
-                if resending { handle(taking: nanos) }
+                if resending { handle(event, taking: nanos) }
             }
         }
     }
 
-    private func beginKey(_ harness: Harness, kind: InputEventKind = .keyPress) throws -> InputLatencyToken {
+    /// A key down event typed `ageNanos` before the harness clock's now.
+    static func keyEvent(_ harness: Harness, ageNanos: UInt64 = 1_000_000) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                      timestamp: TimeInterval(harness.now - ageNanos) / 1e9, windowNumber: 0,
+                                      context: nil, characters: "a", charactersIgnoringModifiers: "a",
+                                      isARepeat: false, keyCode: 0))
+    }
+
+    /// Opens a key slot for `event` (or a click's slot for `kind: .mousePress`).
+    private func beginKey(_ harness: Harness, _ event: NSEvent,
+                       kind: InputEventKind = .keyPress) throws -> InputLatencyToken {
         try #require(harness.tracker.begin(kind: kind, target: .textView, entrypoint: .person,
-                                           eventTimestamp: TimeInterval(harness.now - 1_000_000) / 1e9, window: nil))
+                                           eventTimestamp: event.timestamp, window: nil))
     }
 
     @Test("The input method call is stamped between the key's dispatch start and end")
@@ -38,10 +49,11 @@ extension InputLatencyTrackerTests {
         let harness = Harness()
         let stage = TextInputStage(tracker: harness.tracker)
         let context = FakeInputContext(harness: harness, stage: stage)
-        let token = try beginKey(harness)
-        let outer = stage.keyDownDispatchBegan(token)
+        let event = try Self.keyEvent(harness)
+        let token = try beginKey(harness, event)
+        let outer = stage.keyDownDispatchBegan(token, timestamp: event.timestamp)
         harness.advance(100_000)
-        context.handle(taking: 400_000)
+        context.handle(event, taking: 400_000)
         harness.advance(200_000)
         harness.tracker.endDispatch(token)
         stage.keyDownDispatchEnded(restoring: outer)
@@ -65,9 +77,10 @@ extension InputLatencyTrackerTests {
         let harness = Harness()
         let stage = TextInputStage(tracker: harness.tracker)
         let context = FakeInputContext(harness: harness, stage: stage)
-        let token = try beginKey(harness)
-        let outer = stage.keyDownDispatchBegan(token)
-        context.handle(taking: 300_000, resending: true)
+        let event = try Self.keyEvent(harness)
+        let token = try beginKey(harness, event)
+        let outer = stage.keyDownDispatchBegan(token, timestamp: event.timestamp)
+        context.handle(event, taking: 300_000, resending: true)
         harness.tracker.endDispatch(token)
         stage.keyDownDispatchEnded(restoring: outer)
         harness.commit()
@@ -82,8 +95,9 @@ extension InputLatencyTrackerTests {
         let harness = Harness()
         let stage = TextInputStage(tracker: harness.tracker)
         let context = FakeInputContext(harness: harness, stage: stage)
-        let click = try beginKey(harness, kind: .mousePress)
-        context.handle(taking: 300_000)
+        let event = try Self.keyEvent(harness)
+        let click = try beginKey(harness, event, kind: .mousePress)
+        context.handle(event, taking: 300_000)
         harness.tracker.endDispatch(click)
         harness.commit()
 
@@ -92,22 +106,49 @@ extension InputLatencyTrackerTests {
         #expect(!slot.reached(.textInputStart) && !slot.reached(.textInputEnd))
     }
 
+    /// The launch picture's held keys: key N's dispatch delivers keys 1..N-1, typed earlier, to the terminal around
+    /// `sendEvent` (`KeyRouter.deliverKeys`). Their input method calls must not take key N's stamps, which a slot
+    /// writes once.
+    @Test("Another key interpreted during a key's dispatch stamps nothing; the key's own call still stamps its slot")
+    func otherKeyDuringDispatchStampsNothing() throws {
+        let harness = Harness()
+        let stage = TextInputStage(tracker: harness.tracker)
+        let context = FakeInputContext(harness: harness, stage: stage)
+        let held = try Self.keyEvent(harness, ageNanos: 40_000_000)
+        let event = try Self.keyEvent(harness)
+        let token = try beginKey(harness, event)
+        let outer = stage.keyDownDispatchBegan(token, timestamp: event.timestamp)
+        context.handle(held, taking: 500_000)
+        harness.advance(100_000)
+        context.handle(event, taking: 300_000)
+        harness.tracker.endDispatch(token)
+        stage.keyDownDispatchEnded(restoring: outer)
+        harness.commit()
+
+        let slot = try #require(harness.emitted.first)
+        #expect(context.handled == 2, "the held key's call still ran")
+        #expect(slot.nanos(from: .textInputStart, to: .textInputEnd) == 300_000, "the key's own call, not the held key's")
+        #expect(slot.nanos(from: .dispatchStart, to: .textInputStart) == 600_000)
+    }
+
     @Test("A key dispatched inside another's stamps its own slot, then the outer key's slot gets its call")
     func nestedKeyDispatchRestoresOuterKey() throws {
         let harness = Harness()
         let stage = TextInputStage(tracker: harness.tracker)
         let context = FakeInputContext(harness: harness, stage: stage)
-        let first = try beginKey(harness)
-        let none = stage.keyDownDispatchBegan(first)
+        let firstEvent = try Self.keyEvent(harness)
+        let first = try beginKey(harness, firstEvent)
+        let none = stage.keyDownDispatchBegan(first, timestamp: firstEvent.timestamp)
         harness.advance(50_000)
-        let second = try beginKey(harness)
-        let outer = stage.keyDownDispatchBegan(second)
-        #expect(outer == first)
-        context.handle(taking: 100_000)
+        let secondEvent = try Self.keyEvent(harness, ageNanos: 10_000)
+        let second = try beginKey(harness, secondEvent)
+        let outer = stage.keyDownDispatchBegan(second, timestamp: secondEvent.timestamp)
+        #expect(outer?.token == first)
+        context.handle(secondEvent, taking: 100_000)
         harness.tracker.endDispatch(second)
         stage.keyDownDispatchEnded(restoring: outer)
-        #expect(stage.keyDown == first)
-        context.handle(taking: 200_000)
+        #expect(stage.keyDown?.token == first)
+        context.handle(firstEvent, taking: 200_000)
         harness.tracker.endDispatch(first)
         stage.keyDownDispatchEnded(restoring: none)
         harness.commit()
@@ -127,15 +168,17 @@ extension InputLatencyTrackerTests {
         let harness = Harness()
         let dispatch = InputLatencyDispatch(tracker: harness.tracker, classifier: InputTargetClassifier(rules: []),
                                             frameInterval: { _ in 0.01 }, windowChanged: { _ in false })
-        let key = try #require(dispatch.open(.keyDown, scrollPhase: .none, timestamp: 0.5, window: nil,
+        let event = try Self.keyEvent(harness)
+        let key = try #require(dispatch.open(.keyDown, scrollPhase: .none, timestamp: event.timestamp, window: nil,
                                              synthetic: false, keyWindow: nil, underPointer: { .other }))
-        #expect(dispatch.textInput.keyDown == key.token)
-        dispatch.textInput.interpreting { harness.advance(250_000) }
+        #expect(dispatch.textInput.keyDown == TextInputStage.KeyDown(token: key.token, timestamp: event.timestamp))
+        dispatch.textInput.interpreting(event) { harness.advance(250_000) }
         dispatch.didDispatch(key, layoutTookScroll: false)
         #expect(dispatch.textInput.keyDown == nil)
 
-        let click = try #require(dispatch.open(.leftMouseDown, scrollPhase: .none, timestamp: 0.5, window: nil,
-                                               synthetic: false, keyWindow: nil, underPointer: { .other }))
+        let click = try #require(dispatch.open(.leftMouseDown, scrollPhase: .none, timestamp: event.timestamp,
+                                               window: nil, synthetic: false, keyWindow: nil,
+                                               underPointer: { .other }))
         #expect(dispatch.textInput.keyDown == nil, "a click has no text input call")
         dispatch.didDispatch(click, layoutTookScroll: false)
         harness.commit()
