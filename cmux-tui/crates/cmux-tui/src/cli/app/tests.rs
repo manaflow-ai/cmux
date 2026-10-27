@@ -895,6 +895,8 @@ fn cli_flow_three_calls_send_three_flows_beside_their_params() {
     assert!(flows.windows(2).all(|pair| pair[0] != pair[1]), "{flows:?}");
     for request in &requests {
         assert_eq!(request["params"], json!({ "x": 1 }), "the flow never goes into params");
+        // Another test of this binary may mark it an MCP server.
+        assert!(matches!(request["source"].as_str(), Some("cli" | "mcp" | "agent")), "{request}");
     }
 }
 

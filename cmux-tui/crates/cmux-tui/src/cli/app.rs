@@ -21,6 +21,7 @@ use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
 use crate::app_identity::AppIdentity;
+pub(super) use call::mark_mcp_server;
 use events::stream_events;
 use open::{OpenRequest, parse_open};
 #[cfg(test)]
@@ -1055,7 +1056,8 @@ fn timed_out(response: &Result<Value, Value>) -> bool {
 }
 
 /// One request with exactly `params` (no read barrier) and its response.
-/// The line carries this call's own `flow` ([`call::next_flow`]).
+/// The line carries this call's own `flow` ([`call::next_flow`]) and the
+/// process's `source` ([`call::request_source`]).
 fn exchange(
     stream: &mut UnixStream,
     method: &str,
@@ -1063,7 +1065,10 @@ fn exchange(
     timeout: impl Into<Option<Duration>>,
 ) -> Result<Result<Value, Value>, String> {
     let timeout = timeout.into();
-    let line = json!({ "id": 1, "method": method, "params": params, "flow": call::next_flow() });
+    let line = json!({
+        "id": 1, "method": method, "params": params,
+        "flow": call::next_flow(), "source": call::request_source(),
+    });
     send_line(stream, &line)?;
     stream.set_read_timeout(timeout).map_err(|error| error.to_string())?;
     let mut reader = BufReader::new(

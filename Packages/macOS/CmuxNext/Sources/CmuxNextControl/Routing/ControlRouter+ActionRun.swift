@@ -106,10 +106,10 @@ extension ControlRouter {
         return given
     }
 
-    /// `given` aimed beside its caller, with its targets resolved, checked: available in the
-    /// current context, and confirmed when destructive. Runs off the main actor.
+    /// `given` aimed beside its caller with the caller's flow (after the idempotency fingerprint, so a retry with a new
+    /// flow replays), its targets resolved, checked: available here, and confirmed when destructive. Runs off main.
     func prepared(_ action: ControlActionInfo, _ given: ControlActionRequest, call: ControlCall) async throws -> ControlActionRequest {
-        var placed = given
+        var placed = given.flowing(call.request.flow)
         Self.placeBesideCaller(&placed, action: action, topology: call.snapshot.topology)
         let request = try await resolvedTargets(placed, snapshot: call.snapshot, deadline: call.deadline)
         guard call.snapshot.catalog.isAvailable(action, target: request.target) || action.unavailableReason != nil else {
@@ -124,10 +124,7 @@ extension ControlRouter {
     }
 
     private func execute(_ action: ControlActionInfo, _ given: ControlActionRequest, key: String?, call: ControlCall) async throws -> JSONValue {
-        var placed = try await prepared(action, given, call: call)
-        // After the idempotency fingerprint (`given`): a retry's new flow never conflicts with its key.
-        placed.flow = call.request.flow ?? 0
-        let request = placed
+        let request = try await prepared(action, given, call: call)
         let executor = self.executor
         let progress = call.progress
         let wait = call.params["wait"]?.boolValue ?? true

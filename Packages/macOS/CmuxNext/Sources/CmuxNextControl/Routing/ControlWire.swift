@@ -14,17 +14,32 @@ public struct ControlRequest: Sendable {
     /// 1 to 2^53 - 1, so a JSON number holds it exactly. Nil when the line has none or has one of another shape; an
     /// app older than the field never reads it, so a CLI sends it to every app.
     public var flow: UInt64?
+    /// Who the caller says it is (the top-level `source` the `cmux` CLI sends beside `flow`: `cli`, `mcp` or
+    /// `agent`), for the trace and the latency histograms only: it grants nothing. Nil when the line has none or an
+    /// unknown one; wire decoding never yields ``ControlRequestScope/Source/app``.
+    public var source: ControlRequestScope.Source?
     /// The socket request's trace and latency scope (``ControlRequestScope``); nil for in-process callers. Wire
     /// decoding never sets it.
     public var scope: ControlRequestScope?
 
     public init(id: JSONValue? = nil, method: String, params: [String: JSONValue] = [:], callerApp: String? = nil,
-                flow: UInt64? = nil) {
+                flow: UInt64? = nil, source: ControlRequestScope.Source? = nil) {
         self.id = id
         self.method = method
         self.params = params
         self.callerApp = callerApp
         self.flow = flow
+        self.source = source
+    }
+
+    /// The request a handler makes on this one's behalf (`tab.focus`, `file.open` and `palette.run` run
+    /// `action.run`): the same id, flow, source and scope, so the run it leads to keeps the caller's trace, its
+    /// queued and dispatched marks and its flow at `action.commit` (task 115). The calling app is not carried: a
+    /// derived request keeps the principal it had before.
+    public func forwarded(method: String, params: [String: JSONValue]) -> ControlRequest {
+        var request = ControlRequest(id: id, method: method, params: params, flow: flow, source: source)
+        request.scope = scope
+        return request
     }
 }
 
@@ -88,7 +103,12 @@ enum ControlWire {
             return .failure(ControlError(code: "invalid_request", message: ControlStrings.text("control.error.missingMethod", "Missing method")))
         }
         return .success(ControlRequest(id: members["id"], method: method, params: members["params"]?.objectValue ?? [:],
-                                       flow: flow(members["flow"])))
+                                       flow: flow(members["flow"]), source: source(members["source"])))
+    }
+
+    /// `value` as the caller's named source (``ControlRequestScope/Source/init(wire:)``), else nil (ignored, never refused).
+    static func source(_ value: JSONValue?) -> ControlRequestScope.Source? {
+        value?.stringValue.flatMap(ControlRequestScope.Source.init(wire:))
     }
 
     /// The largest flow id: 2^53 - 1, the largest integer every JSON number holds exactly.

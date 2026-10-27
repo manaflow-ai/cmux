@@ -375,6 +375,8 @@ fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
         eprintln!("cmux: {message}");
         return 1;
     }
+    // Every app request from here on is an MCP client's (its `source`).
+    super::app::mark_mcp_server();
     // The client ends the server by closing stdin, then by SIGTERM; the
     // blocking stdin read must not hide that signal.
     let _ = crate::restore_default_termination_signals();

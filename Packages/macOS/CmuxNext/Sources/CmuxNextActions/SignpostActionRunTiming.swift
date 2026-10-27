@@ -26,6 +26,8 @@ public struct SignpostActionRunTiming: ActionRunTiming {
     /// ``CrashKeySlot/actionEntrypoint`` for its synchronous work and puts the outer run's back after it; nil
     /// sets none.
     public let crashKeyPage: CrashKeyPage?
+    /// Where a run's flow-in at `action.commit` goes (``ActionRunInput/flow``).
+    private let trace: TraceRuntime
 
     /// The always-on action signposts, with no budget monitor.
     public init() {
@@ -38,11 +40,14 @@ public struct SignpostActionRunTiming: ActionRunTiming {
     ///   - monitor: The per-action budget (``ActionBudgetMonitor``), or nil.
     ///   - crashKeys: The app's crash keys, or nil.
     ///   - crashKeyPage: The process's crash-key page (`TraceBlackBox.crashKeys`), or nil.
-    public init(monitor: ActionBudgetMonitor?, crashKeys: CrashKeySlots? = nil, crashKeyPage: CrashKeyPage? = nil) {
+    ///   - trace: The runtime a caller's flow-in goes to (the process's; tests pass their own).
+    public init(monitor: ActionBudgetMonitor?, crashKeys: CrashKeySlots? = nil, crashKeyPage: CrashKeyPage? = nil,
+                trace: TraceRuntime = .shared) {
         wakes = RunLoopWakeWatch()
         self.monitor = monitor
         self.crashKeys = crashKeys
         self.crashKeyPage = crashKeyPage
+        self.trace = trace
     }
 
     /// A run whose handler opened a person-driven nested run loop that waited (a menu's event
@@ -78,7 +83,7 @@ public struct SignpostActionRunTiming: ActionRunTiming {
         let message = ActionSignpostMessage(id: id.rawValue, origin: origin.rawValue, inputAgeMilliseconds: read.ageMilliseconds)
         let entrypoint = read.entrypoint.tracePosition
         let commit = signposts ? signposter.begin(.actionCommit, message, actionIndex: index, entrypoint: entrypoint) : nil
-        if signposts, read.flow != 0 { Signposter.flowIn(.actionCommit, flow: read.flow, arg0: UInt64(index)) }
+        if read.flow != 0 { trace.flowIn(.actionCommit, flow: read.flow, arg0: UInt64(index)) }
         let perform = signposts ? signposter.begin(.actionPerform, message, actionIndex: index, entrypoint: entrypoint) : nil
         wakes.begin()
         let before = wakes.wakes

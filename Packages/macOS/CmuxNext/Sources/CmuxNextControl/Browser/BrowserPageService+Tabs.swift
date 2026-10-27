@@ -29,7 +29,7 @@ extension BrowserPageService {
             if let key = call.request.params["idempotency_key"] { params["idempotency_key"] = key }
             let args = arguments(call)
             if !args.isEmpty { params["args"] = .object(args) }
-            let request = ControlRequest(id: call.request.id, method: call.method, params: params)
+            let request = call.request.forwarded(method: call.method, params: params)
             let run = try await router.runAction(ControlCall(request: request, snapshot: call.snapshot, connection: call.connection,
                                                              deadline: call.deadline, progress: call.progress, engineStartMark: call.engineStartMark))
             var result = Self.base(tab)

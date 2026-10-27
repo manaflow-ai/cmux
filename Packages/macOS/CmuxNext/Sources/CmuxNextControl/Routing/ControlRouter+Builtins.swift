@@ -64,7 +64,7 @@ extension ControlRouter {
                 params["cli"] = nil
                 params["action"] = "tab.focus"
                 params["target"] = .string("tab:" + tab)
-                let request = ControlRequest(id: call.request.id, method: call.method, params: params)
+                let request = call.request.forwarded(method: call.method, params: params)
                 return try await self.runAction(ControlCall(request: request, snapshot: call.snapshot, connection: call.connection,
                                                             deadline: call.deadline, progress: call.progress, engineStartMark: call.engineStartMark))
             }.claimingProgress(),

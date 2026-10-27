@@ -48,7 +48,7 @@ struct FileOpenRun {
             if let key = request.idempotencyKey { params["idempotency_key"] = .string("\(key).\(index)") }
             // The first run claims the call's progress; the rest run against the current snapshot.
             let snapshot = index == 0 ? call.snapshot : router.snapshots.current
-            let ran = try await router.runAction(ControlCall(request: ControlRequest(id: call.request.id, method: "action.run", params: params),
+            let ran = try await router.runAction(ControlCall(request: call.request.forwarded(method: "action.run", params: params),
                                                              snapshot: snapshot, connection: call.connection,
                                                              deadline: call.deadline, progress: call.progress, engineStartMark: call.engineStartMark))
             opened.append(["path": .string(path), "replayed": ran["replayed"] ?? false])

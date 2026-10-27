@@ -43,6 +43,13 @@ public struct ControlActionRequest: Sendable, Hashable {
         self.origin = origin
         self.focus = focus
     }
+
+    /// This request carrying `flow` (a request's ``ControlRequest/flow``; nil is none).
+    func flowing(_ flow: UInt64?) -> ControlActionRequest {
+        var request = self
+        request.flow = flow ?? 0
+        return request
+    }
 }
 
 /// What happened when the executor tried to run an action.

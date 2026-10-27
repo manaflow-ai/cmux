@@ -509,6 +509,41 @@ mod tests {
         assert_eq!(missing["code"], "selector.not_found");
     }
 
+    /// p09-observability task 115: a generic app method from `cmux mcp
+    /// serve` (here `feed.list`, which no action tool wraps) names its source
+    /// beside its flow, outside the strictly checked params.
+    #[cfg(unix)]
+    #[test]
+    fn cli_flow_an_mcp_generic_app_method_sends_its_source() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::os::unix::net::UnixListener;
+
+        let dir = cmux_unix_socket::short_test_dir("cmux-mcp-src");
+        let socket = dir.path().join("app.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let app = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let mut writer = stream;
+            writeln!(writer, "{}", json!({ "id": 1, "ok": true, "result": { "items": [] } }))
+                .unwrap();
+            serde_json::from_str::<Value>(&line).unwrap()
+        });
+        app::mark_mcp_server();
+        let global = GlobalArgs { app_socket: Some(socket), ..GlobalArgs::default() };
+        let reply =
+            app_method(&global, "feed.list", json!({}), Duration::from_secs(5), None, false);
+        assert_eq!(reply.ok(), Some(json!({ "items": [] })));
+        let request = app.join().unwrap();
+        let agent =
+            std::env::var_os("CMUX_AGENT_SESSION").is_some_and(|session| !session.is_empty());
+        assert_eq!(request["source"], if agent { "agent" } else { "mcp" }, "{request}");
+        assert!(request["flow"].as_u64().is_some_and(|flow| flow != 0), "{request}");
+        assert!(request["params"].get("source").is_none(), "{request}");
+    }
+
     #[test]
     fn a_partial_id_has_fewer_than_32_hex_digits() {
         assert!(is_partial_id("ws_1a", "ws"));

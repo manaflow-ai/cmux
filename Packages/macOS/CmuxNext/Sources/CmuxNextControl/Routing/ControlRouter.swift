@@ -224,10 +224,8 @@ public final class ControlRouter: Sendable {
 
     // MARK: - Lines
 
-    /// Decodes one line and returns the response line (without newline). `scope` (the socket's, task 115) gets the
-    /// decoded request, its parsed mark and the reply's outcome; the request carries it to the work queue.
-    public func response(forLine line: String, connection: ControlConnectionID = .inProcess,
-                         scope: ControlRequestScope? = nil) async -> String {
+    /// Decodes one line and returns the response line (without newline); `scope` is the socket's (task 115).
+    public func response(forLine line: String, connection: ControlConnectionID = .inProcess, scope: ControlRequestScope? = nil) async -> String {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("{") else {
             // v1 plain-text commands: only the liveness probe is kept.
@@ -250,16 +248,12 @@ public final class ControlRouter: Sendable {
                 return "ERROR: Unknown command '\(trimmed.split(separator: " ").first ?? "")'. cmux-next speaks v2 JSON requests only."
             }
         }
-        var request: ControlRequest
+        let request: ControlRequest
         switch ControlWire.decode(trimmed) {
-        case .success(let decoded): request = decoded
+        case .success(let decoded): request = scope?.parsed(decoded, connection: connection) ?? decoded
         case .failure(let error): return ControlWire.encode(id: nil, error: error)
         }
-        request.scope = scope
-        scope?.parsed(request, connection: connection)
-        let result = await handle(request, connection: connection)
-        if case .success = result { scope?.noteResult(ok: true) } else { scope?.noteResult(ok: false) }
-        return ControlWire.encode(id: request.id, result: result)
+        return ControlWire.encode(id: request.id, result: ControlRequestScope.noting(await handle(request, connection: connection), on: scope))
     }
 
     static func decode(_ line: String) -> Result<ControlRequest, ControlError> { ControlWire.decode(line) }

@@ -32,7 +32,7 @@ enum PaletteScopeControl {
                 let request = try runParameters(call.params)
                 let ref = try await runnableRef(services: services, request)
                 guard let router else { throw ControlError(code: "unavailable", message: PaletteOpenRefusal.unknownScope(request.scope).message) }
-                switch await router.handle(ControlRequest(id: call.request.id, method: "action.run", params: actionRunParams(ref, call.params)),
+                switch await router.handle(call.request.forwarded(method: "action.run", params: actionRunParams(ref, call.params)),
                                            connection: call.connection) {
                 case .success(let value): return value
                 case .failure(let error): throw error

@@ -123,7 +123,7 @@ extension BrowserPageService {
         if let origin = call.request.params["origin"] { params["origin"] = origin }
         if let key = call.request.params["idempotency_key"] { params["idempotency_key"] = key }
         let before = Set(pane.tabs.map(\.id))
-        let request = ControlRequest(id: call.request.id, method: call.method, params: params)
+        let request = call.request.forwarded(method: call.method, params: params)
         let run = try await router.runAction(ControlCall(request: request, snapshot: call.snapshot, connection: call.connection,
                                                          deadline: call.deadline, progress: call.progress, engineStartMark: call.engineStartMark))
         let now = router.snapshots.current.topology

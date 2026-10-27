@@ -104,10 +104,7 @@ extension ControlRouter {
         requests.reserveCapacity(given.count)
         for (index, op) in given.enumerated() {
             do {
-                var request = try await prepared(op.action, op.request, call: call)
-                // After the idempotency fingerprint: a retry's new flow never conflicts with its key.
-                request.flow = call.request.flow ?? 0
-                requests.append(request)
+                requests.append(try await prepared(op.action, op.request, call: call))
             } catch let error as ControlError {
                 throw error.atBatchOp(index)
             }

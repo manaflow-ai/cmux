@@ -17,7 +17,7 @@
 //! never reads it; it is outside `params`, which methods check strictly.
 
 use std::os::unix::net::UnixStream;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use serde_json::{Map, Value, json};
 
@@ -89,9 +89,45 @@ fn flow_id(pid: u32, sequence: u32) -> u64 {
     ((u64::from(pid) & FLOW_PID_MASK) << 32) | u64::from(sequence.max(1))
 }
 
+/// Set once `cmux mcp serve` starts: every app request this process sends
+/// then comes from an MCP client.
+static MCP_SERVER: AtomicBool = AtomicBool::new(false);
+
+/// This process is `cmux mcp serve` ([`request_source`] says `mcp`).
+pub(in crate::cli) fn mark_mcp_server() {
+    MCP_SERVER.store(true, Ordering::Relaxed);
+}
+
+/// The top-level `source` of this process's app requests, beside `flow`: the
+/// app's trace and latency histograms keep CLI, MCP and agent requests apart
+/// by it. It names the caller and grants nothing; an app older than the
+/// field never reads it.
+pub(super) fn request_source() -> &'static str {
+    let agent = std::env::var_os("CMUX_AGENT_SESSION").is_some_and(|session| !session.is_empty());
+    source_for(MCP_SERVER.load(Ordering::Relaxed), agent)
+}
+
+/// `agent` for an agent session's CLI or MCP server, else `mcp` for
+/// `cmux mcp serve`, else `cli`.
+fn source_for(mcp_server: bool, agent_session: bool) -> &'static str {
+    match (agent_session, mcp_server) {
+        (true, _) => "agent",
+        (false, true) => "mcp",
+        (false, false) => "cli",
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{FLOW_PID_MASK, flow_id, next_flow};
+    use super::{FLOW_PID_MASK, flow_id, next_flow, source_for};
+
+    #[test]
+    fn cli_flow_source_names_the_agent_then_the_mcp_server_then_the_cli() {
+        assert_eq!(source_for(false, false), "cli");
+        assert_eq!(source_for(true, false), "mcp");
+        assert_eq!(source_for(true, true), "agent");
+        assert_eq!(source_for(false, true), "agent");
+    }
 
     #[test]
     fn cli_flow_ids_fit_a_json_number_and_keep_the_pid() {

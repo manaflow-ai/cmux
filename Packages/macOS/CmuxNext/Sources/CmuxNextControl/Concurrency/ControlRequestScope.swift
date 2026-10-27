@@ -1,6 +1,6 @@
 import CmuxNextCompat
 public import CmuxNextMetrics
-import CmuxNextSettings
+public import CmuxNextSettings
 import CmuxNextSignposts
 public import CmuxNextTrace
 import CmuxNextWakeups
@@ -27,19 +27,33 @@ import CmuxNextWakeups
 public final class ControlRequestScope: Sendable {
     /// Who sent a request: the descriptor's bits 32-39. Fixed codes; 0 is "not parsed yet".
     public enum Source: UInt8, Sendable, CaseIterable {
-        /// The `cmux` command line, from a terminal or a script (`origin` cli, script, remote, or none).
+        /// The `cmux` command line, from a terminal or a script (`source: cli`, or none named).
         case cli = 1
-        /// `cmux mcp serve` (`origin: mcp`) with no agent session.
+        /// `cmux mcp serve` with no agent session (`source: mcp`; from a CLI older than `source`, `origin: mcp`).
         case mcp = 2
-        /// An agent's CLI or MCP server (`caller.agent_session`).
+        /// An agent's CLI or MCP server (`source: agent`; from an older CLI, `caller.agent_session`).
         case agent = 3
         /// A cmux app inside this process (an in-process connection or a calling app).
         case app = 4
 
-        /// The source of `request` on `connection`.
+        /// The source a request line names in its top-level `source` (``ControlRequest/source``): `cli`, `mcp` or
+        /// `agent`. Nil for any other text: a line never claims ``app``.
+        public init?(wire: String) {
+            switch wire {
+            case "cli": self = .cli
+            case "mcp": self = .mcp
+            case "agent": self = .agent
+            default: return nil
+            }
+        }
+
+        /// The source of `request` on `connection`: ``app`` in process or for a calling app, else the source the
+        /// line named, else (a CLI older than `source`) read from its params.
         public init(_ request: ControlRequest, connection: ControlConnectionID) {
             if connection == .inProcess || request.callerApp != nil {
                 self = .app
+            } else if let named = request.source {
+                self = named
             } else if case .object(let caller) = request.params["caller"], caller["agent_session"]?.stringValue?.isEmpty == false {
                 self = .agent
             } else if request.params["origin"]?.stringValue == "mcp" {
@@ -111,18 +125,22 @@ public final class ControlRequestScope: Sendable {
     /// and its class (position in `HistogramID.MethodClass.allCases` + 1) in bits 40-47; 0 before the parse.
     public var descriptor: UInt64 { packed.load(ordering: .relaxed) }
 
-    /// The line decoded as `request` on `connection`: keeps its numbers, writes the parsed mark and starts the
-    /// caller's flow.
-    public func parsed(_ request: ControlRequest, connection: ControlConnectionID) {
+    /// The line decoded as `request` on `connection`: keeps its numbers, writes the parsed mark, starts the
+    /// caller's flow, and returns `request` carrying this scope to the work queue.
+    @discardableResult
+    public func parsed(_ request: ControlRequest, connection: ControlConnectionID) -> ControlRequest {
+        var request = request
+        request.scope = self
         let methodClass = Self.methodClass(request.method)
         let classCode = UInt64(truncatingIfNeeded: HistogramID.MethodClass.allCases.firstIndex(of: methodClass) ?? 0) + 1
         let source = UInt64(truncatingIfNeeded: Source(request, connection: connection).rawValue)
         let descriptor = Self.methodID(request.method) | source << 32 | classCode << 40
         packed.store(descriptor, ordering: .relaxed)
         mark(.parsed)
-        guard id != 0, let flow = request.flow else { return }
+        guard id != 0, let flow = request.flow else { return request }
         runtime.write(name: Self.name, categoryBit: Self.categoryBit, phase: .flowOut, arg0: Self.marker | descriptor,
                       arg1: flow)
+        return request
     }
 
     /// Writes `mark` when the scope's begin was written.
@@ -141,6 +159,12 @@ public final class ControlRequestScope: Sendable {
     /// The router answered the v2 request with `ok` (true) or an error.
     public func noteResult(ok: Bool) {
         result.store(ok ? Outcome.ok.rawValue : Outcome.failed.rawValue, ordering: .relaxed)
+    }
+
+    /// `result`, the router's answer to the request, after noting its outcome on `scope` (``noteResult(ok:)``).
+    public static func noting(_ result: Result<JSONValue, ControlError>, on scope: ControlRequestScope?) -> Result<JSONValue, ControlError> {
+        if case .success = result { scope?.noteResult(ok: true) } else { scope?.noteResult(ok: false) }
+        return result
     }
 
     /// The reply line is going to the connection: the AE and `automation.request.<class>`.

@@ -42,10 +42,10 @@ import func CmuxSafeConcurrency.withOnceThrowingContinuation
 ///   (``ControlRequestTrace``), and a posted task: a `task.post` flow at its `file` and `line` and a `task.run`
 ///   slice on the main thread (``TaskTrace``), while those categories record. A socket request's
 ///   ``ControlRequestScope`` gets its queued and dispatched marks and its main-thread wait (task 115).
-/// - Measured: an automation request that ran while a person's input became pending, so that the next request
-///   yielded to it, records its run time in `automation.blocked_person`: the longest the person's input can have
-///   waited behind it (Chrome's `Scheduler.TaskQueueingDelay` measures input queued behind a task the same way,
-///   from the task's run, third_party/blink/renderer/platform/scheduler/main_thread/main_thread_metrics_helper.cc).
+/// - Measured: an automation request after whose run a person's input is pending or an input response is open
+///   records its run time in `automation.blocked_person`: the longest that input can have waited behind it
+///   (Chrome's `Scheduler.TaskQueueingDelay` measures input queued behind a task the same way, from the task's
+///   run, third_party/blink/renderer/platform/scheduler/main_thread/main_thread_metrics_helper.cc).
 public final class MainActorWorkQueue: Sendable {
     public struct Limits: Sendable {
         public var maxPending: Int
@@ -417,11 +417,10 @@ public final class MainActorWorkQueue: Sendable {
         }
     }
 
-    /// How many times automation work yielded to a person's pending input on `budget`.
+    /// Whether a person's input waits on `budget` now: an input response is open or input is pending.
     @MainActor
-    private static func automationYields(_ budget: MainFrameBudget) -> Int {
-        guard let slot = MainFrameBudget.Stats.classes.firstIndex(of: .automation) else { return 0 }
-        return budget.stats.yieldedToInput[checked: slot] ?? 0
+    private static func personWaits(_ budget: MainFrameBudget) -> Bool {
+        budget.isInputResponseOpen || budget.pendingInput.hasPendingInput(uptime: Double(MainTaskPost.uptimeNanos()) / 1_000_000_000)
     }
 
     @MainActor
@@ -432,9 +431,6 @@ public final class MainActorWorkQueue: Sendable {
         var ran = 0
         var maxWait: Duration = .zero
         let budget = frameSource.mainFrameBudget
-        let yieldsBefore = budget.map { Self.automationYields($0) }
-        // The run time of the last request, when it was automation: the person's input waited behind it at most that.
-        var lastAutomationRun: Duration?
         // The drain runs inside the frame batcher's task; each request is a task of its own.
         budget?.markRunningTaskAsBatch()
         // With the app's budget: one request at a time while its class may run (automation
@@ -452,15 +448,15 @@ public final class MainActorWorkQueue: Sendable {
             if didRun {
                 ran += 1
                 maxWait = max(maxWait, began - item.enqueuedAt)
-                lastAutomationRun = item.workClass == .automation ? clock.now - began : nil
+                // A person's input that waits now waited behind this automation request's whole run.
+                let runTime = clock.now - began
+                if let budget, item.workClass == .automation, Self.personWaits(budget) {
+                    metrics.record(.automationBlockedPerson, duration: runTime)
+                }
             }
             if budget == nil, clock.now - start >= limits.frameBudget { break }
         }
         let elapsed = clock.now - start
-        // The drain stopped because a person's input is pending (the budget counted a yield): it waited behind the last request.
-        if let budget, let yieldsBefore, let lastAutomationRun, Self.automationYields(budget) > yieldsBefore {
-            metrics.record(.automationBlockedPerson, duration: lastAutomationRun)
-        }
         let (more, hook) = state.withLock { state -> (Bool, (@MainActor @Sendable () -> Void)?) in
             state.stats.frames += 1
             state.stats.executed += ran

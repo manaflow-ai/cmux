@@ -105,7 +105,7 @@ struct BrowserOpenSplitRun {
 
     private func forwarding(_ call: ControlCall, method: String, _ params: [String: JSONValue],
                             snapshot: ControlSnapshot? = nil) -> ControlCall {
-        ControlCall(request: ControlRequest(id: call.request.id, method: method, params: params), snapshot: snapshot ?? call.snapshot,
+        ControlCall(request: call.request.forwarded(method: method, params: params), snapshot: snapshot ?? call.snapshot,
                     connection: call.connection, deadline: call.deadline, progress: call.progress, engineStartMark: call.engineStartMark)
     }
 }
