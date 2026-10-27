@@ -240,7 +240,9 @@ def run_first_key(session, poster):
             k0 = time.perf_counter()
             answer = poster.key(hid_input.LETTERS[index % 26])
             sent.append({"at_ms": round((k0 - t0) * 1000, 2), "rpc_ms": round((time.perf_counter() - k0) * 1000, 2),
-                         "error": answer.get("error") if isinstance(answer, dict) else None})
+                         "error": answer.get("error") if isinstance(answer, dict) else None,
+                         "handled_by": answer.get("handled_by") if isinstance(answer, dict) else None,
+                         "trace": (answer.get("trace") or [])[:8] if isinstance(answer, dict) else None})
             rest = opts.interval - (time.perf_counter() - k0)
             if rest > 0 and index + 1 < opts.first_key_keys:
                 time.sleep(rest)
@@ -265,6 +267,7 @@ def run_first_key(session, poster):
             entry["focus"] = focus_brief()
         trials.append(entry)
         k = keys[0]
+        note(f"  ft{trial}: key0 {sent[0].get('handled_by')} {sent[0].get('trace')}")
         note(f"  ft{trial}: screen {'ALL' if entry['on_screen'] else ('LOST-FIRST' if entry['on_screen_less_first'] else 'OTHER')} {last_line[-40:]!r}")
         note(f"  ft{trial}: reply {reply_ms} ms; first key {k.get('ms')} ms (row {'complete' if k.get('ms') is not None else (k['row'] or {}).get('complete')}); "
              f"keys 1..: {[x.get('ms') for x in keys[1:]]}")
