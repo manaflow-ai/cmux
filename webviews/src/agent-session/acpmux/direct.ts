@@ -2093,6 +2093,7 @@ export class AcpmuxDirectClient {
 
   /** Drops everything that belongs to the previously selected session, before another one attaches. */
   private resetSessionState(): void {
+    this.cancelTrustStart?.();
     // Typing and presence stop with the chat at once, not when the next attach lands: a keystroke
     // meanwhile never reaches the chat before.
     this.presence.detached();
@@ -5493,6 +5494,7 @@ export class AcpmuxDirectClient {
   /** A new chat starting (`create`): a Send meanwhile waits for it and goes to the new chat, not to
    *  the session still on screen (a harness pick), and a Send with no session joins it. */
   private creating?: Promise<string | undefined>;
+
   /// Opens a chat's Cloud hand-off turn before a prompt that starts one (cloudHandoffTurn.ts); set
   /// by the page only for a chat on a Cloud machine whose app opens them.
   handoffTurn?: (sessionId: string) => Promise<number | undefined>;
@@ -5501,6 +5503,9 @@ export class AcpmuxDirectClient {
   /// The newest hand-off turn each chat sent a prompt under: the store may still say it is `starting`
   /// (the machine's reports go on their own time), and another prompt never names it.
   private handoffTurnsSent = new Map<string, number>();
+  /// A New Tab start suspended for Trust settles when its selection or client goes away.
+  private cancelTrustStart?: () => void;
+
   async ensureSession(): Promise<string | undefined> {
     // This send belongs to the requested chat. A refused or empty start must not send it to
     // the previous chat, or start the default harness instead of the one the person picked.
@@ -6820,23 +6825,56 @@ export class AcpmuxDirectClient {
   /// A new session, in `cwd` when given; otherwise in the inherited cwd, then where acpmux defaults.
   /// `noProject` starts it in no project: the host's agent-home folder, never the inherited cwd.
   /// `model`: the model to start on (a chat on another machine starts on the one the page showed).
+  /// `waitForTrust`: New Tab still owns the first prompt; keep this start pending through its Trust answer.
   create(
     harness: string | undefined = this.host.harness,
     cwd?: string,
     peer?: string,
     noProject = false,
     model: string | undefined = this.host.model,
+    waitForTrust = false,
+
   ): Promise<string | undefined> {
+    this.cancelTrustStart?.();
     const generation = this.selectionGeneration;
     const started = (async () => {
-      const sessionId = await this.startSession(
-        harness,
-        cwd,
-        peer,
-        () => void this.create(harness, cwd, peer, noProject, model).catch(() => undefined),
-        noProject,
-        model,
-      );
+      // The New Tab request still owns its draft, attachments and machine. Trust resumes this
+      // same promise, so its sender runs once and never targets an unmounted chat composer.
+      const sessionId = waitForTrust
+        ? await new Promise<string | undefined>((resolve, reject) => {
+            let settled = false;
+            let running = false;
+            const finish = (id?: string, error?: unknown) => {
+              if (settled) return;
+              settled = true;
+              if (this.cancelTrustStart === cancel) this.cancelTrustStart = undefined;
+              if (error) reject(error);
+              else resolve(id);
+            };
+            const cancel = () => finish();
+            this.cancelTrustStart = cancel;
+            const run = () => {
+              if (this.closed || generation !== this.selectionGeneration) return cancel();
+              if (settled || running) return;
+              running = true;
+              void this.startSession(harness, cwd, peer, run, noProject, model).then(
+                (id) => finish(id),
+                (error: unknown) => {
+                  running = false;
+                  if (!isTrustRefusal(error)) finish(undefined, error);
+                },
+              );
+            };
+            run();
+          })
+        : await this.startSession(
+            harness,
+            cwd,
+            peer,
+            () => void this.create(harness, cwd, peer, noProject, model).catch(() => undefined),
+            noProject,
+            model,
+          );
       // A user who opened another chat while session/new was out owns that selection.
       if (this.closed || generation !== this.selectionGeneration) return undefined;
       return sessionId ? this.select(sessionId) : undefined;
@@ -7781,9 +7819,12 @@ export class AcpmuxDirectClient {
     this.rememberCurrentTail(false);
     this.replayMode = false;
     this.closed = true;
+
     clearTimeout(this.hiddenDraw);
     this.frameRequest?.cancel?.();
     this.frameRequest = undefined;
+    this.cancelTrustStart?.();
+
     for (const gone of this.resendWaits.keys()) gone();
     const hold = this.snapshotHold;
     if (hold) clearTimeout(hold.timer);

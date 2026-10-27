@@ -8719,6 +8719,7 @@ function AcpmuxPane() {
               peer ? String(peer) : undefined,
               noProject === true,
               peer && model ? String(model) : undefined,
+              newTabRetainsDraft.current,
             );
             await persistSession(started);
             return started;
