@@ -1355,6 +1355,10 @@
         "id": 1543,
         "priority": "control"
       },
+      "set-stream-priority": {
+        "id": 795,
+        "priority": "input"
+      },
       "set-tab-pinned": {
         "id": 1812,
         "priority": "control"

@@ -82,6 +82,9 @@ final class TabContentCache {
     let lastFrames = TerminalLastFrames(capacity: WarmSetBudget.standard.terminalCapacity)
     /// Releases terminals whose daemon tree dropped their tab (a closed workspace).
     let goneTabs = GoneTabWatch()
+    /// The terminal view whose stream rides the input lane, the last one focused, while `terminalStreamPriority`
+    /// is on (p05-ipc-142); nil: every view's stream keeps the priority it opened with.
+    let streamFocus: TerminalStreamFocus?
     /// Browser pages' hover card thumbnails (R131), at most `TabPreviewFitting.cachedPixelSize`
     /// each, with the page version each shows (`pageVersion`): a page is captured again only when
     /// its version moved. A hidden page's thumbnail is the only copy (the engine cannot picture a
@@ -209,18 +212,20 @@ final class TabContentCache {
     ///   - gpuResidency: The app's GPU memory release (``gpuResidency``); tests get none.
     ///   - webKitProcessReuse: Same-site WebKit tab processes above the renderer limit (`webKitSameSiteProcesses`);
     ///     nil, the default, gives every WebKit tab its own process.
+    ///   - streamFocus: The terminals' stream ranking while `terminalStreamPriority` is on; nil, the default, ranks none.
     init(daemon: DaemonService, chromium: ChromiumEngineSlot, fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
          resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil,
          terminalPointerFrames: FrameInputCoalescers? = nil, mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler,
          appEvents: AppEvents, imageCaches: ImageCacheShares = .legacy, gpuResidency: (any TerminalGPUResidency)? = nil,
-         webKitProcessReuse: WebKitProcessReuse? = nil) {
+         webKitProcessReuse: WebKitProcessReuse? = nil, streamFocus: TerminalStreamFocus? = nil) {
         self.imageCaches = imageCaches
         previews = PreviewImageCache(fullCapacityBytes: imageCaches.previewBytes, contents: .rebuildable, allocator: imageCaches.pictureAllocator)
         internalPagePictures = PreviewImageCache(fullCapacityBytes: imageCaches.internalPagePictureBytes, contents: .onlyCopy, allocator: imageCaches.pictureAllocator)
         pageThumbnails = PreviewImageCache(fullCapacityBytes: imageCaches.pageThumbnailBytes, contents: .onlyCopy, allocator: imageCaches.pictureAllocator)
         (self.daemon, self.terminalModifiers, self.chromium, self.resizes, self.mainWork) = (daemon, terminalModifiers, chromium, resizes, mainWork)
         self.terminalPointerFrames = terminalPointerFrames
+        self.streamFocus = streamFocus
         self.gpuResidency = gpuResidency
         normalWarmCapacity = SubsystemBudget.forThisMac(gpuResidentAvailable: gpuResidency != nil).warmTerminalSurfaces
         webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, energy: mainWork.energy, waitDeadlines: chromium.waitDeadlines,
@@ -262,7 +267,7 @@ final class TabContentCache {
         let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, gate: gate, createIntent: create?.intentID ?? 0, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
                                   burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check,
                                   hangWatch: daemon.hangWatch, screenChanged: pageRequests.services?.terminalScreenChanged,
-                                  endpoint: { try await daemon.endpoint() })
+                                  streamFocus: streamFocus, endpoint: { try await daemon.endpoint() })
         let session = makeSession(io: io, tab: tab, daemon: daemon); session.traceCreate(create, surface: tab.surface.rawValue)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface, gate: gate)

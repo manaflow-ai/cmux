@@ -29,6 +29,7 @@ use crate::server::attach_lifecycle::{
 };
 use crate::server::attach_streams::StreamEndReason;
 use crate::server::sequenced_pool::SequencePriority;
+use crate::server::stream_priority::follow_visibility;
 use crate::server::{
     MessageWriter, OutboundStream, detach_committed_attach, handle_attach_send_error,
     report_attach_overflow,
@@ -277,6 +278,7 @@ pub(super) fn start(worker: SnapshotWorker, commit: AttachCommit) -> anyhow::Res
             true,
         );
         worker.receiver.on_ready(pump.hook());
+        follow_visibility(&stream, &pump, Some(worker.receiver.visibility_handle()));
         let source = SnapshotSource { worker, wake_at: None };
         pump.install(Box::new(ViewDrain::new(out, source)));
         return commit_client_attach_and_start_pump(&mux, client, surface, stream.id, commit, pump);
@@ -348,7 +350,12 @@ impl ViewSource for SnapshotSource {
     /// A READY or a history or images chunk is a bulk step: the turn
     /// yields after it, so a resync holds the worker the echo path shares
     /// for one chunk at a time.
-    fn next(&mut self, _out: &mut ViewOut, timer: &PumpTimer<'_>) -> Step {
+    fn next(&mut self, out: &mut ViewOut, timer: &PumpTimer<'_>) -> Step {
+        // Hidden (`set-stream-priority`): no output, chunk or digest until
+        // it shows; its viewer queue holds nothing meanwhile.
+        if out.stream.visibility.is_hidden() {
+            return Step::Empty;
+        }
         let polled = match self.worker.receiver.try_viewer_event() {
             Ok(event) => Polled::Event(event),
             Err(TryRecvError::Empty) if self.worker.tail.is_some() || self.worker.digest_due() => {

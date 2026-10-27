@@ -90,7 +90,11 @@ public final class TerminalSurfaceView: NSView {
 
     /// App-controlled pause (off-screen strip column, unselected tab).
     var isRenderingSuspended = false {
-        didSet { if isRenderingSuspended != oldValue { updateOcclusion() } }
+        didSet {
+            guard isRenderingSuspended != oldValue else { return }
+            lane?.setHidden(isRenderingSuspended) // a hidden surface parses at utility
+            updateOcclusion()
+        }
     }
 
     /// Mirrors attached to this view. While positive the surface keeps
@@ -255,6 +259,7 @@ public final class TerminalSurfaceView: NSView {
         // the free (TerminalOutputLane).
         lane = unsafe TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output", echoStage: echoStage,
                                          keyFlows: bridgeObject.typingSurface, hangs: hangWatch)
+        lane?.setHidden(isRenderingSuspended)
         if let layer {
             echoStage?.attach(to: layer)
             TypingFrameProbe.install(on: layer, gate: contentsGate, keyFlows: bridgeObject.typingSurface)

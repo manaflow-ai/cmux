@@ -31,6 +31,10 @@ nonisolated final class TerminalOutputLane: Sendable {
     /// Set once; work on `queue` reaches it only through ``liveSurface``.
     private let surface: UncheckedPointer
     private let closing = Atomic<Bool>(false)
+    /// The surface is hidden (a parked tab or workspace): its parses run at utility, as Chrome lowers a
+    /// hidden renderer's priority (`RenderProcessHostImpl::UpdateProcessPriority`), so a hidden printer never
+    /// competes with the shown terminal's echo. Set by the view (``setHidden(_:)``).
+    private let hidden = Atomic<Bool>(false)
     /// The last READY restore succeeded. Written on `queue`; history after a
     /// failed READY is skipped until the next READY.
     private let readyRestored = Atomic<Bool>(false)
@@ -113,7 +117,9 @@ nonisolated final class TerminalOutputLane: Sendable {
         self.keyFlows = keyFlows
         self.probe = probe
         hangWatched = hangs.map { HangWatchedLane("terminal.feed", deadline: Self.feedHangDeadline, on: $0) }
-        self.queue = DispatchQueue(label: label, qos: .userInteractive)
+        // A queue QoS would floor every block: each carries its own instead (`enqueue`).
+        // qos-allow: each block states its QoS: userInteractive while the surface shows (a frame waits), utility hidden
+        self.queue = DispatchQueue(label: label)
     }
 
     deinit {
@@ -150,7 +156,7 @@ nonisolated final class TerminalOutputLane: Sendable {
     /// `app.output.parsed` hop once the lane parsed that chunk, never another chunk's.
     func echoReceived(_ flow: UInt64) {
         probe.mark(.outputReceived, flow: flow)
-        queue.async { [self] in
+        enqueue { [self] in
             guard !closing.load(ordering: .relaxed) else { return }
             probe.mark(.outputParsed, flow: flow)
         }
@@ -176,12 +182,27 @@ nonisolated final class TerminalOutputLane: Sendable {
     /// Bytes queued but not parsed yet.
     var pendingBytes: Int { backlog.withLock { $0.bytes } }
 
+    /// The surface hid or shows again: work queued from now on runs at utility while it is hidden, at
+    /// user-interactive once it shows (``enqueue(_:)``). Work queued before keeps its QoS.
+    func setHidden(_ isHidden: Bool) {
+        hidden.store(isHidden, ordering: .relaxed)
+    }
+
+    /// Queues `work` on the lane at the surface's QoS: user-interactive while it shows, utility while it is
+    /// hidden (``setHidden(_:)``). The queue states no QoS of its own, so each block runs at the one it carries
+    /// (a queue's QoS is a floor no block goes under); a shown block queued behind a hidden one raises the
+    /// running block until it is reached, as the serial queue's FIFO makes it wait.
+    private func enqueue(_ work: @escaping @Sendable () -> Void) {
+        let qos: DispatchQoS = hidden.load(ordering: .relaxed) ? .utility : .userInteractive
+        queue.async(qos: qos, flags: .enforceQoS, execute: work)
+    }
+
     func processOutput(_ data: Data) {
         guard !data.isEmpty else { return }
         // A key armed after these bytes reached the lane cannot be their echo.
         let armedBefore = echoStage?.armedCount ?? 0
         backlog.withLock { $0.bytes += data.count }
-        queue.async { [self] in
+        enqueue { [self] in
             defer { parsed(data.count) }
             guard let surface = liveSurface else { return }
             // SAFETY: ``liveSurface`` on the lane: alive until close() fences the lane.
@@ -260,7 +281,7 @@ nonisolated final class TerminalOutputLane: Sendable {
                          restored done: (@Sendable (Bool) -> Void)? = nil) {
         guard !data.isEmpty else { return }
         backlog.withLock { $0.bytes += data.count }
-        queue.async { [self] in
+        enqueue { [self] in
             defer { parsed(data.count) }
             guard let surface = liveSurface else { return }
             let ready = phase == GHOSTTY_SURFACE_SNAPSHOT_READY
@@ -292,7 +313,7 @@ nonisolated final class TerminalOutputLane: Sendable {
     func restoreLocalHistory(_ data: Data, expectedRows: UInt64, digest: Data, grid: TerminalGridSize,
                              done: @escaping @Sendable (Int32) -> Void) {
         backlog.withLock { $0.bytes += data.count }
-        queue.async { [self] in
+        enqueue { [self] in
             defer { parsed(data.count) }
             var result = GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.code
             defer { done(result) }
@@ -314,7 +335,7 @@ nonisolated final class TerminalOutputLane: Sendable {
     func applyKittyReplay(_ data: Data) {
         guard !data.isEmpty else { return }
         backlog.withLock { $0.bytes += data.count }
-        queue.async { [self] in
+        enqueue { [self] in
             defer { parsed(data.count) }
             guard let surface = liveSurface else { return }
             // SAFETY: ``liveSurface`` on the lane; Ghostty reads buffer.count bytes of `data`'s
@@ -348,7 +369,7 @@ nonisolated final class TerminalOutputLane: Sendable {
     /// Locks the surface to `grid` in stream order, behind every chunk queued before it, at the
     /// lane's next generation (``TerminalGridLock``); nothing when `grid` is already locked.
     func lockGrid(_ grid: TerminalGridSize) {
-        queue.async { [self] in
+        enqueue { [self] in
             guard let surface = liveSurface, let lock = gridLock.next(grid) else { return }
             // SAFETY: ``liveSurface`` on the lane, alive for the call (close()'s fence).
             unsafe setGrid(surface, lock.columns, lock.rows, lock.generation)
@@ -359,7 +380,7 @@ nonisolated final class TerminalOutputLane: Sendable {
     /// ``close()``.
     /// `body` must not keep the surface past its call.
     func perform(_ body: @escaping @Sendable (ghostty_surface_t) -> Void) {
-        queue.async { [self] in
+        enqueue { [self] in
             guard let surface = liveSurface else { return }
             // SAFETY: ``liveSurface`` on the lane, alive for the call (close()'s fence).
             unsafe body(surface)
@@ -378,7 +399,7 @@ nonisolated final class TerminalOutputLane: Sendable {
     /// Calls `body` on the lane once every chunk queued so far has been parsed: ``drained()`` for a caller
     /// that posts its main-thread part with a class instead of awaiting.
     func whenDrained(_ body: @escaping @Sendable () -> Void) {
-        queue.async(execute: body)
+        enqueue(body)
     }
 
     /// The surface for work on `queue`; nil from ``close()`` on. Work queued after the close's fence

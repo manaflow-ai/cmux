@@ -23,6 +23,13 @@ public nonisolated protocol TerminalAttachLink: AnyObject, Sendable {
     /// Detaches and closes the connection; its `events` then finish.
     /// Idempotent.
     func detachNow()
+    /// Ranks the link's stream against the other views of its connection (`set-stream-priority`).
+    func sendStreamPriority(_ priority: TerminalStreamPriority)
+}
+
+public nonisolated extension TerminalAttachLink {
+    /// A link with no stream to rank.
+    func sendStreamPriority(_ priority: TerminalStreamPriority) {}
 }
 
 /// Runs a ``TerminalAttachMachine`` against real attachments: one reducer
@@ -59,6 +66,12 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         /// The view's output lane (``setOutputSink(_:)``), and the links being pumped, which carry it.
         var sink: TerminalEchoSink?
         var pumped: [Int: LinkRef] = [:]
+        /// The view holds keyboard focus (``focused()``, until another view takes ``streamFocus``).
+        var focused = false
+        /// The priority every pumped link has (``TerminalStreamPriority``), from `machine.visible` and `focused`.
+        var streamPriority: TerminalStreamPriority
+        /// Links are ranked: the driver has a ``TerminalStreamFocus`` (feature `terminalStreamPriority`).
+        let ranksStreams: Bool
     }
 
     private let core: Mutex<Core>
@@ -70,6 +83,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     private let cursorDefault: TerminalCursorDefault
     private let backoffDelay: BackoffDelay
     private let onGridSent: GridSent?
+    private let streamFocus: TerminalStreamFocus?
 
     /// Told each grid this view sends to the PTY and whether the daemon will echo it (a grid other than
     /// the one the stream last announced, or one sent while an earlier echo is still due).
@@ -96,9 +110,13 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         observer: Observer? = nil,
         cursorDefault: TerminalCursorDefault = .ghostty,
         backoffDelay: @escaping BackoffDelay = { _ in },
-        onGridSent: GridSent? = nil
+        onGridSent: GridSent? = nil,
+        // nil: the links' streams keep the priority they opened with (feature `terminalStreamPriority` off).
+        streamFocus: TerminalStreamFocus? = nil
     ) {
-        core = Mutex(Core(machine: Machine(initialSize: initialSize, visible: visible, restoring: restoring)))
+        core = Mutex(Core(machine: Machine(initialSize: initialSize, visible: visible, restoring: restoring),
+                          streamPriority: TerminalStreamPriority(visible: visible, focused: false),
+                          ranksStreams: streamFocus != nil))
         queue = TerminalStepQueue(highWater: outputHighWater)
         self.opener = opener
         self.onFailure = onFailure
@@ -107,9 +125,11 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         self.cursorDefault = cursorDefault
         self.backoffDelay = backoffDelay
         self.onGridSent = onGridSent
+        self.streamFocus = streamFocus
     }
 
     deinit {
+        streamFocus?.release(ObjectIdentifier(self))
         // Nothing can reach this driver any more: free whatever it holds.
         let effects = core.withLock { core -> [Machine.Effect] in
             let effects = core.outbox + core.machine.reduce(.close)
@@ -143,9 +163,18 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     public func start() { send(.start) }
     public func input(_ data: Data) { send(.input(data)) }
     public func resize(_ size: CellSize) { send(.resize(size)) }
-    public func setVisible(_ visible: Bool) { send(.visibility(visible)) }
-    /// The surface gained keyboard focus.
-    public func focused() { send(.focused) }
+    public func setVisible(_ visible: Bool) {
+        send(.visibility(visible))
+        syncStreamPriority()
+    }
+    /// The surface gained keyboard focus: its stream rides the input lane while it shows, until another view
+    /// of ``streamFocus`` gains focus.
+    public func focused() {
+        send(.focused)
+        streamFocus?.take(ObjectIdentifier(self)) { [weak self] in self?.lostStreamFocus() }
+        core.withLock { $0.focused = true }
+        syncStreamPriority()
+    }
     /// Take over from the "Sized for" chip.
     public func takeOver(setLatest: Bool) { send(.takeOver(setLatest: setLatest)) }
     /// The terminal or the daemon connection is back: a disconnected view
@@ -162,6 +191,26 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     public func requestResync() {
         core.withLock { $0.machine.liveLink }?.link.sendSnapshotRequest(reason: .gap)
     }
+
+    private func lostStreamFocus() {
+        core.withLock { $0.focused = false }
+        syncStreamPriority()
+    }
+
+    /// Sends the priority the view's visibility and focus give to every pumped link, when it changed. Under the
+    /// reducer's lock, as ``setOutputSink(_:)``: a link opening meanwhile reads the new one.
+    private func syncStreamPriority() {
+        guard streamFocus != nil else { return }
+        core.withLock { core in
+            let priority = TerminalStreamPriority(visible: core.machine.visible, focused: core.focused)
+            guard core.streamPriority != priority else { return }
+            core.streamPriority = priority
+            core.pumped.values.forEach { $0.link.sendStreamPriority(priority) }
+        }
+    }
+
+    /// The view's stream priority now (tests, diagnostics).
+    public var streamPriority: TerminalStreamPriority { core.withLock { $0.streamPriority } }
 
     // MARK: Diagnostics
 
@@ -255,6 +304,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         owner.value?.core.withLock { core in
             core.pumped[attempt] = ref
             ref.link.setOutputSink(core.sink)
+            if core.ranksStreams { ref.link.sendStreamPriority(core.streamPriority) }
         }
         var ended: TerminalChannelCloseReason = .connectionLost("attach stream ended")
         stream: for await event in ref.link.events {
@@ -341,4 +391,5 @@ extension TerminalAttachment: TerminalAttachLink {
     public nonisolated func sendClaim(reporting size: CellSize) { claimGeometry(reporting: size) }
     public nonisolated func sendTakeOver(reporting size: CellSize, setLatest: Bool) { takeOver(reporting: size, setLatest: setLatest) }
     public nonisolated func sendSnapshotRequest(reason: SnapshotRequestReason) { requestSnapshot(reason: reason) }
+    public nonisolated func sendStreamPriority(_ priority: TerminalStreamPriority) { setStreamPriority(priority) }
 }

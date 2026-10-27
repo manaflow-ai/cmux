@@ -442,12 +442,20 @@ pub(super) struct AttachTapState {
     /// The viewer's drain task when it runs on a sequence instead of
     /// blocking on `ready` (attach streams, p05-ipc-079).
     ready_hook: crate::stream_interrupt::ReadyHook,
+    /// A hidden snapshot viewer (`set-stream-priority hidden`, p05-ipc-142):
+    /// output only marks it dirty and nothing wakes it. Written under the
+    /// queue lock; read after it is released by the wakes.
+    hidden: AtomicBool,
 }
 
 impl AttachTapState {
     /// After a change the receiver acts on: a queued item, a snapshot to
     /// send, the sender gone. Called with the queue lock released.
     fn wake_one(&self) {
+        // A hidden viewer acts on nothing until it shows (`TapVisibility`).
+        if self.hidden.load(Ordering::Acquire) {
+            return;
+        }
         self.ready.notify_one();
         self.ready_hook.wake();
     }
@@ -491,6 +499,15 @@ impl AttachTapQueue {
             self.needs_snapshot = true;
             self.resyncs += 1;
         }
+    }
+
+    /// A hidden viewer's output: dropped, and the viewer owes a READY when
+    /// it shows. Not a backlog resync.
+    fn mark_dirty(&mut self) {
+        self.frames.clear();
+        self.retained_bytes = 0;
+        self.needs_snapshot = true;
+        self.snapshot_deferred = false;
     }
 
     /// Whether a resize now may reach this viewer as a local-history READY:
@@ -542,6 +559,40 @@ impl SnapshotRequestHandle {
     }
 }
 
+/// Hides a snapshot viewer (p05-ipc-142), as Chrome's `WasHidden()` stops a
+/// hidden widget's frames while its renderer keeps running
+/// (content/browser/renderer_host/render_widget_host_impl.cc): the terminal
+/// still parses every byte, the viewer queues none of it and is not woken,
+/// and it owes one READY when it shows if anything changed meanwhile. A
+/// viewer that changed nothing continues at its offset.
+#[derive(Clone)]
+pub(crate) struct TapVisibility {
+    state: Weak<AttachTapState>,
+}
+
+impl TapVisibility {
+    /// No-op for a replay viewer, which resyncs only by replay.
+    pub(crate) fn set_hidden(&self, hidden: bool) {
+        let Some(state) = self.state.upgrade() else { return };
+        let mut queue = state.queue.lock().recover_poison();
+        if !queue.snapshot_mode || state.hidden.load(Ordering::Acquire) == hidden {
+            return;
+        }
+        state.hidden.store(hidden, Ordering::Release);
+        if hidden {
+            if !queue.frames.is_empty() {
+                queue.mark_dirty();
+            }
+            return;
+        }
+        let pending = queue.needs_snapshot || !queue.frames.is_empty();
+        drop(queue);
+        if pending {
+            state.wake_one();
+        }
+    }
+}
+
 impl AttachFrameReceiver {
     /// Runs `hook` whenever this receiver has something to act on, for a
     /// viewer whose drain polls (`try_recv`, `try_viewer_event`) on a
@@ -572,6 +623,12 @@ impl AttachFrameReceiver {
 
     pub(crate) fn snapshot_request_handle(&self) -> SnapshotRequestHandle {
         SnapshotRequestHandle { state: Arc::downgrade(&self.state) }
+    }
+
+    /// Hides and shows this viewer from outside its drain
+    /// (`set-stream-priority`). Holds no strong reference to the queue.
+    pub(crate) fn visibility_handle(&self) -> TapVisibility {
+        TapVisibility { state: Arc::downgrade(&self.state) }
     }
 
     /// Next event of a snapshot viewer: a pending snapshot comes before any
@@ -695,6 +752,7 @@ impl AttachTap {
             }),
             ready: Condvar::new(),
             ready_hook: Default::default(),
+            hidden: AtomicBool::new(false),
         });
         (
             Self { state: state.clone(), lifecycle: lifecycle.clone() },
@@ -721,6 +779,7 @@ impl AttachTap {
     /// Whether this viewer would take a local-history READY of a resize now.
     pub(super) fn wants_local_ready(&self) -> bool {
         !self.lifecycle.is_canceled()
+            && !self.state.hidden.load(Ordering::Acquire)
             && self
                 .state
                 .queue
@@ -735,6 +794,7 @@ impl AttachTap {
         let queue = self.state.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(local) = local
             && queue.takes_local_ready()
+            && !self.state.hidden.load(Ordering::Acquire)
         {
             self.push(queue, QueuedFrame::LocalReady(local.clone()));
             return;
@@ -755,7 +815,7 @@ impl AttachTap {
             && !self.lifecycle.is_canceled()
         {
             let queue = self.state.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if queue.takes_local_ready() {
+            if queue.takes_local_ready() && !self.state.hidden.load(Ordering::Acquire) {
                 return self.push(queue, QueuedFrame::LocalReady(local.clone()));
             }
         }
@@ -805,6 +865,14 @@ impl AttachTap {
             return false;
         }
         if queue.snapshot_mode {
+            if self.state.hidden.load(Ordering::Acquire) {
+                // Parsed by the terminal already; the viewer gets a READY of
+                // it when it shows, and nothing before.
+                if !queue.needs_snapshot || !queue.frames.is_empty() {
+                    queue.mark_dirty();
+                }
+                return true;
+            }
             if queue.snapshot_deferred {
                 // Retry the snapshot now that the parser has moved on.
                 queue.snapshot_deferred = false;
