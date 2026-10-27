@@ -77,6 +77,8 @@ parser.add_argument("--warm-delay", type=float, default=10.0)
 parser.add_argument("--traces", type=int, default=6)
 parser.add_argument("--sample", action="store_true")
 parser.add_argument("--input", choices=("debug", "real"), default="debug")
+parser.add_argument("--alt-app-sha256", default="",
+                    help="a second fleet app (artifact sha256) that `alt:SPEC` sessions launch, in the same step and host")
 parser.add_argument("--shell", default="", help="terminal.shell for the app's cmux.json (default: the app's own)")
 opts = parser.parse_args()
 OUT = os.path.abspath(opts.out)
@@ -213,6 +215,17 @@ def measure_window(label, poster, count, interval, extra=None):
     return entry
 
 
+def focus_brief():
+    """What has the keyboard: debug.focus's context and the Ghostty tabs it holds focused (the measured terminal)."""
+    reply = rpc("debug.focus", timeout=20)
+    if not isinstance(reply, dict):
+        return reply
+    windows = reply.get("windows") or []
+    return {"app_active": reply.get("app_active"), "context": reply.get("context"),
+            "ghostty_focused_tabs": reply.get("ghostty_focused_tabs"),
+            "first_responders": [((w.get("appkit") or {}).get("first_responder")) for w in windows][:4]}
+
+
 def tag_processes(bench):
     try:
         procs = bench.tag_processes()
@@ -222,8 +235,28 @@ def tag_processes(bench):
     return {"count": len(procs), "by_name": names, "commands": [c[:160] for _, c in procs][:40]}
 
 
+ALT_APP = []
+
+
+def alt_app():
+    if not ALT_APP:
+        dest = os.path.join(os.path.dirname(OUT), "fleet-apps-alt")
+        got = subprocess.run([sys.executable, os.path.join(HERE, "fleet-app-fetch.py"), "--sha256", opts.alt_app_sha256,
+                              "--dest", dest], capture_output=True, text=True, check=True)
+        ALT_APP.append(os.path.abspath(got.stdout.strip().splitlines()[-1]))
+        note(f"alt app: {ALT_APP[0]} (sha256 {opts.alt_app_sha256[:12]})")
+    return ALT_APP[0]
+
+
 def run_session(spec, digest):
-    overrides = session_overrides(spec)
+    app = APP
+    if spec.startswith("alt:"):
+        app = alt_app()
+        spec_core = spec[4:]
+    else:
+        spec_core = spec
+    CONTROL.cli_path = os.path.join(app, "Contents/Resources/bin/cmux")
+    overrides = session_overrides(spec_core)
     env = {"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"}
     if opts.input == "real":
         env["CMUX_NEXT_NO_ACTIVATE"] = None
@@ -231,9 +264,9 @@ def run_session(spec, digest):
     config = {"browser": {"defaultEngine": "chromium"}}
     if opts.shell:
         config["terminal"] = {"shell": opts.shell}
-    bench = BenchApp(APP, out=OUT, config=config, window=WINDOW, log_name=f"app-{spec}.log", env=env,
+    bench = BenchApp(app, out=OUT, config=config, window=WINDOW, log_name=f"app-{spec.replace(':', '_').replace('/', '_')}.log", env=env,
                      local_features=overrides)
-    session = {"spec": spec, "overrides": len(overrides), "trials": [], "traces": []}
+    session = {"spec": spec, "app": os.path.basename(app), "overrides": len(overrides), "trials": [], "traces": []}
     results["sessions"].append(session)
     note(f"session {spec}: {len(overrides)} local overrides")
     try:
@@ -262,16 +295,29 @@ def run_session(spec, digest):
             signposts = hid_input.SignpostRecording(pid)
         except Exception as error:  # the signposts are a second source; the probe still measures
             note(f"  signposts: not recorded ({error!r})")
-        time.sleep(6)  # the launch settles; the launch terminal is warm
-        session["focus_launch"] = rpc("debug.focus")
-        session["warm0"] = measure_window("warm0 (launch terminal)", poster, opts.keys, opts.interval)
+        time.sleep(6)  # the launch settles
+        session["focus_launch"] = focus_brief()
+        # The launch window shows Home (its first responder is HomeDockView, not a terminal: warm0 had no probe
+        # rows in d0cb9743), so warm0 is a terminal tab opened here and typed into after --warm-delay s.
+        session["warm0_open"] = json.dumps(action("newSurface"))[:200]
+        time.sleep(opts.warm_delay)
+        session["warm0_focus"] = focus_brief()
+        session["warm0"] = measure_window(f"warm0 (a tab {opts.warm_delay}s old)", poster, opts.keys, opts.interval)
         action("terminal.sendText", {"text": "\x15"})
+        session["warm0_close"] = json.dumps(action("closeTab"))[:120]
+        time.sleep(1.5)  # the close settles
         session["processes_before"] = tag_processes(bench)
         kinds = opts.kinds.split(",")
         for trial in range(opts.trials):
             kind = kinds[trial % len(kinds)]
             name = {"tab": "newSurface", "split": "splitRight", "workspace": "newWorkspace"}[kind]
             entry = {"trial": trial, "kind": kind}
+            if kind == "split":
+                # The split needs a terminal to split (after a close the focus is the Home agent chat, which
+                # "can't be split": every split row of d0cb9743 was empty): a tab opened 3 s before it.
+                entry["base_open"] = json.dumps(action("newSurface"))[:200]
+                time.sleep(3.0)
+                entry["base_focus"] = focus_brief()
             window_begin()
             t0 = time.perf_counter()
             reply = action(name)
@@ -279,29 +325,36 @@ def run_session(spec, digest):
             entry["action_reply"] = json.dumps(reply)[:200]
             start = probe_count()
             ahead_at = hid_input.uptime_raw()
-            poster.key("x")  # typeahead: sent right after the action
+            if opts.first_delay > 0:
+                poster.key("x")  # typeahead: sent right after the action (with --first-delay 0 the first window is it)
             ahead_wait = opts.first_delay - (time.perf_counter() - t0)
             if ahead_wait > 0:
                 time.sleep(ahead_wait)  # the bench's schedule: the first keys start first-delay after the action
             entry["ahead"] = hops(probe_since(start))
             entry["ahead"]["uptime_window"] = [ahead_at, hid_input.uptime_raw()]
-            hangs, records, frames = window_stats()
-            entry["create_window"] = {"hangs": hangs, "hang_records": (records or [])[:6], "frames": frames}
-            entry["focus"] = (rpc("debug.focus") or {}).get("resolved")
+            if opts.first_delay > 0:
+                hangs, records, frames = window_stats()
+                entry["create_window"] = {"hangs": hangs, "hang_records": (records or [])[:6], "frames": frames}
+                entry["focus"] = focus_brief()
             entry["first"] = measure_window(f"t{trial} {kind} first ({opts.first_delay}s)", poster, opts.keys, opts.interval)
             rest = opts.warm_delay - (time.perf_counter() - t0)
             if rest > 0:
                 time.sleep(rest)  # the terminal warms
             entry["warm"] = measure_window(f"t{trial} {kind} warm ({opts.warm_delay}s)", poster, opts.keys, opts.interval)
+            entry["focus_warm"] = focus_brief()
             if trial == 0:
                 entry["processes"] = tag_processes(bench)
             action("terminal.sendText", {"text": "\x15"})
-            entry["close"] = json.dumps(action("closeTab"))[:120]
+            entry["close"] = json.dumps(action("closePane" if kind == "split" else "closeTab"))[:120]
+            if kind == "split":
+                time.sleep(0.5)
+                action("terminal.sendText", {"text": "\x15"})
+                entry["base_close"] = json.dumps(action("closeTab"))[:120]
             session["trials"].append(entry)
             save()
             time.sleep(1.5)  # the close settles
         if opts.sample:
-            path = os.path.join(OUT, f"sample-{spec}.txt")
+            path = os.path.join(OUT, f"sample-{spec.replace(':', '_').replace('/', '_')}.txt")
             sampler = subprocess.Popen(["/usr/bin/sample", str(pid), "4", "1", "-file", path],
                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             time.sleep(0.5)  # the sampler attaches
@@ -384,6 +437,9 @@ def summarize():
         brief = {k: (v or {}).get("p50") if isinstance(v, dict) else v for k, v in row.items() if k != "trace_marks_ms"}
         note(f"SUMMARY {spec} p50: " + json.dumps({k: v for k, v in brief.items() if not k.endswith("_ms") or k == "action_ms"}))
         note(f"SUMMARY {spec} p95: " + json.dumps({k: (v or {}).get("p95") for k, v in row.items() if isinstance(v, dict) and "p95" in (v or {})}))
+        for key, v in row.items():
+            if isinstance(v, dict) and "p50" in v:
+                note(f"ROW {spec} {key}: p50 {v.get('p50')} p95 {v.get('p95')} p99 {v.get('p99')} max {v.get('max')} n {v.get('n')}")
         note(f"SUMMARY {spec} trace p50: " + json.dumps({k: v.get("p50") for k, v in row["trace_marks_ms"].items()}))
 
 
