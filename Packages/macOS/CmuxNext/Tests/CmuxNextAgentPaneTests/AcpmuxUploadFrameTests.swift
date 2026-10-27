@@ -35,3 +35,49 @@ struct AcpmuxUploadFrameTests {
         ], modeFields: nil))
     }
 }
+    @Test func promptUploadRefsSurviveWhileOtherBlockMetadataIsStripped() throws {
+        let object: [String: Any] = [
+            "method": "session/prompt",
+            "params": [
+                "prompt": [[
+                    "type": "image",
+                    "name": "shot.png",
+                    "_meta": [
+                        "acpmux": [
+                            "upload": ["uploadId": "u", "fileName": "shot.png"],
+                            "ignored": "remove",
+                        ],
+                        "ignored": true,
+                    ],
+                ]],
+            ],
+        ]
+        let result = try #require(AcpmuxPaneMethods.strippingPromptMeta(object))
+        let block = try #require((result["params"] as? [String: Any])?["prompt"] as? [[String: Any]]).first
+        let meta = try #require(block["_meta"] as? [String: Any])
+        let acpmux = try #require(meta["acpmux"] as? [String: Any])
+        let upload = try #require(acpmux["upload"] as? [String: Any])
+        #expect(upload["uploadId"] as? String == "u")
+        #expect(upload["fileName"] as? String == "shot.png")
+        #expect(acpmux.count == 1)
+        #expect(meta.count == 1)
+    }
+
+    @Test func resourceUploadRefKeepsOnlyExactUri() throws {
+        let object: [String: Any] = [
+            "method": "session/prompt",
+            "params": [
+                "prompt": [[
+                    "type": "resource_link",
+                    "uri": "acpmux-upload:u",
+                    "name": "data.bin",
+                    "_meta": ["acpmux": ["upload": ["uploadId": "u", "fileName": "data.bin"]]],
+                ]],
+            ],
+        ]
+        let result = try #require(AcpmuxPaneMethods.strippingPromptMeta(object))
+        let block = try #require((result["params"] as? [String: Any])?["prompt"] as? [[String: Any]]).first
+        #expect((block["uri"] as? String) == "acpmux-upload:u")
+        let upload = try #require(((block["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["upload"] as? [String: Any])
+        #expect(upload["uploadId"] as? String == "u")
+    }
