@@ -243,6 +243,11 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
     func removeThisPhoneFromMacs() async {
         await live?.removeThisPhoneFromMacs()
     }
+
+    func openPairingCode(_ text: String) -> Bool {
+        guard let live, let invite = PairInvite(text: text) else { return false }
+        return live.accept(invite)
+    }
 }
 #endif
 

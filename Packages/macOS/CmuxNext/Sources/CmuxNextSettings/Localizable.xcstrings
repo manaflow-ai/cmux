@@ -84673,6 +84673,268 @@
         }
       }
     },
+    "settings.agentPane.scrollToBottomOnSend": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التمرير إلى الأسفل عند الإرسال"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beim Senden nach unten scrollen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scroll to Bottom When I Send"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desplazarse al final al enviar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faire défiler jusqu’en bas lors de l’envoi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "送信時に最下部へスクロール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보낼 때 맨 아래로 스크롤"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomjeri na dno pri slanju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rul til bunden ved afsendelse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scorri in fondo quando invio"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រំកិលទៅបាតពេលខ្ញុំផ្ញើ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rull til bunnen når jeg sender"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przewiń na dół podczas wysyłania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rolar para o fim ao enviar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прокручивать вниз при отправке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลื่อนไปด้านล่างเมื่อส่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gönderdiğimde alta kaydır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прокручувати донизу під час надсилання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộn xuống cuối khi tôi gửi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "发送时滚动到底部"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "傳送時捲動到底部"
+          }
+        }
+      }
+    },
+    "settings.agentPane.scrollToBottomOnSend.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عند إيقافه، يحافظ الإرسال على موضعك أثناء القراءة إلى الأعلى ويعرض الرسائل الجديدة أدناه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wenn deaktiviert, bleibt beim Senden beim Lesen weiter oben deine Position erhalten und neue Nachrichten erscheinen darunter."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "When off, sending while you are reading up keeps your place and shows new messages below."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desactivado, al enviar se conserva tu posición mientras lees más arriba y se muestran debajo los mensajes nuevos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Désactivé, l’envoi conserve votre position quand vous lisez plus haut et affiche les nouveaux messages en dessous."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "オフにすると、上を読んでいる間に送信しても位置を維持し、新しいメッセージを下に表示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "끄면 위쪽을 읽는 동안 메시지를 보내도 현재 위치가 유지되고 새 메시지가 아래에 표시됩니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kada je isključeno, slanje dok čitate iznad zadržava vaš položaj i prikazuje nove poruke ispod."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når den er slået fra, bevarer afsendelse din placering, mens du læser oppe, og viser nye beskeder nedenunder."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se disattivato, l'invio mentre leggi più in alto mantiene la tua posizione e mostra i nuovi messaggi sotto."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅពេលបិទ ការផ្ញើពេលអ្នកកំពុងអានខាងលើនឹងរក្សាទីតាំងរបស់អ្នក ហើយបង្ហាញសារថ្មីខាងក្រោម។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når den er av, beholder sending plasseringen mens du leser oppover, og nye meldinger vises nedenfor."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Po wyłączeniu wysłanie wiadomości podczas czytania wyżej zachowuje pozycję i pokazuje nowe wiadomości poniżej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando desativado, enviar enquanto você lê acima mantém sua posição e mostra novas mensagens abaixo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Если выключено, отправка во время чтения выше сохраняет позицию и показывает новые сообщения ниже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อปิด การส่งข้อความขณะอ่านด้านบนจะรักษาตำแหน่งของคุณและแสดงข้อความใหม่ด้านล่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kapalıyken, yukarıda okurken gönderim konumunuzu korur ve yeni mesajları aşağıda gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Якщо вимкнено, надсилання під час читання вище зберігає позицію та показує нові повідомлення нижче."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi tắt, gửi tin nhắn khi đang đọc ở trên sẽ giữ nguyên vị trí và hiển thị tin nhắn mới bên dưới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "关闭时，在向上阅读时发送消息会保留当前位置，并在下方显示新消息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "關閉時，在向上閱讀期間傳送訊息會保留目前位置，並在下方顯示新訊息。"
+          }
+        }
+      }
+    },
     "settings.agentPane.showContextUsage": {
       "extractionState": "manual",
       "localizations": {
@@ -178705,6 +178967,58 @@
             "value": "%@ 不是 cmux 能播放的聲音檔案（AIFF、CAF、WAV、MP3 或 M4A）。"
           }
         }
+      }
+    },
+    "settings.sidebar.noFade": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "إظهار الشريط الجانبي كاملا دون تلاشٍ"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Prikaži cijelu bočnu traku bez prelaza"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vis hele sidepanelet uden udtoning"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Gesamte Seitenleiste ohne Verblassen zeigen"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Show Whole Sidebar Without Fade"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Mostrar toda la barra lateral sin desvanecimiento"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Afficher toute la barre latérale sans fondu"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mostra tutta la barra laterale senza sfumatura"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーを全体表示（フェードなし）"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បង្ហាញរបារចំហៀងទាំងមូលដោយគ្មានការស្រអាប់"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "페이드 없이 사이드바 전체 표시"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vis hele sidepanelet uten uttoning"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pokaż cały pasek boczny bez zanikania"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mostrar a barra lateral inteira sem desvanecimento"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Показывать всю боковую панель без затемнения"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แสดงแถบด้านข้างทั้งหมดโดยไม่มีการจางหาย"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğunu solma olmadan tam göster"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Показувати всю бічну панель без затухання"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hiển thị toàn bộ thanh bên, không mờ dần"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无渐隐显示整个侧边栏"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無漸隱顯示整個側邊欄"}}
+      }
+    },
+    "settings.sidebar.noFade.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تتوقف حواف الشريط الجانبي عن التلاشي ويظهر القائمة كاملة. كما يُخفي شريط الملف الشخصي والبحث في الأسفل. عند الإيقاف، تتلاشى الحواف ويظهر الشريط."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Ivice bočne trake prestaju da blijede i cijela lista se prikazuje. Takođe skriva donju traku profila i pretrage. Isključeno: ivice blijede, a traka se prikazuje."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Sidepanelets kanter holder op med at tone ud, og hele listen vises. Den skjuler også den nederste profil- og søgelinje. Fra: kanterne toner ud, og linjen vises."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Die Kanten der Seitenleiste verblassen nicht mehr, und die ganze Liste wird angezeigt. Außerdem wird die untere Profil- und Suchleiste ausgeblendet. Aus: Die Kanten verblassen, und die Leiste wird angezeigt."}},
+        "en": {"stringUnit": {"state": "translated", "value": "The sidebar's edges stop fading and the whole list shows. It also hides the bottom profile and search bar. Off, the edges fade and the bar shows."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Los bordes de la barra lateral dejan de desvanecerse y se muestra toda la lista. También oculta la barra inferior de perfil y búsqueda. Desactivado: los bordes se desvanecen y la barra se muestra."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Les bords de la barre latérale ne s'estompent plus et toute la liste s'affiche. La barre inférieure du profil et de la recherche est masquée. Désactivé : les bords s'estompent et la barre s'affiche."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "I bordi della barra laterale non sfumano più e appare tutta la lista. Nasconde anche la barra inferiore di profilo e ricerca. Disattivato: i bordi sfumano e la barra è visibile."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーの端がフェードせず、リスト全体が表示されます。下部のプロフィールと検索バーも非表示になります。オフの場合は端がフェードし、バーが表示されます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "គែមរបារចំហៀងឈប់ស្រអាប់ ហើយបញ្ជីទាំងមូលត្រូវបានបង្ហាញ។ វាក៏លាក់របារប្រវត្តិរូប និងស្វែងរកនៅខាងក្រោមផងដែរ។ បិទ៖ គែមស្រអាប់ ហើយរបារត្រូវបានបង្ហាញ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바 가장자리가 흐려지지 않고 목록 전체가 표시됩니다. 아래쪽 프로필 및 검색 막대도 숨겨집니다. 끄면 가장자리가 흐려지고 막대가 표시됩니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Kantene på sidepanelet slutter å tones ut, og hele listen vises. Den skjuler også den nederste profil- og søkelinjen. Av: kantene tones ut, og linjen vises."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Krawędzie paska bocznego przestają zanikać i widać całą listę. Ukrywa też dolny pasek profilu i wyszukiwania. Wyłączone: krawędzie zanikają, a pasek jest widoczny."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "As bordas da barra lateral deixam de desvanecer e a lista inteira aparece. Também oculta a barra inferior de perfil e busca. Desligado: as bordas desvanecem e a barra aparece."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Края боковой панели перестают затемняться, и весь список отображается. Также скрывается нижняя панель профиля и поиска. Выключено: края затемняются, панель видна."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ขอบแถบด้านข้างจะไม่จางหายและแสดงรายการทั้งหมด ยังซ่อนแถบโปรไฟล์และค้นหาด้านล่างด้วย ปิดอยู่: ขอบจะจางและแถบจะแสดง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğunun kenarları solmaz ve listenin tamamı görünür. Alttaki profil ve arama çubuğunu da gizler. Kapalıyken kenarlar solar ve çubuk görünür."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Краї бічної панелі перестають затухати, і показується весь список. Також приховується нижня панель профілю і пошуку. Вимкнено: краї затухають, панель видно."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Mép thanh bên không còn mờ dần và toàn bộ danh sách hiển thị. Thanh hồ sơ và tìm kiếm ở dưới cũng bị ẩn. Tắt: mép mờ dần và thanh hiển thị."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "侧边栏边缘不再渐隐，整个列表全部显示。同时隐藏底部的个人资料和搜索栏。关闭时边缘渐隐，并显示该栏。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄邊緣不再漸隱，整個列表全部顯示。同時隱藏底部的個人資料和搜尋列。關閉時邊緣漸隱，並顯示該列。"}}
       }
     }
   },
