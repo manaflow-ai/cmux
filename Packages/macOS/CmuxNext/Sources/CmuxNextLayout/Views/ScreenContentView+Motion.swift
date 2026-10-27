@@ -51,6 +51,15 @@ extension ScreenContentView {
     }
 
     // MARK: Animation
+    /// The spring ``step(_:policy:)`` moves `pane`'s frame on: its zoom's token, else the change's frame spring.
+    func frameSpring(of pane: PaneID, policy: MotionPolicy) -> SpringParameters {
+        policy.spring(zoomMotion.spring(for: pane, fallback: motionState.frameSpring))
+    }
+    /// The spring ``step(_:policy:)`` moves the strip camera and each row column's on: a close's frame spring
+    /// while the camera rides it (``scrollRidesFrames``), else the scroll spring.
+    func cameraSpring(policy: MotionPolicy) -> SpringParameters {
+        policy.spring(scrollRidesFrames ? motionState.frameSpring : .scroll)
+    }
     /// Motion the CPU steps: a fling on the render server is not (the reducer's spring rests on its target).
     var hasMotion: Bool {
         let camera = scrollState.spring
@@ -104,7 +113,7 @@ extension ScreenContentView {
         let cameraSpring = scrollRidesFrames ? frameSpring : policy.spring(.scroll)
         if stepRows(dt, spring: cameraSpring) { moving = true }
         if stepAreas(dt, policy: policy) { moving = true }
-        if MotionTrace.isEnabled { MotionTrace.sample("layout.travel", Double(travelLeft)) }
+        if MotionTrace.isEnabled { MotionTrace.sample("layout.travel", Double(panePlacement.travelLeft + dividerPlacement.travelLeft)) }
         let panesMoving = paneFrames.values.contains { $0.rect != $0.targetRect }
         // The panes landed: their terminals' grids go to the PTY once, now.
         if holdsGrids, !panesMoving { holdsGrids = false }
@@ -174,15 +183,6 @@ extension ScreenContentView {
         if panPresentationPending { applyPresentation() }
         presentFramePan(at: frameTime)
         return isUserScrolling && (panBase == nil || scrollState.resamplesPan)
-    }
-
-    /// Sets `frame`'s target (opaque); without animation it snaps there. During a pointer gesture (a divider drag)
-    /// only a frame the gesture retargets snaps: a spring already running elsewhere (a close landing in another
-    /// column) keeps going (M3). Reduce Motion snaps every frame.
-    func place(_ frame: inout AnimatedFrame, at target: CGRect, animated: Bool) {
-        let retargeted = frame.targetRect != target
-        frame.setTarget(target, alpha: 1)
-        if !animated, retargeted || !context.model.isGestureActive || context.reduceMotion { frame.snap() }
     }
 
     /// New dock columns' panes still growing in from their screen edge (their frames).

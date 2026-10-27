@@ -126,7 +126,6 @@ final class CrashRecoveryService {
         return nil
         #endif
     }
-    }
 
     /// The crash log's process type of the Chromium Host (`CEFRuntime.hostEnded`).
     nonisolated static let hostProcessType = "chromium-host"
