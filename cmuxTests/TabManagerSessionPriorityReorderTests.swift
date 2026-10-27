@@ -10,6 +10,9 @@ import Testing
 /// Wiring of the session priority rank into a window's TabManager: user
 /// moves record, cmux's automatic moves never do, new workspaces join at the
 /// end, pinned workspaces count first, and the rank survives session restore.
+///
+/// Serialized: tests that swap a `SessionPriorityCoordinatorHook` closure put back the one the
+/// app installed.
 @MainActor
 @Suite(.serialized)
 struct TabManagerSessionPriorityReorderTests {
@@ -70,6 +73,44 @@ struct TabManagerSessionPriorityReorderTests {
             return
         }
         #expect(manager.sessionPriorityEffectiveOrder == ordered)
+    }
+
+    /// The sidebar menu's and command palette's "Move to Top" moves the whole selection.
+    @Test func moveSelectionToTopRecords() throws {
+        let fixture = try makeFixture()
+        let manager = fixture.manager
+        defer { manager.closeWorkspacesForTesting() }
+        let installed = SessionPriorityCoordinatorHook.userDidReorder
+        defer { SessionPriorityCoordinatorHook.userDidReorder = installed }
+        var reports = 0
+        SessionPriorityCoordinatorHook.userDidReorder = { _ in reports += 1 }
+
+        manager.moveTabsToTop([fixture.c, fixture.d])
+
+        #expect(manager.tabs.map(\.id) == [fixture.c, fixture.d, fixture.a, fixture.b])
+        #expect(manager.sessionPriorityEffectiveOrder == [fixture.c, fixture.d, fixture.a, fixture.b])
+        #expect(reports == 1)
+    }
+
+    /// Dragging a multi-row selection records every moved workspace.
+    @Test func multiSelectionDragRecords() throws {
+        let fixture = try makeFixture()
+        let manager = fixture.manager
+        defer { manager.closeWorkspacesForTesting() }
+        let installed = SessionPriorityCoordinatorHook.userDidReorder
+        defer { SessionPriorityCoordinatorHook.userDidReorder = installed }
+        var reports = 0
+        SessionPriorityCoordinatorHook.userDidReorder = { _ in reports += 1 }
+
+        #expect(manager.reorderSidebarWorkspaces(
+            tabIds: [fixture.c, fixture.d],
+            draggedTabId: fixture.d,
+            toIndex: 0
+        ))
+
+        #expect(manager.tabs.map(\.id) == [fixture.c, fixture.d, fixture.a, fixture.b])
+        #expect(manager.sessionPriorityEffectiveOrder == [fixture.c, fixture.d, fixture.a, fixture.b])
+        #expect(reports == 1)
     }
 
     @Test func userMoveCallsTheCoordinatorHook() throws {
@@ -200,6 +241,7 @@ struct TabManagerSessionPriorityReorderTests {
         let expected = [fixture.c, fixture.a, fixture.b, fixture.d]
         try #require(manager.sessionPriorityEffectiveOrder == expected)
         let expectedStableIds = expected.compactMap { manager.workspacesById[$0]?.stableId }
+        try #require(expectedStableIds.count == expected.count)
 
         let encoded = try JSONEncoder().encode(manager.sessionSnapshot(includeScrollback: false))
         let snapshot = try JSONDecoder().decode(SessionTabManagerSnapshot.self, from: encoded)

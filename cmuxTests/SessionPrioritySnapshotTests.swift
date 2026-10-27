@@ -11,6 +11,10 @@ import Testing
 
 /// Persistence coverage for per-workspace Claude difficulty and the manual
 /// priority flag, plus the live-state precedence rules.
+///
+/// Serialized: one test swaps a `SessionPriorityCoordinatorHook` closure and puts back the one
+/// the app installed.
+@Suite(.serialized)
 struct SessionPrioritySnapshotTests {
     private func makeSnapshot() -> SessionWorkspaceSnapshot {
         SessionWorkspaceSnapshot(
@@ -114,8 +118,9 @@ struct SessionPrioritySnapshotTests {
     func noOpMutationsDoNotNotify() {
         let workspace = Workspace()
         var notified = 0
+        let installed = SessionPriorityCoordinatorHook.workspaceStateDidChange
+        defer { SessionPriorityCoordinatorHook.workspaceStateDidChange = installed }
         SessionPriorityCoordinatorHook.workspaceStateDidChange = { _ in notified += 1 }
-        defer { SessionPriorityCoordinatorHook.workspaceStateDidChange = nil }
         workspace.setClaudeDifficultyOverride(nil)
         workspace.setSessionPriorityManual(false)
         #expect(notified == 0)
