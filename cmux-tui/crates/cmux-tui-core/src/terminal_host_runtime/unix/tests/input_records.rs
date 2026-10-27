@@ -428,7 +428,7 @@ fn process_nonce_proves_stale_record_even_if_pid_is_live_and_reused() {
         terminal_host_record_liveness(&record_path, &record).unwrap(),
         TerminalHostLiveness::Dead
     );
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+    assert!(remove_stale_terminal_host_record(&record_path, &record, None).unwrap());
     assert!(!record_path.exists());
     let _ = fs::remove_dir_all(record_path.parent().unwrap());
 }
@@ -505,7 +505,7 @@ fn dropping_liveness_lease_releases_inherited_descriptor_lock() {
     );
 
     drop(inherited);
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+    assert!(remove_stale_terminal_host_record(&record_path, &record, None).unwrap());
     let _ = fs::remove_dir_all(record_path.parent().unwrap());
 }
 
@@ -525,7 +525,7 @@ fn record_loader_rejects_noncanonical_filenames_and_identity_spellings() {
     let loaded = load_terminal_host_records(root).unwrap();
     assert_eq!(loaded, vec![(record_path.clone(), record.clone())]);
     drop(lease);
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+    assert!(remove_stale_terminal_host_record(&record_path, &record, None).unwrap());
     let _ = fs::remove_dir_all(root);
 }
 
@@ -556,17 +556,17 @@ fn exit_sidecar_round_trips_and_requires_exact_acknowledgement() {
 
     let mut mismatch = exit_record.clone();
     mismatch.exit.exited_at_ms += 1;
-    assert!(!acknowledge_terminal_host_exit_record(&exit_path, &mismatch).unwrap());
+    assert!(!acknowledge_terminal_host_exit_record(&exit_path, &mismatch, None).unwrap());
     assert!(exit_path.exists(), "mismatched ack must retain restart evidence");
-    assert!(acknowledge_terminal_host_exit_record(&exit_path, &exit_record).unwrap());
+    assert!(acknowledge_terminal_host_exit_record(&exit_path, &exit_record, None).unwrap());
     assert!(!exit_path.exists());
     assert!(
-        !acknowledge_terminal_host_exit_record(&exit_path, &exit_record).unwrap(),
+        !acknowledge_terminal_host_exit_record(&exit_path, &exit_record, None).unwrap(),
         "repeated exact ack is an idempotent no-op"
     );
 
     drop(lease);
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+    assert!(remove_stale_terminal_host_record(&record_path, &record, None).unwrap());
     let _ = fs::remove_dir_all(root);
 }
 
@@ -624,9 +624,9 @@ fn exit_sidecar_publication_never_clobbers_a_concurrent_outcome() {
         "exit sidecars must reject fields outside the versioned schema"
     );
 
-    assert!(acknowledge_terminal_host_exit_record(&exit_path, &stored).unwrap());
+    assert!(acknowledge_terminal_host_exit_record(&exit_path, &stored, None).unwrap());
     drop(lease);
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+    assert!(remove_stale_terminal_host_record(&record_path, &record, None).unwrap());
     let _ = fs::remove_dir_all(root);
 }
 
@@ -649,7 +649,7 @@ fn input_ack_capability_requires_version_4_record() {
         );
     }
     drop(lease);
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+    assert!(remove_stale_terminal_host_record(&record_path, &record, None).unwrap());
     fs::remove_dir_all(record_path.parent().unwrap()).unwrap();
 }
 
@@ -685,7 +685,7 @@ fn legacy_record_is_adoptable_shape_but_never_unsafely_reaped() {
             .iter()
             .any(|(_, record)| record.terminal_id == terminal_id)
     );
-    assert!(!remove_stale_terminal_host_record(&legacy_path, &legacy).unwrap());
+    assert!(!remove_stale_terminal_host_record(&legacy_path, &legacy, None).unwrap());
 
     let mut invalid = legacy.clone();
     invalid.supports_input_ack = true;
@@ -693,7 +693,7 @@ fn legacy_record_is_adoptable_shape_but_never_unsafely_reaped() {
 
     fs::remove_file(&legacy_path).unwrap();
     drop(lease);
-    assert!(remove_stale_terminal_host_record(&v2_path, &v2).unwrap());
+    assert!(remove_stale_terminal_host_record(&v2_path, &v2, None).unwrap());
     let _ = fs::remove_dir_all(root);
 }
 
@@ -747,6 +747,6 @@ fn stalled_host_handshake_is_time_bounded() {
     connector.join().unwrap();
     let _ = fs::remove_file(endpoint);
     drop(lease);
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+    assert!(remove_stale_terminal_host_record(&record_path, &record, None).unwrap());
     let _ = fs::remove_dir_all(record_path.parent().unwrap());
 }
