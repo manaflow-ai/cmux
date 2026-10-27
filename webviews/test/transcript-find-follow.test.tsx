@@ -3,7 +3,7 @@
 // browser reports it, a frame later. chat-find's fold case lost its match that way on loaded runners
 // (react-apps-check, 2026-10-13). jsdom reports no scroll for a scrollTop write, so the race is
 // deterministic here.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { ChatFind } from "../src/agent-session/acpmux/conversation/chatFind";
@@ -203,5 +203,36 @@ test("held input does not apply a browser clamp twice when rows above shrink", a
     expect(node.scrollTop).toBeCloseTo(parked - (oldHeight - height()), 4);
   } finally {
     await act(async () => root.unmount());
+  }
+});
+
+test("quiet expiry places a final streamed chunk without another token", async () => {
+  jest.useFakeTimers();
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const render = (shown: AcpmuxRow[]) =>
+    root.render(<VirtualTranscript rows={shown} onToggleActivity={noop} expanded={new Set()} />);
+  try {
+    await act(async () => render(turnView(turns, new Set())));
+    const node = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const before = node.scrollTop;
+    await act(async () => {
+      node.dispatchEvent(new dom.window.Event("pointerdown", { bubbles: true }));
+      render(turnView([...turns, ...turn(30), ...turn(31)], new Set()));
+    });
+    expect(node.scrollTop).toBe(before);
+    await act(async () => {
+      dom.window.document.dispatchEvent(new dom.window.Event("pointerup"));
+      jest.advanceTimersByTime(999);
+    });
+    expect(node.scrollTop).toBe(before);
+    await act(async () => {
+      jest.advanceTimersByTime(1);
+    });
+    const latest = parseFloat(node.querySelector<HTMLElement>(".acpmux-spacer")!.style.height) - VIEWPORT;
+    expect(node.scrollTop).toBe(latest);
+    expect(node.scrollTop).toBeGreaterThan(before);
+  } finally {
+    await act(async () => root.unmount());
+    jest.useRealTimers();
   }
 });

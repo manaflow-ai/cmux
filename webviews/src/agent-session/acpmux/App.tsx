@@ -2132,7 +2132,7 @@ export function VirtualTranscript({
   // stack changes height.
   const followingRef = useRef(true);
   const followDeferred = useRef(false);
-  const [, resumeDeferredFollow] = useReducer((count: number) => count + 1, 0);
+  const [followResume, resumeDeferredFollow] = useReducer((count: number) => count + 1, 0);
   const follow = (next: boolean) => {
     followingRef.current = next;
     onFollowingChange?.(next);
@@ -3289,7 +3289,20 @@ export function VirtualTranscript({
     // The minimap's band reads the offset this pass settled on.
     minimapPlaced.current?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
-  }, [layout, rows, range.first, height, width, dockSpace, room, lift, sessionId, seekExpired, canLoadOlder]);
+  }, [
+    layout,
+    rows,
+    range.first,
+    height,
+    width,
+    dockSpace,
+    room,
+    lift,
+    sessionId,
+    seekExpired,
+    canLoadOlder,
+    followResume,
+  ]);
   // A toggled "Worked for" plays when its rows are placed again (watchTurnFold, started at the
   // toggle), not on every render. A render only checks, in O(1), whether the fold is over or another
   // chat shows, so nothing of it is left drawn over the new rows.
