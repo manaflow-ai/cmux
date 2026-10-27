@@ -448,31 +448,47 @@ impl Hub {
     }
 
     /// Whether `session`'s agent counts as in full access under MDM's off: by what acpmux keeps
-    /// of it or its left host reported (`runs_full_access_by_any_record`), or because an end of it failed and its host may still run
-    /// (`FloorState::full_access_end_pending`, review 51 of #23322).
+    /// of it or its left host reported (`runs_full_access_by_records`), because an end of it
+    /// failed and its host may still run (`FloorState::full_access_end_pending`, review 51 of
+    /// #23322), or because the host records cannot be read while this daemon hears no agent of it
+    /// (`host_unknown`).
     async fn counts_as_full_access(&self, session: &Session) -> bool {
-        session.floor.full_access_end_pending.load(Ordering::SeqCst)
-            || self.runs_full_access_by_any_record(session)
+        if session.floor.full_access_end_pending.load(Ordering::SeqCst) {
+            return true;
+        }
+        let records = Self::read_host_records();
+        Self::host_unknown(session, records.as_ref()).await
+            || self.runs_full_access_by_records(session, records.as_ref())
+    }
+
+    /// Whether the host records could not be read (`records`) while `session` has no agent this
+    /// daemon hears: a host a restart left may run unadopted, and what it kept in its buffer is in
+    /// no log, so under MDM's off it counts as full access until the records can be read and the
+    /// host ended (review 3 of #26055). An agent this daemon hears is judged by what it reported.
+    async fn host_unknown(session: &Session, records: Option<&super::hosts::HostRecords>) -> bool {
+        if records.is_some() {
+            return false;
+        }
+        let child = session.child.lock().await.clone();
+        match child {
+            Some(child) => !child.is_alive().await,
+            None => true,
+        }
     }
 
     /// Whether `session`'s agent runs in full access by what acpmux keeps of it, or, for a host a
-    /// restart left, by what that host reported since it started (`reported_by_left_host`). Once
-    /// that read finds no full access, what this daemon keeps is complete (every later report
+    /// restart left, by what that host reported since it started (`reported_by_left_host`);
+    /// `records`, the host records as read (`read_host_records`), None when they could not be.
+    /// Once that read finds no full access, what this daemon keeps is complete (every later report
     /// reaches it live), so the log is read once per host, not at each check
     /// (`FloorState::left_host_read`, cleared at each `host_started`), kept and trusted only while
     /// the host records can be read (review 69): records that cannot may leave a live host
-    /// unproven, so its log is read again at each check meanwhile. A host whose own record this build cannot read is
-    /// never adopted, so its log does not hear what it did since: under MDM's off it counts as in
-    /// full access (review 2 of #26055). A log that cannot be read
-    /// says nothing either way: under MDM's off the host counts as in full access (review 61).
-    /// Host records that cannot be read do not prove the host gone, so its log is read back then
-    /// too (`host_record_gone`, review 67).
-    fn runs_full_access_by_any_record(&self, session: &Session) -> bool {
-        self.runs_full_access_by_records(session, Self::read_host_records().as_ref())
-    }
-
-    /// `runs_full_access_by_any_record` with the host records as read (`read_host_records`):
-    /// None when they could not be read.
+    /// unproven, so its log is read again at each check meanwhile. A host whose own record this
+    /// build cannot read is never adopted, so its log does not hear what it did since: under MDM's
+    /// off it counts as in full access (review 2 of #26055). A log that cannot be read says nothing
+    /// either way: under MDM's off the host counts as in full access (review 61). Host records
+    /// that cannot be read do not prove the host gone, so its log is read back then too
+    /// (`host_record_gone`, review 67).
     fn runs_full_access_by_records(
         &self,
         session: &Session,
