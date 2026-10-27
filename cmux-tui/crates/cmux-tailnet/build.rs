@@ -17,6 +17,9 @@ const REPO: &str = "https://github.com/tailscale/libtailscale";
 const PINNED: &str = "d1dc45d039edb7759ecbee6ba2aea0c4bca884b8";
 
 fn main() {
+    if std::env::var("CARGO_CFG_UNIX").is_err() {
+        return;
+    }
     println!("cargo:rerun-if-env-changed=LIBTAILSCALE_A");
     println!("cargo:rerun-if-env-changed=LIBTAILSCALE_SRC");
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());

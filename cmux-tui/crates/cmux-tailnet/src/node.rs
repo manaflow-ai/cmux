@@ -166,7 +166,7 @@ impl Node {
                 let addr = unsafe { CStr::from_ptr(addr.as_ptr()) }.to_string_lossy().into_owned();
                 let local =
                     unsafe { CStr::from_ptr(local.as_ptr()) }.to_string_lossy().into_owned();
-                Ok(LocalApi::new(&addr, &local))
+                LocalApi::new(&addr, &local).map_err(|e| e.0)
             })
             .as_ref()
             .map_err(|message| Error(message.clone()))
