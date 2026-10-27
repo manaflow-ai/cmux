@@ -45,6 +45,8 @@ import {
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import * as subagentGroup from "../src/agent-session/acpmux/subagents/SubagentGroup";
 import * as tones from "../src/agent-session/acpmux/subagents/agentTones";
+import { openSourceFile } from "../src/agent-session/acpmux/inspector/SourcesSection";
+import { NativeError } from "../src/agent-session/acpmux/nativeError";
 import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
 
@@ -204,9 +206,11 @@ test("Inspector Sources navigate mixed targets and preserve expansion during str
     { label: "PR", kind: "pullRequest" as const, url: "https://github.com/acme/app/pull/1" },
     { label: "Issue", kind: "issue" as const, url: "https://github.com/acme/app/issues/2" },
     { label: "Docs", kind: "url" as const, url: "https://example.test/docs" },
-    { label: "src/app.ts", kind: "file" as const },
+    { label: "src/../app.ts", kind: "file" as const },
+    { label: "/project/.claude/worktrees/a/README.md", kind: "file" as const },
+    { label: "../../../README.md", kind: "file" as const },
     { label: "/shared/README.md", kind: "file" as const },
-    { label: "MCP read", kind: "mcp" as const },
+    { label: "/project/.claude/worktrees/another/file", kind: "file" as const },
   ];
   const urls: string[] = [];
   const files: string[] = [];
@@ -215,7 +219,7 @@ test("Inspector Sources navigate mixed targets and preserve expansion during str
       root ??= createRoot(container);
       root.render(
         <ChatInspector
-          summary={{ sessionId: "chat", cwd: "/project" }}
+          summary={{ sessionId: "chat", cwd: "/project/.claude/worktrees/a" }}
           rows={rows}
           made={{ outputs: [], pullRequests: [], scheduled: [], sources }}
           onOpenUrl={(url) => urls.push(url)}
@@ -231,17 +235,61 @@ test("Inspector Sources navigate mixed targets and preserve expansion during str
   for (const button of container.querySelectorAll<HTMLButtonElement>("ul[data-section=sources] button"))
     await click(button);
   expect(urls).toEqual(sources.slice(0, 3).map((source) => source.url!));
-  expect(files).toEqual(["/project/src/app.ts", "/shared/README.md"]);
+  expect(files).toEqual(["/project/.claude/worktrees/a/app.ts", "/project/.claude/worktrees/a/README.md"]);
   await click(fold());
-  expect(list()).toHaveLength(6);
+  expect(list()).toHaveLength(8);
+  expect(container.querySelectorAll("ul[data-section=sources] button")).toHaveLength(2);
   expect(fold().textContent).toContain("Show fewer");
   for (let chunk = 1; chunk <= 3; chunk++) {
     await draw([{ ...assistant("stream".repeat(chunk), 1), streaming: true }]);
-    expect(list()).toHaveLength(6);
+    expect(list()).toHaveLength(8);
   }
   await click(fold());
   expect(list()).toHaveLength(5);
   expect(fold().getAttribute("aria-expanded")).toBe("false");
+});
+
+test("file Sources use native editor fallback and show a transient failure", async () => {
+  const container = installDom(true);
+  const calls: unknown[] = [];
+  const native = async (method: string, params: Record<string, unknown>) => {
+    calls.push([method, params]);
+    if (params.where === "tab" || params.path === "/project/missing")
+      throw new NativeError({ code: "transport.path_invalid", userMessage: "Could not open file" });
+  };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ChatInspector
+        summary={{ sessionId: "chat", cwd: "/project" }}
+        made={{
+          outputs: [],
+          pullRequests: [],
+          scheduled: [],
+          sources: ["page.html", "icon.svg", "Dockerfile", "missing"].map((label) => ({ label, kind: "file" })),
+        }}
+        onOpenSourceFile={(path) => openSourceFile(path, native)}
+      />,
+    );
+  });
+  let expire: (() => void) | undefined;
+  const timer = spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void) => {
+    expire = callback;
+    return 1;
+  }) as typeof setTimeout);
+  try {
+    for (const button of container.querySelectorAll<HTMLButtonElement>("ul[data-section=sources] button"))
+      await click(button);
+    for (const path of ["page.html", "icon.svg", "Dockerfile", "missing"])
+      expect(calls.splice(0, 2)).toEqual(
+        ["tab", "editor"].map((where) => ["file.open", { path: `/project/${path}`, where }]),
+      );
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("Could not open file");
+    await act(async () => expire!());
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  } finally {
+    timer.mockRestore();
+  }
 });
 
 test("the Inspector starts right under the header: no row for a machine and folder label", () => {
