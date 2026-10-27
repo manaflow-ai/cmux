@@ -233,4 +233,42 @@ struct SessionPriorityPaneTrackingTests {
         #expect(!active)
         #expect(state.lastTurnEndedAtMs[pane] == 1_000)
     }
+
+    // MARK: - A pane left alone shows no stale hold (E2E O4)
+
+    /// After a relaunch the pane was held for an undrawn screen, then its redrawn `/effort` made
+    /// it manual: its detail is the manual signal, not the old hold.
+    @Test
+    func becomingManualClearsTheLastHold() {
+        var state = SessionPriorityCoordinatorState()
+        state.follow(panelId: pane, sessionId: "s1")
+        state.noteRestartStarted(panelId: pane, sessionId: "s1", target: high, nowMs: 0)
+        _ = state.noteResult(panelId: pane, .held(.unknownScreen), nowMs: 1_000)
+        let heldDetail = state.records[pane]?.lastResultDescription
+
+        let paneState = state.noteDecision(
+            .leave(.manual(.userCommandOnScreen)),
+            panelId: pane,
+            workspaceId: UUID(),
+            sessionId: "s1"
+        )
+
+        #expect(heldDetail == "held.unknownScreen")
+        #expect(paneState == .manual(.userCommandOnScreen))
+        #expect(state.records[pane]?.lastResultDescription == nil)
+    }
+
+    /// A `/effort` found in the transcript right before a restart makes the pane manual too.
+    @Test
+    func manualChangeInTheTranscriptClearsTheLastHold() {
+        var state = SessionPriorityCoordinatorState()
+        state.follow(panelId: pane, sessionId: "s1")
+        state.noteRestartStarted(panelId: pane, sessionId: "s1", target: high, nowMs: 0)
+        _ = state.noteResult(panelId: pane, .held(.draft), nowMs: 1_000)
+
+        state.noteManualChangeInTranscript(panelId: pane)
+
+        #expect(state.records[pane]?.state == .manual(.userCommandOnScreen))
+        #expect(state.records[pane]?.lastResultDescription == nil)
+    }
 }
