@@ -81,7 +81,8 @@ nonisolated func arrivedOnASystemCall(_ context: UnsafeMutableRawPointer?) -> Bo
 ///   whether a requested quit had begun (`markQuitting`).
 /// - `run.signal`: empty until a fatal signal handler writes its number.
 ///
-/// A normal quit removes both. A quit that had begun, or a requested-quit signal
+/// A normal quit leaves `run.json` marked `quitting` (Chrome's beacon written clean, so the next launch reads a clean
+/// end, not a first launch) and removes `run.signal`. A quit that had begun, or a requested-quit signal
 /// (`LaunchRecovery.requestedQuitSignals`), counts as a quit that was asked for, even when the process is then killed
 /// before it ends.
 ///
@@ -250,14 +251,20 @@ final class AppRunMarker {
         await file.written(lastTicket, timeout: timeout)
     }
 
-    /// A normal quit: the next launch is clean.
+    /// A normal quit: the next launch reads this run as quit (``PreviousRun/endedAsAsked``), its outcome `clean`.
     func markCleanExit() {
         survival?.cancel()
         let descriptor = fatalSignalDescriptor
         fatalSignalDescriptor = -1
         if descriptor >= 0 { close(descriptor) }
+        marker.quitting = true
+        let record: Data?
+        do { record = try Self.encode(marker) } catch {
+            logger.error("run marker clean record encode failed: \(String(describing: error), privacy: .public)")
+            record = nil
+        }
         // First: it waits for the writer's queue, which runs the launch's takeover that names the exception file.
-        file.close()
+        file.close(leaving: record)
         UncaughtExceptionRecorder.uninstall()
         // SAFETY: unlink reads the NUL-terminated copy of the path Swift makes for the call.
         unsafe unlink(exceptionFile.path)

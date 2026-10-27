@@ -78,7 +78,7 @@ nonisolated final class RunMarkerFile: Sendable {
     }
 
     /// True once `ticket` is on disk; false when `timeout` passes first.
-    /// After `close` it answers true: the file was removed on purpose.
+    /// After `close` it answers true: the quit's record replaced it on purpose.
     func written(_ ticket: UInt64, timeout: Duration) async -> Bool {
         // timer-class-allow: off-main: the quit's bounded wait (flexible, no sooner) only resumes a continuation under the file's lock; it posts no main-thread job
         let deadline = DemandTimer(owner: "run-marker.write")
@@ -99,21 +99,25 @@ nonisolated final class RunMarkerFile: Sendable {
         }) ?? false
     }
 
-    /// Removes `run.json` and `run.signal` after any write in progress, and
-    /// writes nothing more (a normal quit). Called at exit: it waits for at
-    /// most one in-flight write of about 100 bytes without fsync.
-    func close() {
+    /// A normal quit: after any write in progress, writes `final` as
+    /// `run.json` (the clean record the next launch reads), removes
+    /// `run.signal`, and writes nothing more. With no `final`, or when its
+    /// write fails, `run.json` is removed instead, so a live record never
+    /// stays. Called at exit: it waits for at most one in-flight write and
+    /// writes about 120 bytes, without fsync.
+    func close(leaving final: Data? = nil) {
         let waiters = state.withLock { state in
             state.closed = true
             defer { state.waiters = [] }
             return state.waiters
         }
         for waiter in waiters { waiter.continuation.resume(returning: true) }
-        // At exit only (AppKit's applicationWillTerminate): waits for at most one in-flight write (no fsync).
+        // At exit only (AppKit's applicationWillTerminate): one small write and two unlinks at most (no fsync).
         allowBlocking(.terminate) {
             queue.blockingSync {
+                let kept = final.map { data in (try? writer(data, url)) != nil } ?? false
                 // SAFETY: unlink reads the NUL-terminated copy of each path Swift makes for the call.
-                unsafe unlink(url.path)
+                if !kept { unsafe unlink(url.path) }
                 unsafe unlink(signalURL.path)
             }
         }

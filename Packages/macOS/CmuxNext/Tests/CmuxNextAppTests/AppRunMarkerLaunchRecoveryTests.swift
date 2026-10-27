@@ -53,10 +53,14 @@ struct AppRunMarkerLaunchRecoveryTests {
         #expect(first.recovery == .clean && first.previousExit == nil)
         #expect(!first.marker.recovery)
         #expect(FileManager.default.fileExists(atPath: folder.appending(path: "run.json").path), "this run is marked on disk")
-        // A clean exit removes the marker and the signal file (RunMarkerFile.close).
-        try FileManager.default.removeItem(at: folder.appending(path: "run.json"))
+        // A clean exit leaves the marker marked quitting and removes the signal file (AppRunMarker.markCleanExit).
+        var quit = first.marker
+        quit.quitting = true
+        try RunMarkerFile.replaceAtomically(AppRunMarker.encode(quit), to: folder.appending(path: "run.json"))
         try FileManager.default.removeItem(at: folder.appending(path: "run.signal"))
-        #expect(try Self.launch(folder).recovery == .clean)
+        let afterQuit = try Self.launch(folder)
+        #expect(afterQuit.recovery == .clean && afterQuit.previousExit == nil)
+        #expect(afterQuit.previous?.endedAsAsked == true, "the next launch reads the quit, not a first launch")
     }
 
     @Test("One crash restores everything; a second quick crash restores without browser pages")
