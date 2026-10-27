@@ -105,6 +105,24 @@ export type RunArtifactView = {
   readonly createdAt: string;
 };
 
+/**
+ * Where a Run executes (hq#3367). `persistent` is the existing fan-out path. `sandboxed` boots
+ * one VM from a pinned manifest image, runs one task and destroys the VM on every exit path; it
+ * is never promoted, paused or retained for attach.
+ */
+export const RUN_ENVIRONMENTS = ["persistent", "sandboxed"] as const;
+export type RunEnvironment = (typeof RUN_ENVIRONMENTS)[number];
+
+/** A sandbox attempt whose lease lapsed this long ago lost its controller; the reaper fails it. */
+export const SANDBOX_ABANDONED_GRACE_MS = 2 * 60_000;
+/**
+ * After a sandbox's terminal event, how long its launcher has to record the outcome and hand the
+ * VM to the reaper (which makes it due at once) before the reaper takes it anyway.
+ */
+export const SANDBOX_HANDOFF_GRACE_MS = 2 * 60_000;
+/** A queued sandbox attempt never leased within this window never will be. */
+export const SANDBOX_QUEUED_ABANDON_MS = 16 * 60_000;
+
 /** Every sandbox VM's create key starts with this; the VM workflows refuse pause, snapshot and fork on it. */
 export const SANDBOX_VM_IDEMPOTENCY_PREFIX = "sandbox-run:";
 
@@ -134,6 +152,9 @@ export function isSandboxRunVm(vm: { readonly idempotencyKey: string | null; rea
 export type RunView = {
   readonly id: string;
   readonly status: RunStatus;
+  readonly environment: RunEnvironment;
+  /** The pinned manifest image of a sandboxed Run; null for persistent Runs. */
+  readonly image: { readonly id: string; readonly version: string | null } | null;
   readonly recipe: string;
   readonly desiredAttempts: number;
   readonly source: ImmutableRunSource;
