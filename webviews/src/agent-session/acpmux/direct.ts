@@ -31,7 +31,7 @@ import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { hasInlineMarks, promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
-import { carryInline, inlinePrompt, recordedPromptParts, restoreInline } from "./inlinePrompt";
+import { carryInline, inlinePrompt, recordedPromptParts, restoreInline, stripFileDisplay } from "./inlinePrompt";
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
@@ -4186,6 +4186,7 @@ export class AcpmuxDirectClient {
     const options = { dropped: (id: string) => dropped.has(id) };
     const blocks = promptBlocks(input, sendAttachments, options);
     const inline = inlinePrompt(input, sendAttachments);
+    const fileDisplay = inline?.display ?? stripFileDisplay(blocks, sendAttachments);
     const { text, pasted } = inline
       ? blocks.reduce(
           (shown, block) => {
@@ -4332,7 +4333,7 @@ export class AcpmuxDirectClient {
             promptId,
             ...(steer ? { steer: true } : {}),
             ...(context ? { context } : {}),
-            ...(inline ? { inlineParts: inline.display } : {}),
+            ...(fileDisplay.length ? { inlineParts: fileDisplay } : {}),
             ...promptSurfaceMeta(),
           },
           ...(ticket ? { cmuxGesture: ticket } : {}),

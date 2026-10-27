@@ -534,3 +534,44 @@ button.acpmux-attachment-pasted-open:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px color-mix(in srgb, #000 30%, transparent);
 }
+
+/* One file body in the composer and transcript. The name yields before its extension or size. */
+.acpmux-attachment-file:has(> .acpmux-file-chip) {
+  max-width: min(340px, 72vw);
+  padding: 0;
+}
+.acpmux-file-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--acpmux-attach-gap);
+  min-width: 0;
+  max-width: min(340px, 72vw);
+  height: 32px;
+  padding: 0 8px;
+  color: var(--agent-text);
+  vertical-align: middle;
+}
+.acpmux-file-chip--removable { padding-right: 32px; }
+.acpmux-file-chip > svg { flex: none; color: var(--agent-muted); }
+.acpmux-file-chip .acpmux-file-chip__name { display: flex; min-width: 0; }
+.acpmux-file-chip .acpmux-file-chip__head {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-file-chip .acpmux-file-chip__tail { flex: none; overflow: visible; }
+.acpmux-file-chip .acpmux-file-chip__size {
+  flex: none;
+  overflow: visible;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  white-space: nowrap;
+}
+.cv-user__files { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.cv-user__files > .acpmux-file-chip {
+  border: 1px solid var(--agent-border);
+  border-radius: var(--ui-radius-control);
+  background: var(--agent-control);
+}

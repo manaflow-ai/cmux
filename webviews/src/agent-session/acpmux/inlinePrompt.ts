@@ -251,3 +251,31 @@ function localPath(value: string): string {
     throw new Error("Attachment is not a local file");
   return decodeURIComponent(uri.pathname);
 }
+
+/** Display metadata for strip-mode file links. It follows the actual ACP block indexes, so
+ * acpmux persists the same filename and byte count without changing the prompt or its order. */
+export function stripFileDisplay(blocks: readonly PromptBlock[], attachments: readonly ComposerAttachment[]) {
+  const files = new Map(
+    attachments.flatMap((file) =>
+      file.kind === "link" && !file.mimeType.startsWith("video/")
+        ? attachmentBlocks(file).flatMap((block) =>
+            block.type === "resource_link" ? [[block.uri, file] as const] : [],
+          )
+        : [],
+    ),
+  );
+  return blocks.flatMap((block, blockIndex) => {
+    const file = block.type === "resource_link" ? files.get(block.uri) : undefined;
+    return file
+      ? [
+          {
+            kind: "file",
+            blockIndex,
+            name: file.name,
+            mimeType: file.mimeType,
+            ...(file.mimeType || file.size > 0 ? { size: file.size } : {}),
+          },
+        ]
+      : [];
+  });
+}

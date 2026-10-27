@@ -284,3 +284,49 @@ test("strip echo Retry and Edit retain local bytes, original path and video", as
     io.client.close?.();
   }
 });
+
+test("strip-mode files keep type and byte count in the actual prompt metadata and echoed row", async () => {
+  const io = await connect();
+  const file: ComposerAttachment = {
+    id: "pem",
+    kind: "link",
+    name: "production-key.pem",
+    mimeType: "application/x-pem-file",
+    size: 2048,
+    path: "/tmp/production-key.pem",
+  };
+  try {
+    await io.client.send("Use this key", [file]);
+    const sent = io.sent[0];
+    const blockIndex = sent.prompt.findIndex((block: any) => block.type === "resource_link");
+    expect(sent._meta.acpmux.inlineParts).toEqual([
+      { kind: "file", blockIndex, name: file.name, mimeType: file.mimeType, size: 2048 },
+    ]);
+    io.emit(sent.sessionId, {
+      mux: "user_message",
+      msg: {
+        seq: 401,
+        at: 1,
+        promptId: sent._meta.acpmux.promptId,
+        text: "Use this key",
+        inlineParts: [
+          { kind: "text", text: "Use this key" },
+          { kind: "file", name: file.name, mimeType: file.mimeType, size: 2048, uri: "file:///tmp/production-key.pem" },
+        ],
+      },
+    });
+    await settle(() =>
+      io.rows().some((row) => row.inlineParts?.some((part) => part.kind === "file" && part.name === file.name)),
+    );
+    expect(
+      io.rows().find((row) => row.inlineParts?.some((part) => part.kind === "file" && part.name === file.name))
+        ?.inlineParts?.[1],
+    ).toMatchObject({
+      kind: "file",
+      name: file.name,
+      size: 2048,
+    });
+  } finally {
+    io.client.close();
+  }
+});
