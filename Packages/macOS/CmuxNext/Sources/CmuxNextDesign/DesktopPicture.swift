@@ -3,6 +3,7 @@ import CmuxNextCompat
 public import Foundation
 import ImageIO
 import UniformTypeIdentifiers
+public import CmuxNextAppearance
 
 /// The picture cmux shows for ``BackdropSelection/desktop``: the file macOS reports for the
 /// screen when it is a readable picture, else what the desktop shows without one.

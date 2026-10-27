@@ -1,4 +1,4 @@
-import CmuxNextDesign
+import CmuxNextDesignTokens
 import CmuxNextSettings
 import Foundation
 import Testing

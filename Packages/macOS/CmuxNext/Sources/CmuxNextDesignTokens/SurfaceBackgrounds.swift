@@ -1,5 +1,4 @@
 public import CmuxTheme
-public import CmuxNextDesignTokens
 
 /// A part of the window whose background the user may change
 /// (`appearance.surfaces.<surface>` in cmux.json, Lawrence R55;
@@ -45,11 +44,12 @@ public nonisolated struct SurfaceBackground: Hashable, Sendable {
     public var isEmpty: Bool { color == nil && opacity == nil }
 }
 
-/// Every surface override, and the one resolver each surface's owner paints
-/// from (never a view's own color math).
+/// Every surface override. Each surface's owner paints from one resolver,
+/// `fill(for:tokens:windowTint:)` (CmuxNextDesign, over the window's backdrop),
+/// never a view's own color math.
 ///
 /// A surface with no override keeps R48: it shows the window's one
-/// backdrop, so its owner paints what it painted before (``fill(for:tokens:)``
+/// backdrop, so its owner paints what it painted before (`fill(for:tokens:)`
 /// is nil). With an override the owner paints the returned color over the
 /// window's backdrop:
 ///
@@ -75,37 +75,6 @@ public nonisolated struct SurfaceBackgrounds: Hashable, Sendable {
     public static let none = SurfaceBackgrounds()
 
     public subscript(kind: SurfaceKind) -> SurfaceBackground? { overrides[kind] }
-
-    /// What `kind`'s owner paints over the window's backdrop, or nil when
-    /// the surface has no override.
-    ///
-    /// - Parameter kind: The surface.
-    /// - Parameter tokens: The theme tokens of the surface's scope (its
-    ///   background color, `background-opacity` and blur).
-    /// - Parameter windowTint: The tint the window shows under the surface
-    ///   (``WindowBackdrop/tintOpacity``); over a background picture that is
-    ///   the picture's tint, not `background-opacity`. nil reads the tokens'
-    ///   own (no picture).
-    public func fill(for kind: SurfaceKind, tokens: ThemeTokens, windowTint: Double? = nil) -> ThemeRGB? {
-        guard let override = overrides[kind], !override.isEmpty else { return nil }
-        let window = windowTint ?? WindowBackdrop(tokens).tintOpacity
-        if let color = override.color {
-            return color.withAlpha(color.alpha * (override.opacity ?? window))
-        }
-        let target = override.opacity ?? window
-        // Over the tint (alpha `window`), alpha x of the same color covers
-        // window + x * (1 - window) = target.
-        let alpha = window >= 1 || target <= window ? 0 : (target - window) / (1 - window)
-        return tokens.surfaceBackground.withAlpha(alpha)
-    }
-
-    /// `fill(for:tokens:)` laid over an opaque `base`, for owners that
-    /// must paint an opaque color (a docked column hides what scrolls under
-    /// it); `base` itself without an override.
-    public func opaqueFill(for kind: SurfaceKind, tokens: ThemeTokens, base: ThemeRGB, windowTint: Double? = nil) -> ThemeRGB {
-        guard let fill = fill(for: kind, tokens: tokens, windowTint: windowTint) else { return base }
-        return fill.composited(over: base.withAlpha(1))
-    }
 
     /// Whether the terminal has an override. Terminals then draw a
     /// transparent default background in every window, so their owner's

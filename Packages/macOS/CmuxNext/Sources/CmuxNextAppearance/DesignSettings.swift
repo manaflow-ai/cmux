@@ -1,7 +1,6 @@
-public import CoreGraphics
-public import Observation
-import Foundation
 public import CmuxNextDesignTokens
+public import Foundation
+public import Observation
 
 /// Metrics a user may override individually on top of a density preset.
 /// Raw values are the cmux.json keys under `appearance.metrics`.
@@ -62,7 +61,14 @@ public final class DesignSettings {
     public var interfaceScale: CGFloat = 1
     /// Whether `interfaceScale` applies: the Debug Settings toggle `chrome.interfaceSize`, off by
     /// default (and always off in Release, where the tunable store is inert).
-    public var interfaceScaleEnabled: Bool { ChromeTunables.interfaceSize.override ?? false }
+    public var interfaceScaleEnabled: Bool { Self.interfaceSizeTunable.override ?? false }
+    /// The Debug Settings toggle `chrome.interfaceSize` (listed with the chrome tunables as
+    /// `ChromeTunables.interfaceSize`).
+    // @intent opt-in looks live in Debug Settings, off by default, until promoted (Lawrence via Leo, 2026-10-15).
+    public nonisolated static let interfaceSizeTunable = Tunable<Bool>.toggle(
+        "chrome.interfaceSize", .shape, "Interface size",
+        help: "Scale chrome type, spacing and control heights together by appearance.interfaceScale (90, 100, 110 or 125%). Off: 100%.",
+        default: false, code: "ChromeTunables.interfaceSize")
     /// Sets the `--cmux-interface-scale` token web chrome reads: the multiplier, or 1 when it is off.
     public var interfaceScaleScript: String {
         "document.documentElement.style.setProperty('--cmux-interface-scale', '\(interfaceScaleEnabled ? interfaceScale : 1)')"
@@ -162,14 +168,15 @@ public final class DesignSettings {
     }
     /// `ui.calm` (``CalmMode``): Reduce Motion behavior, no hover cards and no hover fills, and
     /// with `still` no animation at all. A change raises the motion, Reduce Motion and hover-card
-    /// signals, so cached motion values re-read and a shown card goes at once.
+    /// signals, so cached motion values re-read and a shown card goes at once, then
+    /// ``AppearanceSignals/Signal/themeRepaint``, so the windows repaint with the values they re-read.
     public var calmMode: CalmMode = .off {
         didSet {
             guard calmMode != oldValue else { return }
             var changed: Set<AppearanceSignals.Signal> = [.motion, .hoverCards]
             if calmMode.reducesMotion != oldValue.reducesMotion { changed.insert(.reduceMotion) }
             signals.designChanged(changed)
-            ThemeScope.app.store.repaintAll()
+            signals.designChanged([.themeRepaint])
         }
     }
     /// Hover cards open on hover: `sidebar.hoverCards.enabled` and not calm mode.
@@ -237,9 +244,9 @@ public final class DesignSettings {
     /// neither names one (Ghostty's built-in face). Pages that show code follow it (`WebTheme`).
     public var effectiveTerminalFontFamily: String? { terminalFontFamily ?? terminalConfigFontFamily }
     /// Pages that show code draw in the terminal's face (`WebTheme.Terminal`): a change of it
-    /// repaints, so every page resends its theme.
+    /// raises ``AppearanceSignals/Signal/themeRepaint``, so every page resends its theme.
     private func repaintIfTerminalFaceChanged(from before: String?) {
-        if effectiveTerminalFontFamily != before { ThemeScope.app.store.repaintAll() }
+        if effectiveTerminalFontFamily != before { signals.designChanged([.themeRepaint]) }
     }
     /// `status.*`: inferred command busy and run notifications.
     public var statusBehavior = StatusBehaviorSettings()
@@ -292,7 +299,7 @@ public final class DesignSettings {
     }
 
     /// Settings whose ``signals`` read the display options from `display` (tests).
-    init(display: @escaping @MainActor () -> AppearanceSignals.DisplayOptions) {
+    package init(display: @escaping @MainActor () -> AppearanceSignals.DisplayOptions) {
         readDisplay = display
     }
 

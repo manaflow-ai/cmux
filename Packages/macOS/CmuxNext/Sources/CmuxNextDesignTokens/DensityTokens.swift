@@ -1,4 +1,3 @@
-public import CoreGraphics
 public import Foundation
 
 /// One density: the single token set that sizes chrome (rows, tabs, insets, radii, icons and

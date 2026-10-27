@@ -1,4 +1,4 @@
-import CmuxNextDesign
+import CmuxNextDesignTokens
 
 /// `appearance.focusIndicator` and `focus.inactiveTabStyle` in cmux.json. A missing key is the default with no diagnostic; a bad value
 /// is the default plus a diagnostic.

@@ -1,4 +1,4 @@
-import CmuxNextDesign
+import CmuxNextDesignTokens
 
 /// The defaults a new agent chat starts with (Agents > Agent Chat). acpmux
 /// reads `agents.defaultPermissionMode` at each new chat

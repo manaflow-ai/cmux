@@ -1,4 +1,4 @@
-import CmuxNextDesign
+import CmuxNextDesignTokens
 
 /// The Settings rows of `browser.links.*` (Browser > Links), kept out of
 /// `SettingsSchema` so its catalog stays within the type budget.

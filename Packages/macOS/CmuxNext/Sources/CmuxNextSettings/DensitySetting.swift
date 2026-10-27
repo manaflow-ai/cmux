@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 import Foundation
 
 /// `appearance.density` in cmux.json: a built-in density's id (``DensityPreset``) or the id of

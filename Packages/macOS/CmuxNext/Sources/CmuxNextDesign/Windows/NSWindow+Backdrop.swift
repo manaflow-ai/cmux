@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 extension NSWindow {
     /// The window half of the one backdrop (plans/cmux-next/windows.md):

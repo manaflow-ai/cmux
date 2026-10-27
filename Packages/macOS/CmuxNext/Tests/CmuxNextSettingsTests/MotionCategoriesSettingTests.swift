@@ -1,5 +1,6 @@
 import CmuxNextActions
-import CmuxNextDesign
+import CmuxNextAppearance
+import CmuxNextDesignTokens
 @testable import CmuxNextSettings
 import Testing
 

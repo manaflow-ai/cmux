@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 import CoreGraphics
 
 /// Parses the pane chrome keys under `layout` in cmux.json:

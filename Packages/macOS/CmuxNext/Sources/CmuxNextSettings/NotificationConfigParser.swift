@@ -1,5 +1,5 @@
 import CmuxNextCompat
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// `notifications.*` in cmux.json (the attention ring is
 /// `PaneRingConfigParser.attention`). A bad value keeps its default with a

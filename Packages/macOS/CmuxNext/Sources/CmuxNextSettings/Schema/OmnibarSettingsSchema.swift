@@ -1,4 +1,4 @@
-import CmuxNextDesign
+import CmuxNextDesignTokens
 
 /// The Settings rows of the address bar's suggestion keys (Browser > Address
 /// Bar), kept out of `BrowserSettingsSchema` so its catalog stays small.

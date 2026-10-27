@@ -1,4 +1,4 @@
-import CmuxNextDesign
+import CmuxNextDesignTokens
 
 /// The tab overflow and width rows of the Tabs group (`tabs.overflow`, `appearance.metrics.tabMaxWidth`, `tabMinActiveWidth`,
 /// `tabMinInactiveWidth`, `tabPinnedWidth`; Lawrence 2026-10-15: "keep chrome's minimums but needs to

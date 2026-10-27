@@ -1,5 +1,6 @@
 import CmuxNextCompat
 public import Foundation
+public import CmuxNextAppearance
 
 /// One macOS wallpaper as the Wallpaper pane lists it: a picture file in Desktop Pictures, or a
 /// `.madesktop` description of one that macOS downloads when the person first picks it. Read

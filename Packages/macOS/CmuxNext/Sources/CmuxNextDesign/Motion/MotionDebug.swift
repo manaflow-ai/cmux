@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextWakeups
 public import CmuxNextDesignTokens
+public import CmuxNextAppearance
 
 /// `debug.motion` (DEBUG builds register it; `DebugMotion` in CmuxNextApp is its wiring):
 /// `start` begins recording animation spans, `read` returns them, `stop` returns them and

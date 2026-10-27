@@ -1,4 +1,4 @@
-import CmuxNextDesign
+import CmuxNextDesignTokens
 
 /// Email verification AutoFill in cmux.json (plans/cmux-next/email-verification-autofill/DESIGN.md):
 ///

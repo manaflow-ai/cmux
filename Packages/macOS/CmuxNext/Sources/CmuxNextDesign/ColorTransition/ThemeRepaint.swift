@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextWakeups
+import CmuxNextDesignTokens
 
 /// A color property of a layer that a theme repaint blends (I5, cx-8w027.3).
 nonisolated enum LayerColor: String, CaseIterable {

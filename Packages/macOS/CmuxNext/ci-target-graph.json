@@ -451,6 +451,18 @@
         "webviews/test/fixtures/new-tab-intents.json"
       ]
     },
+    "CmuxNextAppearance": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAppearance",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextDesignTokens",
+        "CmuxNextWakeups"
+      ],
+      "packages": [
+        "CmuxTheme"
+      ]
+    },
     "CmuxNextApps": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApps",
@@ -879,6 +891,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign",
       "targets": [
         "CCmuxAppFFI",
+        "CmuxNextAppearance",
         "CmuxNextCompat",
         "CmuxNextDesignTokens",
         "CmuxNextIcons",
@@ -1641,8 +1654,9 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextAppearance",
         "CmuxNextCompat",
-        "CmuxNextDesign",
+        "CmuxNextDesignTokens",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -1652,7 +1666,9 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextAppearance",
         "CmuxNextDesign",
+        "CmuxNextDesignTokens",
         "CmuxNextSettings"
       ],
       "packages": [],

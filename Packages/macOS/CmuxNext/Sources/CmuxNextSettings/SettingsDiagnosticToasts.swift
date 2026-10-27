@@ -1,6 +1,6 @@
 import CmuxNextActions
 import CmuxNextCompat
-import CmuxNextDesign
+import CmuxNextDesignTokens
 import Foundation
 
 /// Tells the person when cmux-next.json holds a value this build refuses
@@ -93,9 +93,10 @@ final class SettingsDiagnosticToasts {
         var message = SettingsDiagnosticStrings.message(notice, valueLimit: Self.valueLimit)
         if more { message += " " + SettingsDiagnosticStrings.more }
         let destination = Self.destination(notice.path)
-        let action = CmuxToast.Action(title: destination == .file ? SettingsDiagnosticStrings.openFile : SettingsDiagnosticStrings.showInSettings)
-        let toast = CmuxToast(id: Self.toastID, message: message, action: action,
-                              duration: style == .untilClosed ? CmuxToast.untilClosed : .seconds(12))
+        let toast = SettingsDiagnosticToast(
+            id: Self.toastID, message: message,
+            actionTitle: destination == .file ? SettingsDiagnosticStrings.openFile : SettingsDiagnosticStrings.showInSettings,
+            duration: style == .untilClosed ? nil : .seconds(12))
         return presenter.show(toast) { [weak registry = self.registry] in
             guard let registry else { return }
             switch destination {

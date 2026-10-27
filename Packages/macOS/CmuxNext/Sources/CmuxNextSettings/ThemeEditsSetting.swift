@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// `appearance.themeEdits` in cmux.json (cx-wqn5): per-token color edits to a theme, one entry per
 /// edited token, keyed `"<theme>/<token>"`: `{"Rose Pine/background": "#1f1d2e", "Rose Pine/4":

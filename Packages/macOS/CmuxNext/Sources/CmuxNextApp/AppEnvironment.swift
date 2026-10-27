@@ -6,6 +6,7 @@ import CmuxNextFeatures
 import CmuxNextHomeEngine
 import CmuxNextLaunch
 import CmuxNextTerminal
+import CmuxNextWakeups
 import Foundation
 
 /// How this process was launched. Identity (bundle, tag, control socket)

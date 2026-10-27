@@ -1,5 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-import CmuxNextDesign
+import CmuxNextAppearance
 import CmuxNextSettings
 import CryptoKit
 import Foundation

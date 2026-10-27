@@ -1,4 +1,4 @@
-import CmuxNextDesign
+import CmuxNextDesignTokens
 
 /// The browser password manager's keys in cmux.json (plans/cmux-next/passwords.md 1.1, 1.3, 1.4):
 ///

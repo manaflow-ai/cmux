@@ -1,5 +1,4 @@
 public import CmuxTheme
-public import CmuxNextDesignTokens
 
 /// The colors people picked for machines (`appearance.machineColors` in cmux.json): a machine's
 /// color key (`MachineColor.key`) to `#RRGGBB`, or to one of the accents MachineColor picks from
@@ -34,17 +33,8 @@ public nonisolated struct MachineColorOverrides: Hashable, Sendable {
 
     /// The pick `value` names: `#RRGGBB`, or an accent's name; nil for anything else.
     public static func pick(_ value: String) -> Pick? {
-        if let accent = GroupColor(rawValue: value), AgentPresenceColor.order.contains(accent) { return .accent(accent) }
+        if let accent = GroupColor(rawValue: value), GroupColor.presenceOrder.contains(accent) { return .accent(accent) }
         guard value.count == 7, value.first == "#", let rgb = ThemeRGB(cssHex: value) else { return nil }
         return .rgb(rgb)
-    }
-
-    /// The color picked for the machine keyed `key`, in `tokens`' palette; nil without a pick.
-    public func rgb(forKey key: String, tokens: ThemeTokens) -> ThemeRGB? {
-        switch picks[key] {
-        case .accent(let accent)?: AgentPresenceColor.rgb(of: accent, tokens: tokens)
-        case .rgb(let rgb)?: rgb
-        case nil: nil
-        }
     }
 }

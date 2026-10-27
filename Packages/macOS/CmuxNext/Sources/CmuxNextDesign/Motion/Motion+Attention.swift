@@ -1,5 +1,6 @@
 public import QuartzCore
 public import CmuxNextDesignTokens
+public import CmuxNextAppearance
 
 /// The pane attention ring's animation (`notifications.attention.style`).
 /// Blinks use half the `flash` loop period each; the pulse uses the `pulse`

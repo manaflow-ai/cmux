@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// Appearance > Surfaces (Lawrence R55, plans/cmux-next/surface-backgrounds.md):
 /// a color and an opacity for each `SurfaceKind`. Both default to the

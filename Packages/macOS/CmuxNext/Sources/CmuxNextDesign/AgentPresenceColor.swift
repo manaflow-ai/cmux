@@ -7,9 +7,8 @@ public import CmuxNextDesignTokens
 /// agent keeps its color across rows, panes and restarts, and the colors
 /// follow the terminal palette, kept readable over the sidebar (`GroupColor.themeRGB`).
 public nonisolated struct AgentPresenceColor: Sendable {
-    /// The accents in pick order (the ANSI accents by index, the two mixed
-    /// ones, then blue, which presence may use because it is never the app's selection).
-    static let order: [GroupColor] = [.red, .green, .yellow, .purple, .cyan, .orange, .pink, .blue]
+    /// The accents in pick order (``GroupColor/presenceOrder``).
+    static let order: [GroupColor] = GroupColor.presenceOrder
 
     /// The agent's color key (its session id).
     public let key: String
