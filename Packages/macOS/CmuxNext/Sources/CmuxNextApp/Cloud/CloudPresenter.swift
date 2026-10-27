@@ -158,7 +158,7 @@ enum CloudPresenter {
         let spec = codexDeviceDialogSpec(code: prompt.userCode)
         // wakeup-allow: every iteration suspends for a user answer; only Open sign-in repeats it, and cancellation dismisses the dialog.
         while !Task.isCancelled {
-            let answers = AsyncStream.makeStream(of: CmuxDialogAnswer.self)
+            let answers = AsyncStream.makeStream(of: CmuxDialogAnswer.self, bufferingPolicy: .bufferingNewest(1))
             let dialogID = center.present(spec, in: scope) { answer in
                 answers.continuation.yield(answer)
                 answers.continuation.finish()
