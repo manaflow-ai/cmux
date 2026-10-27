@@ -79,10 +79,10 @@ async fn a_cleared_grants_live_agent_is_ended_not_adopted_and_its_chat_asks() {
     daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
 }
 
-/// The same chat when the host records cannot be read at the restart (the debug seam
-/// `ACPMUX_TEST_HOST_RECORDS_FAIL_FILE`): nothing proves its old host ended, so a prompt is
-/// refused rather than start an agent beside it. Once the records read again, the old host is
-/// ended and the next start asks.
+/// The same chat, its agent idle (no cut turn queues ahead), when the host records cannot be
+/// read at the restart (the debug seam `ACPMUX_TEST_HOST_RECORDS_FAIL_FILE`): nothing proves its
+/// old host ended, so a prompt is refused rather than start an agent beside it. Once the records
+/// read again, the old host is ended and the next start asks.
 #[tokio::test]
 async fn a_cleared_chat_is_refused_while_its_old_host_is_not_proven_ended() {
     let flag = std::env::temp_dir().join(format!("amd-grantrec-flag-{}", std::process::id()));
@@ -90,16 +90,11 @@ async fn a_cleared_chat_is_refused_while_its_old_host_is_not_proven_ended() {
     let env = [("ACPMUX_TEST_HOST_RECORDS_FAIL_FILE", flag_env.as_str())];
     let mut daemon = Daemon::with_env("grantrec", "ask", &env);
     let session = new_session(&daemon).await;
-    let gate = daemon.home.join("gate");
-    make_fifo(&gate);
-    let mut client = daemon.rpc().await;
     let ask =
         |text: &str| json!({"sessionId": session, "prompt": [{"type": "text", "text": text}]});
-    client.send("session/prompt", ask(&format!("gate-ask: {}", gate.display()))).await;
-    daemon.wait_event(&session, "before-gate chunk", |e| chunk(e, "before-gate"));
+    daemon.rpc().await.call("session/prompt", ask("hello")).await;
     let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
     daemon.sigterm();
-    drop(client);
     saved_as_legacy_grant(&daemon, &session);
     std::fs::write(&flag, "").unwrap();
 
