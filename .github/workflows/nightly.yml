@@ -1542,7 +1542,7 @@ jobs:
     # CI_NIGHTLY_NEXT_BUILD_RUNNER: it holds every attempt on its label, and a
     # trusted NEXT runner admits only build-nightly-app. Never a hosted Mac past
     # the fork branch, never macOS 15. glaeda sizes it light at its measured cores.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || needs.resolve-nightly-ghostty-cli-helper.outputs.hit == 'true' && (vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.owned != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.owned || needs.pick-nightly-build-runner.outputs.blacksmith || 'blacksmith-6vcpu-macos-26') || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run != '' && (vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') || needs.resolve-nightly-ghostty-cli-helper.outputs.hit == 'true' && (vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.owned != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.owned || needs.pick-nightly-build-runner.outputs.blacksmith || 'blacksmith-6vcpu-macos-26') || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 20
     env:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
@@ -3702,7 +3702,10 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'ubuntu-24.04' }}
+    # A different Blacksmith Linux size than the primary's, so a stalled 4 vCPU
+    # queue does not hold the fallback too; never GitHub-hosted (Leo, 2026-10-27:
+    # "just put it on blacksmith / 16vcpu blacksmiths do exist").
+    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 100
     strategy:
       fail-fast: false
@@ -3988,7 +3991,7 @@ jobs:
   prepare-nightly-variant:
     needs: [prepare-nightly-variant-primary, prepare-nightly-variant-fallback]
     if: always() && (needs.prepare-nightly-variant-primary.result == 'success' || needs.prepare-nightly-variant-fallback.result == 'success')
-    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Accept primary or fallback preparation
         run: echo "nightly preparation completed on the primary or fallback route"
@@ -4005,10 +4008,10 @@ jobs:
     needs: [decide, prepare-nightly-variant]
     if: ${{ !cancelled() && needs.prepare-nightly-variant.result == 'success' }}
     # A failed pick reads as success to the signing jobs, whose runs-on then falls back to
-    # vars.MACOS_RUNNER_26: a pick never blocks signing. It runs on GitHub's hosted runner, as
-    # prepare-nightly-variant does, so it never waits on a queue of its own before that fallback.
+    # vars.MACOS_RUNNER_26: a pick never blocks signing. It runs on Blacksmith Linux, as
+    # prepare-nightly-variant does (LINUX_RUNNER, which the overflow switch moves).
     continue-on-error: true
-    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Room for every step budget in turn (the Blacksmith pick 2, then the owned pick's token
     # mints 1 + 1 and picker 2) plus checkout, so the job is never cut off before its outputs;
     # the Blacksmith pick runs first so `runner` is set before the owned steps start.
