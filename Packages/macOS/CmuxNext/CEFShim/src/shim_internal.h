@@ -178,6 +178,9 @@ struct ForkApi {
   // No API number yet (p07-memory-051; the fork train p07-memory-074 numbers
   // it): cmux's voter in Chromium's MultiSourceMemoryPressureMonitor.
   int (*memory_pressure_vote)(int) = nullptr;
+  // No API number yet (p07-memory-101; numbered by the fork train p07-memory-074):
+  // BackForwardCache::Flush of a browser's tab.
+  int (*flush_back_forward_cache)(int) = nullptr;
 };
 
 struct Host {

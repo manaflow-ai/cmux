@@ -384,6 +384,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_energy_saver, "cmux_cef_set_energy_saver");
   CMUX_BIND(browser_renderer_pid, "cmux_cef_browser_renderer_pid");
   CMUX_BIND(memory_pressure_vote, "cmux_memory_pressure_vote");
+  CMUX_BIND(flush_back_forward_cache, "cmux_flush_back_forward_cache");
 #undef CMUX_BIND
 }
 
