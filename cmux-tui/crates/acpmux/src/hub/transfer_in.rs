@@ -490,6 +490,9 @@ impl Hub {
                 return Err(e.with_data(json!({"reason": "cwd_missing", "cwd": cwd})));
             }
             old.replaced.store(true, Ordering::SeqCst);
+            // A log retention pass that took the chat's append lock before the mark finishes its
+            // commit first; one after it leaves the chat alone (`hub/retention.rs`).
+            drop(old.append_lock.lock().unwrap_or_else(|e| e.into_inner()));
             self.kill(old, false).await?;
         }
         let source_store = if replacing_durable { self.store.session_dir(id) } else { None };

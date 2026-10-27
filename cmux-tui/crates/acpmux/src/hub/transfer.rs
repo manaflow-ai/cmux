@@ -64,7 +64,9 @@ impl Hub {
         let mut out = std::io::BufWriter::new(file);
         let mut event_count = 0usize;
         let mut failed: Option<anyhow::Error> = None;
-        self.store.scan(&meta.id, 0, &mut |e: EventRecord| {
+        self.store.scan(&meta.id, 0, &mut |mut e: EventRecord| {
+            // An ask carries the display line acpmux works out now, never a logged one.
+            self.display_logged(Some(&**session), &mut e);
             let written = serde_json::to_string(&e).map_err(anyhow::Error::from).and_then(|line| {
                 out.write_all(line.as_bytes())?;
                 out.write_all(b"\n")?;
@@ -191,9 +193,9 @@ impl Hub {
         meta.status = SessionStatus::Idle;
         // A family lives on one daemon: a moved-in sub-session is a root here.
         meta.subsession = None;
+        meta.lineage = None;
         self.prepare_harness_state(&meta, replace_durable)
             .map_err(|e| RpcError::internal(e.to_string()))?;
-        let session = self.make_session(meta.clone());
         self.store.save(&meta).map_err(|e| RpcError::internal(e.to_string()))?;
         // Copy events verbatim, preserving seq. A partial transcript is not
         // a valid import: any unreadable file or record rolls it back.
@@ -226,6 +228,8 @@ impl Hub {
                 }
             }
         };
+        // Made once nothing can fail: a failed import leaves nothing in the child index.
+        let session = self.make_session(meta.clone());
         session.seq.store(last, Ordering::SeqCst);
         session.meta.lock().unwrap().last_seq = last;
         if live {
@@ -234,6 +238,8 @@ impl Hub {
             *session.moving.lock().unwrap_or_else(|e| e.into_inner()) = None;
         }
         self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
+        // Indexed again once published: a lookup before that found no session and dropped it.
+        self.child_tags.note(&session);
         self.offers.forget(&meta.id);
         self.append(
             &session,
