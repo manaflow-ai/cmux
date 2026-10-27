@@ -602,6 +602,34 @@ fn a_daemon_that_was_never_told_its_host_kind_refuses_a_receive() {
     fake.no_connection();
 }
 
+/// A Cloud VM whose own record says `owner` takes a chat only on the
+/// caller's `vm_kind: "owner"` (the Cloud API's answer): the record, which
+/// its agents can write, never lets one in, at the receive or the finish.
+#[test]
+fn a_cloud_vm_takes_a_chat_only_on_the_callers_owner_word() {
+    let fake = FakeAcpmux::start("xvmkind");
+    let home = Home::new("vmkind");
+    let mux = transfer_mux(&fake, "atx-vmkind", &home, true);
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let mut client = Client::connect(&mux, "xvmkind");
+    let cwd = home.text("work/project");
+    // No word (the param left out), then words that are not `owner`.
+    assert_code(&receive(&mut client, &cwd), "agent_session.host_unverified");
+    for kind in ["team", "Owner"] {
+        let frame = json!({"cmd":"agent-transfer-receive","manifest":manifest(),"cwd":cwd,
+                           "vm_kind":kind});
+        assert_code(&client.request(frame), "agent_session.host_unverified");
+    }
+    fake.no_connection();
+    let owner = json!({"cmd":"agent-transfer-receive","manifest":manifest(),"cwd":cwd,
+                       "vm_kind":"owner"});
+    assert_eq!(ok_data(&client.request(owner))["receive_id"], json!("rcv_1"));
+    let _ = fake.frame();
+    let finish = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1"}));
+    assert_code(&finish, "agent_session.host_unverified");
+    fake.no_frame();
+}
+
 #[test]
 fn finish_reads_the_host_kind_again() {
     let fake = FakeAcpmux::start("xteamfin");

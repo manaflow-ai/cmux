@@ -153,4 +153,24 @@ struct CloudLinkReconnectingTests {
         #expect(second != nil && second != first, "an owner answer carried over to the next link")
         await fixture.remove()
     }
+
+    /// Move to Cloud's owner word names the link process it came from (`--to-pid`), so the pump
+    /// sends it only over a connection that process serves: none once that link ends, and the
+    /// replacement's own pid after it comes up.
+    @Test func theOwnerWordNamesTheLinkProcessItCameFrom() async throws {
+        let fixture = try Fixture()
+        _ = try await fixture.link.socketPath()
+        let first = try #require(await fixture.link.ownerPID)
+        #expect(first == (await fixture.link.pid))
+
+        fixture.mark("gone")
+        #expect(await fixture.owns { !$0 } == false)
+        #expect(await fixture.link.ownerPID == nil, "an ended link still names a process for the owner word")
+
+        try FileManager.default.removeItem(at: fixture.root.appendingPathComponent("gone"))
+        _ = try await fixture.link.socketPath()
+        let second = try #require(await fixture.link.ownerPID)
+        #expect(second != first && second == (await fixture.link.pid))
+        await fixture.remove()
+    }
 }
