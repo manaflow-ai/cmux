@@ -375,6 +375,7 @@ public final class LiveCoordinator {
         activeTeamChanged()
         for team in list { loadPrefs(team.id) }
         if discoveryTask == nil { startDiscovery() }
+        steerToInvite()
     }
 
     /// The user chose their personal space (setup's "Choose a space"): it
@@ -546,6 +547,7 @@ public final class LiveCoordinator {
         store.setMacs(macs.map { MacDevice(id: $0.deviceId, name: $0.name, isOnline: $0.online, lastSeenAt: $0.lastSeenDate,
                                            ownerUserID: $0.ownerUserId, machineID: $0.machineId) }, teamID: teamID)
         retarget()
+        steerToInvite()
         scheduleSnapshotSave()
     }
 
