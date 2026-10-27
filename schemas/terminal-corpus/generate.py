@@ -11,14 +11,15 @@ snapshot features it exercises.
 
 The oracle suite (`tests/oracle/corpus/terminal/`, >= 200 cases) feeds seeded
 streams (SGR, wide characters, the alternate screen, scroll regions, OSC 8, 7
-and 133, DECCOLM resizes during output, scrollback) and the recorded streams
-that fit in one argument to a daemon terminal. It reads the terminal's VT state
+and 133, DECCOLM column switches in the stream, scrollback) and the recorded
+streams that fit in one argument to a daemon terminal. It reads the terminal's VT state
 (`terminal.state.read`) and screen, and a second terminal puts their sha256 in
 its title, which the daemon facet carries. So every later checkpoint holds the
 VT-state hash. A run per terminal-holder arm (the per-terminal host and
 CMUX_TUI_TERMINAL_HOST_MODEL=holder) and a diff of the two compares the arms
 on it; a golden baseline of the suite pins it. `manifest.json` lists the
-families under `oracle`.
+families under `oracle`, and under `oracle.gaps` the spec items that no case
+covers yet, each with the WORK.tsv task that adds it.
 
 Output is deterministic: run the script again and the checkout must not change.
 
@@ -360,8 +361,9 @@ def _long_line(rng: random.Random, n: int, width: int) -> str:
     return f"{CSI}{rng.randint(31, 37)}m{text}{CSI}0m\r\n"
 
 
-def oracle_resize(rng: random.Random, cols: int, rows: int) -> str:
-    """DECCOLM (mode 3, allowed by mode 40) resizes the grid while output streams in, wrapped lines before and after."""
+def oracle_deccolm(rng: random.Random, cols: int, rows: int) -> str:
+    """DECCOLM (mode 3, allowed by mode 40) switches the grid between 80 and 132 columns inside the stream, with
+    wrapped lines before and after. Only the VT parser sees it: the PTY size does not change (see ORACLE_GAPS)."""
     out = [_long_line(rng, n, cols) for n in range(rng.randint(2, rows))]
     allowed = rng.random() < 0.85
     out.append(f"{CSI}?40{'h' if allowed else 'l'}")
@@ -393,9 +395,18 @@ ORACLE_FAMILIES = {
     "alt": (oracle_alt, 30, ["alt-screen-1049", "alt-screen-1047", "alt-screen-47", "save-cursor"]),
     "region": (oracle_region, 35, ["scroll-region", "left-right-margins", "origin-mode", "ind-ri", "su-sd", "il-dl"]),
     "osc": (oracle_osc, 35, ["osc8", "osc7", "osc133", "title", "osc4", "osc10-12"]),
-    "resize": (oracle_resize, 30, ["deccolm-during-output", "mode-40", "wrap", "scroll-region"]),
+    "deccolm": (oracle_deccolm, 30, ["deccolm-in-band", "mode-40", "wrap", "scroll-region"]),
     "scrollback": (oracle_scrollback, 15, ["scrollback", "erase-scrollback"]),
 }
+# Spec items of p15-oracle-101 that no case covers yet: the task that adds each, and why the oracle cannot run it now.
+ORACLE_GAPS = [
+    {"spec": "resize during output", "task": "p15-oracle-101b",
+     "why": "a PTY resize from the daemon while the child writes (winsize and SIGWINCH, where the holder arms "
+            "differ) needs terminal.viewer.resize, and only terminal.attach returns its attachment_lease. "
+            "terminal.attach is a stream_open operation; driver_daemon.py's resource.call sends only reads, "
+            "mutations and connection_control (streams are p15-oracle-204). The deccolm family switches columns "
+            "inside the stream, which only the VT parser sees, the same on both arms."},
+]
 # Recorded fidelity streams that are not oracle cases, and why.
 RECORDED_LEFT_OUT = {
     "hyperlinks": "its links name example.invalid; oracle cases are offline and may name only loopback hosts",
@@ -498,7 +509,7 @@ def oracle_manifest(cases: dict) -> dict:
     families.append({"family": "recorded", "count": sum(1 for c in cases if c.startswith("recorded-")),
                      "features": ["the recorded streams above"], "left_out": RECORDED_LEFT_OUT})
     return {"suite": ORACLE_SUITE, "dir": "tests/oracle/corpus/terminal", "total": len(cases),
-            "switches": ["terminal-holder"], "families": families}
+            "switches": ["terminal-holder"], "families": families, "gaps": ORACLE_GAPS}
 
 
 def case_text(case: dict) -> str:

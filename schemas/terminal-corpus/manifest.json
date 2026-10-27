@@ -154,10 +154,10 @@
         ]
       },
       {
-        "family": "resize",
+        "family": "deccolm",
         "count": 30,
         "features": [
-          "deccolm-during-output",
+          "deccolm-in-band",
           "mode-40",
           "wrap",
           "scroll-region"
@@ -181,6 +181,13 @@
           "hyperlinks": "its links name example.invalid; oracle cases are offline and may name only loopback hosts",
           "scrollback": "377,860 bytes, over one exec argument's 128 KiB; the scrollback family covers it in 24576 bytes"
         }
+      }
+    ],
+    "gaps": [
+      {
+        "spec": "resize during output",
+        "task": "p15-oracle-101b",
+        "why": "a PTY resize from the daemon while the child writes (winsize and SIGWINCH, where the holder arms differ) needs terminal.viewer.resize, and only terminal.attach returns its attachment_lease. terminal.attach is a stream_open operation; driver_daemon.py's resource.call sends only reads, mutations and connection_control (streams are p15-oracle-204). The deccolm family switches columns inside the stream, which only the VT parser sees, the same on both arms."
       }
     ]
   }

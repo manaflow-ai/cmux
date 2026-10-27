@@ -67,6 +67,16 @@ class GenerateTest(unittest.TestCase):
         self.assertEqual(sum(f["count"] for f in oracle["families"]), len(CASES))
         self.assertEqual(oracle["dir"], gen.ORACLE_DIR.relative_to(REPO).as_posix())
 
+    def test_each_gap_is_a_filed_task_and_no_family_claims_it(self):
+        self.assertEqual(json.loads(MANIFEST)["oracle"]["gaps"], gen.ORACLE_GAPS)
+        work = (REPO / "plans/cmux-next/chrome-parity/WORK.tsv").read_text(encoding="utf-8")
+        filed = {line.split("\t", 1)[0] for line in work.splitlines()}
+        claimed = {feature for _, _, features in gen.ORACLE_FAMILIES.values() for feature in features}
+        for gap in gen.ORACLE_GAPS:
+            self.assertIn(gap["task"], filed, f"{gap['spec']}: file {gap['task']} in WORK.tsv")
+            self.assertNotIn(gap["spec"].replace(" ", "-"), claimed, f"a family claims the gap {gap['spec']!r}")
+        self.assertFalse([f for f in claimed if "during-output" in f], "an in-band switch is not a PTY resize")
+
     def test_streams_fit_one_exec_argument_and_have_no_nul(self):
         for case_id, case in CASES.items():
             stream = stream_of(case)
@@ -80,7 +90,7 @@ class GenerateTest(unittest.TestCase):
             "alt": ("\x1b[?1049h", "\x1b[?1047h", "\x1b[?47h", "\x1b[?1049l", "\x1b[?1048h"),
             "region": ("r", "\x1bD", "\x1bM", "\x1b[?69h", "\x1b[?6h"),
             "osc": ("\x1b]8;", "\x1b]7;file://localhost/", "\x1b]133;D;", "\x1b]4;", "\x1b]2;"),
-            "resize": ("\x1b[?40h", "\x1b[?3h", "\x1b[?3l", "\x1b[?40l"),
+            "deccolm": ("\x1b[?40h", "\x1b[?3h", "\x1b[?3l", "\x1b[?40l"),
             "scrollback": ("\x1b[3J",),
         }
         for family, needles in wanted.items():
