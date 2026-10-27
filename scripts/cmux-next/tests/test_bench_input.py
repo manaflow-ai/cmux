@@ -23,6 +23,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
 import bench_input as bi  # noqa: E402
+import bench_launch  # noqa: E402
 import hid_input  # noqa: E402
 
 TODAY = {"frames": 120, "classes": {"visible": {"tasks": 4, "yielded_to_input": 2},
@@ -51,7 +52,9 @@ class Keys(unittest.TestCase):
         a, ret = hid_input.KEYCODES["a"], hid_input.KEYCODES["return"]
         self.assertEqual([(e["code"], e["down"]) for e in backend.events], [(a, True), (a, False), (ret, True), (ret, False)])
         self.assertEqual(calls, [])
-        self.assertIsNone(sender.launch_env({"X": "1", "CMUX_NEXT_NO_ACTIVATE": "1"})["CMUX_NEXT_NO_ACTIVATE"])
+        env = sender.launch_env({"X": "1", "CMUX_NEXT_NO_ACTIVATE": "1"})
+        self.assertIsNone(env["CMUX_NEXT_NO_ACTIVATE"])
+        self.assertEqual(env[bench_launch.ISOLATED_LAUNCH_KEY], "1", "an activating launch stays isolated")
         sender.bring_front(42)
         self.assertEqual(fronted, [42])
 
@@ -62,6 +65,7 @@ class Keys(unittest.TestCase):
         self.assertEqual(sender.send("b"), {"ok": 1})
         self.assertEqual(calls, [("b", 12.5)])
         self.assertEqual(sender.launch_env({"X": "1"}), {"X": "1"})
+        self.assertNotIn(bench_launch.ISOLATED_LAUNCH_KEY, sender.launch_env({"X": "1"}))
         fronted = []
         bi.KeySender("debug", None, front=fronted.append).bring_front(42)
         self.assertEqual(fronted, [], "an injected key needs no focus")

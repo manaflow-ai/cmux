@@ -27,6 +27,7 @@ the app does not report yet is None, never 0.
 """
 from __future__ import annotations
 
+import bench_launch
 import hid_input
 import typing_report
 
@@ -58,10 +59,13 @@ class KeySender:
 
     def launch_env(self, env):
         """The bench's launch environment for this mode: a real key goes to the frontmost app's key window, so the app
-        must activate (None removes the variable from BenchApp's defaults)."""
+        must activate (None removes the variable from BenchApp's defaults). Activation stays an isolated launch
+        (bench_launch.ISOLATED_LAUNCH_KEY, paired the same way as bench_launch.shipping_env): the fixed window frame, no
+        shim pointer, global hot keys, login item or browser import offer."""
         env = dict(env)
         if self.real:
             env["CMUX_NEXT_NO_ACTIVATE"] = None
+            env[bench_launch.ISOLATED_LAUNCH_KEY] = "1"
         return env
 
     def bring_front(self, pid):
