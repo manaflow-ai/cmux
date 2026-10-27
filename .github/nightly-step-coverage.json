@@ -41,6 +41,9 @@
         "Save Swift packages": {"plumbing": true, "note": "local action: restores or saves a cache with actions/cache, WarpBuilds/cache or R2 and reports a receipt; no product check. Re-review this entry if the action gains a check"},
         "Bound DerivedData seed size": {"plumbing": true}, "Scope DerivedData seed key": {"plumbing": true},
         "Save DerivedData seed": {"plumbing": true, "note": "local action: restores or saves a cache with actions/cache, WarpBuilds/cache or R2 and reports a receipt; no product check. Re-review this entry if the action gains a check"}},
+      "resolve-nightly-ghostty-cli-helper": {
+        "Find an earlier helper with the same inputs": {"nightly_only": "reads earlier nightly runs' helper artifacts and job logs through the Actions API; the matching, provenance and Mach-O checks run on fixtures in tests/test_nightly_ghostty_helper_reuse.py"},
+        "Record the reused helper's build commit": {"plumbing": true}},
       "build-nightly-ghostty-cli-helper": {
         "Reuse the original helper through build-nightly-app": {"plumbing": true},
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true}, "Install Zig": {"plumbing": true},
