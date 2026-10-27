@@ -1,25 +1,30 @@
 public import CmuxNextWakeups
 
 /// The file jobs the launch starts that nobody waits for, as posted ``BackgroundWork`` files-lane
-/// jobs (p08-startup-083, Q12). At ``WorkPriority/idle`` and ``WorkPriority/bestEffort`` they wait
-/// behind the launch's best-effort fence (``LaunchOrder/BestEffortFence``, raised in `main()` before
-/// the delegate exists), so their disk writes do not compete with the first window; they run at
-/// startup complete or at the fence's cap. Chrome posts such work with `TaskPriority::BEST_EFFORT`
-/// and `MayBlock` to the thread pool, which `BeginBestEffortFence` holds during startup
-/// (base/task/thread_pool/thread_pool_instance.h).
+/// jobs (p08-startup-083, Q12), instead of root `Task.detached` jobs on the cooperative pool.
 ///
-/// Each job keeps the QoS its `Task.detached` had: the design-mode cleanup `.background`
-/// (``WorkPriority/idle``), the CLI pointer `.utility` (``WorkPriority/bestEffort``).
+/// - The design-mode cleanup is ``WorkPriority/idle`` (QoS `.background`, as before), so it waits
+///   behind the launch's best-effort fence (``LaunchOrder/BestEffortFence``, raised in `main()`) and
+///   runs at startup complete or the fence's cap; quit drops it if it has not started (the next launch
+///   redoes it). It deletes only earlier launches' folders, so it is safe whenever it runs.
+/// - The CLI pointer is ``WorkPriority/userVisible`` and ``ShutdownBehavior/blockShutdown``: the
+///   fence does not hold it, because a script that opens the app and runs `cmux` at once must get this
+///   app's CLI (plans/cmux-next/version-skew.md: the app writes it at launch), and a quit during
+///   startup still waits for its one atomic replace.
+///
+/// Chrome posts the first with `TaskPriority::BEST_EFFORT` and `MayBlock`, which
+/// `BeginBestEffortFence` holds during startup (base/task/thread_pool/thread_pool_instance.h), and the
+/// second with `TaskShutdownBehavior::BLOCK_SHUTDOWN` (base/task/task_traits.h).
 ///
 /// The work is injected, so tests post it on their own lanes.
 ///
 /// ```swift
-/// LaunchFileJobs(removeDesignModeTempFiles: { BrowserDesignModeController.tempFiles.removeAll() },
+/// LaunchFileJobs(removeDesignModeTempFiles: { BrowserDesignModeController.tempFiles.removeEarlierLaunches() },
 ///                publishCLIPointer: isolated ? nil : { _ = LastAppCLIPointer().publish(cliPath: cli) })
 ///     .post(on: work)
 /// ```
 public struct LaunchFileJobs: Sendable {
-    /// Deletes the design-mode files a crash left (`BrowserDesignModeTempFiles`).
+    /// Deletes the design-mode files earlier launches left (`BrowserDesignModeTempFiles`).
     public let removeDesignModeTempFiles: @Sendable () -> Void
     /// Writes the last opened app's CLI pointer (`LastAppCLIPointer`); nil when this launch must
     /// not claim it (an isolated launch) or the bundle has no CLI.
@@ -33,6 +38,6 @@ public struct LaunchFileJobs: Sendable {
     /// Posts each job once on `work`'s files lane and returns at once.
     public func post(on work: BackgroundWork) {
         work.post(.idle, mayBlock: .files, removeDesignModeTempFiles)
-        if let publishCLIPointer { work.post(.bestEffort, mayBlock: .files, publishCLIPointer) }
+        if let publishCLIPointer { work.post(.userVisible, mayBlock: .files, shutdown: .blockShutdown, publishCLIPointer) }
     }
 }
