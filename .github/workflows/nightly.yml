@@ -1516,10 +1516,52 @@ jobs:
           key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
           restore-keys: zig-packages-
 
-      - name: Build Ghostty CLI helper
+      # The helper is a function of the inputs its own cache manifest names
+      # (ghostty_cache_metadata in scripts/build-ghostty-cli-helper.sh):
+      # Ghostty's commit, the script, the Zig binary, the target, the SDK and
+      # the macOS version. A hosted runner starts with an empty cache, so the
+      # script's cache directory is kept across runs under a key of those
+      # same inputs. The script still installs an entry only when its manifest
+      # equals this build's and the binary's sha256 equals the manifest's;
+      # anything else builds. tests/test_nightly_ghostty_helper_cache.py.
+      - name: Key the Ghostty CLI helper cache
+        id: helper-cache-key
         if: inputs.nightly_next_unsigned_run == ''
         run: |
           set -euo pipefail
+          {
+            echo "ghostty=$(git -C ghostty rev-parse HEAD)"
+            shasum -a 256 scripts/build-ghostty-cli-helper.sh scripts/ghostty-zig-version.sh
+            path_zig="$(command -v zig)" || path_zig=""
+            for zig in /opt/homebrew/bin/zig "$path_zig" /usr/local/bin/zig; do
+              if [[ -x "$zig" ]]; then
+                zig_version="$("$zig" version)"
+                zig_sha="$(shasum -a 256 "$zig" | cut -d' ' -f1)"
+                echo "zig $zig_version $zig_sha"
+              fi
+            done | sort -u
+            echo "sdk=$(xcrun --sdk macosx --show-sdk-version)"
+            echo "macos=$(sw_vers -productVersion) $(uname -m)"
+            echo "archs=$NIGHTLY_COMPILE_ARCHS"
+          } > "$RUNNER_TEMP/ghostty-helper-inputs.txt"
+          cat "$RUNNER_TEMP/ghostty-helper-inputs.txt"
+          echo "key=ghostty-cli-helper-v1-$(shasum -a 256 < "$RUNNER_TEMP/ghostty-helper-inputs.txt" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the Ghostty CLI helper
+        id: helper-cache
+        if: inputs.nightly_next_unsigned_run == ''
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/Library/Caches/cmux/ghostty-cli-helper
+          key: ${{ steps.helper-cache-key.outputs.key }}
+
+      - name: Build Ghostty CLI helper
+        if: inputs.nightly_next_unsigned_run == ''
+        env:
+          HELPER_CACHE_HIT: ${{ steps.helper-cache.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          echo "Ghostty CLI helper cache: ${HELPER_CACHE_HIT:-false}" | tee -a "$GITHUB_STEP_SUMMARY"
           mkdir -p nightly-helper
           if [[ "$NIGHTLY_COMPILE_ARCHS" == "arm64" ]]; then
             ./scripts/build-ghostty-cli-helper.sh --target aarch64-macos --output nightly-helper/ghostty
