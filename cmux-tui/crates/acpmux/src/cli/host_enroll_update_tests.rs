@@ -346,6 +346,9 @@ mod probe_in_a_shell {
         /// path this user cannot change), `home` (one in
         /// ~/.config/systemd/user), `dotdot` (that one, spelled from /usr).
         type_drop_in: Option<&'static str>,
+        /// Beside that type-wide drop-in in ~/.config/systemd/user, a
+        /// dot-file (`dot`) or a link that points nowhere (`dangling`).
+        hidden_drop_in: Option<&'static str>,
         /// The `analyzed_drop_in_dir`, its files and its unit path are
         /// read-only to this user (who still owns them).
         read_only: bool,
@@ -393,6 +396,7 @@ mod probe_in_a_shell {
         frag: "own",
         drop_in: None,
         type_drop_in: None,
+        hidden_drop_in: None,
         read_only: false,
         xdg: None,
         manager_xdg: None,
@@ -418,6 +422,7 @@ mod probe_in_a_shell {
         frag: "",
         drop_in: None,
         type_drop_in: None,
+        hidden_drop_in: None,
         read_only: false,
         xdg: None,
         manager_xdg: None,
@@ -472,6 +477,17 @@ mod probe_in_a_shell {
                 for kind in ["service.d", "timer.d"] {
                     fs::create_dir_all(units.join(kind)).unwrap();
                     fs::write(units.join(kind).join("10-timeout-abort.conf"), OTHER_TEXT).unwrap();
+                    match u.hidden_drop_in {
+                        Some("dot") => {
+                            fs::write(units.join(kind).join(".override.conf"), OTHER_TEXT).unwrap()
+                        }
+                        Some(_) => std::os::unix::fs::symlink(
+                            root.join("nowhere.conf"),
+                            units.join(kind).join("zz.conf"),
+                        )
+                        .unwrap(),
+                        None => {}
+                    }
                 }
                 let path = units.display().to_string();
                 if how == "dotdot" { format!("/usr/..{path}") } else { path }
@@ -654,6 +670,29 @@ esac
                 Units { analyzed_drop_in_dir: Some("timer.d"), read_only: true, ..u },
             ] {
                 assert_eq!(kind(&probe(found)), "foreign");
+            }
+        }
+    }
+
+    /// In a type-wide drop-in directory this user cannot change, a file they
+    /// can (a dot-file too), or a link that points nowhere, is foreign. The
+    /// test's user owns every file it makes, so here `au_mine` says yes only
+    /// for the dot-file.
+    #[test]
+    fn a_hidden_or_dangling_type_wide_drop_in_is_foreign() {
+        let theirs =
+            r#"au_mine() { case "${1##*/}" in .override.conf) true ;; *) false ;; esac; }"#;
+        let ours =
+            probe_script().lines().find(|l| l.starts_with("au_mine() {")).unwrap().to_owned();
+        let script = probe_script().replace(&ours, theirs);
+        assert_ne!(script, probe_script());
+        let found = |u: Units| parse(&run(u, &script).0);
+        let system = Units { type_drop_in: Some("home"), ..OWN };
+        assert_eq!(kind(&found(system)), "timer");
+        for hidden in ["dot", "dangling"] {
+            for u in [OWN, NONE] {
+                let u = Units { type_drop_in: Some("home"), hidden_drop_in: Some(hidden), ..u };
+                assert_eq!(kind(&found(u)), "foreign", "{hidden}");
             }
         }
     }

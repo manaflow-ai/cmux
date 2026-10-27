@@ -26,7 +26,9 @@ const MARK: &str = "ACPMUX_AU=";
 /// too, on disk or in the manager's `DropInPaths`, unless this user neither
 /// owns nor can write it, its directory or the directory above: then the
 /// system's administrator put it there (a distribution ships them: Fedora's
-/// `10-timeout-abort.conf`), whatever the path says. The paths are
+/// `10-timeout-abort.conf`), whatever the path says. Every file in such a
+/// directory counts, dot-files included, and a link there that points
+/// nowhere is foreign. The paths are
 /// `systemd-analyze`'s, the running manager's `UnitPath` (whose environment
 /// may differ from this shell's: a path made of its space-separated pieces
 /// that exists counts as foreign, and a list with two spaces or a tab in a
@@ -111,8 +113,8 @@ au_t=$au_p; while [ -n "$au_t" ] && [ ! -e "$au_t" ]; do au_v=${{au_t%/*}}; [ "$
 [ ! -e "$au_p/$au_f" ] && [ ! -L "$au_p/$au_f" ] || [ "$au_p/$au_f" -ef "$au_d/$au_f" ] || {{ au_there=1; au_own=; }}
 for au_n in "$au_f.d" "acpmux-.${{au_f##*.}}.d"; do [ ! -d "$au_p/$au_n" ] || {{ au_there=1; au_own=; }}; done
 au_w="$au_p/${{au_f##*.}}.d"; [ ! -d "$au_w" ] || ! au_mine "$au_w" || {{ au_there=1; au_own=; }}
-set +f; set -- "$au_w"/*; set -f
-for au_z in "$@"; do [ ! -e "$au_z" ] || ! au_mine "$au_z" || {{ au_there=1; au_own=; }}; done; done; IFS=$au_i
+set +f; set -- "$au_w"/* "$au_w"/.[!.]* "$au_w"/..?*; set -f
+for au_z in "$@"; do if [ -L "$au_z" ] && [ ! -e "$au_z" ]; then au_there=1; au_own=; elif [ -e "$au_z" ] && au_mine "$au_z"; then au_there=1; au_own=; fi; done; done; IFS=$au_i
 done
 if [ -n "$au_there" ]; then
 [ ! -e "$au_d/acpmux-update.service" ] && [ ! -L "$au_d/acpmux-update.service" ] || {{ [ -f "$au_d/acpmux-update.service" ] && [ ! -L "$au_d/acpmux-update.service" ] && cmp -s - "$au_d/acpmux-update.service"; }} <<'ACPMUX_UPDATE_SERVICE' || au_own=
