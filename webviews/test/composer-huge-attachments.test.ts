@@ -138,6 +138,15 @@ test("a no-canvas JPEG preview strips metadata", async () => {
   expect(binary).not.toContain("priv");
 });
 
+test("a no-canvas JPEG preview rejects metadata between scans", async () => {
+  const frame = new Uint8Array([0xff, 0xc0, 0, 11, 8, 0, 32, 0, 64, 1, 1, 0x11, 0]);
+  const scans = new Uint8Array([
+    0xff, 0xda, 0, 8, 1, 1, 0, 0x3f, 0, 1, 2, 0xff, 0xe1, 0, 6, 0x70, 0x72, 0x69, 0x76, 0xff, 0xd9,
+  ]);
+  const source = new Blob([new Uint8Array([0xff, 0xd8]), frame, scans], { type: "image/jpeg" });
+  expect(await prepareImage(source)).toBeUndefined();
+});
+
 test("a no-canvas preview rejects images over side and pixel limits", async () => {
   expect(await prepareImage(validPng(1569, 1))).toBeUndefined();
   expect(await prepareImage(validPng(10001, 10000))).toBeUndefined();

@@ -116,20 +116,18 @@ function metadataFreePng(bytes: Uint8Array): Uint8Array | undefined {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const chunks: Uint8Array[] = [];
   let offset = 8;
-  let sawAncillary = false;
   let sawData = false;
   while (offset + 12 <= bytes.length) {
     const length = view.getUint32(offset);
     const end = offset + 12 + length;
-    if (end > bytes.length) return sawAncillary || sawData ? undefined : bytes;
+    if (end > bytes.length) return undefined;
     const type = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8));
-    if (!/^[A-Za-z]{4}$/.test(type)) return sawAncillary || sawData ? undefined : bytes;
+    if (!/^[A-Za-z]{4}$/.test(type)) return undefined;
     if (offset === 8 && (type !== "IHDR" || length !== 13)) return undefined;
     const chunk = bytes.subarray(offset, end);
     const critical = type.charCodeAt(0) < 0x61;
     if (critical && type !== "IHDR" && type !== "PLTE" && type !== "IDAT" && type !== "IEND") return undefined;
     if (critical || type === "tRNS") chunks.push(chunk);
-    else sawAncillary = true;
     if (type === "IDAT") sawData = true;
     offset = end;
     if (type === "IEND") {
@@ -143,9 +141,7 @@ function metadataFreePng(bytes: Uint8Array): Uint8Array | undefined {
       return result;
     }
   }
-  // The clipboard test fixture contains only an IHDR and opaque padding. It is not a decodable
-  // PNG, so retaining it cannot expose image metadata; real PNGs take the sanitized path above.
-  return sawAncillary || sawData ? undefined : bytes;
+  return undefined;
 }
 
 function metadataFreeJpeg(bytes: Uint8Array): Uint8Array | undefined {
@@ -174,12 +170,34 @@ function metadataFreeJpeg(bytes: Uint8Array): Uint8Array | undefined {
     const segment = bytes.subarray(markerStart, end);
     if (marker !== 0xda && !(marker >= 0xe0 && marker <= 0xef) && marker !== 0xfe) chunks.push(segment);
     if (marker === 0xda) {
+      if (jpegScanHasUnsafeMarkers(bytes, end)) return undefined;
       chunks.push(bytes.subarray(end));
       return joinChunks(chunks);
     }
     offset = end;
   }
   return undefined;
+}
+
+function jpegScanHasUnsafeMarkers(bytes: Uint8Array, start: number): boolean {
+  let offset = start;
+  while (offset + 1 < bytes.length) {
+    if (bytes[offset] !== 0xff) {
+      offset += 1;
+      continue;
+    }
+    while (offset < bytes.length && bytes[offset] === 0xff) offset += 1;
+    if (offset >= bytes.length) return true;
+    const marker = bytes[offset]!;
+    if (marker === 0x00 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      offset += 1;
+      continue;
+    }
+    // A no-canvas preview only accepts a single baseline scan. Progressive scans and any marker
+    // between scans could carry metadata, so leave those files as originals for a real decoder.
+    return marker === 0xd9 ? offset + 1 !== bytes.length : true;
+  }
+  return true;
 }
 
 function joinChunks(chunks: Uint8Array[]): Uint8Array {
