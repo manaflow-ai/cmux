@@ -67,8 +67,9 @@ struct SessionPriorityMenuState: Equatable {
 
     @MainActor
     init(workspace: Workspace) {
-        guard SessionPriorityCoordinator.shared.isEnabled else { return }
-        enabled = true
+        // The override and manual flag are read even while the setting is off, so a
+        // row frozen before the setting was turned on still carries them.
+        enabled = SessionPriorityCoordinator.shared.isEnabled
         difficultyOverride = workspace.sessionPriorityState.difficultyOverride
         adjustableManual = workspace.sessionPriorityState.isManual
             || SessionPriorityCoordinator.shared.hasUserCommandOnScreen(in: workspace)

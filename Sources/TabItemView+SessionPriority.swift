@@ -6,7 +6,10 @@ import SwiftUI
 extension TabItemView {
     @ViewBuilder
     var sessionPriorityContextMenuSection: some View {
-        if snapshot.contextMenu.sessionPriorityEnabled {
+        // The setting is read when the menu opens (like `WorkspaceTodoFeature.isEnabled`);
+        // the override and manual flag come from the row snapshot, which rebuilds when
+        // `sessionPriorityState` changes (`makeSidebarImmediateObservationPublisher`).
+        if SessionPriorityCoordinator.shared.isEnabled {
             let current = snapshot.contextMenu.claudeDifficultyOverride
             let adjustableManual = snapshot.contextMenu.sessionPriorityAdjustableManual
             Menu(SessionPriorityActions.difficultyMenuTitle) {

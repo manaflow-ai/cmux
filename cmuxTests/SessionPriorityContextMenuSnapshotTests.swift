@@ -77,7 +77,7 @@ struct SessionPriorityContextMenuSnapshotTests {
             let workspace = Workspace()
             workspace.sessionPriorityState.difficultyOverride = .hard
             workspace.sessionPriorityState.isManual = true
-            #expect(SessionPriorityMenuState(workspace: workspace) == .disabled)
+            #expect(!SessionPriorityMenuState(workspace: workspace).enabled)
             #expect(!menuSnapshot(SessionPriorityMenuState(workspace: workspace)).sessionPriorityEnabled)
         }
     }
@@ -91,19 +91,26 @@ struct SessionPriorityContextMenuSnapshotTests {
         #expect(SessionPriorityActions.difficultyChoices.first! == nil)
     }
 
-    @Test
-    func sidebarRowRefreshesWhenSessionPriorityStateChanges() {
+    /// The first change after subscribing is delivered synchronously; a second one
+    /// inside the 50 ms coalescing window would only arrive as the trailing edge,
+    /// so each change gets its own workspace.
+    private func rowRefreshCount(afterChanging change: (Workspace) -> Void) -> Int {
         let workspace = Workspace()
         var publishCount = 0
         let cancellable = workspace.sidebarImmediateObservationPublisher.sink { publishCount += 1 }
         defer { cancellable.cancel() }
-
         publishCount = 0
-        workspace.setClaudeDifficultyOverride(.hard)
-        #expect(publishCount >= 1, "A difficulty override change must rebuild the row's frozen menu state.")
+        change(workspace)
+        return publishCount
+    }
 
-        publishCount = 0
-        workspace.setSessionPriorityManual(true)
-        #expect(publishCount >= 1, "The manual flag must rebuild the row's frozen menu state.")
+    @Test
+    func sidebarRowRefreshesWhenDifficultyOverrideChanges() {
+        #expect(rowRefreshCount { $0.setClaudeDifficultyOverride(.hard) } >= 1)
+    }
+
+    @Test
+    func sidebarRowRefreshesWhenManualFlagChanges() {
+        #expect(rowRefreshCount { $0.setSessionPriorityManual(true) } >= 1)
     }
 }
