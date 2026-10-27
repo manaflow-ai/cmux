@@ -104,7 +104,7 @@ cmd_capture() {
   # One waiter, no poll loop: glaeda-gh shares one cheap poller per machine;
   # without it, gh run watch checks once per five minutes.
   if command -v glaeda-gh >/dev/null 2>&1; then
-    glaeda-gh wait run "$REPO/$run_id" --until done --timeout 7200 >/dev/null || true
+    glaeda-gh wait run "$REPO/$run_id" --until "done" --timeout 7200 >/dev/null || true
   else
     gh run watch --repo "$REPO" "$run_id" --interval 300 >/dev/null || true
   fi

@@ -215,7 +215,7 @@ exec 3<> "$watch_result_fifo"
   # below bounds both.
   set +e
   if command -v glaeda-gh >/dev/null 2>&1; then
-    glaeda-gh wait run "$REPO/$run_id" --until done --timeout "$timeout_seconds" >/dev/null 2>&1 &
+    glaeda-gh wait run "$REPO/$run_id" --until "done" --timeout "$timeout_seconds" >/dev/null 2>&1 &
   else
     gh run watch --repo "$REPO" "$run_id" --interval 300 >/dev/null 2>&1 &
   fi

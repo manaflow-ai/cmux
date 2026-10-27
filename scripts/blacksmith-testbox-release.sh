@@ -59,7 +59,7 @@ finish_if_done() {
 # on timeout); without it, one gh run watch checks once per five minutes, ended
 # by a timer at the deadline.
 if command -v glaeda-gh >/dev/null 2>&1; then
-  glaeda-gh wait run "manaflow-ai/cmux/$run_id" --until done --timeout "$wait_seconds" >/dev/null 2>&1 || true
+  glaeda-gh wait run "manaflow-ai/cmux/$run_id" --until "done" --timeout "$wait_seconds" >/dev/null 2>&1 || true
 else
   gh run watch "$run_id" --repo manaflow-ai/cmux --interval 300 >/dev/null 2>&1 &
   watch_pid=$!
