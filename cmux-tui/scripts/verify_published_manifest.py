@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import re
 import sys
@@ -409,8 +410,9 @@ def _read_url_once(
         if error.code >= 500:
             raise _TransientFetchError(f"could not fetch {url}: {error}") from error
         raise ManifestError(f"could not fetch {url}: {error}") from error
-    except (OSError, urllib.error.URLError) as error:
-        # Timeouts, resets and DNS or connection failures: no answer came.
+    except (OSError, urllib.error.URLError, http.client.HTTPException) as error:
+        # Timeouts, resets, DNS or connection failures, and a body cut off
+        # mid-read (http.client.IncompleteRead): no complete answer came.
         raise _TransientFetchError(f"could not fetch {url}: {error}") from error
 
 

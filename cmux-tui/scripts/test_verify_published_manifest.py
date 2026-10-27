@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import hashlib
+import http.client
 import urllib.error
 import json
 from pathlib import Path
@@ -197,6 +198,24 @@ class VerifyPublishedManifestTests(TestCase):
             )
         self.assertEqual(len(calls), 3)
         self.assertEqual(pauses, [VERIFY.RETRY_PAUSE_SECONDS, 2 * VERIFY.RETRY_PAUSE_SECONDS])
+
+    def test_a_body_cut_off_mid_read_is_read_again(self) -> None:
+        manifest = {"commit": self.COMMIT, "binaries": {self.WINDOWS: hashlib.sha256(b"w").hexdigest()}}
+
+        class CutOff(FakeResponse):
+            def read(self, size: int = -1) -> bytes:
+                raise http.client.IncompleteRead(b"{", 100)
+
+        responses = [CutOff({}), FakeResponse(manifest)]
+        with patch.object(VERIFY, "urlopen", side_effect=lambda request, timeout=0: responses.pop(0)), \
+                patch.object(VERIFY.time, "sleep") as sleep:
+            VERIFY.verify_manifest(
+                "https://files.example/cmux-tui/latest/manifest.json",
+                expected_commit=self.COMMIT,
+                required_artifacts=(self.WINDOWS,),
+            )
+        self.assertEqual(responses, [])
+        sleep.assert_called_once_with(VERIFY.RETRY_PAUSE_SECONDS)
 
     def test_a_persistent_timeout_fails_after_the_bounded_reads(self) -> None:
         calls: list[str] = []
