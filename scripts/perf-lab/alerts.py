@@ -445,7 +445,9 @@ def _group_for(db: sqlite3.Connection, now: str, series: SeriesInfo, start: int,
     marks = ",".join("?" * len(OPEN_STATES))
     group = db.execute(
         f"""SELECT id, state, start_pos, end_pos FROM alert_groups
-            WHERE state IN ({marks}) AND start_pos <= ? AND end_pos >= ? ORDER BY id LIMIT 1""",
+            WHERE state IN ({marks}) AND start_pos <= ? AND end_pos >= ?
+              AND NOT EXISTS (SELECT 1 FROM alerts h WHERE h.group_id = alert_groups.id AND h.rule = 'harness_broken')
+            ORDER BY id LIMIT 1""",
         (*OPEN_STATES, end, start)).fetchone()
     if group is not None:
         # The culprit is in every member's range. Once a bisect runs, its range stays fixed.

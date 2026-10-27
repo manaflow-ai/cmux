@@ -6,7 +6,7 @@
           "index": 0,
           "seconds": {
             "T1": 25360,
-            "T2": 41580
+            "T2": 44580
           },
           "stories": {
             "T1": [
@@ -136,7 +136,8 @@
               "stalls",
               "terminal-resize-stress",
               "tui-browser-frames",
-              "typing-flood-stress"
+              "typing-flood-stress",
+              "vs-browsers"
             ]
           }
         }
@@ -151,7 +152,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 41580
+            "T2": 44580
           },
           "stories": {
             "T2": [
@@ -213,7 +214,8 @@
               "stalls",
               "terminal-resize-stress",
               "tui-browser-frames",
-              "typing-flood-stress"
+              "typing-flood-stress",
+              "vs-browsers"
             ]
           }
         }

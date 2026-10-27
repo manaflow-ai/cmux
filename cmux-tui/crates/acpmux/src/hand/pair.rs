@@ -51,10 +51,16 @@ pub async fn pair(
         (Profile::Sandbox, true) => vec![PathBuf::from("/")],
         // Broad by default (#13742): the person's home; the classifier and the hard denies guard it.
         (Profile::Mac, true) => vec![dirs::home_dir().context("no home folder")?],
-        (_, false) => roots
-            .into_iter()
-            .map(|r| std::fs::canonicalize(&r).with_context(|| format!("root {}", r.display())))
-            .collect::<Result<Vec<_>>>()?,
+        (_, false) => {
+            let mut canonical = Vec::with_capacity(roots.len());
+            for r in roots {
+                let root = tokio::fs::canonicalize(&r)
+                    .await
+                    .with_context(|| format!("root {}", r.display()))?;
+                canonical.push(root);
+            }
+            canonical
+        }
     };
     let agent_policy = agent_policy.unwrap_or_else(|| match profile {
         Profile::Sandbox => "approve-edits".into(),

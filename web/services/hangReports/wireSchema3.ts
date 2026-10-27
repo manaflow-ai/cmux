@@ -237,6 +237,25 @@ export const FeatureEntry = Schema.Struct({
   source: Schema.Literal("policy", "env", "local", "remote", "trial"),
 });
 
+/** Blocking call sites one report names (the client's `HangReport.maxBlockingSites`). */
+export const MAX_BLOCKING_SITES = 20;
+/** The client's `HangReportBuilder.maxBlockingSiteValue`: the most calls or milliseconds one site says. */
+const MAX_BLOCKING_SITE_VALUE = 1_000_000_000;
+
+/**
+ * One `blocking_sites[]` entry (p12-perf-process-226): a main-thread blocking
+ * call site by its hashed id (`HangReport.BlockingSiteCount.siteID`, 16
+ * lowercase hex digits of SHA-256 over `Module/File.swift:line`, so no path
+ * arrives), what it waited on, and its calls and milliseconds since the
+ * client's last report.
+ */
+export const BlockingSiteCount = Schema.Struct({
+  site: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{16}$/)),
+  kind: Schema.String.pipe(Schema.pattern(RAW_LABEL_PATTERN)),
+  count: Schema.Number.pipe(Schema.int(), Schema.between(1, MAX_BLOCKING_SITE_VALUE)),
+  total_ms: boundedInt(MAX_BLOCKING_SITE_VALUE),
+});
+
 // MARK: the client's closed sets
 
 /** `TraceRuntime.Role` through `HangReport.blackBoxProcess`. */

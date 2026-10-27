@@ -1,5 +1,7 @@
 import os
 import CmuxNextCompat
+import CmuxNextSettings
+import CmuxNextTrace
 import CmuxNextWakeups
 
 extension MainThreadWatchdog {
@@ -25,7 +27,7 @@ extension MainThreadWatchdog {
     /// every other thread, opens the hang file, and reports the hang (``onHang``) at most once
     /// per `hangReportInterval`. Watchdog thread only.
     func reportHang(beat: UInt64, elapsedNanos: UInt64, now: UInt64, sampler: ThreadStackSampler?, crashKeys: CrashKeySlots?,
-                    lastReportNanos: inout UInt64?) {
+                    trace: TraceRuntime?, lastReportNanos: inout UInt64?) {
         let duration = Duration.nanoseconds(Int64(clamping: elapsedNanos))
         logger.fault("main thread hang: busy \(duration.fractionalMilliseconds, format: .fixed(precision: 0)) ms and counting")
         let due = lastReportNanos.map { now >= $0 &+ hangIntervalNanos } ?? true
@@ -36,31 +38,43 @@ extension MainThreadWatchdog {
         // Taken only while the stall still runs: the beat and the phase are read while the main thread
         // is suspended (atomics only).
         var stillBlocked = true
-        var cefState: UInt64 = 0
+        var inPump = false
         let board = boardSink.withLock { $0 }
         var scope = board?.hangScope ?? .noTask
         let sampled = sampler?.sample { _ in
             stillBlocked = beatSequence.load(ordering: .acquiring) == beat
-            cefState = crashKeys?.value(.cefState) ?? 0
+            inPump = Self.inCEFPump(cefState: crashKeys?.value(.cefState) ?? 0, pumpKey: trace?.crashKey(.inCEFPump) ?? 0)
             scope = board?.hangScope ?? .noTask
         } ?? []
         let addresses = stillBlocked ? sampled : []
-        let phase = stillBlocked ? Self.phaseLabel(cefState: cefState) : nil
+        let cef = stillBlocked && inPump
+        let phase = Self.phaseLabel(inCEFPump: cef)
         let others = sampler.map { ThreadStackSampler.sampleOtherThreads(excluding: $0.thread) } ?? []
         recorder?.begin(beat: beat, elapsed: duration, main: addresses, others: others, phase: phase)
         if let sink {
             lastReportNanos = now
-            sink(Hang(duration: duration, addresses: addresses, otherThreads: others, phase: phase,
+            sink(Hang(duration: duration, addresses: addresses, otherThreads: others, phase: phase, cef: cef,
                       attribution: hangAttribution(scope, stillBlocked: stillBlocked, now: now)))
         }
     }
 
-    /// The main-thread phase a stall or hang record names, from ``CrashKeySlots/Key/cefState`` read while
-    /// the main thread was suspended: `cef_pump` while the Chromium message pump runs on it (it runs on
-    /// main, so it is a phase of the main thread's episode, not a hang-watch scope); nil otherwise.
-    static func phaseLabel(cefState: UInt64) -> String? {
-        cefState == CrashKeySlots.CEFState.inPump.rawValue ? "cef_pump" : nil
+    /// Whether the main thread was inside the Chromium message pump, from the crash keys read while it was
+    /// suspended: the trace runtime's `in_cef_pump` key (``CmuxNextTrace/CrashKeySlot/inCEFPump``), which the
+    /// pump sets in whichever process runs it, or the app crash keys' CEF state at
+    /// ``CrashKeySlots/CEFState/inPump``. The pump runs on main, so it is a phase of the main thread's
+    /// episode, not a hang-watch scope (task 077).
+    static func inCEFPump(cefState: UInt64, pumpKey: UInt64) -> Bool {
+        pumpKey != 0 || cefState == CrashKeySlots.CEFState.inPump.rawValue
     }
+
+    /// The main-thread phase a stall or hang record names: `cef_pump` inside the Chromium message pump
+    /// (``inCEFPump(cefState:pumpKey:)``); nil otherwise.
+    static func phaseLabel(inCEFPump: Bool) -> String? {
+        inCEFPump ? "cef_pump" : nil
+    }
+
+    /// What a stall record inside the Chromium message pump adds to its details: `cef=true` and the phase.
+    static let cefPumpDetails: [String: JSONValue] = ["cef": .bool(true), "phase": .string("cef_pump")]
 
     /// A main-thread hang in progress: how long the main thread has been
     /// busy so far, and its stack (return addresses, innermost first).
@@ -71,9 +85,12 @@ extension MainThreadWatchdog {
         /// that waits on a lock or a reply shows only the wait, and the holder is in here
         /// (``ThreadStackSampler/sampleOtherThreads(excluding:maxFrames:)``).
         public var otherThreads: [ThreadSample] = []
-        /// What the main thread was in when sampled (``phaseLabel(cefState:)``): `cef_pump` inside the
+        /// What the main thread was in when sampled (``phaseLabel(inCEFPump:)``): `cef_pump` inside the
         /// Chromium message pump; nil otherwise, with no crash keys attached, or when the stall ended first.
         public var phase: String?
+        /// The sample caught the main thread inside the Chromium message pump (``inCEFPump(cefState:pumpKey:)``):
+        /// the Sentry tag `hang.cef`.
+        public var cef = false
         /// The scheduled task the sample caught (owner, class, location) and the turn so far; its task
         /// is nil (`unattributed`) when no scheduled task ran or the stall ended before the sample.
         public var attribution = HangAttribution(task: nil, turnNanos: 0)

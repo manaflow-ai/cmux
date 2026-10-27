@@ -3,6 +3,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFloating
 public import CmuxNextSettings
+public import CmuxNextWakeups
 
 /// The Chief pet's rows in the Chief Settings popover's Appearance section (Leo 2026-10-19: "pet
 /// needs those settings to be obviously there"): Show Chief Pet (`home.chiefPetEnabled`) and the
@@ -17,10 +18,14 @@ public final class ChiefPetSettingsRows: NSObject {
     let mascot = ChiefPetMascotGrid(items: ChiefPetSettingsRows.mascotItems())
     private let settings: @MainActor @Sendable () -> SettingsController?
     private let picks: ChiefMascotPicks
-    private var watch: Task<Void, Never>?
+    /// The rows' follow of the settings and the Chief's pick (``follow()``); releasing it stops it.
+    private var watch: VisibleObservation<ObservationTrigger<Shown?>>?
     /// The character last shown, for `onMascot`.
     private var shownMascot: String?
     private(set) weak var host: NSView?
+    /// The host's node in the visibility tree: the rows read only while it is on screen, once again on show.
+    private var node: VisibilityNode?
+    private var mainWork: MainWorkScheduler?
     private var opener: (@MainActor () -> Bool)?
     /// The app's popovers the pet's Chief Pet Settings… opens; `install` adds these rows.
     private let homes: ChiefPetHomes
@@ -56,10 +61,14 @@ public final class ChiefPetSettingsRows: NSObject {
     }
 
     /// Adds Show Chief Pet and the pet's character through `addRow` (the Chief Settings
-    /// popover's Appearance section) in `host`, then follows the settings while the rows live. `open`
-    /// opens (never closes) that popover; false when `host` cannot show it.
-    public func install(in host: NSView, addRow: (String, NSView) -> Void, open: @escaping @MainActor () -> Bool) {
+    /// popover's Appearance section) in `host`, then follows the settings while the rows live and
+    /// `node` (the host's node) is on screen, on `mainWork` (the app's scheduler). `open` opens (never
+    /// closes) that popover; false when `host` cannot show it.
+    public func install(in host: NSView, node: VisibilityNode, mainWork: MainWorkScheduler, addRow: (String, NSView) -> Void,
+                        open: @escaping @MainActor () -> Bool) {
         self.host = host
+        self.node = node
+        self.mainWork = mainWork
         self.opener = open
         homes.live.add(self)
         let enabledTitle = SettingsSchema.descriptor(for: HomeChiefPetSetting.configPath)?.title ?? ""
@@ -71,25 +80,19 @@ public final class ChiefPetSettingsRows: NSObject {
 
     /// Shows the settings and `chief`'s character now and on each change, until the next `follow`.
     /// The default Chief's character is a setting and another's a pick, so what is observed depends
-    /// on the Chief (`chief` itself is not observable): a new Chief starts a new watch.
+    /// on the Chief (`chief` itself is not observable): a new Chief starts a new watch. The rows are
+    /// views, so it is a ``VisibleObservation`` on the host's node: a hidden Home reads nothing, and
+    /// reads once when it shows again.
     private func follow() {
         watch?.cancel()
+        guard let node, let mainWork else { return }
         let chief = chief, settings = settings, picks = picks
-        // task-owner: lives until the rows' Chief changes or the rows go (their Home view; deinit cancels it); event-driven (Observation)
-        watch = Task { [weak self] in
-            // Every change is shown (a trigger, never deduplicated): `show` compares with what it showed.
-            for await shown in ObservationStream({ ObservationTrigger(Self.shown(settings(), picks: picks, chief: chief)) }) {
-                guard let self, !Task.isCancelled else { return }
-                if let shown = shown.value { show(shown) }
-            }
+        // Every change is shown (a trigger, never deduplicated): `show` compares with what it showed.
+        watch = VisibleObservation(node, owner: "ChiefPetSettingsRows.settings", on: mainWork) {
+            ObservationTrigger(Self.shown(settings(), picks: picks, chief: chief))
+        } apply: { [weak self] shown in
+            if let shown = shown.value { self?.show(shown) }
         }
-        if let shown = Self.shown(settings(), picks: picks, chief: chief) { show(shown) }
-    }
-
-    // As HomeHostView's: not an isolated deinit; the watch ends with the rows (their Home view).
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated { watch?.cancel() }
     }
 
     /// The rows' state from the loaded settings and Chief `chief`'s pick. A managed
@@ -152,6 +155,7 @@ public final class ChiefPetSettingsRows: NSObject {
     private func write(_ path: [String], _ value: CmuxNextSettings.JSONValue) {
         guard let settings = settings() else { return }
         // task-owner: one settings write; ends with it
+        // main-hop-allow: the person's toggle or pick, userBlocking rest (p06 rule 2): the write is SettingsController's own main-actor async write (its file write runs off main); this task only starts it and puts the rows back in its resume when it is refused
         Task { [weak self] in
             do {
                 try await settings.setSetting(at: path, to: value, by: .user)
@@ -163,8 +167,11 @@ public final class ChiefPetSettingsRows: NSObject {
     }
 
     /// Opens this Home's popover and brings its window forward (`ChiefPetHomes.open`); false off screen.
+    /// On screen is an ordered-in window and the host's node: shown or in an occluded window (the raise
+    /// brings it forward), never hidden (a hidden app, a miniaturized window, a hidden ancestor). An
+    /// ordered-out window's node reads occluded, so its window's own `isVisible` rules it out.
     func openOnScreen(noActivate: Bool) -> Bool {
-        guard let host, let window = host.window, window.isVisible, !window.isMiniaturized, !host.isHiddenOrHasHiddenAncestor,
+        guard let host, let window = host.window, window.isVisible, let node, node.effective > .hidden,
               let opener, opener() else { return false }
         WindowActivation.show(window, noActivate ? .raise : .focus)
         return true
