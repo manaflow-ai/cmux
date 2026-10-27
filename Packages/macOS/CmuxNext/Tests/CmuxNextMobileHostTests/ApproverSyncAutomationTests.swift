@@ -1,4 +1,4 @@
-import CmuxNextAgentPane
+@testable import CmuxNextAgentPane
 import CmuxNextCompat
 @testable import CmuxNextMobileHost
 @testable import CmuxNextWakeups
