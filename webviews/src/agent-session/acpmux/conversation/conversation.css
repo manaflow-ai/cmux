@@ -3885,11 +3885,11 @@ article.acpmux-row:empty {
   padding-bottom: var(--cv-turn-gap);
 }
 
-/* A steer the agent has not read yet (PendingSteer.tsx): plain Send now leads the prompt's action
-   row, before its receipt, age and message buttons. */
+/* An unread steer shows only Send now and remove, with the same quiet height as hover actions. */
 .cv-user__pending {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   margin: 0;
   padding: 0;
   font-family: var(--cv-font);
@@ -3917,6 +3917,9 @@ article.acpmux-row:empty {
 .cv-user__take-back {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  width: var(--cv-meta-row);
+  height: var(--cv-meta-row);
   border: 0;
   padding: 0;
   background: none;
@@ -3927,38 +3930,6 @@ article.acpmux-row:empty {
 }
 .cv-user__take-back:disabled {
   opacity: 0.5;
-}
-/* Send now worked (PendingSteer.tsx): Send now and the X fade, then fold their width to nothing.
-   The action row keeps its one line, so nothing above or below moves; the timer that removes them
-   reads the same fold duration (fold.ts foldMs), 0 under Reduce Motion or with animation off. */
-.cv-user__pending--leaving {
-  overflow: hidden;
-  pointer-events: none;
-  max-width: 0;
-  opacity: 0;
-}
-.cv-user__pending--leaving .cv-user__send-now:disabled,
-.cv-user__pending--leaving .cv-user__take-back:disabled {
-  opacity: 1;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .cv-user__pending--leaving {
-    animation: cv-user-pending-leave var(--cv-fold-duration) var(--cv-actions-ease) forwards;
-  }
-}
-@keyframes cv-user-pending-leave {
-  from {
-    max-width: var(--cv-pending-width);
-    opacity: 1;
-  }
-  45% {
-    max-width: var(--cv-pending-width);
-    opacity: 0;
-  }
-  to {
-    max-width: 0;
-    opacity: 0;
-  }
 }
 /* Reply on another agent's message (IncomingMessageCard.tsx): the editor under the opened
    message and its Details, and a quiet line once sent or when it was not. */

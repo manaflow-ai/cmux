@@ -1,9 +1,9 @@
 /* The location strip (ComposerContext.tsx, hq#1957 composer location strip): folder · computer on
-   the left, the branch on the right, as the card's full-width head. The card holds one controls
-   row; the strip is not a second row inside it. The strip's fill and edge are the card's, so the
-   two read as one surface: its sides and top draw the card's hairline, its bottom edge is the
-   card's top edge, and its top corners take the card's radius (--acpmux-strip-radius) while the
-   card's top corners square off under it. It spans the column like every other block in the chat
+   the left, the branch on the right, over the card. The card holds one controls row; the strip is
+   not a second row inside it. By default its chips stand a few px over the card (below), as the
+   New Tab's do; the Debug top strip styles and Codex's look draw it as a filled strip, with the
+   card's fill and edge (--acpmux-strip-radius on its top corners). It spans the column like every
+   other block in the chat
    (Leo 2026-10-14: inserted blocks share the column's edges), its controls inset by their own
    padding. It has one fixed height,
    with a project or without, while the host's name loads and after, so nothing under it moves.
@@ -784,36 +784,40 @@
 .acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons button:not(.acpmux-permission-deny) { background: var(--agent-accent); color: var(--agent-accent-text, #fff); }
 .acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons .acpmux-permission-deny { background: transparent; border: 0; color: var(--agent-muted); }
 
-/* One rim around the strip and the card: the card draws its rim (--acpmux-card-ring, resting,
-   focused, shell or borders none) on a layer that reaches up over the strip, its top corners the
-   strip's radius. Two rims, the strip's and the card's, broke at the join (half a pixel of mask at
-   1x) and took two tones once the card had focus (live captures, 2026-10-14). The card's top
-   corners square off under the strip. The New Tab has no tab on its card (newtab/screen.css: its
-   strip is text over the card), so its card keeps its whole rim; so does the card under a top strip
-   variant (below). */
-:root:not([data-top-strip]) .acpmux-composer:has(> .acpmux-composer-strip, > .acpmux-composer-queue) > .acpmux-composer-box {
+/* A new chat's strip (Leo 2026-10-25: "what is going on with the composer area in the Command I
+   section? Like, why is that a different style from everything else?"): the folder and computer
+   chips stand a few px over the card, as the New Tab's do (newtab/screen.css, #21133), with no
+   fill, rim or frost of their own. The card is a started chat's: its four corners and its whole
+   rim. The chips and their gap take the 30 px the tab took, so nothing under them moves. */
+:root:not([data-top-strip]) .acpmux-composer:not([data-composer-look="codex"]) > .acpmux-composer-strip {
+  --acpmux-strip-height: 24px;
+  margin-bottom: 6px;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* One rim around the queue and the card: the card draws its rim (--acpmux-card-ring, resting,
+   focused, shell or borders none) on a layer of its own, its top corners square under the queue,
+   whose sides carry the rim on up. Two rims broke at the join (half a pixel of mask at 1x) and took
+   two tones once the card had focus (live captures, 2026-10-14). The card under a top strip variant
+   keeps its whole rim (below). */
+:root:not([data-top-strip]) .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-box {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
 }
-.acpmux-composer:has(> .acpmux-composer-strip, > .acpmux-composer-queue) > .acpmux-composer-box {
+.acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-box {
   box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
 }
-.acpmux-composer:has(> .acpmux-composer-strip, > .acpmux-composer-queue) > .acpmux-composer-box::before {
+.acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-box::before {
   content: "";
   position: absolute;
-  inset: calc(-1 * var(--acpmux-strip-height)) 0 0;
-  border-top-left-radius: var(--acpmux-strip-radius, 18px);
-  border-top-right-radius: var(--acpmux-strip-radius, 18px);
-  border-bottom-left-radius: inherit;
-  border-bottom-right-radius: inherit;
+  inset: 0;
+  border-radius: inherit;
   box-shadow: var(--acpmux-card-ring);
   pointer-events: none;
-}
-
-/* After a chat's first send there is no strip (#20869): a queue stands right on the card, and the
-   rim layer stays on the card. */
-.acpmux-composer:not(:has(> .acpmux-composer-strip)) > .acpmux-composer-box::before {
-  top: 0;
 }
 
 /* The strip's controls are the small ghost buttons, centered in its fixed height. */
@@ -1054,6 +1058,16 @@
 .acpmux-location-suffix,
 .acpmux-location-suffix-dot { color: var(--agent-muted); }
 .acpmux-location-empty { padding: 6px 8px; color: var(--agent-muted); }
+/* Where a new chat with no folder starts (its workspace's private folder), under the list: quiet
+   text, never a row of its own. */
+.acpmux-folder-popover .acpmux-location-note {
+  margin: 4px 0 2px;
+  padding: 4px 8px;
+  border-top: 1px solid color-mix(in srgb, var(--agent-text) 12%, transparent);
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: 16px;
+}
 /* A repository's other worktrees (projectRepos.ts) sit under its row, their branch glyph where the
    row's badge is, so the names line up with the repository's. The count at the end of the row opens
    them: "⑂ 4 ›", quiet until the row is hovered or highlighted; its chevron turns down while open. */

@@ -222,7 +222,12 @@ struct PageFactory {
                                     // The acpmux this app starts; none in a showcase or with the mock agent host.
                                     guard let environment = services.flatMap(QuitAgents.environment) else { return nil }
                                     return (AcpmuxDaemonSummary.title, await AcpmuxDaemonSummary.current(environment).text)
-                                }, machines: { DaemonUpdateBoard.shared.otherMachines })),
+                                }, machines: { PageFactory.otherMachines(DaemonUpdateBoard.shared) },
+                                // The person's Update on a machine of that row: the shared policy asks it again.
+                                updateMachine: { id in
+                                    await DaemonUpdateBoard.shared.update(id) { await DaemonUpdatePolicy.shared.retry($0) }
+                                        ? nil : DaemonUpdateBoard.updateRefused
+                                })),
                       PageRoute(prefix: WebUpdatesPageProvider.prefix, provider: WebUpdatesPageProvider()),
                       // Chief > Voice input: the home.voiceInput tunable (DEV and NIGHTLY).
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),
@@ -261,5 +266,13 @@ struct PageFactory {
         let native = AppPageNativeProvider(services: services, page: page)
         native.forward = { op, params, context in try await relay.call(op, params: params, context: context) }
         return page.namespaces.map { PageRoute(prefix: $0, provider: relay) } + [PageRoute(prefix: "cmux.app.", provider: native)]
+    }
+
+    /// Settings > Updates' row of other machines from the daemon update board: a machine that
+    /// cannot update in place gets the Update button.
+    static func otherMachines(_ board: DaemonUpdateBoard) -> ChannelsPageProvider.Machines? {
+        guard let row = board.otherMachines else { return nil }
+        return ChannelsPageProvider.Machines(title: row.title, lines: row.lines, updates: row.machines.map { $0.canUpdate ? $0.id : nil },
+                                             updateLabel: DaemonUpdateBoard.updateLabel)
     }
 }

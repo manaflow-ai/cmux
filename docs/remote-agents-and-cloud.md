@@ -125,7 +125,8 @@ the Linux installation and `host add` steps above instead. `host update`
 refuses a peer of another OS or architecture unless you pass `--binary-dir DIR`
 with a build named `acpmux-<target>` there (for example
 `acpmux-x86_64-unknown-linux-musl`); otherwise update that host by rebuilding
-it there.
+it there. Same-target peers can use the plain
+`acpmux host update NAME`.
 
 ## Work with a remote session
 
@@ -296,8 +297,8 @@ you would not hand to that person.
 
 Codex's own rules on the host still apply in every mode. A command that a rule
 in `~/.codex/rules` explicitly allows, such as a prefix someone once approved
-with "always allow", runs outside the sandbox without asking, in `read-only`
-as in `ask`.
+with "always allow", runs without asking. In `ask` it runs outside the sandbox;
+in `read-only` it stays inside the read-only sandbox.
 
 ## Use cmux Cloud
 
