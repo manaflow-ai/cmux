@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR fbb7f14ac150fa6ac7687d1c1b3d6a65bd33ea34755e5df211bf1b60f29abddd.
+// cmux-tui mux protocol 12, IR 3beb1867b44940d1c732c29d94979ae115158ca4f67c1f642ced2ef2113e5eda.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -551,10 +551,12 @@ pub enum InputFailedEventReason {
     NotATerminal,
     #[serde(rename = "write_failed")]
     WriteFailed,
-    #[serde(rename = "stream_full")]
-    StreamFull,
     #[serde(rename = "daemon_handoff")]
     DaemonHandoff,
+    #[serde(rename = "overflow")]
+    Overflow,
+    #[serde(rename = "attach_failed")]
+    AttachFailed,
 }
 
 #[rustfmt::skip]

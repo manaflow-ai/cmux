@@ -2347,8 +2347,8 @@
     },
     {
       "path": "InputFailedEventReason.java",
-      "sha256": "240b05d850308d46a31f5514d14493d897ec5d69e65e7d2fca70268ebe96d41d",
-      "size": 1070
+      "sha256": "6e116bb264923bab73a3077891b4c901373099390290a3403ab6421d7b1847c3",
+      "size": 1100
     },
     {
       "path": "JournalFrontendEventRequest.java",
@@ -3007,7 +3007,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "2c5126eb72a11fc87745ffcdea9e4688d912b54e47bd74c4c4636558f36731b2",
+      "sha256": "113f80e076ce1cec9fe7dcf23858256bca09d82b755c780d1916e0aefe9a77fd",
       "size": 8063
     },
     {
@@ -4492,7 +4492,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "fbb7f14ac150fa6ac7687d1c1b3d6a65bd33ea34755e5df211bf1b60f29abddd",
+  "ir_sha256": "3beb1867b44940d1c732c29d94979ae115158ca4f67c1f642ced2ef2113e5eda",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

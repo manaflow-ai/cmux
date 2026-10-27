@@ -37277,8 +37277,9 @@
         "terminal_ended",
         "not_a_terminal",
         "write_failed",
-        "stream_full",
-        "daemon_handoff"
+        "daemon_handoff",
+        "overflow",
+        "attach_failed"
        ]
       },
       "presence": "required",

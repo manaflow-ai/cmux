@@ -1313,9 +1313,10 @@
         "ty": "enum",
         "required": true,
         "values": [
+          "attach_failed",
           "daemon_handoff",
           "not_a_terminal",
-          "stream_full",
+          "overflow",
           "terminal_ended",
           "write_failed"
         ]

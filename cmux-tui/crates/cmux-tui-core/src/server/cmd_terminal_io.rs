@@ -34,7 +34,7 @@ use regex::Regex;
 use serde_json::Value;
 use serde_json::json;
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 use std::time::Instant;
 
@@ -207,9 +207,6 @@ pub(super) enum InputFailure {
     /// The terminal refused the write (a host that did not come back, a
     /// write that timed out).
     WriteFailed,
-    /// The stream's sequence held its cap of queued items; known not
-    /// delivered.
-    StreamFull,
     /// A daemon handoff is pending, so the daemon refused the bytes without
     /// writing them, as it refuses a line meanwhile.
     DaemonHandoff,
@@ -221,7 +218,6 @@ impl InputFailure {
             Self::TerminalEnded => "terminal_ended",
             Self::NotATerminal => "not_a_terminal",
             Self::WriteFailed => "write_failed",
-            Self::StreamFull => "stream_full",
             Self::DaemonHandoff => "daemon_handoff",
         }
     }
@@ -247,22 +243,28 @@ impl InputFailure {
 /// An INPUT frame's bytes (p05-ipc-078): the raw bytes of `send`, with no
 /// JSON and no base64, written the way `send` writes them. `flow` (0: none)
 /// is the key press's flow id, carried by the frame header: its hops and
-/// the echo that answers it carry it, as `send`'s `flow` does.
+/// the echo that answers it carry it, as `send`'s `flow` does. The mux is
+/// held only to find the surface, not across the write, which waits while
+/// the program does not read.
 pub(super) fn write_input(
-    mux: &Arc<Mux>,
+    mux: &Weak<Mux>,
     client: u64,
     surface: SurfaceId,
     bytes: &[u8],
     flow: u64,
 ) -> Result<(), InputFailure> {
-    let Some(surface) = mux.surface(surface).filter(|surface| !surface.is_dead()) else {
-        return Err(InputFailure::TerminalEnded);
+    let surface = {
+        let Some(mux) = mux.upgrade() else { return Err(InputFailure::TerminalEnded) };
+        let Some(surface) = mux.surface(surface).filter(|surface| !surface.is_dead()) else {
+            return Err(InputFailure::TerminalEnded);
+        };
+        if require_pty(&surface).is_err() {
+            return Err(InputFailure::NotATerminal);
+        }
+        // Bytes queued for this terminal while it was being created go first.
+        mux.wait_for_creating_input_flush(&surface);
+        surface
     };
-    if require_pty(&surface).is_err() {
-        return Err(InputFailure::NotATerminal);
-    }
-    // Bytes queued for this terminal while it was being created go first.
-    mux.wait_for_creating_input_flush(&surface);
     cmux_flow_trace::hop("daemon.send.write", flow, surface.flow_terminal_id());
     if surface.write_bytes_flow(bytes, flow).is_err() {
         return Err(if surface.is_dead() {
@@ -272,7 +274,9 @@ pub(super) fn write_input(
         });
     }
     cmux_flow_trace::hop("daemon.send.written", flow, surface.flow_terminal_id());
-    mux.note_terminal_input(surface.id, client);
+    if let Some(mux) = mux.upgrade() {
+        mux.note_terminal_input(surface.id, client);
+    }
     Ok(())
 }
 

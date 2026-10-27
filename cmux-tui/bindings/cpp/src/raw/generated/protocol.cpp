@@ -52221,8 +52221,9 @@ Result<Json> Codec<InputFailedEventReason>::encode(const InputFailedEventReason&
         case InputFailedEventReason::terminal_ended: return Json(std::string("terminal_ended"));
         case InputFailedEventReason::not_a_terminal: return Json(std::string("not_a_terminal"));
         case InputFailedEventReason::write_failed: return Json(std::string("write_failed"));
-        case InputFailedEventReason::stream_full: return Json(std::string("stream_full"));
         case InputFailedEventReason::daemon_handoff: return Json(std::string("daemon_handoff"));
+        case InputFailedEventReason::overflow: return Json(std::string("overflow"));
+        case InputFailedEventReason::attach_failed: return Json(std::string("attach_failed"));
     }
     return make_error(ErrorCode::invalid_argument, "invalid enum value");
 }
@@ -52231,8 +52232,9 @@ Result<InputFailedEventReason> Codec<InputFailedEventReason>::decode(const Json&
     if (value == Json(std::string("terminal_ended"))) return InputFailedEventReason::terminal_ended;
     if (value == Json(std::string("not_a_terminal"))) return InputFailedEventReason::not_a_terminal;
     if (value == Json(std::string("write_failed"))) return InputFailedEventReason::write_failed;
-    if (value == Json(std::string("stream_full"))) return InputFailedEventReason::stream_full;
     if (value == Json(std::string("daemon_handoff"))) return InputFailedEventReason::daemon_handoff;
+    if (value == Json(std::string("overflow"))) return InputFailedEventReason::overflow;
+    if (value == Json(std::string("attach_failed"))) return InputFailedEventReason::attach_failed;
     return make_error(ErrorCode::decode, "unknown InputFailedEventReason value");
 }
 

@@ -220,9 +220,10 @@ bytes}` ([events.md](events.md#input-failed)); while the terminal stays ended,
 later INPUT on the same open of the stream sends no second event. INPUT obeys
 a line's gates: after a shutdown acknowledgement or a committed handoff it
 closes the connection, and during a pending handoff it is refused with
-`daemon_handoff`. An INPUT frame on a stream the connection has not opened is
-a bad message (`unknown_stream`), and so is one from a remote-relay client
-(`remote_input`).
+`daemon_handoff`. INPUT sent right behind its stream's `attach-surface` waits
+for that reply ([events.md](events.md#attach-streams)). An INPUT frame on a
+stream the connection never announced is a bad message (`unknown_stream`),
+and so is one from a remote-relay client (`remote_input`).
 
 #### Bulk payloads: SNAPSHOT, SNAPSHOT_MORE, REPLAY
 

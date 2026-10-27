@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "fbb7f14ac150fa6ac7687d1c1b3d6a65bd33ea34755e5df211bf1b60f29abddd";
+pub const ir_sha256 = "3beb1867b44940d1c732c29d94979ae115158ca4f67c1f642ced2ef2113e5eda";
 
 pub const AccessRequestKind = enum {
     file,
@@ -13558,15 +13558,17 @@ pub const InputFailedEventReason = enum {
     terminal_ended,
     not_a_terminal,
     write_failed,
-    stream_full,
     daemon_handoff,
+    overflow,
+    attach_failed,
 
     pub fn fromWire(value: []const u8) !@This() {
         if (std.mem.eql(u8, value, "terminal_ended")) return .terminal_ended;
         if (std.mem.eql(u8, value, "not_a_terminal")) return .not_a_terminal;
         if (std.mem.eql(u8, value, "write_failed")) return .write_failed;
-        if (std.mem.eql(u8, value, "stream_full")) return .stream_full;
         if (std.mem.eql(u8, value, "daemon_handoff")) return .daemon_handoff;
+        if (std.mem.eql(u8, value, "overflow")) return .overflow;
+        if (std.mem.eql(u8, value, "attach_failed")) return .attach_failed;
         return error.UnknownEnumValue;
     }
 
@@ -13575,8 +13577,9 @@ pub const InputFailedEventReason = enum {
             .terminal_ended => "terminal_ended",
             .not_a_terminal => "not_a_terminal",
             .write_failed => "write_failed",
-            .stream_full => "stream_full",
             .daemon_handoff => "daemon_handoff",
+            .overflow => "overflow",
+            .attach_failed => "attach_failed",
         };
     }
 };

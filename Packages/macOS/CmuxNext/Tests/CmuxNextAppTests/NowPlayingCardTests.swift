@@ -5,6 +5,7 @@ import CmuxNextDesign
 @testable import CmuxNextNowPlaying
 import CmuxNextSettings
 @testable import CmuxNextSidebar
+import CmuxNextWakeups
 import Foundation
 import Observation
 import Testing
@@ -58,7 +59,7 @@ import Testing
         let model: SidebarModel
         let sidebar: SidebarView
         let window: NSWindow
-        let feed: Task<Void, Never>
+        let feed: ServiceObservation<NowPlayingFollowed>
         var card: SidebarNowPlayingCardView { sidebar.nowPlayingCardView }
 
         /// Waits for the sidebar to show (or hide) the card; it follows the model on a task.
@@ -93,7 +94,7 @@ import Testing
         window.contentView = sidebar
         sidebar.frame = NSRect(x: 0, y: 0, width: width, height: 640)
         window.orderFrontRegardless()
-        let feed = model.followNowPlaying(source, enabled: { flag.on })
+        let feed = model.followNowPlaying(source, enabled: { flag.on }, on: linklessMainWork())
         let harness = Harness(source: source, flag: flag, model: model, sidebar: sidebar, window: window, feed: feed)
         await harness.cardShows(enabled)
         return harness
@@ -228,10 +229,11 @@ import Testing
         let media = BrowserMediaState(title: "Weightless", artworkURL: art, isPlaying: true, position: 60, duration: 480)
         let source = BrowserTabsNowPlaying()
         source.artworkRetry = .milliseconds(200)
-        source.follow(sessions: { [NowPlayingSession(tab: tab.id, media: media)] }, tab: { _ in tab })
+        source.follow(sessions: { [NowPlayingSession(tab: tab.id, media: media)] }, tab: { _ in tab },
+                      deadlines: MainDeadlineScheduler(work: linklessMainWork()))
         // Read the way the card is fed: the model reads the source again only when it changes.
         let model = SidebarModel()
-        let following = model.followNowPlaying(source, enabled: { true })
+        let following = model.followNowPlaying(source, enabled: { true }, on: linklessMainWork())
         defer { following.cancel() }
         try await PasswordManagerRouteTests.until({ model.nowPlaying != nil }, within: .seconds(6)) { "the card never shows the tab's track" }
         try await Task.sleep(for: .seconds(1))

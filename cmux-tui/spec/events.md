@@ -1393,7 +1393,7 @@ Example:
 Payload:
 
 ```text
-object{event:"input-failed",stream:uint16,reason:"terminal_ended"|"not_a_terminal"|"write_failed"|"stream_full"|"daemon_handoff",bytes:uint64}
+object{event:"input-failed",stream:uint16,reason:"terminal_ended"|"not_a_terminal"|"write_failed"|"daemon_handoff"|"overflow"|"attach_failed",bytes:uint64}
 ```
 
 Meaning: The bytes of an INPUT frame (p05-ipc-078, [transports.md](transports.md)) did not reach the
@@ -1403,10 +1403,12 @@ learns its input was lost. `stream` is the stream the frame named and `bytes` th
 surface id). `not_a_terminal`: the stream views a browser surface. After either, later INPUT that fails
 the same way sends no second event, until a write reaches a terminal again (the respawned one) or the
 stream id is opened again; every later frame is still tried. `write_failed`: the terminal refused the
-write (its host did not come back, or the write timed out); a later frame is tried again. `stream_full`:
-the stream's sequence held its cap of queued items, so the frame was not queued. `daemon_handoff`: a
-daemon handoff is pending, so the daemon refused the bytes without writing them, as it refuses a line
-meanwhile; a later frame is tried again. It is sent as the next item of that stream.
+write (its host did not come back, or the write timed out); a later frame is tried again.
+`daemon_handoff`: a daemon handoff is pending, so the daemon refused the bytes without writing them, as
+it refuses a line meanwhile; a later frame is tried again. `overflow` and `attach_failed`: the stream
+ended before its `attach-surface` was answered (it held its pending cap and got one more item, or its
+opener failed); `bytes` counts every INPUT byte it queued, in one event right before its `stream-end`
+with the same reason. It is sent as the next item of that stream.
 
 Example:
 

@@ -1,113 +1,101 @@
-//! INPUT frames over a real socket pair (p05-ipc-078): the bytes reach the
-//! terminal in order on their stream's sequence under the connection's
-//! cause, nothing answers them and nothing parses them; an ended terminal
-//! gives one `input-failed` until a write reaches a terminal again or the
-//! stream is opened again; INPUT obeys a line's shutdown, handoff and remote
-//! gates.
+//! INPUT frames over a real socket pair (p05-ipc-078), on streams a real
+//! `attach-surface {stream}` opened: the bytes reach the terminal in order
+//! on their stream's sequence under the connection's cause, nothing answers
+//! them and nothing parses them; an ended terminal gives one `input-failed`
+//! until a write reaches a terminal again or the stream is opened again;
+//! INPUT obeys a line's shutdown, handoff and remote gates.
+//!
+//! A `send` with no bytes on the stream is the fence: its reply comes after
+//! every item queued on the stream before it ran, and every `input-failed`
+//! those items sent.
 
-use std::collections::HashMap;
 use std::io::Write;
-use std::net::Shutdown;
-use std::os::unix::net::UnixStream;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
-use std::time::Duration;
 
-use cmux_ipc::{
-    Aux, CallAux, CallFlags, FrameHeader, FrameKind, FrameReader, Message, MethodTables,
-    ReaderLimits,
-};
+use cmux_ipc::{Aux, CallAux, CallFlags, FrameHeader, FrameKind, Message};
 use serde_json::{Value, json};
 
-use super::{CallRefusal, InputStreams, RequestFrames, StreamItem, StreamPostRefusal, StreamView};
+use super::CallRefusal;
+use super::tests::{Client, method};
 use crate::SurfaceId;
 use crate::diagnostics::IpcSnapshot;
 use crate::event_cause::EventCause;
 use crate::mux::DaemonHandoffRequest;
 use crate::remote_relay_state::LinkPeer;
-use crate::server::line_connection::{ConnectionBadMessage, ConnectionEnd, serve_connection};
-use crate::server::*;
+use crate::server::VIEW_ATTACHMENT_LEASE_CAPABILITY;
+use crate::server::line_connection::{ConnectionBadMessage, ConnectionEnd};
 
-/// Open streams as attach-streams opens them, run on one FIFO worker (a
-/// stream sequence), with the events each stream sent.
-struct TestStreams {
-    views: Mutex<HashMap<u16, StreamView>>,
-    opens: AtomicU64,
-    queue: Mutex<Option<Sender<StreamItem>>>,
-    full: AtomicBool,
-    events: Mutex<Vec<(u16, Value)>>,
+/// What the daemon sent: an event line, or the answer to a request.
+#[derive(Debug)]
+enum Seen {
+    Event(Value),
+    Answer { kind: FrameKind, request_id: u32, body: Value },
+    Line(Value),
 }
 
-impl TestStreams {
-    fn start() -> (Arc<TestStreams>, JoinHandle<()>) {
-        let (queue, items) = mpsc::channel::<StreamItem>();
-        let streams = Arc::new(TestStreams {
-            views: Mutex::new(HashMap::new()),
-            opens: AtomicU64::new(0),
-            queue: Mutex::new(Some(queue)),
-            full: AtomicBool::new(false),
-            events: Mutex::new(Vec::new()),
-        });
-        let worker = std::thread::spawn(move || {
-            for item in items {
-                item();
+fn next_seen(client: &mut Client) -> Option<Seen> {
+    loop {
+        match client.reader.next_message().unwrap() {
+            Some(Message::Json(line)) if line.trim().is_empty() => {}
+            Some(Message::Json(line)) => {
+                let value: Value = serde_json::from_str(line).unwrap();
+                return Some(if value.get("event").is_some() {
+                    Seen::Event(value)
+                } else {
+                    Seen::Line(value)
+                });
             }
-        });
-        (streams, worker)
-    }
-
-    /// Opens `stream` on `surface`: a new view, also when the id was open.
-    fn open(&self, stream: u16, surface: SurfaceId) {
-        let open = self.opens.fetch_add(1, Ordering::Relaxed) + 1;
-        self.views.lock().unwrap().insert(stream, StreamView { surface, open });
-    }
-
-    /// Returns once every item queued before it ran.
-    fn drain(&self) {
-        let (ran, done) = mpsc::channel();
-        let sender = self.queue.lock().unwrap().clone().unwrap();
-        sender.send(Box::new(move || ran.send(()).unwrap())).unwrap();
-        done.recv_timeout(Duration::from_secs(60)).expect("the stream drained");
-    }
-
-    fn events(&self) -> Vec<(u16, Value)> {
-        self.events.lock().unwrap().clone()
-    }
-
-    fn stop(&self) {
-        self.queue.lock().unwrap().take();
-    }
-}
-
-impl InputStreams for TestStreams {
-    fn view(&self, stream: u16) -> Option<StreamView> {
-        self.views.lock().unwrap().get(&stream).copied()
-    }
-
-    fn post(&self, _stream: u16, item: StreamItem) -> Result<(), StreamPostRefusal> {
-        if self.full.load(Ordering::Acquire) {
-            return Err(StreamPostRefusal::Full);
+            Some(Message::Frame(frame)) => {
+                let header = *frame.header();
+                if let Some(call) = header.call() {
+                    let body = serde_json::from_slice(frame.payload()).unwrap();
+                    return Some(Seen::Answer {
+                        kind: header.kind(),
+                        request_id: call.request_id,
+                        body,
+                    });
+                }
+            }
+            None => {
+                if client.reader.read_from(&mut client.read_half).unwrap() == 0 {
+                    return None;
+                }
+            }
         }
-        let queue = self.queue.lock().unwrap();
-        let sender = queue.as_ref().ok_or(StreamPostRefusal::Closed)?;
-        sender.send(item).map_err(|_| StreamPostRefusal::Closed)
-    }
-
-    fn send_event(&self, stream: u16, event: &Value) {
-        self.events.lock().unwrap().push((stream, event.clone()));
     }
 }
 
-struct Client {
-    mux: Arc<Mux>,
-    socket: UnixStream,
-    read_half: UnixStream,
-    reader: FrameReader,
-    served: JoinHandle<ConnectionEnd>,
-    streams: Arc<TestStreams>,
-    worker: JoinHandle<()>,
+/// The `input-failed` events read up to the answer to `request_id`, and
+/// that answer.
+fn until_answer(client: &mut Client, request_id: u32) -> (Vec<Value>, FrameKind, Value) {
+    let mut failed = Vec::new();
+    loop {
+        match next_seen(client).expect("the daemon closed before the answer") {
+            Seen::Event(event) if event["event"] == "input-failed" => failed.push(event),
+            Seen::Answer { kind, request_id: id, body } if id == request_id => {
+                return (failed, kind, body);
+            }
+            Seen::Event(_) | Seen::Answer { .. } | Seen::Line(_) => {}
+        }
+    }
+}
+
+fn stream_request(stream: u16, request_id: u32, body: &Value) -> Vec<u8> {
+    let method = method(body["cmd"].as_str().unwrap());
+    let payload = body.to_string();
+    let aux = Aux::Call(CallAux {
+        request_id,
+        method_id: method.id.raw(),
+        priority: method.priority,
+        flags: CallFlags::empty(),
+    });
+    let header =
+        FrameHeader::new(FrameKind::Request, stream, u32::try_from(payload.len()).unwrap(), aux)
+            .unwrap();
+    let mut bytes = header.encode().to_vec();
+    bytes.extend_from_slice(payload.as_bytes());
+    bytes
 }
 
 fn input(stream: u16, flow: u64, bytes: &[u8]) -> Vec<u8> {
@@ -118,172 +106,60 @@ fn input(stream: u16, flow: u64, bytes: &[u8]) -> Vec<u8> {
     frame
 }
 
-fn ping(request_id: u32) -> Vec<u8> {
-    let tables = MethodTables::schema();
-    let method = tables.v12_id("ping").and_then(|id| tables.method(id)).unwrap();
-    let body = json!({"cmd": "ping"}).to_string();
-    let call = CallAux {
+fn failed(stream: u16, reason: &str, bytes: u64) -> Value {
+    json!({"event": "input-failed", "stream": stream, "reason": reason, "bytes": bytes})
+}
+
+fn input_kind(ipc: &IpcSnapshot) -> u64 {
+    ipc.received.iter().find(|row| row.kind == "input").map_or(0, |row| row.messages)
+}
+
+/// A connection that may attach views, and a terminal whose PTY input the
+/// test reads.
+fn terminal_client(label: &str) -> (Client, Arc<crate::Surface>, Receiver<Vec<u8>>) {
+    let client =
+        Client::granted_with(&format!("input-frames-{label}"), &[VIEW_ATTACHMENT_LEASE_CAPABILITY]);
+    let surface = client.mux.new_workspace(None, Some((80, 24))).unwrap();
+    let typed = record_input(&surface);
+    (client, surface, typed)
+}
+
+/// Opens `stream` on `surface` and waits for its READY reply; returns the
+/// view's lease.
+fn open(client: &mut Client, stream: u16, request_id: u32, surface: SurfaceId) -> String {
+    client.send(&stream_request(
+        stream,
         request_id,
-        method_id: method.id.raw(),
-        priority: method.priority,
-        flags: CallFlags::empty(),
-    };
-    let len = u32::try_from(body.len()).unwrap();
-    let header = FrameHeader::new(FrameKind::Request, 0, len, Aux::Call(call)).unwrap();
-    let mut frame = header.encode().to_vec();
-    frame.extend_from_slice(body.as_bytes());
-    frame
+        &json!({"cmd": "attach-surface", "surface": surface}),
+    ));
+    let (failed, kind, reply) = until_answer(client, request_id);
+    assert_eq!(kind, FrameKind::Reply, "{reply}");
+    assert_eq!(failed, Vec::<Value>::new());
+    reply["data"]["lease"].as_str().expect("a view lease").to_owned()
 }
 
-/// What the daemon sent next: a line (events skipped) or a frame header.
-#[derive(Debug)]
-enum Got {
-    Line(Value),
-    Frame(FrameHeader),
+/// Every `input-failed` the stream's items queued before the fence sent.
+fn fence(client: &mut Client, stream: u16, request_id: u32, surface: SurfaceId) -> Vec<Value> {
+    client.send(&stream_request(
+        stream,
+        request_id,
+        &json!({"cmd": "send", "surface": surface, "text": ""}),
+    ));
+    let (failed, kind, reply) = until_answer(client, request_id);
+    assert_eq!(kind, FrameKind::Reply, "{reply}");
+    failed
 }
 
-impl Client {
-    /// A same-user local peer whose `set-client-info` declared frames.
-    fn granted(label: &str) -> Client {
-        let mux =
-            Mux::new_for_test(format!("input-frames-{label}"), crate::SurfaceOptions::default());
-        let (streams, worker) = TestStreams::start();
-        let (socket, server) = UnixStream::pair().unwrap();
-        let served_mux = mux.clone();
-        let lane_streams: Arc<dyn InputStreams> = streams.clone();
-        let served = std::thread::spawn(move || {
-            let stream: Box<dyn transport::Stream> = Box::new(server);
-            serve_connection(
-                served_mux,
-                stream,
-                Arc::new(RenderService::new()),
-                None,
-                ClientTransport::Unix,
-                &admission::LocalAdmission,
-                &mut RequestFrames::with_streams(lane_streams),
-            )
-        });
-        let read_half = socket.try_clone().unwrap();
-        read_half.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
-        let mut reader = FrameReader::new(ReaderLimits::default());
-        reader.negotiate_frames();
-        let mut client = Client { mux, socket, read_half, reader, served, streams, worker };
-        assert_eq!(client.line_reply(&json!({"id": 99, "cmd": "ping"}))["id"], json!(99));
-        let id = client.client_id();
-        client.mux.control_clients.ipc_transports.bind_all_for_test();
-        origin_gate::set_peer_process_for_test(
-            &client.mux,
-            id,
-            crate::request_origin::PeerProcess::SameUser,
-        );
-        let (current, _) = api_revision_wire::identify_fields();
-        let granted = client.line_reply(&json!({
-            "id": 1,
-            "cmd": "set-client-info",
-            "name": "input-frames",
-            "capabilities": ["ipc-frames-v2"],
-            "api_revision": current,
-        }));
-        assert_eq!(granted["ok"], json!(true), "{granted}");
-        client
-    }
-
-    fn client_id(&self) -> u64 {
-        let state = self.mux.control_clients.state.lock().unwrap();
-        let mut unix = state
-            .clients
-            .iter()
-            .filter(|(_, record)| matches!(record.transport, ClientTransport::Unix))
-            .map(|(client, _)| *client);
-        let client = unix.next().expect("the connection's client");
-        assert_eq!(unix.next(), None, "one Unix client");
-        client
-    }
-
-    fn send(&mut self, bytes: &[u8]) {
-        self.socket.write_all(bytes).unwrap();
-    }
-
-    fn next(&mut self) -> Option<Got> {
-        loop {
-            match self.reader.next_message().unwrap() {
-                Some(Message::Json(line)) if line.trim().is_empty() => {}
-                Some(Message::Json(line)) => {
-                    let value: Value = serde_json::from_str(line).unwrap();
-                    if value.get("event").is_none() {
-                        return Some(Got::Line(value));
-                    }
-                }
-                Some(Message::Frame(frame)) => return Some(Got::Frame(*frame.header())),
-                None => {
-                    if self.reader.read_from(&mut self.read_half).unwrap() == 0 {
-                        return None;
-                    }
-                }
-            }
-        }
-    }
-
-    fn line_reply(&mut self, body: &Value) -> Value {
-        self.send(format!("{body}\n").as_bytes());
-        match self.next() {
-            Some(Got::Line(reply)) => reply,
-            other => panic!("expected a line reply to {body}: {other:?}"),
-        }
-    }
-
-    /// The next thing the daemon sends is ping `request_id`'s REPLY: no
-    /// reply to anything sent before it came first.
-    fn ping_is_next(&mut self, request_id: u32) {
-        self.send(&ping(request_id));
-        match self.next() {
-            Some(Got::Frame(header)) => {
-                assert_eq!(header.kind(), FrameKind::Reply);
-                assert_eq!(header.call().unwrap().request_id, request_id);
-            }
-            other => panic!("expected ping {request_id}'s REPLY: {other:?}"),
-        }
-    }
-
-    /// A terminal in a new workspace whose PTY input goes to `typed`.
-    fn terminal(&self) -> (Arc<crate::Surface>, Receiver<Vec<u8>>) {
-        let surface = self.mux.new_workspace(None, Some((80, 24))).unwrap();
-        let typed = record_input(&surface);
-        (surface, typed)
-    }
-
-    /// The respawn's delay of `surface`'s slot (terminal_respawn.rs): the
-    /// mux has no runtime for its SurfaceId, so its terminal ended.
-    fn detach(&self, surface: &crate::Surface) -> Arc<crate::Surface> {
-        let terminal = surface.terminal_public_id().cloned().expect("a terminal");
-        self.mux.remove_terminal_catalog_for_test(&terminal).expect("its catalog entry");
-        let runtime = self.mux.remove_surface_runtime_for_test(surface.id).expect("its runtime");
-        self.mux.unregister_kitty_image_surface(&runtime).unwrap();
-        assert!(self.mux.surface(surface.id).is_none(), "the slot has no runtime");
-        runtime
-    }
-
-    /// The terminal `id` respawned: a new runtime under the same SurfaceId
-    /// (terminal_respawn.rs keeps the slot's id), recording its PTY input.
-    fn respawned(&self, id: SurfaceId) -> (Arc<crate::Surface>, Receiver<Vec<u8>>) {
-        let surface = crate::Surface::spawn_for_test(
-            id,
-            crate::SurfaceOptions::default(),
-            Arc::downgrade(&self.mux),
-        )
-        .unwrap();
-        let typed = record_input(&surface);
-        self.mux.insert_surface_runtime_for_test(surface.clone());
-        (surface, typed)
-    }
-
-    fn finish(self) -> ConnectionEnd {
-        let _ = self.socket.shutdown(Shutdown::Write);
-        let end = self.served.join().unwrap();
-        self.streams.stop();
-        self.worker.join().unwrap();
-        end
-    }
+/// The respawn's delay of `surface`'s slot (terminal_respawn.rs): the mux
+/// has no runtime for its SurfaceId, so its terminal ended.
+fn detach_runtime(client: &Client, surface: &crate::Surface) -> Arc<crate::Surface> {
+    let terminal = surface.terminal_public_id().cloned().expect("a terminal");
+    // Absent after an earlier detach: the test puts back only the runtime.
+    let _ = client.mux.remove_terminal_catalog_for_test(&terminal);
+    let runtime = client.mux.remove_surface_runtime_for_test(surface.id).expect("its runtime");
+    client.mux.unregister_kitty_image_surface(&runtime).unwrap();
+    assert!(client.mux.surface(surface.id).is_none(), "the slot has no runtime");
+    runtime
 }
 
 fn record_input(surface: &crate::Surface) -> Receiver<Vec<u8>> {
@@ -313,26 +189,21 @@ impl Write for InputRecorder {
     }
 }
 
-fn failed(stream: u16, reason: &str, bytes: u64) -> Value {
-    json!({"event": "input-failed", "stream": stream, "reason": reason, "bytes": bytes})
-}
-
-fn input_kind(ipc: &IpcSnapshot) -> u64 {
-    ipc.received.iter().find(|row| row.kind == "input").map_or(0, |row| row.messages)
+fn typed_bytes(typed: &Receiver<Vec<u8>>) -> Vec<u8> {
+    typed.try_iter().flatten().collect()
 }
 
 #[test]
 fn input_frames_reach_the_terminal_in_order_with_no_reply_and_no_parse() {
     const KEYS: usize = 10_000;
-    let mut client = Client::granted("order");
-    let (surface, typed) = client.terminal();
-    client.streams.open(7, surface.id);
+    let (mut client, surface, typed) = terminal_client("order");
+    open(&mut client, 7, 10, surface.id);
 
-    // What one framed ping costs, so the INPUT frames' share is what is left.
+    // What one fence costs, so the INPUT frames' share is what is left.
     let before = client.mux.ipc_stats().snapshot();
-    client.ping_is_next(1);
-    let one_ping = client.mux.ipc_stats().snapshot();
-    let ping_parses = one_ping.parses.frames.json_parses - before.parses.frames.json_parses;
+    assert_eq!(fence(&mut client, 7, 11, surface.id), Vec::<Value>::new());
+    let one_fence = client.mux.ipc_stats().snapshot();
+    let fence_parses = one_fence.parses.frames.json_parses - before.parses.frames.json_parses;
 
     let mut expected = String::new();
     for key in 0..KEYS {
@@ -340,173 +211,166 @@ fn input_frames_reach_the_terminal_in_order_with_no_reply_and_no_parse() {
         expected.push_str(&line);
         client.send(&input(7, key as u64 + 1, line.as_bytes()));
     }
-    // The reader cut every INPUT before this ping: no reply came before its own.
-    client.ping_is_next(2);
-    client.streams.drain();
+    // Nothing answered an INPUT: the next answer is the fence's.
+    assert_eq!(fence(&mut client, 7, 12, surface.id), Vec::<Value>::new(), "nothing failed");
     let after = client.mux.ipc_stats().snapshot();
-    assert_eq!(input_kind(&after) - input_kind(&one_ping), KEYS as u64);
-    assert_eq!(after.parses.frames.requests - one_ping.parses.frames.requests, 1, "only the ping");
+    assert_eq!(input_kind(&after) - input_kind(&one_fence), KEYS as u64);
+    assert_eq!(after.parses.frames.requests - one_fence.parses.frames.requests, 1, "the fence");
     assert_eq!(
-        after.parses.frames.json_parses - one_ping.parses.frames.json_parses,
-        ping_parses,
+        after.parses.frames.json_parses - one_fence.parses.frames.json_parses,
+        fence_parses,
         "an INPUT frame is never parsed"
     );
-    assert_eq!(after.parses.lines.requests, one_ping.parses.lines.requests);
+    assert_eq!(after.parses.lines.requests, one_fence.parses.lines.requests);
     assert_eq!(after.bad_message, 0);
-    assert_eq!(client.streams.events(), [], "nothing failed");
 
-    let written: Vec<u8> = typed.try_iter().flatten().collect();
+    let written = typed_bytes(&typed);
     assert_eq!(String::from_utf8(written).unwrap(), expected, "the keys arrived out of order");
     assert_eq!(client.finish(), ConnectionEnd::PeerClosed);
 }
 
 #[test]
 fn input_frames_an_ended_terminal_fails_once() {
-    let mut client = Client::granted("ended");
-    let (surface, typed) = client.terminal();
-    client.streams.open(9, surface.id);
+    let (mut client, surface, typed) = terminal_client("ended");
+    open(&mut client, 9, 10, surface.id);
     client.send(&input(9, 1, b"before\n"));
-    client.ping_is_next(1);
-    client.streams.drain();
-    assert_eq!(client.streams.events(), []);
-    assert_eq!(typed.try_iter().flatten().collect::<Vec<u8>>(), b"before\n");
+    assert_eq!(fence(&mut client, 9, 11, surface.id), Vec::<Value>::new());
+    assert_eq!(typed_bytes(&typed), b"before\n");
 
     surface.mark_dead_for_test();
     for key in [b"one".as_slice(), b"two", b"three"] {
         client.send(&input(9, 0, key));
     }
-    client.ping_is_next(2);
-    client.streams.drain();
-    assert_eq!(client.streams.events(), [(9, failed(9, "terminal_ended", 3))]);
+    // The fence itself is a `send` to the ended terminal: it may fail, so
+    // only the events matter here.
+    client.send(&stream_request(9, 12, &json!({"cmd": "send", "surface": surface.id, "text": ""})));
+    let (events, _, _) = until_answer(&mut client, 12);
+    assert_eq!(events, [failed(9, "terminal_ended", 3)]);
     // Later INPUT on the stream is dropped with no second event.
     client.send(&input(9, 0, b"four"));
-    client.ping_is_next(3);
-    client.streams.drain();
-    assert_eq!(client.streams.events().len(), 1);
+    client.send(&stream_request(9, 13, &json!({"cmd": "send", "surface": surface.id, "text": ""})));
+    let (events, _, _) = until_answer(&mut client, 13);
+    assert_eq!(events, Vec::<Value>::new());
     assert_eq!(typed.try_iter().count(), 0, "nothing reached the ended terminal");
     assert_eq!(client.finish(), ConnectionEnd::PeerClosed);
 }
 
 #[test]
-fn input_frames_a_full_stream_reports_what_it_dropped() {
-    let mut client = Client::granted("full");
-    let (surface, _typed) = client.terminal();
-    client.streams.open(4, surface.id);
-    client.streams.full.store(true, Ordering::Release);
-    client.send(&input(4, 0, b"dropped"));
-    client.ping_is_next(1);
-    assert_eq!(client.streams.events(), [(4, failed(4, "stream_full", 7))]);
-    assert_eq!(client.finish(), ConnectionEnd::PeerClosed);
-}
-
-#[test]
-fn input_frames_on_an_unopened_stream_close_with_bad_message() {
-    let mut client = Client::granted("unknown");
+fn input_frames_on_a_never_announced_stream_close_with_bad_message() {
+    let (mut client, _surface, typed) = terminal_client("unknown");
     client.send(&input(5, 0, b"x"));
-    assert!(client.next().is_none(), "the daemon answered a bad message");
+    assert!(next_seen(&mut client).is_none(), "the daemon answered a bad message");
     assert_eq!(
         client.finish(),
-        ConnectionEnd::BadMessage(ConnectionBadMessage::Call(CallRefusal::UnknownStream {
+        ConnectionEnd::BadMessage(ConnectionBadMessage::UnknownStream {
+            kind: FrameKind::Input,
             stream: 5
-        }))
+        })
     );
+    assert_eq!(typed.try_iter().count(), 0);
 }
 
 #[test]
 fn input_frames_reach_a_respawned_terminal_under_the_same_surface_id() {
-    let mut client = Client::granted("respawn");
-    let (surface, _typed) = client.terminal();
+    let (mut client, surface, _typed) = terminal_client("respawn");
     let id = surface.id;
-    client.streams.open(7, id);
+    open(&mut client, 7, 10, id);
 
     // The respawn's delay: the slot has no runtime, so the terminal ended.
-    let ended = client.detach(&surface);
+    let ended = detach_runtime(&client, &surface);
     client.send(&input(7, 0, b"lost"));
     client.send(&input(7, 0, b"lost too"));
-    client.ping_is_next(1);
-    client.streams.drain();
-    assert_eq!(client.streams.events(), [(7, failed(7, "terminal_ended", 4))]);
+    client.send(&stream_request(7, 11, &json!({"cmd": "send", "surface": id, "text": ""})));
+    let (events, _, _) = until_answer(&mut client, 11);
+    assert_eq!(events, [failed(7, "terminal_ended", 4)]);
 
-    let (respawned, typed) = client.respawned(id);
+    let respawned = crate::Surface::spawn_for_test(
+        id,
+        crate::SurfaceOptions::default(),
+        Arc::downgrade(&client.mux),
+    )
+    .unwrap();
+    let typed = record_input(&respawned);
+    client.mux.insert_surface_runtime_for_test(respawned.clone());
     client.send(&input(7, 0, b"typed\n"));
-    client.ping_is_next(2);
-    client.streams.drain();
     assert_eq!(
-        typed.try_iter().flatten().collect::<Vec<u8>>(),
-        b"typed\n",
-        "the keys went nowhere"
+        fence(&mut client, 7, 12, id),
+        Vec::<Value>::new(),
+        "a delivered write sends no event"
     );
-    assert_eq!(client.streams.events().len(), 1, "a delivered write sends no event");
+    assert_eq!(typed_bytes(&typed), b"typed\n", "the keys went nowhere");
 
     // The latch reset on that write: the next end is reported again.
     respawned.mark_dead_for_test();
     client.send(&input(7, 0, b"again"));
-    client.ping_is_next(3);
-    client.streams.drain();
-    assert_eq!(client.streams.events()[1..], [(7, failed(7, "terminal_ended", 5))]);
+    client.send(&stream_request(7, 13, &json!({"cmd": "send", "surface": id, "text": ""})));
+    let (events, _, _) = until_answer(&mut client, 13);
+    assert_eq!(events, [failed(7, "terminal_ended", 5)]);
     drop(ended);
     assert_eq!(client.finish(), ConnectionEnd::PeerClosed);
 }
 
 #[test]
 fn input_frames_a_reopened_stream_on_the_same_surface_is_a_new_view() {
-    let mut client = Client::granted("reopen");
-    let (surface, _typed) = client.terminal();
+    let (mut client, surface, _typed) = terminal_client("reopen");
     let id = surface.id;
-    client.streams.open(7, id);
-    let removed = client.detach(&surface);
+    let lease = open(&mut client, 7, 10, id);
+    let removed = detach_runtime(&client, &surface);
     client.send(&input(7, 0, b"one"));
-    client.ping_is_next(1);
-    client.streams.drain();
-    assert_eq!(client.streams.events(), [(7, failed(7, "terminal_ended", 3))]);
+    client.send(&stream_request(7, 11, &json!({"cmd": "send", "surface": id, "text": ""})));
+    let (events, _, _) = until_answer(&mut client, 11);
+    assert_eq!(events, [failed(7, "terminal_ended", 3)]);
 
-    // Stream-end, then the client opens id 7 on the same surface again: the
-    // new view hears that its terminal ended.
-    client.streams.open(7, id);
+    // The view detaches (stream-end), then the client opens id 7 on the
+    // same surface again: the new view hears that its terminal ended.
+    client.mux.insert_surface_runtime_for_test(removed);
+    client.send(&super::tests::request(
+        12,
+        &json!({"cmd": "detach-attached-view", "surface": id, "lease": lease}),
+    ));
+    let (_, kind, body) = until_answer(&mut client, 12);
+    assert_eq!(kind, FrameKind::Reply, "{body}");
+    open(&mut client, 7, 13, id);
+    let removed = detach_runtime(&client, &surface);
     client.send(&input(7, 0, b"two!"));
-    client.ping_is_next(2);
-    client.streams.drain();
-    assert_eq!(client.streams.events()[1..], [(7, failed(7, "terminal_ended", 4))]);
+    client.send(&stream_request(7, 14, &json!({"cmd": "send", "surface": id, "text": ""})));
+    let (events, _, _) = until_answer(&mut client, 14);
+    assert_eq!(events, [failed(7, "terminal_ended", 4)]);
 
     // Back on the reopened view, a live terminal takes the bytes.
     client.mux.insert_surface_runtime_for_test(removed);
     let typed = record_input(&surface);
     client.send(&input(7, 0, b"three"));
-    client.ping_is_next(3);
-    client.streams.drain();
-    assert_eq!(typed.try_iter().flatten().collect::<Vec<u8>>(), b"three");
-    assert_eq!(client.streams.events().len(), 2);
+    assert_eq!(fence(&mut client, 7, 15, id), Vec::<Value>::new());
+    assert_eq!(typed_bytes(&typed), b"three");
     assert_eq!(client.finish(), ConnectionEnd::PeerClosed);
 }
 
 #[test]
 fn input_frames_run_under_the_connections_cause() {
-    let mut client = Client::granted("cause");
-    let (surface, _typed) = client.terminal();
+    let (mut client, surface, _typed) = terminal_client("cause");
     let (causes_tx, causes) = mpsc::channel();
     let (written, _written) = mpsc::channel();
     surface.replace_input_writer_for_test(Box::new(InputRecorder {
         written,
         causes: Some(causes_tx),
     }));
-    client.streams.open(3, surface.id);
+    open(&mut client, 3, 10, surface.id);
     let (_, expected) = client.mux.frame_client(client.client_id());
     assert_ne!(expected, EventCause::Program, "the connection has a cause of its own");
     client.send(&input(3, 0, b"x"));
-    client.ping_is_next(1);
-    client.streams.drain();
+    assert_eq!(fence(&mut client, 3, 11, surface.id), Vec::<Value>::new());
     assert_eq!(causes.try_iter().collect::<Vec<_>>(), [expected]);
     assert_eq!(client.finish(), ConnectionEnd::PeerClosed);
 }
 
 #[test]
 fn input_frames_after_shutdown_requested_close_without_writing() {
-    let mut client = Client::granted("shutdown");
-    let (surface, typed) = client.terminal();
-    client.streams.open(2, surface.id);
+    let (mut client, surface, typed) = terminal_client("shutdown");
+    open(&mut client, 2, 10, surface.id);
     client.mux.request_daemon_shutdown();
     client.send(&input(2, 0, b"rm -rf\n"));
-    assert!(client.next().is_none(), "the connection closed");
+    while next_seen(&mut client).is_some() {}
     let end = client.finish();
     assert!(!matches!(end, ConnectionEnd::BadMessage(_)), "{end:?}");
     assert_eq!(typed.try_iter().count(), 0, "no input ran after the shutdown");
@@ -514,40 +378,44 @@ fn input_frames_after_shutdown_requested_close_without_writing() {
 
 #[test]
 fn input_frames_during_a_pending_handoff_are_refused_and_the_connection_stays() {
-    let mut client = Client::granted("handoff");
-    let (surface, typed) = client.terminal();
-    client.streams.open(6, surface.id);
+    let (mut client, surface, typed) = terminal_client("handoff");
+    open(&mut client, 6, 10, surface.id);
     let requester = client.client_id();
     client.mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(true)).unwrap();
     client.send(&input(6, 0, b"held"));
     // A line meanwhile is refused too, and its refusal comes after the
-    // INPUT was read: the INPUT's refusal is already recorded.
-    let refused = client.line_reply(&json!({"id": 5, "cmd": "ping"}));
+    // INPUT's refusal, which the reader sent as it read the frame.
+    client.line(&json!({"id": 5, "cmd": "ping"}));
+    let mut events = Vec::new();
+    let refused = loop {
+        match next_seen(&mut client).expect("the line's refusal") {
+            Seen::Event(event) if event["event"] == "input-failed" => events.push(event),
+            Seen::Line(reply) if reply["id"] == json!(5) => break reply,
+            Seen::Event(_) | Seen::Answer { .. } | Seen::Line(_) => {}
+        }
+    };
     assert_eq!(refused["ok"], json!(false), "{refused}");
+    assert_eq!(events, [failed(6, "daemon_handoff", 4)]);
     client.mux.cancel_daemon_handoff(requester);
-    client.streams.drain();
-    assert_eq!(client.streams.events(), [(6, failed(6, "daemon_handoff", 4))]);
     assert_eq!(typed.try_iter().count(), 0, "nothing was written during the handoff");
 
     client.send(&input(6, 0, b"after"));
-    client.ping_is_next(2);
-    client.streams.drain();
-    assert_eq!(typed.try_iter().flatten().collect::<Vec<u8>>(), b"after");
+    assert_eq!(fence(&mut client, 6, 11, surface.id), Vec::<Value>::new());
+    assert_eq!(typed_bytes(&typed), b"after");
     assert_eq!(client.finish(), ConnectionEnd::PeerClosed);
 }
 
 #[test]
 fn input_frames_from_a_remote_relay_client_close_with_bad_message() {
-    let mut client = Client::granted("remote");
-    let (surface, typed) = client.terminal();
-    client.streams.open(8, surface.id);
+    let (mut client, surface, typed) = terminal_client("remote");
+    open(&mut client, 8, 10, surface.id);
     let install = "install_input_frames";
     client.mux.record_remote_check(install).unwrap();
     let peer = LinkPeer { install: install.into(), user: "user_a".into(), team: "team_a".into() };
     client.mux.bind_remote_peer(client.client_id(), &peer).unwrap();
     assert!(client.mux.frame_client(client.client_id()).0, "classified remote");
     client.send(&input(8, 0, b"remote keys"));
-    assert!(client.next().is_none(), "the daemon answered a bad message");
+    while next_seen(&mut client).is_some() {}
     assert_eq!(
         client.finish(),
         ConnectionEnd::BadMessage(ConnectionBadMessage::Call(CallRefusal::RemoteInput {
