@@ -1,4 +1,7 @@
 public import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Downloads a pack with `URLSession`, appending to a partial file with a
 /// `Range` request when one exists.
@@ -43,10 +46,11 @@ public struct URLSessionChromiumRuntimeDownloader: ChromiumRuntimeDownloading {
         defer { session.invalidateAndCancel() }
         let task = session.dataTask(with: request)
         let outcome: DownloadFileDelegate.Outcome = await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            // A delegate dropped without an outcome is a failed transfer (it resumes on the next attempt).
+            (try? await withOnceContinuation { (continuation: OnceContinuation<DownloadFileDelegate.Outcome, OnceContinuationError>) in
                 delegate.finish = { continuation.resume(returning: $0) }
                 task.resume()
-            }
+            }) ?? .failed(.transfer("no outcome"))
         } onCancel: {
             task.cancel()
         }

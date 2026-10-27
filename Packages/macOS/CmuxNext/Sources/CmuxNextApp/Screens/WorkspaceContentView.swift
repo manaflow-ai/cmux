@@ -19,10 +19,9 @@ final class WorkspaceContentView: NSView {
         didSet {
             guard oldValue != showsBar else { return }
             bar.isHidden = !showsBar
-            needsLayout = true
+            needsLayout = true // invalidate: the bar shows or hides (the guard above).
         }
     }
-    private var tokenObservation: Task<Void, Never>?
     /// Parked in its window (``ParkingContainer``): set with `isHidden` by `WindowRootView`, so it is
     /// redundant while hidden parking is the only parking.
     private(set) var isParkedOffScreen = false
@@ -50,21 +49,15 @@ final class WorkspaceContentView: NSView {
         addSubview(layoutView)
         bar.isHidden = true
         addSubview(bar)
-        tokenObservation = Task { [weak self] in
-            for await _ in ObservationStream({ Metrics.tabStripHeight }) { self?.needsLayout = true }
-        }
+        // A new strip height lays this view out again from the bar's owner (`ScreenBarController`), which follows it
+        // while the workspace shows.
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            tokenObservation?.cancel()
-        }
-    }
+    nonisolated deinit {}
 
     nonisolated override var isFlipped: Bool { true }
 

@@ -65,6 +65,7 @@ final class HistoryTopPage: InternalPageProvider {
         let filter = state.values[Self.filterValue].flatMap(HistoryPageModel.Filter.init(rawValue:)) ?? model.filter
         model.restore(text: state.search ?? model.text, filter: filter, selection: state.selection) { [weak content] in
             guard let content else { return }
+            // sync-layout: restoreScroll reads the list's laid-out height; before it, the scroll clamps to the top.
             content.layoutSubtreeIfNeeded()
             content.listScrollView?.restoreScroll(state.scroll)
         }
@@ -137,6 +138,7 @@ final class BookmarksTopPage: InternalPageProvider {
         if let search = state.search { model.query = search }
         let selected = state.selection.map { $0.split(separator: "\n").map(String.init) } ?? []
         model.selection = Set(selected.filter { model.tree.node($0) != nil })
+        // sync-layout: restoreScroll reads the restored folder's laid-out rows; before them, the scroll clamps.
         content.layoutSubtreeIfNeeded()
         content.listScrollView?.restoreScroll(state.scroll)
     }

@@ -20,6 +20,7 @@ use crate::resource::WireDecimal;
 use crate::state::placement_shift::CAPABILITY as PLACEMENT_SHIFT_CAPABILITY;
 use crate::state::placement_shift::PlacementShift;
 use crate::stream_interrupt::StreamInterrupt;
+use cmux_threads::sync::Mutex;
 use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
@@ -477,7 +478,7 @@ fn delta_item(
 /// (`crate::state::placement_shift`), so a stream that resumes across many
 /// shifted batches reads them once.
 type PlacementCache = Option<((String, (u64, u64, u64)), Arc<Vec<Value>>)>;
-static PLACEMENTS: std::sync::Mutex<PlacementCache> = std::sync::Mutex::new(None);
+static PLACEMENTS: Mutex<PlacementCache> = Mutex::new(None);
 
 fn current_placements(mux: &Mux, generation: &str) -> anyhow::Result<Arc<Vec<Value>>> {
     let mut cache = PLACEMENTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

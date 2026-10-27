@@ -427,6 +427,7 @@ class MainTests(unittest.TestCase):
         self.assertEqual(self.run_main("--stories", "idle", "--repeats", "1"), 1)
         run = self.summary()["runs"][0]
         self.assertEqual(run["reason"], "env-invalid after launch: network-egress")
+        self.assertIs(run["env_invalid"], True)  # the host failed it: no evidence about the story (harness_alerts)
         self.assertEqual(os.listdir(os.path.join(self.out, "results")), [])
         self.assertEqual(len(os.listdir(os.path.join(self.out, "rejected"))), 1)
         self.assertEqual(len(self.teardowns), 1)
@@ -435,6 +436,7 @@ class MainTests(unittest.TestCase):
         self.set_env("FAKE_BENCH_SKIP_LAB", "1")
         self.assertEqual(self.run_main("--stories", "idle", "--repeats", "1"), 1)
         self.assertIn("network-egress unchecked", self.summary()["runs"][0]["reason"])
+        self.assertIs(self.summary()["runs"][0]["env_invalid"], False)  # the bench skipped its own check
         self.assertEqual(os.listdir(os.path.join(self.out, "results")), [])
 
     def test_a_result_measured_under_triggered_safe_mode_is_rejected(self):
@@ -459,8 +461,8 @@ class MainTests(unittest.TestCase):
         FakeDisplay.alive_runs = 1
         self.assertEqual(self.run_main("--stories", "idle,home-key", "--repeats", "1"), 1)
         self.assertEqual([r["story"] for r in self.bench_runs()], ["home-key"])
-        self.assertEqual([(r["story"], r["reason"]) for r in self.summary()["runs"]],
-                         [("home-key", None), ("idle", "the virtual display ended before this run")])
+        self.assertEqual([(r["story"], r["reason"], r["env_invalid"]) for r in self.summary()["runs"]],
+                         [("home-key", None, False), ("idle", "the virtual display ended before this run", True)])
 
     def test_shard_runs_its_stories_only(self):
         self.assertEqual(self.run_main("--shard", "0/2", "--repeats", "1"), 0)

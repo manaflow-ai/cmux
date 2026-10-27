@@ -65,6 +65,7 @@ extension PageDiscardable {
     public func saveViewState(_ view: NSView, into state: inout PageViewState) {}
     /// A page built whole in its initializer: the scroll offsets once it is laid out.
     public func restoreViewState(_ state: PageViewState, in view: NSView) {
+        // sync-layout: restoreScroll below reads the rebuilt documents' laid-out sizes.
         view.layoutSubtreeIfNeeded()
         state.restoreScroll(in: view)
     }

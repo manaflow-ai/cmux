@@ -7,14 +7,19 @@ import GhosttyNextKit
 /// explicitly still win, as in Ghostty. Owns its finalized config.
 @MainActor
 public final class GhosttyThemeConfig {
-    let config: ghostty_config_t
+    /// SAFETY: owned by this object from `init` (the cache hands over a landed build's config,
+    /// GhosttyThemeConfigCache.land) and freed once, in `deinit`; readers use it while they
+    /// hold the object.
+    @safe let config: ghostty_config_t
     /// The theme file name.
     public let themeName: String
     /// Colors of this config, for the chrome around the terminal.
     public let colors: GhosttyThemeColors?
 
+    /// Takes over `config`, a live handle no one else frees.
     init(config: ghostty_config_t, themeName: String, colors: GhosttyThemeColors?) {
-        self.config = config
+        // SAFETY: the caller hands over a live config no one else frees (above); `deinit` frees it.
+        self.config = unsafe config
         self.themeName = themeName
         self.colors = colors
     }
@@ -23,7 +28,8 @@ public final class GhosttyThemeConfig {
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
-            ghostty_config_free(config)
+            // SAFETY: the owned config (above), freed once; no reader outlives this object.
+            unsafe ghostty_config_free(config)
         }
     }
 }
@@ -36,7 +42,7 @@ extension GhosttyRuntime {
     /// `name` could inject another config line.
     public func themeConfig(named name: String) -> GhosttyThemeConfig? {
         guard app != nil, Self.themeOverrideLine(name) != nil, let configLoader else { return nil }
-        return themeConfigs.config(named: name, loader: configLoader) { GhosttyConfigInputs.current(theme: $0) }
+        return themeConfigs.config(named: name, loader: configLoader) { configInputs(theme: $0) }
     }
 
     /// Runs `handler` each time a theme config ``themeConfig(named:)`` asked for lands and is cached: an owner

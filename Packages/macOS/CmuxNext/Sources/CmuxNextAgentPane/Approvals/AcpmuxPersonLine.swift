@@ -1,32 +1,43 @@
 import CmuxNextCompat
-import CmuxNextWakeups
+public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Foundation
 
 /// One short connection to this app's acpmux for a few requests, proven as the person the way
 /// the feed bridge's connection is (acpmux `hub/person.rs`: `initialize`, then
 /// `_acpmux/person_prove` for its challenge as the second request). The server peer is checked
-/// before the first byte (``AcpmuxCheckedLine``). The whole connection lives at most `deadline`;
-/// every request still waiting then answers nil.
+/// before the first byte (``AcpmuxCheckedLine``). The whole connection lives at most `deadline`
+/// (a `visible` MainDeadline: the banner or dialog that opened it waits on it); every request still
+/// waiting then answers nil.
 @MainActor
 public final class AcpmuxPersonLine {
     private let line: AcpmuxCheckedLine
-    private let timer = DemandTimer(owner: "acpmux.person-line")
+    private let timer: MainDeadline
     private var nextID = 10
-    private var waiters: [Int: CheckedContinuation<ResultBox?, Never>] = [:]
+    private var waiters: [Int: OnceContinuation<ResultBox?, OnceContinuationError>] = [:]
     private var closed = false
     /// acpmux took the person proof: this connection may allow.
     public private(set) var isPerson = false
 
-    private init(environment: AcpmuxEnvironment) {
+    private init(environment: AcpmuxEnvironment, deadlines: MainDeadlineScheduler) {
         line = AcpmuxCheckedLine(environment: environment)
+        timer = MainDeadline(owner: "acpmux.person-line", workClass: .visible, scheduler: deadlines)
     }
 
     /// Connects, initializes and proves the person; nil when no acpmux answers. A connection
     /// whose proof was refused still reads and denies (``isPerson`` is false).
-    public static func open(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(5)) async -> AcpmuxPersonLine? {
+    ///
+    /// - Parameters:
+    ///   - environment: This app's acpmux.
+    ///   - deadlines: The app's one deadline placer (`AppServices.mainDeadlines`), for the connection's limit.
+    ///   - deadline: How long the connection may live.
+    public static func open(_ environment: AcpmuxEnvironment, deadlines: MainDeadlineScheduler,
+                            deadline: Duration = .seconds(5)) async -> AcpmuxPersonLine? {
         guard FileManager.default.fileExists(atPath: environment.socketPath) else { return nil }
-        let connection = AcpmuxPersonLine(environment: environment)
-        connection.timer.scheduleOnMain(after: deadline) { [weak connection] in connection?.close() }
+        let connection = AcpmuxPersonLine(environment: environment, deadlines: deadlines)
+        connection.timer.schedule(after: deadline) { [weak connection] in connection?.close() }
         guard let initialized = await connection.start() else {
             connection.close()
             return nil
@@ -45,7 +56,7 @@ public final class AcpmuxPersonLine {
         nextID += 1
         let id = nextID
         let frame = AcpmuxPermissionPrompt.frame(id: id, method: method, params: params)
-        let reply: ResultBox? = await withCheckedContinuation { waiter in
+        let reply: ResultBox? = try? await withOnceContinuation { (waiter: OnceContinuation<ResultBox?, OnceContinuationError>) in
             waiters[id] = waiter
             line.send(frame)
         }
@@ -79,7 +90,7 @@ public final class AcpmuxPersonLine {
             for reply in drain.values { waiters.removeValue(forKey: reply.id)?.resume(returning: reply.result) }
             if drain.overflowed || drain.closed { close() }
         }
-        let reply: ResultBox? = await withCheckedContinuation { waiter in
+        let reply: ResultBox? = try? await withOnceContinuation { (waiter: OnceContinuation<ResultBox?, OnceContinuationError>) in
             waiters[1] = waiter
             line.start(send: frame,
                        onLine: { data in if let reply = Self.decode(data) { batch.submit(reply) } },

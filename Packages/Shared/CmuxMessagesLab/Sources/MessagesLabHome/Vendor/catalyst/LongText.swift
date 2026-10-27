@@ -141,10 +141,13 @@ final class LongTextIndex: Sendable {
     /// Whether a long text takes the markdown cut and layout (MarkdownLong.swift).
     static func isMarkdown(_ text: String) -> Bool { LongText.markdownTiles && Markdown.enabled && Markdown.mightContain(text) }
 
-    func withBytes<R>(_ body: (UnsafeBufferPointer<UInt8>) -> R) -> R {
-        if let r = text.utf8.withContiguousStorageIfAvailable(body) { return r }
+    /// cmux: `@safe` as the standard library's `withUnsafeBufferPointer`: the buffer exists only for `body`, and
+    /// each use of it inside `body` is marked where it happens (strict memory safety, p10-stability-073).
+    @safe func withBytes<R>(_ body: (UnsafeBufferPointer<UInt8>) -> R) -> R {
+        // SAFETY: body gets the text's contiguous UTF-8 (or a copy's), valid for the call only, and returns a value.
+        if let r = unsafe text.utf8.withContiguousStorageIfAvailable(body) { return r }
         let a = Array(text.utf8)
-        return a.withUnsafeBufferPointer(body)
+        return unsafe a.withUnsafeBufferPointer(body)
     }
 
     /// Scan `text` into blocks; with `prefix`, keep its blocks before `keep` (streaming).
@@ -167,7 +170,9 @@ final class LongTextIndex: Sendable {
         var u16Pos = prefix.map { keep < $0.u16Starts.count ? $0.u16Starts[keep] : 0 } ?? 0
         let size = Fixture.bodyFont.pointSize
         let ascii = Float(size * 0.5), wide = Float(size), emoji = Float(size * 1.25)
-        t.utf8.withContiguousStorageIfAvailable { p in
+        // cmux: the scan reads the bytes as a generic collection (prefix, dropFirst and checked reads, each
+        // bounds-checked), so only the hand-over below touches the buffer (strict memory safety, p10-stability-073).
+        func scan<Bytes: RandomAccessCollection<UInt8>>(_ p: Bytes) where Bytes.Index == Int {
             let n = p.count
             var i = from
             while i < n {
@@ -212,6 +217,9 @@ final class LongTextIndex: Sendable {
             }
             starts.append(n); u16.append(u16Pos); sel.append(selPos)
         }
+        // SAFETY: p is the string's contiguous UTF-8 (made contiguous above), valid for this closure; scan reads it
+        // only through bounds-checked collection operations and keeps no reference to it.
+        t.utf8.withContiguousStorageIfAvailable { p in unsafe scan(p) }
         return LongTextIndex(lineage: lineage, text: t, starts: starts, u16Starts: u16, pieces: pieces, units: units, estRef: estRef, newlines: newlines, ready: true,
                              markdown: md, carries: carries, selStarts: sel)
     }
@@ -222,8 +230,10 @@ final class LongTextIndex: Sendable {
     func blockString(_ b: Int) -> NSString {
         guard let a = starts[checked: b], let e = starts[checked: b + 1], a <= e else { return "" } // a stale block is empty
         return withBytes { p in
-            guard let base = p.baseAddress else { return "" } // no force unwrap
-            return NSString(bytes: base + a, length: e - a, encoding: String.Encoding.utf8.rawValue) ?? ""
+            // SAFETY: p is the text's UTF-8, valid inside this closure; 0 <= a <= e <= p.count (the block's offsets,
+            // the last bound checked here), so NSString copies e - a bytes from inside the buffer.
+            guard let base = unsafe p.baseAddress, unsafe e <= p.count, a >= 0 else { return "" } // no force unwrap
+            return unsafe NSString(bytes: base + a, length: e - a, encoding: String.Encoding.utf8.rawValue) ?? ""
         }
     }
 
@@ -253,11 +263,14 @@ final class LongTextIndex: Sendable {
         guard !n.isEmpty, from < count else { return nil }
         return withBytes { p in
             n.withUnsafeBufferPointer { q in
-                // no force unwraps 
-                guard let base = p.baseAddress, let needle = q.baseAddress,
-                      let r = memmem(base + from, count - from, needle, q.count) else { return nil }
-                let o = UnsafeRawPointer(r) - UnsafeRawPointer(base)
-                return o..<(o + q.count)
+                // no force unwraps
+                // SAFETY: p (the text) and q (the needle) are valid inside these closures and no pointer leaves them;
+                // 0 <= from < count <= p.count (checked above and here), so memmem searches the count - from bytes from
+                // base + from, inside p, and a match it returns points into them.
+                guard let base = unsafe p.baseAddress, let needle = unsafe q.baseAddress, unsafe count <= p.count, from >= 0,
+                      let r = unsafe memmem(base + from, count - from, needle, q.count) else { return nil }
+                let o = unsafe UnsafeRawPointer(r) - UnsafeRawPointer(base)
+                return unsafe o..<(o + q.count)
             }
         }
     }
@@ -272,8 +285,10 @@ final class LongTextIndex: Sendable {
         let a = starts[checked: lo] ?? 0
         let local = withBytes { p in
             // the slice is clamped to the buffer (an unsafe buffer does not check its range).
-            let from = min(max(0, a), p.count), to = min(max(from, o), p.count)
-            return String(decoding: UnsafeBufferPointer(rebasing: p.prefix(to).dropFirst(from)), as: UTF8.self).utf16.count
+            // SAFETY: p is the text's UTF-8 inside this closure; 0 <= from <= to <= p.count (clamped), so the rebased
+            // slice lies inside it, and String copies the bytes out.
+            let from = unsafe min(max(0, a), p.count), to = unsafe min(max(from, o), p.count)
+            return unsafe String(decoding: UnsafeBufferPointer(rebasing: p.prefix(to).dropFirst(from)), as: UTF8.self).utf16.count
         }
         return (u16Starts[checked: lo] ?? 0) + local
     }
@@ -329,7 +344,7 @@ final class BlockLayout: Sendable {
             if endsNL { range.length -= 1 }
             lines.append(NSRange(location: range.location + from, length: range.length))
             // A blank line is 0 pt (length 0 would lay out the whole rest of the text: TextLayout.make).
-            widths.append(range.length > 0 ? CGFloat(CTLineGetTypographicBounds(CTTypesetterCreateLine(ts, CFRange(location: range.location, length: range.length)), nil, nil, nil)) : 0)
+            widths.append(range.length > 0 ? CGFloat(CTTypesetterCreateLine(ts, CFRange(location: range.location, length: range.length)).typographicWidth) : 0)
             start += n
             if start == len && endsNL && final { lines.append(NSRange(location: len + from, length: 0)); widths.append(0) }
         }
@@ -393,7 +408,8 @@ final class BlockLayoutCache: Sendable {
             s.map.updateValue((v, s.tick), forKey: k) // dictionary write
             if s.map.count > BlockLayoutCache.capacity + 64 {
                 let keep = s.map.sorted { $0.value.1 > $1.value.1 }.prefix(BlockLayoutCache.capacity)
-                s.map = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
+                // cmux: keys come from `s.map`, so they are unique; no trapping init (p10-stability-096).
+                s.map = Dictionary(keep.map { ($0.key, $0.value) }, uniquingKeysWith: { first, _ in first })
             }
         }
     }
@@ -759,8 +775,8 @@ final class LongTextLayout: Sendable {
                 if s < e || (lr.length == 0 && NSLocationInRange(lineRange.location, range)) {
                     let attr = NSAttributedString(string: bl.string.substring(with: lr), attributes: [.font: Fixture.bodyFont])
                     let ct = CTLineCreateWithAttributedString(attr)
-                    let x0 = CTLineGetOffsetForStringIndex(ct, max(0, s - lineRange.location), nil)
-                    let x1 = e > NSMaxRange(lineRange) ? (bl.widths[checked: j] ?? 0) + 4 : CTLineGetOffsetForStringIndex(ct, min(lr.length, e - lineRange.location), nil)
+                    let x0 = ct.offset(forStringIndex: max(0, s - lineRange.location))
+                    let x1 = e > NSMaxRange(lineRange) ? (bl.widths[checked: j] ?? 0) + 4 : ct.offset(forStringIndex: min(lr.length, e - lineRange.location))
                     out.append(CGRect(x: x0, y: CGFloat(gl) * lh, width: max(1, x1 - x0), height: lh))
                 }
             }
@@ -962,23 +978,28 @@ final class LongTextStore: Sendable {
 
     private static func print(_ p: UnsafeBufferPointer<UInt8>) -> Print {
         var h = Hasher(), t = Hasher()
-        let n = p.count, k = min(n, 1024)
-        h.combine(bytes: UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: p.prefix(k)))) // no range subscripts
-        t.combine(bytes: UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: p.suffix(k))))
+        // SAFETY: p is the caller's buffer, valid for this call; prefix(k) and suffix(k) are clamped to it, so each
+        // rebased slice lies inside it, and the hashers copy the bytes and keep no pointer.
+        let n = unsafe p.count, k = min(n, 1024)
+        unsafe h.combine(bytes: UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: p.prefix(k)))) // no range subscripts
+        unsafe t.combine(bytes: UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: p.suffix(k))))
         return Print(count: n, head: h.finalize(), tail: t.finalize())
     }
     private static func head(_ p: UnsafeBufferPointer<UInt8>) -> Int {
         var h = Hasher()
-        h.combine(bytes: UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: p.prefix(512)))) // no range subscript
+        // SAFETY: as `print`: the clamped prefix lies inside the caller's buffer, which the hasher copies.
+        unsafe h.combine(bytes: UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: p.prefix(512)))) // no range subscript
         return h.finalize()
     }
 
     /// cmux: whether index `i` holds exactly the bytes of `p`.
     private static func sameBytes(_ i: LongTextIndex, _ p: UnsafeBufferPointer<UInt8>) -> Bool {
         i.withBytes { q in // no force unwraps
-            guard q.count == p.count else { return false }
-            guard let qb = q.baseAddress, let pb = p.baseAddress else { return q.count == 0 }
-            return memcmp(qb, pb, q.count) == 0
+            // SAFETY: q (the index's text) and p (the caller's buffer) are valid during this call; memcmp reads
+            // q.count bytes of each, which both hold (equal counts, the first guard).
+            guard unsafe q.count == p.count else { return false }
+            guard let qb = unsafe q.baseAddress, let pb = unsafe p.baseAddress else { return unsafe q.count == 0 }
+            return unsafe memcmp(qb, pb, q.count) == 0
         }
     }
 
@@ -986,17 +1007,19 @@ final class LongTextStore: Sendable {
         var t = text
         if t.utf8.withContiguousStorageIfAvailable({ _ in true }) == nil { t.makeContiguousUTF8() }
         return t.utf8.withContiguousStorageIfAvailable { p -> LongTextIndex? in
-            let addr = Addr(base: UInt(bitPattern: p.baseAddress), count: p.count)
+            // SAFETY: p is the text's contiguous UTF-8, valid inside this closure, and no pointer leaves it: the
+            // address is kept only as an integer cache key, and every read below is bounded by p.count.
+            let addr = unsafe Addr(base: UInt(bitPattern: p.baseAddress), count: p.count)
             if let i = state.withLock({ $0.byAddr[addr] }) { return i }
-            let pr = LongTextStore.print(p)
+            let pr = unsafe LongTextStore.print(p)
             // cmux: the print (length, first and last KiB) only names a candidate; its bytes decide. A
             // same-length edit in the middle of a long text has the old text's print and drew the old text.
-            if let i = state.withLock({ $0.byPrint[pr] }), LongTextStore.sameBytes(i, p) {
+            if let i = state.withLock({ $0.byPrint[pr] }), unsafe LongTextStore.sameBytes(i, p) {
                 // Still registered under that print (a register on another thread may have replaced it meanwhile).
                 state.withLock { s in if s.byPrint[pr] === i { s.byAddr[addr] = i } }
                 return i
             }
-            let hd = LongTextStore.head(p)
+            let hd = unsafe LongTextStore.head(p)
             let prev = state.withLock { $0.byHead[hd] }
             guard create else { return nil }
             // Streaming: the same text with more at the end keeps every block but the last
@@ -1005,14 +1028,17 @@ final class LongTextStore: Sendable {
             // line, and can shorten the text a little) keeps every block before the change, and its
             // lineage (its tiles): a new index from the start cost every such token O(reply) on main
             // (plans/cmux-next/home-streaming-perf-DESIGN.md).
-            if let prev, prev.ready, prev.count != p.count, p.count + 64 >= prev.count, prev.blockCount > 0,
-               prev.markdown || !LongTextIndex.isMarkdown(String(decoding: UnsafeBufferPointer(rebasing: p.dropFirst(max(0, prev.starts.dropLast().last ?? 0))) /* the last block start, no index math */, as: UTF8.self)) {
+            if let prev, prev.ready, unsafe prev.count != p.count, unsafe p.count + 64 >= prev.count, prev.blockCount > 0,
+               unsafe prev.markdown || !LongTextIndex.isMarkdown(String(decoding: UnsafeBufferPointer(rebasing: p.dropFirst(max(0, prev.starts.dropLast().last ?? 0))) /* the last block start, no index math */, as: UTF8.self)) {
                 let last = prev.blockCount - 1
                 let from = max(0, (prev.starts[checked: last] ?? 0) - 256) // checked
                 // An append: the old text is the new one's start (the previous rule).
-                let appended = prev.count < p.count && prev.withBytes { q in // no force unwraps
-                    guard let qb = q.baseAddress, let pb = p.baseAddress else { return false }
-                    return memcmp(qb + from, pb + from, prev.count - from) == 0
+                let appended = unsafe prev.count < p.count && prev.withBytes { q in // no force unwraps
+                    // SAFETY: q (the old text, prev.count bytes) and p (the new, longer one) are valid during this
+                    // call; 0 <= from <= prev.count (a block start less 256, clamped at 0), so memcmp reads the
+                    // prev.count - from bytes after from inside both.
+                    guard let qb = unsafe q.baseAddress, let pb = unsafe p.baseAddress, unsafe from <= q.count else { return false }
+                    return unsafe memcmp(qb + from, pb + from, prev.count - from) == 0
                 }
                 // cmux: else the last block whose start the texts share byte for byte (at least one block kept).
                 var keepAt: Int? = appended ? last : nil
@@ -1020,9 +1046,11 @@ final class LongTextStore: Sendable {
                     var k = last
                     while k >= 1, keepAt == nil {
                         let end = prev.starts[checked: k] ?? 0 // checked
-                        let shared = end <= p.count && prev.withBytes { q in // no force unwraps
-                            guard let qb = q.baseAddress, let pb = p.baseAddress else { return false }
-                            return memcmp(qb, pb, end) == 0
+                        let shared = unsafe end <= p.count && prev.withBytes { q in // no force unwraps
+                            // SAFETY: memcmp reads `end` bytes of each text: at most p.count (checked before the
+                            // call) and q.count (checked here); both buffers are valid during this call.
+                            guard let qb = unsafe q.baseAddress, let pb = unsafe p.baseAddress, unsafe end <= q.count else { return false }
+                            return unsafe memcmp(qb, pb, end) == 0
                         }
                         if shared { keepAt = k }
                         k -= 1
@@ -1055,7 +1083,7 @@ final class LongTextStore: Sendable {
             }
             let lineage = state.withLock { s -> Int in s.lineageSerial += 1; return s.lineageSerial }
             LongTextStats.count(.indexBuilds)
-            if p.count <= LongTextStore.syncBytes {
+            if unsafe p.count <= LongTextStore.syncBytes {
                 let i = LongTextIndex.build(t, lineage: lineage)
                 register(i, addr: addr, print: pr, head: hd, replacing: nil)
                 return i

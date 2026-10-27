@@ -223,10 +223,13 @@ public nonisolated enum SidebarTunables {
 
     // @intent no reflow per frame (GPU audit 2026-10-21, offender #1): the slide used to lay out
     // every pane, terminal and page at a new width on every frame. On by default; off restores that.
-    /// Whether the content beside the sidebar keeps one width through a show or hide slide.
+    /// The developer's local override of the feature `sidebarSlideHoldsContent`
+    /// (`schemas/features/features.d/sidebarSlideHoldsContent.json`, which `replaces` this key):
+    /// nothing in the sidebar reads it. The App reads it from the tunables file at launch
+    /// (`FeatureLaunchLocalOverrides`), so a change applies at the next start, on DEV and NIGHTLY.
     public static let slideHoldsContent = Tunable<Bool>.toggle(
         "sidebar.slideHoldsContent", .sidebar, "Hold content size in sidebar slide",
-        help: "While the sidebar slides open or closed, the panes beside it keep the wider of their starting and final width and ride the moving edge, clipped at the far one; they lay out once when the slide lands. Off: every pane resizes on every frame.",
+        help: "Overrides the feature sidebarSlideHoldsContent from the next launch: while the sidebar slides open or closed, the panes beside it keep the wider of their starting and final width and ride the moving edge, clipped at the far one; they lay out once when the slide lands. Off: every pane resizes on every frame.",
         default: true, code: "SidebarTunables.slideHoldsContent")
 
     /// The transition used when a workspace row receives its generated or

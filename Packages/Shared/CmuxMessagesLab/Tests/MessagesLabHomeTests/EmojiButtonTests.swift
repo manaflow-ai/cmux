@@ -131,7 +131,8 @@ import Testing
         var reported: [NSRect] = []
         p.controller.openEmojiPalette = { [weak field = p.field] in
             guard let field else { return }
-            reported.append(field.firstRect(forCharacterRange: field.selectedRange(), actualRange: nil))
+            // SAFETY: the actual-range pointer is nil, so AppKit writes no range.
+            reported.append(unsafe field.firstRect(forCharacterRange: field.selectedRange(), actualRange: nil))
         }
 
         p.controller.host.fieldChrome.onEmoji()
@@ -142,7 +143,8 @@ import Testing
         #expect(button.width > 0)
         #expect(reported == [button])
         p.field.setSelectedRange(NSRange(location: 0, length: 0))
-        #expect(p.field.firstRect(forCharacterRange: NSRange(location: 0, length: 0), actualRange: nil) != button)
+        // SAFETY: the actual-range pointer is nil, so AppKit writes no range.
+        #expect(unsafe p.field.firstRect(forCharacterRange: NSRange(location: 0, length: 0), actualRange: nil) != button)
     }
 
     /// While the Chief works the round button is Stop: it never opens the picker.

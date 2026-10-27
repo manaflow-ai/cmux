@@ -2,6 +2,7 @@ import CmuxNextWakeups
 import Darwin
 public import Foundation
 import CmuxNextCompat
+import CmuxNextIPC
 import CmuxNextTrace
 
 /// Why a transport stopped.
@@ -10,18 +11,22 @@ public enum TransportCloseReason: Sendable, Equatable {
     case closedByClient
     /// The daemon sent `daemon-shutdown`, then EOF.
     case daemonShutdown
-    /// EOF or a read/write error.
+    /// EOF, a read/write error, or a bad message.
     case lost(String)
 }
 
-/// One JSON Lines connection to a cmux-tui Unix socket (raw protocol v12).
+/// One connection to a cmux-tui Unix socket (raw protocol v12): the app's DaemonTransport.
 ///
-/// A dedicated reader thread splits lines and routes them without touching
-/// any actor: responses resume their waiter by `id` (FIFO fallback for the
-/// id-less `bad request` envelope, which is safe because commands start
-/// serially per connection), and events go to `onEvent` on the reader thread.
-/// The server drops slow readers (4,096-event mailbox, 2 s write deadline),
-/// so the reader never blocks on the main actor.
+/// A dedicated reader thread cuts messages with CmuxNextIPC's ``FrameReader`` and routes them without
+/// touching any actor: responses resume their waiter by `id` (the oldest pending request for the id-less
+/// `bad request` envelope, which is safe because commands start serially per connection), and events go
+/// to `onEvent` on the reader thread. A line is routed by fields read from its bytes (``LineRouteScan``), so
+/// the one JSON parse of a reply or an event is its reader's. Waiters are a dictionary plus an id ring
+/// (``PendingRequests``), O(1) per request. Reply deadlines are one heap (``DeadlineHeap``) under one
+/// ``DemandTimer`` per connection, as a Chrome sequence keeps its delayed tasks under one wake-up
+/// (base/task/sequence_manager/wake_up_queue.cc). Writes go through ``SocketWriter`` (CmuxNextIPC's `FrameWriter`).
+/// The socket buffers are ``socketBufferBytes`` each way, the daemon's value. The server drops slow readers
+/// (4,096-event mailbox, 2 s write deadline), so the reader never blocks on the main actor.
 final class LineTransport: Sendable {
     /// `index` counts events on this transport from 1, in wire order.
     typealias EventHandler = @Sendable (_ name: String, _ line: Data, _ index: UInt64) -> Void
@@ -29,6 +34,10 @@ final class LineTransport: Sendable {
 
     /// Inbound limit: the server may send up to 32 MiB (VT replay).
     static let maxLineBytes = 64 << 20
+    /// SO_SNDBUF and SO_RCVBUF of the socket, and the reader's read size: the daemon's own value
+    /// (p05-ipc-083), so a burst of output or a pipelined handshake moves in a few reads, not in hundreds
+    /// of the 8 KiB AF_UNIX default.
+    static let socketBufferBytes = 512 << 10
     /// The event name a `cmux.protocol/2` stream line is routed under
     /// (`DaemonEvent.decode`); the connection opens one stream, `session.events`.
     static let streamEvent = "cmux.protocol/2 stream"
@@ -36,60 +45,15 @@ final class LineTransport: Sendable {
     /// A line is a few microseconds, so 100 ms means the reader thread is stuck.
     static let lineHangDeadline: Duration = .milliseconds(100)
 
-    /// A request waiting for its reply, and when it was sent while a recorder times replies (nil
-    /// without one, and once its deadline passed: a late reply is not timed).
-    private struct Pending {
-        var waiter: Waiter
-        var sent: DaemonWireStats.RequestStamp?
-    }
-
-    private struct State {
-        var nextID: UInt64 = 1
-        var pending: [UInt64: Pending] = [:]
-        /// Request ids in send order, for id-less error responses.
-        var order: [UInt64] = []
-        var closed: TransportCloseReason?
-        var sawShutdown = false
-        /// Stream-0 events routed so far (raw events and `controlStreams`
-        /// lines); responses capture it as their barrier.
-        var eventCount: UInt64 = 0
-        /// Streams the daemon writes in its reply FIFO (`session.events`).
-        var controlStreams: Set<String> = []
-        /// Gets resource API stream lines (`stream_item`, `stream_end`).
-        var streamHandler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?
-
-        /// Marks a pending reply expired; its command, slot and send stamp, or nil when
-        /// `id` is not waiting for a reply.
-        mutating func expireReply(_ id: UInt64) -> (String, ReplySlot, DaemonWireStats.RequestStamp?)? {
-            guard let entry = pending[id], case .reply(let cmd, let slot) = entry.waiter else { return nil }
-            pending.updateValue(Pending(waiter: .expired(cmd: cmd), sent: nil), forKey: id)
-            return (cmd, slot, entry.sent)
-        }
-
-        /// Every pending request, in send order.
-        func pendingInSendOrder() -> [Pending] {
-            order.compactMap { pending[$0] }
-        }
-    }
-
-    /// An `ok:true` response line plus the number of events routed before it
-    /// on this transport. Every event with index <= `eventBarrier` was
-    /// emitted before the command's result, so a snapshot supersedes it.
-    struct Response: Sendable {
-        var line: Data
-        var eventBarrier: UInt64
-        /// The connection's recorder: decoding the line counts there
-        /// (`WireCoding.decodeResponse(_:from:)` given the response).
-        var recorder: DaemonWireStats.Recorder?
-    }
-
     /// Guards the descriptor: writes and close are serialized so a write never
     /// lands on a reused fd.
     private struct Socket {
         var fd: Int32
     }
 
-    private let state = Mutex(State())
+    /// The transport's routing state (LineTransport+State.swift); the reader's routing reads it
+    /// (LineTransport+Route.swift).
+    let state = Mutex(State())
     private let socket: Mutex<Socket>
     /// Nonblocking, ordered writes (never parks the calling actor's thread).
     private let writer: SocketWriter
@@ -108,20 +72,28 @@ final class LineTransport: Sendable {
     let decoder: WireDecoder
     /// Watches the reader's handling of each line, never its wait in `read(2)`; nil watches nothing.
     private let hangWatched: HangWatchedLane?
+    /// The one timer of every reply deadline on this connection, armed for the earliest (``DeadlineHeap``).
+    private let deadlineTimer: DemandTimer
+    /// Time since the connection opened, on the clock ``deadlineTimer`` sleeps on.
+    private let elapsed: @Sendable () -> Duration
     /// Where each request's `daemon.request` slice goes (LineTransport+RequestTrace.swift), the top bits of its
     /// async id (``traceConnectionBits(scope:)``) and its flow's seed (``requestFlowSeed(pid:)``).
     let trace: TraceRuntime, traceConnection: UInt64, traceFlowSeed: UInt64
 
-    /// - Parameter opened: An opened bridge (``open(path:bridge:role:stats:hangs:trace:)``); nil connects to `path`.
+    /// - Parameter opened: An opened bridge (``open(path:bridge:role:stats:hangs:writerTarget:trace:)``); nil connects to `path`.
     /// - Parameter stats: Where the connection counts (``DaemonEndpoint/wireStats``); nil for none.
-    /// - Parameter hangs: Watches each line's handling on the reader thread; nil watches nothing.
-    init(path: String, opened: DaemonBridge.Opened? = nil, role: DaemonWireStats.Role,
-         stats: DaemonWireStats?, hangs: (any HangWatchScoping)? = nil, trace: TraceRuntime = .shared) throws(DaemonError) {
+    /// - Parameter hangs: Watches each line the reader handles and each writer drain step; nil: none. `writerTarget`: see `open`.
+    /// - Parameter clock: What reply deadlines are measured and slept on; tests pass a `ManualClock`.
+    init(path: String, opened: DaemonBridge.Opened? = nil, role: DaemonWireStats.Role, stats: DaemonWireStats?,
+         hangs: (any HangWatchScoping)? = nil, writerTarget: DispatchQueue? = nil, trace: TraceRuntime = .shared,
+         clock: any Clock<Duration> = ContinuousClock()) throws(DaemonError) {
         self.path = path
         self.role = role
         self.trace = trace
         traceConnection = Self.traceConnectionBits(scope: trace.nextAsyncScope())
         traceFlowSeed = Self.requestFlowSeed(pid: getpid())
+        deadlineTimer = DemandTimer(owner: "LineTransport.deadline", clock: clock)
+        elapsed = Self.elapsedReader(clock)
         let recorder = stats?.recorder()
         self.recorder = recorder
         decoder = WireCoding.decoder(recorder)
@@ -133,11 +105,17 @@ final class LineTransport: Sendable {
             fd = try Self.connect(path)
             child = nil
         }
+        Self.sizeBuffers(fd)
         socket = Mutex(Socket(fd: fd))
-        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", qos: role.writerQoS)
+        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", qos: role.writerQoS, target: writerTarget, hangs: hangs)
         recorder?.connectionOpened(role, bridged: opened != nil)
         // After the last throw: a transport that never opened registers nothing (its deinit does not run).
         hangWatched = hangs.map { HangWatchedLane("daemon.line", deadline: Self.lineHangDeadline, on: $0) }
+    }
+
+    /// The socket's SO_SNDBUF and SO_RCVBUF as the kernel reports them; nil once it closed.
+    var socketBuffers: (send: Int, receive: Int)? {
+        socket.withLock { socket -> (send: Int, receive: Int)? in socket.fd >= 0 ? Self.bufferSizes(socket.fd) : nil }
     }
 
     private static func connect(_ path: String) throws(DaemonError) -> Int32 {
@@ -180,10 +158,15 @@ final class LineTransport: Sendable {
     }
 
     /// Starts the reader thread, handing each event its envelope cause. Call once.
-    func start(onCausedEvent onEvent: @escaping CausedEventHandler, onClose: @escaping CloseHandler) {
+    ///
+    /// - Parameter waitForConsumer: Runs on the reader thread after each line it handled, outside the
+    ///   line's hang scope: an event handler that found its consumer behind waits there
+    ///   (``DaemonEventRoute/waitWhileReaderParked()``), which is idle time, not a hang.
+    func start(onCausedEvent onEvent: @escaping CausedEventHandler, waitForConsumer: (@Sendable () -> Void)? = nil,
+               onClose: @escaping CloseHandler) {
         let fd = socket.withLock { $0.fd }
         let thread = Thread { [self] in
-            readLoop(fd: fd, onEvent: onEvent, onClose: onClose)
+            readLoop(fd: fd, onEvent: onEvent, waitForConsumer: waitForConsumer, onClose: onClose)
         }
         thread.name = "cmux-tui reader \(path)"
         thread.qualityOfService = role.readerQoS
@@ -213,7 +196,7 @@ final class LineTransport: Sendable {
         let armed = NewTerminalTrace.shared.isArmed
         var traced: String?
         #endif
-        let submitted = submit(.reply(cmd: cmd.wire, slot)) { id in
+        submit(.reply(cmd: cmd.wire, slot), deadline: timeout.map { self.deadline(after: $0) }) { id in
             let line = try body(id)
             #if DEBUG || CMUX_BENCH_HOOKS
             if armed { traced = NewTerminalTrace.shared.requestSent(line) }
@@ -222,10 +205,6 @@ final class LineTransport: Sendable {
             return line
         }
         // A failed submit resolved the slot already.
-        guard case .success(let id) = submitted else { return try await slot.value() }
-        let timer = DemandTimer(owner: "LineTransport.deadline")
-        defer { timer.cancel() }
-        if let timeout { timer.schedule(after: timeout) { [weak self] in self?.expire(id: id, after: timeout) } }
         let response = try await slot.value()
         #if DEBUG || CMUX_BENCH_HOOKS
         if let traced { NewTerminalTrace.shared.mark(.reply, terminal: traced) }
@@ -233,12 +212,9 @@ final class LineTransport: Sendable {
         return response
     }
 
-    /// Fails a still-pending request with `timedOut`.
-    func expire(id: UInt64, after timeout: Duration) {
-        let expired: (String, ReplySlot, DaemonWireStats.RequestStamp?)? = state.withLock { state in state.expireReply(id) }
-        guard let (cmd, slot, sent) = expired else { return }
-        if let sent { recorder?.timedOut(sent) }
-        slot.resolve(.failure(DaemonError.timedOut("\(cmd) (no reply within \(timeout))")))
+    /// The deadline `timeout` from now.
+    func deadline(after timeout: Duration) -> DeadlineHeap.Deadline {
+        DeadlineHeap.Deadline(at: elapsed() + timeout, timeout: timeout)
     }
 
     /// Sends one command without waiting. The response is consumed and
@@ -262,12 +238,13 @@ final class LineTransport: Sendable {
         }
     }
 
-    /// Allocates the id, registers the waiter, and writes, all under the
-    /// socket lock so `state.order` equals wire order. On failure before
-    /// registration the waiter is resumed here; after it, `failAll` owns it.
+    /// Allocates the id, registers the waiter and its `deadline`, and writes, all under the
+    /// socket lock so the pending requests' send order equals wire order. On failure before
+    /// registration the waiter is resumed here; after it, `failAll` owns it. A `deadline` applies
+    /// only to a waiter that awaits its reply.
     /// Returns the request id once the waiter is registered.
     @discardableResult
-    func submit(_ waiter: Waiter, _ body: (UInt64) throws -> Data) -> Result<UInt64, any Error> {
+    func submit(_ waiter: Waiter, deadline: DeadlineHeap.Deadline? = nil, _ body: (UInt64) throws -> Data) -> Result<UInt64, any Error> {
         var writeFailure: String?
         var submittedID: UInt64 = 0
         let early: (any Error)? = socket.withLock { socket -> (any Error)? in
@@ -283,9 +260,14 @@ final class LineTransport: Sendable {
             let payload: Data
             do { payload = try body(id) } catch { return error }
             let stamp = recorder?.requestSent(waiter.cmd)
+            let timed: (deadline: DeadlineHeap.Deadline, now: Duration)? =
+                if let deadline, case .reply = waiter { (deadline: deadline, now: elapsed()) } else { nil }
             state.withLock { state in
-                state.pending.updateValue(Pending(waiter: waiter, sent: stamp), forKey: id)
-                state.order.append(id)
+                state.pending.append(PendingRequest(waiter: waiter, sent: stamp), id: id)
+                if let timed {
+                    state.deadlines.insert(id: id, timed.deadline)
+                    armDeadlineTimer(&state, now: timed.now)
+                }
             }
             submittedID = id
             var line = payload
@@ -316,22 +298,55 @@ final class LineTransport: Sendable {
 
     // MARK: - Private
 
-    private static func closedError(_ reason: TransportCloseReason) -> DaemonError {
-        switch reason {
-        case .closedByClient: .connectionClosed(reason: "closed by client")
-        case .daemonShutdown: .daemonShutdown
-        case .lost(let detail): .connectionClosed(reason: detail)
+    /// Arms the one timer for the earliest deadline unless it is armed at or before it already. Called
+    /// with the state lock held, so two submits never arm out of order; the timer's own lock is taken
+    /// after it, and its fire runs with that lock released.
+    private func armDeadlineTimer(_ state: inout State, now: Duration) {
+        guard let at = state.nextArm() else { return }
+        deadlineTimer.schedule(after: max(at - now, .zero)) { [weak self] in self?.fireDeadlines() }
+    }
+
+    /// Takes `id`'s deadline out, with the state lock held. When the timer was armed for it, the timer
+    /// moves to the next deadline, or is cancelled when none is left, so an answered request causes no
+    /// wakeup. Chrome does the same when a removed delayed task was the top of the queue's heap
+    /// (`TaskQueueImpl::RemoveCancelableTask` calls `UpdateWakeUp`, base/task/sequence_manager/task_queue_impl.cc).
+    /// The cancel stays under the state lock, as ``armDeadlineTimer(_:now:)`` does, so it never drops a
+    /// timer a later submit armed.
+    func removeDeadline(_ state: inout State, id: UInt64) {
+        guard state.deadlines.remove(id: id) != nil, let armedAt = state.armedAt else { return }
+        guard let next = state.deadlines.first?.deadline.at else {
+            state.armedAt = nil
+            deadlineTimer.cancel()
+            return
+        }
+        guard next > armedAt else { return }
+        state.armedAt = nil
+        armDeadlineTimer(&state, now: elapsed())
+    }
+
+    /// Fails every pending request whose deadline passed with `timedOut`, then arms the timer for the
+    /// next deadline.
+    private func fireDeadlines() {
+        let now = elapsed()
+        let expired = state.withLock { state -> [Expired] in
+            let expired = state.expireDue(at: now)
+            armDeadlineTimer(&state, now: now)
+            return expired
+        }
+        for request in expired {
+            if let sent = request.sent { recorder?.timedOut(sent) }
+            request.slot.resolve(.failure(DaemonError.timedOut("\(request.cmd) (no reply within \(request.timeout))")))
         }
     }
 
     private func failAll(_ reason: TransportCloseReason) {
-        let unanswered: [Pending] = state.withLock { state in
+        let unanswered: [PendingRequest] = state.withLock { state in
             if state.closed == nil { state.closed = reason }
-            let unanswered = state.pendingInSendOrder()
-            state.pending.removeAll()
-            state.order.removeAll()
-            return unanswered
+            state.deadlines.removeAll()
+            state.armedAt = nil
+            return state.pending.removeAllInSendOrder()
         }
+        deadlineTimer.cancel()
         let error = Self.closedError(reason)
         for entry in unanswered {
             // A request the connection closed under never gets its reply.
@@ -343,17 +358,17 @@ final class LineTransport: Sendable {
         }
     }
 
-    private func readLoop(fd: Int32, onEvent: CausedEventHandler, onClose: CloseHandler) {
+    private func readLoop(fd: Int32, onEvent: CausedEventHandler, waitForConsumer: (@Sendable () -> Void)?, onClose: CloseHandler) {
         let decoder = self.decoder
-        let recorder = self.recorder
-        // An attach connection carries the terminal's output: the splitter's copies of its bytes
+        // An attach connection carries the terminal's output: the reader's copies of its bytes
         // are copies of that output (``DaemonWireStats/Snapshot/outputBytesCopiedApp``).
         let outputStream = role == .terminalAttach ? recorder : nil
-        var lines = LineSplitter()
-        var chunk = [UInt8](repeating: 0, count: 256 * 1024)
+        // Frames come only with their negotiation (p05-ipc-092); until then a 0xFF boundary is a bad message.
+        var reader = FrameReader(limits: FrameReader.Limits(maxLine: Self.maxLineBytes, maxFramePayload: FrameHeader.maxPayloadCap))
+        var chunk = [UInt8](repeating: 0, count: Self.socketBufferBytes)
         var closeDetail = "EOF"
-        // wakeup-allow: bounded: blocking read on a dedicated thread; EOF, errors and oversize lines end it, EINTR retries
-        reading: while true {
+        // wakeup-allow: bounded: blocking read on a dedicated thread; EOF, errors and bad messages end it, EINTR retries
+        while true {
             // SAFETY: read writes at most $0.count bytes into the array's own storage, which the closure lends
             // for the call and nothing else touches meanwhile.
             let count = unsafe chunk.withUnsafeMutableBytes { unsafe Darwin.read(fd, $0.baseAddress, $0.count) }
@@ -364,14 +379,23 @@ final class LineTransport: Sendable {
                 break
             }
             recorder?.bytesRead(count)
-            outputStream?.outputCopied(count)  // into the splitter's buffer
-            lines.append(chunk.prefix(count)) { line in
-                outputStream?.outputCopied(line.count)  // out of it, as the line
-                handle(line, decoder: decoder, onEvent: onEvent)
+            outputStream?.outputCopied(count)  // into the reader's buffer
+            // SAFETY: push copies the first `count` bytes of the array's own storage, the ones read(2) just
+            // wrote (count <= its size); the closure lends the storage for the call only.
+            unsafe chunk.withUnsafeBytes { unsafe reader.push(UnsafeRawBufferPointer(rebasing: $0.prefix(count))) }
+            var next = Self.nextMessage(&reader)
+            while case .success(let message?) = next {
+                // An empty line carries nothing; a frame cannot come before frames are negotiated.
+                if case .json(let bytes) = message, !bytes.isEmpty {
+                    outputStream?.outputCopied(2 * bytes.count)  // out of the reader as the line, then into its Data
+                    handle(bytes, decoder: decoder, onEvent: onEvent)
+                    waitForConsumer?()
+                }
+                next = Self.nextMessage(&reader)
             }
-            if lines.pending.count > Self.maxLineBytes {
-                closeDetail = "line exceeds \(Self.maxLineBytes) bytes"
-                break reading
+            if case .failure(let bad) = next {
+                closeDetail = "bad message: \(bad.reason)"
+                break
             }
         }
         let reason: TransportCloseReason = state.withLock { state in
@@ -393,79 +417,9 @@ final class LineTransport: Sendable {
 
     /// Routes one line inside a hang scope of ``lineHangDeadline`` (Chrome watches each IO-thread task
     /// the same way, base/threading/hang_watcher.cc).
-    private func handle(_ line: Data, decoder: WireDecoder, onEvent: CausedEventHandler) {
-        guard let hangWatched else { return route(line, decoder: decoder, onEvent: onEvent) }
-        hangWatched.run { route(line, decoder: decoder, onEvent: onEvent) }
-    }
-
-    private func route(_ line: Data, decoder: WireDecoder, onEvent: CausedEventHandler) {
-        guard let envelope = try? decoder.decode(Envelope.self, from: line) else {
-            recorder?.lineRead(.ignored)
-            return
-        }
-        // A v2 stream line goes to the stream handler of a dedicated
-        // connection (`SessionJournalRead`); on the control connection it
-        // travels with the raw events, in socket order (`session.events`).
-        let streamed = envelope.type == "stream_item" || envelope.type == "stream_end"
-        let streamKind: DaemonWireStats.FrameKind = envelope.type == "stream_end" ? .streamEnd : .streamItem
-        if streamed, let streamID = envelope.streamID {
-            let streamRoute = state.withLock { state -> StreamRoute in
-                if state.controlStreams.contains(streamID) {
-                    if envelope.type == "stream_end" { state.controlStreams.remove(streamID) }
-                    return .control
-                }
-                if let handler = state.streamHandler { return .handler(handler) }
-                return .unrouted
-            }
-            switch streamRoute {
-            case .control: break
-            case .handler(let handler):
-                recorder?.lineRead(streamKind)
-                return handler(streamID, line)
-            case .unrouted:
-                recorder?.lineRead(.ignored)
-                return
-            }
-        }
-        if let name = streamed ? Self.streamEvent : envelope.event {
-            let index = state.withLock { state -> UInt64 in
-                if name == "daemon-shutdown" { state.sawShutdown = true }
-                state.eventCount += 1
-                return state.eventCount
-            }
-            recorder?.lineRead(streamed ? streamKind : .event)
-            onEvent(name, line, index, envelope.cause)
-            return
-        }
-        guard envelope.ok != nil || envelope.id != nil else {
-            recorder?.lineRead(.ignored)
-            return
-        }
-        let routed: (UInt64, Pending)? = state.withLock { state in
-            let id = envelope.id ?? state.order.first
-            guard let id, let entry = state.pending.removeValue(forKey: id) else { return nil }
-            state.order.removeAll { $0 == id }
-            return (state.eventCount, entry)
-        }
-        guard let (barrier, entry) = routed else {
-            recorder?.lineRead(.droppedReply)
-            return
-        }
-        let waiter = entry.waiter
-        if let sent = entry.sent { recorder?.replied(sent) }
-        recorder?.lineRead(waiter.replyKind(ok: envelope.ok == true))
-        if envelope.ok == true {
-            if case .reply(_, let slot) = waiter {
-                slot.resolve(.success(Response(line: line, eventBarrier: barrier, recorder: recorder)))
-            }
-            return
-        }
-        let error = DaemonError.command(cmd: waiter.cmd, message: envelope.error ?? "unknown error", code: envelope.errorCode,
-                                        details: envelope.errorDetails, retryable: envelope.retryable)
-        switch waiter {
-        case .reply(_, let slot): slot.resolve(.failure(error))
-        case .discard(_, let onError): onError?(error)
-        case .expired: break
-        }
+    private func handle<Line: RandomAccessCollection<UInt8>>(_ bytes: Line, decoder: WireDecoder, onEvent: CausedEventHandler)
+    where Line.Index == Int {
+        guard let hangWatched else { return route(bytes, decoder: decoder, onEvent: onEvent) }
+        hangWatched.run { route(bytes, decoder: decoder, onEvent: onEvent) }
     }
 }

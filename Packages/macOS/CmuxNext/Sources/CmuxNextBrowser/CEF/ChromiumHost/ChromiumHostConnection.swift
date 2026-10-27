@@ -70,10 +70,12 @@ nonisolated final class ChromiumHostConnection: Sendable {
         self.signposter = signposter
         _ = fcntl(writeFD, F_SETFL, fcntl(writeFD, F_GETFL) | O_NONBLOCK)
         var size = Self.sendBuffer
-        _ = setsockopt(writeFD, SOL_SOCKET, SO_SNDBUF, &size, socklen_t(MemoryLayout<Int32>.size))
+        // SAFETY: setsockopt reads the one Int32 `size` holds, the length given, during the call.
+        _ = unsafe setsockopt(writeFD, SOL_SOCKET, SO_SNDBUF, &size, socklen_t(MemoryLayout<Int32>.size))
         for fd in [readFD, writeFD] {
             var noSigPipe: Int32 = 1
-            _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+            // SAFETY: as above, for `noSigPipe`.
+            _ = unsafe setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
             _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
         }
         let state = ChromiumHostWireState(readFD: readFD, writeFD: writeFD, clock: clock)
@@ -135,15 +137,16 @@ nonisolated final class ChromiumHostConnection: Sendable {
 
 nonisolated extension ChromiumHostFrame.Kind {
     /// The `cef.host_input` kind of an input frame cmux sends; nil for every other frame (navigation, geometry,
-    /// focus, ping, stats, quit and the host's replies), which records no instant.
+    /// focus, ping, stats, quit, the text input watch, gestures and the host's replies), which records no instant.
     var traceInput: Signposter.CEFHostInputKind? {
         switch self {
         case .mouse: .mouse
         case .wheel: .wheel
         case .key: .key
         case .edit: .edit
-        case .navigate, .geometry, .focus, .ping, .stats, .quit,
-             .ready, .context, .address, .title, .pong, .statsReply, .error, .rendererGone: nil
+        case .ime: .ime
+        case .navigate, .geometry, .focus, .ping, .stats, .quit, .textInputWatch, .gesture,
+             .ready, .context, .address, .title, .pong, .statsReply, .error, .rendererGone, .textInputState, .inputPresented: nil
         }
     }
 }

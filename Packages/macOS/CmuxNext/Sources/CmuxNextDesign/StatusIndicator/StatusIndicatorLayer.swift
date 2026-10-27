@@ -1,5 +1,6 @@
 public import AppKit
 public import QuartzCore
+import CmuxNextCompat
 public import CmuxNextDesignTokens
 
 /// The one status indicator every surface draws (sidebar rows and group
@@ -214,11 +215,11 @@ public final class StatusIndicatorLayer {
         case .ring(let progress):
             removeNative(); removeBraille(); removeDots()
             let track = makeTrack(frame: rect)
-            track.path = StatusGlyphGeometry.ringPath(in: track.bounds, thickness: thickness)
+            track.path = StatusGlyphGeometry.ringPath(in: track.bounds, thickness: thickness).cgPath
             track.lineWidth = thickness
             track.opacity = Float(config.trackOpacity)
             let shape = makeGlyph(frame: rect)
-            shape.path = StatusGlyphGeometry.ringPath(in: shape.bounds, thickness: thickness)
+            shape.path = StatusGlyphGeometry.ringPath(in: shape.bounds, thickness: thickness).cgPath
             shape.fillColor = nil
             shape.lineWidth = thickness
             shape.strokeStart = 0
@@ -241,7 +242,7 @@ public final class StatusIndicatorLayer {
         case .check:
             removeTrack(); removeNative(); removeBraille(); removeDots()
             let shape = makeGlyph(frame: rect)
-            shape.path = StatusGlyphGeometry.checkPath(in: StatusGlyphGeometry.checkRect(in: shape.bounds))
+            shape.path = StatusGlyphGeometry.checkPath(in: StatusGlyphGeometry.checkRect(in: shape.bounds)).cgPath
             shape.fillColor = nil
             shape.lineWidth = max(thickness, 1.25)
             shape.lineJoin = .round
@@ -407,9 +408,7 @@ public final class StatusIndicatorLayer {
         // is Unix time mod its cycle (`SpinnerClock`), so a spinner that shows later, or resumes
         // after its window was hidden, joins in step with the rest (sidebar rows, tabs, hover
         // cards, chrome spinners) and with the web pages' spinners, which read the same clock.
-        let cycle = animation.duration * (animation.autoreverses ? 2 : 1)
-        animation.beginTime = target.convertTime(clock.beginTime(cycle: cycle), from: nil)
-        target.add(animation, forKey: wanted.key)
+        LoopVisibility.add(animation, to: target, forKey: wanted.key, clock: clock)
     }
 
     private func animationTarget(for animation: StatusIndicatorPlan.Animation?) -> CALayer? {

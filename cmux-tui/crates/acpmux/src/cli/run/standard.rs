@@ -770,7 +770,7 @@ async fn dispatch(client: Arc<Client>, args: DispatchArgs, json_out: bool) -> Re
     let brief = if args.brief.as_os_str() == "-" {
         arg_or_stdin(&[])?
     } else {
-        std::fs::read_to_string(&args.brief)?
+        tokio::fs::read_to_string(&args.brief).await?
     };
     let mut obj = serde_json::Map::from_iter([
         ("brief".into(), json!(brief)),

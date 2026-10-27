@@ -30,6 +30,7 @@ final class MainRunLoopWakeUpTimer: MainWakeUpTimer {
         timer = CFRunLoopTimerCreateWithHandler(
             kCFAllocatorDefault, Self.fireDate(after: Self.parkedInterval), Self.parkedInterval, 0, 0
         ) { _ in
+            // main-hop-allow: the main wake-up queue's one timer: its fire runs the queue that posts each MainDeadline's action in its class
             CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) {
                 // main-proof: the block is queued on CFRunLoopGetMain(), whose blocks run on the main thread.
                 MainActor.assumeIsolated { fire() }

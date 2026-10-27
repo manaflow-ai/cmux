@@ -9,7 +9,7 @@ extension GhosttyRuntime {
     /// runs `then`. The main thread does other work meanwhile.
     public func start(loadingOn loader: any GhosttyConfigLoading, then: @escaping @MainActor @Sendable () -> Void) {
         configLoader = loader
-        let inputs = GhosttyConfigInputs.current(theme: nil)
+        let inputs = configInputs(theme: nil)
         loader.load({ inputs.buildConfig() }) { [weak self] built in
             guard let self else {
                 built?.free()
@@ -36,18 +36,22 @@ extension GhosttyRuntime {
         }
         guard app != nil else { return }
         reloadRequests &+= 1
-        let (request, inputs) = (reloadRequests, GhosttyConfigInputs.current(theme: nil))
+        let (request, inputs) = (reloadRequests, configInputs(theme: nil))
         configLoader.load({ inputs.buildConfig() }) { [weak self] built in
             guard let built else { return }
             guard let self, request == self.reloadRequests, let app = self.app else { return built.free() }
             self.recordUserConfigLoad(built)
             self.adoptedDuringReload = false
             self.applyColorTransitionToSurfaces()
-            ghostty_app_update_config(app, built.config)
+            // SAFETY: `app` is the live app (never freed); update_config copies what it keeps from
+            // the built config, which this reply still owns.
+            unsafe ghostty_app_update_config(app, built.config)
             // Ghostty answers with CONFIG_CHANGE on this thread: the config it
             // applied carries the light/dark variant, `built` does not (it
             // would put a dark app's chrome back on the light variant).
-            if self.adoptedDuringReload { built.free() } else { self.replaceConfig(built.config) }
+            // SAFETY: the built config leaves this reply by exactly one path: freed, or handed to
+            // the runtime's `config`.
+            if self.adoptedDuringReload { built.free() } else { unsafe self.replaceConfig(built.config) }
         }
     }
 

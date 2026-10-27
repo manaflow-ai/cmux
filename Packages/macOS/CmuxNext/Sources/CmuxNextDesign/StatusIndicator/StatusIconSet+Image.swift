@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxNextDesignTokens
 
 /// A set's mark for one state as a still image, from the same geometry and
@@ -64,7 +65,7 @@ enum StatusGlyphArt {
         case .ring(let progress):
             context.setLineWidth(thickness)
             context.setAlpha(config.trackOpacity)
-            context.addPath(StatusGlyphGeometry.ringPath(in: rect, thickness: thickness))
+            context.addPath(StatusGlyphGeometry.ringPath(in: rect, thickness: thickness).cgPath)
             context.strokePath()
             context.setAlpha(1)
             let radius = max(0, rect.width / 2 - thickness / 2)
@@ -81,7 +82,7 @@ enum StatusGlyphArt {
         case .dot:
             context.fillEllipse(in: StatusGlyphGeometry.dotRect(in: rect, scale: config.dotScale))
         case .check:
-            context.addPath(StatusGlyphGeometry.checkPath(in: StatusGlyphGeometry.checkRect(in: rect)))
+            context.addPath(StatusGlyphGeometry.checkPath(in: StatusGlyphGeometry.checkRect(in: rect)).cgPath)
             context.setLineWidth(max(thickness, 1.25 * scale))
             context.strokePath()
         case .dots, .bars:
@@ -90,7 +91,7 @@ enum StatusGlyphArt {
             for index in 0..<StatusIndicatorLayer.dotsCount {
                 let frame = element.frame.offsetBy(dx: element.step * CGFloat(index), dy: 0)
                 let moved = CGMutablePath()
-                moved.addPath(StatusGlyphGeometry.repeatedElementPath(frame, bars: bars),
+                moved.addPath(StatusGlyphGeometry.repeatedElementPath(frame, bars: bars).cgPath,
                               transform: CGAffineTransform(translationX: frame.minX, y: frame.minY))
                 context.addPath(moved)
             }

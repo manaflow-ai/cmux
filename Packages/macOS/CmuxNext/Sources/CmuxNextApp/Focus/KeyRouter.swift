@@ -8,6 +8,7 @@ import CmuxNextTerminal
 import CmuxNextFocus
 import CmuxNextWakeups
 import CmuxNextPages
+import CmuxNextLaunch
 /// The one key dispatcher (plans/cmux-next/keybindings.md section 4,
 /// focus.md section 5). It decides every key-down of every cmux window in
 /// `CmuxApplication.sendEvent` (``interceptKeyDown(_:in:)``), before any
@@ -187,6 +188,9 @@ final class KeyRouter: BrowserKeyRouting {
     /// Key-downs this dispatcher decided: the window hook, the Chromium
     /// hook and the menu gate run nothing for them.
     let decided = DecidedKeyEvents()
+    /// The decided keys whose extension shortcuts are settled (``runExtensionShortcut(_:focus:)``): Chromium's pre-key
+    /// hook looks up the profile's shortcuts for every other decided key (``decidedKey(_:)``).
+    let extensionShortcutsLookedUp = DecidedKeyEvents()
 
     /// The inputs a window's key facts were built from (``keyFactsStamp(in:controller:)``).
     typealias FactsStamp = KeyFactsStamp<FocusState, TopPageRoute>
@@ -228,6 +232,7 @@ final class KeyRouter: BrowserKeyRouting {
         }
         if newTabInputCoordinator.capture(event, in: window) { return true }
         if creationInputCoordinator.capture(event, in: window) { return true }
+        if modes.contains(.launchPicture), launchPictureKeys.holdsUndecided(event, in: window, router: self) { return true }
         // Set again only when this key runs an action (debug.key reports it).
         lastInterception = nil
         if cancelsMissedModal(event, in: window) { return true }
@@ -264,13 +269,21 @@ final class KeyRouter: BrowserKeyRouting {
         if routesFocusModeEscape(event, in: window) { return true }
         let isChord = Self.isChord(event.modifierFlags)
         if isChord { dropTypeAhead() }
-        guard chords.isPending || isChord else { return typesIntoFocusedView(event, in: window) }
+        guard chords.isPending || isChord else {
+            return typesIntoFocusedView(event, in: window) || holdsForLaunchPicture(event, in: window)
+        }
         let (controller, kind) = focus(for: window)
         guard let controller, let window, kind == .content else {
             cancelChord()
             return false
         }
         return dispatch(event, in: window, controller: controller, facts: facts(in: window, controller: controller))
+            || holdsForLaunchPicture(event, in: window)
+    }
+
+    /// A key the dispatcher handed to the focused view waits for its terminal while that is still a launch picture.
+    private func holdsForLaunchPicture(_ event: NSEvent, in window: NSWindow?) -> Bool {
+        modes.contains(.launchPicture) && launchPictureKeys.holdsForTerminal(event, in: window, router: self)
     }
 
     /// Steps 1-5 for a key-down in `window`, a cmux window or a Chromium
@@ -382,6 +395,8 @@ final class KeyRouter: BrowserKeyRouting {
     lazy var newTabInputCoordinator = NewTabInputCoordinator(router: self)
     /// A pending split or terminal tab owns its window's keys until the new terminal has the keyboard (cx-wb5.76).
     lazy var creationInputCoordinator = CreationInputCoordinator(router: self)
+    /// Keys typed while a window shows its launch picture wait for the window or its terminal (p08-startup-061).
+    lazy var launchPictureKeys = LaunchPictureKeys.routed(by: self)
     /// Browser focus mode's double-Escape exit (``routesFocusModeEscape(_:in:)``).
     var focusModeEscape = BrowserFocusModeEscapeExit() { didSet { modes.set(.focusModeEscape, focusModeEscape.armedTab != nil) } }
 
@@ -409,15 +424,6 @@ final class KeyRouter: BrowserKeyRouting {
     /// The key-down a page has first, with the action to run if it reports the key unhandled.
     var pageFirstOffer = PageFirstKeyOffer()
 
-    /// Whether a chord, the Cmd-J leader included, may arm in `focus`:
-    /// where content shortcuts run (a terminal, a page, an agent chat, the
-    /// sidebar list), never in a text field, DevTools or browser focus mode,
-    /// whose own Cmd-J stays theirs, and never while an input method is
-    /// composing (marked text), so IME input is never cut short.
-    nonisolated static func canArm(focus: FocusState, hasMarkedText: Bool) -> Bool {
-        !hasMarkedText && allows(.content, focus: focus)
-    }
-
     /// Ends a waiting chord and hides the leader's overlay (a click, a
     /// window closing, the app resigning active).
     func cancelChord() {
@@ -432,12 +438,13 @@ final class KeyRouter: BrowserKeyRouting {
         typeAheadFocusDidSettle(focus.resolved)
         newTabInputCoordinator.flush(in: window)
         creationInputCoordinator.focusDidSettle(in: window)
+        if modes.contains(.launchPicture) { launchPictureKeys.retry() }
         guard chords.isPending, let window, chords.focusDidChange(to: focus.resolved, in: ObjectIdentifier(window)) else { return }
         whichKey?.hide()
     }
 
     /// A chord key in a cmux window: whether it was consumed, or nil to
-    /// route it as usual. Only ``canArm(focus:hasMarkedText:)`` arms a
+    /// route it as usual. Only ``ChordTracker/canArm(focus:hasMarkedText:)`` arms a
     /// chord, so the chord's action runs whatever its tier.
     private func routeChord(_ event: NSEvent, in window: NSWindow, controller: WindowController, context: KeyContext,
                             facts: Facts) -> Bool? {
@@ -449,7 +456,7 @@ final class KeyRouter: BrowserKeyRouting {
         // page window is a child of the shell.
         let step = chords.step(event, window: ObjectIdentifier(controller.window ?? window), focus: focus.resolved, table: table,
                                context: context, isRunnable: runnable,
-                               canArm: { Self.canArm(focus: focus, hasMarkedText: facts.hasMarkedText) })
+                               canArm: { ChordTracker.canArm(focus: focus, hasMarkedText: facts.hasMarkedText) })
         if let keys = chords.armedKeys, let shell = controller.window {
             let rows = WhichKeyListing.rows(after: keys, table: table, context: context, isRunnable: runnable, registry: registry)
             whichKey?.show(after: keys, rows: rows, in: shell)
@@ -464,7 +471,7 @@ final class KeyRouter: BrowserKeyRouting {
         case .dismissed:
             // A window or navigation shortcut after the leader runs as itself (Cmd-W closes the tab); a stray key
             // and Escape are consumed, as before.
-            return Self.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) ? nil : true
+            return ChordTracker.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) ? nil : true
         case .run(let id, let argument, let arguments):
             lastInterception = (id, controller.state.id, true)
             let ran = RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: id, argument: argument, arguments: arguments), keyContext: bits)
@@ -473,17 +480,9 @@ final class KeyRouter: BrowserKeyRouting {
         case .mismatch:
             // A window or navigation shortcut after a prefix it does not complete runs as itself: Cmd-W after an
             // armed chord prefix went to the page (or terminal) instead of closing the tab.
-            if Self.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) { return nil }
+            if ChordTracker.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) { return nil }
             if !Self.isChord(event.modifierFlags) { onTyping?(window) }
             return false
         }
-    }
-
-    /// Whether a key that ended an armed chord without completing it is decided as a shortcut of its own (nil from
-    /// ``routeChord``): a Command or Control chord bound to a system or navigation action, other than the leader
-    /// prefix itself (a second Cmd-J still dismisses the leader). Content shortcuts and typing keep going to the view.
-    static func decidesAfterChord(_ event: NSEvent, resolved: (id: ActionID, argument: String?, tier: ActionKeyTier)?) -> Bool {
-        guard isChord(event.modifierFlags), let resolved, resolved.tier != .content else { return false }
-        return !ActionRegistry.shortcuts(for: event).contains(LeaderLayer.prefix)
     }
 }

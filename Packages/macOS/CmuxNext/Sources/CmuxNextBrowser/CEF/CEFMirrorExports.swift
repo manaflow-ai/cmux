@@ -24,8 +24,16 @@ nonisolated enum CEFMirrorExports {
 
     /// The function for a mirror export or `cmux_shim_free`; nil for every other export.
     static func function(named name: String) -> UnsafeMutableRawPointer? {
-        if name == "cmux_shim_free" { return address({ CEFMirrorExports.free($0) } as Free) }
-        guard let field = CEFMirrorField.allCases.first(where: { $0.export == name }) else { return nil }
+        // SAFETY: a nonzero address is a C function of the export's type (`functionAddress`), which
+        // `CEFShimLibrary.Resolver` casts back to that type.
+        unsafe UnsafeMutableRawPointer(bitPattern: functionAddress(named: name))
+    }
+
+    // SAFETY (every `unsafe` below): each closure is the C function of its export's type (the `as` cast), and
+    // it hands its pointer arguments and results to the C caller as the ABI says (see each function).
+    private static func functionAddress(named name: String) -> UInt {
+        if name == "cmux_shim_free" { return unsafe address({ unsafe CEFMirrorExports.free($0) } as Free) }
+        guard let field = CEFMirrorField.allCases.first(where: { $0.export == name }) else { return 0 }
         return switch field {
         case .forkAPIVersion: address({ CEFMirrorExports.int(CEFMirrorKey(.forkAPIVersion)) } as HostRead)
         case .placeholderSupported: address({ CEFMirrorExports.int(CEFMirrorKey(.placeholderSupported)) } as HostRead)
@@ -37,24 +45,29 @@ nonisolated enum CEFMirrorExports {
         case .passwordReplaceAvailable: address({ CEFMirrorExports.int(CEFMirrorKey(.passwordReplaceAvailable)) } as HostRead)
         case .passkeysAvailable: address({ CEFMirrorExports.int(CEFMirrorKey(.passkeysAvailable)) } as HostRead)
         case .passwordCoreAvailable: address({ CEFMirrorExports.int(CEFMirrorKey(.passwordCoreAvailable)) } as HostRead)
+        case .extLoadLaterSupported: address({ CEFMirrorExports.int(CEFMirrorKey(.extLoadLaterSupported)) } as HostRead)
         case .windowID: address({ CEFMirrorExports.int(CEFMirrorKey(.windowID, id: $0)) } as TabRead)
         case .devToolsBrowser: address({ CEFMirrorExports.int(CEFMirrorKey(.devToolsBrowser, id: $0)) } as TabRead)
-        case .navigationEntries: address({ CEFMirrorExports.string(CEFMirrorKey(.navigationEntries, id: $0)) } as TabString)
-        case .navigationState: address({ CEFMirrorExports.string(CEFMirrorKey(.navigationState, id: $0)) } as TabString)
-        case .extActions: address({ CEFMirrorExports.string(CEFMirrorKey(.extActions, id: $0, iconPixels: $1)) } as ActionsString)
-        case .extList: address({ CEFMirrorExports.string(CEFMirrorKey(.extList, id: $0)) } as TabString)
-        case .extCommands: address({ CEFMirrorExports.string(CEFMirrorKey(.extCommands, id: $0)) } as TabString)
-        case .sidePanelState: address({ CEFMirrorExports.string(CEFMirrorKey(.sidePanelState, id: $0)) } as TabString)
-        case .omniboxKeywords: address({ CEFMirrorExports.string(CEFMirrorKey(.omniboxKeywords, id: $0)) } as TabString)
+        case .navigationEntries: unsafe address({ unsafe CEFMirrorExports.string(CEFMirrorKey(.navigationEntries, id: $0)) } as TabString)
+        case .navigationState: unsafe address({ unsafe CEFMirrorExports.string(CEFMirrorKey(.navigationState, id: $0)) } as TabString)
+        case .extActions:
+            unsafe address({ unsafe CEFMirrorExports.string(CEFMirrorKey(.extActions, id: $0, iconPixels: $1)) } as ActionsString)
+        case .extList: unsafe address({ unsafe CEFMirrorExports.string(CEFMirrorKey(.extList, id: $0)) } as TabString)
+        case .extCommands: unsafe address({ unsafe CEFMirrorExports.string(CEFMirrorKey(.extCommands, id: $0)) } as TabString)
+        case .sidePanelState: unsafe address({ unsafe CEFMirrorExports.string(CEFMirrorKey(.sidePanelState, id: $0)) } as TabString)
+        case .omniboxKeywords: unsafe address({ unsafe CEFMirrorExports.string(CEFMirrorKey(.omniboxKeywords, id: $0)) } as TabString)
         case .popupWindowBounds:
-            address({ CEFMirrorExports.bounds(CEFMirrorKey(.popupWindowBounds, id: $0), $1, $2, $3, $4) } as BoundsRead)
+            unsafe address({ unsafe CEFMirrorExports.bounds(CEFMirrorKey(.popupWindowBounds, id: $0), $1, $2, $3, $4) } as BoundsRead)
         case .devToolsInspectedBounds:
-            address({ CEFMirrorExports.bounds(CEFMirrorKey(.devToolsInspectedBounds, id: $0), $1, $2, $3, $4) } as BoundsRead)
+            unsafe address({ unsafe CEFMirrorExports.bounds(CEFMirrorKey(.devToolsInspectedBounds, id: $0), $1, $2, $3, $4) } as BoundsRead)
         }
     }
 
-    private static func address<Function>(_ function: Function) -> UnsafeMutableRawPointer {
-        unsafeBitCast(function, to: UnsafeMutableRawPointer.self)
+    /// A C function's address, which `CEFShimLibrary.Resolver` casts back to the same C type.
+    private static func address<Function>(_ function: Function) -> UInt {
+        // SAFETY: every caller passes a `@convention(c)` function of the export's C type (the `as` casts in
+        // `functionAddress(named:)`), which is pointer-sized; only its address is taken.
+        unsafe unsafeBitCast(function, to: UInt.self)
     }
 
     private static func int(_ key: CEFMirrorKey) -> Int32 {
@@ -67,9 +80,11 @@ nonisolated enum CEFMirrorExports {
     private static func string(_ key: CEFMirrorKey) -> UnsafeMutablePointer<CChar>? {
         guard Thread.isMainThread else { return offMain(key.field.export, nil) }
         let address = MainActor.assumeIsolated { () -> UInt in // main-proof: guarded by Thread.isMainThread above
-            served?.handOutString(key).map { UInt(bitPattern: $0) } ?? 0
+            // SAFETY: only the copy's address crosses out of the main-actor closure; the C caller owns the copy.
+            unsafe served?.handOutString(key).map { unsafe UInt(bitPattern: $0) } ?? 0
         }
-        return UnsafeMutablePointer(bitPattern: address)
+        // SAFETY: the address of the copy handOutString made (or 0, NULL), handed to the C caller as is.
+        return unsafe UnsafeMutablePointer(bitPattern: address)
     }
 
     private static func bounds(
@@ -80,20 +95,26 @@ nonisolated enum CEFMirrorExports {
         let bounds = MainActor.assumeIsolated { () -> CEFMirrorValue.Bounds in // main-proof: guarded by Thread.isMainThread above
             if case .bounds(let bounds)? = served?.value(key) { bounds } else { CEFMirrorValue.Bounds() }
         }
-        x?.pointee = bounds.x
-        y?.pointee = bounds.y
-        width?.pointee = bounds.width
-        height?.pointee = bounds.height
+        // SAFETY: each non-NULL out-parameter is the caller's Int32, writable during this call (the C ABI).
+        unsafe x?.pointee = bounds.x
+        // SAFETY: as for x.
+        unsafe y?.pointee = bounds.y
+        // SAFETY: as for x.
+        unsafe width?.pointee = bounds.width
+        // SAFETY: as for x.
+        unsafe height?.pointee = bounds.height
         return bounds.result
     }
 
     /// Off the main thread nothing can tell whose string it is, so it stays allocated.
     private static func free(_ pointer: UnsafeMutablePointer<CChar>?) {
-        guard let pointer else { return }
+        // SAFETY: only the address is read here; the main-actor closure turns it back for the cache's free.
+        let address = unsafe UInt(bitPattern: pointer)
+        guard address != 0 else { return }
         guard Thread.isMainThread else { return offMain("cmux_shim_free", ()) }
-        let address = UInt(bitPattern: pointer)
         MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
-            if let pointer = UnsafeMutablePointer<CChar>(bitPattern: address) { served?.free(pointer) }
+            // SAFETY: the string the C caller frees, once (CEFMirrorCache.free).
+            if let pointer = unsafe UnsafeMutablePointer<CChar>(bitPattern: address) { unsafe served?.free(pointer) }
         }
     }
 

@@ -48,7 +48,51 @@ impl ReaderCompletion {
     }
 }
 
+/// Where a terminal's output is read. Either way `reader_completion` marks
+/// its end.
+pub(super) enum TerminalReader {
+    /// A thread of its own: a hosted terminal's host reader, a holder or
+    /// byte-backend terminal's reader. Shutdown joins it.
+    Thread(std::thread::JoinHandle<()>),
+    /// A source on the owner's read loop (`mux::TerminalReads`): a
+    /// daemon-local PTY. Nothing to join.
+    #[cfg(unix)]
+    Looped,
+}
+
 pub(super) struct ReaderCompletionGuard(pub(super) Arc<ReaderCompletion>);
+
+thread_local! {
+    /// The `reaper_completion` of the terminal whose end this thread records
+    /// and publishes now (0: none).
+    static ENDING_TERMINAL: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Marks this thread as the one publishing a terminal's end until dropped.
+/// The publish may tear the terminal down, and teardown waits for the
+/// terminal's reaper completion, which is marked only after the publish:
+/// teardown on this thread skips that wait instead of waiting for itself.
+pub(super) struct EndingTerminal {
+    previous: usize,
+}
+
+impl EndingTerminal {
+    pub(super) fn enter(completion: &Arc<ReaderCompletion>) -> Self {
+        let marked = Arc::as_ptr(completion) as usize;
+        Self { previous: ENDING_TERMINAL.with(|ending| ending.replace(marked)) }
+    }
+
+    /// Whether this thread publishes the end whose reaper is `completion`.
+    pub(super) fn is_current(completion: &Arc<ReaderCompletion>) -> bool {
+        ENDING_TERMINAL.with(|ending| ending.get() == Arc::as_ptr(completion) as usize)
+    }
+}
+
+impl Drop for EndingTerminal {
+    fn drop(&mut self) {
+        ENDING_TERMINAL.with(|ending| ending.set(self.previous));
+    }
+}
 
 impl Drop for ReaderCompletionGuard {
     fn drop(&mut self) {
@@ -210,11 +254,11 @@ pub struct PtyTerminalRuntime {
     /// Owned reader join fence. Shutdown gives this reader a bounded drain
     /// interval, then closes journal capture before it inserts the final
     /// journal barrier.
-    pub(super) reader_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    pub(super) reader_thread: Mutex<Option<TerminalReader>>,
     pub(super) reader_completion: Arc<ReaderCompletion>,
-    /// Owned child-reaper join fence. Shutdown uses the same bounded deadline
+    /// Owned child-reaper fence. Shutdown uses the same bounded deadline
     /// as the reader so the child wait cannot outlive terminal teardown.
-    pub(super) reaper_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    pub(super) reaper_thread: Mutex<Option<LocalReaper>>,
     pub(super) reaper_completion: Arc<ReaderCompletion>,
     /// Hot or compressed; every lock restores it first (cold_terminal.rs).
     pub(super) term: TerminalCell,
@@ -291,7 +335,7 @@ pub struct PtyTerminalRuntime {
     /// terminal lock, and [`Surface::attach_stream`] registers taps under
     /// the same lock, so a subscriber sees exactly the bytes applied
     /// after its replay snapshot — no gap, no duplication.
-    pub(super) taps: RankedMutex<Vec<AttachTap>>,
+    pub(super) taps: RankedMutex<AttachTaps>,
     /// A PTY color mutation awaiting bounded attach-stream fan-out.
     pub(super) attach_colors_pending: AtomicBool,
     /// A reset or cursor-semantic transition requires reapplying equal state:
@@ -342,6 +386,17 @@ pub(super) enum PtyRuntime {
     ExitedHosted,
 }
 
+/// What reports the end of a local terminal's far side; `reaper_completion`
+/// says when it has.
+pub(super) enum LocalReaper {
+    /// A thread blocked until the far side ended (a holder terminal, a byte
+    /// backend, a Windows child).
+    Thread(std::thread::JoinHandle<()>),
+    /// The mux's reaper waits for the child (`cmux_threads::reaper`).
+    #[cfg(unix)]
+    Watched,
+}
+
 /// Owns a freshly spawned PTY child until the child reaper has taken over.
 ///
 /// `portable_pty::Child` does not stop or reap a process when its handle is
@@ -349,7 +404,7 @@ pub(super) enum PtyRuntime {
 /// guard keeps every error path terminating and reaping the child. The guard
 /// moves into the reaper closure; if thread creation fails, dropping that
 /// closure runs this cleanup instead.
-pub(super) struct PtyChildStartupGuard {
+pub(crate) struct PtyChildStartupGuard {
     child: Box<dyn cmux_pty::Child + Send + Sync>,
     reaped: bool,
 }
@@ -367,10 +422,30 @@ impl PtyChildStartupGuard {
         self.child.clone_killer()
     }
 
+    #[cfg(not(unix))]
     pub(super) fn wait_for_exit(&mut self) -> TerminalExit {
-        let (exit, reaped) = wait_for_native_child_status_with_reap_result(self.child.as_mut());
+        let (exit, reaped) =
+            crate::terminal_host_protocol::wait_for_native_child_status_with_reap_result(
+                self.child.as_mut(),
+            );
         self.reaped = reaped;
         exit
+    }
+
+    /// The end from the status the mux's reaper took. A failed reap leaves
+    /// the child to this guard's kill and wait.
+    #[cfg(unix)]
+    pub(super) fn reaped(
+        &mut self,
+        status: std::io::Result<std::process::ExitStatus>,
+    ) -> TerminalExit {
+        match status {
+            Ok(status) => {
+                self.reaped = true;
+                TerminalExit::from_exit_status(&status)
+            }
+            Err(error) => TerminalExit::unknown(format!("wait failed: {error}")),
+        }
     }
 }
 

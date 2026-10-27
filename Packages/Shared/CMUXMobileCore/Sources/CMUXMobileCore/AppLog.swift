@@ -217,7 +217,7 @@ public actor AppLog {
     /// base/synchronization/lock.h with `GUARDED_BY` state).
     final class Acknowledgement: Sendable {
         private struct State {
-            var continuation: CheckedContinuation<Bool, Never>?
+            var continuation: OnceContinuation<Bool, OnceContinuationError>?
             var result: Bool?
         }
 
@@ -235,7 +235,9 @@ public actor AppLog {
                 }
             }
             let result = await withTaskCancellationHandler(operation: {
-                await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                // The state holds the continuation until resolve(), so it is never abandoned; false (as a
+                // timeout answers) if it ever were.
+                (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
                     let resolved = state.withLock { state -> Bool? in
                         if let result = state.result { return result }
                         state.continuation = continuation
@@ -244,7 +246,7 @@ public actor AppLog {
                     if let resolved {
                         continuation.resume(returning: resolved)
                     }
-                }
+                }) ?? false
             }, onCancel: {
                 resolve(false)
             })
@@ -257,7 +259,7 @@ public actor AppLog {
         }
 
         private func resolve(_ result: Bool) {
-            let continuation = state.withLock { state -> CheckedContinuation<Bool, Never>? in
+            let continuation = state.withLock { state -> OnceContinuation<Bool, OnceContinuationError>? in
                 guard state.result == nil else { return nil }
                 state.result = result
                 let continuation = state.continuation
@@ -1019,7 +1021,7 @@ public actor AppLog {
     /// `Mutex`, so it is plainly `Sendable`.
     private final class ExportCompletion: Sendable {
         private struct State {
-            var continuation: CheckedContinuation<URL?, Never>?
+            var continuation: OnceContinuation<URL?, OnceContinuationError>?
             var result: URL??
         }
 
@@ -1028,7 +1030,8 @@ public actor AppLog {
         private let state = Mutex(State())
 
         func wait() async -> URL? {
-            await withCheckedContinuation { continuation in
+            // An abandoned wait answers nil, as a failed export does.
+            try? await withOnceContinuation { (continuation: OnceContinuation<URL?, OnceContinuationError>) in
                 let resolved = state.withLock { state -> URL?? in
                     if let result = state.result { return .some(result) }
                     state.continuation = continuation
@@ -1042,7 +1045,7 @@ public actor AppLog {
 
         func resolve(_ result: URL?) {
             let (isFirst, continuation) = state.withLock {
-                state -> (Bool, CheckedContinuation<URL?, Never>?) in
+                state -> (Bool, OnceContinuation<URL?, OnceContinuationError>?) in
                 guard state.result == nil else { return (false, nil) }
                 state.result = .some(result)
                 let continuation = state.continuation

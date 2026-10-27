@@ -12,6 +12,7 @@ import CmuxNextFeatures
 import CmuxNextInput
 import CmuxNextInputDiagnostics
 import CmuxNextLaunch
+import CmuxNextMetrics
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -19,6 +20,9 @@ import CmuxNextTerminal
 import CmuxNextTrace
 import CmuxNextWakeups
 import os
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The App's control-socket wiring (architecture.md 5a): the main-thread
 /// watchdog (from launch), the socket server with a display-link frame
@@ -35,6 +39,8 @@ final class AppControl {
     /// the probes' methods are in AppControl+DebugProbes.swift).
     let frameProbe: DebugFrameProbe
     let damageWindow: RenderDamageWindow
+    /// The app's one RenderStats; terminal renderers count their presented frames in it (AppDelegate).
+    let renderStats: RenderStats
     let mainCPUProbe = DebugMainCPUProbe()
     let terminalDisplayProbe: DebugTerminalDisplayProbe
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
@@ -60,6 +66,8 @@ final class AppControl {
 
     private let input: any InputObserving  // the app's input tap: input explains CPU use to the busy watchdog
     private var inputSubscription: InputSubscription?
+    /// `idle.wakeups.*` (`AppServices.idleWakeups`): the same input ends its idle period at that input.
+    weak var idleWakeups: IdleWakeupSampler?
 
     /// - Parameter mainWork: The app's one main-thread scheduler: control requests are its
     ///   automation tasks, and the watchdog reads its board. `input` is the app's input tap.
@@ -67,6 +75,7 @@ final class AppControl {
         (self.mainWork, self.input) = (mainWork, input)
         frames = FrameBatcher(owner: "Control.frames", budgeted: .automation, on: mainWork)
         let renderStats = RenderStats(layoutGuard: .shared)
+        self.renderStats = renderStats
         let terminalDisplay = DebugTerminalDisplayProbe()
         terminalDisplayProbe = terminalDisplay
         frameProbe = DebugFrameProbe(render: RenderFrameLog(stats: renderStats))
@@ -77,19 +86,23 @@ final class AppControl {
     /// Starts stall and busy detection. Call first thing at launch.
     func startWatchdog() {
         watchdog.start()
-        // Hang-watch scopes are scanned on the watchdog's thread (overruns: debug.hangs thread_hangs, crash keys).
-        watchdog.attach(hangWatch: TraceRuntime.shared.hangWatch, crashKeys: crashKeys)
+        // Hang-watch scopes are scanned on the watchdog's thread (overruns: debug.hangs thread_hangs, crash keys, ring).
+        watchdog.attach(hangWatch: TraceRuntime.shared.hangWatch, crashKeys: crashKeys, trace: TraceRuntime.shared)
         // Stall records name the scheduled main-thread task they caught; a launch in the task
         // diagnostics mode also records tasks past their class budget, with a stack (debug.hangs
         // over_budget). It perturbs what it measures, so it is off unless asked for.
         watchdog.attach(board: mainWork.budget.board, recordTaskBudgets: recordsTaskBudgets)
         watchdog.busy.setHelperSource { AppProcesses.chromiumHelpers() }
-        // Input explains CPU use to the busy watchdog (one atomic add per event).
-        inputSubscription = input.observe(types: Self.activityInput) { _ in ExpectedActivity.shared.note(.input) }
+        // Input explains CPU use to the busy watchdog (one atomic add per event) and, while the app is inactive,
+        // ends an idle-wakeups period at that input.
+        inputSubscription = input.observe(types: Self.activityInput) { [weak self] _ in
+            ExpectedActivity.shared.note(.input)
+            self?.idleWakeups?.inputArrived()
+        }
     }
 
-    /// The input that explains CPU use to the busy watchdog: key-downs, mouse-downs, left and right
-    /// drags, scrolls, moves and the magnify and swipe gestures (the old local monitor's mask).
+    /// The input that explains CPU use to the busy watchdog and ends an idle period: key-downs, mouse-downs,
+    /// left and right drags, scrolls, moves and the magnify and swipe gestures (the old local monitor's mask).
     static let activityInput: InputEventTypes = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseDragged,
                                                  .rightMouseDragged, .scrollWheel, .mouseMoved, .magnify, .swipe]
 
@@ -98,12 +111,13 @@ final class AppControl {
     /// (below), registered before the service serves (p08-startup-019).
     func start(registry: ActionRegistry, settings: SettingsController, launch: LaunchIdentity, services: AppServices) throws {
         let service = try ControlService.prepare(registry: registry, settings: settings, launch: launch,
-                                                 frameSource: frames, watchdog: watchdog, mainWork: mainWork)
+                                                 frameSource: frames, watchdog: watchdog, mainWork: mainWork,
+                                                 hangs: TraceRuntime.shared.hangWatch)
         self.service = service
         AppMemoryConsumers(services: services).registerControlCaches(service)
         actionBudget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                             overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,
-                                            logsRuns: ControlService.isDebugBuild, work: services.work)
+                                            logsRuns: ControlService.isDebugBuild, work: services.work, mainWork: mainWork)
         services.restartControlListener = { [weak service] in try service?.restartListener() }
         // A busy renderer's record names the Chromium tabs it serves (p14-energy-124), from the snapshot
         // the cache publishes: the watchdog reads it off the main thread.
@@ -120,7 +134,7 @@ final class AppControl {
         router.register(ErrorJournalControl(journal: errors.journal, sources: errors.sources).methods)
     }
 
-    /// Resources, extensions, Ghostty diagnostics, `features.list`, `energy.status` and `debug.memory` (release builds too).
+    /// Resources, extensions, Ghostty diagnostics, `features.list`, `energy.status`, `metrics.snapshot` and `debug.memory` (release builds too).
     func registerResourceMethods(_ services: AppServices, on router: ControlRouter) {
         router.register([
             // CPU and memory per tab and workspace, two samples `interval_ms` apart.
@@ -135,9 +149,12 @@ final class AppControl {
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
             // Every feature's value and source (`cmux settings feature-flags`), read-only.
-            FeatureFlagsPage.report(services.features, tunables: TunableStore.shared).method,
+            FeatureFlagsPage.report(services.features, tunables: TunableStore.shared,
+                                    daemon: services.environment.daemonFeatureHello).method,
             // Energy Saver's policy and inputs (`cmux energy status`, MCP `energy_status`).
             EnergyReport.statusMethod(services: services),
+            // The field histograms since launch (`cmux metrics`), read-only; `unavailable` until the metricsView feature is on.
+            ControlRouter.metricsMethod(enabled: services.features.isEnabled(.metricsView)),
         ])
         router.register(DebugHibernationControl.methods(services)) // debug.memory serves release builds too
     }
@@ -158,13 +175,19 @@ final class AppControl {
         if let wireStats = services.wireStats { router.register([DaemonWireControl(stats: wireStats).method]) }
         router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap), DebugCEF.pumpInputSource(services.cache.chromium),
                                                IntentPrewarmDebugSource { [weak services] in services?.cache.hibernation?.intentPrewarm?.service },
+                                               MainJobGateDebugSource { (NSApp as? CmuxApplication)?.jobGate?.gate },
                                                ScrollViewAuditSource { [mainWork = services.mainWork] in
-                                                   await withCheckedContinuation { continuation in
+                                                   // A job the scheduler dropped audits nothing.
+                                                   (try? await withOnceContinuation { (continuation: OnceContinuation<DebugInputScrollViews, OnceContinuationError>) in
                                                        mainWork.postFromAnyThread(.automation, owner: "debug.input.scroll_views") {
                                                            continuation.resume(returning: DebugInputScrollViews(auditing: NSApp.windows))
                                                        }
-                                                   }
-                                               }], recorders: [hops.start(input: input)]).method])
+                                                   }) ?? DebugInputScrollViews(rows: [])
+                                               }],
+                                     recorders: [hops.start(input: input),
+                                                 InputDirtyRecorder(tap: services.inputTap) { [mainWork = services.mainWork] copy in
+                                                     await mainWork.apply(.automation, owner: "debug.input.dirty") { copy() }
+                                                 }]).method])
         router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugDrainCostMethod])
     }
     #endif
@@ -285,7 +308,9 @@ extension AppControl {
         let chromiumHost = ChromiumHostPrototype(makeConfiguration: { ChromiumHostPrototype.bundledConfiguration() },
                                                  isOn: { hostSwitch.isEnabled }, mainWork: services.mainWork,
                                                  deadlines: services.mainDeadlines,
-                                                 idleExitAfter: chromiumHostIdleExit(in: services.features))
+                                                 idleExitAfter: chromiumHostIdleExit(in: services.features),
+                                                 inputPresented: { [weak services] in _ = services?.inputLatency.tracker.hostPresented(eventNanos: $0, at: $1) },
+                                                 reportsInputPresented: { [weak services] in services?.inputLatency.tracker.pagesReportPresentation = $0 })
         router.register([
             .mainActor("debug.chromium_host") { [weak services] call in
                 let controller = services?.windows.controllers.first

@@ -55,7 +55,7 @@ open class PopupRowView: NSView {
         didSet {
             titleLabel.ink = isEnabled ? .primary : .tertiary
             (leadingView as? ThemedLabel)?.ink = isEnabled ? .primary : .tertiary
-            needsDisplay = true
+            if isEnabled != oldValue { needsDisplay = true }
         }
     }
     /// The row takes the keys (Tab, arrows) and draws the focus ring when it has them.
@@ -183,7 +183,7 @@ open class PopupRowView: NSView {
 
     open override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
+        needsDisplay = true // invalidate: the appearance changed; the colors resolve again.
     }
 
     // MARK: Pointer

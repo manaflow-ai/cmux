@@ -48,7 +48,7 @@ public final class ShortcutHintChipView: NSView {
         set {
             guard newValue != label.stringValue else { return }
             label.stringValue = newValue
-            needsLayout = true
+            needsLayout = true // invalidate: new text (the guard above); the label sits at its text's height.
         }
     }
 
@@ -60,28 +60,32 @@ public final class ShortcutHintChipView: NSView {
     }
 
     public override func setFrameSize(_ newSize: NSSize) {
+        let oldSize = frame.size
         super.setFrameSize(newSize)
-        needsLayout = true
+        if newSize != oldSize { needsLayout = true }
     }
 
+    // visibility-walk-allow: one invalidation; AppKit lays out only views on screen, so a hidden chip pays nothing
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        needsLayout = true
+        needsLayout = true // invalidate: the appearance changed; `layout()` sets the colors.
     }
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        guard window != nil else { return }
+        // invalidate: another window can bring another theme scope and scale (`layout()` reads both).
         needsLayout = true
     }
 
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        needsLayout = true
+        needsLayout = true // invalidate: the scale changed; the opaque hairline is one device pixel.
     }
 
     /// Re-reads the material (Reduce Transparency) and the theme; the
     /// overlay calls it each time the hints show.
-    public func refresh() { needsLayout = true }
+    public func refresh() { needsLayout = true } // invalidate: the hints show; material and theme are read again.
 
     /// The material this chip draws now.
     public var material: OverlayMaterial {

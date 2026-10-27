@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCompat
 import Foundation
 
 /// Where `cmux window|pane|tab screenshot` puts the PNG: its `out` argument.
@@ -41,7 +42,6 @@ enum ScreenshotOutput: Equatable {
     }
 
     private static func isDirectory(_ path: String) -> Bool {
-        var directory: ObjCBool = false
-        return FileManager.default.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
+        FileManager.default.directoryExists(atPath: path)
     }
 }

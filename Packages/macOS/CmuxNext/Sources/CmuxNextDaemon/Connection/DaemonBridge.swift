@@ -2,6 +2,8 @@ public import Foundation
 import Darwin
 import CmuxNextCompat
 import CmuxNextTrace
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// A daemon connection through a child process instead of a socket
 /// (plans/cmux-next/server-reach.md 7 step 1): the app's own bundled `cmux`
@@ -54,19 +56,19 @@ public struct DaemonBridge: Hashable, Sendable {
     func open() async throws(DaemonError) -> Opened {
         let (bridge, launcher, dial) = (self, queues.launcher, queues.dial)
         let spawned = try await launcher.run { () throws(DaemonError) -> Spawned in try bridge.spawn(priority: launcher.priority) }
-        let dialed = await withCheckedContinuation { (continuation: CheckedContinuation<Result<Opened, DaemonError>, Never>) in
+        let dropped = DaemonError.launchFailed("the bridge's dial line was never read")
+        return try await withOnceContinuation(failingWith: { _ in dropped }) { (continuation: OnceContinuation<Opened, DaemonError>) in
             dial.async {
                 do throws(DaemonError) {
                     try DaemonBridge.check(try Self.readLine(spawned.stderr))
-                    continuation.resume(returning: .success(spawned.opened))
+                    continuation.resume(returning: spawned.opened)
                 } catch {
                     spawned.opened.child.terminate()
                     Darwin.close(spawned.opened.fd)
-                    continuation.resume(returning: .failure(error))
+                    continuation.resume(throwing: error)
                 }
             }
         }
-        return try dialed.get()
     }
 
     /// ``open()``'s spawn, on the launcher.
@@ -108,6 +110,8 @@ public struct DaemonBridge: Hashable, Sendable {
         let argv = unsafe words.map { unsafe strdup($0) } + [nil]
         defer { unsafe argv.forEach { unsafe free($0) } }
         var pid: pid_t = 0
+        // The child starts at QOS_CLASS_DEFAULT (no spawn attribute sets a class above utility); `cmux link dial`
+        // puts its own threads at user-initiated (cmux-tui link/dial_cli.rs, BRIDGE_QOS).
         // SAFETY: `pid`, `actions` and `attributes` are locals live for the call; argv is the nil-terminated array
         // of live copies above; environ is the process's own nil-terminated environment, which nothing here changes.
         let spawned = unsafe blockingPosixSpawn(&pid, executable, &actions, &attributes, argv, environ, priority: priority)
@@ -155,11 +159,15 @@ extension LineTransport {
     /// spawns the child and reads its dial line off the caller's thread.
     ///
     /// - Parameter stats: Where the connection counts (``DaemonEndpoint/wireStats``); nil for none.
-    /// - Parameter hangs: Watches each line's handling on the reader thread; nil watches nothing.
+    /// - Parameter hangs: Watches each line's handling on the reader thread and each drain step of the
+    ///   socket writer; nil watches nothing.
+    /// - Parameter writerTarget: The serial queue the socket writer drains on (``SocketWriter``), nil for its own.
     static func open(path: String, bridge: DaemonBridge?, role: DaemonWireStats.Role, stats: DaemonWireStats?,
-                     hangs: (any HangWatchScoping)? = nil, trace: TraceRuntime = .shared) async throws(DaemonError) -> LineTransport {
+                     hangs: (any HangWatchScoping)? = nil, writerTarget: DispatchQueue? = nil,
+                     trace: TraceRuntime = .shared) async throws(DaemonError) -> LineTransport {
         let opened = try await bridge?.open()
-        return try LineTransport(path: path, opened: opened, role: role, stats: stats, hangs: hangs, trace: trace)
+        return try LineTransport(path: path, opened: opened, role: role, stats: stats, hangs: hangs,
+                                 writerTarget: writerTarget, trace: trace)
     }
 }
 
