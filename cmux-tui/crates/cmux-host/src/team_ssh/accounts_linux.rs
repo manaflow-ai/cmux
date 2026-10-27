@@ -117,6 +117,8 @@ fn passwd(user: &str) -> io::Result<Option<(u32, u32, String)>> {
     }
     // SAFETY: `result` points at the initialized `pwd`, whose strings live in `buf`.
     let pwd = unsafe { pwd.assume_init() };
+    // SAFETY: pw_shell is a NUL-terminated string getpwnam_r stored in `buf`, which lives until
+    // the copy into `shell` is made.
     let shell = unsafe { CStr::from_ptr(pwd.pw_shell) }.to_string_lossy().into_owned();
     Ok(Some((pwd.pw_uid, pwd.pw_gid, shell)))
 }
@@ -137,9 +139,9 @@ fn group_members(group: &str) -> io::Result<Option<Vec<String>>> {
     if result.is_null() {
         return Ok(None);
     }
-    // SAFETY: `result` points at the initialized `grp`; gr_mem is a
-    // NULL-terminated array of strings in `buf`.
     let mut members = Vec::new();
+    // SAFETY: `result` is non-null, so getgrnam_r initialized `grp`; gr_mem is a
+    // NULL-terminated array of NUL-terminated strings in `buf`, which outlives the loop.
     unsafe {
         let mut p = grp.assume_init().gr_mem;
         while !p.is_null() && !(*p).is_null() {

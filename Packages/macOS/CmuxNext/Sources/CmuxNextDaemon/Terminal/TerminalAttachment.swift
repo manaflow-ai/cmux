@@ -5,9 +5,10 @@ import CmuxNextWakeups
 import os
 
 /// One attached terminal view: on a connection of its own, or as a client-minted stream on the app's control
-/// connection when that connection streams terminals (TerminalAttachment+Stream.swift, p05-ipc-095). Output
-/// flows through a bounded `TerminalEventQueue`; after the attach every command here is fire-and-forget, so a
-/// consumer that stops draining can never deadlock against a blocked reader.
+/// connection when that connection streams terminals (TerminalAttachment+Stream.swift, p05-ipc-095). Events
+/// flow through a bounded `TerminalEventQueue`; live output goes from the reader thread straight to the view's
+/// lane once one is set (``setOutputSink(_:)``, ``TerminalEchoRouter``). After the attach every command here is
+/// fire-and-forget, so a consumer that stops draining can never deadlock against a blocked reader.
 public actor TerminalAttachment: TerminalByteChannel {
     public struct Target: Sendable, Hashable {
         public var surface: SurfaceID
@@ -43,7 +44,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// The attached surface. For an `unplaced` target it is
     /// `unresolvedSurface` until the first `vt-state`, which the daemon
     /// sends before the attach reply, so every later command has it.
-    public nonisolated var surface: SurfaceID { delivery.resolvedSurface.value.withLock { $0 } }
+    public nonisolated var surface: SurfaceID { sink.resolvedSurface.value.withLock { $0 } }
 
     final class SurfaceBox: Sendable {
         let value: Mutex<SurfaceID>
@@ -55,8 +56,10 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// The view's stream on `transport`; nil when `transport` is the view's own connection.
     nonisolated let stream: AttachStreamHandle?
     /// Where the reader thread hands this view's lines (TerminalAttachment+Stream.swift).
-    nonisolated let delivery: Delivery
-    private nonisolated var queue: TerminalEventQueue { delivery.queue }
+    nonisolated let sink: ViewSink
+    private nonisolated var queue: TerminalEventQueue { sink.queue }
+    /// Snapshot order, and whether live output goes straight to the view's lane.
+    private nonisolated var router: TerminalEchoRouter { sink.router }
     nonisolated let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.attach")
 
     /// Written by the attach handshake, then read by every command. Guarded
@@ -84,7 +87,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         init(input: InputPath) { value = Mutex(Control(input: input)) }
     }
 
-    private nonisolated var control: ControlBox { delivery.control }
+    private nonisolated var control: ControlBox { sink.control }
 
     /// The host capability a snapshot attach needs: READY snapshots
     /// (`terminal-snapshot-v1`) followed by their scrollback as `history`
@@ -134,12 +137,20 @@ public actor TerminalAttachment: TerminalByteChannel {
         return attachment
     }
 
+    /// `stream`: the view's attach stream on `transport` (the shared control connection), whose queue drops
+    /// and resyncs instead of holding the shared reader (``Delivery/sharedStream(stream:)``); nil: `transport` is
+    /// the view's own connection.
     init(transport: LineTransport, surface: SurfaceID, stream: AttachStreamHandle? = nil) {
         self.transport = transport
         self.stream = stream
-        let queue = TerminalEventQueue(recorder: transport.recorder)
-        delivery = Delivery(queue: queue, control: ControlBox(input: stream == nil ? .lines : .opening),
-                            resolvedSurface: SurfaceBox(surface), decoder: transport.decoder)
+        let resolvedSurface = SurfaceBox(surface)
+        let delivery: Delivery = stream.map { .sharedStream(stream: $0.id) } ?? .ownConnection
+        let backpressure = Self.backpressure(for: delivery, transport: transport,
+                                             surface: { resolvedSurface.value.withLock { $0 } })
+        let queue = TerminalEventQueue(backpressure: backpressure, recorder: transport.recorder)
+        sink = ViewSink(queue: queue, router: TerminalEchoRouter(queue: queue),
+                        control: ControlBox(input: stream == nil ? .lines : .opening),
+                        resolvedSurface: resolvedSurface, decoder: transport.decoder)
         events = AsyncStream(unfolding: { await queue.next() }, onCancel: { queue.cancel() })
     }
 
@@ -149,9 +160,9 @@ public actor TerminalAttachment: TerminalByteChannel {
     private func open(target: Target, size: CellSize, claimGeometry: Bool, snapshotVersion: UInt16?,
                       localHistory: Bool, images: Bool, clientName: String,
                       device: TerminalSizingDevice?, createIntent: UInt64) async throws {
-        let delivery = delivery
-        transport.start(onEvent: { name, line, _ in delivery.deliver(name: name, line: line) },
-                        onClose: { delivery.close($0) })
+        let sink = sink
+        transport.start(onEvent: { name, line, _ in sink.deliver(name: name, line: line) },
+                        onClose: { sink.close($0) })
         // Both in one round trip; the attach below needs the identity.
         let replies = await transport.pipeline([
             PipelinedLine(IdentifyRequest()),
@@ -171,9 +182,8 @@ public actor TerminalAttachment: TerminalByteChannel {
                         claimGeometry: claimGeometry, target: target.surface, createIntent: createIntent)
     }
 
-    /// Takes the attach reply: the view's lease, participant and size state, then the geometry claim. On its own
-    /// connection the queue then holds the reader back while the view is behind; a stream never does that to
-    /// the shared reader (TerminalAttachment+Stream.swift).
+    /// Takes the attach reply: the view's lease, participant and size state, then the geometry claim, then arms
+    /// the queue's bound (TerminalAttachment+Stream.swift for a stream).
     func adopt(_ response: AttachSurfaceRequest.Response, size: CellSize, sharedSizing: Bool, claimGeometry: Bool,
                target: SurfaceID, createIntent: UInt64) async throws {
         NewTerminalTrace.shared.attachEvent(.attachReplied, surface: target.rawValue, intent: createIntent)
@@ -200,7 +210,9 @@ public actor TerminalAttachment: TerminalByteChannel {
             _ = try await DaemonConnection.perform(
                 SetClientSizingRequest(surface: self.surface, enabled: true, exclusive: true), on: transport)
         }
-        if stream == nil { queue.arm() }
+        // Armed, an own connection's queue holds the reader back while the view is behind; a stream's queue
+        // drops and resyncs instead (``TerminalEventQueue/Backpressure``), so it never holds the shared reader.
+        queue.arm()
         DaemonLaunchTimings.shared.mark("terminal.attach_end")
         NewTerminalTrace.shared.attachEvent(.attachEnd, surface: target.rawValue, intent: createIntent)
     }
@@ -231,6 +243,19 @@ public actor TerminalAttachment: TerminalByteChannel {
     public func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {
         sendResize(CellSize(cols: cols, rows: rows))
     }
+
+    // MARK: Live output
+
+    /// Any thread: live output goes from the reader thread straight to `sink` (the view's output lane), in
+    /// order with the events still on ``events``: a sink takes output only once the consumer resumed the
+    /// ``TerminalChannelEvent/outputResume(_:)`` marker behind every event queued before it. Nil: output stays
+    /// on ``events``.
+    public nonisolated func setOutputSink(_ sink: TerminalEchoSink?) {
+        router.setSink(sink)
+    }
+
+    /// Whether the next output chunk goes straight to the sink (tests, diagnostics).
+    public nonisolated var routesOutputToSink: Bool { router.routesToLane }
 
     // MARK: Geometry and lifetime
 
@@ -336,21 +361,14 @@ public actor TerminalAttachment: TerminalByteChannel {
             return .some(control.lease)
         }
         guard case .some(let lease) = lease else { return }
+        // Output stays on the stream from here, and a reader waiting for the lane reads on to its end.
+        router.close()
         if let stream { return cancelStream(stream) }
         if let lease { fireAndForget(DetachAttachedViewRequest(surface: surface, lease: lease)) }
         transport.close()
     }
 
     private nonisolated func fireAndForget<R: DaemonRequest>(_ request: R) {
-        let logger = logger
-        do {
-            try transport.sendNoReply(cmd: R.command, onError: { error in
-                logger.error("\(R.command, privacy: .public) failed: \(error.description, privacy: .public)")
-            }) { id in
-                try WireCoding.encodeRequest(request, id: id)
-            }
-        } catch {
-            logger.debug("\(R.command, privacy: .public) dropped after close")
-        }
+        Self.fireAndForget(request, on: transport, logger: logger)
     }
 }

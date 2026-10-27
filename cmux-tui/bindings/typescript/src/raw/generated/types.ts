@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 8791ee3ffadf170eb4381f255f55ef35255fb067702b058a7df39d81d76f2d10. */
+/* cmux-tui mux protocol 12, IR 5739101a2a1f12a08327e6d4e67314a7c13e6f450f88de4362e39eec5338716c. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -424,6 +424,11 @@ export type BrowserRuntimeStopResult = {
   "stopped": true;
 };
 
+export type CancelStreamResult = {
+  "outcome": "applied" | "ended";
+  "stream": number;
+};
+
 export type CellPixelFailure = {
   "error": string;
   "surface": Id;
@@ -442,6 +447,23 @@ export type CellPixelSurface = {
   "width_px": number;
 };
 
+export type ClientHelloFeaturePending = {
+  "app": boolean;
+  "daemon": boolean;
+  "name": string;
+};
+
+export type ClientHelloFeatureReport = {
+  "applied": Array<string>;
+  "hash": string;
+  "pending": Array<ClientHelloFeaturePending>;
+};
+
+export type ClientHelloFeatures = {
+  "hash"?: string;
+  "values": Record<string, boolean>;
+};
+
 export type ClientHelloPageOperations = {
   "confirm": Array<string>;
   "gesture": Array<string>;
@@ -450,6 +472,7 @@ export type ClientHelloPageOperations = {
 
 export type ClientHelloResult = {
   "connection_id": string;
+  "features"?: ClientHelloFeatureReport;
   "install_id"?: string;
   "nonce"?: string;
   "page"?: string;
@@ -1424,6 +1447,17 @@ export type ServerStatsConnections = {
   "refused": bigint;
 };
 
+export type ServerStatsHangRecord = {
+  "duration_ms": bigint;
+  "sequence": bigint;
+  "span": string;
+};
+
+export type ServerStatsHangs = {
+  "over_250ms": bigint;
+  "records": Array<ServerStatsHangRecord>;
+};
+
 export type ServerStatsHistogram = {
   "count": bigint;
   "max": bigint;
@@ -1625,6 +1659,7 @@ export type ServerStatsResourceProjection = {
 export type ServerStatsResult = {
   "connections": ServerStatsConnections;
   "dispatch_queue_us"?: ServerStatsHistogram;
+  "hangs"?: ServerStatsHangs;
   "ipc"?: ServerStatsIpc;
   "ipc_methods"?: Array<ServerStatsMethodLatency>;
   "journal_writer": (ServerStatsJournalWriter) | null;

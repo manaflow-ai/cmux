@@ -8,12 +8,16 @@
 //
 // catalog.json is a session-shaped {symbols, symbolKeywords, symbolCategories} object (what the
 // host sends; wk-bench.swift prints one with --dump-catalog).
+//
+// With PERF_RESULT_DIR set it also writes each step's raw samples as result-v1 (the perf lab's
+// webviews story, web.icon_picker.<step>).
 import { readFileSync } from "node:fs";
 import { decodeEmojiTable, warmSearch, type RawEmojiTable } from "../../src/icon-picker/emojiData";
 import raw from "../../src/icon-picker/generated/emoji-data.json";
 import { moveActive, sectionAt, visibleRows } from "../../src/icon-picker/gridModel";
 import { PickerStore } from "../../src/icon-picker/store";
 import type { SymbolCatalog } from "../../src/icon-picker/symbols";
+import { perfSeries, recordPerfResults } from "../../scripts/perf-result.mjs";
 
 function stats(values: number[]) {
   const sorted = [...values].sort((a, b) => a - b);
@@ -91,9 +95,11 @@ const result: Record<string, unknown> = {
   categories: catalog.categories?.length ?? 0,
 };
 // The first session's catalog: build search items, categories and the multicolor set.
-result.configureMs = +time(() => store.configure(catalog, 170)).toFixed(3);
+const configureMs = time(() => store.configure(catalog, 170));
+result.configureMs = +configureMs.toFixed(3);
 // Open on the SF Symbols category: the full category layout (every cell, laid out once).
-result.symbolTabMs = +time(() => store.setCategory("sfSymbols")).toFixed(3);
+const symbolTabMs = time(() => store.setCategory("sfSymbols"));
+result.symbolTabMs = +symbolTabMs.toFixed(3);
 const layout = store.getSnapshot().layout;
 result.symbolCells = layout.items.length;
 result.symbolHeightPx = layout.height;
@@ -132,7 +138,8 @@ result.move = stats(moves);
 // All Categories (emoji and symbols in one grid; the page builds the emoji search text after its
 // first frame), and its keystrokes, which search both tables.
 warmSearch(emoji);
-result.allCategoriesMs = +time(() => store.reset("emoji")).toFixed(3);
+const allCategoriesMs = time(() => store.reset("emoji"));
+result.allCategoriesMs = +allCategoriesMs.toFixed(3);
 result.allCells = store.getSnapshot().layout.items.length;
 const emojiKeys: number[] = [];
 for (const query of ["thumbs up", "cat", "いいね"]) {
@@ -142,3 +149,17 @@ for (const query of ["thumbs up", "cat", "いいね"]) {
 result.emojiKeystroke = stats(emojiKeys);
 
 console.log(JSON.stringify(result, null, 2));
+recordPerfResults({
+  story: "webviews",
+  engine: "none",
+  series: [
+    perfSeries("web.icon_picker.configure", "ms", [configureMs]),
+    perfSeries("web.icon_picker.symbol_tab", "ms", [symbolTabMs]),
+    perfSeries("web.icon_picker.symbol_keystroke", "ms", keys),
+    perfSeries("web.icon_picker.scroll_step_model", "ms", steps),
+    perfSeries("web.icon_picker.jump", "ms", jumps),
+    perfSeries("web.icon_picker.move", "ms", moves),
+    perfSeries("web.icon_picker.all_categories", "ms", [allCategoriesMs]),
+    perfSeries("web.icon_picker.emoji_keystroke", "ms", emojiKeys),
+  ],
+});

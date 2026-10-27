@@ -123,6 +123,8 @@ fn start_or_adopt() -> Option<FifoOwner> {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
     // Its own session: a terminal hangup does not stop it; the owner FIFO does.
+    // SAFETY: the hook runs in the forked child before exec and calls only
+    // setsid, which is async-signal-safe; it allocates nothing and takes no lock.
     unsafe {
         command.pre_exec(|| {
             libc::setsid();
@@ -162,6 +164,7 @@ fn let_go(owner: FifoOwner, stop: bool) {
         drop(child);
         return;
     }
+    crate::daemon::hang_watch::will_block();
     if matches!(child.wait_timeout(ROUTER_STOP_BUDGET), Ok(Some(_))) {
         return;
     }

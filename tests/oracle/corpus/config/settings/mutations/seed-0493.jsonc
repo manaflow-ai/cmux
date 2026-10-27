@@ -1,0 +1,23 @@
+{
+    "sidebar": {
+        "showColors": "true",
+        // "quoted"
+"workspaceRow": {
+            /* * */ "terminal": {
+                "branch": 1
+            }
+        }
+    },
+    "browser": {
+        "omnibox": {
+            /* * */ "popupHoverColor": "#1234567"
+        }
+    },
+    // a { brace
+"appearance": {
+        "backgroundBlur": "glass-clear"
+    },
+    "tabs": {
+        "barPosition": "bottom",
+    }
+}

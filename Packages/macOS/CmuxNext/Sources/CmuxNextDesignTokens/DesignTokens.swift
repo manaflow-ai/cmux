@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// The cross-platform design scale shared by webview CSS and native chrome.
 ///

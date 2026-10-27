@@ -59,12 +59,6 @@
       "reason": "Not a Q8 thread: spawn_cloud_reader_with passes the closure the name machine-agent-cloud-reader-{generation}."
     },
     {
-      "queue": "Q8",
-      "file": "cmux-tui/crates/cmux-threads/src/spawn.rs",
-      "key": "<unresolved>",
-      "reason": "Not a Q8 thread: cmux_threads::spawn is the QoS helper itself; it registers the thread and sets its declared QoS before the closure runs."
-    },
-    {
       "queue": "Q11",
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/ResourceRelay.swift",
       "reason": "The relay forwards a page's runtime-named op unchanged (react-pages.md 1.1) and the daemon validates its params against the catalog, as Chromium routes WebUI chrome.send messages by name (content/browser/webui/web_ui_impl.cc); no generated type can name an op chosen at run time."
@@ -109,15 +103,16 @@
     "queues": {
       "Q1": {
         "title": "hand-written Swift commands",
-        "count": 235,
-        "found": 235,
-        "raw": "git grep -n -E 'static (let|var) command(: String)? = \"' -- 'Packages/macOS/CmuxNext/Sources' ':!*.generated.swift' | wc -l",
-        "raw_count": 235,
+        "count": 237,
+        "found": 237,
+        "raw": "git grep -n -E 'static (let|var) command(Name)?(: (String|DaemonCommandName))? = \"' -- 'Packages/macOS/CmuxNext/Sources' ':!*.generated.swift' | wc -l",
+        "raw_count": 237,
         "groups": {
           "CmuxNextApp/Handlers": 1,
+          "CmuxNextBrowserTabs": 1,
           "CmuxNextDaemon/Chief": 1,
           "CmuxNextDaemon/CloudConversations": 20,
-          "CmuxNextDaemon/Connection": 7,
+          "CmuxNextDaemon/Connection": 8,
           "CmuxNextDaemon/Conversations": 21,
           "CmuxNextDaemon/Loopback": 4,
           "CmuxNextDaemon/Requests": 1,
@@ -140,7 +135,8 @@
           "CmuxNextDaemon/Requests/Workspace": 7,
           "CmuxNextDaemon/Tree": 1,
           "CmuxNextTasks/Views": 1
-        }
+        },
+        "sha": "b23d066f60534e7080657e069eac7c46d7cfc911"
       },
       "Q2": {
         "title": "daemon sniffers",
@@ -176,16 +172,13 @@
       },
       "Q5": {
         "title": "schema gaps (Swift wire names not in sdk-schema)",
-        "count": 27,
-        "found": 27,
+        "count": 4,
+        "found": 4,
         "groups": {
-          "CmuxNextDaemon/Connection": 5,
-          "CmuxNextDaemon/Loopback": 4,
-          "CmuxNextDaemon/Requests/Agents": 4,
-          "CmuxNextDaemon/Requests/Apps": 12,
-          "CmuxNextDaemon/Requests/Machines": 1,
-          "CmuxNextDaemon/Requests/Session": 1
-        }
+          "CmuxNextBrowserTabs": 1,
+          "CmuxNextDaemon/Requests/Agents": 3
+        },
+        "sha": "b23d066f60534e7080657e069eac7c46d7cfc911"
       },
       "Q6": {
         "title": "schema attributes missing",
@@ -233,17 +226,16 @@
       },
       "Q8": {
         "title": "threads without QoS",
-        "count": 81,
-        "found": 82,
+        "count": 2,
+        "found": 3,
         "raw": "git grep -n -E '\\.name\\((format!\\()?\"(mux-|surface-|terminal-host-(client|client-input|parser)\"|cmux-link-(in|out)\")|spawn_journal_writer\\(\"' -- 'cmux-tui/crates/*.rs' ':!*tests*' ':!*_tests.rs' | wc -l",
-        "raw_count": 80,
+        "raw_count": 3,
         "breakdown": {
           "dropped": {
             "test": 2
           },
           "added": {
-            "a name the census cannot follow": 1,
-            "a name through a variable": 3
+            "a name the census cannot follow": 2
           },
           "same_line": 0
         }

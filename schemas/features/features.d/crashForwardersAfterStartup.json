@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "crashForwardersAfterStartup",
+  "owner": "Performance Lead",
+  "description": "The crash report and panic log forwarders (DiagnosticReports listing, panic logs, finding acpmux) start in one best-effort files-lane job after startup completes, behind the fence; the previous run's reports are still sent this launch. Crash handlers install at launch.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["launch-cold", "launch-warm"],
+  "sticky": false,
+  "runtimeMutable": false
+}
