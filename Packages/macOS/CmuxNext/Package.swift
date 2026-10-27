@@ -1610,10 +1610,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextPages", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
-        // Test-only: every exit() of the test process prints its stack (TestProcessExitTests).
+        // Test-only: every exit() of the test process prints its stack, and the main run loop
+        // survives being stopped at its outermost run, whose return would end the whole test run
+        // through swift_task_asyncMainDrainQueue's exit(0) (TestProcessExitTests).
         .target(
             name: "CmuxNextTestExitTrace",
-            path: "Tests/Support/CmuxNextTestExitTrace"
+            path: "Tests/Support/CmuxNextTestExitTrace",
+            linkerSettings: [.linkedFramework("CoreFoundation")]
         ),
         .testTarget(
             name: "CmuxNextAppTests",
