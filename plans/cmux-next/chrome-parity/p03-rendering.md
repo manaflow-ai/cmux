@@ -1487,6 +1487,19 @@ every task that changes behavior or performance and is not repeated per row.
   full redraw (test).
 - Test phase: bench_power.py typing; typing-frame-bench.py not worse.
 - Size L. Depends: 089.
+- Fork state (2026-10-27): ghostty-next branch `cp/p03-rendering-092`, commit b2af196c7, on 087's 338323476 with
+  089's 19eb96940 cherry-picked (5c2841b3f). `src/renderer/damage.zig` (new) keeps each Metal target's damage since
+  it was last drawn (Chromium `BufferQueue::UpdateBufferDamage`/`CurrentBufferDamage`, viz buffer_queue.cc); a frame
+  loads the target and draws only the band of its damaged rows (scissor, one overflow row above and below). 089's
+  `frame_changed` becomes `frame_damage`: rebuilt rows, the preedit row and the old and new cursor rows; any other
+  change of uniforms, colors, cells' screen, Kitty images, overlay, config, font, size, focus or show is full, as
+  are animations, custom shaders and a background image. Purge rule: `Target.pixelsKept` sets the target's IOSurface
+  non-volatile before a partial draw and draws fully if it was volatile or empty (Chromium marks a purged IOSurface
+  uncleared, iosurface_image_backing.mm `SetPurgeable`); every HIDDEN or PURGE presentation bumps
+  `Metal.content_epoch`, so each buffer draws fully once after it; a failed GPU frame or draw invalidates every
+  buffer. OpenGL keeps full redraws. No C API change (`RenderCounters.partial_frames` is Zig-only; 093 owns the
+  counter ABI). The gitlink is not moved (task 079 lands it). Linux: the renderer-filtered zig build test passes
+  with the new damage tests (147/147); Metal code is ast-checked only and compiles on the fleet.
 
 #### p03-rendering-093 Terminal frame ownership: probes, counters, hide/show
 - Files: `.../CmuxNextTerminal/TypingFrameProbe.swift`, `TerminalSurfaceView.swift`,
