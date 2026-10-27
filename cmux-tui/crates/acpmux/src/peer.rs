@@ -525,10 +525,20 @@ impl Peer {
         };
         match answer {
             // A full disk the peer reports is the peer's, not this machine's (`recovery.rs`).
-            Ok(Ok(r)) => r.map_err(|mut e| {
-                crate::recovery::annotate_peer(&mut e, &self.name);
-                e
-            }),
+            // No display line of the peer's own reaches this daemon's clients, on any route that
+            // returns a peer's reply or its error's data (`hub::drop_display_lines`).
+            Ok(Ok(r)) => r
+                .map(|mut result| {
+                    crate::hub::drop_display_lines(&mut result);
+                    result
+                })
+                .map_err(|mut e| {
+                    crate::recovery::annotate_peer(&mut e, &self.name);
+                    if let Some(data) = e.data.as_mut() {
+                        crate::hub::drop_display_lines(data);
+                    }
+                    e
+                }),
             Ok(Err(_)) => {
                 Err(RpcError::internal(format!("peer {} dropped the request", self.name)))
             }

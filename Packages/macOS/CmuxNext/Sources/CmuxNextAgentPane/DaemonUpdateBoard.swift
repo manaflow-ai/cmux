@@ -5,9 +5,11 @@ public import Observation
 
 /// The latest update state of each ``DaemonUpdateTarget``, as ``DaemonUpdatePolicy`` reports it:
 /// an ssh machine's sidebar tooltip shows its line (``detail(sshHost:)``), another surface looks a
-/// target up by id (``detail(id:)``). Failed or rolled-back updates share one toast that stays
-/// until closed (``noticeToast(_:)``): one machine's reason, or the machines' names with each
-/// reason in its tooltip. Closed, it stays closed for that build, also across launches.
+/// target up by id (``detail(id:)``), and Settings > Updates lists the machines that cannot update
+/// or failed to, in one row (``otherMachines``). Failed or rolled-back updates share one toast that
+/// stays until closed (``noticeToast(_:details:)``): one machine's reason, or the machines' names
+/// with each reason in its tooltip, and Details (Settings > Updates). Closed, it stays closed for
+/// that build, also across launches. A machine that cannot update in place never has a toast.
 @MainActor @Observable
 public final class DaemonUpdateBoard {
     // lint:allow one board per app process: the policy writes it, the sidebar of every window reads it
@@ -16,11 +18,12 @@ public final class DaemonUpdateBoard {
     /// The latest event per target id.
     public private(set) var targets: [String: DaemonUpdateEvent] = [:]
 
-    /// The one toast of the failures and what closing it does.
+    /// The one toast of the failures and what closing it or its Details button does.
     struct Notice {
         var toast: CmuxToast
-        /// The person closed it: it stays closed for its build.
+        /// The person closed it (or opened its details): it stays closed for its build.
         var closed: @MainActor () -> Void
+        var details: (@MainActor () -> Void)?
     }
 
     /// Shows the notice's toast in the front window, unless replaced (tests); returns its handle. A
@@ -30,6 +33,7 @@ public final class DaemonUpdateBoard {
               let window = DaemonUpdateBoard.noticeWindow(key: app.keyWindow, main: app.mainWindow, ordered: app.orderedWindows)
         else { return nil }
         let handle = CmuxToastCenter.shared.show(notice.toast, in: window)
+        if let details = notice.details { handle.onAction = { details() } }
         handle.onDismiss = { [weak window] reason in
             guard reason == .closed else {
                 if DaemonUpdateBoard.closedByPerson(reason, windowShown: true) { notice.closed() }
@@ -48,8 +52,8 @@ public final class DaemonUpdateBoard {
     }
 
     /// Whether a toast that ended for `reason` was closed by the person: its close button in a
-    /// window still shown, or its action. Its window closing, a newer notice in its place, or a
-    /// timeout is not.
+    /// window still shown, or its Details button. Its window closing, a newer notice in its place,
+    /// or a timeout is not.
     nonisolated static func closedByPerson(_ reason: CmuxToastDismissReason, windowShown: Bool) -> Bool {
         switch reason {
         case .action: true
@@ -57,6 +61,10 @@ public final class DaemonUpdateBoard {
         case .replaced, .timeout: false
         }
     }
+
+    /// Opens Settings > Updates, where ``otherMachines`` shows: the toast's Details button. Set by
+    /// the app; nil (tests, a process with no Settings) shows no button.
+    @ObservationIgnored public var openDetails: (@MainActor () -> Void)?
 
     /// Where the build whose notice the person closed is kept, so it stays closed after a relaunch;
     /// nil keeps it in memory only. Only ``shared`` keeps the app's file: a board a test makes
@@ -162,11 +170,11 @@ public final class DaemonUpdateBoard {
 
     /// Shows (or replaces) the one notice of ``failures``, unless the closed build is still being read.
     private func showFailures() {
-        guard closedRead == nil, let build = failureBuild, let toast = Self.noticeToast(Array(failures.values)) else { return }
+        guard closedRead == nil, let build = failureBuild, let toast = Self.noticeToast(Array(failures.values), details: openDetails != nil) else { return }
         let previous = shown
         // The same window replaces the previous toast in place (its handle ends `replaced`, which
         // is no close).
-        guard let handle = showNotice(Notice(toast: toast, closed: { [weak self] in self?.close(build) })) else { return }
+        guard let handle = showNotice(Notice(toast: toast, closed: { [weak self] in self?.close(build) }, details: openDetails)) else { return }
         shown = handle
         // One shown in another window goes: one notice at a time. Replaced, not closed by the person.
         if let previous, previous !== handle, !previous.isDismissed {
@@ -194,6 +202,20 @@ public final class DaemonUpdateBoard {
             await before?.value
             await Self.writeClosed(build, to: file)
         }
+    }
+
+    /// Settings > Updates' row of other machines: each that cannot update in place, then each whose
+    /// update failed, as one line each; nil when none. Read when the card shows, and watched while
+    /// it shows (`cmux.settings.channels.machines.changed`).
+    public var otherMachines: (title: String, lines: [String])? {
+        let events = targets.values.sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+        var lines: [String] = []
+        for event in events {
+            if case .cannotUpdate(let reason) = event.state { lines.append(reason) }
+        }
+        lines += events.compactMap(Self.notice)
+        guard !lines.isEmpty else { return nil }
+        return (String(localized: "agentPane.daemonUpdate.machines.title", defaultValue: "Other machines", bundle: .module), lines)
     }
 
     /// The tooltip line of target `id`, nil when it has no update state.
@@ -225,6 +247,8 @@ public final class DaemonUpdateBoard {
             String(format: String(localized: "agentPane.daemonUpdate.failed", defaultValue: "Update failed: %@", bundle: .module), reason)
         case .failed(let reason, true):
             String(format: String(localized: "agentPane.daemonUpdate.rolledBack", defaultValue: "Update rolled back: %@", bundle: .module), reason)
+        case .cannotUpdate(let reason):
+            reason
         case .cleared:
             // Never on the board: `apply` drops the target.
             ""
@@ -236,16 +260,20 @@ public final class DaemonUpdateBoard {
 
     /// The one toast of `failures` (failed or rolled-back updates; other states are left out), nil
     /// when none: one machine's notice, or "Couldn't update A and B" with each machine's notice in
-    /// its tooltip.
-    nonisolated static func noticeToast(_ failures: [DaemonUpdateEvent]) -> CmuxToast? {
+    /// its tooltip. `details`: a Details button (Settings > Updates).
+    nonisolated static func noticeToast(_ failures: [DaemonUpdateEvent], details: Bool) -> CmuxToast? {
         let shown = failures.compactMap { event in notice(event).map { (event.displayName, $0) } }
             .sorted { $0.0.localizedStandardCompare($1.0) == .orderedAscending }
         guard let first = shown.first else { return nil }
-        guard shown.count > 1 else { return CmuxToast(id: noticeID, message: first.1, duration: CmuxToast.untilClosed) }
+        let action = details
+            ? CmuxToast.Action(title: String(localized: "agentPane.daemonUpdate.notice.details", defaultValue: "Details", bundle: .module))
+            : nil
+        guard shown.count > 1 else { return CmuxToast(id: noticeID, message: first.1, action: action, duration: CmuxToast.untilClosed) }
         let names = ListFormatter.localizedString(byJoining: shown.map(\.0))
         let message = String(format: String(localized: "agentPane.daemonUpdate.notice.several", defaultValue: "Couldn't update %@",
                                             bundle: .module), names)
-        return CmuxToast(id: noticeID, message: message, detail: shown.map(\.1).joined(separator: "\n"), duration: CmuxToast.untilClosed)
+        return CmuxToast(id: noticeID, message: message, detail: shown.map(\.1).joined(separator: "\n"), action: action,
+                         duration: CmuxToast.untilClosed)
     }
 
     /// The text of a failed or rolled-back update's toast; nil for any other state.

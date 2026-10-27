@@ -1212,6 +1212,10 @@ path = "tests/test_merge_pbxproj.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_appcast_keep_pubdates.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_appcast_minimum_system_version.py"
 lane = "linux-guard"
 
@@ -1302,6 +1306,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_web_bundles_order.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_helpers_beside_release_build.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1623,6 +1631,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_build_state.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_download_run_artifact_retries.py"
 lane = "linux-guard"
 
 [[test]]
