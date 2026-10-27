@@ -1438,6 +1438,23 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: fake hub: hidden 0 subscriptions, idle visible disarms after one empty tick; DC1 holds.
 - Test phase: DC1, DC6, DC7r; bench-typing.py not worse.
 - Size M. Depends: 014, 082.
+- As built (cp/p03-rendering-083): `TerminalVSync` (one per surface, owned by its `SurfaceBridge`, which is
+  the `vsync_userdata` of 082's `vsync_wanted_cb` and is released only after `ghostty_surface_free`, never when the
+  view is freed off main) holds one disarmed hub subscription while the surface draws (`pause == nil`), on
+  `appliedDisplayID`, and none while it is hidden, parked, suspended, occluded or out of a window. When that display
+  has no screen it ticks on the main display's clock; with no screen there either it ticks on a 60 Hz deadline
+  (injected clock) while Ghostty wants frames, as Chrome's `DelayBasedTimeSource`. Off its own display's clock it
+  tries that display again on every follow and every 100 ms (injected clock). The wanted edge (renderer thread)
+  arms it, so wanted edges never reach main; each armed tick calls `ghostty_surface_vsync`, and the first tick after
+  wanted false returns `.done`. While armed on a subscription a stall deadline runs (`DisplayClock.stallTimeout`,
+  injected clock), because the hub rebuilds a link only when asked and no frame scheduler may be on that display: a
+  timeout with no tick refreshes the surface once, `DisplayClock.stallsBeforeRebuild` in a row call
+  `Subscription.relink()`, and a link that cannot be rebuilt is left for the main display's clock or the 60 Hz
+  deadline. `close()` runs before the free, and a tick holds the pacer's `Mutex` across
+  `ghostty_surface_vsync` (a notify), so no tick reaches a freed surface. Compiled in only with
+  `GHOSTTY_EXTERNAL_VSYNC` (Package.swift, off until the GhosttyNextKit pin carries 082) and used only with a
+  `VSyncHub` (feature `vsyncHub`, default off); otherwise each surface keeps Ghostty's own link. Tests:
+  `TerminalVSyncTests`.
 
 #### p03-rendering-084 Pre-commit present never waits; frame sequence
 - Files: `ghostty-next/src/renderer/Metal.zig` (presentHostSized), `.../CmuxNextTerminal/TerminalHostFramePresenter.swift`.
