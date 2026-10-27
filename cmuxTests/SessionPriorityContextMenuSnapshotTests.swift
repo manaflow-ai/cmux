@@ -90,4 +90,20 @@ struct SessionPriorityContextMenuSnapshotTests {
         #expect(SessionPriorityActions.difficultyChoices.count == 4)
         #expect(SessionPriorityActions.difficultyChoices.first! == nil)
     }
+
+    @Test
+    func sidebarRowRefreshesWhenSessionPriorityStateChanges() {
+        let workspace = Workspace()
+        var publishCount = 0
+        let cancellable = workspace.sidebarImmediateObservationPublisher.sink { publishCount += 1 }
+        defer { cancellable.cancel() }
+
+        publishCount = 0
+        workspace.setClaudeDifficultyOverride(.hard)
+        #expect(publishCount >= 1, "A difficulty override change must rebuild the row's frozen menu state.")
+
+        publishCount = 0
+        workspace.setSessionPriorityManual(true)
+        #expect(publishCount >= 1, "The manual flag must rebuild the row's frozen menu state.")
+    }
 }
