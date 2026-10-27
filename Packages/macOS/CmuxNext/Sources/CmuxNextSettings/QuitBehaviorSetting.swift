@@ -37,12 +37,10 @@ public nonisolated enum QuitBehaviorSetting {
 }
 
 extension SettingsController {
-    /// Rewrites `app.quitBehavior: "end"` as "end-keep-layout" so the
-    /// Settings window shows it. Returns whether it wrote.
+    /// Rewrites `app.quitBehavior: "end"` as "end-keep-layout" in the file
+    /// (``SettingsLaunchMigration/quitBehavior``; every load already reads it so). Returns whether it wrote.
     @discardableResult
     public func migrateLegacyQuitBehavior() async throws -> Bool {
-        guard try await file.value(at: QuitBehaviorSetting.configPath)?.stringValue == QuitBehaviorSetting.legacyEnd else { return false }
-        try await file.set(.string(QuitBehavior.endKeepLayout.rawValue), at: QuitBehaviorSetting.configPath)
-        return true
+        try await file.migrate(.quitBehavior)
     }
 }

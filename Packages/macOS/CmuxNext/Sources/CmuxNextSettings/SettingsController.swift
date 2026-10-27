@@ -321,7 +321,14 @@ public final class SettingsController {
         // Managed layers always merge, over the last good file when this one
         // is unreadable, so MDM forced values apply even while the user's
         // file is broken (spec/enterprise.md 5.2).
-        let effective = EffectiveSettings.merge(file: root, managed: managed, team: team)
+        var effective = EffectiveSettings.merge(file: root, managed: managed, team: team)
+        // The legacy keys read as their migrated ones from the first snapshot on; the file gets the
+        // same edits after startup (p08-startup-106).
+        if problem == nil, let migrated = SettingsLaunchMigration.migrated(source, root: root, managedKeys: effective.managedKeys) {
+            source = migrated.source
+            root = migrated.root
+            effective = EffectiveSettings.merge(file: root, managed: managed, team: team)
+        }
         var snapshot = CmuxConfigSnapshot.parse(
             effective.root, validDensities: valid.densities, validMetrics: valid.metrics, configDirectory: configDirectory
         )

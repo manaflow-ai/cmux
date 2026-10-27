@@ -356,10 +356,9 @@ extension AppControl {
 ///   for the 10 s failsafe.
 ///
 /// Without it, the cx-z9kz0 order (d08d8d7d3c5): the app awaits the first settings load and the launch
-/// settle (at most 4 s) and runs the legacy settings migrations, then
-/// ``runAfterSettle(socket:services:settings:launch:logger:)`` starts the service, registers every group
-/// and binds, in one turn. The migrations keep that place with the feature on (none of them is the
-/// socket mode).
+/// settle (at most 4 s), then ``runAfterSettle(socket:services:settings:launch:logger:)`` starts the
+/// service, registers every group and binds, in one turn. Either way the settings it serves have the
+/// legacy keys migrated: every settings load applies the migrations (p08-startup-106).
 extension AppControl {
     /// Begins the bind on a lane when `controlSocketEarlyBind` is on; nil when it is off (the service
     /// binds when it starts).

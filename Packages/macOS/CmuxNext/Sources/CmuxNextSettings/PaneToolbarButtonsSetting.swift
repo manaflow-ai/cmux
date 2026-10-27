@@ -107,21 +107,15 @@ extension PaneToolbarButtonsSetting {
 }
 
 extension SettingsController {
-    /// Moves `tabs.hiddenButtons` to `tabs.toolbarButtons` in one atomic write, once at launch:
-    /// the buttons the old row showed become the pinned list (a set new key wins), and the old key
-    /// goes. Returns whether it wrote.
-    /// A managed `tabs.toolbarButtons` gets no edit (the old key still goes); an emptied `tabs` is pruned.
+    /// Moves `tabs.hiddenButtons` to `tabs.toolbarButtons` in one atomic write: the buttons the old
+    /// row showed become the pinned list (a set new key wins), and the old key goes
+    /// (``SettingsLaunchMigration/paneToolbarButtons``; every load already reads it so). Returns
+    /// whether it wrote. A managed `tabs.toolbarButtons` gets no edit (the old key still goes); an
+    /// emptied `tabs` is pruned.
     @discardableResult
     public func migrateLegacyPaneToolbarButtons() async throws -> Bool {
-        guard let old = try await file.value(at: PaneToolbarButtonsSetting.legacyHiddenPath) else { return false }
-        let path = PaneToolbarButtonsSetting.configPath
-        if managedKeys[path.joined(separator: ".")] == nil, try await file.value(at: path) == nil, case .array(let items) = old,
-           let value = PaneToolbarButtonsSetting.migrated(hidden: items.compactMap(\.stringValue)).configValue {
-            try await file.apply([(PaneToolbarButtonsSetting.legacyHiddenPath, nil), (path, value)])
-            await reloadAfterWrite()
-        } else {
-            try await removePruning(PaneToolbarButtonsSetting.legacyHiddenPath)
-        }
+        guard try await file.migrate(.paneToolbarButtons) else { return false }
+        await reloadAfterWrite()
         return true
     }
 }

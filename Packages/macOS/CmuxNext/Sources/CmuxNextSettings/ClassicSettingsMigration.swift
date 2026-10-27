@@ -73,24 +73,14 @@ enum ClassicSettingRename {
 
 extension SettingsController {
     /// Moves each classic key in `ClassicSettingRename.entries` to its next key
-    /// in one atomic write, once at launch. A value next's descriptor accepts is
+    /// in one atomic write (``SettingsLaunchMigration/classicSettings``; every
+    /// load already reads them so). A value next's descriptor accepts is
     /// written and the classic key dropped; a next key already set wins and the
     /// classic key is dropped; a classic value next can't express stays.
     /// Returns whether it wrote.
     @discardableResult
     public func migrateClassicSettings() async throws -> Bool {
-        var edits: [(path: [String], value: JSONValue?)] = []
-        for entry in ClassicSettingRename.entries {
-            guard let old = try await file.value(at: entry.classic) else { continue }
-            if try await file.value(at: entry.next) == nil {
-                guard let value = entry.transform(old),
-                      SettingsSchema.all.first(where: { $0.path == entry.next })?.accepts(value) == true else { continue }
-                edits.append((entry.next, value))
-            }
-            edits.append((entry.classic, nil))
-        }
-        guard !edits.isEmpty else { return false }
-        try await file.apply(edits)
+        guard try await file.migrate(.classicSettings) else { return false }
         await reloadAfterWrite()
         return true
     }
