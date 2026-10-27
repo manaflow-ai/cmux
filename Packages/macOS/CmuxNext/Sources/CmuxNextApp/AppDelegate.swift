@@ -18,6 +18,7 @@ import CmuxNextPalette
 import CmuxNextPhoneAccess
 import CmuxNextPopups
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import CmuxNextSignposts
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -393,9 +394,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LaunchServicePosts.browserFollows(historyDaemonSync: { [weak services] in services?.history.startDaemonSync(settings: settings) },
                                           locationTrailScope: { [weak services] in services?.locationTrail.watchScope(settings: settings) }).post(on: order.startup)
         // The file watches and the diagnostic toasts; the launch read is applied above, and the start reloads once.
+        let diagnosticPresenter = SettingsDiagnosticToastPresenter(events: services.appEvents, toasts: .shared)
         // A diagnostic's Show in Settings follows the same availability as the page and `openSettings`.
-        order.startup.post(.afterFirstFrame, "Settings.start", on: .main) { [weak settings, weak services, events = services.appEvents] in
-            settings?.start(announcingDiagnosticsOn: events,
+        order.startup.post(.afterFirstFrame, "Settings.start", on: .main) { [weak settings, weak services, diagnosticPresenter] in
+            settings?.start(announcingDiagnostics: diagnosticPresenter,
                             availability: { [weak services] in services?.settingsAvailability ?? SettingsAvailability() })
         }
         AppProcessRoot.shared.hangReports?.recordUserWrites(of: settings)  // the person's own consent, from the first write on

@@ -38,6 +38,7 @@ import CmuxNextPhone
 import CmuxNextPhoneAccess
 import CmuxNextServer
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import CmuxNextSidebar
 import CmuxNextSignposts
 import CmuxNextTerminal
