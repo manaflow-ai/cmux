@@ -397,6 +397,7 @@ public final class IPhoneHostService {
             // Removed by the owner (this launch or an earlier one): stay stopped.
             if let key, MobileHostRemovalMarker(directory: dependencies.stateDirectory).account() == key {
                 self?.removed = true
+                self?.pairTokens.revoke()
                 await supervisor.stop(phase: .removed)
                 return
             }

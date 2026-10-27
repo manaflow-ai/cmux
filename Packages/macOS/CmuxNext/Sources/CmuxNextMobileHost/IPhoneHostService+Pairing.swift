@@ -90,7 +90,7 @@ extension IPhoneHostService {
         // This Mac's pairing code: the live pre-approval, minted for this device id, allows the phone
         // once, in place of the person's Allow. hostd served this phone only because the service
         // stamped its dial with the signed-in user, and the list is that user's.
-        if var trusted = paired,
+        if !removed, var trusted = paired,
            Self.redeems(request, tokens: &pairTokens, macDeviceID: state.deviceID, pairedUserID: trusted.userID,
                         accountUserID: account?.userID) {
             Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) paired from this Mac's pairing code")
@@ -224,10 +224,12 @@ extension IPhoneHostService {
 
     /// This Mac's pairing code for cmux on iPhone: its device id and team, its name, the live
     /// pre-approval (a new one a minute before the shown one expires) and its identity key's hash.
-    /// Nil until hostd is online for the signed-in account with iPhone connections on.
+    /// Nil until hostd is online for the signed-in account with iPhone connections on, and nil
+    /// once this Mac was removed from the account.
     public func pairInvite(macName: String, now: Date = Date()) -> MobileHostPairInvite? {
-        guard allowed, account != nil, state.phase == .online, let device = state.deviceID, let team = state.teamID,
-              let key = macPublicKey else { return nil }
+        // A Mac removed from the account mints nothing, even while hostd still reports online.
+        guard allowed, !removed, account != nil, state.phase == .online, let device = state.deviceID,
+              let team = state.teamID, let key = macPublicKey else { return nil }
         let token = pairTokens.current(macDeviceID: device, now: now)
         return MobileHostPairInvite(macDeviceID: device, teamID: team, macName: macName, token: token.token,
                                     macPublicKey: key, expiresAt: token.expiresAt)
