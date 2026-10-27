@@ -71,7 +71,6 @@ final class ChromiumUploadBlobReader {
                     return false
                 }
                 guard !cancelled else { continuation.resume(throwing: CancellationError()); return }
-                // task-owner: one DevTools reply; a late reply only releases its Blob resources.
                 Task { [page] in
                     guard !pending.withLock({ $0.cancelled }) else { return }
                     let result: Result<String, any Error>
@@ -103,7 +102,6 @@ final class ChromiumUploadBlobReader {
         let handle = self.handle, objectID = self.objectID
         self.handle = nil
         self.objectID = nil
-        // task-owner: Blob cleanup; a cancelled read does not await the CEF reply deadline.
         let cleanup = Task { [page] in
             if let handle { _ = try? await page.devTools("IO.close", params: ["handle": handle]) }
             if let objectID { _ = try? await page.devTools("Runtime.releaseObject", params: ["objectId": objectID]) }
