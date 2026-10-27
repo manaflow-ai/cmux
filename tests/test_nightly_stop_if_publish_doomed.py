@@ -127,8 +127,8 @@ class CheckBehaviour(unittest.TestCase):
             rc = stop_if_publish_doomed.main(["helper", "resolver"])
         return rc, out.getvalue(), seen
 
-    def test_a_failed_or_cancelled_peer_stops(self):
-        for conclusion in ("failure", "cancelled"):
+    def test_a_failed_cancelled_or_timed_out_peer_stops(self):
+        for conclusion in ("failure", "cancelled", "timed_out"):
             rc, out, seen = self.run_with([{"name": "helper", "conclusion": conclusion, "html_url": "u"}])
             self.assertEqual(rc, 1)
             self.assertIn("::error title=Run cannot publish::helper", out)
