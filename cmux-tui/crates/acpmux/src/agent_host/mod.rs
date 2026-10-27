@@ -273,6 +273,11 @@ fn live_path(dir: &Path, session_id: &str, nonce: &str) -> PathBuf {
     dir.join(format!("{session_id}.{nonce}.live"))
 }
 
+/// Whether host incarnation `nonce` of `session_id` keeps its live lock in `dir`.
+pub fn live_lock_exists(dir: &Path, session_id: &str, nonce: &str) -> bool {
+    live_path(dir, session_id, nonce).exists()
+}
+
 /// Socket for one host: next to the record when the path is short enough for
 /// `sun_path`, else in the private per-user directory acpmux already uses.
 #[cfg(unix)]

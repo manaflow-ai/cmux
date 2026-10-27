@@ -524,3 +524,82 @@ fn discovery_rejects_linked_records_and_socket_paths_outside_the_host_namespace(
     assert_eq!(std::fs::symlink_metadata(&hosts).unwrap().permissions().mode() & 0o777, 0o700);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A harness that reads nothing for 3 s, then everything (`a_fenced_line_*`).
+fn slow_reader(dir: &Path, session: &str) -> SpawnSpec {
+    let slow = dir.join("agent");
+    write_executable(&slow, "#!/bin/sh\nsleep 3\nexec cat >/dev/null\n");
+    let mut launch = spec(dir, session);
+    launch.program = slow.to_string_lossy().into_owned();
+    launch.args.clear();
+    launch
+}
+
+fn big_line() -> Value {
+    json!({"jsonrpc": "2.0", "method": "note", "params": {"text": "x".repeat(1 << 20)}})
+}
+
+/// Review 85 of #23322: a host killed while it still writes a fenced answer (no `Exit`, no
+/// receipt) settles that answer once its death is proven, so nothing waits on it forever.
+#[tokio::test]
+async fn a_fenced_answer_settles_once_its_host_is_killed() {
+    let dir = scratch("fenced-killed");
+    let record = link::spawn(&launcher(), &slow_reader(&dir, "s-fenced-killed")).await.unwrap();
+    let lock = live_lock(&dir, &record);
+    let (inbound, _inbound) = tokio::sync::mpsc::channel(64);
+    let tap: acpmux::agent::Tap = std::sync::Arc::new(|_, _, _| true);
+    let attached = acpmux::agent::ChildAgent::attach_hosted(
+        "fake",
+        record.clone(),
+        0,
+        Vec::new(),
+        inbound,
+        tap,
+    )
+    .await
+    .unwrap();
+    let acpmux::agent::Attached::Ready(agent, ..) = attached else {
+        panic!("the host refused its controller")
+    };
+    let fence = acpmux::agent::Fence::default();
+    let answer = Ok(json!({"text": "x".repeat(1 << 20)}));
+    agent.respond_fenced(json!(1), answer, Some(&fence)).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    // SAFETY: the host this test spawned; its live lock is held, so the pid is its own.
+    unsafe { libc::kill(record.host_pid as i32, libc::SIGKILL) };
+    wait_dead(lock).await;
+    tokio::time::timeout(Duration::from_secs(15), fence.settled())
+        .await
+        .expect("a fenced answer its killed host never wrote settles");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review 85 of #23322: a fenced line to a protocol-1 host (an answer, which gets no answer of
+/// its own) has no receipt. A cut that finds it unproven fails closed: it ends that host by its
+/// start nonce, and the line can not reach the harness after it.
+#[tokio::test]
+async fn a_cut_of_an_unproven_line_to_a_protocol_1_host_ends_that_host() {
+    let dir = scratch("cut-v1");
+    let record = link::spawn(&launcher(), &slow_reader(&dir, "s-cut-v1")).await.unwrap();
+    let lock = live_lock(&dir, &record);
+    let (owner, _) = connected(&record, 0).await;
+    let fence = acpmux::agent::Fence::default();
+    let answer = json!({"jsonrpc": "2.0", "id": 1, "result": {"text": "x".repeat(1 << 20)}});
+    owner.line_fenced(answer, Some(fence.clone())).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!fence.is_settled(), "a protocol-1 host's line counted written with no receipt");
+    let hosts = dir.join("hosts");
+    // The writer `cut_or_end` names for a hosted line: its host, ended by its start nonce.
+    let ended = agent_host::terminate_unadoptable(
+        &hosts,
+        &record.session_id,
+        Some(&record.start_nonce),
+        Some(record.host_pid),
+    )
+    .unwrap();
+    assert!(ended, "the host was not ended");
+    link::settle_receipts_of(&record.incarnation);
+    assert!(fence.is_settled(), "the line still waits after its host ended");
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
