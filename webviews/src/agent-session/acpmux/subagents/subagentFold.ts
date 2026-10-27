@@ -572,12 +572,13 @@ export class SubagentFold {
     entries.push(entry);
     this.own.set(id, entries);
     const update = entry.update;
-    if (
-      update?.sessionUpdate !== "agent_message_chunk" &&
-      ((update?.sessionUpdate !== "tool_call" && update?.sessionUpdate !== "tool_call_update") ||
-        (update?.status === "completed" && (update?.exitCode ?? 0) === 0))
-    )
-      this.bumpViewRevision(id);
+    const streaming =
+      update?.sessionUpdate === "agent_message_chunk" ||
+      update?.sessionUpdate === "agent_thought_chunk" ||
+      ((update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") &&
+        update?.status !== "completed" &&
+        update?.status !== "failed");
+    if (!streaming) this.bumpViewRevision(id);
     this.bump(id);
   }
 
@@ -752,11 +753,18 @@ export class SubagentFold {
 
   private touch(agent: Subagent): void {
     this.settleView(agent);
-    if (agent.parent !== null) this.bump(agent.parent);
+    if (agent.parent !== null) this.bumpParentViews(agent.parent);
     const group = this.groupOf.get(agent.id);
     if (!group) return;
     group.version += 1;
     this.changed.add(group);
+  }
+
+  private bumpParentViews(id: string): void {
+    this.bumpViewRevision(id);
+    this.bump(id);
+    const parent = this.agents.get(id)?.parent;
+    if (parent !== null && parent !== undefined) this.bumpParentViews(parent);
   }
 }
 

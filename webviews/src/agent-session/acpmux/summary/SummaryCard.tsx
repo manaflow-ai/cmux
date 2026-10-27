@@ -46,6 +46,7 @@ const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
 export function SummaryCard({
   card,
   rows,
+  cwd,
   onOpenOutput,
   onOpenImage,
   changes,
@@ -64,6 +65,7 @@ export function SummaryCard({
 }: {
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
+  cwd?: string;
   onOpenOutput?: (path: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
   /// The last turn that edited files, with its counts and files; the Changes rows open its diff,
@@ -119,7 +121,7 @@ export function SummaryCard({
   const asks = subagents.asks;
   const waiting = useMemo(() => (drawn ? waitingSubagents(asks, views) : new Set<string>()), [drawn, asks, views]);
   const galleryRow = useRef<HTMLElement | null>(null);
-  const summary = useMemo(() => (open ? sessionSummary(rows) : undefined), [open, rows]);
+  const summary = useMemo(() => (open ? sessionSummary(rows, undefined, cwd) : undefined), [open, rows, cwd]);
   const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
   const registry = background ?? NO_REGISTRY;
   const running = background?.running ?? NO_TASKS;

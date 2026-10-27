@@ -75,6 +75,19 @@ test("live child replies stay unsettled and keep the producer revision stable", 
   expect(sessionSummary(settled, "acme/app").sources.map((source) => source.label)).toContain("acme/app#7");
 });
 
+test("nested completion invalidates the parent summary revision", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Parent" }] });
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "b", parent: "a", name: "Child" }] });
+  const before = sessionSummary(fold.views().a!, "acme/app");
+  expect(before.subagents).toEqual([{ id: "b", title: "Child", state: "running" }]);
+
+  feed(fold, { sessionUpdate: "subagent_state_update" }, { subagents: [{ id: "b", state: "completed" }] });
+  const after = sessionSummary(fold.views().a!, "acme/app");
+  expect(after).not.toBe(before);
+  expect(after.subagents).toEqual([{ id: "b", title: "Child", state: "done" }]);
+});
+
 describe("why a subagent stopped", () => {
   const spawn = (fold: SubagentFold, id: string, fields: Record<string, unknown> = {}) =>
     feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id, parent: null, name: id, ...fields }] });
