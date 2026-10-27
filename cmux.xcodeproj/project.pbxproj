@@ -3413,11 +3413,15 @@
 		C65930020000000000000002 /* SessionPersistencePolicy+CrashStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930020000000000000001 /* SessionPersistencePolicy+CrashStorage.swift */; };
 		F6572002A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572003A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift */; };
 		F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */; };
+		48BB4C84DF82F8FDDBFD0C01 /* SessionPriorityApplyGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 997811133DB429EB772A115D /* SessionPriorityApplyGate.swift */; };
 		8EF2DB6119B4A8F7CB3B19EC /* SessionPriorityApplyGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCC95F4E736921F1DA99616C /* SessionPriorityApplyGateTests.swift */; };
+		0510771EF0EB98CC80BF25BC /* SessionPriorityApplyResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4771F77C844041A9C1808708 /* SessionPriorityApplyResult.swift */; };
 		BDDEFC5012E6EAD98F03CECA /* SessionPriorityCoordinatorHook.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C4C19C5E4F260F5C986D0DA /* SessionPriorityCoordinatorHook.swift */; };
+		384AA91C89A2BE1F51D482AA /* SessionPriorityLaunchArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FAC6C7EBF5727968DBE6E90 /* SessionPriorityLaunchArguments.swift */; };
 		2DD3A40C594858A2BAD2A30A /* SessionPriorityLaunchArgumentsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB20059DEDD28EDF2C3893CC /* SessionPriorityLaunchArgumentsTests.swift */; };
 		90350094933FCC8335BA1D79 /* SessionPriorityRank.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35FF62DE7C3A4F50BCF1041A /* SessionPriorityRank.swift */; };
 		835511D53125D8DAF273E18A /* SessionPriorityRankTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FDEFC74F9857A479523AE42 /* SessionPriorityRankTests.swift */; };
+		5592BBDB099E1B51261BF152 /* SessionPriorityResumeInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56D7725F20EDF785F1F1A0BA /* SessionPriorityResumeInput.swift */; };
 		DCB2F1AC9AC012582F331EC1 /* SessionPriorityResumeInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 249FD05CB44A9170BE7FD6DC /* SessionPriorityResumeInputTests.swift */; };
 		5E489C21DD84E363D1D3924B /* SessionPrioritySnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88EA2EA41C04C2BA92D8A918 /* SessionPrioritySnapshotTests.swift */; };
 		3E84350E3423BF3AE50D1457 /* SessionPriorityWorkspaceState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A49731EC2404C3A40A695690 /* SessionPriorityWorkspaceState.swift */; };
@@ -4614,6 +4618,7 @@
 		9200A0019200A0019200A001 /* Workspace+RestoredWorkingDirectoryGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9200A0019200A0019200A002 /* Workspace+RestoredWorkingDirectoryGuard.swift */; };
 		381B026EFFAB40449AF805E8 /* Workspace+RightSidebarToolDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52ACFA4197424088998A76C0 /* Workspace+RightSidebarToolDrop.swift */; };
 		92856FAF868E735FD68411DE /* Workspace+SessionPriority.swift in Sources */ = {isa = PBXBuildFile; fileRef = B617DF0095D36C0BB66E8F16 /* Workspace+SessionPriority.swift */; };
+		8B6B19D5B79D7014262DD403 /* Workspace+SessionPriorityResume.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF5919A7B69ED06B3B67EB0D /* Workspace+SessionPriorityResume.swift */; };
 		C548600A000000000000001 /* Workspace+SessionRestoreIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C548600A000000000000002 /* Workspace+SessionRestoreIdentity.swift */; };
 		C7268002000000000000001 /* Workspace+SidebarDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7268002000000000000002 /* Workspace+SidebarDirectories.swift */; };
 		C3744E100000000000000001 /* Workspace+SidebarStatusVisibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E100000000000000002 /* Workspace+SidebarStatusVisibility.swift */; };
@@ -8133,11 +8138,15 @@
 		C65930020000000000000001 /* SessionPersistencePolicy+CrashStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPersistencePolicy+CrashStorage.swift"; sourceTree = "<group>"; };
 		F6572003A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceResumeBindingTests.swift; sourceTree = "<group>"; };
 		F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceTests.swift; sourceTree = "<group>"; };
+		997811133DB429EB772A115D /* SessionPriorityApplyGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityApplyGate.swift; sourceTree = "<group>"; };
 		FCC95F4E736921F1DA99616C /* SessionPriorityApplyGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityApplyGateTests.swift"; sourceTree = "<group>"; };
+		4771F77C844041A9C1808708 /* SessionPriorityApplyResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityApplyResult.swift; sourceTree = "<group>"; };
 		4C4C19C5E4F260F5C986D0DA /* SessionPriorityCoordinatorHook.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityCoordinatorHook.swift; sourceTree = "<group>"; };
+		1FAC6C7EBF5727968DBE6E90 /* SessionPriorityLaunchArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityLaunchArguments.swift; sourceTree = "<group>"; };
 		AB20059DEDD28EDF2C3893CC /* SessionPriorityLaunchArgumentsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityLaunchArgumentsTests.swift"; sourceTree = "<group>"; };
 		35FF62DE7C3A4F50BCF1041A /* SessionPriorityRank.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityRank.swift; sourceTree = "<group>"; };
 		8FDEFC74F9857A479523AE42 /* SessionPriorityRankTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityRankTests.swift"; sourceTree = "<group>"; };
+		56D7725F20EDF785F1F1A0BA /* SessionPriorityResumeInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityResumeInput.swift; sourceTree = "<group>"; };
 		249FD05CB44A9170BE7FD6DC /* SessionPriorityResumeInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityResumeInputTests.swift"; sourceTree = "<group>"; };
 		88EA2EA41C04C2BA92D8A918 /* SessionPrioritySnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPrioritySnapshotTests.swift"; sourceTree = "<group>"; };
 		A49731EC2404C3A40A695690 /* SessionPriorityWorkspaceState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityWorkspaceState.swift; sourceTree = "<group>"; };
@@ -9322,6 +9331,7 @@
 		9200A0019200A0019200A002 /* Workspace+RestoredWorkingDirectoryGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RestoredWorkingDirectoryGuard.swift"; sourceTree = "<group>"; };
 		52ACFA4197424088998A76C0 /* Workspace+RightSidebarToolDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RightSidebarToolDrop.swift"; sourceTree = "<group>"; };
 		B617DF0095D36C0BB66E8F16 /* Workspace+SessionPriority.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SessionPriority.swift"; sourceTree = "<group>"; };
+		DF5919A7B69ED06B3B67EB0D /* Workspace+SessionPriorityResume.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SessionPriorityResume.swift"; sourceTree = "<group>"; };
 		C548600A000000000000002 /* Workspace+SessionRestoreIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SessionRestoreIdentity.swift"; sourceTree = "<group>"; };
 		C7268002000000000000002 /* Workspace+SidebarDirectories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SidebarDirectories.swift"; sourceTree = "<group>"; };
 		C3744E100000000000000002 /* Workspace+SidebarStatusVisibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SidebarStatusVisibility.swift"; sourceTree = "<group>"; };
@@ -12793,6 +12803,11 @@
 				A446A04AEE641485A42DA46C /* SessionPersistence+SessionPriority.swift */,
 				A49731EC2404C3A40A695690 /* SessionPriorityWorkspaceState.swift */,
 				B617DF0095D36C0BB66E8F16 /* Workspace+SessionPriority.swift */,
+				997811133DB429EB772A115D /* SessionPriorityApplyGate.swift */,
+				4771F77C844041A9C1808708 /* SessionPriorityApplyResult.swift */,
+				1FAC6C7EBF5727968DBE6E90 /* SessionPriorityLaunchArguments.swift */,
+				56D7725F20EDF785F1F1A0BA /* SessionPriorityResumeInput.swift */,
+				DF5919A7B69ED06B3B67EB0D /* Workspace+SessionPriorityResume.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -17119,8 +17134,12 @@
 				A5001610 /* SessionPersistence.swift in Sources */,
 				A74770010000000000000009 /* SessionPersistencePolicy+ConfigFrames.swift in Sources */,
 				C65930020000000000000002 /* SessionPersistencePolicy+CrashStorage.swift in Sources */,
+				48BB4C84DF82F8FDDBFD0C01 /* SessionPriorityApplyGate.swift in Sources */,
+				0510771EF0EB98CC80BF25BC /* SessionPriorityApplyResult.swift in Sources */,
 				BDDEFC5012E6EAD98F03CECA /* SessionPriorityCoordinatorHook.swift in Sources */,
+				384AA91C89A2BE1F51D482AA /* SessionPriorityLaunchArguments.swift in Sources */,
 				90350094933FCC8335BA1D79 /* SessionPriorityRank.swift in Sources */,
+				5592BBDB099E1B51261BF152 /* SessionPriorityResumeInput.swift in Sources */,
 				3E84350E3423BF3AE50D1457 /* SessionPriorityWorkspaceState.swift in Sources */,
 				E30780000000000000000014 /* SessionRemoteWorkspaceSnapshot+Restore.swift in Sources */,
 				3042D5DC7CAA74E5701F26EB /* SessionRemoteWorkspaceSnapshot+TuiSSH.swift in Sources */,
@@ -17983,6 +18002,7 @@
 				9200A0019200A0019200A001 /* Workspace+RestoredWorkingDirectoryGuard.swift in Sources */,
 				381B026EFFAB40449AF805E8 /* Workspace+RightSidebarToolDrop.swift in Sources */,
 				92856FAF868E735FD68411DE /* Workspace+SessionPriority.swift in Sources */,
+				8B6B19D5B79D7014262DD403 /* Workspace+SessionPriorityResume.swift in Sources */,
 				C548600A000000000000001 /* Workspace+SessionRestoreIdentity.swift in Sources */,
 				C7268002000000000000001 /* Workspace+SidebarDirectories.swift in Sources */,
 				C3744E100000000000000001 /* Workspace+SidebarStatusVisibility.swift in Sources */,
