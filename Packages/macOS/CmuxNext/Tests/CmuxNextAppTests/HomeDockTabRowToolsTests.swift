@@ -6,6 +6,7 @@ import CmuxNextAgentActivity
 import CmuxNextDesign
 @testable import CmuxNextHome
 import CmuxNextSidebar
+import CmuxNextWakeups
 import Testing
 
 /// Leo 2026-10-20: the Chief's pane gets a top-right area like a workspace's (status, subagents,
@@ -74,7 +75,7 @@ import Testing
     /// Subagents (enabled only with a subagent), as rows of the pane's one ⋮ (Lawrence 2026-10-22).
     @Test func theChiefsToolsShowItsStatusAndPutActionsInThePanesMenu() {
         let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
-        let tools = ChiefPaneTools(chief: ChiefSidebar(lanes: AgentLaneStore()), registry: registry)
+        let tools = ChiefPaneTools(chief: ChiefSidebar(lanes: AgentLaneStore()), registry: registry, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         tools.show(.init(), subagents: 0)
         #expect(tools.indicator.state == .idle)
         #expect(!tools.hasSubagents)
@@ -103,7 +104,7 @@ import Testing
         }
         let chief = ChiefSidebar(lanes: lanes)
         let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
-        let tools = ChiefPaneTools(chief: chief, registry: registry)
+        let tools = ChiefPaneTools(chief: chief, registry: registry, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let rows = chief.allSubagents(), items = tools.subagentsMenu().items
         #expect(rows.count == 2)
         #expect(items.map(\.title) == rows.map(\.info.title))
@@ -147,7 +148,7 @@ import Testing
     /// above a separator and the pane's own rows.
     @Test func theChiefsToolsAreNoButtonsAndLeadThePanesOneMoreMenu() throws {
         let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
-        let tools = ChiefPaneTools(chief: ChiefSidebar(lanes: AgentLaneStore()), registry: registry)
+        let tools = ChiefPaneTools(chief: ChiefSidebar(lanes: AgentLaneStore()), registry: registry, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         #expect(tools.subviews.count == 1)
         #expect(tools.subviews.first === tools.indicator)
         #expect(!tools.subviews.contains { $0 is NSButton })
@@ -156,7 +157,7 @@ import Testing
         let chiefRows = ChiefPaneTools.actions.count + 2 // the actions, a separator, Subagents
         #expect(dock.paneMoreMenuItems().count == chiefRows)
         let channels = Dock(mode: .channels)
-        channels.rowTools = [.messages: ChiefPaneTools(chief: ChiefSidebar(lanes: AgentLaneStore()), registry: registry)]
+        channels.rowTools = [.messages: ChiefPaneTools(chief: ChiefSidebar(lanes: AgentLaneStore()), registry: registry, mainWork: MainWorkScheduler(budget: MainFrameBudget()))]
         #expect(channels.paneMoreMenuItems().isEmpty)
         let standard = ActionRegistry.standard()
         let toolbar = PaneToolbar(registry: { standard }, newTabMenu: { nil }, contentMenu: { dock.paneMoreMenuItems() })

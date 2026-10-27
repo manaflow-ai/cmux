@@ -2,6 +2,7 @@ import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextBridge
 @testable import CmuxNextApp
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -91,7 +92,7 @@ import Testing
 struct AgentChatUploadsPurgeTests {
     @Test func onlyThisMacsOwnDeleteDeletesAChatsUploads() async throws {
         let acpmux = try StandInAcpmux(sessions: [])
-        let feed = AgentTurnStateFeed(socketPath: acpmux.path, turns: AgentTurnStateStore())
+        let feed = AgentTurnStateFeed(socketPath: acpmux.path, turns: AgentTurnStateStore(), deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
         var deleted: [String] = []
         let previous = AgentTurnStateFeed.purged
         AgentTurnStateFeed.purged = { deleted.append($0) }

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDiff
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -22,6 +23,8 @@ final class FilePageLook {
     private var settingsTask: Task<Void, Never>?
     private var languageFeed: DiffLanguageFeed?
     private var stopLanguages: (() -> Void)?
+    /// The app's one main-thread scheduler (the editor's language pack feed lands on it).
+    private let mainWork: MainWorkScheduler
     private var languages: JSONValue?
     /// Preference writes not yet seen in the settings file, by path.
     private var pending: [[String]: JSONValue] = [:]
@@ -37,10 +40,11 @@ final class FilePageLook {
 
     /// `configDirectory`: where `<section>/theme.css` lives; nil uses the settings file's folder.
     /// `importSources`: where the code editor reads another editor's settings (the home folder).
-    init(kind: FilePageKind, settings: @escaping () -> SettingsController?, configDirectory: URL? = nil,
+    init(kind: FilePageKind, settings: @escaping () -> SettingsController?, mainWork: MainWorkScheduler, configDirectory: URL? = nil,
          importSources: EditorSettingsSources = EditorSettingsSources(home: FileManager.default.homeDirectoryForCurrentUser)) {
         self.kind = kind
         self.settings = settings
+        self.mainWork = mainWork
         fixedConfigDirectory = configDirectory
         self.importSources = importSources
     }
@@ -120,7 +124,8 @@ final class FilePageLook {
             watcher.start()
             if kind == .editor {
                 followImportChoice()
-                let feed = DiffLanguageFeed(directory: DiffLanguagePack.directory(configFile: directory.appending(path: "cmux.json")))
+                let feed = DiffLanguageFeed(directory: DiffLanguagePack.directory(configFile: directory.appending(path: "cmux.json")),
+                                            mainWork: mainWork)
                 languageFeed = feed
                 stopLanguages = feed.listen { [weak self] pack in
                     self?.languages = pack

@@ -1,6 +1,7 @@
 import CmuxNextCompat
 public import CmuxNextSettings
 import Foundation
+public import CmuxNextWakeups
 
 /// The diff page's display preferences as settings (coordinator decision
 /// PAGE-PREFS): `diff.<key>` in cmux.json, read and written through
@@ -63,8 +64,13 @@ public protocol DiffPrefsStoring: AnyObject {
 public final class SettingsDiffPrefs: DiffPrefsStoring {
     private let settings: () -> SettingsController?
     private var pending: [String: JSONValue] = [:]
+    private let mainWork: MainWorkScheduler
 
-    public init(settings: @escaping () -> SettingsController?) {
+    /// - Parameters:
+    ///   - mainWork: The app's one main-thread scheduler: a listener follows the settings on it.
+    ///   - settings: The settings store, nil while it is not loaded.
+    public init(mainWork: MainWorkScheduler, settings: @escaping () -> SettingsController?) {
+        self.mainWork = mainWork
         self.settings = settings
     }
 
@@ -79,16 +85,21 @@ public final class SettingsDiffPrefs: DiffPrefsStoring {
 
     /// Follows `diff.*` in the settings, so an open diff tab takes a change made in Settings
     /// (Diff Colors) in place.
+    ///
+    /// A service observation: it pushes to the page's subscription, which the page's own delivery holds while the
+    /// tab is hidden. `visible`: a change made in Settings shows in the open tab; the person's own flushes before
+    /// its frame. The first value is the subscription's start, not a change, so it is not pushed.
     public func listen(_ onPrefs: @escaping @MainActor ([String: JSONValue]) -> Void) -> () -> Void {
         let settings = settings
-        // task-owner: lives until the page's subscription stops; event-driven (Observation)
-        let task = Task { [weak self] in
-            for await _ in ObservationStream({ settings()?.fileRoot[DiffPrefKey.section] }) {
-                guard let self, !Task.isCancelled else { return }
-                onPrefs(prefs())
-            }
+        var started = false
+        let observation = ServiceObservation(.visible, owner: "SettingsDiffPrefs.listen", on: mainWork) {
+            settings()?.fileRoot[DiffPrefKey.section]
+        } apply: { [weak self] _ in
+            guard started, let self else { return }
+            onPrefs(prefs())
         }
-        return { task.cancel() }
+        started = true
+        return { observation.cancel() }
     }
 
     public func setPref(_ key: String, to value: JSONValue) async throws {

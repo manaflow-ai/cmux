@@ -3,8 +3,8 @@ public import CmuxNextActions
 import CmuxNextCompat
 public import CmuxNextDesign
 import CmuxNextSidebar
+public import CmuxNextWakeups
 import Foundation
-import Observation
 
 /// The Chief's tools in the docked Home's tab row (Leo 2026-10-20: the Chief's pane gets a top-right
 /// area like a workspace's; `HomeDockSwitchView.rowTools`): only the Chief's status mark
@@ -19,35 +19,59 @@ public final class ChiefPaneTools: NSView, PaneMoreMenuContributing {
                                              "chief.openMemoryInspector", "chief.openUsage", "home.newChief"]
     private let chief: ChiefSidebar
     private weak var registry: ActionRegistry?
-    private var watch: Task<Void, Never>?
+    /// This view in the visibility tree: the status follows the Chief only while the tools show.
+    private let visibility = ViewVisibility("chief.paneTools")
+    /// This view's node (tests attach it to a shown window's).
+    var visibilityNode: VisibilityNode { visibility.node }
+    private var watch: VisibleObservation<Watched>?
     private var shownInRow = ChromeTunables.tabRowTools.value
     /// The Chief has a subagent now (the Subagents row is enabled).
     public private(set) var hasSubagents = false
 
-    public init(chief: ChiefSidebar = .shared, registry: ActionRegistry) {
+    /// What the tools draw: the Chief's status, its subagent count and the tab row setting.
+    struct Watched: Equatable {
+        var status: ChiefSidebar.Status
+        var subagents: Int
+        var inRow: Bool
+    }
+
+    /// - Parameters:
+    ///   - chief: The Chief whose status the mark shows.
+    ///   - registry: Runs Chief Actions and Open Chief Subagent.
+    ///   - mainWork: The app's one main-thread scheduler: the status follows on it while the tools show.
+    public init(chief: ChiefSidebar = .shared, registry: ActionRegistry, mainWork: MainWorkScheduler) {
         self.chief = chief
         self.registry = registry
         super.init(frame: .zero)
         setAccessibilityIdentifier("cmux.chief.paneTools")
         addSubview(indicator)
-        // task-owner: this view (cancelled in deinit); event-driven (Observation).
-        watch = Task { [weak self, chief] in
-            for await (status, subagents, inRow) in ObservationStream({ (chief.status, chief.allSubagents().count, ChromeTunables.tabRowTools.value) }) {
-                guard let self else { return }
-                show(status, subagents: subagents)
-                // The setting decides whether the dock reports these tools (HomeDockSwitchView+TabRow).
-                if inRow != shownInRow { shownInRow = inRow; superview?.needsLayout = true }
-            }
+        // Views only (the mark, the dock's layout): a hidden dock reads nothing and reads once on show.
+        watch = VisibleObservation(visibility.node, owner: "ChiefPaneTools.status", on: mainWork) { [chief] in
+            Watched(status: chief.status, subagents: chief.allSubagents().count, inRow: ChromeTunables.tabRowTools.value)
+        } apply: { [weak self] watched in
+            guard let self else { return }
+            show(watched.status, subagents: watched.subagents)
+            // The setting decides whether the dock reports these tools (HomeDockSwitchView+TabRow).
+            if watched.inRow != shownInRow { shownInRow = watched.inRow; superview?.needsLayout = true }
         }
     }
 
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated { watch?.cancel() }
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        visibility.place(in: window)
+    }
+
+    override public func viewDidHide() {
+        super.viewDidHide()
+        visibility.node.set(.hidden)
+    }
+
+    override public func viewDidUnhide() {
+        super.viewDidUnhide()
+        visibility.node.set(.visible)
     }
 
     override public var isFlipped: Bool { true }

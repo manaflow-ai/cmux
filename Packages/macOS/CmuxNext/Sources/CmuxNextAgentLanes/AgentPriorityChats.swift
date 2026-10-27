@@ -1,5 +1,6 @@
 public import CmuxNextAgentActivity
 public import CmuxNextSidebar
+public import CmuxNextWakeups
 public import Foundation
 import os
 
@@ -155,16 +156,21 @@ public final class AgentPriorityChats {
     /// Hides the chat here at once, then archives it in the acpmux that reports it (this Mac's or
     /// the Chief home's; another machine's chat has no socket here and is not archived). A refusal (a peer's chat this acpmux does not own, a dropped socket)
     /// shows the chat again.
+    ///
+    /// - Parameters:
+    ///   - id: The chat.
+    ///   - mainWork: The app's one main-thread scheduler: a refusal shows the chat again in one task on it.
+    ///   - workClass: That task's class: the run's completion class (`userBlocking` for the person's archive).
     @discardableResult
-    public func archive(_ id: String) -> Bool {
+    public func archive(_ id: String, on mainWork: MainWorkScheduler, as workClass: BudgetedWorkClass) -> Bool {
         guard let socketPath = stores.first(where: { $0.lanes[id] != nil })?.socketPath else { return false }
         marks.archive(id)
-        let archive = archiveRequest, marks = marks
-        // task-owner: one archive request; ends when acpmux answers or its deadline passes
-        Task {
+        let archive = archiveRequest, marks = marks, logger = Self.logger
+        // task-owner: one archive request off main; ends when acpmux answers or its deadline passes
+        Task { @concurrent in
             do { try await archive(socketPath, id) } catch {
-                Self.logger.error("priority archive failed: \(String(describing: error), privacy: .public)")
-                marks.unarchive(id)
+                logger.error("priority archive failed: \(String(describing: error), privacy: .public)")
+                mainWork.postFromAnyThread(workClass, owner: "AgentPriorityChats.archiveRefused") { marks.unarchive(id) }
             }
         }
         return true

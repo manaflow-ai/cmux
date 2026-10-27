@@ -101,7 +101,9 @@ private nonisolated final class Invocation: Sendable {
         self.request = request
         self.grace = grace
         self.clock = clock
+        // timer-class-allow: off-main: the child's startup and reply bounds live in this nonisolated Invocation and only end it under its lock (the clock is the suites' seam); they post no main-thread job
         startup = DemandTimer(owner: "DiffSidecar.startup", clock: clock)
+        // timer-class-allow: off-main: as the startup bound above
         reply = DemandTimer(owner: "DiffSidecar.reply", clock: clock)
     }
 
@@ -275,6 +277,7 @@ private nonisolated final class Invocation: Sendable {
         Task { [self] in
             // wakeup-allow: deadline of the SIGTERM grace before SIGKILL; not a DemandTimer: it must outlive
             // the request that stopped the child, and nothing replaces or cancels it
+            // timer-class-allow: off-main: this nonisolated Invocation's one grace before SIGKILL; it posts no main-thread job
             try? await clock.sleep(for: grace, tolerance: WakeLeeway.window(delay: grace).tolerance)
             guard state.withLock({ $0.exitStatus == nil }) else { return }
             kill(target, SIGKILL)

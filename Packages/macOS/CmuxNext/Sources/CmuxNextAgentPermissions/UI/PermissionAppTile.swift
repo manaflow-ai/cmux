@@ -61,6 +61,7 @@ final class PermissionAppTile: NSView, NSDraggingSource {
     override func mouseDown(with event: NSEvent) { hover.state.pressed = true }
     override func mouseUp(with event: NSEvent) { hover.state.pressed = false }
 
+    // local-monitor-allow: the drag session, which beginDraggingSession must start from this event; a drag is unbuffered until mouseUp (p06-scheduler.md section E)
     override func mouseDragged(with event: NSEvent) {
         hover.state.pressed = false
         let item = NSDraggingItem(pasteboardWriter: appURL as NSURL)
@@ -73,6 +74,7 @@ final class PermissionAppTile: NSView, NSDraggingSource {
         context == .outsideApplication ? [.copy, .link, .generic] : []
     }
 
+    // visibility-walk-allow: ChromeHover.refresh(animated: false) stores the hover layer's fill color only; the tile lives in the permission card's own panel, which no visibility node holds
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         hover.refresh(animated: false)

@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Observation
 import Testing
@@ -102,7 +103,7 @@ struct AgentCLIUpdateObservationTests {
         let stamp = try #require(store.sideEvents.controlStamp)
         let admission = Admission()
         let changes = AgentCLIUpdateActions.terminalChanges(sideEvents: store.sideEvents, stamp: stamp,
-            current: { admission.current })
+            on: MainWorkScheduler(budget: MainFrameBudget()), current: { admission.current })
         _ = store.apply(batch: [
             .init(sequence: DaemonEventEnvelope.sequence(serial: 4, index: 10), event: .terminalRegistryChanged(revision: 7), sourceID: UUID()),
             .init(sequence: DaemonEventEnvelope.sequence(serial: 3, index: 10), event: .terminalRegistryChanged(revision: 8), sourceID: source),

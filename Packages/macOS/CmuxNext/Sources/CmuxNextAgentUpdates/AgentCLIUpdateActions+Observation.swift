@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 
 extension AgentCLIUpdateActions {
@@ -10,6 +11,7 @@ extension AgentCLIUpdateActions {
         let route = intent.route
         let events = changes() // Subscribe before the first read so an exit during it stays queued.
         // task-owner: the intent; cancellation retires observation, never the owner's process.
+        // main-hop-allow: each step awaits the owner route's main-actor async observe (Route's closures are main-actor), and the follower resumes on main once per terminal change of the owner's connection
         intent.following = Task { [weak self, weak intent] in
             if let self, let intent { await self.observe(intent, route: route) }
             for await _ in events {
@@ -64,7 +66,14 @@ extension AgentCLIUpdateActions {
 
     /// Coalesce changes only from the admitted control connection. A replacement
     /// connection, withdrawn policy or detached owner ends this subscription.
-    static func terminalChanges(sideEvents: DaemonSideEvents, stamp: DaemonControlStamp,
+    ///
+    /// - Parameters:
+    ///   - sideEvents: The owner's daemon events.
+    ///   - stamp: The admitted control connection.
+    ///   - mainWork: The app's one main-thread scheduler: the admission follows on it, and the stream's end stops
+    ///     the observers there.
+    ///   - current: Whether the route still owns the update.
+    static func terminalChanges(sideEvents: DaemonSideEvents, stamp: DaemonControlStamp, on mainWork: MainWorkScheduler,
                                 current: @escaping @MainActor () -> Bool) -> AsyncStream<Void> {
         let (events, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let token = sideEvents.subscribeEnvelopes { envelope in
@@ -72,16 +81,19 @@ extension AgentCLIUpdateActions {
             guard envelope.sourceID == stamp.sourceID, envelope.connectionSerial == stamp.serial else { return }
             if case .terminalRegistryChanged = envelope.event { continuation.yield() }
         }
-        // task-owner: the stream; its termination cancels this connection/policy observer.
-        let lifecycle = Task {
-            for await admitted in ObservationStream({ current() && sideEvents.controlStamp == stamp }) {
-                guard admitted else { continuation.finish(); return }
-            }
+        // A service observation while the stream lives: a lost admission ends it with nothing on screen.
+        // `background`: it only retires an observer.
+        let admission = ServiceObservation(.background, owner: "AgentCLIUpdate.admission", on: mainWork) {
+            current() && sideEvents.controlStamp == stamp
+        } apply: { admitted in
+            if !admitted { continuation.finish() }
         }
         continuation.onTermination = { _ in
-            lifecycle.cancel()
-            // The AsyncStream termination callback may arrive off the main actor.
-            Task { @MainActor in sideEvents.unsubscribe(token) }
+            // The stream's end, on any thread: the admission and the envelope observer stop in one background task.
+            mainWork.postFromAnyThread(.background, owner: "AgentCLIUpdate.changesEnd") {
+                admission.cancel()
+                sideEvents.unsubscribe(token)
+            }
         }
         return events
     }

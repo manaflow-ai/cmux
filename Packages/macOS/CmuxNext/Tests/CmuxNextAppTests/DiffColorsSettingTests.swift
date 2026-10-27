@@ -2,6 +2,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDiff
 import CmuxNextDesign
+import CmuxNextWakeups
 @testable import CmuxNextSettings
 import Foundation
 import Testing
@@ -39,15 +40,20 @@ struct DiffColorsSettingTests {
 
         let pages = AgentPanePageSettings()
         pages.follow(settings) {}
-        let prefs = SettingsDiffPrefs { settings }
+        let prefs = SettingsDiffPrefs(mainWork: MainWorkScheduler(budget: MainFrameBudget())) { settings }
         var streamed: [JSONValue] = []
         let stop = prefs.listen { streamed.append($0["colors"] ?? .null) }
         defer { stop() }
         for _ in 0..<200 where pages.diffColors != "muted" { await Task.yield() }
         #expect(pages.diffColors == "muted")
 
+        #expect(streamed.isEmpty, "the stream pushed the prefs the tab opened with")
+
         try await settings.set(.string("standard"), at: ["diff", "colors"])
-        for _ in 0..<200 where pages.diffColors != "standard" || streamed.last != .string("standard") { await Task.yield() }
+        // The stream's push is one task on the scheduler: give the main run loop turns, not only yields.
+        for _ in 0..<200 where pages.diffColors != "standard" || streamed.last != .string("standard") {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         #expect(pages.diffColors == "standard")
         #expect(streamed.last == .string("standard"))
     }

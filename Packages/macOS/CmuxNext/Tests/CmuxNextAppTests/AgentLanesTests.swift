@@ -7,6 +7,7 @@ import CmuxNextDesign
 @testable import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextUpdater
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -41,7 +42,7 @@ struct AgentLanesTests {
     @Test func theWatchFeedMirrorsEverySessionsLane() async throws {
         let acpmux = try StandInAcpmux(sessions: Self.sessions)
         let lanes = AgentLaneStore()
-        let feed = AgentTurnStateFeed(socketPath: acpmux.path, turns: AgentTurnStateStore(), lanes: lanes)
+        let feed = AgentTurnStateFeed(socketPath: acpmux.path, turns: AgentTurnStateStore(), lanes: lanes, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
         feed.start(localHost: "install:lanes")
         try await until { lanes.lanes.count == Self.sessions.count }
 

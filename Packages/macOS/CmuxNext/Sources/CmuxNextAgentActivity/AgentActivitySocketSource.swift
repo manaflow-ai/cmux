@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextCompat
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import Foundation
 import Network
 
@@ -59,21 +59,30 @@ public final class AgentActivitySocketSource: AgentActivitySource {
     private var sink: (@MainActor (AgentActivityUpdate) -> Void)?
     private var subscription: AgentActivityLineConnection?
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
-    private var reconnect: Task<Void, Never>?
+    /// One backoff wait after a lost connection, or before the next look for a missing socket folder.
+    /// `background`: nobody waits on it; the pane shows "not started" or "unreachable" meanwhile.
+    private let reconnect: MainDeadline
+    /// Where a read timeline lands: one `visible` task (the pane shows it; no input of the person waits on it).
+    private let mainWork: MainWorkScheduler
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
     private var followed: Set<String> = []
     private var lastSeq: [String: UInt64] = [:]
     private var fetching: Set<String> = []
 
-    public init(configuration: Configuration) {
+    /// - Parameters:
+    ///   - configuration: The socket and its auth tokens.
+    ///   - deadlines: The app's one deadline scheduler (the reconnect backoff).
+    public init(configuration: Configuration, deadlines: MainDeadlineScheduler) {
         config = configuration
+        mainWork = deadlines.work
+        reconnect = MainDeadline(owner: "AgentActivitySocketSource.reconnect", workClass: .background, scheduler: deadlines)
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
-            reconnect?.cancel()
+            reconnect.cancel()
             subscription?.cancel()
             directoryWatch?.cancel()
         }
@@ -91,8 +100,7 @@ public final class AgentActivitySocketSource: AgentActivitySource {
         let connection = subscription
         subscription = nil
         connection?.cancel()
-        reconnect?.cancel()
-        reconnect = nil
+        reconnect.cancel()
         directoryWatch?.cancel()
         directoryWatch = nil
         followed.removeAll()
@@ -167,14 +175,7 @@ public final class AgentActivitySocketSource: AgentActivitySource {
         guard subscription === connection else { return }
         subscription = nil
         sink?(.connection(machine: config.machine, FileManager.default.fileExists(atPath: config.socketPath) ? .unreachable : .notStarted))
-        reconnect?.cancel()
-        reconnect = Task { [weak self] in
-            guard var backoff = self?.backoff else { return }
-            // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
-            do { try await backoff.wait(owner: "agent-activity.reconnect") } catch { return }
-            self?.backoff = backoff
-            self?.connect()
-        }
+        reconnect.schedule(after: backoff.next()) { [weak self] in self?.connect() }
     }
 
     /// Waits for the socket's directory to change (the host creates the
@@ -184,14 +185,7 @@ public final class AgentActivitySocketSource: AgentActivitySource {
         let directory = (config.socketPath as NSString).deletingLastPathComponent
         let fd = open(directory, O_EVTONLY)
         guard fd >= 0 else {
-            reconnect?.cancel()
-            reconnect = Task { [weak self] in
-                guard var backoff = self?.backoff else { return }
-                // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
-                do { try await backoff.wait(owner: "agent-activity.socket-dir") } catch { return }
-                self?.backoff = backoff
-                self?.connect()
-            }
+            reconnect.schedule(after: backoff.next()) { [weak self] in self?.connect() }
             return
         }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
@@ -208,17 +202,29 @@ public final class AgentActivitySocketSource: AgentActivitySource {
     private func fetchTimeline(_ session: String) {
         guard !fetching.contains(session) else { return }
         fetching.insert(session)
-        Task { [weak self] in
-            guard let self else { return }
-            var args: [String: Any] = ["id": session, "limit": 2000]
-            if let last = lastSeq[session] { args["after_seq"] = last }
-            let page = try? await request("activity_timeline", args)
-            fetching.remove(session)
-            guard let page else { return }
-            let events = AgentActivityWire.events(page)
-            if let last = events.last?.seq { lastSeq[session] = last }
-            if !events.isEmpty { sink?(.events(session: session, events)) }
+        let mainWork = mainWork
+        // The request's socket I/O runs on its connection's queue; the events land as one posted task.
+        Task { @concurrent [weak self] in
+            let events = await self?.readTimeline(session)
+            await mainWork.apply(.visible, owner: "AgentActivitySocketSource.timeline") { [weak self] () -> Void in
+                self?.timelineRead(session, events)
+            }
         }
+    }
+
+    /// One `activity_timeline` page of `session` after the last event read; nil when the host did not answer.
+    private func readTimeline(_ session: String) async -> [AgentActivityEvent]? {
+        var args: [String: Any] = ["id": session, "limit": 2000]
+        if let last = lastSeq[session] { args["after_seq"] = last }
+        guard let page = try? await request("activity_timeline", args) else { return nil }
+        return AgentActivityWire.events(page)
+    }
+
+    private func timelineRead(_ session: String, _ events: [AgentActivityEvent]?) {
+        fetching.remove(session)
+        guard let events else { return }
+        if let last = events.last?.seq { lastSeq[session] = last }
+        if !events.isEmpty { sink?(.events(session: session, events)) }
     }
 
     private func request(_ method: String, _ args: [String: Any]) async throws -> [String: Any] {

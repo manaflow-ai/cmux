@@ -2,6 +2,7 @@
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -37,7 +38,7 @@ import Testing
     }
 
     @Test func automaticRemoteImagesDefaultOff() {
-        let look = FilePageLook(kind: .markdown, settings: { nil })
+        let look = FilePageLook(kind: .markdown, settings: { nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         #expect(!look.remoteImages)
     }
 

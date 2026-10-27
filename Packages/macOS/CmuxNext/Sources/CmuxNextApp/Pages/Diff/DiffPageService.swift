@@ -52,10 +52,10 @@ final class DiffPageService: InternalPageProvider {
     // crash-allow: AppServices owns this service for the app's whole life (ViewerService's lazy page services), so it outlives it.
     private unowned let services: AppServices
     /// Made on the first tab (tests pass their own).
-    private lazy var runtime = DiffPageRuntime(git: services.agentGit.local)
+    private lazy var runtime = DiffPageRuntime(git: services.agentGit.local, mainWork: services.mainWork)
     private lazy var recentsStore = DiffRecents(url: DiffRecents.standardURL(launch: services.environment.launch))
     /// Prefs (`diff.*` settings) and viewed marks (next to the recents), shared by every tab.
-    private lazy var stores = DiffPageStores(prefs: SettingsDiffPrefs { [weak services] in services?.settings },
+    private lazy var stores = DiffPageStores(prefs: SettingsDiffPrefs(mainWork: services.mainWork) { [weak services] in services?.settings },
                                              viewed: DiffViewedFiles(url: DiffViewedFiles.standardURL(recents: recentsStore.url)))
     /// The diff page draws at the display's full rate (120 Hz), as the agent pane does, not
     /// WebKit's default nearest 60 fps.

@@ -38,7 +38,7 @@ enum AgentChatKeyHandlers {
         // A Priority row's chat (`agent-chat:`) archives from the row, while the Priority view is on;
         // else the focused chat's Archive, whatever the view's setting.
         SidebarPriorityRowActions(chats: .app, unavailable: SidebarPriorityRowActions.viewOff(context))
-            .bindArchive(into: registry) { invocation in
+            .bindArchive(into: registry, mainWork: context.services.mainWork) { invocation in
                 chatView(context, invocation, refusal: MiscHandlerStrings.archiveChatNeedsAgentChat)?.archiveChat()
             }
     }

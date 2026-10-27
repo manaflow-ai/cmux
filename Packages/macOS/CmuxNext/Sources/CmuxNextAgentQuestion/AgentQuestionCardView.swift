@@ -253,6 +253,7 @@ public final class AgentQuestionCardView: NSView {
         }
     }
 
+    // visibility-walk-allow: applyColors only stores layer, text and tint colors in the theme scope (the placeholder is a recolored string), no layout or text measure; cheaper than a deferral
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

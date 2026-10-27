@@ -3,6 +3,7 @@ import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextPalette
 import CmuxNextSidebar
+import CmuxNextWakeups
 
 extension AgentPriorityChats {
     /// The app's Priority chats: this Mac's acpmux and the Chief home's, archived over their sockets.
@@ -85,11 +86,13 @@ struct SidebarPriorityRowActions {
     /// Binds Archive Chat: a row's chat archives here (hidden at once, then archived in its acpmux)
     /// and, like the other row actions, not while `unavailable` gives a reason; any other run is the
     /// focused chat's own Archive (`otherwise`), which the Priority view's setting does not touch.
-    func bindArchive(into registry: ActionRegistry, otherwise: @escaping @MainActor (ActionInvocation) throws -> Void) {
+    /// A refused archive shows the row again in one task on `mainWork`, in the run's completion class.
+    func bindArchive(into registry: ActionRegistry, mainWork: MainWorkScheduler,
+                     otherwise: @escaping @MainActor (ActionInvocation) throws -> Void) {
         let chats = chats, unavailable = unavailable
         registry.bind(Self.archive, run: { invocation in
             guard invocation.target?.kind == .agentChat else { return try otherwise(invocation) }
-            try Self.run(chats.archive, invocation)
+            try Self.run({ chats.archive($0, on: mainWork, as: invocation.completionClass) }, invocation)
         })
         ActionTargetReasons.set(Self.archive, in: registry) { invocation in
             invocation.target?.kind == .agentChat ? unavailable() : nil

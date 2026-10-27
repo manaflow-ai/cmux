@@ -1,5 +1,6 @@
 public import CmuxNextSettings
 public import Foundation
+public import CmuxNextWakeups
 
 /// The user's diff viewer language pack, read the way the page dev host reads
 /// it (webviews/dev-server/diffLanguages.ts): every `*.json` file directly in
@@ -72,11 +73,20 @@ public final class DiffLanguageFeed {
     private var current: JSONValue?
     private var listeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var watchers: [ConfigFileWatcher] = []
+    /// The read in flight; a change during it reads again when it lands.
     private var reload: Task<Void, Never>?
+    /// Which read is current: a read `stopWatching()` dropped lands on an older id and does nothing.
+    private var reloadID: UInt64 = 0
     private var pending = false
+    /// Where the file notices and the reads' packs reach the main thread.
+    private let mainWork: MainWorkScheduler
 
-    public init(directory: URL) {
+    /// - Parameters:
+    ///   - directory: The language pack's folder.
+    ///   - mainWork: The app's one main-thread scheduler: each file notice and each read pack is one task on it.
+    public init(directory: URL, mainWork: MainWorkScheduler) {
         self.directory = directory
+        self.mainWork = mainWork
     }
 
     /// The pack now (read once on first use).
@@ -110,10 +120,11 @@ public final class DiffLanguageFeed {
         guard !listeners.isEmpty else { return }
         guard Set(urls.map(\.path)) != Set(watchers.map(\.url.path)) else { return }
         for watcher in watchers { watcher.stop() }
+        let mainWork = mainWork
         watchers = urls.map { url in
+            // Each notice arrives on the watcher's queue and posts one background task: the reload reads off main.
             ConfigFileWatcher(url: url) { [weak self] in
-                // task-owner: one hop to the main actor per file event
-                Task { @MainActor in self?.requestReload() }
+                mainWork.postFromAnyThread(.background, owner: "DiffLanguageFeed.fileChanged") { [weak self] in self?.requestReload() }
             }
         }
         for watcher in watchers { watcher.start() }
@@ -131,14 +142,31 @@ public final class DiffLanguageFeed {
         guard !listeners.isEmpty else { return }
         pending = true
         guard reload == nil else { return }
-        reload = Task { [weak self] in
-            while let directory = self?.takePending() {
-                let snapshot = await Self.read(directory)
-                if Task.isCancelled { return }
-                self?.apply(snapshot)
-            }
-            self?.reload = nil
+        readPending()
+    }
+
+    /// Reads the pack off main if a change is pending; its pack lands as one `visible` task (open diff tabs show
+    /// it), which reads again for a change that came meanwhile.
+    private func readPending() {
+        guard let directory = takePending() else {
+            reload = nil
+            return
         }
+        reloadID &+= 1
+        let id = reloadID, mainWork = mainWork
+        reload = Task { @concurrent [weak self] in
+            let snapshot = await Self.read(directory)
+            guard !Task.isCancelled else { return }
+            await mainWork.apply(.visible, owner: "DiffLanguageFeed.reload") { [weak self] () -> Void in
+                self?.reloaded(snapshot, id: id)
+            }
+        }
+    }
+
+    private func reloaded(_ snapshot: Snapshot, id: UInt64) {
+        guard reload != nil, id == reloadID else { return }
+        apply(snapshot)
+        readPending()
     }
 
     private func takePending() -> URL? {

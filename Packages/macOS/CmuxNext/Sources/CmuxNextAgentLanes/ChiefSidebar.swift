@@ -5,6 +5,7 @@ import CmuxNextCompat
 public import CmuxNextDesign
 import CmuxNextHome
 public import CmuxNextSidebar
+public import CmuxNextWakeups
 import Foundation
 public import Observation
 
@@ -70,7 +71,9 @@ public final class ChiefSidebar {
     public internal(set) var isPlaced = false
     @ObservationIgnored private let lanes: AgentLaneStore
     @ObservationIgnored private var host: Host?
-    @ObservationIgnored private var statusWatch: Task<Void, Never>?
+    /// The app's one main-thread scheduler, from ``bind(into:host:mainWork:)``.
+    @ObservationIgnored private var mainWork: MainWorkScheduler?
+    @ObservationIgnored private var statusWatch: ServiceObservation<Status>?
     /// The subagent sessions a click is opening a workspace for: a second click waits for that one.
     @ObservationIgnored private var opening: Set<String> = []
 
@@ -106,10 +109,12 @@ public final class ChiefSidebar {
         return removed
     }
 
-    /// Binds Open Chief, Open Chief Subagent and the fold, and starts following the lanes into `status`.
-    public func bind(into registry: ActionRegistry, host: Host) {
+    /// Binds Open Chief, Open Chief Subagent and the fold, and starts following the lanes into `status`
+    /// on `mainWork`, the app's one main-thread scheduler.
+    public func bind(into registry: ActionRegistry, host: Host, mainWork: MainWorkScheduler) {
         self.host = host
-        watch()
+        self.mainWork = mainWork
+        watch(on: mainWork)
         registry.bind(Self.openAction, invoke: { [weak self, weak registry] invocation in
             guard let registry else { return }
             self?.openChief(registry, origin: invocation.origin)
@@ -121,14 +126,14 @@ public final class ChiefSidebar {
             guard let self, let registry else { return }
             // No subagent row (its shortcut, `cmux action run` without --target): say so, never a silent no-op.
             guard let target = invocation.target else { return registry.refuse(ChiefToolStrings.noSubagent) }
-            if target.kind != .sidebarItem || !activate(LayoutItemID(target.id), registry: registry) {
+            if target.kind != .sidebarItem || !activate(LayoutItemID(target.id), registry: registry, as: invocation.completionClass) {
                 registry.refuseNotFound(ChiefToolStrings.noSubagent)
             }
         })
         // The docked Home's Messages view (the Chief's chat) shows its tools in the pane's tab row.
         HomeDockSwitchView.makeRowTools = { [weak self, weak registry] mode in
             guard mode == .messages, let self, let registry else { return nil }
-            return ChiefPaneTools(chief: self, registry: registry)
+            return ChiefPaneTools(chief: self, registry: registry, mainWork: mainWork)
         }
         // The App Store's Chief in Sidebar card: Get is Add to Sidebar, Remove takes every Chief item out.
         let chief = SidebarBuiltIn.chief.rawValue
@@ -145,21 +150,26 @@ public final class ChiefSidebar {
     }
 
     /// Runs a click on a subagent row; false for any other item.
-    public func activate(_ id: LayoutItemID, registry: ActionRegistry) -> Bool {
+    ///
+    /// - Parameter workClass: The class of the reveal once a new workspace exists: `userBlocking` for the
+    ///   person's click (the default), the run's completion class for an action run.
+    public func activate(_ id: LayoutItemID, registry: ActionRegistry, as workClass: BudgetedWorkClass = .userBlocking) -> Bool {
         guard let session = SidebarTransientItem.chiefSubagentSession(id) else { return false }
-        openSubagent(session, registry: registry)
+        openSubagent(session, registry: registry, as: workClass)
         return true
     }
 
-    private func watch() {
+    /// Follows the Chief's lanes into `status`, which the sidebar's item and the pane tools read: a
+    /// service observation (it writes the model, with or without a sidebar on screen). `visible`: an
+    /// agent's step shows on the item; nobody's input waits on it.
+    private func watch(on mainWork: MainWorkScheduler) {
         guard statusWatch == nil else { return }
         let lanes = lanes
-        // task-owner: this instance (the app-lifetime `shared`); event-driven (Observation)
-        statusWatch = Task { [weak self] in
-            for await next in ObservationStream({ Status(SidebarTransientItem.chiefStatus(lanes: lanes.lanes.values)) }) {
-                guard let self else { return }
-                if status != next { status = next }
-            }
+        statusWatch = ServiceObservation(.visible, owner: "ChiefSidebar.status", on: mainWork) {
+            Status(SidebarTransientItem.chiefStatus(lanes: lanes.lanes.values))
+        } apply: { [weak self] next in
+            guard let self, status != next else { return }
+            status = next
         }
     }
 
@@ -174,8 +184,8 @@ public final class ChiefSidebar {
 
     /// The tab that shows the subagent's chat (the workspace its spawn opened), else a new
     /// workspace on it in the Chief home's acpmux, shown once it is made.
-    private func openSubagent(_ session: String, registry: ActionRegistry) {
-        guard let host, let chiefHost = host.chiefHost() else { return }
+    private func openSubagent(_ session: String, registry: ActionRegistry, as workClass: BudgetedWorkClass) {
+        guard let host, let mainWork, let chiefHost = host.chiefHost() else { return }
         if let shown = host.tab(session, chiefHost), host.reveal(shown) { return }
         guard !opening.contains(session) else { return }
         let work: ActionWork
@@ -186,12 +196,21 @@ public final class ChiefSidebar {
         }
         opening.insert(session)
         registry.track(work)
-        // task-owner: one open; ends with the workspace's work
-        Task { [weak self] in
-            defer { self?.opening.remove(session) }
-            guard await work.value == nil, let tab = host.tab(session, chiefHost) else { return }
-            _ = host.reveal(tab)
+        // task-owner: one open; ends with the workspace's work. The wait is off main; the reveal is the rest of
+        // the click, one task in its class.
+        Task { @concurrent [weak self] in
+            let made = await work.value == nil
+            await mainWork.apply(workClass, owner: "ChiefSidebar.revealSubagent") { [weak self] () -> Void in
+                self?.subagentOpened(session, made: made, chiefHost: chiefHost)
+            }
         }
+    }
+
+    /// The new workspace's work for `session` ended: shows its tab when it was made.
+    private func subagentOpened(_ session: String, made: Bool, chiefHost: String) {
+        opening.remove(session)
+        guard made, let host, let tab = host.tab(session, chiefHost) else { return }
+        _ = host.reveal(tab)
     }
 }
 
