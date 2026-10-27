@@ -11,6 +11,12 @@ const WRITE = /^(?:write|write_file|writefile|create_file)(?:[\s:]|$)/i;
 const PARTIAL_EDIT = /^(?:edit|multiedit|replace|replace_in_file|edit_file)(?:[\s:]|$)/i;
 
 type RecordedInput = Record<string, unknown>;
+type Diff = NonNullable<Tool["diffs"]>[number];
+type PathIndex = {
+  canonicalByRawPath: Map<string, string>;
+  diffCanonicalKeys: Set<string>;
+};
+type AddedProvenance = { rawPaths: Set<string>; canonicalKeys: Set<string> };
 
 function inputRecord(summary: string | undefined): RecordedInput | undefined {
   if (!summary) return undefined;
@@ -23,12 +29,31 @@ function inputRecord(summary: string | undefined): RecordedInput | undefined {
   }
 }
 
-function isCompleteAddedDiff(tool: Tool, diff: NonNullable<Tool["diffs"]>[number], input: RecordedInput): boolean {
-  if (diff.oldText != null || diff.fragment || diff.fromInput) return false;
+function pathIndex(tool: Tool, diffs: readonly Diff[]): PathIndex {
+  const canonicalByRawPath = new Map<string, string>();
+  const diffCanonicalKeys = new Set<string>();
+  for (const diff of diffs) {
+    if (diff.canonical === undefined) continue;
+    diffCanonicalKeys.add(diff.canonical);
+    if (!canonicalByRawPath.has(diff.path)) canonicalByRawPath.set(diff.path, diff.canonical);
+  }
+  for (const location of tool.locations ?? []) {
+    if (HTML_FILE.test(location.path) && location.canonical !== undefined && !canonicalByRawPath.has(location.path))
+      canonicalByRawPath.set(location.path, location.canonical);
+  }
+  const input = tool.inputPath;
+  if (input && HTML_FILE.test(input.path) && !canonicalByRawPath.has(input.path))
+    canonicalByRawPath.set(input.path, input.canonical);
+  return { canonicalByRawPath, diffCanonicalKeys };
+}
+
+function addedProvenance(input: RecordedInput, index: PathIndex): AddedProvenance {
+  const rawPaths = new Set<string>();
+  const canonicalKeys = new Set<string>();
   const changes = input.changes;
-  if (!Array.isArray(changes)) return false;
-  return changes.some((value) => {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  if (!Array.isArray(changes)) return { rawPaths, canonicalKeys };
+  for (const value of changes) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
     const change = value as Record<string, unknown>;
     const path = change.path;
     const additions = change.additions;
@@ -36,17 +61,26 @@ function isCompleteAddedDiff(tool: Tool, diff: NonNullable<Tool["diffs"]>[number
     if (
       typeof path !== "string" ||
       !path ||
+      !HTML_FILE.test(path) ||
       change.type !== "add" ||
       !Number.isInteger(additions) ||
       (additions as number) < 0 ||
       deletions !== 0
     )
-      return false;
-    // The summary path must identify this exact recorded file. A canonical spelling is accepted
-    // only when mergeToolItem already normalized it on the diff or one of the call's locations.
-    const changeKey = pathKey({ path, canonical: toolCanonical(tool, path) });
-    return path === diff.path || changeKey === pathKey(diff);
-  });
+      continue;
+    rawPaths.add(path);
+    const canonical = index.canonicalByRawPath.get(path);
+    if (canonical !== undefined) canonicalKeys.add(canonical);
+    else if (index.diffCanonicalKeys.has(path)) canonicalKeys.add(path);
+  }
+  return { rawPaths, canonicalKeys };
+}
+
+function isCompleteAddedDiff(diff: Diff, provenance: AddedProvenance): boolean {
+  if (diff.oldText != null || diff.fragment || diff.fromInput) return false;
+  return (
+    provenance.rawPaths.has(diff.path) || (diff.canonical !== undefined && provenance.canonicalKeys.has(diff.canonical))
+  );
 }
 
 export function toolArtifacts(tool: Tool): Artifact[] {
@@ -57,15 +91,17 @@ export function toolArtifacts(tool: Tool): Artifact[] {
   const seen = new Set<string>();
   const input = inputRecord(tool.inputSummary);
   const partialEdit = PARTIAL_EDIT.test(tool.title);
+  const diffs = (tool.diffs ?? []).filter((diff) => HTML_FILE.test(diff.path));
+  const provenance = partialEdit && input ? addedProvenance(input, pathIndex(tool, diffs)) : undefined;
   const add = (file: { path: string; canonical?: string }, code: string) => {
     const path = pathKey(file);
     if (!HTML_FILE.test(file.path) || !code.trim() || seen.has(path)) return;
     seen.add(path);
     found.push({ kind: "html", lang: "html", code, path });
   };
-  for (const diff of tool.diffs ?? []) {
+  for (const diff of diffs) {
     const wholeDiff = !diff.fragment || (diff.fromInput && diff.oldText == null);
-    const completeAddedDiff = partialEdit && input ? isCompleteAddedDiff(tool, diff, input) : false;
+    const completeAddedDiff = provenance ? isCompleteAddedDiff(diff, provenance) : false;
     if ((!partialEdit && wholeDiff) || completeAddedDiff) add(diff, diff.newText);
   }
 
