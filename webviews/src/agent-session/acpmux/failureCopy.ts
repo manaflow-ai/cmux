@@ -43,8 +43,10 @@ const INVALID_KEY =
 const SUBSCRIPTION =
   /not logged in|login required|please (?:run )?\/login|(?:claude|codex) (?:auth )?login|oauth token (?:has )?expired|session (?:has )?expired|refresh token|invalid_grant|sign(?:ed)? ?in again/i;
 const AUTH = /\b40[13]\b|unauthori[sz]ed|forbidden|authenticat|\boauth\b/i;
-const MISSING_CREDENTIAL = /(?:provider )?credentials? (?:is |are )?(?:missing|not configured|not set)|no provider credentials?/i;
-const EXPIRED_CREDENTIAL = /(?:credential|token|session).{0,24}(?:expired|revoked)|(?:expired|revoked).{0,24}(?:credential|token|session)/i;
+const MISSING_CREDENTIAL =
+  /(?:provider )?credentials? (?:is |are )?(?:missing|not configured|not set)|no provider credentials?/i;
+const EXPIRED_CREDENTIAL =
+  /(?:credential|token|session).{0,24}(?:expired|revoked)|(?:expired|revoked).{0,24}(?:credential|token|session)/i;
 /// A full disk, here or on the chat's machine: before every other kind, since what it broke (a
 /// write, a socket, the agent) reads as that kind too.
 const DISK_FULL = /ENOSPC|no space left on device|disk (?:is )?full|out of disk space|disk quota exceeded|EDQUOT/i;
