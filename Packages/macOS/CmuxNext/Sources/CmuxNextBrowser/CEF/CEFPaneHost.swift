@@ -64,7 +64,7 @@ final class CEFPaneHost {
         self.contextMenus = contextMenus
         hostView.liveResizeWillStart = { [weak self] in self?.visibleTab?.samplePageBackdrop() }
         hostView.fileDrag.target = { [weak self] in self?.visibleTab }
-        // A popup window keeps its own window until its hosting is verified (p03-rendering-056).
+        // A popup host's page window hosts or attaches only on a fork that does it for popups (`CEFLayerHosting.Fork`).
         hostView.layerHosting.widget = isPopupHost ? .popup : .page
     }
 
@@ -201,6 +201,7 @@ final class CEFPaneHost {
     func conceal(_ tab: CEFTab) {
         lifecycleTrace.record(tab.id, "host-conceal wasShown=\(visibleTab === tab)")
         guard visibleTab === tab else { return }
+        hostedPageView?.exclusiveAccess.showing(nil) // a hidden page's fullscreen and locks end, as Chrome's (task 229)
         visibleTab = nil
         suggestionsFollowShownBrowser(nil)
     }
@@ -240,7 +241,7 @@ final class CEFPaneHost {
     /// (`createAfterMachineProxy`), so a new window does not ask again.
     @discardableResult
     func ensureCreated(_ tab: CEFTab, machineProxyApplied: Bool = false) -> Bool {
-        guard tab.browserID == nil, tab.isCreationPending == false, runtime.acceptsNewBrowsers, let shim = runtime.shim else { return false }
+        guard tab.browserID == nil, !tab.isCreationPending, !tab.awaitsHostRestore, runtime.acceptsNewBrowsers, let shim = runtime.shim else { return false }
         switch window {
         case .none:
             // A browser profile's own proxy (#24432), before the first request:
@@ -443,6 +444,9 @@ final class CEFPaneHost {
     }
 
     func removed(_ tab: CEFTab) {
+        // A closed page's fullscreen zoom, locks and hidden cursor end with it (task 229); a moved one exits its own.
+        if tab.isClosed || tab.browserID == nil { tab.contentFullscreenEnded() }
+        if visibleTab === tab { hostedPageView?.exclusiveAccess.showing(nil) }
         tabs.removeAll { $0 === tab }
         if windowTab === tab { windowTab = nil }
         if visibleTab === tab { visibleTab = nil }

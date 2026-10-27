@@ -45,9 +45,9 @@ pub(super) struct RequestHead<'a> {
     /// answered by the resource router whatever its other members say.
     protocol: bool,
     /// The `stream` member as written: the stream a request runs on.
-    stream: Option<Cow<'a, RawValue>>,
+    stream: Option<&'a RawValue>,
     /// The `params` member as written, for the one handler that decodes it.
-    params: Option<Cow<'a, RawValue>>,
+    params: Option<&'a RawValue>,
 }
 
 impl<'a> RequestHead<'a> {
@@ -55,33 +55,16 @@ impl<'a> RequestHead<'a> {
         crate::line_parses::parse::<Self>(message).unwrap_or_default()
     }
 
-    /// The head with every member it borrows from the line copied, so it
-    /// goes with the line to the connection's control sequence and the
-    /// handler there reads it without a second parse (p05-ipc-086).
-    pub(super) fn into_owned(self) -> RequestHead<'static> {
-        let owned = |text: Option<Cow<'a, str>>| text.map(|text| Cow::Owned(text.into_owned()));
-        let raw = |raw: Option<Cow<'a, RawValue>>| raw.map(|raw| Cow::Owned(raw.into_owned()));
-        RequestHead {
-            parsed: self.parsed,
-            id: self.id,
-            cmd: owned(self.cmd),
-            operation: owned(self.operation),
-            protocol: self.protocol,
-            stream: raw(self.stream),
-            params: raw(self.params),
-        }
-    }
-
     /// The line's `stream` member, unread.
     #[cfg_attr(not(test), expect(dead_code, reason = "read by the typed handlers of 063-070"))]
-    pub(super) fn stream(&self) -> Option<&RawValue> {
-        self.stream.as_deref()
+    pub(super) fn stream(&self) -> Option<&'a RawValue> {
+        self.stream
     }
 
     /// The line's `params` member, unread.
     #[cfg_attr(not(test), expect(dead_code, reason = "read by the typed handlers of 063-070"))]
-    pub(super) fn params(&self) -> Option<&RawValue> {
-        self.params.as_deref()
+    pub(super) fn params(&self) -> Option<&'a RawValue> {
+        self.params
     }
 
     /// The line's `cmd`, when it is a string.
@@ -114,6 +97,23 @@ impl<'a> RequestHead<'a> {
     /// a feature route by its `cmd`.
     pub(super) fn method(&self) -> RequestMethod {
         self.command_method().unwrap_or_else(|| RequestMethod::routed(self.cmd()))
+    }
+
+    /// The head with its routing members owned, for a line handed to
+    /// another thread with its text (`connection_frame::post_line`), so the
+    /// line is not parsed twice. `params` and `stream` are left out: no
+    /// handler reads them from the head (only the head's own tests do); a
+    /// handler that needs them decodes the line.
+    pub(super) fn into_owned(self) -> RequestHead<'static> {
+        RequestHead {
+            parsed: self.parsed,
+            id: self.id,
+            cmd: self.cmd.map(|cmd| Cow::Owned(cmd.into_owned())),
+            operation: self.operation.map(|operation| Cow::Owned(operation.into_owned())),
+            protocol: self.protocol,
+            stream: None,
+            params: None,
+        }
     }
 
     pub(super) fn open<'s>(
@@ -149,8 +149,8 @@ impl<'de> Visitor<'de> for HeadVisitor {
                 "id" => head.id = map.next_value::<Option<Value>>()?,
                 "cmd" => head.cmd = map.next_value::<Member<'de>>()?.text(),
                 "operation" => head.operation = map.next_value::<Member<'de>>()?.text(),
-                "stream" => head.stream = Some(Cow::Borrowed(map.next_value::<&'de RawValue>()?)),
-                "params" => head.params = Some(Cow::Borrowed(map.next_value::<&'de RawValue>()?)),
+                "stream" => head.stream = Some(map.next_value::<&'de RawValue>()?),
+                "params" => head.params = Some(map.next_value::<&'de RawValue>()?),
                 "protocol" => {
                     map.next_value::<IgnoredAny>()?;
                     head.protocol = true;

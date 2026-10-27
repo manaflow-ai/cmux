@@ -15,9 +15,8 @@
 //! Recording is a relaxed atomic add, as `base/metrics/histogram_macros.h`
 //! records; nothing here allocates or locks.
 
-use std::cell::RefCell;
+use std::cell::Cell;
 use std::io::{self, Write};
-use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -63,14 +62,6 @@ impl KindCounter {
 struct ParseCounter {
     requests: AtomicU64,
     json_parses: AtomicU64,
-}
-
-impl ParseCounter {
-    /// One request ended after `parses` JSON parses.
-    fn count(&self, parses: u64) {
-        self.requests.fetch_add(1, Ordering::Relaxed);
-        self.json_parses.fetch_add(parses, Ordering::Relaxed);
-    }
 }
 
 /// Every IPC counter of one daemon, over the connections of every transport.
@@ -141,13 +132,13 @@ impl IpcStats {
 
     /// A frame of `kind` arrived; `bytes` counts its header and payload.
     pub fn frame_received(&self, kind: FrameKind, bytes: usize) {
-        self.received[usize::from(kind.wire())].add(bytes);
+        frame_slot(&self.received, kind).add(bytes);
     }
 
     /// A frame of `kind` went to the writer; `bytes` counts its header and
     /// payload.
     pub fn frame_sent(&self, kind: FrameKind, bytes: usize) {
-        self.sent[usize::from(kind.wire())].add(bytes);
+        frame_slot(&self.sent, kind).add(bytes);
         self.messages_written.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -156,7 +147,8 @@ impl IpcStats {
         self.bad_message.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// `writer`, with each `write` call (one syscall on a socket) counted
+    /// `writer`, with each `write` or `write_vectored` call (one syscall on
+    /// a socket) counted
     /// and timed against [`WRITE_STALL_THRESHOLD`].
     pub fn counted<'a, W: Write + ?Sized>(&'a self, writer: &'a mut W) -> CountedWrite<'a, W> {
         CountedWrite { stats: self, inner: writer }
@@ -207,6 +199,15 @@ fn kind_name(slot: usize) -> Option<&'static str> {
     u8::try_from(slot).ok().and_then(FrameKind::from_wire).map(FrameKind::name)
 }
 
+/// The counter of a frame kind: the slot of its wire value.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "INVARIANT: each FrameKind wire value is below KIND_SLOTS (ipc_tests records ALL)"
+)]
+fn frame_slot(counters: &[KindCounter; KIND_SLOTS], kind: FrameKind) -> &KindCounter {
+    &counters[usize::from(kind.wire())]
+}
+
 fn kinds_snapshot(counters: &[KindCounter; KIND_SLOTS]) -> Vec<IpcKindSnapshot> {
     counters
         .iter()
@@ -246,14 +247,30 @@ pub struct CountedWrite<'a, W: Write + ?Sized> {
     inner: &'a mut W,
 }
 
-impl<W: Write + ?Sized> Write for CountedWrite<'_, W> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let started = Instant::now();
-        let written = self.inner.write(buf);
+impl<W: Write + ?Sized> CountedWrite<'_, W> {
+    /// One write call that began at `started`, a stall when it took
+    /// [`WRITE_STALL_THRESHOLD`] or longer.
+    fn count_call(&self, started: Instant) {
         self.stats.write_syscalls.fetch_add(1, Ordering::Relaxed);
         if started.elapsed() >= WRITE_STALL_THRESHOLD {
             self.stats.write_stalls.fetch_add(1, Ordering::Relaxed);
         }
+    }
+}
+
+impl<W: Write + ?Sized> Write for CountedWrite<'_, W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let started = Instant::now();
+        let written = self.inner.write(buf);
+        self.count_call(started);
+        written
+    }
+
+    /// Forwarded whole, so a socket gathers the buffers in one `writev`.
+    fn write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
+        let started = Instant::now();
+        let written = self.inner.write_vectored(bufs);
+        self.count_call(started);
         written
     }
 
@@ -262,20 +279,10 @@ impl<W: Write + ?Sized> Write for CountedWrite<'_, W> {
     }
 }
 
-/// The request scope open on a thread: its parses so far and the counter
-/// it ends in.
-struct OpenParseScope {
-    parses: u64,
-    counter: Arc<ParseCounter>,
-    /// Its request moved to another thread ([`hand_off_json_parses`]),
-    /// which counts it; the end of this scope counts nothing.
-    handed_off: bool,
-}
-
 thread_local! {
-    /// The request message this thread is handling, while a
+    /// JSON parses of the request message this thread is handling, while a
     /// [`JsonParseScope`] is open on it; `None` outside one.
-    static JSON_PARSES: RefCell<Option<OpenParseScope>> = const { RefCell::new(None) };
+    static JSON_PARSES: Cell<Option<u64>> = const { Cell::new(None) };
 }
 
 /// Count one JSON parse of a request message's bytes toward the request
@@ -283,81 +290,76 @@ thread_local! {
 /// that dispatches in process, the WebSocket authentication message) it
 /// counts nothing, so no parse carries over into a later request.
 pub(crate) fn note_json_parse() {
-    JSON_PARSES.with_borrow_mut(|scope| {
-        if let Some(scope) = scope {
-            scope.parses = scope.parses.wrapping_add(1);
+    JSON_PARSES.with(|parses| {
+        if let Some(count) = parses.get() {
+            parses.set(Some(count.wrapping_add(1)));
         }
     });
 }
 
 /// One request message from arrival to its answer or dispatch, entered by
 /// the connection loop that read it: when it ends it counts as one request
-/// of its transport, with the parses noted on this thread inside it. A
-/// request handed to another thread ([`hand_off_json_parses`]) counts
-/// there instead. Not `Send`: it ends on the thread it began.
+/// of its transport, with the parses noted on this thread inside it.
 pub struct JsonParseScope<'a> {
-    /// The scope this one is nested in, restored when it ends.
-    outer: Option<OpenParseScope>,
-    _stats: PhantomData<&'a IpcStats>,
-    _not_send: PhantomData<*const ()>,
+    counter: Arc<ParseCounter>,
+    /// The count of a scope this one is nested in, restored when it ends.
+    outer: Option<u64>,
+    /// The counter of that scope, restored when this one ends.
+    outer_counter: Option<Arc<ParseCounter>>,
+    /// False for [`Self::resume`]: the request was counted where it began.
+    counts_request: bool,
+    _stats: std::marker::PhantomData<&'a IpcStats>,
 }
+
+thread_local! {
+    /// The counter of the innermost [`JsonParseScope`] on this thread.
+    static ACTIVE_COUNTER: std::cell::RefCell<Option<Arc<ParseCounter>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The request a [`JsonParseScope`] counts, handed to another thread that
+/// finishes it ([`JsonParseScope::handoff`], [`JsonParseScope::resume`]).
+#[derive(Clone)]
+pub struct JsonParseHandoff(Option<Arc<ParseCounter>>);
 
 impl<'a> JsonParseScope<'a> {
     pub fn enter(stats: &'a IpcStats, transport: IpcTransport) -> Self {
-        Self::open(stats.parses(transport).clone(), 0)
+        Self::open(stats.parses(transport).clone(), true)
     }
 
-    fn open(counter: Arc<ParseCounter>, parses: u64) -> Self {
-        let open = OpenParseScope { parses, counter, handed_off: false };
-        let outer = JSON_PARSES.with_borrow_mut(|scope| scope.replace(open));
-        Self { outer, _stats: PhantomData, _not_send: PhantomData }
+    fn open(counter: Arc<ParseCounter>, counts_request: bool) -> Self {
+        let outer = JSON_PARSES.with(|parses| parses.replace(Some(0)));
+        let outer_counter =
+            ACTIVE_COUNTER.with(|active| active.borrow_mut().replace(counter.clone()));
+        Self { counter, outer, outer_counter, counts_request, _stats: std::marker::PhantomData }
+    }
+
+    /// The request this thread's innermost scope counts, for the thread
+    /// that finishes it (a line the reader hands to its connection's
+    /// request sequence). Empty outside a scope.
+    pub fn handoff() -> JsonParseHandoff {
+        JsonParseHandoff(ACTIVE_COUNTER.with(|active| active.borrow().clone()))
+    }
+}
+
+impl JsonParseScope<'static> {
+    /// The rest of a request whose scope began on another thread: its
+    /// parses count toward that scope's transport, and the request is not
+    /// counted again. Counts nothing for an empty handoff.
+    pub fn resume(handoff: JsonParseHandoff) -> Option<Self> {
+        handoff.0.map(|counter| Self::open(counter, false))
     }
 }
 
 impl Drop for JsonParseScope<'_> {
     fn drop(&mut self) {
-        let outer = self.outer.take();
-        let ended = JSON_PARSES.with_borrow_mut(|scope| std::mem::replace(scope, outer));
-        if let Some(ended) = ended.filter(|ended| !ended.handed_off) {
-            ended.counter.count(ended.parses);
+        let parses = JSON_PARSES.with(|parses| parses.replace(self.outer)).unwrap_or(0);
+        let outer = self.outer_counter.take();
+        let _ = ACTIVE_COUNTER.try_with(|active| *active.borrow_mut() = outer);
+        if self.counts_request {
+            self.counter.requests.fetch_add(1, Ordering::Relaxed);
         }
-    }
-}
-
-/// Hands the request of this thread's open [`JsonParseScope`] to the thread
-/// that answers it (a line queued on its connection's control sequence):
-/// that thread counts it, with the parses made here so far, so the request
-/// still counts once. `None` outside a scope.
-pub(crate) fn hand_off_json_parses() -> Option<JsonParseHandoff> {
-    JSON_PARSES.with_borrow_mut(|scope| {
-        let scope = scope.as_mut().filter(|scope| !scope.handed_off)?;
-        scope.handed_off = true;
-        Some(JsonParseHandoff { counter: Some(scope.counter.clone()), parses: scope.parses })
-    })
-}
-
-/// A request's parse count on its way to the thread that answers it. A
-/// request that never gets there (its connection closed while it was
-/// queued) counts when this drops.
-pub(crate) struct JsonParseHandoff {
-    counter: Option<Arc<ParseCounter>>,
-    parses: u64,
-}
-
-impl JsonParseHandoff {
-    /// Opens the request's scope again on this thread with its parses so
-    /// far; the scope counts the request when it ends.
-    pub(crate) fn resume(mut self) -> JsonParseScope<'static> {
-        let counter = self.counter.take().unwrap_or_default();
-        JsonParseScope::open(counter, self.parses)
-    }
-}
-
-impl Drop for JsonParseHandoff {
-    fn drop(&mut self) {
-        if let Some(counter) = self.counter.take() {
-            counter.count(self.parses);
-        }
+        self.counter.json_parses.fetch_add(parses, Ordering::Relaxed);
     }
 }
 

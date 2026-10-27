@@ -9,7 +9,9 @@
 //!   `CanLowerNiceTo`), and put back at the end; raising nice needs no
 //!   privilege. Otherwise the override is refused.
 //!
-//! Every call takes a [`Target`] the caller guarantees is alive.
+//! Every start takes a [`Target`] the caller guarantees is alive. Only a
+//! macOS override may end after its target exited
+//! ([`ENDS_AFTER_TARGET_EXITS`]).
 
 use crate::qos::ThreadQos;
 use crate::registry;
@@ -20,11 +22,18 @@ pub(crate) fn current_class() -> Option<ThreadQos> {
     registry::with_current(registry::Row::class)
 }
 
-pub(crate) use sys::{Override, Target, end, raise, start, target_self};
+pub(crate) use sys::{Override, Target, end, raise, start, target_of, target_self};
+
+/// True when an override may end after its target thread exited: macOS,
+/// whose token keeps a send right to the thread's port (libpthread
+/// `pthread_override_qos_class_start_np`), so the end is a refused no-op. A
+/// Linux end would set the nice value of whatever thread has the tid then.
+pub(crate) const ENDS_AFTER_TARGET_EXITS: bool = cfg!(target_vendor = "apple");
 
 #[cfg(target_vendor = "apple")]
 mod sys {
     use crate::qos::ThreadQos;
+    use crate::registry::NativeThread;
 
     unsafe extern "C" {
         fn pthread_override_qos_class_start_np(
@@ -52,6 +61,11 @@ mod sys {
     pub(crate) fn target_self() -> Target {
         // SAFETY: pthread_self has no preconditions.
         Target { pthread: unsafe { libc::pthread_self() } as usize }
+    }
+
+    /// A registered thread.
+    pub(crate) fn target_of(thread: &NativeThread) -> Target {
+        Target { pthread: thread.pthread() as usize }
     }
 
     /// Raises `target` to at least `qos`; `None` when the kernel refused.
@@ -93,6 +107,7 @@ mod sys {
 
     use crate::qos::ThreadQos;
     use crate::qos::sys::{may_lower_nice_to, nice_of};
+    use crate::registry::NativeThread;
 
     /// A thread an override can raise, recorded by the thread itself.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -122,6 +137,11 @@ mod sys {
             cached.get()
         });
         Target { tid: cached.unwrap_or_else(|_| crate::registry::current_tid()) }
+    }
+
+    /// A registered thread.
+    pub(crate) fn target_of(thread: &NativeThread) -> Target {
+        Target { tid: thread.tid() }
     }
 
     /// Lowers `tid`'s nice value to `qos`'s when it is higher: `Some(before)`
@@ -179,6 +199,10 @@ mod sys {
     pub(crate) struct Override;
 
     pub(crate) fn target_self() -> Target {
+        Target
+    }
+
+    pub(crate) fn target_of(_thread: &crate::registry::NativeThread) -> Target {
         Target
     }
 

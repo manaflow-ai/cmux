@@ -33,6 +33,7 @@ final class ChiefPetBadge: NSView {
         layer?.cornerRadius = bounds.height / 2
     }
 
+    // visibility-walk-allow: the badge's layer fill and its label's text color in the pet's own panel, no layout pass; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         recolor()

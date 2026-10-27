@@ -344,7 +344,7 @@ Each queue is printed by `python3 scripts/cmux-next/ipc-census.py --queue QN` as
 `--record` writes base counts to plans/cmux-next/ipc-targets.json. The raw query is given so a reviewer can
 check it.
 
-- Q1 hand-written Swift commands (tasks 030-043): `git grep -n -E 'static (let|var) command(: String)? = "' -- Packages/macOS/CmuxNext/Sources ':!*.generated.swift'`, grouped by directory. 235 at base. `--callers <dir>` lists call-site files.
+- Q1 hand-written Swift commands (tasks 030-043): `git grep -n -E 'static (let|var) command(Name)?(: (String|DaemonCommandName))? = "' -- Packages/macOS/CmuxNext/Sources ':!*.generated.swift'`, grouped by directory (a `DaemonRequest` declares `commandName: DaemonCommandName`; the first form of the query, without `Name`, missed every one of them). 235 at base; `ipc-census.py --record` keeps the current count in ipc-targets.json. `--callers <dir>` lists call-site files.
 - Q2 daemon sniffers (063-070): `git grep -n 'fn try_handle' -- cmux-tui/crates/cmux-tui-core/src/server`. 16.
 - Q3 F10 receipt waits (121-126, 134): today's wrapper pattern `\.commit_terminal\(|commit_workspace_registry\(|commit_effect_intent\(|\.send_durable(_until)?\(|\.send_producer\(` (17) plus direct callers `commit_registry_intent(_with)?\(` and `flush_terminal_journal\(` outside their definitions, excluding tests.
 - Q4 side connections (095, 100-105, 108, 151): multi-line scan for `LineTransport(path:` and `DaemonConnection(` (with the argument on the same or next line), plus `NWConnection(to: .unix`, raw `connect(` to daemon sockets, and `DaemonBridge.open`; minus the allowlist.

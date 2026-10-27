@@ -25,25 +25,14 @@ const HANDOFF_P50: Duration = Duration::from_millis(2);
 /// The v2 operation whose handler runs [`HOLD`] and answers `{}`.
 const HELD_OPERATION: &str = "test.held";
 
-/// The v2 operation whose handler answers with the request classes its
-/// thread (the connection's dispatcher) entered since the last one.
-const QOS_ENTERED_OPERATION: &str = "test.qos_entered";
-
 /// The test operation routes (server/routes.rs `OPERATION_ROUTES`): a v2
 /// handler that is really slow without a blocking call the detector
-/// refuses on a request thread, and one that reports its thread's classes.
-pub(in crate::server) const OPERATION_ROUTES: &[OperationRoute] = &[
-    OperationRoute {
-        names: |operation| operation == HELD_OPERATION,
-        stage: FrameStage::PageRouter,
-        entry: held,
-    },
-    OperationRoute {
-        names: |operation| operation == QOS_ENTERED_OPERATION,
-        stage: FrameStage::PageRouter,
-        entry: qos_entered,
-    },
-];
+/// refuses on a request thread.
+pub(in crate::server) const OPERATION_ROUTES: &[OperationRoute] = &[OperationRoute {
+    names: |operation| operation == HELD_OPERATION,
+    stage: FrameStage::PageRouter,
+    entry: held,
+}];
 
 fn held(line: &RouteLine<'_>) -> Option<bool> {
     let value: Value = crate::line_parses::parse(line.message).ok()?;
@@ -51,42 +40,6 @@ fn held(line: &RouteLine<'_>) -> Option<bool> {
     let reply = json!({"protocol":"cmux.protocol/2","type":"response","id":value["id"],
         "ok":true,"result":{}});
     Some(line.writer.send_control(&reply).is_ok())
-}
-
-fn qos_entered(line: &RouteLine<'_>) -> Option<bool> {
-    let value: Value = crate::line_parses::parse(line.message).ok()?;
-    let entered: Vec<u8> =
-        crate::request_qos::tests::take_entered().into_iter().map(|class| class as u8).collect();
-    let reply = json!({"protocol":"cmux.protocol/2","type":"response","id":value["id"],
-        "ok":true,"result":{"entered":entered}});
-    Some(line.writer.send_control(&reply).is_ok())
-}
-
-/// The request classes the connection's dispatcher entered since the last
-/// call (crate::request_qos), as it ran the lines before; the report's own
-/// line adds its connection's class last. Lines ahead of the report's reply
-/// on `outbound` are dropped.
-pub(in crate::server) fn dispatcher_entered(
-    mux: &Arc<Mux>,
-    client: u64,
-    writer: &MessageWriter,
-    scheduler: &Arc<ConnectionSurfaceScheduler>,
-    outbound: &BoundedOutbound,
-) -> Vec<cmux_threads::ThreadQos> {
-    let line = v2("qos-entered", QOS_ENTERED_OPERATION, json!({}));
-    assert!(handle_connection_frame(mux, client, ClientTransport::Unix, &line, writer, scheduler));
-    let reply = std::iter::from_fn(|| outbound.try_pop())
-        .map(|text| serde_json::from_str::<Value>(&text).expect("a JSON reply"))
-        .find(|reply| reply["id"] == "qos-entered")
-        .expect("the report's reply");
-    let class = |raw: &Value| {
-        let raw = raw.as_u64().expect("a class");
-        cmux_threads::ThreadQos::ALL
-            .into_iter()
-            .find(|class| *class as u64 == raw)
-            .unwrap_or_else(|| panic!("no class {raw}"))
-    };
-    reply["result"]["entered"].as_array().expect("entered").iter().map(class).collect()
 }
 
 /// Holds the mux state lock for `hold` on another thread.

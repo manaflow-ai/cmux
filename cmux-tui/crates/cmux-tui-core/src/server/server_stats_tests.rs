@@ -136,10 +136,7 @@ fn request_path_a_frame_runs_its_handler_in_the_daemon_scope() {
     let reply: Value = serde_json::from_str(&outbound.try_pop().expect("a reply")).unwrap();
     assert!(reply["result"].is_array(), "a synchronous v2 reply: {reply}");
     let (runs_after, sqlite_after) = request_path_counts(&mux);
-    // The reader's scope while it sequences the line and the handler's on
-    // the connection's control sequence, as for a queued `Command`
-    // (p05-ipc-086).
-    assert_eq!(runs_after, runs + 2, "the reader's scope and the handler's");
+    assert_eq!(runs_after, runs + 1, "one frame, one outermost scope");
     assert!(sqlite_after > sqlite, "workspace.list reads the registry in the frame scope");
 }
 
@@ -157,6 +154,7 @@ fn request_path_a_queued_request_runs_in_the_daemon_scope() {
         frame_call: None,
         retained_bytes: 0,
         _bytes_permit: mux.surface_operation_admission.try_reserve_bytes(0).expect("permit"),
+        stream_barrier: None,
     };
     let (runs, sqlite) = request_path_counts(&mux);
     assert!(run_pending_request(&scheduler, &mux, client, pending, &writer));
@@ -226,6 +224,36 @@ fn server_stats_include_reports_slow_requests() {
     assert_eq!(section["hang_ms"], json!(2000), "{full}");
     assert_eq!(section["hangs"], json!(0), "{full}");
     assert_eq!(section["recent"], json!([]), "{full}");
+}
+
+#[test]
+fn server_stats_include_reports_hangs() {
+    use std::time::{Duration, Instant};
+    let mux = Mux::new_for_test("server-stats-hangs", crate::SurfaceOptions::default());
+    let client = mux.control_clients.register(ClientTransport::Unix, writer());
+
+    let plain = stats(&mux, client, json!({"cmd":"server-stats"}));
+    assert!(plain.get("hangs").is_none(), "{plain}");
+    let idle = stats(&mux, client, json!({"cmd":"server-stats","include":["hangs"]}));
+    assert_eq!(idle["hangs"], json!({"over_250ms": 0, "records": []}), "{idle}");
+
+    let method = WatchedMethod::resource(ResourceOperation::WorkspaceCreate);
+    let scope = mux.request_watchdog.begin(client, method).expect("a free slot");
+    std::thread::sleep(Duration::from_millis(300));
+    drop(scope);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let full = loop {
+        let full = stats(&mux, client, json!({"cmd":"server-stats","include":["hangs"]}));
+        if full["hangs"]["over_250ms"] == json!(1) {
+            break full;
+        }
+        assert!(Instant::now() < deadline, "never counted: {full}");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let record = &full["hangs"]["records"][0];
+    assert_eq!(record["sequence"], json!(1), "{full}");
+    assert_eq!(record["span"], json!("mux-conn:workspace.create"), "{full}");
+    assert!(record["duration_ms"].as_u64().is_some_and(|ms| ms >= 300), "{full}");
 }
 
 #[test]
@@ -312,9 +340,11 @@ fn ipc_after_a_bad_line(label: &str, bytes: &[u8]) -> crate::diagnostics::IpcSna
     let server = listener.accept().unwrap();
     let server_mux = mux.clone();
     let handler = std::thread::spawn(move || {
+        let peer = origin_gate::AcceptedPeer::resolve(&server_mux, &*server);
         serve_line_connection(
             server_mux,
             server,
+            peer,
             Arc::new(RenderService::new()),
             None,
             ClientTransport::Unix,
@@ -445,6 +475,7 @@ fn daemon_locks_attribute_each_request_to_its_caller_and_op() {
             frame_call: None,
             retained_bytes: 0,
             _bytes_permit: mux.surface_operation_admission.try_reserve_bytes(0).expect("permit"),
+            stream_barrier: None,
         };
         assert!(run_pending_request(&scheduler, &mux, client, pending, writer));
         while outbound.try_pop().is_some() {}
@@ -511,6 +542,7 @@ fn daemon_locks_attribute_a_worker_answered_request_to_its_caller_and_op() {
         frame_call: None,
         retained_bytes: 0,
         _bytes_permit: mux.surface_operation_admission.try_reserve_bytes(0).expect("permit"),
+        stream_barrier: None,
     };
     assert!(run_pending_request(&scheduler, &mux, app, pending, &app_writer));
     let deadline = Instant::now() + Duration::from_secs(10);

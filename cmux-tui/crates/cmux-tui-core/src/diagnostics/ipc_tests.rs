@@ -115,21 +115,19 @@ fn a_nested_scope_keeps_its_parses_apart_from_the_outer_one() {
 }
 
 /// A request handed to another thread (a line queued on its connection's
-/// control sequence) counts once, there, with the parses of both threads;
-/// one whose connection closed before it ran counts when dropped.
+/// control sequence) counts once, where it began, with the parses of both
+/// threads; one whose handoff is dropped unrun adds no parse.
 #[test]
-fn a_handed_off_request_counts_once_where_it_ends() {
+fn a_handed_off_request_counts_once_with_both_threads_parses() {
     let stats = IpcStats::default();
     let handoff = {
         let _scope = JsonParseScope::enter(&stats, IpcTransport::Lines);
         note_json_parse();
-        let handoff = hand_off_json_parses().expect("a scope is open");
-        assert!(hand_off_json_parses().is_none(), "a request is handed off once");
-        handoff
+        JsonParseScope::handoff()
     };
-    assert_eq!(stats.snapshot().parses.lines.requests, 0, "the reader's scope counts nothing");
+    assert_eq!(stats.snapshot().parses.lines.requests, 1, "the reader's scope counts it");
     std::thread::spawn(move || {
-        let _resumed = handoff.resume();
+        let _resumed = JsonParseScope::resume(handoff).expect("a scope was open");
         note_json_parse();
     })
     .join()
@@ -137,7 +135,7 @@ fn a_handed_off_request_counts_once_where_it_ends() {
     {
         let _scope = JsonParseScope::enter(&stats, IpcTransport::Lines);
         note_json_parse();
-        drop(hand_off_json_parses());
+        drop(JsonParseScope::handoff());
     }
     assert_eq!(
         stats.snapshot().parses.lines,

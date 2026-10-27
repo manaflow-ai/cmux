@@ -31,6 +31,8 @@ final class HandApprovalWire {
     func start(_ sink: @escaping @MainActor (Event) -> Void) {
         stop()
         let generation = generation
+        // task-owner: `runner`; the socket loop of this generation; stop() cancels it
+        // main-hop-allow: the wire's main-actor socket loop (its awaits are the socket and its Backoff); each frame reaches the main-actor sink in arrival order
         runner = Task { [weak self] in await self?.run(generation, sink: sink) }
     }
 

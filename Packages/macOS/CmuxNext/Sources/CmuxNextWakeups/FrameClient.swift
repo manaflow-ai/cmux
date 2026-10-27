@@ -126,7 +126,8 @@ public final class FrameClient {
     }
 
     /// The input stage of `scheduler`'s frames (``FrameInputCoalescer``): it ticks before the frame
-    /// clients, so they see the frame's input. Not visible motion: the busy watchdog does not excuse it.
+    /// clients, so they see the frame's input, and a frame client it activates ticks in the same frame.
+    /// Not visible motion: the busy watchdog does not excuse it.
     init(inputStageOf scheduler: FrameScheduler, owner: String, onFrame: @escaping @MainActor (FrameTick) -> Bool) {
         self.owner = owner
         self.isAnimation = false

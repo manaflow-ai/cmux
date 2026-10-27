@@ -1,8 +1,8 @@
 //! What a line that its full control sequence refuses gets (p05-ipc-086):
 //! a remote client only a code, a forwarded stream its end (never a silent
 //! hole in its bytes), and what each line is charged to. Each test fills
-//! the sequence by hand with no dispatcher, so the refusal does not depend
-//! on timing.
+//! the sequence by hand with no pump to run it, so the refusal does not
+//! depend on timing.
 
 use std::io::Read;
 use std::sync::Arc;
@@ -34,12 +34,11 @@ impl Conn {
         Self { mux: mux.clone(), client, transport, writer, outbound, scheduler }
     }
 
-    /// Marks the dispatcher started without starting it, so what the
-    /// sequence takes stays queued, then queues `count` placeholder
-    /// `Command`s.
+    /// Marks a pump scheduled without posting one, so what the sequence
+    /// takes stays queued, then queues `count` placeholder `Command`s.
     fn hold_sequence(&self, count: usize) {
         let mut state = self.scheduler.state.lock().recover_poison();
-        state.dispatcher_started = true;
+        state.pump_scheduled = true;
         for _ in 0..count {
             state.requests.push_back(SequencedItem::Request(PendingSurfaceRequest {
                 request: Request { id: None, cmd: Command::Ping },
@@ -48,6 +47,7 @@ impl Conn {
                 frame_call: None,
                 retained_bytes: 0,
                 _bytes_permit: self.scheduler.admission.try_reserve_bytes(0).unwrap(),
+                stream_barrier: None,
             }));
         }
     }
@@ -116,7 +116,7 @@ fn loopback_a_refused_data_line_ends_its_stream() {
     let capabilities = [LOOPBACK_FORWARD_CAPABILITY];
     let hello =
         json!({"id": 1, "cmd": "set-client-info", "name": "t", "capabilities": capabilities});
-    // Its own sequence: the connection's stays without a dispatcher.
+    // Its own sequence: the connection's stays without a pump.
     let hello_sequence = Arc::new(ConnectionSurfaceScheduler::default());
     assert!(handle_connection_frame(
         &mux,
