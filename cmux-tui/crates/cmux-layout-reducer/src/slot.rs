@@ -41,50 +41,55 @@ impl LayoutState {
 
     #[allow(
         clippy::expect_used,
-        reason = "INVARIANT: slot was located in this state and no workspace was removed since"
+        reason = "INVARIANT: the slot was located in this state; its place was not removed"
     )]
     pub(crate) fn workspace_at_mut(&mut self, slot: Slot) -> &mut Workspace {
+        // crash-allow: INVARIANT, slot located in this state, its place not removed since
         self.workspaces.get_mut(slot.workspace).expect("INVARIANT: slot names a workspace")
     }
 
     #[allow(
         clippy::expect_used,
-        reason = "INVARIANT: slot was located in this state and no workspace/screen was removed since"
+        reason = "INVARIANT: the slot was located in this state; its place was not removed"
     )]
     pub(crate) fn screen_at(&self, slot: Slot) -> &Screen {
         self.workspaces
             .get(slot.workspace)
             .and_then(|workspace| workspace.screens.get(slot.screen))
+            // crash-allow: INVARIANT, slot located in this state, its place not removed since
             .expect("INVARIANT: slot names a screen")
     }
 
     #[allow(
         clippy::expect_used,
-        reason = "INVARIANT: slot was located in this state and no workspace/screen was removed since"
+        reason = "INVARIANT: the slot was located in this state; its place was not removed"
     )]
     pub(crate) fn screen_at_mut(&mut self, slot: Slot) -> &mut Screen {
         self.workspaces
             .get_mut(slot.workspace)
             .and_then(|workspace| workspace.screens.get_mut(slot.screen))
+            // crash-allow: INVARIANT, slot located in this state, its place not removed since
             .expect("INVARIANT: slot names a screen")
     }
 
     #[allow(
         clippy::expect_used,
-        reason = "INVARIANT: slot was located in this state and no workspace/screen/column was removed since"
+        reason = "INVARIANT: the slot was located in this state; its place was not removed"
     )]
     pub(crate) fn column_at(&self, slot: Slot) -> &Column {
+        // crash-allow: INVARIANT, slot located in this state, its place not removed since
         self.screen_at(slot).columns.get(slot.column).expect("INVARIANT: slot names a column")
     }
 
     #[allow(
         clippy::expect_used,
-        reason = "INVARIANT: slot was located in this state and no workspace/screen/column was removed since"
+        reason = "INVARIANT: the slot was located in this state; its place was not removed"
     )]
     pub(crate) fn column_at_mut(&mut self, slot: Slot) -> &mut Column {
         self.screen_at_mut(slot)
             .columns
             .get_mut(slot.column)
+            // crash-allow: INVARIANT, slot located in this state, its place not removed since
             .expect("INVARIANT: slot names a column")
     }
 }
