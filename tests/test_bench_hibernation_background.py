@@ -107,12 +107,35 @@ class SummaryTests(unittest.TestCase):
                                     row(600, 98.0, {"suppressed": 4})])
         self.assertEqual(bench.background_verdict([kept, purged]), "shim-visibility")
 
-    def test_no_measured_renderer_is_not_backgrounded(self):
+    def test_no_measured_renderer_is_unmeasured_not_a_follow_up(self):
         got = self.summary("off", [row(0, None, {}), row(30, None, {}), row(600, None, {})])
         self.assertFalse(got["backgrounded"])
+        self.assertFalse(got["measured"])
         self.assertIsNone(got["fell_mb"])
-        self.assertEqual(bench.background_verdict([got]), "shim-visibility")
-        self.assertEqual(bench.background_verdict([]), "shim-visibility")
+        self.assertEqual(bench.background_verdict([got]), "unmeasured")
+        self.assertEqual(bench.background_verdict([]), "unmeasured")
+
+    def test_a_missing_first_or_last_pmf_is_unmeasured(self):
+        for pmf in ((None, 99.0, 50.0), (100.0, 99.0, None)):
+            got = self.summary("on", [row(0, pmf[0], {"suppressed": 4}), row(30, pmf[1], {"suppressed": 4}),
+                                      row(600, pmf[2], {"suppressed": 4})])
+            self.assertFalse(got["measured"])
+            self.assertEqual(bench.background_verdict([got]), "unmeasured")
+
+    def test_unread_roles_at_the_role_point_are_unmeasured(self):
+        for roles in ({}, {"unread": 4}, {"suppressed": 3, "unread": 1}):
+            got = self.summary("off", [row(0, 100.0, {"default": 4}), row(30, 99.0, roles),
+                                       row(600, 98.0, {"default": 4})])
+            self.assertFalse(got["measured"])
+            self.assertEqual(bench.background_verdict([got]), "unmeasured")
+
+    def test_one_unmeasured_mode_makes_the_run_unmeasured(self):
+        kept = self.summary("off", [row(0, 100.0, {"default": 4}), row(30, 99.0, {"default": 4}),
+                                    row(600, 98.0, {"default": 4})])
+        broken = self.summary("on", [row(0, None, {}), row(30, None, {}), row(600, None, {})])
+        self.assertTrue(kept["measured"])
+        self.assertEqual(bench.background_verdict([kept]), "shim-visibility")
+        self.assertEqual(bench.background_verdict([kept, broken]), "unmeasured")
 
 
 class ArgumentTests(unittest.TestCase):
@@ -133,7 +156,16 @@ class ArgumentTests(unittest.TestCase):
         args = bench.parse(["--app", "/tmp/cmux DEV p110.app", "--background-timeline", "0,30,300,600"])
         self.assertEqual(args.background_timeline, [0.0, 30.0, 300.0, 600.0])
         self.assertEqual(args.background_freeze, ["off", "on"])
+        # No pinned heap: a live array is memory no purge can free, and it would dilute the PMF fall.
+        self.assertEqual(args.heap_mb, 0)
         self.assertEqual(args.feature, [])
+
+    def test_heap_defaults_to_a_site_heap_outside_the_timeline(self):
+        self.assertEqual(bench.parse(["--app", "/tmp/cmux DEV p110.app"]).heap_mb, 40)
+        self.assertEqual(bench.parse(["--app", "/tmp/cmux DEV p110.app", "--background-timeline", "0,30",
+                                      "--heap-mb", "8"]).heap_mb, 8)
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            bench.parse(["--app", "/tmp/cmux DEV p110.app", "--heap-mb", "-1"])
 
     def test_feature_choices(self):
         args = bench.parse(["--app", "/tmp/cmux DEV p110.app", "--background-timeline", "0,30",

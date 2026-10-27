@@ -39,7 +39,9 @@ twice: with the feature off (what people get today) and on.
 `scripts/cmux-next/bench_hibernation.py --background-timeline 0,30,300,600`. Hibernation is off for
 the run, so every page stays loaded. For each freeze mode (`off`, then `on` at `--freeze` seconds) the
 bench opens `--tabs` Chromium pages, each its own site (`tN.localhost`, so each has its own renderer
-under site isolation, with a `--heap-mb` array as a site's heap), and hides them behind one shown tab.
+under site isolation), and hides them behind one shown tab. The timeline's `--heap-mb` is 0 by
+default: a live array is memory no purge can free, so a pinned heap (the other phases use 40 MB)
+would make a correct purge fall by less than 10 % of the 0 s PMF.
 At 0 s, 30 s, 5 min and 10 min after the hide it reads, for each hidden page, the footprint of the
 renderer that hosts that page and no other (from the app's `resources` report), and that renderer's
 task role.
@@ -54,8 +56,8 @@ task role.
   renderer shows as `suppressed` or `darwinbg`, a foreground one as `default`. The raw base priorities
   are printed too.
 
-The bench first prints `PERF-HIBERNATE-BACKGROUND-START chromiumTabVisibility=<state> fork_api=<n>`
-(the state from `features.list`, the API from `debug.cef`). Below fork API 37 the feature makes no
+The bench first prints `PERF-HIBERNATE-BACKGROUND-START chromiumTabVisibility=<state> fork_api=<n>
+heap_mb=<n>` (the state from `features.list`, the API from `debug.cef`). Below fork API 37 the feature makes no
 call, so a run with it on measures the same as off. Then one line per mode and point:
 
 ```text
@@ -63,12 +65,18 @@ PERF-HIBERNATE-BACKGROUND freeze=off at_s=300 measured_at_s=300.0 per_hidden_tab
     renderer_task_role=suppressed:6 renderer_base_priority=4,4,4,4,4,4 front_task_role=default frozen=0/6 measured=6/6
 ```
 
-then one `PERF-HIBERNATE-BACKGROUND-SUMMARY` line per mode (PMF at the four points, `fell_mb`,
-`fell_pct`, `backgrounded`, the roles at 30 s), and a verdict:
+then one `PERF-HIBERNATE-BACKGROUND-SUMMARY` line per mode (`measured`, PMF at the four points,
+`fell_mb`, `fell_pct`, `backgrounded`, the roles at 30 s), and a verdict:
 
+- `measured`: at 30 s at least one hidden renderer has a role read and none is `unread`, and the
+  per-page PMF has a value at 0 s and at 10 min. It is false when the `resources` report failed,
+  when every hidden page shares its renderer, or when the task priorities could not be read.
 - `backgrounded`: every measured hidden renderer has the `suppressed` or `darwinbg` role at 30 s.
 - `pmf_falls`: the per-page PMF at 10 min is at least 10 % below the PMF at 0 s.
-- `follow_up=none` when both are true in every mode, else `follow_up=shim-visibility`.
+- `follow_up=unmeasured` when no mode ran or a mode is not `measured`: the run says nothing about
+  Chromium. Find the cause in the run's stderr, then run it again. File no follow-up.
+- Else `follow_up=none` when `backgrounded` and `pmf_falls` are true in every mode, and
+  `follow_up=shim-visibility` when not.
 
 The bench's last script call into each page starts the 30 s agent grace, so with freezing on a page
 freezes at the later of `--freeze` and 30 s; the `frozen=` count at each point shows when. The run
@@ -78,9 +86,9 @@ Commands (fleet, exclusive; one run is about 21 min: two freeze modes of 10 min 
 
 ```bash
 cmux-ci run --class exclusive --measurement --label measure --ref SHA \
-  --script 'scripts/cmux-next/bench_hibernation.py --app BUNDLE --background-timeline 0,30,300,600 --tabs 6 --out background-off.json'
+  --script 'scripts/cmux-next/bench_hibernation.py --app BUNDLE --background-timeline 0,30,300,600 --tabs 6 --heap-mb 0 --out background-off.json'
 cmux-ci run --class exclusive --measurement --label measure --ref SHA \
-  --script 'scripts/cmux-next/bench_hibernation.py --app BUNDLE --background-timeline 0,30,300,600 --tabs 6 --feature chromiumTabVisibility=on --out background-on.json'
+  --script 'scripts/cmux-next/bench_hibernation.py --app BUNDLE --background-timeline 0,30,300,600 --tabs 6 --heap-mb 0 --feature chromiumTabVisibility=on --out background-on.json'
 ```
 
 ### Result
@@ -97,7 +105,8 @@ numbers here.
 
 ### Follow-up when the PMF does not fall
 
-Read the two runs together:
+Read the two runs together. If one of them gives `follow_up=unmeasured`, run it again and file
+nothing until both are measured.
 
 - Off gives `follow_up=shim-visibility` and on gives `follow_up=none` (fork API 37 or later): the fix
   exists. File a p07-memory task to turn `chromiumTabVisibility` on by default with these numbers,

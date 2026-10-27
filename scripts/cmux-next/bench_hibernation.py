@@ -41,13 +41,15 @@ that renderer's task role. Chrome backgrounds a renderer whose pages are all
 hidden and purges its memory 1 to 4 minutes later, at once when frozen; the
 phase shows whether cmux's hidden pages get the same
 (plans/cmux-next/memory-DESIGN.md, "Hidden Chromium pages: backgrounded and purged").
+Its --heap-mb defaults to 0: a live array is memory no purge can free, so it
+would hide the purge's fall.
 
 Usage (a fleet or capture mini, never a laptop; a tagged DEV build, Debug or bench config:
 debug.surfaces answers in both):
   bench_hibernation.py --app BUNDLE [--tabs 6] [--heap-mb 40] [--measure 20]
       [--config JSON] [--pressure] [--out FILE.json | --out DIR]
   bench_hibernation.py --app BUNDLE --background-timeline 0,30,300,600 [--background-freeze off,on]
-      [--feature chromiumTabVisibility=on] [--freeze 10] [--tabs 6] [--heap-mb 40] [--out FILE.json]
+      [--feature chromiumTabVisibility=on] [--freeze 10] [--tabs 6] [--heap-mb 0] [--out FILE.json]
   launch (default): starts the bundle's app through bench_launch.BenchApp (the lab's bench env,
       a scratch config, an empty saved session for the tag) and ends it and its tag at the end.
   attach (--socket PATH --app-pid PID): an app `capture-host launch` started in a capture
@@ -265,6 +267,11 @@ def wake_q(rows: list[dict], key: str, q: float):
 
 # The share of a hidden page's 0 s PMF that a purge must give back by the last point.
 PMF_FALL_PCT = 10.0
+# --heap-mb of the hidden-renderer phase: a live array is memory MemoryPurgeManager cannot free, so a pinned heap
+# lowers the share a correct purge gives back.
+TIMELINE_HEAP_MB = 0
+# --heap-mb of the other phases: a real site's heap, which hibernation frees with the page.
+HIBERNATION_HEAP_MB = 40
 # The default-off feature that sends a tab's hide to Chromium (fork API 37, CEFTabNodeVisibility.swift); the
 # timeline prints its state, and runs with --feature chromiumTabVisibility=on and =off.
 TAB_VISIBILITY_FEATURE = "chromiumTabVisibility"
@@ -364,11 +371,14 @@ def timeline_summary(mode: str, rows: list[dict], background: set[str] | None = 
     settled = rows[min(1, len(rows) - 1)]
     roles = settled["renderer_task_role"]
     backgrounded = bool(roles) and set(roles) <= background
+    # Measured: a role read for every hidden renderer at the role point and a PMF at the first and last point.
+    # Without them (resources error, shared renderers, unread priorities) the mode says nothing about Chromium.
+    measured = bool(roles) and "unread" not in roles and first is not None and last is not None
     summary = {"freeze": mode, "pmf_mb": {f"{row['at_s']:g}s": row["per_hidden_tab_pmf_mb"] for row in rows},
                "fell_mb": fell_mb, "fell_pct": fell_pct, "pmf_falls": fell_pct is not None and fell_pct >= PMF_FALL_PCT,
-               "backgrounded": backgrounded, "roles_at": f"{settled['at_s']:g}s", "roles": roles,
-               "frozen_at_end": rows[-1]["frozen"], "tabs": rows[-1]["tabs"]}
-    print(f"PERF-HIBERNATE-BACKGROUND-SUMMARY freeze={mode} "
+               "backgrounded": backgrounded, "measured": measured, "roles_at": f"{settled['at_s']:g}s",
+               "roles": roles, "frozen_at_end": rows[-1]["frozen"], "tabs": rows[-1]["tabs"]}
+    print(f"PERF-HIBERNATE-BACKGROUND-SUMMARY freeze={mode} measured={measured} "
           f"pmf_mb={','.join(f'{key}:{value}' for key, value in summary['pmf_mb'].items())} "
           f"fell_mb={fell_mb} fell_pct={fell_pct} pmf_falls={summary['pmf_falls']} "
           f"backgrounded={backgrounded} roles_at_{summary['roles_at']}={counts_text(roles)} "
@@ -377,23 +387,26 @@ def timeline_summary(mode: str, rows: list[dict], background: set[str] | None = 
 
 
 def background_verdict(summaries: list[dict]) -> str:
-    """`none` when every mode backgrounded its hidden renderers and their PMF fell, else the follow-up."""
-    if summaries and all(s["backgrounded"] and s["pmf_falls"] for s in summaries):
+    """`unmeasured` when no mode ran or a mode measured no hidden renderer (rerun; file nothing); `none` when
+    every mode backgrounded its hidden renderers and their PMF fell; else `shim-visibility`, the follow-up."""
+    if not summaries or not all(s["measured"] for s in summaries):
+        return "unmeasured"
+    if all(s["backgrounded"] and s["pmf_falls"] for s in summaries):
         return "none"
     return "shim-visibility"
 
 
 def background_timeline(app: bm.App, sock: str, ports: list[int], count: int, open_tab, front: str,
                         opened_extra: list[str], points: list[float], modes: list[str], freeze: float,
-                        features: dict | None = None) -> dict:
+                        heap_mb: int, features: dict | None = None) -> dict:
     """Per freeze mode: new hidden pages' own renderer PMF and task role at each point after the hide.
     The bench's last script call starts the agent grace (30 s), so a page freezes at the later of
     --freeze and that grace; each point prints how many were frozen."""
     visibility = ((features or {}).get(TAB_VISIBILITY_FEATURE) or {}).get("state")
     fork = brs.fork_api(bp.rpc(sock, "debug.cef") or {})
     result: dict = {"points_s": points, "modes": {}, "tab_visibility": visibility, "fork_api": fork,
-                    "tab_visibility_fork_api": TAB_VISIBILITY_FORK_API}
-    print(f"PERF-HIBERNATE-BACKGROUND-START {TAB_VISIBILITY_FEATURE}={visibility} fork_api={fork} "
+                    "tab_visibility_fork_api": TAB_VISIBILITY_FORK_API, "heap_mb": heap_mb}
+    print(f"PERF-HIBERNATE-BACKGROUND-START {TAB_VISIBILITY_FEATURE}={visibility} fork_api={fork} heap_mb={heap_mb} "
           f"modes={','.join(modes)} points_s={','.join(f'{point:g}' for point in points)}", flush=True)
     for number, mode in enumerate(modes):
         value = freeze if mode == "on" else "off"
@@ -473,7 +486,8 @@ def parse(argv=None):
     parser.add_argument("--app", required=True)
     parser.add_argument("--tabs", type=int, default=6, help="tabs per engine")
     parser.add_argument("--engines", default="chromium,webkit")
-    parser.add_argument("--heap-mb", type=int, default=40)
+    parser.add_argument("--heap-mb", type=int, help=f"MB of live array per page (default {HIBERNATION_HEAP_MB}; "
+                                                    f"{TIMELINE_HEAP_MB} with --background-timeline)")
     parser.add_argument("--measure", type=float, default=20, help="seconds each phase's CPU is measured over")
     parser.add_argument("--freeze", type=float, default=10, help="browser.freezeHiddenTabs for the run")
     parser.add_argument("--config", default="{}", help="extra cmux.json settings (JSON)")
@@ -499,6 +513,10 @@ def parse(argv=None):
         parser.error(f"--tag {args.tag!r} is not the tag of --app {args.app!r}")
     if args.feature and args.socket:
         parser.error("--feature sets a launch's Labs choices; an attached app keeps its own")
+    if args.heap_mb is None:
+        args.heap_mb = TIMELINE_HEAP_MB if args.background_timeline else HIBERNATION_HEAP_MB
+    if args.heap_mb < 0:
+        parser.error("--heap-mb is 0 or more")
     return args
 
 
@@ -568,7 +586,7 @@ def main(argv=None):
             opened_extra.append(front)
             report["background"] = background_timeline(app, sock, ports, args.tabs, open_tab, front, opened_extra,
                                                        timeline, args.background_freeze, args.freeze,
-                                                       features=report["features"])
+                                                       args.heap_mb, features=report["features"])
             return
         for engine in engines:
             opened[engine] = [t for t in (open_tab(engine, page_url(engine, i, ports)) for i in range(args.tabs)) if t]
