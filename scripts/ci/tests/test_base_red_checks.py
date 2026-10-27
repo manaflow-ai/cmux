@@ -48,5 +48,30 @@ class BaseRedChecksTests(unittest.TestCase):
             module.api = original
 
 
+    def test_previous_tip_job_is_asked_for_by_name(self):
+        # 250+ check runs on a tip: an unfiltered first page can miss the job.
+        original = module.api
+        paths = []
+        try:
+            def fake_api(_base, _token, path):
+                paths.append(path)
+                if "/check-runs?" in path:
+                    if "check_name=cmux-next+checks+%28god+files%2C+concurrency%2C+crash+safety%2C+l10n%29" not in path:
+                        return b'{"total_count":264,"check_runs":[{"name":"other","status":"completed"}]}'
+                    return (
+                        b'{"check_runs":[{"name":"cmux-next checks (god files, concurrency, crash safety, l10n)",'
+                        b'"status":"completed","conclusion":"cancelled",'
+                        b'"details_url":"https://github.com/manaflow-ai/cmux/actions/runs/1/job/42"}]}'
+                    )
+                return b"- Script tests (pin-cmux-tui, embed-cef, ensure-cef store) (cancelled)\n"
+            module.api = fake_api
+            self.assertEqual(
+                module.base_reds("manaflow-ai/cmux", "before", "https://api.github.com", "token"),
+                {"Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
+            )
+            self.assertIn("/actions/jobs/42/logs", paths[-1])
+        finally:
+            module.api = original
+
 if __name__ == "__main__":
     unittest.main()

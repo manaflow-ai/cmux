@@ -159,6 +159,15 @@ pub(super) async fn handle(
             "harness profiles are changed only from the local app or the unix socket, never from a remote WebSocket connection or a peer",
         ));
     }
+    // A capture fixture's daemon (`harness_fixture.rs`) neither reads the ACP
+    // Registry nor adds a harness: both read this host's PATH and the network.
+    if matches!(m, method::MUX_HARNESS_ADD | method::MUX_REGISTRY)
+        && crate::harness_fixture::active().is_some()
+    {
+        return Err(RpcError::invalid_params(
+            "this daemon serves a capture fixture's harnesses (ACPMUX_HARNESS_FIXTURE)",
+        ));
+    }
     let sources = hub.config.read().await.profile_sources.clone();
     let home = crate::config::home();
     let text = |key: &str| params.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());

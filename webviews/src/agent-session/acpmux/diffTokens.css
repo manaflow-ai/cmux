@@ -1,0 +1,16 @@
+/* The in-chat panel uses the full viewer's diff grammar while running in the agent-pane bundle. */
+:root {
+  --cmux-diff-bg: var(--agent-page-bg);
+  --cmux-diff-fg: var(--agent-text);
+  --cmux-diff-viewer-bg: var(--agent-page-bg);
+  --cmux-diff-header-bg: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  --cmux-diff-glass-filter: blur(20px);
+  --cmux-diff-rim: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  --cmux-diff-pill-bg: color-mix(in lab, var(--agent-text) 7%, transparent);
+  --cmux-diff-pill-rim: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cmux-diff-rim);
+  --acpmux-diff-header-min-height: var(--cmux-diff-header-height, 48px);
+  --acpmux-diff-scope-height: var(--cmux-diff-scope-height, 29px);
+  --acpmux-diff-tools-min-height: var(--cmux-diff-tools-height, 33px);
+  --acpmux-diff-filter-height: var(--cmux-diff-filter-height, 28px);
+  --acpmux-diff-file-header-height: var(--cmux-diff-file-header-height, 30px);
+}
