@@ -458,6 +458,12 @@
       "result": true
     },
     {
+      "kind": "request",
+      "name": "_acpmux/retention",
+      "params": true,
+      "result": true
+    },
+    {
       "kind": "notification",
       "name": "_acpmux/process_update",
       "params": true
@@ -701,6 +707,18 @@
     {
       "kind": "request",
       "name": "_acpmux/file_put_cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/file_put_status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/file_put_data",
       "params": true,
       "result": true
     },
@@ -1062,6 +1080,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/harness/icon",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/harness/health",
       "params": true,
       "result": true
@@ -1252,6 +1276,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/vm_host",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/place",
       "params": true,
       "result": true
@@ -1277,6 +1307,12 @@
     {
       "kind": "request",
       "name": "_acpmux/peer_remove",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/peer_snapshot",
       "params": true,
       "result": true
     },
@@ -1522,6 +1558,12 @@
           "minimum": 0,
           "type": "integer"
         },
+        "pageThrough": {
+          "description": "How far the page holds: every record of the kinds asked from the page's first one up to it\nis in the page (a peer's copy of the chat, `hub/peer_snapshot.rs`, covers that far). The\nlog's last seq, read before the page, for the newest page; a page of older records\n(`beforeSeq`) or a forward one with more to read holds only to its own last record.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "presence": {
           "$ref": "#/types/PresenceNote",
           "description": "Who has the chat open now, this attachment included (`hub/presence.rs`)."
@@ -1534,6 +1576,7 @@
         "events",
         "hasMore",
         "lastSeq",
+        "pageThrough",
         "presence",
         "session"
       ],
@@ -1852,6 +1895,12 @@
     },
     "EventsResult": {
       "properties": {
+        "createdAt": {
+          "description": "The session the page is of (its `createdAt`): a session recreated under the same id while\nthe page was asked is another journal (`hub/peer_snapshot.rs`).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "events": {
           "items": {
             "$ref": "#/types/SessionEvent"
@@ -1865,12 +1914,20 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "pageThrough": {
+          "description": "How far the page holds: every record of the kinds asked after `afterSeq` up to it is in the\npage (`hub/peer_snapshot.rs`). The log's last seq, read before the page, when the page reads\nto its end; else (`beforeSeq`, or `hasMore`) the page's own last record.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "required": [
+        "createdAt",
         "events",
         "hasMore",
-        "lastSeq"
+        "lastSeq",
+        "pageThrough"
       ],
       "type": "object"
     },
@@ -2575,6 +2632,13 @@
     },
     "PermissionGroupList": {
       "properties": {
+        "allowRefused": {
+          "description": "Set when this reader's group allows would be refused, with the\nrefusal's reason (`permission.person_required`: only the person\nallows a group, and a peer's link never is one). A deny still counts.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "batching": {
           "$ref": "#/types/PermissionBatching"
         },
@@ -3171,7 +3235,7 @@
           "type": "string"
         },
         "depth": {
-          "description": "0 for a root session, 1 for its sub-sessions, and so on.",
+          "description": "Its lineage depth (`parent`): 0 for a root session, 1 for the sessions\nits agent started, and so on.",
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
@@ -3303,6 +3367,14 @@
         "name": {
           "type": "string"
         },
+        "parent": {
+          "default": null,
+          "description": "The session whose agent started this one (`acpmux new` in its shell, or its\n`start_session` tool), recorded at creation from the proven caller; null for a\nsession a person or the app started. Not the fork parent (`parentId`). Absent\nfrom a peer on an older acpmux.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "parentId": {
           "type": [
             "string",
@@ -3376,6 +3448,11 @@
           "description": "Its last turn failed on an error an automatic retry answers, and whether, and when, it\nis retried is not settled yet: `retry` is about to be set or stay null, or the retry is\nstarting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is\nsettled. Absent otherwise, and from a peer on an older acpmux.",
           "type": "boolean"
         },
+        "root": {
+          "default": "",
+          "description": "The root of its lineage tree: the first ancestor no agent started; its own\nid for a root. Absent from a peer on an older acpmux.",
+          "type": "string"
+        },
         "rules": {
           "description": "The session has its own permission rules.",
           "type": "boolean"
@@ -3397,8 +3474,16 @@
           "description": "Some attached client shows the chat.",
           "type": "boolean"
         },
+        "spawnToolCallId": {
+          "default": null,
+          "description": "The parent's tool call that started it, when acpmux could tell.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "spawnedBy": {
-          "description": "The session whose agent started this one (its `spawnedBy` tag), kept\nonly while that parent is listed; one level.",
+          "description": "The session whose agent started this one, kept only while that parent\nis listed and is a root itself: one level, for lists that fold one level.\n`parent` without those rules, else an older client's `spawnedBy` tag.",
           "type": [
             "string",
             "null"
@@ -3631,7 +3716,7 @@
           "type": "string"
         },
         "depth": {
-          "description": "0 for a root session, 1 for its sub-sessions, and so on.",
+          "description": "Its lineage depth (`parent`): 0 for a root session, 1 for the sessions\nits agent started, and so on.",
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
@@ -3759,6 +3844,14 @@
         "name": {
           "type": "string"
         },
+        "parent": {
+          "default": null,
+          "description": "The session whose agent started this one (`acpmux new` in its shell, or its\n`start_session` tool), recorded at creation from the proven caller; null for a\nsession a person or the app started. Not the fork parent (`parentId`). Absent\nfrom a peer on an older acpmux.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "parentId": {
           "type": [
             "string",
@@ -3827,6 +3920,11 @@
           "description": "Its last turn failed on an error an automatic retry answers, and whether, and when, it\nis retried is not settled yet: `retry` is about to be set or stay null, or the retry is\nstarting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is\nsettled. Absent otherwise, and from a peer on an older acpmux.",
           "type": "boolean"
         },
+        "root": {
+          "default": "",
+          "description": "The root of its lineage tree: the first ancestor no agent started; its own\nid for a root. Absent from a peer on an older acpmux.",
+          "type": "string"
+        },
         "rules": {
           "description": "The session has its own permission rules.",
           "type": "boolean"
@@ -3845,8 +3943,16 @@
           "description": "Some attached client shows the chat.",
           "type": "boolean"
         },
+        "spawnToolCallId": {
+          "default": null,
+          "description": "The parent's tool call that started it, when acpmux could tell.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "spawnedBy": {
-          "description": "The session whose agent started this one (its `spawnedBy` tag), kept\nonly while that parent is listed; one level.",
+          "description": "The session whose agent started this one, kept only while that parent\nis listed and is a root itself: one level, for lists that fold one level.\n`parent` without those rules, else an older client's `spawnedBy` tag.",
           "type": [
             "string",
             "null"

@@ -97,6 +97,9 @@ impl Report {
 
 /// Runs one pass.
 pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
+    // Housekeeping: every git the pass starts yields to the person at the
+    // machine (background CPU and disk priority), on this thread only.
+    let _background = cmux_git::run::background();
     // No process list, no action: a worktree some program uses could go.
     let processes = (options.uses)()?;
     let session_dirs: Vec<PathBuf> = options.sessions.iter().map(|s| s.cwd.clone()).collect();

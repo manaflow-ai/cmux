@@ -3,7 +3,6 @@ import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { AgentMark as BrandMark } from "../shared/AgentMark";
-import { agentBrand } from "../shared/agentBrand";
 import { agentDisplayName } from "./agents";
 import { seedLastPicks, useLastPick } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
@@ -13,6 +12,7 @@ import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
 import {
   defaultRow,
+  stepSelection,
   EMPTY_OMNIBAR,
   MAX_NEW_TAB_ENTRIES,
   omnibarContext,
@@ -580,9 +580,7 @@ export function NewTabPage({
     if ((event.key === "ArrowDown" || event.key === "ArrowUp") && rows.length) {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
-      setSelected((current) =>
-        current < 0 && step < 0 ? rows.length - 1 : (current + step + rows.length) % rows.length,
-      );
+      setSelected((current) => stepSelection(current, step, rows.length));
     } else if (event.key === "Escape" && text) {
       event.preventDefault();
       setText("");
@@ -886,10 +884,10 @@ function Favicon({ src }: { src: string }) {
   return <img className="acpmux-icon acpmux-favicon" src={src} alt="" width={16} height={16} draggable={false} />;
 }
 
-/// The agent's brand mark (design/agent-icons), so a session's row says which agent it
-/// is at a glance; an agent without a mark draws the generic agent glyph.
+/// The agent's brand mark (design/agent-icons) or its harness's own icon, so a session's row says
+/// which agent it is at a glance; an agent without either draws the generic agent glyph.
 export function AgentMark({ harness }: { harness?: string }) {
-  return agentBrand(harness) ? <BrandMark agent={harness} size={16} /> : <KindIcon kind="agent" />;
+  return <BrandMark agent={harness} size={16} fallback={<KindIcon kind="agent" />} />;
 }
 
 // 16px stroke icons in currentColor, matching ComposerPickers.
