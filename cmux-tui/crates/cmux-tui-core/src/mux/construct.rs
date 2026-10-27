@@ -173,9 +173,7 @@ impl Mux {
             if let Some(waiting) =
                 agent_roster.roster.waiting_fence(terminal_id.as_str(), &fence.session_id)
             {
-                fence.waiting_agent = Some(waiting.0.to_owned());
-                fence.waiting_since_ms = waiting.1;
-                fence.waiting_tool = waiting.2.map(str::to_owned);
+                fence.take_wait_from(waiting);
             }
         }
         let feed_local = Mutex::new(registry.open_feed_local()?);

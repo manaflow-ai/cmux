@@ -127,3 +127,63 @@ fn a_terminal_whose_host_was_lost_has_no_working_agent() {
         },
     );
 }
+
+/// A late exit of an earlier process of the terminal (it respawned since) is refused, and it
+/// does not end the agent of the process that runs now.
+#[cfg(unix)]
+#[test]
+fn a_stale_exit_does_not_end_the_running_agent() {
+    const TERMINAL: &str = "0000000000004000800000000000229f";
+    const EARLIER: &str = "1000000000004000800000000000229f";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-agent-stale-exit-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = open_persistent_test_mux("agent-stale-exit", &root);
+    let workspace = mux
+        .create_empty_workspace(
+            Some("agent-stale-exit".into()),
+            Some("018f6e21-7b70-7e70-8000-00000000229f".into()),
+            None,
+        )
+        .unwrap();
+    mux.seed_running_terminal_with_on_exit_for_test(
+        TERMINAL,
+        INCARNATION,
+        &workspace.key,
+        TerminalOnExit::Close,
+    )
+    .unwrap();
+    let terminal =
+        mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+    for (event, key) in [("SessionStart", "stale-1"), ("UserPromptSubmit", "stale-2")] {
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal.to_string()),
+            serde_json::json!({"session_id":"native-2"}),
+        )
+        .unwrap();
+        mux.append_journal_ingress(&ingress, "test", key).unwrap();
+    }
+    let exit = TerminalExit {
+        outcome: crate::terminal_host_protocol::TerminalExitOutcome::Signal {
+            signal: libc::SIGKILL,
+            core_dumped: false,
+        },
+        exited_at_ms: 1_000,
+    };
+
+    let stale = mux.persist_terminal_exit(TERMINAL, Some(EARLIER), &TerminalEnd::HostLost(exit));
+    assert!(stale.is_err(), "the stale exit is refused: {stale:?}");
+    let working = mux.list_agents(None, Some(AgentState::Working));
+    assert_eq!(working.len(), 1, "{working:?}");
+    assert_eq!(working[0].terminal_id, terminal);
+    assert_eq!(
+        mux.agent_roster.lock().unwrap().roster.entries[terminal.as_str()].state,
+        "working",
+        "the roster keeps the running agent"
+    );
+
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}

@@ -161,11 +161,13 @@ pub fn agent_hook_journal_ingress(
     // Read before redaction: `tool_input` is redacted whole, and live
     // presence needs only its file target.
     let tool_target = tool_target_fields(&native);
+    let tool_call = tool_call_fields(&native);
     // Read the structured reason before redaction replaces free-form strings.
     let resumable_interruption = is_resumable_opencode_interruption(source, native_event, &native);
     let native = redact_agent_native(native_event, native);
     let mut normalized = normalized_fields(&native);
     normalized.extend(tool_target);
+    normalized.extend(tool_call);
     add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
     let kind = if resumable_interruption {
         // OpenCode keeps a shutdown-interrupted execution and resumes it, so
@@ -297,6 +299,47 @@ pub(crate) fn terminal_exit_session_ended_journal_ingress(
 }
 
 const MAX_TOOL_TARGET_PATH_BYTES: usize = 1024;
+
+const MAX_TOOL_CALL_ID_BYTES: usize = 128;
+
+/// Which tool call a hook is about, read before redaction: `tool_call_id` (Claude's
+/// `tool_use_id` and its kin) and `tool_input_digest`, a short SHA-256 of the tool input. A
+/// wait for an approval ends only with the post-tool hook of the call it waits on (#22995):
+/// Claude's `PermissionRequest` carries no call id, so its input tells parallel calls of the
+/// same tool apart. Only the digest is kept; the input stays redacted.
+fn tool_call_fields(native: &Value) -> Map<String, Value> {
+    let mut fields = Map::new();
+    if let Some(id) = first_string_at(
+        native,
+        &[
+            &["tool_use_id"][..],
+            &["toolUseId"][..],
+            &["tool_call_id"][..],
+            &["toolCallId"][..],
+            &["call_id"][..],
+            &["callId"][..],
+        ],
+    )
+    .filter(|id| !id.is_empty() && id.len() <= MAX_TOOL_CALL_ID_BYTES)
+    {
+        fields.insert("tool_call_id".into(), Value::String(id.to_owned()));
+    }
+    let input = [&["tool_input"][..], &["toolInput"][..]]
+        .into_iter()
+        .find_map(|path| value_at(native, path))
+        .filter(|input| !input.is_null());
+    if let Some(input) = input
+        && let Ok(bytes) = serde_json::to_vec(input)
+    {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(bytes);
+        fields.insert(
+            "tool_input_digest".into(),
+            Value::String(digest[..8].iter().map(|byte| format!("{byte:02x}")).collect()),
+        );
+    }
+    fields
+}
 
 /// The file a tool call targets, copied from the tool input before it is
 /// redacted: `tool_target_path` and, when the input names one,

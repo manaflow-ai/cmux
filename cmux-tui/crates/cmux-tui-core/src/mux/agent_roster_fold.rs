@@ -151,7 +151,7 @@ impl Mux {
             state == AgentState::Done,
             observed_at_ms,
         )
-        .noting_wait(state, hook);
+        .noting_wait(previous_fence.as_ref(), state, hook);
         // Attention-worthy transitions become durable notifications before
         // the agent report commits. The notification key is derived from the
         // journal sequence, so a retry after a crash between the two commits

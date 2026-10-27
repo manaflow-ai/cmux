@@ -96,6 +96,8 @@ pub(super) fn restore_public_projections(
                 waiting_agent: None,
                 waiting_since_ms: None,
                 waiting_tool: None,
+                waiting_call: None,
+                waiting_input: None,
             },
         );
     }
@@ -120,6 +122,8 @@ pub(super) fn restore_public_projections(
                     waiting_agent: None,
                     waiting_since_ms: None,
                     waiting_tool: None,
+                    waiting_call: None,
+                    waiting_input: None,
                 });
             }
         }
@@ -137,6 +141,8 @@ pub(super) fn restore_public_projections(
                 waiting_agent: None,
                 waiting_since_ms: None,
                 waiting_tool: None,
+                waiting_call: None,
+                waiting_input: None,
             });
             continue;
         }

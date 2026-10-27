@@ -353,6 +353,15 @@ pub(crate) struct HookFence {
     /// example after a denied approval).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) waiting_tool: Option<String>,
+    /// The call the wait is for (`normalized.tool_call_id`). A pre-tool hook names it; a
+    /// permission request that follows it for the same tool keeps it. A post-tool hook of
+    /// another call of the same tool, finishing in parallel, does not end the wait.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) waiting_call: Option<String>,
+    /// The waited call's input (`normalized.tool_input_digest`), for a wait whose hook names
+    /// no call (Claude's `PermissionRequest`): it tells parallel calls of the tool apart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) waiting_input: Option<String>,
 }
 
 /// The tool hook that may answer a fence's wait ([`HookFence::wait_answered_by`]).
@@ -366,6 +375,10 @@ pub(crate) struct HookWaitProbe<'a> {
     pub(crate) native_event: Option<&'a str>,
     /// `normalized.tool_name`.
     pub(crate) tool: Option<&'a str>,
+    /// `normalized.tool_call_id`.
+    pub(crate) call: Option<&'a str>,
+    /// `normalized.tool_input_digest`.
+    pub(crate) input: Option<&'a str>,
 }
 
 impl<'a> HookWaitProbe<'a> {
@@ -379,6 +392,8 @@ impl<'a> HookWaitProbe<'a> {
             observed_at_ms: hook_observed_at_ms(payload),
             native_event: payload.get("native_event").and_then(Value::as_str),
             tool: field("tool_name"),
+            call: field("tool_call_id"),
+            input: field("tool_input_digest"),
         }
     }
 }
@@ -499,12 +514,22 @@ impl HookFence {
             waiting_agent: None,
             waiting_since_ms: None,
             waiting_tool: None,
+            waiting_call: None,
+            waiting_input: None,
         }
     }
 
     /// This fence after a hook event that set `state`, described by `hook`: a `blocked`
-    /// state waits on that hook's agent, from its observed time, for its tool.
-    pub(crate) fn noting_wait(mut self, state: AgentState, hook: HookWaitProbe<'_>) -> Self {
+    /// state waits on that hook's agent, from its observed time, for its tool call. `previous`
+    /// is the fence before the event: a wait that follows a wait of the same agent and tool
+    /// without naming a call keeps the call named before (Claude asks a question with a
+    /// `PreToolUse` that names it, then a `PermissionRequest` that does not).
+    pub(crate) fn noting_wait(
+        mut self,
+        previous: Option<&Self>,
+        state: AgentState,
+        hook: HookWaitProbe<'_>,
+    ) -> Self {
         let blocked = state == AgentState::Blocked;
         self.waiting_agent = blocked.then(|| hook.agent.unwrap_or("").to_owned());
         self.waiting_since_ms = hook.observed_at_ms.filter(|_| blocked);
@@ -512,14 +537,40 @@ impl HookFence {
             .tool
             .filter(|tool| blocked && !tool.is_empty())
             .map(crate::agent_hooks::semantic_key);
+        let carried_call = || {
+            previous
+                .filter(|fence| {
+                    fence.session_id == self.session_id
+                        && fence.waiting_agent == self.waiting_agent
+                        && fence.waiting_tool.is_some()
+                        && fence.waiting_tool == self.waiting_tool
+                })
+                .and_then(|fence| fence.waiting_call.clone())
+        };
+        self.waiting_call = if blocked {
+            hook.call.filter(|call| !call.is_empty()).map(str::to_owned).or_else(carried_call)
+        } else {
+            None
+        };
+        self.waiting_input = hook.input.filter(|_| blocked).map(str::to_owned);
         self
     }
 
+    /// The wait of `other`, the roster's fence of the same session (`waiting_*`).
+    pub(crate) fn take_wait_from(&mut self, other: &Self) {
+        self.waiting_agent.clone_from(&other.waiting_agent);
+        self.waiting_since_ms = other.waiting_since_ms;
+        self.waiting_tool.clone_from(&other.waiting_tool);
+        self.waiting_call.clone_from(&other.waiting_call);
+        self.waiting_input.clone_from(&other.waiting_input);
+    }
+
     /// Whether the tool hook `hook` ends the wait this fence holds: a hook of the agent that
-    /// waits, observed after the wait began, and, for a post-tool hook, of the tool waited
-    /// on. A side the fence or the hook does not know proves nothing and does not hold the
-    /// wait (a fence written before these fields, a hook helper that stamps no time).
-    pub(crate) fn wait_answered_by(&self, hook: HookWaitProbe<'_>) -> bool {
+    /// waits, observed after the wait began, and, for a post-tool hook, of the call waited
+    /// on (its tool, and its call id or else its input). A side the fence or the hook does
+    /// not know proves nothing and does not hold the wait (a fence written before these
+    /// fields, a hook helper that stamps no time).
+    pub(crate) fn wait_answered_by<'a>(&self, hook: HookWaitProbe<'a>) -> bool {
         let same_agent =
             self.waiting_agent.as_deref().is_none_or(|waiting| waiting == hook.agent.unwrap_or(""));
         let observed_after = self
@@ -536,7 +587,17 @@ impl HookFence {
                 .as_deref()
                 .zip(hook.tool.filter(|tool| !tool.is_empty()))
                 .is_none_or(|(waiting, tool)| waiting == crate::agent_hooks::semantic_key(tool));
-        same_agent && observed_after && same_tool
+        let known = |value: Option<&'a str>| value.filter(|value| !value.is_empty());
+        let same_call = !post_tool
+            || match (self.waiting_call.as_deref(), known(hook.call)) {
+                (Some(waiting), Some(call)) => waiting == call,
+                _ => self
+                    .waiting_input
+                    .as_deref()
+                    .zip(known(hook.input))
+                    .is_none_or(|(waiting, input)| waiting == input),
+            };
+        same_agent && observed_after && same_tool && same_call
     }
 
     /// Decide one direct hook-source report. Internal hook markers are not
@@ -646,25 +707,14 @@ pub(crate) struct AgentRoster {
 }
 
 impl AgentRoster {
-    /// Whose wait the roster's fence of `terminal_id` holds for `session_id`
+    /// The roster's fence of `terminal_id` for `session_id` when it holds a wait
     /// (`HookFence::waiting_agent`). The hook projector restores its fences from the durable
     /// projection, which keeps no wait; it takes the wait from here at startup, so both
     /// views end a wait on the same tool hook after a restart.
-    /// Also when it began and for which tool (`waiting_since_ms`, `waiting_tool`).
-    pub(crate) fn waiting_fence(
-        &self,
-        terminal_id: &str,
-        session_id: &str,
-    ) -> Option<(&str, Option<u64>, Option<&str>)> {
-        self.hook_fences.get(terminal_id).filter(|fence| fence.session_id == session_id).and_then(
-            |fence| {
-                Some((
-                    fence.waiting_agent.as_deref()?,
-                    fence.waiting_since_ms,
-                    fence.waiting_tool.as_deref(),
-                ))
-            },
-        )
+    pub(crate) fn waiting_fence(&self, terminal_id: &str, session_id: &str) -> Option<&HookFence> {
+        self.hook_fences
+            .get(terminal_id)
+            .filter(|fence| fence.session_id == session_id && fence.waiting_agent.is_some())
     }
 
     /// The hook session that owns `terminal_id` and has not ended.
@@ -853,7 +903,7 @@ impl AgentRoster {
                 state == AgentState::Done,
                 observed_at_ms,
             )
-            .noting_wait(state, hook);
+            .noting_wait(current, state, hook);
             self.hook_fences.insert(terminal_id.to_string(), next);
             let agent = event.adapter_id().map(str::to_string);
             (state, AgentSource::Hook, None, None, None, agent, event.committed_at_ms)
@@ -1204,7 +1254,9 @@ mod tests {
                 ended_at_ms: None,
                 waiting_agent: None,
                 waiting_since_ms: None,
-                waiting_tool: None
+                waiting_tool: None,
+                waiting_call: None,
+                waiting_input: None
             }
         );
 
@@ -1245,7 +1297,9 @@ mod tests {
                 ended_at_ms: None,
                 waiting_agent: None,
                 waiting_since_ms: None,
-                waiting_tool: None
+                waiting_tool: None,
+                waiting_call: None,
+                waiting_input: None
             }
         );
         let completed = session_payload("old");
@@ -1279,7 +1333,9 @@ mod tests {
                 ended_at_ms: None,
                 waiting_agent: None,
                 waiting_since_ms: None,
-                waiting_tool: None
+                waiting_tool: None,
+                waiting_call: None,
+                waiting_input: None
             }
         );
     }

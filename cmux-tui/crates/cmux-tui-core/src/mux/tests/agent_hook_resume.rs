@@ -235,3 +235,53 @@ fn a_late_or_parallel_tool_hook_does_not_end_the_wait() {
         "the agent went on after a denial"
     );
 }
+
+/// Two parallel calls of the same tool: the one that finishes does not end the approval the
+/// other still waits on. Claude's permission request names no call, so the waited call's
+/// input tells them apart; a question names its call in the pre-tool hook, and its answer
+/// (an input that now carries the answers) ends the wait by that id.
+#[test]
+fn a_parallel_call_of_the_same_tool_does_not_end_the_wait() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().unwrap();
+    let append = claude_at(&mux, &terminal_id);
+    let working = (AgentState::Working, "working".to_string());
+    let blocked = (AgentState::Blocked, "blocked".to_string());
+    let bash = |id: &str, command: &str| serde_json::json!({"tool_name": "Bash", "tool_use_id": id, "tool_input": {"command": command}});
+
+    append("SessionStart", "p-1", 1_000, serde_json::json!({}));
+    append("UserPromptSubmit", "p-2", 1_001, serde_json::json!({"prompt": "run both"}));
+    append("PreToolUse", "p-3", 1_010, bash("toolu_a", "make test"));
+    append("PreToolUse", "p-4", 1_011, bash("toolu_b", "rm -rf build"));
+    append(
+        "PermissionRequest",
+        "p-5",
+        1_012,
+        serde_json::json!({"tool_name": "Bash", "tool_input": {"command": "rm -rf build"}}),
+    );
+    assert_eq!(states(&mux, surface.id, &terminal_id), blocked);
+    append("PostToolUse", "p-6", 1_500, bash("toolu_a", "make test"));
+    assert_eq!(states(&mux, surface.id, &terminal_id), blocked, "the other call finished");
+    append("PostToolUse", "p-7", 4_000, bash("toolu_b", "rm -rf build"));
+    assert_eq!(states(&mux, surface.id, &terminal_id), working, "the approved call ran");
+
+    let question = |id: &str, input: Value| serde_json::json!({"tool_name": "AskUserQuestion", "tool_use_id": id, "tool_input": input});
+    let asked = serde_json::json!({"questions": [{"question": "Which branch?"}]});
+    append("PreToolUse", "p-8", 5_000, question("toolu_q", asked.clone()));
+    append(
+        "PermissionRequest",
+        "p-9",
+        5_001,
+        serde_json::json!({"tool_name": "AskUserQuestion", "tool_input": asked}),
+    );
+    assert_eq!(states(&mux, surface.id, &terminal_id), blocked);
+    let answered = serde_json::json!({
+        "questions": [{"question": "Which branch?"}],
+        "answers": {"Which branch?": "main"}
+    });
+    append("PostToolUse", "p-10", 8_000, question("toolu_other", answered.clone()));
+    assert_eq!(states(&mux, surface.id, &terminal_id), blocked, "another question's answer");
+    append("PostToolUse", "p-11", 8_001, question("toolu_q", answered));
+    assert_eq!(states(&mux, surface.id, &terminal_id), working, "the question was answered");
+}
