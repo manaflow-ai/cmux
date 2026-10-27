@@ -375,8 +375,17 @@ public struct CloudAPIClient: Sendable {
             throw CloudAPIError.transport(error.localizedDescription)
         }
         guard let http = response as? HTTPURLResponse else { throw CloudAPIError.transport("no HTTP response") }
-        guard (200..<300).contains(http.statusCode) else {
-            throw CloudAPIError.from(status: http.statusCode, data: data, headerCode: http.value(forHTTPHeaderField: "x-cmux-vm-error"))
+        return try Self.reply(data, status: http.statusCode, headerCode: http.value(forHTTPHeaderField: "x-cmux-vm-error"),
+                              path: path, as: T.self)
+    }
+
+    /// A `/api/vm` reply as a `T`: a status outside 2xx is the VM error body
+    /// (``CloudAPIError/from(status:data:headerCode:)``), a body that is not a `T` is ``CloudAPIError/decoding(_:)``.
+    /// Pure: the request path, without the network.
+    static func reply<T: Decodable>(_ data: Data, status: Int, headerCode: String?, path: String,
+                                    as type: T.Type) throws(CloudAPIError) -> T {
+        guard (200..<300).contains(status) else {
+            throw CloudAPIError.from(status: status, data: data, headerCode: headerCode)
         }
         if T.self == Ignored.self, let ignored = Ignored() as? T { return ignored }
         do {

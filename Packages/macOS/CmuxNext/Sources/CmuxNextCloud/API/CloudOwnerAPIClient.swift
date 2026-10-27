@@ -103,11 +103,17 @@ public struct CloudOwnerAPIClient: Sendable {
             throw CloudAPIError.transport(error.localizedDescription)
         }
         guard let http = response as? HTTPURLResponse else { throw CloudAPIError.transport("no HTTP response") }
-        // The Worker's shape: {ok: true, value} or {ok: false, error: {code, message}}.
+        return try Self.reply(data, status: http.statusCode, path: path, as: T.self)
+    }
+
+    /// The `value` of a Worker reply, `{ok: true, value}`; a reply with another status or shape is
+    /// ``CloudAPIError/http(status:code:message:)`` with its `{ok: false, error: {code, message}}`, and a
+    /// value that is not a `T` is ``CloudAPIError/decoding(_:)``. Pure: the request path, without the network.
+    static func reply<T: Decodable>(_ data: Data, status: Int, path: String, as type: T.Type) throws(CloudAPIError) -> T {
         let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        guard (200..<300).contains(http.statusCode), object?["ok"] as? Bool == true, let value = object?["value"] else {
+        guard (200..<300).contains(status), object?["ok"] as? Bool == true, let value = object?["value"] else {
             let error = object?["error"] as? [String: Any]
-            throw CloudAPIError.http(status: http.statusCode, code: error?["code"] as? String, message: error?["message"] as? String)
+            throw CloudAPIError.http(status: status, code: error?["code"] as? String, message: error?["message"] as? String)
         }
         do {
             return try JSONDecoder().decode(T.self, from: JSONSerialization.data(withJSONObject: value))

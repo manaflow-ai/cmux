@@ -17,8 +17,12 @@ public struct HandsAPIClient: Sendable {
 
     /// `GET /v1/hands`.
     public func hands() async throws -> [HandSummary] {
-        let value = try await request("GET", "/v1/hands")
-        return try JSONDecoder().decode([HandSummary].self, from: JSONSerialization.data(withJSONObject: value))
+        try Self.summaries(try await request("GET", "/v1/hands"))
+    }
+
+    /// The hands in a `/v1/hands` reply's value; a value that is not a list of hands throws.
+    static func summaries(_ value: Any) throws -> [HandSummary] {
+        try JSONDecoder().decode([HandSummary].self, from: JSONSerialization.data(withJSONObject: value))
     }
 
     /// `GET /v1/hands/<hand>/approvals`: the requests waiting for the owner.
@@ -104,10 +108,16 @@ public struct HandsAPIClient: Sendable {
             throw CloudAPIError.transport(error.localizedDescription)
         }
         guard let http = response as? HTTPURLResponse else { throw CloudAPIError.transport("no HTTP response") }
+        return try Self.replyValue(data, status: http.statusCode)
+    }
+
+    /// The `value` of an `{ok: true, value}` reply; any other status or shape is
+    /// ``CloudAPIError/http(status:code:message:)`` with the reply's `error` code and message.
+    static func replyValue(_ data: Data, status: Int) throws(CloudAPIError) -> Any {
         let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        guard (200..<300).contains(http.statusCode), object?["ok"] as? Bool == true, let value = object?["value"] else {
+        guard (200..<300).contains(status), object?["ok"] as? Bool == true, let value = object?["value"] else {
             let error = object?["error"] as? [String: Any]
-            throw CloudAPIError.http(status: http.statusCode, code: error?["code"] as? String, message: error?["message"] as? String)
+            throw CloudAPIError.http(status: status, code: error?["code"] as? String, message: error?["message"] as? String)
         }
         return value
     }
