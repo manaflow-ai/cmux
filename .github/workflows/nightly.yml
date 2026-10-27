@@ -8032,6 +8032,46 @@ jobs:
             python3 "$r2" write-feed --feed "$feed" --same-build
           done
 
+  # cmux NEXT's downloads on R2 (publish-nightly, republish-nightly-deltas) are about 240 MB a
+  # build. Keep what the live feed names, the newest 20 builds and anything under 7 days old;
+  # delete the rest (scripts/ci/nightly_next_r2_prune.py, which fails closed). A dry run unless
+  # the repository variable NIGHTLY_NEXT_R2_PRUNE_DELETE is 1. Its own job after the delta
+  # republish, with the track's own scoped token: nothing waits on it and it never fails a run.
+  prune-nightly-next-r2:
+    needs: [decide, publish-nightly, republish-nightly-deltas]
+    if: "always() && !cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true'"
+    environment: ${{ needs.decide.outputs.environment }}
+    continue-on-error: true
+    permissions:
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout publication tooling at the workflow commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .publish-tooling
+          sparse-checkout: scripts
+
+      - name: Prune old nightly-next downloads on R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          NIGHTLY_FEEDS: ${{ needs.decide.outputs.feeds }}
+          PRUNE_DELETE: ${{ vars.NIGHTLY_NEXT_R2_PRUNE_DELETE == '1' && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          python3 .publish-tooling/scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "${NIGHTLY_NEXT_R2_PREFIX}x.dmg"
+          args=(--endpoint-url "$R2_ENDPOINT" --bucket "$NIGHTLY_NEXT_R2_BUCKET" --prefix "$NIGHTLY_NEXT_R2_PREFIX"
+                --keep-builds 20 --min-age-days 7)
+          for feed in $NIGHTLY_FEEDS; do args+=(--feed "${NIGHTLY_NEXT_R2_PREFIX}${feed}"); done
+          if [ "$PRUNE_DELETE" = true ]; then args+=(--delete); fi
+          python3 .publish-tooling/scripts/ci/nightly_next_r2_prune.py "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+
   # Each PR in this nightly-next build gets a "Shipped in" line, in one comment
   # that release.yml also writes for stable releases
   # (scripts/ci/published_in_comments.py). The span is the one the release

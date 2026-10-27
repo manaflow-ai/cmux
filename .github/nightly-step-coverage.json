@@ -227,6 +227,8 @@
         "Publish nightly-next release assets": {"nightly_only": "uploads assets to GitHub release (publish-release-assets.py tested by tests/test_github_release_publication.py)"},
         "Take the recovered build's source archive": {"plumbing": true},
         "Publish the cmux-next source archive": {"nightly_only": "uploads source archive to release"}},
+      "prune-nightly-next-r2": {
+        "Prune old nightly-next downloads on R2": {"nightly_only": "lists and (with NIGHTLY_NEXT_R2_PRUNE_DELETE=1) deletes nightly-next R2 objects with release-next secrets (nightly_next_r2_prune.py tested by tests/test_nightly_next_r2_prune.py)"}},
       "publish-nightly-next-github-names": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Take the published feed": {"plumbing": true},
