@@ -120,16 +120,14 @@ extension AgentTabStore {
         guard launchResumeTask == nil else { return }
         // task-owner: retained by the tab store and cancelled in deinit, including before connect.
         launchResumeTask = Task { [weak self] in
-            for await live in ObservationStream({ store.liveTabListRevision }) where live != nil {
-                guard !Task.isCancelled else { return }
-                for retry in 0..<3 {
-                    if await self?.resumeChatsAtLaunch() == true { return }
-                    guard !Task.isCancelled else { return }
-                    guard retry < 2 else { break }
-                    // wakeup-allow: bounded launch recovery backoff for a daemon handoff; this
-                    // task is off the main thread and cancellation stops the retry before quit.
-                    try? await Task.sleep(for: .seconds(1 << retry))
+            for await (live, connection) in ObservationStream({ (store.liveTabListRevision, store.connectionState) }) {
+                let connected = switch connection {
+                case .connected: true
+                default: false
                 }
+                guard live != nil || connected else { continue }
+                guard !Task.isCancelled else { return }
+                if await self?.resumeChatsAtLaunch() == true { return }
             }
         }
     }
