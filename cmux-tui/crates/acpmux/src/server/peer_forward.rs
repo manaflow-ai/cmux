@@ -87,11 +87,13 @@ fn name_sender(hub: &Arc<Hub>, conn: &Arc<Conn>, p: &mut Value) {
     }
 }
 
-/// `e` with `data.peer` = `peer`, unless it names one already.
+/// `e` with `data.peer` = `peer`, this daemon's own name for the peer that
+/// answered: any `peer` the peer's own answer gave is replaced, so the app
+/// enrolls this Mac only on a peer of this daemon, never on a host the peer named.
 fn name_peer(mut e: RpcError, peer: &str) -> RpcError {
     let data = e.data.get_or_insert_with(|| json!({}));
     if let Some(obj) = data.as_object_mut() {
-        obj.entry("peer").or_insert_with(|| Value::String(peer.to_owned()));
+        obj.insert("peer".into(), Value::String(peer.to_owned()));
     }
     e
 }
@@ -448,14 +450,14 @@ mod tests {
     use super::*;
 
     /// A refused answer for a peer's prompt names that peer, so the app can say where to
-    /// enroll this Mac; a peer it names already stays.
+    /// enroll this Mac; a peer the answer named itself is replaced by this daemon's name.
     #[test]
     fn a_refused_answer_names_the_peer() {
         let e = name_peer(crate::hub::person::person_required("allowing a permission"), "hb");
         assert_eq!(e.data.as_ref().unwrap()["peer"], "hb");
         assert_eq!(e.data.as_ref().unwrap()["reason"], crate::hub::person::REASON);
         let e = name_peer(RpcError::internal("x").with_data(json!({"peer": "far"})), "hb");
-        assert_eq!(e.data.unwrap()["peer"], "far");
+        assert_eq!(e.data.unwrap()["peer"], "hb");
     }
 
     /// A history read forwarded to a peer names its byte limit: a peer on an older build pages to

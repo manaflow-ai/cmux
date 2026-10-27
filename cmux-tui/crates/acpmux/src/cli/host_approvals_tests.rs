@@ -211,3 +211,25 @@ fn a_daemon_that_does_not_reload_fails_the_change() {
     let e = block(reload_with(&FakeDaemon(false))).unwrap_err().to_string();
     assert!(e.contains("did not reload") && e.contains("method not found"), "{e}");
 }
+
+/// A daemon that holds its lock but whose socket does not answer (or does not
+/// finish `initialize`) still runs with the old file: the change fails. No
+/// daemon at all: nothing to reload, it reads the file when it starts.
+#[test]
+fn a_running_daemon_whose_socket_does_not_answer_fails_the_change() {
+    let dir = std::env::temp_dir().join(format!("hap-run-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let lock = dir.join("daemon.lock");
+    let refused = anyhow!("connection refused");
+    let none: Result<&FakeDaemon, &anyhow::Error> = Err(&refused);
+    assert!(!block(reload_on(none, &lock)).unwrap(), "no lock file: no daemon");
+    let held = std::fs::File::create(&lock).unwrap();
+    held.lock().unwrap();
+    let e = block(reload_on(none, &lock)).unwrap_err().to_string();
+    assert!(e.contains("did not answer") && e.contains("connection refused"), "{e}");
+    drop(held);
+    assert!(!block(reload_on(none, &lock)).unwrap(), "a lock nobody holds: no daemon");
+    assert!(block(reload_on(Ok(&FakeDaemon(true)), &lock)).unwrap());
+    let _ = std::fs::remove_dir_all(&dir);
+}

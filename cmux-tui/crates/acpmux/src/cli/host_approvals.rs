@@ -204,8 +204,29 @@ fn change(
 /// Has the running daemon read the file again: false when none runs (it
 /// reads the file when it starts), an error when one runs and did not.
 async fn reload() -> Result<bool> {
-    let Ok(client) = crate::daemon::connect(false).await else { return Ok(false) };
-    reload_with(&*client).await
+    let connected = crate::daemon::connect(false).await;
+    reload_on(connected.as_deref(), &crate::config::home().join("daemon.lock")).await
+}
+
+/// `reload` on a daemon connection, or on the error connecting gave: no
+/// daemon, unless one holds its `lock` (it runs, but its socket did not answer
+/// or did not finish `initialize`), which fails the change.
+async fn reload_on(client: Result<&impl Reload, &anyhow::Error>, lock: &Path) -> Result<bool> {
+    match client {
+        Ok(client) => reload_with(client).await,
+        Err(e) if daemon_runs(lock) => Err(anyhow!(
+            "{} changed, but the running acpmux daemon did not answer ({e}); \
+             restart it (`acpmux daemon stop`, then `acpmux daemon`)",
+            mac_approvers::FILE
+        )),
+        Err(_) => Ok(false),
+    }
+}
+
+/// Whether a daemon holds `lock` (its `daemon.lock`, `daemon/lock.rs`).
+fn daemon_runs(lock: &Path) -> bool {
+    let Ok(file) = std::fs::File::open(lock) else { return false };
+    matches!(file.try_lock_shared(), Err(std::fs::TryLockError::WouldBlock))
 }
 
 async fn reload_with(client: &impl Reload) -> Result<bool> {
