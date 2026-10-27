@@ -25,6 +25,8 @@ import Observation
     @ObservationIgnored private let target: @MainActor (CloudCodexBrokerScope, String) -> CloudCodexBrokerTarget
     @ObservationIgnored private var scopes: Set<CloudCodexBrokerScope> = []
     @ObservationIgnored private var runs: [UUID: (CloudCodexBrokerScope, Task<Void, any Error>)] = [:]
+    @ObservationIgnored private var cleanupWaiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    @ObservationIgnored private var cleanupTimers: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var stopped = false
     @ObservationIgnored private var signingOutScope: CloudCodexBrokerScope?
 
@@ -82,20 +84,7 @@ import Observation
             try check(scope)
         } catch {
             // A cancelled prompt must not leave the pre-login target registered.
-            // This task must not inherit the cancelled wizard/auth caller.
-            let cleanup = Task {
-                try await withThrowingTaskGroup(of: Void.self) { group in
-                    group.addTask { try await broker.revoke(target: vm) }
-                    group.addTask {
-                        // wakeup-allow: bound one cleanup attempt; failed cleanup remains visible.
-                        try await Task.sleep(for: .seconds(30))
-                        throw CloudCodexBrokerError.remoteDeliveryFailed
-                    }
-                    defer { group.cancelAll() }
-                    _ = try await group.next()
-                }
-            }
-            do { try await cleanup.value }
+            do { try await revokeAfterFailure(broker, target: vm) }
             catch { pendingCleanup.insert(machineID) }
             throw error
         }
@@ -131,6 +120,30 @@ import Observation
         signingOutScope = currentScope()
         for run in runs.values { run.1.cancel() }
         for scope in scopes { await retire(scope) }
+    }
+
+    private func revokeAfterFailure(_ broker: CloudCodexBroker, target: CloudCodexBrokerTarget) async throws {
+        let id = UUID()
+        try await withCheckedThrowingContinuation { continuation in
+            cleanupWaiters[id] = continuation
+            // Independent tasks do not inherit cancellation from the UI caller.
+            let work = Task {
+                do { try await broker.revoke(target: target); finishCleanup(id, result: .success(())) }
+                catch { finishCleanup(id, result: .failure(error)) }
+            }
+            cleanupTimers[id] = Task {
+                // wakeup-allow: one-shot cleanup deadline, cancelled when revocation answers.
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+                if finishCleanup(id, result: .failure(CloudCodexBrokerError.remoteDeliveryFailed)) { work.cancel() }
+            }
+        }
+    }
+
+    @discardableResult private func finishCleanup(_ id: UUID, result: Result<Void, any Error>) -> Bool {
+        guard let continuation = cleanupWaiters.removeValue(forKey: id) else { return false }
+        cleanupTimers.removeValue(forKey: id)?.cancel()
+        continuation.resume(with: result)
+        return true
     }
 
     private func retire(_ scope: CloudCodexBrokerScope) async {
