@@ -1,0 +1,23 @@
+{
+  "comment": "Decode files: Swift files that read peer, device or file bytes (plans/cmux-next/chrome-parity/p10-stability.md, section D; Q09 decode-path waves 093-095). guardrails.py's decode-trap rule refuses a push that leaves any index subscript or trapping integer conversion (crash_ratchet.py's index_subscript and int_conversion) in a listed file it touches, unless the line carries `// decode-trap-allow: <why the operand is not input>`. A wave adds its files once they are at zero.",
+  "files": [
+    {"path": "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Auth/RFBAuthentication.swift", "wave": "p10-stability-093"},
+    {"path": "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Client/VNCClient.swift", "wave": "p10-stability-093"},
+    {"path": "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Client/VNCEndpoint.swift", "wave": "p10-stability-093"},
+    {"path": "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Decode/RFBRectangleDecoder.swift", "wave": "p10-stability-093"},
+    {"path": "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Decode/ZlibStream.swift", "wave": "p10-stability-093"},
+    {"path": "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Protocol/RFBHandshake.swift", "wave": "p10-stability-093"},
+    {"path": "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Protocol/RFBPixelFormat.swift", "wave": "p10-stability-093"},
+    {"path": "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Transport/RFBReader.swift", "wave": "p10-stability-093"},
+    {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Decode/RemoteAnnexB.swift", "wave": "p10-stability-093"},
+    {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Transport/RemoteRdStreamSplitter.swift", "wave": "p10-stability-093"},
+    {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Android/AnnexBParser.swift", "wave": "p10-stability-093"},
+    {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Android/AndroidScreenStream.swift", "wave": "p10-stability-093"},
+    {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/SurfaceSourceWire.swift", "wave": "p10-stability-093"},
+    {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/PrivateSignature.swift", "wave": "p10-stability-093"},
+    {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/SimulatorSurfaceServer.swift", "wave": "p10-stability-093"},
+    {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/PhoneGesture.swift", "wave": "p10-stability-093"},
+    {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRecording.swift", "wave": "p10-stability-093"},
+    {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneFeedbackClip.swift", "wave": "p10-stability-093"}
+  ]
+}
