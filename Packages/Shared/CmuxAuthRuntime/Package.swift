@@ -20,8 +20,6 @@ let package = Package(
         .package(path: "../CMUXMobileCore"),
         // The portable Mutex the push redirect delegate's state lives in (p10-stability-172).
         .package(path: "../CmuxSafeConcurrency"),
-        // The blockingCall seam the Keychain calls run in (SecItemKeychain).
-        .package(path: "../CmuxThreading"),
         .package(path: "../../../vendor/stack-auth-swift-sdk-prerelease"),
     ],
     targets: [
@@ -31,7 +29,6 @@ let package = Package(
                 "CMUXAuthCore",
                 "CMUXMobileCore",
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
-                .product(name: "CmuxThreading", package: "CmuxThreading"),
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],
             swiftSettings: [
