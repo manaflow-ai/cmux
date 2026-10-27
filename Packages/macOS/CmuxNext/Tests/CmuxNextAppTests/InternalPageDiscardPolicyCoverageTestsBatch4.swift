@@ -7,10 +7,11 @@ import CmuxNextDaemonService
 import CmuxNextHibernation
 @testable import CmuxNextHome
 @testable import CmuxNextHomeEngine
-import CmuxNextPages
+@testable import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import Testing
+import WebKit
 
 /// Page policies batch 4 (p07-memory-027, `memoryDiscardInternalPages`): the Chief pages, the
 /// channels Home, the Home tab and the docked Home declare their discard policy and keep reasons,
@@ -93,29 +94,38 @@ extension InternalPageDiscardPolicyCoverageTests {
 
     // MARK: Channels: kept only while a composer holds unsent input (Chrome's kFormInteractions)
 
-    @Test func aChannelsPageIsKeptOnlyWhileItReportsUnsentInput() async throws {
-        let input = HomeChannelsInput()
-        let context = PageCallContext(page: PageDescriptor.homeChannels.id)
-        #expect(!input.unsent, "a page that has said nothing holds nothing")
-        _ = try await input.call(HomeChannelsInput.unsentOp, params: .object(["unsent": .bool(true)]), context: context)
-        #expect(input.unsent)
-        _ = try await input.call(HomeChannelsInput.unsentOp, params: .object(["unsent": .bool(false)]), context: context)
-        #expect(!input.unsent, "a sent or cleared composer lets the page go")
-        await #expect(throws: PageError.self) {
-            try await input.call(HomeChannelsInput.unsentOp, params: .object([:]), context: context)
-        }
+    /// A Channels page, not loaded, whose keep reasons a test sets as its document or the host would.
+    private static func channelsPage() -> PageWebView {
+        let configuration = WKWebViewConfiguration()
+        return PageWebView(descriptor: PageDescriptor(id: "test.home-channels", resource: "discard", processGroup: .solo, namespaces: []),
+                           configuration: configuration, inputReadiness: PageInputReadiness(configuration: configuration),
+                           routes: [], route: nil, options: .standard, surface: nil, dynamicResources: nil, pooled: false,
+                           load: false, chromium: nil)
     }
 
-    @Test func aDockIsKeptOnlyWhileItsChannelsComposersHoldInput() async throws {
+    /// The composers' unsent input reaches the host as the page's `draft` keep reason
+    /// (`cmux.page.keepAlive`, composerDrafts.ts); the Channels tab and the dock read it from there.
+    @Test func aChannelsPageIsKeptOnlyWhileItHoldsUnsentInput() {
+        let page = Self.channelsPage()
+        #expect(HomeChannelsPageTab.keepReasons(of: nil).isEmpty, "no page, nothing to keep")
+        #expect(HomeChannelsPageTab.keepReasons(of: page).isEmpty, "a page that has said nothing holds nothing")
+        page.keepReasons.begin(.draft)
+        #expect(HomeChannelsPageTab.keepReasons(of: page) == [.formInput])
+        page.keepReasons.begin(.confirmation)
+        #expect(HomeChannelsPageTab.keepReasons(of: page) == [.formInput, .inProgress], "a sheet it opened keeps it too")
+        page.keepReasons.end(.confirmation)
+        page.keepReasons.end(.draft)
+        #expect(HomeChannelsPageTab.keepReasons(of: page).isEmpty, "a sent or cleared composer lets the page go")
+        page.keepReasons.begin(.pageCall)
+        #expect(HomeChannelsPageTab.keepReasons(of: page).isEmpty, "a reason that only blocks a freeze lets a discard through")
+    }
+
+    @Test func aDockWithNoChannelsPageHasNothingToKeep() throws {
         let services = Self.homeServices()
         let provider = HomeDockTab(services: services)
         let dock = try #require(provider.makeView(for: "dock", in: nil) as? HomeDockView)
-        let context = PageCallContext(page: PageDescriptor.homeChannels.id)
-        #expect(provider.keepReasons(for: "dock").isEmpty)
-        _ = try await dock.channelsInput.call(HomeChannelsInput.unsentOp, params: .object(["unsent": .bool(true)]), context: context)
-        #expect(provider.keepReasons(for: "dock") == [.formInput])
-        _ = try await dock.channelsInput.call(HomeChannelsInput.unsentOp, params: .object(["unsent": .bool(false)]), context: context)
-        #expect(provider.keepReasons(for: "dock").isEmpty, "a visit to Channels with nothing typed does not keep the dock")
+        #expect(dock.channels == nil, "a dock opens on Messages")
+        #expect(provider.keepReasons(for: "dock").isEmpty, "a visit to Messages with nothing typed does not keep the dock")
     }
 
     // MARK: chiefMemory

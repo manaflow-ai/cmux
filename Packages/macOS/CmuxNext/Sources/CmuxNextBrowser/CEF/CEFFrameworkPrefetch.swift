@@ -4,6 +4,9 @@ import Darwin
 import Foundation
 import ImageIO
 import LocalAuthentication
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Reads the Chromium framework's code and resources into the file cache on
 /// the library-load thread, before `CefInitialize` runs on the main thread.
@@ -91,7 +94,7 @@ nonisolated final class CEFFrameworkPrefetch: Sendable {
         var finished = false
         /// Shutdown dropped the idle read: the load that waits for it maps nothing.
         var droppedAtShutdown = false
-        var waiters: [CheckedContinuation<Bool, Never>] = []
+        var waiters: [OnceContinuation<Bool, OnceContinuationError>] = []
         var report: Report?
     }
 
@@ -212,7 +215,8 @@ nonisolated final class CEFFrameworkPrefetch: Sendable {
     /// Returns once ``post(_:on:)``'s read or a ``promote(on:)`` ended: true to map the framework, false when
     /// shutdown dropped the read (the app quits; nothing should map).
     func finished() async -> Bool {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+        // A waiter dropped unresumed (abandoned) maps, as a load with no prefetch does.
+        let map = try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             let now = state.withLock { state -> Bool? in
                 if state.finished { return !state.droppedAtShutdown }
                 state.waiters.append(continuation)
@@ -220,11 +224,12 @@ nonisolated final class CEFFrameworkPrefetch: Sendable {
             }
             if let now { continuation.resume(returning: now) }
         }
+        return map ?? true
     }
 
     /// Ends the reads and resumes every ``finished()`` waiter (outside the lock). The first end decides.
     private func finish(droppedAtShutdown: Bool = false) {
-        let (waiters, map) = state.withLock { state -> ([CheckedContinuation<Bool, Never>], Bool) in
+        let (waiters, map) = state.withLock { state -> ([OnceContinuation<Bool, OnceContinuationError>], Bool) in
             if !state.finished {
                 state.finished = true
                 state.droppedAtShutdown = droppedAtShutdown
@@ -272,21 +277,26 @@ nonisolated final class CEFFrameworkPrefetch: Sendable {
         var files = 0
         var outcome = Outcome.done
         let size = 1 << 20
-        let buffer = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 16384)
-        defer { buffer.deallocate() }
+        // SAFETY: this reader's own page-aligned scratch buffer of `size` bytes, freed once when the read ends;
+        // only pread writes it (`read(_:from:to:through:size:)`, never past `size`) and nothing reads it.
+        let buffer = unsafe UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 16384)
+        defer { unsafe buffer.deallocate() }
         reading: for url in urls where !state.withLock({ $0.done.contains(url) }) {
+            // SAFETY: open reads the NUL-terminated copy of the path Swift makes for the call.
             // concurrency-allow: a files-lane item or the library-load thread (Task.detached in CEFRuntime.start/preload), never the main thread
-            let descriptor = open(url.path, O_RDONLY | O_CLOEXEC)
+            let descriptor = unsafe open(url.path, O_RDONLY | O_CLOEXEC)
             guard descriptor >= 0 else {
                 state.withLock { _ = $0.done.insert(url) }
                 continue
             }
             defer { close(descriptor) }
             var info = stat()
-            let length = fstat(descriptor, &info) == 0 ? Int(info.st_size) : 0
+            // SAFETY: fstat writes one `stat` into `info` during the call.
+            let length = unsafe fstat(descriptor, &info) == 0 ? Int(info.st_size) : 0
             var step = nextStep(url, length: length, spent: bytes, budget: budget, stop: stop)
             while case .chunk(let offset) = step {
-                bytes += Self.read(descriptor, from: offset, to: min(offset + Self.chunkBytes, length), through: buffer, size: size)
+                // SAFETY: `buffer` holds `size` bytes (above).
+                bytes += unsafe Self.read(descriptor, from: offset, to: min(offset + Self.chunkBytes, length), through: buffer, size: size)
                 step = nextStep(url, length: length, spent: bytes, budget: budget, stop: stop)
             }
             switch step {
@@ -337,8 +347,9 @@ nonisolated final class CEFFrameworkPrefetch: Sendable {
                              size: Int) -> Int {
         var offset = start
         while offset < end {
+            // SAFETY: pread writes at most min(size, end - offset) <= size bytes into `buffer`, which holds `size`.
             // concurrency-allow: a files-lane item or the library-load thread, never the main thread
-            let count = pread(descriptor, buffer, min(size, end - offset), off_t(offset))
+            let count = unsafe pread(descriptor, buffer, min(size, end - offset), off_t(offset))
             if count < 0, errno == EINTR { continue }
             guard count > 0 else { break }
             offset += count

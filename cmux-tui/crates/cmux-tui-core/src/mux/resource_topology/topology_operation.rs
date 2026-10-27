@@ -241,7 +241,9 @@ impl Mux {
         }
         let marked = public_id.as_str().to_string();
         let writes = mark.writes();
-        let write_mark = move |tx: &rusqlite::Transaction<'_>| mark.write(tx, &marked, &marked_key);
+        let write_mark = move |tx: &crate::workspace_registry::RegistryTransaction<'_>| {
+            mark.write(tx, &marked, &marked_key)
+        };
         let (commit, workspace_revision) = registry.commit_resource_creation_patch(
             correlation_key,
             mutation,

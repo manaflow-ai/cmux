@@ -171,10 +171,15 @@ package nonisolated struct RecoveryDraftFiles {
     }
 
     @concurrent package static func readAll(in directory: URL) async -> [RecoveryDraft] {
+        blockingReadAll(in: directory)
+    }
+
+    /// Every draft in `directory`, oldest first. Blocks on the disk: a files lane or `readAll`, never main.
+    package static func blockingReadAll(in directory: URL) -> [RecoveryDraft] {
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
         return files.filter { $0.pathExtension == "draft" }
             .compactMap { file in
-                // concurrency-allow: @concurrent, off the main actor
+                // concurrency-allow: called from a files lane or @concurrent readAll, never on the main actor
                 guard let data = try? Data(contentsOf: file) else { return nil }
                 return try? JSONDecoder().blockingDecode(RecoveryDraft.self, from: data)
             }
@@ -182,6 +187,11 @@ package nonisolated struct RecoveryDraftFiles {
     }
 
     @concurrent package static func changedSince(_ draft: RecoveryDraft) async -> Bool {
+        blockingChangedSince(draft)
+    }
+
+    /// ``changedSince(_:)`` on the caller's thread. Blocks on the disk: a files lane or `changedSince`, never main.
+    package static func blockingChangedSince(_ draft: RecoveryDraft) -> Bool {
         guard draft.host == QuitParticipantID.localHost, let path = draft.filePath else { return false }
         if let base = draft.base, !base.isEmpty { return !matches(base, path: path) }
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: path) else { return draft.fileSize != nil }
@@ -208,7 +218,7 @@ package nonisolated struct RecoveryDraftFiles {
         defer { try? handle.close() }
         var hasher = SHA256()
         do {
-            // concurrency-allow: called only from @concurrent changedSince, never on the main actor
+            // concurrency-allow: called only from blockingChangedSince (a files lane or @concurrent changedSince), never on the main actor
             while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
                 hasher.update(data: chunk)
             }

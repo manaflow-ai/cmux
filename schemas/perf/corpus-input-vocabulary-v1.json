@@ -1,0 +1,47 @@
+{
+  "schema": "cmux-perf-corpus-vocabulary/v1",
+  "description": "The only action and CLI events a corpus story may hold (schemas/perf/corpus-story-v1.schema.json, rule R10 of plans/cmux-next/chrome-parity/p12-perf-process.md). scripts/perf-lab/corpus/manifest.py refuses every action id, action argument, CLI command, flag or value that is not declared here. A value shape is {\"type\": \"ref\"} (a layout reference such as @w3.p0.t1), {\"type\": \"integer\"}, {\"type\": \"number\"}, {\"type\": \"boolean\"}, {\"enum\": [...]} (fixed words) or, for a flag with no value, {\"type\": \"switch\"}. No shape takes free text: an action or command whose argument is text (rename, send, paste, a title, a URL, a path) cannot be declared, and the recorder replays its text from the fixed synthetic corpus instead.",
+  "actions": {
+    "newTab.default": {"target": {"type": "ref"}},
+    "newWindow": {},
+    "workspace.newAtBottom": {"target": {"type": "ref"}},
+    "closeTab": {"target": {"type": "ref"}},
+    "closePane": {"target": {"type": "ref"}},
+    "closeWorkspace": {"target": {"type": "ref"}},
+    "splitRight": {"target": {"type": "ref"}},
+    "splitDown": {"target": {"type": "ref"}},
+    "nextSidebarTab": {"target": {"type": "ref"}},
+    "prevSidebarTab": {"target": {"type": "ref"}},
+    "selectWorkspaceByNumber": {"index": {"type": "integer"}, "target": {"type": "ref"}},
+    "workspace.selectFirst": {"target": {"type": "ref"}},
+    "workspace.selectLast": {"target": {"type": "ref"}},
+    "workspace.selectLastUsed": {"target": {"type": "ref"}},
+    "moveWorkspaceUp": {"target": {"type": "ref"}},
+    "moveWorkspaceDown": {"target": {"type": "ref"}},
+    "tab.focus": {"target": {"type": "ref"}},
+    "nextSurface": {"target": {"type": "ref"}},
+    "prevSurface": {"target": {"type": "ref"}},
+    "pane.focus": {"target": {"type": "ref"}},
+    "hibernateTab": {"target": {"type": "ref"}},
+    "commandPalette": {"target": {"type": "ref"}},
+    "toggleSidebar": {"target": {"type": "ref"}}
+  },
+  "cli": [
+    {
+      "argv": ["workspace", {"type": "ref"}, "move"],
+      "flags": {"--index": {"type": "integer"}}
+    },
+    {
+      "argv": ["workspace", {"type": "ref"}, "update"],
+      "flags": {"--task-status": {"enum": ["todo", "working", "needs-attention", "review", "done"]}}
+    },
+    {
+      "argv": ["workspace", "group", {"type": "ref"}, "add"],
+      "flags": {"--workspace": {"type": "ref"}, "--index": {"type": "integer"}}
+    },
+    {
+      "argv": ["workspace", {"type": "ref"}, "status", "set", {"enum": ["trace"]}, {"type": "integer"}],
+      "flags": {}
+    }
+  ]
+}

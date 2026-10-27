@@ -43,18 +43,18 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
             guard let pane = services.pane(id: id), let tab = pane.tabs.first else { return closed(kind, id) }
             return tabPreview(tab, pane: pane, services: services)
         case .tab(let id):
-            guard let (tab, pane) = services.locateTab(id) else { return closed(kind, id) }
+            guard let (tab, pane) = Self.locate(id, in: services) else { return closed(kind, id) }
             return tabPreview(tab, pane: pane, services: services)
         case .session(let id, _):
-            guard let key = services.agentTabs.tab(showing: id), let (tab, pane) = services.locateTab(key) else { return closed(.session, id) }
+            guard let key = services.agentTabs.tab(showing: id), let (tab, pane) = Self.locate(key, in: services) else { return closed(.session, id) }
             return tabPreview(tab, pane: pane, services: services, kind: .session)
         case .chiefSession(let home, let session):
             guard let key = services.agentTabs.tab(showing: session, host: "chief:" + home),
-                  let (tab, pane) = services.locateTab(key) else { return closed(.subagent, session) }
+                  let (tab, pane) = Self.locate(key, in: services) else { return closed(.subagent, session) }
             return tabPreview(tab, pane: pane, services: services, kind: .subagent)
         case .agent(let harness, let session): // the tab an agent link reveals (DeepLinkNavigator), never a new one
             let shown = DeepLink.agentTabs(harness: harness, session: session, adopted: services.agentTabs.tab(resuming: AgentPaneAdopt(harness: harness, agentSessionId: session)), harnessSessions: services.machines.daemons.flatMap(\.store.reachableAgentHarnessSessions))
-            guard let (tab, pane) = shown.lazy.compactMap({ services.locateTab($0) }).first else { return closed(.session, session) }
+            guard let (tab, pane) = shown.lazy.compactMap({ Self.locate($0, in: services) }).first else { return closed(.session, session) }
             return tabPreview(tab, pane: pane, services: services, kind: .session)
         case .group(let id, let workspace):
             // A cloud group's record is in cmux Cloud; the card names the workspace when this Mac shows it.
@@ -85,7 +85,7 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
         case .pane(let id): services.pane(id: id)?.tabs.first?.id
         default: nil
         }
-        guard let tabID, let (tab, _) = services.locateTab(tabID) else { return out }
+        guard let tabID, let (tab, _) = Self.locate(tabID, in: services) else { return out }
         switch tab.kind {
         case .pty, .remoteTerminal:
             guard let connection = services.machines.daemon(forTab: tab).connection,
@@ -147,6 +147,12 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
 
     private func closed(_ kind: HomeLinkChipKind, _ id: String) -> HomeLinkPreview {
         HomeLinkPreview(kind: kind, title: id, status: HomeLinkPreviewStrings.closed, statusTone: .danger)
+    }
+
+    /// The tab with durable id `id` and its pane, on any machine, for one card read.
+    private static func locate(_ id: String, in services: AppServices) -> (TabModel, PaneModel)? {
+        // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), read once per card; no scan, no observation
+        services.locateTab(id)
     }
 
     /// `path` with the home folder as `~`.

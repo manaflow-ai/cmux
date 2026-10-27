@@ -1,0 +1,27 @@
+{
+  "id": "shipped-nightly",
+  "tier": "T1",
+  "description": "The newest published nightly-next DMG as people run it (stories/shipped_nightly.py): the DMG verified first (verify-dmg-artifact.sh: stapled tickets, Gatekeeper, cmux NEXT identity; codesign --deep --strict on the installed copy), then from always-on signals only, never a debug.* request: cold (purged) and warm launch marks (launch.mark signposts), 60 s idle wakeups and CPU with 10 Chromium tabs read at the window's ends, footprint, and action.perform / action.commit of newTab, closeTab, splitRight, closeTab rounds. Results carry the DMG's own CMUXCommit and config release.",
+  "not_measurable": "run_story.py measures only the bench and bench-checks artifact of the scheduled --sha (CONFIGS), and the scheduler requests a build for every story's (sha, config); this story builds nothing and measures the published nightly-next DMG at its own commit, so it needs a daily scheduler lane with no build request",
+  "command": ["scripts/perf-lab/stories/shipped_nightly.py", "--runs", "5", "--purge", "--legs", "launch,session",
+              "--engine", "chromium", "--idle", "60", "--rounds", "20"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "release",
+  "metrics": [
+    {"name": "release\\.launch\\.(cold|warm)\\.(main_start|did_finish_launching_end|first_window_frame_committed)",
+     "unit": "ms", "better": "lower"},
+    {"name": "release\\.launch\\.(cold|warm)\\.missing_runs", "unit": "count", "better": "lower"},
+    {"name": "release\\.idle\\.tabs-10\\.(app|daemon|helper)_wakeups_per_s", "unit": "per_s", "better": "lower",
+     "floor_ref": {"path": "scripts/cmux-next/idle-budget.py", "key": "CRON_FLOORS/wakeups_per_s"}},
+    {"name": "release\\.idle\\.tabs-10\\.(app|daemon|helper)_cpu_percent", "unit": "percent", "better": "lower"},
+    {"name": "release\\.memory\\.tabs-10\\.(app|total)_footprint", "unit": "bytes", "better": "lower"},
+    {"name": "release\\.action\\.(perform|commit)", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 720,
+  "needs": ["privilege:purge"],
+  "hot_paths": [],
+  "owner": "PL-perf-lab",
+  "component": "Release>Nightly"
+}

@@ -53,6 +53,32 @@
         "settled"
       ],
       "note": "Home moves to the end of Pinned"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "sidebar.pin",
+        "params": {
+          "items": [
+            "itm_home"
+          ]
+        },
+        "idempotencyKey": "sidebar-pin-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

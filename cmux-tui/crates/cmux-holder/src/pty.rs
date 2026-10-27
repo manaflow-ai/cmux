@@ -23,8 +23,9 @@ pub struct Spawned {
 /// shell elsewhere or exiting 127. `open_file_limit` is the soft
 /// `RLIMIT_NOFILE` the child gets back (the one cmux started with, before
 /// the daemon raised its own: programs that use `select(2)` break above
-/// 1024). The holder is single threaded, so `fork` is safe here; the child
-/// only calls async-signal-safe functions before `execve`.
+/// 1024). Only the loop's thread forks; the child only calls
+/// async-signal-safe functions before `execve`, so the holder's other
+/// threads (`mux-hang-watch`, the trace map thread) cannot leave it a lock.
 pub fn spawn(request: &SpawnRequest, open_file_limit: Option<u64>) -> io::Result<Spawned> {
     let argv = c_strings(&request.argv)?;
     if argv.is_empty() {
@@ -67,8 +68,8 @@ pub fn spawn(request: &SpawnRequest, open_file_limit: Option<u64>) -> io::Result
     set_cloexec(slave.as_raw_fd());
     let (error_read, error_write) = cloexec_pipe()?;
 
-    // SAFETY: single-threaded process; the child path below calls only
-    // async-signal-safe functions and ends in execve or _exit.
+    // SAFETY: the child path below calls only async-signal-safe functions
+    // and ends in execve or _exit.
     let pid = unsafe { libc::fork() };
     if pid < 0 {
         return Err(io::Error::last_os_error());

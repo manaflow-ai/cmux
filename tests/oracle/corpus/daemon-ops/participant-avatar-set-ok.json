@@ -38,7 +38,8 @@
       "args": {
         "method": "participant.avatar.set",
         "params": {
-          "participant_id": "oracle"
+          "participant_id": "user_local",
+          "bytes": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
         },
         "idempotencyKey": "participant-avatar-set-ok.call"
       },
@@ -50,7 +51,32 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the person's own picture, a 1x1 PNG (participant_avatars.rs person path; chief.profile.avatar.set covers the Chief path)"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "participant.avatar.set",
+        "params": {
+          "participant_id": "user_local",
+          "bytes": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+        },
+        "idempotencyKey": "participant-avatar-set-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [
@@ -59,8 +85,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.participant_id is a fixed placeholder, not a fixture object; chief/_tuning.json tunes it"
   ]
 }

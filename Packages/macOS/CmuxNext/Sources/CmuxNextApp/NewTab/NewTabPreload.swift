@@ -112,7 +112,7 @@ final class NewTabPreload {
             drop: { [weak self] in self?.dropForPressure() }, refill: { [weak self] in self?.scheduleWarm() })
         // New Tab is the slot's default preload: when another page leaves the slot, it arms its own
         // (its own take arms the next one; its own drop arms none, so `drop_spare` leaves it cold).
-        slot.onEmptied = { [weak self] key in if key != NewTabPreload.key { self?.scheduleWarm() } }
+        slot.observeEmptied { [weak self] key in if key != NewTabPreload.key { self?.scheduleWarm() } }
     }
 
     // MARK: Reading
@@ -137,7 +137,7 @@ final class NewTabPreload {
 
     // MARK: Launch
 
-    /// At launch: probes WebKit's setup off the main thread, no page yet (a first load held launch >10 s, cua-2).
+    /// Probes WebKit's setup off the main thread, no page yet (a first load held launch >10 s, cua-2); an afterStartup post (p08-startup-042).
     func prewarm() {
         if agentTabs.canHostChat { webKit.probe { [weak self] in self?.scheduleWarm() } }
     }

@@ -62,7 +62,7 @@ struct AgentPageProviderEventsTests {
     }
 
     @Test func eventsPublishedAcrossBridgeGapReplayInOrder() async throws {
-        let provider = AgentPageProvider { _ in nil }
+        let provider = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         provider.replay = { [Self.command("current-state")] }
         let firstPage = Received()
         provider.publish(Self.command("gap-1"))
@@ -89,7 +89,7 @@ struct AgentPageProviderEventsTests {
     }
 
     @Test func transportReconnectClearsOverflowForTheExistingSubscription() {
-        let provider = AgentPageProvider { _ in nil }
+        let provider = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         for index in 0...AgentPageProvider.maximumBufferedEvents {
             provider.eventDeliveryDropped(stream: AgentPageProvider.hostEvents,
                                           data: Self.command("dropped-\(index)").data,
@@ -101,7 +101,7 @@ struct AgentPageProviderEventsTests {
     }
 
     @Test func routerResetDropUsesTheCapturedProviderAfterRouterCloses() async throws {
-        let provider = AgentPageProvider { _ in nil }
+        let provider = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         let router = PageRouter(descriptor: .agent, routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)])
         var dropped: (@MainActor () -> Void)?
         router.sendWithDrop = { _, onDrop in dropped = onDrop }
@@ -121,7 +121,7 @@ struct AgentPageProviderEventsTests {
     }
 
     @Test func resetOfMultipleSubscribersRequeuesOnePublication() async throws {
-        let provider = AgentPageProvider { _ in nil }
+        let provider = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         provider.replay = { [Self.command("initial")] }
         let router = PageRouter(descriptor: .agent,
                                 routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)])
@@ -155,7 +155,7 @@ struct AgentPageProviderEventsTests {
     }
 
     @Test func mixedLiveAndPendingResetDropsRequeueOnePublication() async throws {
-        let provider = AgentPageProvider { _ in nil }
+        let provider = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         let livePage = Received()
         let live = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null,
                                                 context: Self.context) { event in livePage.append(event) }
@@ -183,7 +183,7 @@ struct AgentPageProviderEventsTests {
     }
 
     @Test func pendingCancelSkipsPublicationDeliveredToEarlierLiveSubscriber() async throws {
-        let provider = AgentPageProvider { _ in nil }
+        let provider = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         provider.replay = { [Self.command("live-sentinel")] }
         let livePage = Received()
         let live = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { livePage.append($0) }
@@ -205,7 +205,7 @@ struct AgentPageProviderEventsTests {
     }
 
     @Test func pendingFanoutCancelAndFlushDoesNotLeaveBufferedCopy() async throws {
-        let provider = AgentPageProvider { _ in nil }
+        let provider = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         provider.replay = { Array(repeating: Self.command("hold"), count: 129) }
         let first = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { _ in }
         provider.replay = {
@@ -226,7 +226,7 @@ struct AgentPageProviderEventsTests {
     }
 
     @Test func lateDropMergesBehindEarlierRecoveredPublication() async throws {
-        let provider = AgentPageProvider { _ in nil }
+        let provider = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         let live = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { _ in }
         #expect(provider.publish(AgentPageEvent(kind: "command", value: .string("old"), deliveryID: 1)))
         live.cancel()

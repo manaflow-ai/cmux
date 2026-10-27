@@ -37,7 +37,7 @@ import Testing
         let url = "data:image/png;base64,\(png.base64EncodedString())"
         let images = AccountAvatarImages()
         images.load(url)
-        for _ in 0..<50 where images.data[url] == nil { await Task.yield() }
+        await images.loading?.value  // the decode runs off main
         let bytes = try #require(images.data[url], "the inline picture loads")
         let account = try #require(SidebarAccount(name: nil, email: "leo@cmux.com", imageData: bytes))
         #expect(account.avatar.imageData == png, "the footer avatar draws the picture, not the initial")
@@ -52,15 +52,17 @@ import Testing
         let second = "data:image/png;base64,\(try Self.png(side: 5).base64EncodedString())"
         let images = AccountAvatarImages()
         images.load(first)
+        let firstDecode = try #require(images.loading, "the first picture starts its decode")
         images.load(second)  // before the first decode lands
-        for _ in 0..<50 where images.data[second] == nil { await Task.yield() }
+        let secondDecode = try #require(images.loading, "the newest picture starts its decode")
+        await secondDecode.value
         #expect(images.data[second] != nil, "the newest picture loads")
-        for _ in 0..<10 { await Task.yield() }
+        await firstDecode.value  // the decodes run off main, so the older one can land after the newest
         #expect(Array(images.data.keys) == [second], "the older picture's late decode is dropped")
 
         images.load(first)
         #expect(images.data.isEmpty, "a switch forgets the last picture at once")
-        for _ in 0..<50 where images.data[first] == nil { await Task.yield() }
+        await images.loading?.value
         #expect(Array(images.data.keys) == [first], "switching back loads the picture again")
     }
 }

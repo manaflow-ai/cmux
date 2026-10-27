@@ -9,6 +9,7 @@
       "CmuxNextSignposts",
       "CmuxNextWakeups",
       "CmuxNextWakeupsTestSupport",
+      "CmuxNextTestSupport",
       "CmuxNextProcessEnvironment",
       "CCmuxAppFFILinux"
     ],
@@ -89,6 +90,7 @@
       "CmuxNextSignposts",
       "CmuxNextWakeups",
       "CmuxNextWakeupsTestSupport",
+      "CmuxNextTestSupport",
       "CmuxNextProcessEnvironment",
       "CCmuxAppFFILinux",
       "CmuxNextActions",
@@ -158,6 +160,7 @@
       "Packages/Shared/CmuxIrxTransport",
       "Packages/Shared/CmuxSafeConcurrency",
       "Packages/Shared/CmuxTheme",
+      "Packages/Shared/CmuxThreading",
       "Packages/iOS/CmuxMobileRPC",
       "Packages/iOS/CmuxMobileSSH"
     ],

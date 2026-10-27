@@ -49,7 +49,26 @@
       }
     },
     {
-      "id": "fx-split",
+      "id": "fx-browser-profile",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "browser.profile.create",
+        "params": {
+          "name": "oracle"
+        },
+        "idempotencyKey": "stash-delete-ok.fx-browser-profile"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "fx-app-browser",
       "op": "resource.call",
       "target": {
         "machine": "current",
@@ -59,11 +78,12 @@
         "pane": "$step:fx-workspace#/value/pane_id"
       },
       "args": {
-        "method": "pane.split",
+        "method": "browser.profile.open",
         "params": {
-          "direction": "right"
+          "url": "http://127.0.0.1:9/",
+          "profile": "$step:fx-browser-profile#/value/browser_profile/id"
         },
-        "idempotencyKey": "stash-delete-ok.fx-split"
+        "idempotencyKey": "stash-delete-ok.fx-app-browser"
       },
       "expect": {
         "outcome": "ok",
@@ -81,9 +101,8 @@
         "method": "stash.create",
         "params": {
           "tabs": [
-            "$step:fx-split#/value/tab_id"
-          ],
-          "name": "oracle"
+            "$step:fx-app-browser#/value/tab_id"
+          ]
         },
         "idempotencyKey": "stash-delete-ok.fx-stash"
       },
@@ -114,7 +133,31 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "deletes the whole stash fx-stash made"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "stash.delete",
+        "params": {
+          "stash": "$step:fx-stash#/value/stash_id"
+        },
+        "idempotencyKey": "stash-delete-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

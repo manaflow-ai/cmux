@@ -21,9 +21,15 @@ final class PhonePageTab: InternalPageProvider {
     /// The windows' frame-aligned pointer input for the tabs' screens (feature `pointerFrameRemoteInput`),
     /// read when a tab's view is made: the page registers at launch, before features may be read.
     private let pointerFrames: @MainActor () -> FrameInputCoalescers?
+    /// The app's main-thread scheduler and each tab's visibility node (`TabContentCache.node(for:)`), for the views.
+    private let mainWork: MainWorkScheduler
+    private let nodes: @MainActor (String) -> VisibilityNode
 
-    init(phones: PhoneService, pointerFrames: @escaping @MainActor () -> FrameInputCoalescers? = { nil }) {
+    init(phones: PhoneService, mainWork: MainWorkScheduler, nodes: @escaping @MainActor (String) -> VisibilityNode,
+         pointerFrames: @escaping @MainActor () -> FrameInputCoalescers? = { nil }) {
         self.phones = phones
+        self.mainWork = mainWork
+        self.nodes = nodes
         self.pointerFrames = pointerFrames
     }
 
@@ -42,7 +48,7 @@ final class PhonePageTab: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         // The tab's own request is newer than its route; a rebuilt tab never takes another tab's.
         let device = opens.take(for: key) ?? routes[key] ?? opens.running
-        let view = PhoneTabView(service: phones, device: device)
+        let view = PhoneTabView(service: phones, device: device, node: nodes(key), mainWork: mainWork)
         view.pointerFrames = pointerFrames()
         views[key] = view
         return view

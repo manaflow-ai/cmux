@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextFavicons
 import CmuxNextRemoteFetch
 import CmuxNextSettings
@@ -25,6 +26,8 @@ struct AgentReplySites {
         links.pullRequest = { [replies = services.pullRequests.replies] url in replies.answer(url) }
         links.registerPullRequests = { [replies = services.pullRequests.replies] urls in replies.register(urls) }
         links.useResolver(SystemRemoteResolver(runner: services.work))
+        links.workspaceQueries = services.workspaceQueries
+        links.browsers = AgentPaneWorkspaceBrowsers(queries: services.workspaceQueries)
     }
 
     func sites(for urls: [URL]) -> [URL: AgentPaneReplySite] {
@@ -61,7 +64,7 @@ struct AgentReplySites {
     }
 
     static func png(_ image: NSImage) -> Data? {
-        image.cgImage(forProposedRect: nil, context: nil, hints: nil).flatMap { Self.png($0) }
+        image.bestCGImage.flatMap { Self.png($0) }
     }
 
     static func png(_ cgImage: CGImage) -> Data? {

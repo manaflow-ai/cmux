@@ -33,7 +33,10 @@ server.bind(path)
 server.listen(8)
 lock = threading.Lock()
 with open(log, "a") as out:
-    out.write(json.dumps({"method": "_launch", "params": {"no_activate": os.environ.get("CMUX_NEXT_NO_ACTIVATE")}}) + "\n")
+    launch = {"no_activate": os.environ.get("CMUX_NEXT_NO_ACTIVATE")}
+    if os.environ.get("CMUX_ENABLE_FEATURES"):
+        launch["enable_features"] = os.environ["CMUX_ENABLE_FEATURES"]
+    out.write(json.dumps({"method": "_launch", "params": launch}) + "\n")
 def answer(connection):
     with connection:
         data = b""
@@ -188,6 +191,26 @@ class AppWindowCaptureTests(unittest.TestCase):
         launches = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
         launches = [entry["params"] for entry in launches if entry["method"] == "_launch"]
         self.assertEqual(launches, [{"no_activate": "1"}], "the app refuses activation itself")
+
+    def test_a_tours_features_are_on_at_launch(self) -> None:
+        # A feature resolves once per launch, so a tour turns one on in the launch environment.
+        self.tour.write_text(json.dumps({"title": "Demo", "features": ["hostPressure", "compressedSnapshots"],
+                                         "steps": [{"title": "Launch", "wait": 1.2}]}), encoding="utf-8")
+        done, _ = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        launches = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        launches = [entry["params"] for entry in launches if entry["method"] == "_launch"]
+        self.assertEqual(launches, [{"no_activate": "1", "enable_features": "hostPressure,compressedSnapshots"}])
+
+    def test_features_must_be_feature_names(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        for features in ("hostPressure", ["a,b"], [1], ["Bad"]):
+            with self.subTest(features=features):
+                self.tour.write_text(json.dumps({"title": "Demo", "features": features,
+                                                 "steps": [{"title": "Launch"}]}), encoding="utf-8")
+                with self.assertRaisesRegex(tour.TourError, "`features` must be"):
+                    tour.load_tour(self.tour)
 
     def test_a_working_window_snapshot_never_probes_the_desktop(self) -> None:
         # A desktop capture shows whatever covers the window (permission

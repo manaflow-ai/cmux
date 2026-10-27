@@ -64,6 +64,12 @@ public final class ChiefMemoryInspectorModel {
         self.confirmDelete = confirmDelete
     }
 
+    /// The first read: ``reload()`` when the memory was never read (or the read failed), else nothing.
+    public func readFirst() async {
+        guard status == nil, !busy else { return }
+        await reload()
+    }
+
     /// Reads the counts, the view, the change list and the opened node again; after a
     /// ``restore(trail:query:searched:)``, the restored search runs again too.
     public func reload() async {

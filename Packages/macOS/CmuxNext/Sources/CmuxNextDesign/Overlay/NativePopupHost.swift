@@ -35,6 +35,8 @@ public final class NativePopupHost {
     private var subscriptions: [InputSubscription] = []
     /// The tap this popup subscribes to while it shows.
     var inputTap: InputEventTap?
+    /// The last press the click observer saw (``clickEvent(_:)``).
+    private var lastPress: NSEvent?
 
     /// A host for `panel` that subscribes to `input` (nil: the overlay hosts' tap,
     /// ``WindowOverlayHost/appInputTap``).
@@ -46,7 +48,7 @@ public final class NativePopupHost {
                 guard let self, let keyed else { return }
                 // A press on the control that toggles the popup makes its window key first; the
                 // control closes the popup itself, so that key loss is not a dismiss.
-                let press = NSApp.currentEvent.flatMap { [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains($0.type) ? $0 : nil }
+                let press = dispatchedPress()
                 if let press, press.window !== keyed, keepsOpen(press) { return }
                 // Shown without the keys, a window of the app took them without a press (Cmd-Tab
                 // into the app, a focus request): the popup takes them over, as a popup shown with
@@ -160,11 +162,19 @@ public final class NativePopupHost {
     func clickEvent(_ event: NSEvent) {
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            lastPress = event
             guard event.window !== panel, !keepsOpen(event) else { return }
             dismiss()
         default:
             break
         }
+    }
+
+    /// The press being dispatched now, which moves the keys: the click observer's last press while
+    /// it is still the tap's last dispatched event; nil for a key loss no press of the app made.
+    func dispatchedPress() -> NSEvent? {
+        guard let press = lastPress, inputTap?.isLastDispatched(press) == true else { return nil }
+        return press
     }
 
     /// A key event of the Escape intercept: Escape in the popup closes it, and nothing else gets it
@@ -179,6 +189,7 @@ public final class NativePopupHost {
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
         subscriptions = []
+        lastPress = nil
     }
 }
 

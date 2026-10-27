@@ -30,16 +30,15 @@ extension PageFactory {
     static let homeChannelsEngineOptions = PageEngineOptions.standard
 
     /// The React channels Home (a tab next to the native Home, or the docked Home's Channels view:
-    /// only there `cmux.host.home.switchView` answers). The page reports whether its composers hold
-    /// unsent input to `input`.
-    func homeChannelsWebPage(dock: HomeDockView? = nil, input: HomeChannelsInput) -> PageWebView? {
+    /// only there `cmux.host.home.switchView` answers).
+    func homeChannelsWebPage(dock: HomeDockView? = nil) -> PageWebView? {
         let provider = DaemonCredentialPageProvider(daemon: services.daemon, chief: services.home.chief)
         let edits = PageEditProvider()
         var routes = [PageRoute(prefix: "cmux.host.credential.", provider: provider),
-                      PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
+                      PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(
+                          owner: services.home.chief, channels: services.webUI.relayChannels, deadlines: services.mainDeadlines)),
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
-                      PageRoute(prefix: PageNativeOp.edit, provider: edits),
-                      PageRoute(prefix: HomeChannelsInput.prefix, provider: input)]
+                      PageRoute(prefix: PageNativeOp.edit, provider: edits)]
         if let dock { routes.append(PageRoute(prefix: HomeSwitchPageRoute.prefix, provider: HomeSwitchPageRoute(dock: dock))) }
         guard let page = services.webUI.open(PageOpenRequest(descriptor: .homeChannels, routes: routes,
                                                               options: Self.homeChannelsEngineOptions, surface: .home)) else { return nil }
