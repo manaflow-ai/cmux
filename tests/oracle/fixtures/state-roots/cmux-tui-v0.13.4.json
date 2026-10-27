@@ -1,0 +1,125 @@
+{
+  "build": {
+    "binarySha256": "f3002d00aff5744367ed70d0ec4ff9423bcfea526f7f6505e0ae57f24960a77b",
+    "features": [],
+    "profile": "dev",
+    "readyFd": false
+  },
+  "facet": {
+    "agents": [],
+    "browsers": [],
+    "clients": [
+      {
+        "attached_terminal_ids": [],
+        "client_kind": null,
+        "connected_seconds": "0",
+        "id": "client_e612d9c98b16073b1704586f0b3ab091",
+        "name": null,
+        "self": true,
+        "session_id": "session_372c1e0036a38d3177dc5cce67a7e3da",
+        "sizes": [],
+        "transport": "unix"
+      }
+    ],
+    "cursor": {
+      "generation": "b07e3709-7b5c-43dd-acd7-d0c63abd52b2",
+      "revision": "8"
+    },
+    "frontend_projections": [],
+    "machine": {
+      "connectable": true,
+      "deleted": false,
+      "id": "machine_4d9d317bbd540758b67a0f41fa19302a",
+      "name": "local",
+      "origin": "local",
+      "recoverable": false,
+      "status": "running"
+    },
+    "notifications": [
+      {
+        "body": "all green",
+        "created_at_ms": "1793074580530",
+        "id": "notification_06a0ff911767776126b736031a3504f1",
+        "level": "info",
+        "read_by": [],
+        "session_id": "session_372c1e0036a38d3177dc5cce67a7e3da",
+        "title": "build done",
+        "unread": false
+      }
+    ],
+    "panes": [],
+    "screens": [],
+    "session": {
+      "connected": true,
+      "generation": "b07e3709-7b5c-43dd-acd7-d0c63abd52b2",
+      "id": "session_372c1e0036a38d3177dc5cce67a7e3da",
+      "machine_id": "machine_4d9d317bbd540758b67a0f41fa19302a",
+      "name": "oracle-upgrade",
+      "revision": "8"
+    },
+    "sidebar_views": [],
+    "tabs": [],
+    "terminals": [],
+    "workspaces": [
+      {
+        "focused": false,
+        "id": "ws_09376a61f8b23555643be61e0342697d",
+        "index": 0,
+        "name": "gamma",
+        "session_id": "session_372c1e0036a38d3177dc5cce67a7e3da"
+      },
+      {
+        "focused": true,
+        "id": "ws_c525fdf72995f3286dca519f780a2df1",
+        "index": 1,
+        "name": "alpha renamed",
+        "session_id": "session_372c1e0036a38d3177dc5cce67a7e3da"
+      },
+      {
+        "focused": false,
+        "id": "ws_016824dd61163e67e3018609737eab15",
+        "index": 2,
+        "name": "béta ✓ ",
+        "session_id": "session_372c1e0036a38d3177dc5cce67a7e3da"
+      }
+    ]
+  },
+  "files": {
+    "state/machine-id": "f07c1d1ce4e7b6dd7814a217d9523d15052be519d6edebfb159bba31c7e35b25",
+    "state/machine-id.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "state/oracle-upgrade-036fdbc0e60586ee/workspace-registry.sqlite3": "f1c1d714b195aa1795c50ed2db1795613d868a07340cbf0b1a563384fdfebdcf",
+    "state/oracle-upgrade-036fdbc0e60586ee/workspace-registry.sqlite3-shm": "58d9d6b2aa28557f7d23742acc62384703eee79708378cc069451c691d255444",
+    "state/oracle-upgrade-036fdbc0e60586ee/workspace-registry.sqlite3-wal": "eb100b205627b1c9496739c8c9bf57b07e9007aac60270d40cfb703f0966972c",
+    "state/oracle-upgrade-036fdbc0e60586ee/writer.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "state/resource-effect-pepper": "25bbf50d81eeb1d050417dc9e9b645fd664ff8ba177d58697fe135dcfb2c3ac0",
+    "state/resource-effect-pepper.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "state/session-locks/.coordinator.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "state/session-locks/oracle-upgrade-036fdbc0e60586ee.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "generatedBy": "scripts/cmux-next/oracle/gen_upgrades.py --write-roots",
+  "readable": {
+    "workspace_registry": 15
+  },
+  "schema": "cmux-oracle-state-root-v1",
+  "session": "oracle-upgrade",
+  "sha": "ec4cbd4fdd16526d5653d7a1f76496ef785f2a2a",
+  "steps": [
+    "create-alpha",
+    "create-beta",
+    "create-gamma",
+    "move-gamma",
+    "rename-alpha",
+    "notify",
+    "focus-alpha"
+  ],
+  "storeFiles": {
+    "workspace_registry": "workspace-registry.sqlite3"
+  },
+  "stored": {
+    "workspace_registry": 15
+  },
+  "tag": "cmux-tui-v0.13.4",
+  "tarball": "cmux-tui-v0.13.4.tar.gz",
+  "tarballSha256": "bb8748f5b87c6b4934168714d387dc64f685facc0036fab6408105f90793caba",
+  "task": "p15-oracle-208"
+}

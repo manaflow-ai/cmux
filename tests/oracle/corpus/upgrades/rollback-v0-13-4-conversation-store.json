@@ -1,0 +1,265 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "rollback-v0-13-4-conversation-store",
+  "suite": "upgrades",
+  "title": "cmux-tui-v0.13.4 refuses the conversation_store head wrote (store_schemas.unknown_store)",
+  "surface": "cmux-next-daemon",
+  "source": {
+    "repo": "manaflow-ai/cmux",
+    "ref": "$RUN",
+    "artifact": "$RUN"
+  },
+  "environment": {},
+  "fixture": {
+    "seed": "upgrades.rollback-v0-13-4-conversation-store",
+    "network": "offline",
+    "clock": "fixed",
+    "stateRoot": {
+      "writtenBy": "head",
+      "openedBy": "cmux-tui-v0.13.4"
+    },
+    "agent": "mock"
+  },
+  "preconditions": [
+    "a fresh state root",
+    "head's daemon runs the steps before the first restart",
+    "the mock agent (mock_chief.py MockAgent) made its Chief conversation, the only one conversation.list gives"
+  ],
+  "requires": [
+    "resource_api",
+    "restart",
+    "state_root"
+  ],
+  "platforms": [
+    "linux"
+  ],
+  "steps": [
+    {
+      "id": "create-alpha",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.create",
+        "params": {
+          "name": "alpha",
+          "initial_content": "empty"
+        },
+        "idempotencyKey": "upgrades.create-alpha"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "an empty workspace: no terminal host, so the packed root holds all of it"
+    },
+    {
+      "id": "create-beta",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.create",
+        "params": {
+          "name": "béta ✓ ",
+          "initial_content": "empty"
+        },
+        "idempotencyKey": "upgrades.create-beta"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "exact name bytes: non-ASCII and a trailing space"
+    },
+    {
+      "id": "create-gamma",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.create",
+        "params": {
+          "name": "gamma",
+          "initial_content": "empty"
+        },
+        "idempotencyKey": "upgrades.create-gamma"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "a third workspace"
+    },
+    {
+      "id": "move-gamma",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:create-gamma#/value/workspace_id"
+      },
+      "args": {
+        "method": "workspace.move",
+        "params": {
+          "index": 0
+        },
+        "idempotencyKey": "upgrades.move-gamma"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "the stored order"
+    },
+    {
+      "id": "rename-alpha",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:create-alpha#/value/workspace_id"
+      },
+      "args": {
+        "method": "workspace.rename",
+        "params": {
+          "name": "alpha renamed"
+        },
+        "idempotencyKey": "upgrades.rename-alpha"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "a renamed workspace"
+    },
+    {
+      "id": "notify",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "notification.create",
+        "params": {
+          "title": "build done",
+          "body": "all green"
+        },
+        "idempotencyKey": "upgrades.notify"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "a stored notification"
+    },
+    {
+      "id": "focus-alpha",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:create-alpha#/value/workspace_id"
+      },
+      "args": {
+        "method": "workspace.focus",
+        "params": {},
+        "idempotencyKey": "upgrades.focus-alpha"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "the stored focus"
+    },
+    {
+      "id": "conversations",
+      "op": "resource.call",
+      "readOnly": true,
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "conversation.list",
+        "params": {}
+      },
+      "expect": {
+        "outcome": "ok"
+      },
+      "note": "the session's conversations"
+    },
+    {
+      "id": "send",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "conversation.send",
+        "params": {
+          "conversation": "$step:conversations#/0/id",
+          "text": "oracle upgrade"
+        },
+        "idempotencyKey": "upgrades.send"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "one message in the conversation store"
+    },
+    {
+      "id": "written",
+      "op": "snapshot",
+      "args": {
+        "facets": [
+          "daemon"
+        ]
+      },
+      "checkpoint": [
+        "settled"
+      ],
+      "note": "head's facet of the root it wrote, before the rollback"
+    },
+    {
+      "id": "open",
+      "op": "restart",
+      "target": {
+        "process": "daemon"
+      },
+      "expect": {
+        "outcome": "error",
+        "error": "store_schemas.unknown_store",
+        "errorDetails": {
+          "store": "conversation_store"
+        }
+      },
+      "checkpoint": [
+        "settled"
+      ],
+      "note": "the rollback is refused; cmux-tui-v0.13.4 is then started anyway, as the old app would be"
+    }
+  ],
+  "invariants": [
+    "the store_schemas verdict of conversation_store: head's stored schema 2 against cmux-tui-v0.13.4's readable none (RollbackDecision.decide)",
+    "every file of conversation_store (database and SQLite sidecars) is byte-identical (sha256) after cmux-tui-v0.13.4 ran, and none is gone"
+  ],
+  "teardown": [
+    "stop the case daemon",
+    "verify no case process is left",
+    "remove the state root"
+  ],
+  "untested": [
+    "terminals: a packed root holds no live terminal host; host adoption across builds belongs to the terminal-host protocol (docs/cloud-guest-upgrades.md)"
+  ]
+}
