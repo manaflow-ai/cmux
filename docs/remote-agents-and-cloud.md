@@ -143,10 +143,21 @@ NEXT on your Mac. Whether the host accepts an Allow from that card depends on
 how the chat reaches the host:
 
 - A session reached through your Mac's peer daemon (`acpmux new --host`,
-  `cmux agent open-tab --host`, or `--group` with `--host`) cannot be approved
-  from the card yet: the host refuses the Allow, and the card says "Remote
-  approvals are off". Peer-route approvals are in progress; until they ship, use it for prompts that need no tool approval: a prompt
-  that needs no tools, a read-only Codex review (below), or a `vmHost` VM.
+  `cmux agent open-tab --host`, or `--group` with `--host`) takes a one-time
+  Allow from the card once the host has enrolled this Mac: `acpmux host enroll
+  NAME` (or `acpmux host approvals enroll NAME`) adds the app's public key to
+  the host's `~/.acpmux/mac-approvers.json` over your ssh. The app signs each
+  Allow on the Mac with a key that never leaves it (the Secure Enclave in a
+  signed build; a signed build on a Mac without one cannot allow from the card)
+  and only the signed answer crosses the peer link. The host
+  counts it once, for that prompt, tool call and option, within two minutes,
+  and only as Allow once (the card offers no Allow for this chat there): never
+  an always-allow, a plan or a mode change. Until
+  the host enrolls this Mac, the card's notice says "Enroll this Mac on NAME"
+  and its Enroll this Mac button runs the same command. `acpmux host approvals
+  unenroll NAME` from the Mac, or `acpmux host approvals rm ID` on the host,
+  stops this Mac's Allows there at once. A DEV build without a Team ID makes a
+  new key each launch, so enroll again after a relaunch.
 - For tool approvals, connect the host in cmux NEXT with **File › Connect to
   Machine…** and start the chat there, on that machine. Before such a chat's
   first prompt, the app restarts the host's agent daemon with an approval key

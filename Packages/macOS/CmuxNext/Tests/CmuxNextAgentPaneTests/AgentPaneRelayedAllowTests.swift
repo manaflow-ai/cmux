@@ -358,7 +358,8 @@ struct AgentPaneRelayedAllowTests {
 
     /// Peer-route approvals: Allow on a peer's prompt goes out signed by this Mac's approver key,
     /// over that prompt, its tool call and the option picked; the "Remote approvals are off"
-    /// notice no longer shows. An always-allow goes unsigned, and the notice shows.
+    /// notice no longer shows. An always-allow goes unsigned, and the pane says only a one-time
+    /// allow works from this Mac.
     @Test func anAllowForAPeersPromptCarriesThisMacsSignedOneTimeAllow() async throws {
         let server = AcpmuxStandInServer()
         try await server.start()
@@ -366,7 +367,9 @@ struct AgentPaneRelayedAllowTests {
         let inbox = PageInbox()
         let transport = AgentPaneTransport()
         var remoteOff = false
+        var peerOff: [AgentPanePeerApprovals?] = []
         transport.onRemoteApprovalsOff = { _ in remoteOff = true }
+        transport.onPeerApprovalsOff = { peerOff.append($0) }
         let id = try await Self.peerChat(server, inbox, transport)
 
         transport.gestures.record(click: true)
@@ -391,31 +394,41 @@ struct AgentPaneRelayedAllowTests {
         let message = AcpmuxMacApprover.message(instance: Self.instance, mac: identity.id, session: "s", permission: "p1",
                                                 toolCall: "call-1", option: "yes", nonce: Self.nonce, expiresAt: expires, answers: "")
         #expect(key.isValidSignature(signature, for: message))
-        #expect(!remoteOff)
+        // It counted: nothing to say (nil ends any peer notice).
+        #expect(!remoteOff && peerOff == [nil])
 
-        // An always-allow: no signature, and the notice.
+        // An always-allow: no signature, and the pane says only a one-time allow works. The
+        // peer's refusal of that unsigned allow is not for want of enrolling this Mac.
+        server.setAnswers(false)
         transport.gestures.record(click: true)
         let alwaysIntent = try #require(Self.intent(option: "always"))
         let always = try #require(transport.reserveGesture(alwaysIntent))
         let alwaysFrame = Self.allow(ticket: always).replacingOccurrences(of: #""id":7"#, with: #""id":8"#)
             .replacingOccurrences(of: #""optionId":"yes""#, with: #""optionId":"always""#)
         #expect(await transport.send(connection: id, frames: [alwaysFrame]) == nil)
-        _ = await inbox.frame(containing: "\"id\":8")
+        #expect(await server.wait { $0.first?.frames.contains { $0.contains(#""always""#) } == true })
         let sentAlways = try #require(server.peers.first?.frames.last { $0.contains("permission_respond") })
         #expect(!sentAlways.contains("approverDecision"), "an always-allow was signed: \(sentAlways)")
-        #expect(remoteOff)
+        let alwaysID = try #require((try JSONSerialization.jsonObject(with: Data(sentAlways.utf8)) as? [String: Any])?["id"] as? Int)
+        server.push(#"{"jsonrpc":"2.0","id":\#(alwaysID),"error":{"code":-32000,"message":"approve this on the Mac app","data":{"reason":"permission.person_required","peer":"far"}}}"#, to: 0)
+        _ = await inbox.frame(containing: "person_required")
+        #expect(peerOff == [nil, .onceOnly])
+        #expect(!remoteOff)
     }
 
     /// A peer that has not enrolled this Mac refuses the allow, naming itself (acpmux
-    /// `permission.person_required` with `data.peer`): the pane says approvals are off there.
-    @Test func aPeersRefusalShowsTheNotice() async throws {
+    /// `permission.person_required` with `data.peer`): the pane offers to enroll this Mac there,
+    /// by that peer's name, instead of "Remote approvals are off".
+    @Test func aPeersRefusalOffersToEnrollThisMacThere() async throws {
         let server = AcpmuxStandInServer()
         try await server.start()
         defer { server.stop() }
         let inbox = PageInbox()
         let transport = AgentPaneTransport()
         var remoteOff = false
+        var peerOff: [AgentPanePeerApprovals?] = []
         transport.onRemoteApprovalsOff = { _ in remoteOff = true }
+        transport.onPeerApprovalsOff = { peerOff.append($0) }
         let id = try await Self.peerChat(server, inbox, transport)
         server.setAnswers(false)
 
@@ -426,16 +439,18 @@ struct AgentPaneRelayedAllowTests {
         #expect(await server.wait { $0.first?.frames.contains { $0.contains("permission_respond") } == true })
         let sent = try #require(server.peers.first?.frames.first { $0.contains("permission_respond") })
         let relayID = try #require((try JSONSerialization.jsonObject(with: Data(sent.utf8)) as? [String: Any])?["id"] as? Int)
-        #expect(!remoteOff, "the notice showed before the peer refused")
+        #expect(!remoteOff && peerOff.isEmpty, "a notice showed before the peer refused")
         server.push(#"{"jsonrpc":"2.0","id":\#(relayID),"error":{"code":-32000,"message":"approve this on the Mac app","data":{"reason":"permission.person_required","peer":"far"}}}"#, to: 0)
         _ = await inbox.frame(containing: "person_required")
-        #expect(remoteOff)
+        #expect(peerOff == [.notEnrolled(peer: "far")])
+        #expect(!remoteOff)
     }
 
     /// The card's Allow for a batch of a peer's tool prompts (`_acpmux/permission_group_respond`),
     /// after the person's click: one signed one-time allow per pending member of the group the
     /// page read (two here), over that member's prompt, tool call, nonce and the option the group's
-    /// Allow selects. Allow for this chat (a lasting grant) goes unsigned, and the notice shows.
+    /// Allow selects. Allow for this chat (a lasting grant) goes unsigned, and the pane says only a
+    /// one-time Allow works.
     @Test func aGroupAllowForAPeersPromptsSignsEachMember() async throws {
         let server = AcpmuxStandInServer()
         try await server.start()
@@ -443,7 +458,9 @@ struct AgentPaneRelayedAllowTests {
         let inbox = PageInbox()
         let transport = AgentPaneTransport()
         var remoteOff = false
+        var peerOff: [AgentPanePeerApprovals?] = []
         transport.onRemoteApprovalsOff = { _ in remoteOff = true }
+        transport.onPeerApprovalsOff = { peerOff.append($0) }
         let id = try await Self.peerChat(server, inbox, transport)
         // A second prompt of the peer's, with its own tool call, nonce and allow-once option.
         let nonce2 = String(repeating: "cd", count: 32)
@@ -485,16 +502,18 @@ struct AgentPaneRelayedAllowTests {
                                                   expiresAt: expires, answers: "")
             #expect(!key.isValidSignature(signature, for: other))
         }
-        #expect(!remoteOff)
+        #expect(!remoteOff && peerOff == [nil])
 
-        // Allow for this chat: no signature, and the notice.
+        // Allow for this chat: no signature, and the pane says only a one-time allow works.
+        server.setAnswers(false)
         transport.gestures.record(click: true)
         let chat = respond.replacingOccurrences(of: #""id":10"#, with: #""id":11"#)
             .replacingOccurrences(of: #""allow_once""#, with: #""allow_chat""#).replacingOccurrences(of: "k1", with: "k2")
         #expect(await transport.send(connection: id, frames: [chat]) == nil)
-        _ = await inbox.frame(containing: "\"id\":11")
+        #expect(await server.wait { $0.first?.frames.contains { $0.contains("allow_chat") } == true })
         let sentChat = try #require(server.peers.first?.frames.last { $0.contains("permission_group_respond") })
         #expect(!sentChat.contains("approverDecisions"), "a lasting grant was signed: \(sentChat)")
-        #expect(remoteOff)
+        #expect(peerOff == [nil, .onceOnly])
+        #expect(!remoteOff)
     }
 }
