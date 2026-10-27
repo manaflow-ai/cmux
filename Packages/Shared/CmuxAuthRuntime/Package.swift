@@ -19,6 +19,8 @@ let package = Package(
         .package(path: "../CMUXMobileCore"),
         // The portable Mutex the push redirect delegate's state lives in (p10-stability-172).
         .package(path: "../CmuxSafeConcurrency"),
+        // Seeded property tests (the test target only): p10-stability-180.
+        .package(path: "../CmuxFuzzSupport"),
         .package(path: "../../../vendor/stack-auth-swift-sdk-prerelease"),
     ],
     targets: [
@@ -41,6 +43,7 @@ let package = Package(
             name: "CmuxAuthRuntimeTests",
             dependencies: [
                 "CmuxAuthRuntime",
+                .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],
             swiftSettings: [

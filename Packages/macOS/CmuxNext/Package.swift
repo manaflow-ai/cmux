@@ -1363,6 +1363,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // Seeded fuzz of the appcast, web update pointer, What's New and release-notes decoders
+        // (p10-stability-180). The updater's other tests are in CmuxNextAppTests.
+        .testTarget(
+            name: "CmuxNextUpdaterTests",
+            dependencies: ["CmuxNextUpdater", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
+            swiftSettings: uiSwiftSettings
+        ),
         // Web updates in the app (plans/cmux-next/web-ota.md): serves a signed web update from
         // a safe point and answers `updates.web.*`.
         .target(
@@ -1385,6 +1392,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // OnceContinuation (p10-stability-089).
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
             ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // Seeded fuzz of the Cloud API, hands and link replies (p10-stability-180). The Cloud's
+        // other tests are in CmuxNextAppTests.
+        .testTarget(
+            name: "CmuxNextCloudTests",
+            dependencies: ["CmuxNextCloud", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: daemonSwiftSettings
         ),
         // Machines reached over the user's own OpenSSH: destinations, the
@@ -2059,8 +2073,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextBrowserTests",
-            // Signposts: CEFTabSwitchShowTests' switch.tab interval.
-            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextFavicons", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts"],
+            // Signposts: CEFTabSwitchShowTests' switch.tab interval. CmuxFuzzSupport: CEFMessageFuzzTests (p10-stability-180).
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextFavicons", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts",
+                           .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: uiSwiftSettings
         ),
         // The WebKit driver for the Rust browser host (plans/cmux-next/browser-host.md).
