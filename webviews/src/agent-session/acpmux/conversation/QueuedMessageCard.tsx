@@ -10,6 +10,7 @@ import type { AcpmuxRow, QueuedPromptImage } from "../model";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { setQueueing, useQueueing } from "../queueing";
 import { IncomingMessageLine } from "./IncomingMessageCard";
+import { MessageCopy } from "./MessageActions";
 import type { IncomingMessage } from "./incomingMessage";
 import { TurnActionsContext } from "./turnActions";
 
@@ -60,6 +61,7 @@ export function QueuedMessageCard({
   );
   const menu = (
     <span className="cv-received-actions cv-received__queued-actions">
+      <MessageCopy text={text} />
       <Menu onOpenChange={(open) => open && setOpened((count) => count + 1)}>
         <MenuButton
           className="cv-iconbtn cv-iconbtn--compact"
@@ -109,13 +111,8 @@ export function QueuedMessageCard({
         images={row.images}
         onOpen={onOpen}
         onReply={onReply}
-        actions={
-          <>
-            {menu}
-            {/* Last: a row's focus Copy (App.tsx) sits over the line's end, never over the menu. */}
-            <span className="cv-received__queued">{t("message.readAfterTurn")}</span>
-          </>
-        }
+        status={t("message.readAfterTurn")}
+        actions={menu}
         githubRepository={githubRepository}
       />
     </div>
@@ -155,7 +152,6 @@ export function SteerWaitingActions({ promptId, send }: { promptId?: string; sen
           </Menu>
         </span>
       )}
-      <span className="cv-received__queued">{t("message.readAfterStep")}</span>
     </>
   );
 }

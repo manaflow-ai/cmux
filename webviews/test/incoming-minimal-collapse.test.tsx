@@ -2,7 +2,7 @@
 // Leo 2026-10-24: "we could just have the first line be the thing that's there, and then you can
 // expand that"): the sender's chip, which still opens its chat, then the message's first line, with
 // no "Received message from" lead. The line is a button that opens the card in place and closes it
-// again; with Minimal Mode off the message draws as before.
+// again, in both display modes.
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
@@ -87,13 +87,17 @@ test("Minimal Mode follows only cmux's own Minimal Mode switch", () => {
   expect(resolveChatDisplay({}).minimal).toBe(false);
 });
 
-test("with Minimal Mode off the message draws as before: its line over the whole card", async () => {
+test("with Minimal Mode off a received message still starts as a one-line strip", async () => {
   const { toggle } = await line("normal-1");
-  expect(host.querySelector(".cv-received__preview")).toBeNull();
-  expect(host.querySelector(".cv-received__body")?.textContent).toContain("The retry tests pass.");
+  expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
+  expect(host.querySelector(".cv-received__body")).toBeNull();
   expect(host.querySelector(".cv-received[data-minimal]")).toBeNull();
-  expect(toggle().getAttribute("aria-label")).toBe(t("message.label", { from: "grid-lane", to: t("message.self") }));
+  expect(toggle().getAttribute("aria-label")).toBe(
+    t("message.collapsedLabel", { from: "grid-lane", preview: "Rebased onto main; ready for review." }),
+  );
   expect(toggle().getAttribute("aria-expanded")).toBe("false");
+  await act(async () => toggle().click());
+  expect(host.querySelector(".cv-received__body")?.textContent).toContain("The retry tests pass.");
 });
 
 test("in Minimal Mode the message is one line: the chip, then its first line, which opens and closes it", async () => {
@@ -126,13 +130,13 @@ test("in Minimal Mode the message is one line: the chip, then its first line, wh
   expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
 });
 
-test("turning Minimal Mode off draws the closed message's card again", async () => {
+test("turning Minimal Mode off keeps a closed message collapsed", async () => {
   setChatDisplay({ [MINIMAL_MODE_KEY]: true });
   await line("minimal-2");
   expect(host.querySelector(".cv-received__body")).toBeNull();
   await act(async () => setChatDisplay({}));
-  expect(host.querySelector(".cv-received__preview")).toBeNull();
-  expect(host.querySelector(".cv-received__body")?.textContent).toContain("The retry tests pass.");
+  expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
+  expect(host.querySelector(".cv-received__body")).toBeNull();
 });
 
 test("the line opens with no fade-in, its height alone moving; closing fades out", async () => {
@@ -176,7 +180,7 @@ test("in Minimal Mode a closed message estimates as its line; one opened in this
   setChatDisplay({ [MINIMAL_MODE_KEY]: true });
   try {
     const closed = height("chat-a");
-    expect(closed).toBeLessThan(normal);
+    expect(closed).toBe(normal);
     setMessageOpened("chat-a", "estimate-1", true);
     // Opened: the whole card, longer than normal mode's eight-line cut; another chat's row of the
     // same id stays closed.

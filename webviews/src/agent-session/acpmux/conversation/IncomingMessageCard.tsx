@@ -5,9 +5,8 @@
 // its name, a chat on another machine by its bare name too; Leo, ask-7325396234: "I THINK I WANNA
 // BE ABLE TO CLICK ON THESE TO ACTUALLY GO TO THEM"), its tooltip naming the chat and that machine
 // ("Open chief-ui (huge-blue)"). The message is a
-// muted glass card under the line, its text drawn as Markdown with PR, issue and file references
-// linked, cut between whole lines within `RECEIVED_LINES` (lineCut.ts), with Show more below.
-// Show more, the chevron, or a click on the cut card opens it whole, with the original prompt
+// compact line in both display modes. The line expands its unboxed Markdown, with PR, issue and
+// file references linked, and the original prompt
 // (cmux's or Claude Code's envelope) behind Details under it. Whether it is open lasts while the
 // page does, so scrolling it out of the virtualized transcript keeps it. A sub-session family's
 // sender reads with who it is to this chat: "Parent · coordinator". Reply, at the line's end,
@@ -18,29 +17,13 @@
 // ("[lane] …") is dropped, a pull request written twice in a row shows once (messageRefs.ts), a
 // commit SHA reads as quiet monospace, and a message from another machine names that machine's
 // files, which draw with its name and a lock (chips/messageScope.ts).
-// In cmux's Minimal Mode (chatDisplay.ts `minimal`; Leo 2026-10-24: "in minimal mode ... we could
-// just have the first line be the thing that's there, and then you can expand that") a closed
-// message is its line alone: the sender's chip, then the message's first line (messagePreview), cut
-// with an ellipsis, then the chevron. The line opens the card in place, the fold playing as a tool
-// row's does (useAnchoredCollapse.ts: at once under Reduce Motion), and closes it again.
-// Out of Minimal Mode, opening and closing move only what is under the line too (Leo 2026-10-21:
-// "just expand the area at the bottom and you're in the same place"): the line stays on its pixel
-// while a cut card slides open to its whole height or back (fold.ts `playResize`), and Details
-// folds in or out in height and opacity. Reply opens the card without holding the line, so the view
-// follows the editor. Only the reader's clicks play the motion, never Find opening a match.
-import {
-  useCallback,
-  useContext,
-  useId,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type MouseEvent,
-  type ReactNode,
-} from "react";
+// A received message starts as one line in both display modes (Leo, 2026-10-26: "minimized from
+// the start. Just one line"). The existing anchored fold expands the full Markdown under that
+// line, which stays on its pixel. Reply opens without anchoring so the editor stays visible.
+// Only the reader's clicks play motion; Find opens a match instantly.
+import { useCallback, useContext, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
-import { RECEIVED_LINES, type PromptImage } from "../model";
+import type { PromptImage } from "../model";
 import { messagePreview, unsigned, type IncomingMessage, type IncomingRelation } from "./incomingMessage";
 import { dedupeReferences } from "./messageRefs";
 import { PromptEditor, SentImages } from "./UserBubble";
@@ -55,10 +38,8 @@ import "../subagents/AgentCard.css";
 import { MessageScopeContext, type MessageScope } from "../chips/messageScope";
 import { mentionedRepository } from "../../../githubReferences";
 import { useChatDisplay } from "../chatDisplay";
-import { cancelResize, playResize } from "./fold";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
-import { wholeLineCut } from "./lineCut";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -79,6 +60,7 @@ export function IncomingMessageLine({
   images,
   onOpen,
   onReply,
+  status,
   actions,
   githubRepository,
 }: {
@@ -93,6 +75,8 @@ export function IncomingMessageLine({
   onOpen(sessionId: string): void;
   /// Sends a reply to the message's sender; rejects when it was not sent.
   onReply?(message: IncomingMessage, text: string): Promise<void>;
+  /// A quiet delivery label, independent of the hover actions.
+  status?: ReactNode;
   /// The message's hover row (MessageActions.tsx ReceivedActions), at the line's end.
   actions?: ReactNode;
   /// The repository a bare `#123` in the message names (MessageRow's).
@@ -123,8 +107,6 @@ export function IncomingMessageLine({
     onOpenChange: setDetails,
     animates: () => played.current && !minimal,
   });
-  // The card's height as drawn when the reader clicked, which its text's resize starts from.
-  const cardFrom = useRef<number | undefined>(undefined);
   // Find in Chat opens a closed message that holds its match, as a folded thought opens; a match
   // only in the envelope (Find searches the whole prompt) opens Details too.
   const reveal = useContext(FindReveal);
@@ -134,9 +116,6 @@ export function IncomingMessageLine({
   useLayoutEffect(() => {
     if (!inText && !inRaw) return;
     played.current = false;
-    cardFrom.current = undefined;
-    // A slide the reader's click started stops, even when the card is already open.
-    if (textBox.current) cancelResize(textBox.current);
     show(true);
     if (inRaw) setDetails(true);
     reveal?.repaint();
@@ -155,73 +134,23 @@ export function IncomingMessageLine({
   const repository = githubRepository ?? mentionedRepository(text);
   const body = useMemo(() => dedupeReferences(text, repository), [text, repository]);
   const scope = useMemo<MessageScope>(() => (host === undefined ? {} : { host }), [host]);
-  // Measure the eight-line limit and the safe cut above any crossing glyph, chip or code card.
-  const textBox = useRef<HTMLDivElement>(null);
-  const [long, setLong] = useState(false);
-  const [cutAt, setCutAt] = useState<number>();
-  useLayoutEffect(() => {
-    const box = textBox.current;
-    if (!box) return;
-    const measure = () => {
-      // The box's own window, as PromptText's measure: a page or test without a global
-      // getComputedStyle still draws the card (unmeasured, uncut).
-      const style = box.ownerDocument.defaultView?.getComputedStyle?.(box);
-      const line = style ? parseFloat(style.lineHeight) : NaN;
-      const runsPast = Number.isFinite(line) && box.scrollHeight > line * RECEIVED_LINES + 1;
-      setLong(runsPast);
-      setCutAt(runsPast ? wholeLineCut(box, line * RECEIVED_LINES) : undefined);
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(box);
-    observer.observe(box.firstElementChild ?? box);
-    return () => observer.disconnect();
-    // Minimal Mode draws the card in a box of its own: measured again in the new one.
-  }, [body, minimal]);
-  // Minimal Mode: closed, the line alone with the first line of the text; open, today's card.
-  // Only Minimal Mode's card folds: the normal card is drawn whatever `open` is.
-  // It opens with no fade-in, its height alone moving; closing fades out (fold.ts).
-  const minimalCard = useAnchoredCollapse({ open, onOpenChange: show, animates: () => minimal, fadeIn: false });
-  // Out of it, the card stays drawn and only Details' row folds, under the line held the same way.
-  // Each mode folds its own box, so switching modes mid-fold never hands one's motion to the other's.
-  const cardDetails = useAnchoredCollapse({ open, onOpenChange: show, animates: () => !minimal && played.current });
-  const collapse = minimal ? minimalCard : cardDetails;
-  const minimalHeader = minimalCard.headerRef;
-  const detailsHeader = cardDetails.headerRef;
+  // Closed is always one line. The existing anchored fold holds that line still while the reader
+  // opens the full Markdown; Find reveals without motion. No measurement of hidden text is needed.
+  const collapse = useAnchoredCollapse({ open, onOpenChange: show, animates: () => played.current, fadeIn: false });
+  const header = collapse.headerRef;
   const toggleRef = useCallback(
     (node: HTMLButtonElement | null) => {
       toggleButton.current = node;
-      minimalHeader(node);
-      detailsHeader(node);
+      header(node);
     },
-    [minimalHeader, detailsHeader],
+    [header],
   );
-  const folded = minimal && !open;
-  const preview = useMemo(() => (minimal ? messagePreview(body) : ""), [minimal, body]);
-  const cut = long && !open && !minimal;
+  const folded = !open;
+  const preview = useMemo(() => messagePreview(body), [body]);
   // A reader's click: the motion plays, a drawn card resizing from its height now.
   const byReader = () => {
     played.current = true;
-    cardFrom.current = minimal ? undefined : textBox.current?.parentElement?.getBoundingClientRect().height;
   };
-  // The text starts at the height that keeps the card as tall as it was drawn: Show more leaves (or
-  // comes back) at once, and a card a frame shorter would pull the transcript's end, and the held
-  // line with it, up by the button.
-  useLayoutEffect(() => {
-    const node = textBox.current;
-    const card = node?.parentElement;
-    const from = cardFrom.current;
-    cardFrom.current = undefined;
-    if (!node) return;
-    // Not the reader's click (Find opening it): a resize still playing would keep clipping it.
-    if (!card || from === undefined) {
-      cancelResize(node);
-      return;
-    }
-    const text = node.getBoundingClientRect().height;
-    playResize(node, from - (card.getBoundingClientRect().height - text));
-  }, [open]);
   // "Open chief-ui (huge-blue)": the chat the chip opens, and the other machine it runs on.
   const openLabel = sender.host
     ? t("subagents.openOnHost", { name: message.name, host: sender.host })
@@ -270,30 +199,12 @@ export function IncomingMessageLine({
     // The line stays where it is drawn while the card opens or closes under it.
     collapse.setOpen(!open);
   };
-  const openCut = (event: MouseEvent) => {
-    if ((event.target as Element).closest("a, button, input, label, summary, video, audio, [role=button]")) return;
-    if (getSelection()?.isCollapsed === false) return;
-    byReader();
-    collapse.setOpen(true);
-  };
-  // The card: under the line, or in Minimal Mode under it only while open (and closing).
+  // Full, selectable Markdown under the sender line, without a second bubble around it.
   const card = (
-    // A click on a cut card opens it, unless it follows a link, presses a control or ends a selection.
-    // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the line's chevron is the keyboard's way to open it
-    <div
-      id={bodyId}
-      className="cv-received__body selectable"
-      data-cut={cut || undefined}
-      onClick={cut ? openCut : undefined}
-    >
+    <div id={bodyId} className="cv-received__body selectable">
       {/* The chips read whose files these are (chips/messageScope.ts). */}
       <MessageScopeContext.Provider value={scope}>
-        <div
-          ref={textBox}
-          className="cv-received__text"
-          style={cut && cutAt !== undefined ? { maxHeight: cutAt } : undefined}
-          onFocusCapture={cut ? () => show(true) : undefined}
-        >
+        <div className="cv-received__text">
           {text ? (
             <Markdown
               githubRepository={repository}
@@ -308,22 +219,6 @@ export function IncomingMessageLine({
           )}
         </div>
       </MessageScopeContext.Provider>
-      {cut && (
-        <button
-          type="button"
-          className="cv-user__more cv-received__show"
-          aria-expanded={false}
-          aria-controls={bodyId}
-          data-find-skip=""
-          onClick={() => {
-            byReader();
-            collapse.setOpen(true);
-            requestAnimationFrame(() => toggleButton.current?.focus());
-          }}
-        >
-          {t("message.more")}
-        </button>
-      )}
     </div>
   );
   // Details and the envelope under it. Out of Minimal Mode its row is the card's fold, there only
@@ -396,25 +291,31 @@ export function IncomingMessageLine({
           type="button"
           className="cv-received__toggle"
           aria-expanded={open}
-          aria-controls={minimal && !collapse.present ? undefined : bodyId}
+          aria-controls={collapse.present ? bodyId : undefined}
           aria-label={label}
           onClick={toggle}
         >
           {folded && <span className="cv-received__preview">{preview || t("message.noText")}</span>}
-          {(minimal || open || long || raw !== undefined) && (
-            <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
-          )}
+          <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
         </button>
         {replies && !editing && (
           <button ref={replyButton} type="button" className="cv-received__reply" onClick={startReply}>
             {t("message.reply")}
           </button>
         )}
+        {status && (
+          <span className="cv-received__queued" title={typeof status === "string" ? status : undefined}>
+            {status}
+          </span>
+        )}
         {actions}
       </div>
-      {minimal ? collapse.present && <div {...collapse.bodyProps}>{card}</div> : card}
-      {raw !== undefined &&
-        (minimal ? open && detailsRow : collapse.present && <div {...collapse.bodyProps}>{detailsRow}</div>)}
+      {collapse.present && (
+        <div {...collapse.bodyProps}>
+          {card}
+          {raw !== undefined && detailsRow}
+        </div>
+      )}
       {replies && editing && (
         <div className="cv-message__reply">
           <PromptEditor

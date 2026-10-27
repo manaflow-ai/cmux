@@ -2248,10 +2248,11 @@ pre.cv-math-source {
    hidden), so a long name ends in an ellipsis before it instead of under it. */
 .cv-received__line {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  height: 26px;
+  min-height: var(--cv-meta-row);
   padding-right: 28px;
   color: var(--cv-text-dim);
   white-space: nowrap;
@@ -2273,7 +2274,8 @@ pre.cv-math-source {
 /* The sender as a chip: the theme's text at a low strength over glass, the accent's ring on
    hover and focus (Leo 2026-10-20: glass, never a solid fill). */
 .cv-received__name {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: var(--cv-meta-row);
   max-width: 40%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2302,11 +2304,12 @@ button.cv-received__name:focus-visible {
   flex: 1;
   align-items: center;
   gap: 4px;
-  min-width: 0;
+  min-width: var(--cv-meta-row);
   height: 26px;
 }
 .cv-received__toggle > .cv-rotor {
   flex: none;
+  margin-inline-start: auto;
 }
 /* Minimal Mode's closed message (IncomingMessageCard.tsx): the message's first line after the
    chip, cut with an ellipsis, the chevron after it. model.ts estimates the line alone. */
@@ -2331,32 +2334,15 @@ button.cv-received__name:focus-visible {
 .cv-received__line > .cv-received-actions {
   margin-inline-start: 0;
 }
-/* The message: a compact glass card under the line, in from the icon column, its text as
-   Markdown. Glass, never a solid fill: the theme's text at a low strength, a hairline edge with
-   a trace of the theme's accent, and a lighter top edge, as the composer's glass has. */
+/* Expanded message text shares the transcript's glass instead of adding another boxed bubble. */
 .cv-received__body {
   box-sizing: border-box;
   margin: 4px 0 6px 22px;
-  padding: 8px 12px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--agent-text, var(--cv-text)) 6%, transparent);
-  box-shadow:
-    inset 0 0 0 var(--cmux-hairline, 0.5px)
-      color-mix(in srgb, var(--agent-accent) 22%, var(--acpmux-composer-edge, transparent)),
-    inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
   color: var(--cv-text);
   line-height: var(--cv-line-height);
   overflow-wrap: anywhere;
   user-select: text;
   -webkit-user-select: text;
-}
-/* A closed long card: whole lines within RECEIVED_LINES (lineCut.ts), then Show more; a click
-   opens it. model.ts estimates the text plus the control's 24px. */
-.cv-received__body[data-cut] {
-  cursor: pointer;
-}
-.cv-received__body[data-cut] > .cv-received__text {
-  overflow: hidden;
 }
 /* The card's text sits flush with its padding: no paragraph margin above the first line or below
    the last. */
@@ -3990,7 +3976,10 @@ article.acpmux-row:empty {
 /* Another agent's message the agent has not read yet (QueuedMessageCard.tsx): one quiet caption at
    the line's end, always shown, still. No spinner, no dot, no motion. */
 .cv-received__queued {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--cv-text-dim);
   font-size: var(--text-caption);
   line-height: var(--cv-meta-row);

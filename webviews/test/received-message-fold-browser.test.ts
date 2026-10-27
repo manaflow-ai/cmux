@@ -3,7 +3,7 @@
 // shouldnt move your scroll or whatever, just expand the area at the bottom and you're in the same
 // place ... also these all need animations for expand and collapse!"), in a real layout: the line
 // clicked (the message's line, or its Details) stays on the pixel it was clicked at through every
-// frame, a cut card slides open to its whole height and back below it, Details folds in and out,
+// frame, a collapsed message opens to its whole height and back below it, Details folds in and out,
 // and under Reduce Motion they change at once, still in place.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -65,8 +65,8 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
     row(`t${index}-answer`, "assistant", paragraphs(2)),
   ];
   const done = Array.from({ length: 8 }, (_, index) => turn(index)).flat();
-  /// Another agent's message: long enough to be cut to six lines, and that opening it whole reaches
-  /// past the view's end, with the envelope it came in behind Details.
+  /// Another agent's message: a one-line strip whose full body reaches past the view's end,
+  /// with the envelope it came in behind Details.
   const messageText = paragraphs(6);
   const received = row("msg", "user", messageText, {
     incoming: {
@@ -178,7 +178,6 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
   const LINE = '[data-row-id="msg"] .cv-received__toggle';
   const DETAILS = '[data-row-id="msg"] .cv-received__more';
   const BODY = '[data-row-id="msg"] .cv-received__body';
-  const isCut = (page: Page) => page.locator(BODY).evaluate((body) => body.hasAttribute("data-cut"));
   /// Puts the message's line `y` px down the view, away from the transcript's end.
   const lineAt = (page: Page, y: number) =>
     page.evaluate((down) => {
@@ -194,7 +193,7 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
     expect(await atLatest(page)).toBe(true);
     await probe(page, LINE);
     expect(await expanded(page)).toBe("false");
-    expect(await isCut(page)).toBe(true);
+    expect(await page.locator(BODY).count()).toBe(0);
 
     const opened = await clickAndWatch(page);
     expect(await expanded(page)).toBe("true");
@@ -241,22 +240,24 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
     expect(closed.moved).toBeLessThanOrEqual(1);
     await settle(page);
     expect(Math.abs((await probedTop(page)) - closed.top)).toBeLessThanOrEqual(1);
-    expect(await isCut(page)).toBe(true);
+    expect(await page.locator(BODY).count()).toBe(0);
     expect(await page.locator(DETAILS).count()).toBe(0);
     await page.close();
   });
 
-  test("a click on the cut card opens it in place", async () => {
+  test("the collapsed strip opens by keyboard without moving its line", async () => {
     const page = await open("no-preference");
     await show(page, [...done, received, after]);
     await settle(page);
     await lineAt(page, 200);
     await settle(page);
-    await probe(page, BODY);
-    const opened = await clickAndWatch(page);
-    expect(await isCut(page)).toBe(false);
-    expect(opened.folded).toBe(true);
-    expect(opened.moved).toBeLessThanOrEqual(1);
+    const line = page.locator(LINE);
+    const before = await line.evaluate((node) => node.getBoundingClientRect().top);
+    await line.press("Enter");
+    await settle(page);
+    expect(await line.getAttribute("aria-expanded")).toBe("true");
+    expect(await page.locator(BODY).count()).toBe(1);
+    expect(Math.abs((await line.evaluate((node) => node.getBoundingClientRect().top)) - before)).toBeLessThanOrEqual(1);
     await page.close();
   });
 

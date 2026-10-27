@@ -206,8 +206,11 @@ test("the received card says when it is read and keeps the queue row's actions i
   await card(entry, calls);
   // The message's own card: the sender's chip, its text, the quiet note; no spinner, no queue row.
   expect(host.querySelector(".cv-received__name")?.textContent).toBe("lane-1");
-  expect(host.querySelector(".cv-received__body")?.textContent).toContain("CI is green on #24001");
+  expect(host.querySelector(".cv-received__preview")?.textContent).toContain("CI is green on #24001");
+  expect(host.querySelector(".cv-received__body")).toBeNull();
   expect(host.querySelector(".cv-received__queued")?.textContent).toBe(t("message.readAfterTurn"));
+  expect(host.querySelector(".cv-received__queued")?.closest(".cv-received-actions")).toBeNull();
+  expect(host.querySelectorAll(`button[aria-label="${t("turn.copy")}"]`)).toHaveLength(1);
   expect(host.querySelector(".acpmux-queued, .cv-spinner, [data-spinner]")).toBeNull();
   await act(async () => host.querySelector<HTMLButtonElement>("button.cv-received__name")!.click());
   expect(calls).toEqual(["open s-1"]);
@@ -279,8 +282,17 @@ test("a message sent now offers no second Steer; one with images keeps them and 
 
 test("a steer the agent has not read: Read after this step, and Send now in its ⋯ menu, no spinner", async () => {
   const { SteerWaitingActions } = await import("../src/agent-session/acpmux/conversation/QueuedMessageCard");
+  const { IncomingMessageLine } = await import("../src/agent-session/acpmux/conversation/IncomingMessageCard");
   const sent: string[] = [];
-  await show(<SteerWaitingActions promptId="p-steer" send={(id) => void sent.push(id)} />);
+  await show(
+    <IncomingMessageLine
+      id="steer-label"
+      message={agent(1).message}
+      onOpen={() => {}}
+      status={t("message.readAfterStep")}
+      actions={<SteerWaitingActions promptId="p-steer" send={(id) => void sent.push(id)} />}
+    />,
+  );
   expect(host.querySelector(".cv-received__queued")?.textContent).toBe(t("message.readAfterStep"));
   expect(host.querySelector(".cv-spinner, [data-spinner]")).toBeNull();
   await openMenu();

@@ -55,47 +55,46 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
         visible: rects.some((r) => r.bottom <= edge),
       };
     });
-  test("received preview has intact lines at wide and narrow zoomed widths; Show more and chevron share disclosure", async () => {
-    await open();
-    let previousWidth = Infinity;
-    for (const width of [700, 360]) {
-      await page.setViewportSize({ width, height: 1000 });
-      await page.evaluate(
-        (zoom) => {
-          document.documentElement.style.zoom = String(zoom);
-        },
-        width === 360 ? 1.25 : 1,
-      );
-      const drawnWidth = await page
-        .locator(".cv-received__text")
-        .first()
-        .evaluate((box) => box.getBoundingClientRect().width);
-      expect(drawnWidth).toBeLessThan(previousWidth);
-      previousWidth = drawnWidth;
-      expect((await intact(".cv-received__text >> nth=0")).mask).toBe("none");
-      await page.locator(".cv-received__show").waitFor();
-      await page.waitForFunction(() => {
-        const box = document.querySelector<HTMLElement>(".cv-received__text");
-        return box?.style.maxHeight !== "";
+  test("received messages start as one line in both modes and open intact Markdown at wide and narrow widths", async () => {
+    for (const variant of ["cards-no-fade", "one-line"]) {
+      await open(variant);
+      let previousWidth = Infinity;
+      for (const width of [700, 360]) {
+        await page.setViewportSize({ width, height: 1000 });
+        await page.evaluate(
+          (zoom) => {
+            document.documentElement.style.zoom = String(zoom);
+          },
+          width === 360 ? 1.25 : 1,
+        );
+        expect(await page.locator(".cv-received__body").count()).toBe(0);
+        const preview = page.locator(".cv-received__preview").first();
+        const drawn = await preview.evaluate((box) => ({
+          width: box.getBoundingClientRect().width,
+          overflow: getComputedStyle(box).textOverflow,
+          whiteSpace: getComputedStyle(box).whiteSpace,
+        }));
+        expect(drawn.width).toBeLessThan(previousWidth);
+        expect(drawn.overflow).toBe("ellipsis");
+        expect(drawn.whiteSpace).toBe("nowrap");
+        previousWidth = drawn.width;
+        await page.locator(".cv-received__toggle").first().press("Enter");
+        await page.locator(".cv-received__body").first().waitFor();
+        expect(await intact(".cv-received__text >> nth=0")).toEqual({ mask: "none", split: 0, visible: true });
+        expect(await page.locator(".cv-received__show").count()).toBe(0);
+        expect(await page.locator(".cv-received__text").first().locator("li").count()).toBe(12);
+        const toggleBox = await page.locator(".cv-received__toggle").first().boundingBox();
+        expect(toggleBox?.width, `${variant} at ${width}px: expanded disclosure must stay clickable`).toBeGreaterThan(
+          0,
+        );
+        await page.locator(".cv-received__toggle").first().click();
+        await page.locator(".cv-received__body").first().waitFor({ state: "detached" });
+      }
+      await page.setViewportSize({ width: 700, height: 1000 });
+      await page.evaluate(() => {
+        document.documentElement.style.zoom = "1";
       });
-      expect(await intact(".cv-received__text >> nth=0")).toEqual({ mask: "none", split: 0, visible: true });
     }
-    await page.setViewportSize({ width: 700, height: 1000 });
-    await page.evaluate(() => {
-      document.documentElement.style.zoom = "1";
-    });
-    expect(await page.locator(".cv-received").nth(1).locator(".cv-received__show").count()).toBe(0);
-    await page.locator(".cv-received__show").focus();
-    await page.keyboard.press("Enter");
-    expect(await page.locator(".cv-received__toggle").first().getAttribute("aria-expanded")).toBe("true");
-    expect(
-      await page
-        .locator(".cv-received__text")
-        .first()
-        .evaluate((box) => box.clientHeight >= box.scrollHeight),
-    ).toBe(true);
-    await page.locator(".cv-received__toggle").first().click();
-    await page.locator(".cv-received__show").waitFor();
   });
   test("sent preview has no fade or partial chip and Show more reveals all of it", async () => {
     await open();
@@ -112,7 +111,7 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
     await page.locator(".cv-message__more").press("Enter");
     expect(await intact(".cv-message__text")).toEqual({ mask: "none", split: 0, visible: true });
   });
-  test("one-line variant keeps Minimal Mode's existing ellipsis and opens the full card", async () => {
+  test("one-line variant keeps its ellipsis and opens the full message", async () => {
     await open("one-line");
     expect(await page.locator(".cv-received__body").count()).toBe(0);
     expect(
@@ -126,17 +125,18 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
     expect(await intact(".cv-received__text")).toEqual({ mask: "none", split: 0, visible: true });
   });
   for (const direction of ["received", "sent"] as const) {
-    test(`Tab reveals clipped ${direction} code controls before they can be used`, async () => {
+    test(`Tab reaches ${direction} code controls without clipping them`, async () => {
       await open("code-first");
       const row = page.locator(direction === "received" ? ".cv-received" : ".cv-message");
       const toggle = row.locator(direction === "received" ? ".cv-received__toggle" : ".cv-agentmsg__toggle");
       const text = row.locator(direction === "received" ? ".cv-received__text" : ".cv-message__text");
-      if (direction === "sent") await toggle.click();
+      await toggle.click();
       await row.locator(".cv-codeblock button").first().waitFor({ state: "attached" });
-      await page.waitForFunction(
-        (selector) => document.querySelector<HTMLElement>(selector)?.style.maxHeight === "0px",
-        direction === "received" ? ".cv-received__text" : ".cv-message__text",
-      );
+      if (direction === "sent") {
+        await page.waitForFunction(
+          () => document.querySelector<HTMLElement>(".cv-message__text")?.style.maxHeight === "0px",
+        );
+      }
       await toggle.focus();
       let reached = false;
       for (let step = 0; step < 12; step++) {

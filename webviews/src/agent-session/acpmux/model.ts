@@ -1310,26 +1310,18 @@ function measuredRowHeight(
   if (row.kind === "turnSummary") return fallbackRowHeight(row, width, beforeFooter);
   // The live activity line under a plan has a label, but its row still reserves the footer slot.
   if (row.kind === ACTIVITY_LINE && row.below) return fallbackRowHeight(row, width, beforeFooter, lastTurn);
-  // Another agent's message: one 26px line in `.cv-received`'s 2px margins, then its glass card
-  // (4px above, 6px below, 8px padding each side, 22px in from the icon column and 12px padding
-  // across), its text cut to RECEIVED_LINES lines (opened, the row measures itself); a notice is a
-  // tool row's line under `.cv-tools`' 2px margin (conversation/IncomingMessageCard.tsx). Each with
-  // the row's message gap.
-  // Its images' 120px row with 2px above and 6px below (UserBubble.tsx SENT_IMAGE_HEIGHT); no steer line.
+  // Another agent's message is a 26px line in 2px margins. Expanded Markdown is inset 22px,
+  // with 4px above and 6px below; images add their 120px row plus margins. Hidden text is not laid out.
   if (row.incoming?.kind === "message") {
-    // In Minimal Mode a closed message is its line alone, images too; one the person opened
-    // (incomingOpened.ts) is its whole card, uncut.
-    const minimal = chatDisplay().minimal;
+    // A closed received message is one line in either display mode, images too. The existing
+    // per-id open store survives virtualization; only expanded text needs a height estimate.
     const opened = messageOpened(sessionId, row.id);
-    if (minimal && !opened) return finish(26 + 4 + MESSAGE_GAP);
+    if (!opened) return finish(26 + 4 + MESSAGE_GAP);
     const { lineHeight } = metrics();
     const text = row.incoming.message.text;
     if (receivedPrepared.size > 256) receivedPrepared.clear();
-    const lines = text ? textHeight(text, Math.max(80, width - 46), receivedPrepared) : lineHeight;
-    const limit = RECEIVED_LINES * lineHeight;
-    // .cv-user__more: a 20px control with 4px above it, only on a closed long card.
-    const more = !opened && lines > limit + 1 ? 24 : 0;
-    const card = 4 + 16 + (opened ? lines : Math.min(lines, limit)) + more + 6;
+    const lines = text ? textHeight(text, Math.max(80, width - 22), receivedPrepared) : lineHeight;
+    const card = 4 + lines + 6;
     return finish(26 + 4 + card + MESSAGE_GAP + (row.images?.length ? 128 : 0));
   }
   if (row.incoming?.kind === "notice") return finish(2 + 26 + MESSAGE_GAP);
@@ -1552,7 +1544,7 @@ import { type Translate, translate } from "./i18n";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { chatColumn, type ChatColumn } from "./chatWidth";
-import { chatDisplay, currentChatMetrics } from "./chatDisplay";
+import { currentChatMetrics } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
 
 /// The pane's fallback accessible name and problem-only header status.
