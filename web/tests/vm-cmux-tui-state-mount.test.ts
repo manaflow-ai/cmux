@@ -30,6 +30,8 @@ type Disk = {
   readonly truncateFails?: boolean;
   /** Fails a growth tool before the image allocation. */
   readonly growthToolFailure?: "losetup" | "resize2fs";
+  /** Starts with the state image unmounted, so `ensure` mounts it first. */
+  readonly unmounted?: boolean;
 };
 
 function stub(bin: string, name: string, body: string): void {
@@ -38,7 +40,7 @@ function stub(bin: string, name: string, body: string): void {
   chmodSync(file, 0o755);
 }
 
-async function runEnsure(disk: Disk): Promise<{ status: number | null; stderr: string; grew: boolean; finalImageBytes: number }> {
+async function runEnsure(disk: Disk): Promise<{ status: number | null; stderr: string; grew: boolean; mounted: boolean; finalImageBytes: number }> {
   const root = mkdtempSync(path.join(tmpdir(), "cmux-tui-state-mount-"));
   try {
     return await runEnsureInRoot(root, disk);
@@ -62,7 +64,10 @@ async function runEnsureInRoot(root: string, disk: Disk) {
   const sizeFile = JSON.stringify(path.join(root, "image-size"));
   const initialBytes = disk.imageBytes ?? 1024 * 1024 * 1024;
   writeFileSync(path.join(root, "image-size"), `${initialBytes}\n`);
-  stub(bin, "mountpoint", "exit 0");
+  const mountedMarker = path.join(root, "mounted");
+  stub(bin, "mountpoint", disk.unmounted ? `test -e ${JSON.stringify(mountedMarker)}` : "exit 0");
+  stub(bin, "mount", `: > ${JSON.stringify(mountedMarker)}`);
+  stub(bin, "chown", "exit 0");
   stub(bin, "flock", "exit 0");
   stub(bin, "findmnt", "echo /dev/loop7");
   stub(bin, "losetup", disk.growthToolFailure === "losetup" ? "exit 1" : "exit 0");
@@ -111,6 +116,7 @@ async function runEnsureInRoot(root: string, disk: Disk) {
     status: result.status,
     stderr: result.stderr,
     grew: existsSync(grewMarker),
+    mounted: existsSync(mountedMarker),
     finalImageBytes: Number(readFileSync(path.join(root, "image-size"), "utf8").trim()),
   };
 }
@@ -124,6 +130,22 @@ describe("cmux-tui state mount on a full disk", () => {
     expect(result.stderr).toContain("continuing with 65536KiB free");
     expect(result.status).toBe(0);
     expect(result.grew).toBe(false);
+  }, TEST_TIMEOUT_MS);
+
+  test("a freshly mounted state image starts the daemon when growth fails with room left", async () => {
+    // ensure mounts the image first (a cold boot), then hits the same full root disk.
+    const result = await runEnsure({ stateFreeKb: 16 * 1024, rootFreeKb: 100 * 1024, unmounted: true });
+    expect(result.mounted).toBe(true);
+    expect(result.stderr).toContain("insufficient root headroom");
+    expect(result.stderr).toContain("continuing with 16384KiB free");
+    expect(result.status).toBe(0);
+  }, TEST_TIMEOUT_MS);
+
+  test("a freshly mounted state image with no working room still defers startup", async () => {
+    const result = await runEnsure({ stateFreeKb: 16 * 1024 - 1, rootFreeKb: 100 * 1024, unmounted: true });
+    expect(result.mounted).toBe(true);
+    expect(result.stderr).toContain("state filesystem is full");
+    expect(result.status).toBe(1);
   }, TEST_TIMEOUT_MS);
 
   test("the size cap does not defer the daemon either", async () => {
