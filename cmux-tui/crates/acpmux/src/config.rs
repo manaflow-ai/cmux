@@ -919,10 +919,11 @@ pub struct Config {
     /// `webRoots`: folders a Web connection may use (`server/remote_guard.rs`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub web_roots: Vec<String>,
-    /// `vmHost`: kept and shown (`_acpmux/vm_host` `configured`), never
-    /// trusted. The agent can write this file, so `true` no longer runs a
-    /// remote chain's Claude Code without the sandbox (`hub/vm_host.rs`);
-    /// `_acpmux/vm_host {on: false}` writes `false`.
+    /// `vmHost`: `false` refuses a caller's VM boundary here, so every remote
+    /// chain's Claude Code runs in the sandbox (`hub/vm_host.rs`,
+    /// `hub/vm_boundary.rs`). It never turns the boundary on: the agent can
+    /// write this file, so `true` means the same as absent.
+    /// `_acpmux/vm_host {on: false}` writes `false`, `{on: true}` removes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vm_host: Option<bool>,
     /// `pool`: hidden pre-created sessions that make a harness switch instant (`hub/pool/`).
