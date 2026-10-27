@@ -28,8 +28,7 @@ struct PageFactory {
     func historyWebPage() -> PageWebView? {
         guard PageTunables.history.value == .web else { return nil }
         let routes = pageRoutes(for: .history)
-        guard let page = services.pageHostPool.claim(.history, routes: routes,
-                                                      window: services.windows.active?.window, focus: false)
+        guard let page = services.pagePreloads.claim(.history, routes: routes)
             ?? services.webUI.open(PageOpenRequest(descriptor: .history, routes: routes)) else { return nil }
         PageConnectionWatch(page: page, store: services.machines.local.store, on: services.mainWork).start()
         return page
@@ -97,10 +96,8 @@ struct PageFactory {
         let cloud = cloud ?? cloudPageProvider()
         native.forward = { op, params, context in try await cloud.call(op, params: params, context: context) }
         let routes = [PageRoute(prefix: "cmux.cloud.", provider: cloud), PageRoute(prefix: "cmux.app.", provider: native)]
-        let attributes = ["cloud-machines-layout": PageTunables.cloudMachinesLayout.value.rawValue]
-        let page = services.pageHostPool.claim(.cloud, routes: routes, route: route,
-                                               documentAttributes: attributes,
-                                               window: services.windows.active?.window, focus: false)
+        let attributes = PagePreloads.Page.cloud.documentAttributes  // the Cloud preload boots with the same
+        let page = services.pagePreloads.claim(.cloud, routes: routes, route: route, documentAttributes: attributes)
             ?? services.webUI.open(PageOpenRequest(descriptor: .cloud, routes: routes, route: route, documentAttributes: attributes))
         native.anchor = { [weak page] in page }
         if let page { PageConnectionWatch(page: page, store: services.machines.local.store, on: services.mainWork).start() }
@@ -248,10 +245,8 @@ struct PageFactory {
                                                           iconPNG: { [weak services] icon in
                                                               await SettingsIconAssets.png(icon, owner: services?.machines.local)
                                                           }, memory: appCaches)
-        let page = services.pageHostPool.claim(.settings, routes: routes, route: route, options: Self.settingsEngineOptions,
-                                               surface: .settings,
-                                               dynamicResources: dynamicResources,
-                                               window: services.windows.active?.window, focus: false)
+        let page = services.pagePreloads.claim(.settings, routes: routes, route: route, surface: .settings,
+                                               dynamicResources: dynamicResources)
             ?? services.webUI.open(PageOpenRequest(descriptor: .settings, routes: routes, route: route,
                                                    options: Self.settingsEngineOptions, surface: .settings,
                                                    dynamicResources: dynamicResources))

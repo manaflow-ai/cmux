@@ -155,7 +155,7 @@ pub(super) fn serve_remote_entry_with(
     let shutdown = Arc::new(AtomicBool::new(false));
     let thread_shutdown = shutdown.clone();
     let thread_mux = mux.clone();
-    let thread = std::thread::Builder::new().name("mux-remote-entry".into()).spawn(move || {
+    let thread = cmux_threads::spawn("mux-remote-entry", listen::ACCEPT_THREAD_QOS, move || {
         let config = EntryConfig { entry_fs, record_checks };
         accept_loop(&thread_mux, &listener, &thread_shutdown, &verifier, &gate, config);
     })?;
@@ -201,15 +201,34 @@ fn accept_loop(
         let Some(permit) = claim_connection(&connections) else { continue };
         let (mux, verifier, gate, render_service) =
             (mux.clone(), verifier.clone(), gate.clone(), render_service.clone());
-        let _ = spawn_connection_reader("mux-remote-conn", move || {
-            serve_remote_connection(mux, stream, &verifier, gate, render_service, permit, config);
-        });
+        let setup_mux = mux.clone();
+        let _ = spawn_connection_reader(
+            "mux-remote-conn",
+            move || {
+                let peer = origin_gate::AcceptedPeer::resolve(&setup_mux, &stream);
+                (stream, peer)
+            },
+            move |(stream, peer)| {
+                serve_remote_connection(
+                    mux,
+                    stream,
+                    peer,
+                    &verifier,
+                    gate,
+                    render_service,
+                    permit,
+                    config,
+                );
+            },
+        );
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn serve_remote_connection(
     mux: Arc<Mux>,
     stream: UnixStream,
+    peer_identity: origin_gate::AcceptedPeer,
     verifier: &LinkVerifier,
     gate: Arc<dyn RemoteGate>,
     render_service: Arc<RenderService>,
@@ -254,6 +273,7 @@ fn serve_remote_connection(
     serve_line_connection(
         mux,
         stream,
+        peer_identity,
         render_service,
         Some(permit),
         ClientTransport::Remote,
@@ -317,9 +337,8 @@ impl LineAdmission for RemoteAdmission {
 
 /// The refusal of `line`: its `id` when it has one, and no detail.
 pub(super) fn denied(line: &str) -> Value {
-    let id = crate::line_parses::parse::<Value>(line)
-        .ok()
-        .and_then(|frame| frame.get("id").cloned());
+    let id =
+        crate::line_parses::parse::<Value>(line).ok().and_then(|frame| frame.get("id").cloned());
     let mut response = json!({"ok": false, "error": REMOTE_DENIED, "error_code": REMOTE_DENIED});
     if let Some(id) = id {
         response.insert("id", id);

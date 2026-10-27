@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "purgeableImageCaches",
+  "owner": "PL-memory",
+  "description": "Tab previews, page thumbnails, hover card thumbnails and hibernated pages' pictures keep their pixels in purgeable memory while nothing shows them, so macOS takes it back under memory pressure; a picture it took is pictured again, or a woken tab shows loading first.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}
