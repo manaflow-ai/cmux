@@ -152,3 +152,22 @@ fn a_reply_to_an_earlier_chief_message_names_the_chief_and_a_quote() {
         format!("(reply to Chief: {quote})\nredo that")
     );
 }
+
+#[test]
+fn a_reply_to_a_message_the_chief_never_logged_quotes_it() {
+    let mut h = Harness::new(default_script());
+    h.connect();
+    h.say("user_local", "status?");
+    h.settle_posts();
+    // A bubble with no text, image or file does not wake the Chief: no line.
+    let silent = h.say_parts("user_local", Vec::new());
+    h.settle_posts();
+    assert!(h.chat.logged_id(&format!("{CONV}#{}", silent.seq)).is_none());
+    let r = reply(&mut h, "what was this?", &silent.id, &silent.id);
+    h.settle_posts();
+    let line = user_line(&h, r.seq);
+    assert!(
+        line.starts_with("(reply to ") && line.contains(": [no text])\n"),
+        "{line}"
+    );
+}

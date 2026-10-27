@@ -6,8 +6,10 @@
 //!
 //! - Not a reply: nothing.
 //! - The target is the message right before it: `(reply to #<line id>)`, or
-//!   `(reply to previous message)` when the target has no line (the Chief's own
-//!   message); no quote, the view already holds it.
+//!   `(reply to previous message)` when it is the Chief's own message (its
+//!   words are the Chief's talk lines); no quote, the view already holds it.
+//!   A message right before it that was never logged (it did not wake the
+//!   Chief) is quoted like an earlier one.
 //! - Otherwise `(reply to #<line id>: <quote>)` for a logged message, or
 //!   `(reply to <author>: <quote>)`; the quote is the target's first
 //!   `QUOTE_CHARS` characters on one line.
@@ -36,6 +38,8 @@ pub enum Target {
     },
     /// Not among the messages read (older than `WINDOW`, not a user message).
     Older,
+    /// The conversation could not be read: says nothing it does not know.
+    Unread,
 }
 
 /// The marker line for `target`.
@@ -54,6 +58,7 @@ pub fn marker(target: &Target) -> String {
             quote,
         } => format!("(reply to {author}: {quote})"),
         Target::Older => "(reply to an older message)".to_owned(),
+        Target::Unread => "(reply to a message)".to_owned(),
     }
 }
 
@@ -69,6 +74,9 @@ pub fn marked(marker: Option<&str>, text: &str) -> String {
 /// runs as one space), with `…` when cut; a message without text names its
 /// first attachment.
 pub fn quote(message: &Message) -> String {
+    if message.retracted_at.is_some() {
+        return "[retracted]".to_owned();
+    }
     let text = message_text(message);
     let flat: Vec<&str> = text.split_whitespace().collect();
     if flat.is_empty() {
@@ -109,7 +117,7 @@ impl Brain {
                     "reading the reply target of message {} failed: {e}",
                     message.seq
                 ));
-                return Some(marker(&Target::Older));
+                return Some(marker(&Target::Unread));
             }
         };
         let previous = before.iter().rev().find(|m| shown(m)).map(|m| m.id.clone());
@@ -128,7 +136,8 @@ impl Brain {
         let line = self
             .chat
             .logged_id(&format!("{conversation}#{}", target.seq));
-        let target = if previous.as_deref() == Some(parent.as_str()) {
+        let own = target.author == self.settings.membership.participant;
+        let target = if previous.as_deref() == Some(parent.as_str()) && (line.is_some() || own) {
             Target::Previous { line }
         } else {
             Target::Earlier {
