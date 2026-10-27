@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "build": "4049353932801",
+  "notes": "notes/4049353932801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 26109,
+      "title": "cmux-next tests: agent pane page-host and themed dialog base reds fixed at their causes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25998,
+      "title": "acpmux: Linux sandbox G1b: the keeper runs the user-notify supervisor",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25992,
+      "title": "cmux-next-ios-sim.sh pair-e2e: pairing by the Mac's QR code, end to end on a fleet simulator",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26119,
+      "title": "Home: round the message field outline to match its glass",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26136,
+      "title": "fix(pin-cmux-tui): the public-repo fallback never makes a full clone shallow; its test runs offline",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25495,
+      "title": "cli: the rest of cmux run --sandboxed's tests (split from #25461)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24816,
+      "title": "fix(cmux-next terminal): refresh OSC 11 surfaces on first reveal",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26104,
+      "title": "cmux-next media: tour the nightly tip, not every merge",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26120,
+      "title": "cmux CLI embeds only browser ids and names",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
