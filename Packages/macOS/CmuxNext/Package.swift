@@ -913,12 +913,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // supplies its browser pages, New Tab pages and the rename command.
         .target(
             name: "CmuxNextWorkspaceNaming",
-            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesignTokens"],
+            // CmuxNextWakeups: the auto-namer's follow is a ServiceObservation (p06-scheduler-339).
+            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesignTokens", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextWorkspaceNamingTests",
-            dependencies: ["CmuxNextWorkspaceNaming", "CmuxNextBridge", "CmuxNextDaemon", "CmuxNextSidebar"],
+            // CmuxNextWakeups: WorkspaceAutoNamerFollowTests runs the namer's follow on a test scheduler.
+            dependencies: ["CmuxNextWorkspaceNaming", "CmuxNextBridge", "CmuxNextDaemon", "CmuxNextSidebar", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Phone tabs (plans/cmux-next/phone.md): simulators through simctl, real
@@ -1108,12 +1110,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // daemon's create and close (`EmptyWorkspaceRepair(daemon:)`).
         .target(
             name: "CmuxNextWorkspaceRepair",
-            dependencies: ["CmuxNextCompat", "CmuxNextDaemon"],
+            // CmuxNextWakeups: the repair's follows are ServiceObservations (p06-scheduler-339).
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextWorkspaceRepairTests",
-            dependencies: ["CmuxNextDaemon", "CmuxNextWorkspaceRepair"],
+            // CmuxNextWakeups: the tests run the repair's follows on a scheduler whose turns they run by hand.
+            dependencies: ["CmuxNextDaemon", "CmuxNextWakeups", "CmuxNextWorkspaceRepair"],
             swiftSettings: uiSwiftSettings
         ),
         // Agent activity (plans/cmux-next/computer-use.md section 7): the
@@ -2318,6 +2322,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWakeupsTestSupport",
                 "CmuxNextWebUpdates",
                 "CmuxNextWorkspaceNaming",
+                // UnmountedWorkspaceLeavesNoObjectsTests and the rule-9 sweep cases read the repair's counts.
+                "CmuxNextWorkspaceRepair",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 // DiffTurnPatchFuzzTests (p10-stability-030).
                 .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
