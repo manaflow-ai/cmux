@@ -35,6 +35,11 @@ import Darwin
 /// observations apply and the node's task queues run. A `stayHidden` vote leaves ``effective``,
 /// page visibility and the hidden timer alignment as they are; any other vote makes the node
 /// ``Visibility/visible``.
+///
+/// On show, the observers under a node re-read by its ``resolvedShowOrder``: in the show turn (on
+/// screen in the focused pane), or after the show pass as one userBlocking task each, in viewport
+/// rank order. A ``warmVote(reason:)`` (a hovered tab, the Ctrl-Tab target, a neighbor tab) keeps
+/// the values of a hidden node's observers fresh in idle time, so its show reads nothing.
 @MainActor public final class VisibilityNode {
     /// Monotonic time since an arbitrary origin (`CLOCK_UPTIME_RAW` in the app, as Chromium's
     /// `base::TimeTicks` on the Mac). Tests inject a fake.
@@ -82,7 +87,7 @@ import Darwin
     /// The entry count at which ``insert(_:)`` drops the entries of released children, doubled
     /// after each pass, so dropping costs O(1) amortized per insert.
     private var compactAt = 16
-    private var subscriptions: [WeakSubscription] = []
+    var subscriptions: [WeakSubscription] = []
     /// Told when media starts or stops, or ``isCaptured`` changes (``subscribeExemption(owner:_:)``).
     var exemptionSubscriptions: [WeakSubscription] = []
     /// Told when ``wantsFrames`` changes (``subscribeRendering(owner:_:)``).
@@ -99,14 +104,26 @@ import Darwin
     var nextVoteID: UInt64 = 0
     /// Counts changes of ``notified``: a delivery stops when a subscriber's change started a newer one.
     private var notifyGeneration = 0
-    private var deferred: [(key: AnyHashable, work: @MainActor () -> Void)] = []
+    var deferred: [(key: AnyHashable, work: @MainActor () -> Void)] = []
     var mediaPlaying = false
     var mediaStoppedAt: Duration?
     /// The task queues made on this node (``queue(_:owner:on:)``), told of every flip and freeze.
-    private var queues: [WeakQueue] = []
+    var queues: [WeakQueue] = []
+    /// The warm votes on this node (``warmVote(reason:)``), oldest first.
+    var warmVotes: [WarmRecord] = []
+    /// Told when ``isWarm`` changes (``subscribeWarm(owner:_:)``).
+    var warmSubscriptions: [WeakSubscription] = []
+    private var notifiedWarm: Bool
+    /// The after-show posts of the pass this node started and is delivering now (``postAfterShow(rank:_:)``).
+    var afterShow: [AfterShowPost]?
 
     /// Whether ``freeze()`` stopped this node's task queues.
-    public private(set) var isFrozen = false
+    public internal(set) var isFrozen = false
+    /// Whether a warm vote holds this node, or holds an ancestor with no own-hidden node between them
+    /// (``warmVote(reason:)``): its observers keep their values fresh in idle time while it is hidden.
+    public private(set) var isWarm = false
+    /// When observers under this node re-read on show; nil follows the parent (``resolvedShowOrder``).
+    public var showOrder: ShowOrder?
 
     /// Makes a root node (the app, or a window when the app has no node yet).
     ///
@@ -120,6 +137,7 @@ import Darwin
         self.effective = own
         self.notified = own
         self.notifiedRendering = own == .visible
+        self.notifiedWarm = false
         self.isRoot = true
         self.uptime = uptime
         self.hiddenSince = own == .visible ? nil : uptime()
@@ -142,6 +160,9 @@ import Darwin
         self.isCaptured = captured
         self.notifiedCaptured = captured
         self.notifiedRendering = effective == .visible || captured
+        let warm = own != .hidden && parent.isWarm
+        self.isWarm = warm
+        self.notifiedWarm = warm
         self.isRoot = false
         self.uptime = parent.uptime
         self.hiddenSince = effective == .visible ? nil : parent.uptime()
@@ -196,95 +217,12 @@ import Darwin
     func repropagate() {
         var changed: [VisibilityNode] = []
         recompute(into: &changed)
+        let outer = afterShow
+        afterShow = []
         Self.deliver(changed)
-    }
-
-    // MARK: Task queues
-
-    /// A queue of `workClass` tasks that runs by this node's state (``MainTaskQueue``): held while
-    /// the node is not visible (background at hidden wakes), stopped while it is frozen, dropped
-    /// with the queue. Work for a hideable owner goes through its node's queue; a plain
-    /// ``MainWorkScheduler/post(_:owner:file:line:_:)`` from such an owner says why with `// node-free:`.
-    ///
-    /// - Parameters:
-    ///   - workClass: The class its tasks run in.
-    ///   - owner: Its tasks' owner on the board.
-    ///   - work: The app's one main-thread scheduler.
-    public func queue(_ workClass: BudgetedWorkClass, owner: String, on work: MainWorkScheduler) -> MainTaskQueue {
-        let queue = MainTaskQueue(node: self, workClass: workClass, owner: owner, on: work)
-        queues.removeAll { $0.queue == nil }
-        queues.append(WeakQueue(queue: queue))
-        return queue
-    }
-
-    /// Stops this node's task queues: none of their tasks runs, visible or not, until
-    /// ``unfreeze()`` (Blink's `PageSchedulerImpl::SetPageFrozen`). Child nodes are not frozen.
-    public func freeze() {
-        guard !isFrozen else { return }
-        isFrozen = true
-        notifyQueues()
-    }
-
-    /// Lets this node's task queues run again by its visibility.
-    public func unfreeze() {
-        guard isFrozen else { return }
-        isFrozen = false
-        notifyQueues()
-    }
-
-    private func notifyQueues() {
-        for queue in queues.compactMap(\.queue) { queue.nodeDidChange() }
-    }
-
-    // MARK: Subscribers and deferred work
-
-    /// Calls `onFlip` with the new effective state each time it flips, until the returned token is
-    /// released or cancelled. It is not called for the current state.
-    ///
-    /// - Parameters:
-    ///   - owner: The subscriber's name for diagnostics.
-    ///   - onFlip: Runs on the main actor after the whole flip has propagated.
-    public func subscribe(owner: String, _ onFlip: @escaping @MainActor (Visibility) -> Void) -> VisibilitySubscription {
-        let subscription = VisibilitySubscription(owner: owner, node: self, onFlip: onFlip)
-        subscriptions.removeAll { $0.subscription == nil }
-        subscriptions.append(WeakSubscription(subscription: subscription))
-        return subscription
-    }
-
-    /// Runs `work` now when this node is visible; otherwise once, when it next becomes visible.
-    /// A later call with the same `key` replaces pending work, so a hidden node runs each key once.
-    ///
-    /// The node holds `work` until it runs: capture the node and its owner weakly.
-    public func deferUntilVisible(key: some Hashable, _ work: @escaping @MainActor () -> Void) {
-        if isVisible { work(); return }
-        let key = AnyHashable(key)
-        if let index = deferred.firstIndex(where: { $0.key == key }) {
-            deferred[index].work = work
-        } else {
-            deferred.append((key: key, work: work))
-        }
-    }
-
-    /// Drops the pending work for `key`, if any.
-    public func cancelDeferred(key: some Hashable) {
-        let key = AnyHashable(key)
-        deferred.removeAll { $0.key == key }
-    }
-
-    /// The number of keys waiting for this node to become visible.
-    public var deferredCount: Int { deferred.count }
-
-    /// The live subscriptions to this node's flips, exemption changes and rendering changes (tests).
-    package var subscriberCounts: (flips: Int, exemptions: Int, rendering: Int) {
-        (subscriptions.count(where: { $0.subscription?.isActive == true }),
-         exemptionSubscriptions.count(where: { $0.subscription?.isActive == true }),
-         renderingSubscriptions.count(where: { $0.subscription?.isActive == true }))
-    }
-
-    func remove(_ subscription: VisibilitySubscription) {
-        subscriptions.removeAll { $0.subscription == nil || $0.subscription === subscription }
-        exemptionSubscriptions.removeAll { $0.subscription == nil || $0.subscription === subscription }
-        renderingSubscriptions.removeAll { $0.subscription == nil || $0.subscription === subscription }
+        let posts = afterShow ?? []
+        afterShow = outer
+        Self.runAfterShow(posts)
     }
 
     // MARK: Propagation
@@ -300,11 +238,17 @@ import Darwin
         !isRoot && own != .hidden && parent?.isCaptured == true
     }
 
+    /// A parent's warm vote reaches the same children its capture would.
+    private var parentWarm: Bool {
+        !isRoot && own != .hidden && parent?.isWarm == true
+    }
+
     private func recompute(into changed: inout [VisibilityNode]) {
         visits += 1
         let next = votes.contains(where: { !$0.stayHidden }) ? Visibility.visible : min(own, parentCap)
         let captured = !votes.isEmpty || parentCaptured
-        guard next != effective || captured != isCaptured else { return }
+        let warm = !warmVotes.isEmpty || parentWarm
+        guard next != effective || captured != isCaptured || warm != isWarm else { return }
         if next == .visible {
             hiddenSince = nil
         } else if effective == .visible {
@@ -313,6 +257,7 @@ import Darwin
         if next != .hidden { hiddenStateSince = nil } else if effective != .hidden { hiddenStateSince = uptime() }
         effective = next
         isCaptured = captured
+        isWarm = warm
         changed.append(self)
         for child in liveShownChildren() { child.recompute(into: &changed) }
     }
@@ -324,6 +269,7 @@ import Darwin
         for node in changed {
             node.deliverFlip()
             node.deliverRendering()
+            node.deliverWarm()
         }
     }
 
@@ -347,6 +293,17 @@ import Darwin
         notifyExemption()
     }
 
+    /// Tells the warm subscribers that ``isWarm`` changed, once per change.
+    private func deliverWarm() {
+        guard isWarm != notifiedWarm else { return }
+        notifiedWarm = isWarm
+        warmSubscriptions.removeAll { $0.subscription == nil }
+        let value = effective
+        for subscription in warmSubscriptions.compactMap(\.subscription) where subscription.isActive {
+            subscription.onFlip(value)
+        }
+    }
+
     private func deliverFlip() {
         let value = effective
         guard value != notified else { return }
@@ -362,12 +319,6 @@ import Darwin
         }
         guard notifyGeneration == generation else { return }
         if value == .visible { runDeferred() }
-    }
-
-    private func runDeferred() {
-        while isVisible, !deferred.isEmpty {
-            deferred.removeFirst().work()
-        }
     }
 
     // MARK: Children
@@ -427,9 +378,5 @@ import Darwin
 
     struct WeakSubscription {
         weak var subscription: VisibilitySubscription?
-    }
-
-    private struct WeakQueue {
-        weak var queue: MainTaskQueue?
     }
 }
