@@ -2892,7 +2892,6 @@ export class AcpmuxDirectClient {
       const id = String(msg.promptId ?? "");
       // Kept also when the row is not in yet: an attach's page may begin after its `queued` record.
       if (id) this.queueAuthors.set(id, promptAuthor(msg) ?? null);
-      // An edit's record names the attachments it keeps; replay cannot use the original draft.
       const parts = recordedPromptParts(
         msg,
         this.optimisticPromptParts.get(id) ?? this.queue.find((entry) => entry.id === id)?.inlineParts,
@@ -4314,7 +4313,6 @@ export class AcpmuxDirectClient {
       if (this.queue.some((entry) => entry.id === promptId))
         this.queue = this.queue.filter((entry) => entry.id !== promptId);
       this.queuedSends.delete(promptId);
-      // Original draft/parts stay until user_message supplies the durable row.
     } catch (error) {
       this.promptAccepts.delete(promptId);
       // A Send now refused at dispatch answers its sender with the refusal (a remote acpmux sends the
@@ -4563,13 +4561,13 @@ export class AcpmuxDirectClient {
     }
     this.emit();
   }
-  /// Retry/Edit/take-back preserve complete ID-bound atoms; history replays every occurrence.
   async resendPrompt(rowId: string, text: string): Promise<{ input: string; attachments: ComposerAttachment[] }> {
     const failed = this.failedPrompts.get(rowId);
     if (failed) return { input: failed.input, attachments: failed.attachments };
     const row = this.rows.get(rowId);
     const sent = this.retryInputs.get(rowId);
     const kept = this.retryAttachments.get(rowId);
+    if (kept && sent === undefined) return { input: text, attachments: resentAttachments(kept) };
     if (sent !== undefined && kept && hasInlineMarks(sent, kept)) {
       if (text === (row?.resend ?? row?.text)) return { input: sent, attachments: kept };
       return {

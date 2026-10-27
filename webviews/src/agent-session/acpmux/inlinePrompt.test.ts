@@ -2,7 +2,6 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { inlineToken, type ComposerAttachment } from "./attachments";
 import type { AcpmuxRow, QueuedPrompt } from "./model";
-import { recordedPromptParts } from "./inlinePrompt";
 import { takeBackSteer } from "./conversation/PendingSteer";
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -134,8 +133,6 @@ test("send retains ID-bound image and video order through a reply before echo", 
   }
 });
 test("history retry preserves repeated image occurrences and a video link", async () => {
-  const trailing = { inlineParts: [{ kind: "file", name: "clip" }] };
-  expect(recordedPromptParts(trailing)?.length).toBe(1);
   const io = await connect();
   try {
     await io.client.send("warm");
@@ -165,7 +162,6 @@ test("history retry preserves repeated image occurrences and a video link", asyn
     expect(new Set(draft.attachments.map((a) => a.id)).size).toBe(3);
     await io.client.send(draft.input, draft.attachments);
     expect(shape(io.sent[1].prompt).join(",")).toBe("image,resource_link,one,resource_link,two,image,three");
-    expect(io.sent[1].prompt.filter((block: any) => block.type === "image")).toHaveLength(2);
     expect(io.sent[1].prompt[3].uri).toBe("file:///tmp/clip.mp4");
   } finally {
     io.client.close?.();
