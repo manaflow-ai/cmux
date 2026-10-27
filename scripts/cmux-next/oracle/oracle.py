@@ -89,6 +89,15 @@ Run directory (`run --out DIR`; the format diff.py (014) reads, with the extra f
 run format baselines.py (016) reads (a `cases` list, the case name without its suite) and runs
 `baselines.py rebaseline` on it.
 
+Engine parity (spec 3F.4, task 113): `run --engine webkit|chromium` is one engine arm (the app's
+browser.defaultEngine, also the engine of a case that pins one; recorded as config.engine), and
+`diff --product app --engine webkit,chromium --ref SHA` runs both arms of one build through fleet.py.
+An engine arm's driver canonicalizes without the tabs' `engine` (normalize Context.drop, so no set order
+or id label depends on it) and records each checkpoint's raw tab engines as `engines`. Any comparison of
+two different engine arms requires each arm to read its own engine back (else `engine-not-exercised`) and
+no tab to still show one (else `engine-not-neutral`), and applies tests/oracle/engine-parity.json, the
+engine differences with their reasons.
+
 `diff` exit codes: 0 no unexplained divergence, 1 divergences, 2 bad input, 3 refused (host
 mismatch, an incomplete or mismatched shard set, nothing compared, a queued side that did not
 build or run), 4 diff.py internal error.
@@ -178,6 +187,14 @@ CRASH_KINDS = frozenset({"renderer", "gpu", "browser", "utility", "daemon", "hol
 PLATFORMS = ("linux", "mac", "windows")
 BUILDS = ("debug", "bench", "asan", "tsan")
 ARMS = ("old", "new")
+# Engine parity (spec 3F.4, task 113): an engine arm is the app's `browser.defaultEngine` (BrowserDefaultEngine raw
+# values, which are also the case-v1 environment.engine names), and the tabs facet reads each tab's engine back as
+# BrowserEngineKind. An engine arm canonicalizes without ENGINE_FIELD (driver_app.ENGINE_DROP) and a comparison of
+# two engine arms explains the differences ENGINE_PARITY_FILE lists, the way run_web_tests.py --flag-specific reads FlagExpectations/<flag>
+# (third_party/blink/web_tests/FlagExpectations/README.txt).
+ENGINE_READBACK = {"webkit": "webkit", "chromium": "cef"}
+ENGINE_FIELD = "engine"
+ENGINE_PARITY_FILE = REPO / "tests" / "oracle" / "engine-parity.json"
 LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 DEFAULT_RETRY_LIMIT = 3
 # The VM default is 200 jobs (spec 3G); a fleet mini runs one GUI app at a time.
@@ -571,6 +588,8 @@ def coerce_result(raw: Any) -> Dict[str, Any]:
         for extra in ("uncertain", "notComparable"):
             if cp.get(extra):
                 row[extra] = cp[extra]
+        if isinstance(cp.get("engines"), dict):  # an engine arm's raw tab engines (driver_app.tab_engines)
+            row["engines"] = cp["engines"]
         rows.append(row)
     readback = raw.get("switch_readback") or {}
     if not (isinstance(readback, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in readback.items())):
@@ -844,6 +863,8 @@ class RunOptions:
     expectations_root: Path = DEFAULT_EXPECTATIONS_ROOT
     # hermetic_env.ISOLATION_MODES: netns refuses a host without unprivileged user namespaces.
     isolation: str = "netns"
+    # The engine arm (an ENGINE_READBACK key): every launch's browser.defaultEngine; None is the app's default.
+    engine: Optional[str] = None
 
     @property
     def filtered(self) -> bool:
@@ -879,6 +900,7 @@ class RunOptions:
             "switches": dict(sorted(self.switches.items())),
             "ref": self.ref,
             "tag": self.tag,
+            "engine": self.engine,
         }
 
 
@@ -915,6 +937,7 @@ def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expect
         "binary": options.binary,
         "out_dir": str(options.out),
         "isolation": dict(isolation),
+        "engine": options.engine,
     }
     runnable = [tuple(c for c in batch if not expected[c.id].skip) for batch in plan.batches]
     runnable = [batch for batch in runnable if batch]
@@ -1182,6 +1205,8 @@ def perform_run(
     """Selects, shards, runs and writes receipt.json, checkpoints.jsonl, events.jsonl, index.md."""
     started = time.time()
     check_out_dir(options.out)
+    if options.engine:
+        cases = [engine_arm_case(case, options.engine) for case in cases]
     selected, not_applicable = select_cases(
         cases, suites=options.suites, filters=options.filters, product=options.product, platform=options.platform
     )
@@ -1439,6 +1464,112 @@ def write_merged(view: RunView, out: Path) -> Path:
 
 
 # ---------------------------------------------------------------------------------------
+# Engine parity (spec 3F.4, task 113)
+
+
+def parse_engines(text: str) -> Tuple[str, str]:
+    """`diff --engine A,B`: two different engine arms, A the comparison's a side."""
+    engines = parse_list([text])
+    if len(engines) != 2 or engines[0] == engines[1] or not set(engines) <= set(ENGINE_READBACK):
+        raise UsageError(f"--engine {text}: two different engines of {', '.join(ENGINE_READBACK)}, comma separated "
+                         "(webkit,chromium)")
+    return engines[0], engines[1]
+
+
+def check_engine_product(product: str) -> None:
+    """Only a product that draws browser tabs has a default engine to set."""
+    if "chromium" not in PRODUCTS[product]:
+        raise UsageError(f"--engine: the {product} product has no browser engine to set (the daemon launches no "
+                         "browser); engine parity runs the app product")
+
+
+def engine_arm_case(case: Case, engine: str) -> Case:
+    """The case as an engine arm runs it. A case that pins a browser engine (environment.engine webkit or chromium)
+    runs on the arm's engine, so both arms run the same journey; `none` (no engine needed) stays as it is."""
+    environment = case.data.get("environment") or {}
+    if environment.get("engine") not in ENGINE_READBACK or environment["engine"] == engine:
+        return case
+    return replace(case, data={**case.data, "environment": {**environment, "engine": engine}})
+
+
+def browser_tabs(snapshot: Any) -> List[Any]:
+    """The tabs of every pane of a canonical snapshot's tabs facet; none when the facet is absent or not comparable."""
+    facets = snapshot.get("facets") if isinstance(snapshot, dict) else None
+    tabs = facets.get("tabs") if isinstance(facets, dict) else None
+    panes = tabs.get("panes") if isinstance(tabs, dict) else None
+    if not isinstance(panes, list):
+        return []
+    return [tab for pane in panes if isinstance(pane, dict) and isinstance(pane.get("tabs"), list) for tab in pane["tabs"]]
+
+
+def read_checkpoint_rows(run_dir: Path) -> Iterator[Dict[str, Any]]:
+    path = run_dir / "checkpoints.jsonl"
+    if not path.is_file():
+        return
+    with path.open(encoding="utf-8") as handle:
+        for number, line in enumerate(handle, 1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError:
+                raise UsageError(f"{path}:{number}: not a JSON line") from None
+            if not isinstance(row, dict):
+                raise UsageError(f"{path}:{number}: not a checkpoint object")
+            yield row
+
+
+def engine_readback(run_dir: Path) -> Tuple[Dict[str, int], Optional[str]]:
+    """How many browser tabs of the run's checkpoints showed each engine (BrowserEngineKind) before the driver
+    dropped it, and the first checkpoint whose canonical tabs still show an engine (None when none does)."""
+    counts: Dict[str, int] = {}
+    kept = None
+    for row in read_checkpoint_rows(run_dir):
+        for kind, count in (row.get("engines") or {}).items():
+            if isinstance(kind, str) and isinstance(count, int):
+                counts[kind] = counts.get(kind, 0) + count
+        if kept is None and any(isinstance(tab, dict) and ENGINE_FIELD in tab for tab in browser_tabs(row.get("snapshot"))):
+            kept = f"{row.get('case')} {row.get('step')}/{row.get('checkpoint')}"
+    return dict(sorted(counts.items())), kept
+
+
+def engine_sides(a: RunView, b: RunView, labels: Tuple[str, str]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """(engine parity record, refusal) of a comparison; (None, None) when both sides ran one engine setting."""
+    engines = (a.receipt["config"].get("engine"), b.receipt["config"].get("engine"))
+    if engines[0] == engines[1]:
+        return None, None
+    # `dropped`: the driver leaves it out before canonicalization (driver_app.ENGINE_DROP).
+    record = {"engines": dict(zip(labels, engines)), "dropped": f"/facets/tabs/panes/*/tabs/*/{ENGINE_FIELD}",
+              "expected": str(ENGINE_PARITY_FILE)}
+    if None in engines:
+        return record, ("engine parity compares two --engine arms; one side ran the app's default engine: "
+                        "run both with --engine, or neither")
+    return record, None
+
+
+def check_engine_exercised(record: Dict[str, Any], dirs: Tuple[Path, Path]) -> Optional[str]:
+    """Like arm-not-exercised for a switch: each arm must read its own engine back from at least one browser tab,
+    else the setting never reached the app or no case opened a browser tab, and equal sides prove nothing. And
+    no canonical tab may still show its engine: the set order and id labels would then depend on it."""
+    readback = {label: engine_readback(d) for label, d in zip(record["engines"], dirs)}
+    record["readback"] = {label: counts for label, (counts, _) in readback.items()}
+    for label, (_, kept) in readback.items():
+        if kept is not None:
+            return (f"engine-not-neutral: side {label} checkpoint {kept} still shows the tabs' {ENGINE_FIELD}; an "
+                    "engine arm is canonicalized without it (driver_app.ENGINE_DROP), else the pane order and "
+                    "labels depend on the engine")
+    for label, engine in record["engines"].items():
+        if not record["readback"][label].get(ENGINE_READBACK[engine]):
+            return (f"engine-not-exercised: side {label} (--engine {engine}) shows no {ENGINE_READBACK[engine]} "
+                    f"browser tab at any checkpoint (read back: {record['readback'][label] or 'no browser tab'})")
+    first, second = record["readback"].values()
+    if first == second:
+        # A tab that pins its engine (TabLifecycle.newBrowser engine webkit) reads back on both arms.
+        return f"engine-not-exercised: both arms read back the same tab engines ({first}); --engine changed no tab"
+    return None
+
+
+# ---------------------------------------------------------------------------------------
 # Comparing runs through diff.py
 
 
@@ -1501,11 +1632,19 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
     diff.py owns the host check, the first divergence per case and expected differences, so an
     all-match comparison from two hosts is refused like a divergent one. Flaky cases are
     reported as flaky by diff.py and never count as compared. With `order_parity`, a case that
-    leaked state on one side only is a divergence too: its leak depends on the order.
+    leaked state on one side only is a divergence too: its leak depends on the order. Two sides of
+    different `--engine` arms are an engine parity comparison: each arm must read its engine back
+    and show no tab engine (its driver dropped it), and ENGINE_PARITY_FILE explains the differences it lists.
     """
     target = out / "divergence.json"
     target.unlink(missing_ok=True)
     refused = refused or comparability(a, b, partial=partial, order_parity=order_parity)
+    engine, engine_refusal = engine_sides(a, b, labels)
+    refused = refused or engine_refusal
+    if engine is not None and refused is None:
+        refused = check_engine_exercised(engine, (a_dir, b_dir))
+    if engine is not None and refused is None:
+        expected = [*expected, ENGINE_PARITY_FILE]
     document: Dict[str, Any] = {}
     code = None
     if refused is None:
@@ -1545,6 +1684,7 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         "order_parity": order_parity,
         "leaked_state": leaks,
         "leaks_differ": leaks_differ,
+        "engine_parity": engine,
         "ok": refused is None and code == DIFF_OK and not leaks_differ,
     }
     write_json(out / "comparison.json", comparison)
@@ -1558,6 +1698,11 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         for item in document.get("divergences", [])[:20]:
             print(f"  divergent: {item['journey']} step={item['step']} checkpoint={item['checkpoint']} "
                   f"pointer={item['pointer']} a={json.dumps(item['a'], sort_keys=True)} b={json.dumps(item['b'], sort_keys=True)}")
+        if engine is not None:
+            print("  engine parity: " + " vs ".join(f"{label} --engine {name}" for label, name in engine["engines"].items())
+                  + f"; tabs canonicalized without {ENGINE_FIELD}; explained by {ENGINE_PARITY_FILE.relative_to(REPO)}")
+            for label, counts in (engine.get("readback") or {}).items():
+                print(f"  engine read back on {label}: {counts or 'no browser tab'}")
         for cid in leaks_differ:
             side = "a" if cid in leaks["a"] else "b"
             print(f"  LeakedState on side {side} only (order-dependent): {cid}")
@@ -1768,7 +1913,7 @@ def new_seed() -> int:
 
 def options_from_args(args: argparse.Namespace, *, retry_default: Optional[int], out: Path, run_id: str,
                       switch: Optional[str], arm: Optional[str], switches: Dict[str, str],
-                      ref: Optional[str], binary: Optional[str]) -> RunOptions:
+                      ref: Optional[str], binary: Optional[str], engine: Optional[str] = None) -> RunOptions:
     suites = tuple(parse_list(args.suite)) or ("all",)
     filters = tuple(parse_list(args.filter))
     seed = args.seed
@@ -1782,6 +1927,8 @@ def options_from_args(args: argparse.Namespace, *, retry_default: Optional[int],
             raise UsageError(f"--{name.replace('_', '-')} must be >= 1")
     if args.retry_limit is not None and args.retry_limit < 0:
         raise UsageError("--retry-limit must be >= 0")
+    if engine is not None:
+        check_engine_product(product)
     options = RunOptions(
         product=product,
         suites=suites,
@@ -1808,6 +1955,7 @@ def options_from_args(args: argparse.Namespace, *, retry_default: Optional[int],
         flaky_out=args.flaky_out,
         expectations_root=args.expectations_root,
         isolation=args.isolation,
+        engine=engine,
     )
     if args.retry_limit is not None:
         retry = args.retry_limit
@@ -1871,6 +2019,8 @@ def print_run(receipt: Dict[str, Any], options: RunOptions, as_json: bool) -> No
         print(f"  LeakedState: {leak_line(receipt['cases'][cid]['leaked_state'][0])}")
     if receipt["arm_exercised"] is False:
         print(f"  arm-not-exercised: {options.switch}={options.arm} had 0 hits")
+    if options.engine:
+        print(f"  engine arm: browser.defaultEngine {options.engine}")
     for error in receipt["infra_errors"][:10]:
         print(f"  infra: {error}")
     print(f"  receipt: {options.out / 'receipt.json'}")
@@ -1895,7 +2045,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     out = args.out or DEFAULT_OUT_BASE / run_id
     switches = resolve_switches(load_switch_registry(), args.switch, args.arm)
     options = options_from_args(args, retry_default=None, out=out, run_id=run_id, switch=args.switch, arm=args.arm,
-                                switches=switches, ref=args.ref, binary=args.binary)
+                                switches=switches, ref=args.ref, binary=args.binary, engine=args.engine)
     receipt, code = run_one(options)
     print_run(receipt, options, args.json)
     return code
@@ -1957,6 +2107,12 @@ def comparison_rules(view: RunView, root: Path) -> List[Dict[str, str]]:
 def cmd_diff(args: argparse.Namespace) -> int:
     if args.order_parity and not (args.base_run and args.head_run and not args.baselines):
         raise UsageError("--order-parity compares two existing runs: give --base-run and --head-run")
+    if args.engine:
+        parse_engines(args.engine)
+        if args.base or args.head or args.switch or args.arm or args.base_run or args.head_run or args.baselines:
+            raise UsageError("--engine is its own diff (one build, one arm per engine); --base-run and --head-run "
+                             "read each side's engine from its receipt")
+        check_engine_product(args.product)
     out = args.out or DEFAULT_OUT_BASE / ("diff-" + new_run_id())
     check_out_dir(out)
     out.mkdir(parents=True, exist_ok=True)
@@ -2331,6 +2487,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--switch", help="refactor switch name (plans/cmux-next/refactor-switches)")
     run.add_argument("--arm", help="old or new with --switch; launch-config or default without")
     run.add_argument("--ref", help="source ref recorded in the receipt")
+    run.add_argument("--engine", choices=sorted(ENGINE_READBACK),
+                     help="engine arm: every launch's browser.defaultEngine, and the engine of a case that pins one")
     run.add_argument("--out", type=Path, help=f"run directory (default {DEFAULT_OUT_BASE}/<run id>)")
     run.set_defaults(func=cmd_run)
 
@@ -2342,7 +2500,9 @@ def build_parser() -> argparse.ArgumentParser:
     diff.add_argument("--head-binary", help="prebuilt head binary instead of building --head")
     diff.add_argument("--switch", help="same build, arm old against arm new")
     diff.add_argument("--arm", choices=["launch-config"], help="every switch at its planned arm against all default")
-    diff.add_argument("--ref", help="source ref recorded for --switch and --arm runs")
+    diff.add_argument("--engine", help="engine parity: webkit,chromium runs the same build once per engine arm and "
+                                       f"compares without the tabs' engine ({ENGINE_PARITY_FILE.relative_to(REPO)})")
+    diff.add_argument("--ref", help="source ref recorded for --switch, --arm and --engine runs")
     diff.add_argument("--base-run", type=Path, action="append", help="existing run directory (repeat for shards)")
     diff.add_argument("--head-run", type=Path, action="append", help="existing run directory (repeat for shards)")
     diff.add_argument("--baselines", action="store_true", help="compare --head-run golden cases with reviewed baselines")

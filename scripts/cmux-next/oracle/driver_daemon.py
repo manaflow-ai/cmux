@@ -2428,7 +2428,7 @@ class DaemonArmsSelfTest(unittest.TestCase):
     def test_both_arms_read_back(self) -> None:
         for arm in ("old", "new"):
             plan = self.plan(arm)
-            self.assertEqual(plan.daemon_environment(), {"CMUX_TUI_SWITCHES": f"holder={arm}"})
+            self.assertEqual(plan.daemon_environment(), {self.switches.DAEMON_SWITCHES_ENV: f"holder={arm}"})
             reads = _ArmReads(_identify(switches={"holder": arm}), _state({"holder": arm, "terminal-holder": "old"}))
             self.assertEqual(daemon_readback(plan, reads).check(), {"holder": arm})
 
@@ -2486,7 +2486,8 @@ class DaemonArmsSelfTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(record["verdict"], "applied")
         self.assertEqual(record["readback"], {"holder": "new"})
-        self.assertEqual(daemon.env, {"CMUX_TUI_SWITCHES": "holder=new"}, "a daemon started directly gets the raw name")
+        self.assertEqual(daemon.env, {self.switches.DAEMON_SWITCHES_ENV: "holder=new"},
+                         "a daemon started directly gets the raw name")
         self.assertTrue(daemon.started and daemon.stopped)
 
     def test_arms_check_tells_a_failed_readback_from_a_wrong_arm(self) -> None:
