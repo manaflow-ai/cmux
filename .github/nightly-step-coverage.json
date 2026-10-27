@@ -53,8 +53,8 @@
         "libghostty-vt Zig packages are covered by the notices": {"pr": "cmux-next-guards.yml:vt-link-graph:The nightly's Ghostty license checks pass on fixtures", "note": "check_ghostty_vt_notices.py --license-manifest on fixture manifests; the real manifests come from the source archive"},
         "Strip the Ghostty CLI helper": {"nightly_only": "Apple strip -S -x of the Zig-built helper (the pass prepare-nightly-variant made, now on Linux); only the nightly builds this helper for macOS"}},
       "build-nightly-app": {
+        "Resolve immutable SSH daemon metadata": {"nightly_only": "reads the compiled Release app version and checks the current nightly feed build floors"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
-        "Wait for API budget before the daemon attestation": {"plumbing": true},
         "Restore the original unsigned nightly inputs": {"pr": "ci-guards.yml:workflow-guard-tests:Validate unsigned nightly resume provenance and routing"},
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
         "Checkout build ref (warm nightly-next builder)": {"plumbing": true}, "Select Xcode": {"plumbing": true},
@@ -84,11 +84,6 @@
         "Save Swift packages": {"plumbing": true, "note": "local action: restores or saves a cache with actions/cache, WarpBuilds/cache or R2 and reports a receipt; no product check. Re-review this entry if the action gains a check"},
         "Bundle the fast cmux-tui client": {"pr": "ci-guards.yml:workflow-guard-tests:Validate cmux-tui client installation"},
         "Assemble the Computer Use helper": {"nightly_only": "build-cmux-cua.sh --helper-app compiles cmux-cua on a Mac; the layout check it runs after is fixture-tested by tests/test_nightly_next_computer_use_helper.py"},
-        "Build immutable SSH daemon assets once for every app variant": {"pr": "cmux-next-remote-daemon.yml:release-packaging:Build and exercise stable, nightly and rc daemon artifacts"},
-        "Attest immutable SSH daemon assets": {"nightly_only": "build provenance attestation needs OIDC"},
-        "Wait for the API budget before retrying the daemon attestation": {"plumbing": true},
-        "Retry the daemon attestation": {"nightly_only": "build provenance attestation needs OIDC"},
-        "Report a missing daemon attestation": {"plumbing": true},
         "Strip unsigned nightly app before transfer": {"pr": "ci-guards.yml:workflow-guard-tests:Validate release bundle stripping"},
         "Report the embedded Chromium engine": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Upload dSYMs to Sentry": {"nightly_only": "uploads dSYMs with Sentry token"},
@@ -99,6 +94,15 @@
         "Bundle the OptChat Chief and the iPhone host": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly helper builds beside the Release build", "note": "joins the background Chief and iPhone host builds and runs bundle-optchat-chief.sh and bundle-mobile-host.sh on the Release app; tests/test_nightly_helpers_beside_release_build.py runs the join on fixtures"},
         "Stop the helper builds still running": {"plumbing": true},
         "Bundle the cmux-tui client": {"pr": "ci-guards.yml:workflow-guard-tests:Validate cmux-tui client installation"}},
+      "build-nightly-remote-daemon": {
+        "Keep the resumed daemon assets": {"plumbing": true},
+        "Build immutable SSH daemon assets once for every app variant": {"pr": "cmux-next-remote-daemon.yml:release-packaging:Build and exercise stable, nightly and rc daemon artifacts"}},
+      "attest-nightly-remote-daemon": {
+        "Wait for API budget before the daemon attestation": {"plumbing": true},
+        "Attest immutable SSH daemon assets": {"nightly_only": "build provenance attestation needs OIDC"},
+        "Wait for the API budget before retrying the daemon attestation": {"plumbing": true},
+        "Retry the daemon attestation": {"nightly_only": "build provenance attestation needs OIDC"},
+        "Report a missing daemon attestation": {"plumbing": true}},
       "build-nightly-inputs": {
         "Drop stale submodule checkouts (self-hosted reused workspace)": {"plumbing": true},
         "Give this job its own bun": {"plumbing": true},
