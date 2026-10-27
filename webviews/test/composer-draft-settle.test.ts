@@ -172,11 +172,47 @@ test("a draft write that never answers fails after its timeout, and the web-swap
   // Without the timeout this drain, and with it the web-update hold, would never end.
   await settlePendingDraftWrites();
   expect(hasPendingDraftWrite("timeout-a")).toBe(true);
+  // The ask retries: its drain waits for the unanswered write before it sends the queued one.
   expect(composerHold()).toBe("composer.draft-unsaved");
-  writer.release(); // acpmux answers again: the hung write and the ask's retry both land
+  writer.release(); // acpmux answers the first write
+  await tick();
+  writer.release(); // and the retry
   await settlePendingDraftWrites();
   expect(hasPendingDraftWrite("timeout-a")).toBe(false);
+  expect(composerHold()).toBeNull();
   expect(writer.landed.map((write) => write.text)).toEqual(["stuck", "stuck"]);
+});
+
+test("a write that timed out and answers late never lands over a newer draft", async () => {
+  draftWriteLimits.timeoutMs = 20;
+  const writer = installWriter();
+  writePersistedDraft("late-a", "old");
+  await settlePendingDraftWrites(); // "old" times out, still on its way
+  writePersistedDraft("late-a", ""); // the person cleared the prompt
+  await settlePendingDraftWrites(); // nothing newer is sent while "old" may still land
+  expect(writer.landed).toEqual([]);
+  expect(hasPendingDraftWrite("late-a")).toBe(true);
+  writer.release(); // "old" lands late
+  await tick();
+  const settled = settlePendingDraftWrites();
+  await tick();
+  writer.release(); // then the clear, last
+  await settled;
+  expect(writer.landed.map((write) => write.text)).toEqual(["old", ""]);
+});
+
+test("a new connection does not wait for the old connection's unanswered write", async () => {
+  draftWriteLimits.timeoutMs = 20;
+  installWriter();
+  writePersistedDraft("late-b", "old");
+  await settlePendingDraftWrites(); // times out on the first connection
+  const writer = installWriter(); // a reconnect installs new actions
+  const settled = settlePendingDraftWrites();
+  await tick();
+  writer.release();
+  await settled;
+  expect(writer.landed.map((write) => write.text)).toEqual(["old"]);
+  expect(hasPendingDraftWrite("late-b")).toBe(false);
 });
 
 test("a saved draft leaves the quit's comparison; a newer text stays until it lands too", async () => {
