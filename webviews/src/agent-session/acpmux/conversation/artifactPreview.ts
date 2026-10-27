@@ -12,10 +12,14 @@ export type Artifact = {
   /// Stable row/fence identity and the accepted source revision while a reply streams.
   identity?: string;
   revision?: number;
+  /** Full file identity when the artifact came from a completed write. */
+  path?: string;
 };
 
 const KINDS: Record<string, ArtifactKind> = {
   html: "html",
+  jsx: "html",
+  tsx: "html",
   htm: "html",
   xhtml: "html",
   // A page the reply runs inline (renderCall.ts); its rewrites are versions of one document.

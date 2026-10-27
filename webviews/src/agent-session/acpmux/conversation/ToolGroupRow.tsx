@@ -1,3 +1,4 @@
+import { WrittenArtifactButtons } from "./writtenArtifacts";
 // Consecutive calls of one kind under one line ("Ran 3 commands", "Read 4 files", "Edited
 // App.tsx +12 -3") over the calls on a tree guide: commands as command rows, edits as their
 // diffs, reads and searches as their own rows, and a thought between two calls in its place.
@@ -145,6 +146,7 @@ export function ToolGroupRow({
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </button>
+      <WrittenArtifactButtons tools={tools} />
       <ToolFailureCause failure={failure} />
       {fold.present && (
         <div {...fold.bodyProps}>
