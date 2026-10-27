@@ -22,6 +22,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Dict, List, Optional
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -292,6 +293,201 @@ class SwitchPipelineTests(unittest.TestCase):
             code = coverage.main(["--repo", str(self.repo), "--switch", "nope", "--dry-run"], run=self.fake_run)
         self.assertEqual(code, coverage.EXIT_USAGE)
         self.assertIn("no plans/cmux-next/refactor-switches/nope.json", err.getvalue())
+
+
+SWIFT_BASE = "let a = 1\n"
+SWIFT_HEAD = "let a = 1\nfunc f() -> Int {\n    return 2\n}\nfunc g() -> Int {\n    return 3\n}\n"
+
+
+@unittest.skipUnless(sys.platform.startswith("linux"), "collection runs on the Linux VM")
+class SwiftPipelineTests(unittest.TestCase):
+    """The Swift tier through a fake `run`: toolchain lookup, worktree, swift-tier.sh steps, export and strip roots."""
+
+    def setUp(self):
+        self.repo = repo = new_repo(self)
+        ffi = "#!/usr/bin/env bash\n"
+        self.base = commit(repo, {"Sources/A/A.swift": SWIFT_BASE, "scripts/cmux-next/build-app-ffi.sh": ffi}, "base")
+        self.head = commit(repo, {"Sources/A/A.swift": SWIFT_HEAD}, "head")
+        self.work = Path(tempfile.mkdtemp(prefix="cov-swift-"))
+        self.addCleanup(shutil.rmtree, self.work, True)
+        # The scratch is reached through a symlink, as swift-tier.sh compiles in its realpath.
+        (self.work / "real").mkdir()
+        (self.work / "link").symlink_to(self.work / "real")
+        cov_root = self.work / "link" / "oracle-cov"
+        for name, value in (("COV_ROOT", cov_root), ("SWIFT_SCRATCH", cov_root / "swift")):
+            patcher = mock.patch.object(coverage, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.toolchain = self.work / "toolchain" / "usr"
+        (self.toolchain / "bin").mkdir(parents=True)
+        for tool in ("llvm-profdata", "llvm-cov", "swift"):
+            path = self.toolchain / "bin" / tool
+            path.write_text("#!/bin/sh\nexit 99\n")
+            path.chmod(0o755)
+        env = mock.patch.dict(os.environ, {"SWIFT": str(self.toolchain / "bin" / "swift")})
+        env.start()
+        self.addCleanup(env.stop)
+        self.bin_dir = self.work / "bin"
+        self.calls: List[Dict[str, object]] = []
+        self.build_exit = 0
+        self.test_times_out = False
+        self.stale_at_test: List[str] = []
+
+    def lcov(self) -> str:
+        src = os.path.realpath(coverage.SWIFT_SCRATCH / "src")
+        return (f"SF:{src}/Sources/A/A.swift\nDA:1,1\nDA:2,1\nDA:3,1\nDA:5,0\nDA:6,0\nend_of_record\n"
+                "SF:/usr/lib/swift/Foundation.swift\nDA:1,1\nend_of_record\n")
+
+    def fake_run(self, argv, **kwargs):
+        args = list(argv[3:]) if list(argv[:3]) == ["nice", "-n", "10"] else list(argv)
+        self.calls.append({"args": args, "timeout": kwargs.get("timeout"), "cwd": kwargs.get("cwd")})
+        if args[:2] == [os.environ["SWIFT"], "-print-target-info"]:
+            info = {"target": {"triple": "x86_64-unknown-linux-gnu"},
+                    "paths": {"runtimeResourcePath": str(self.toolchain / "lib" / "swift")}}
+            return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(info))
+        if args[0] == "bash" and args[1].endswith("build-app-ffi.sh"):
+            return subprocess.CompletedProcess(argv, 0, stdout="")
+        if args[0] == "bash" and args[1].endswith("swift-tier.sh"):
+            swift_args = args[args.index("--") + 1:]
+            if swift_args[:2] == ["build", "--build-tests"]:
+                return subprocess.CompletedProcess(argv, self.build_exit, stdout="")
+            if swift_args[:2] == ["build", "--show-bin-path"]:
+                (self.bin_dir / "codecov").mkdir(parents=True, exist_ok=True)
+                (self.bin_dir / "codecov" / "stale.profraw").write_text("old run")
+                (self.bin_dir / "APackageTests.xctest").write_text("elf")
+                (self.bin_dir / "Resources.xctest").mkdir(exist_ok=True)  # not a Linux test bundle
+                return subprocess.CompletedProcess(argv, 0, stdout=f"warning: x\n{self.bin_dir}\n")
+            if swift_args[0] == "test":
+                self.stale_at_test = sorted(p.name for p in (self.bin_dir / "codecov").glob("*.profraw"))
+                (self.bin_dir / "codecov" / "1-2.profraw").write_text("counters")
+                if self.test_times_out:
+                    raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+                return subprocess.CompletedProcess(argv, 1, stdout="")
+        if args[0].endswith("llvm-profdata"):
+            return subprocess.CompletedProcess(argv, 0, stdout="")
+        if args[0].endswith("llvm-cov"):
+            kwargs["stdout"].write(self.lcov())
+            return subprocess.CompletedProcess(argv, 0)
+        raise AssertionError(f"unexpected command {args}")
+
+    def commands(self, name: str) -> List[Dict[str, object]]:
+        return [c for c in self.calls if any(str(a).endswith(name) for a in c["args"][:2])]
+
+    def collect(self):
+        out = self.work / "out"
+        stdout = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(io.StringIO()):
+            code = coverage.main(["--repo", str(self.repo), "--base", self.base, "--head", self.head, "--tiers",
+                                  "swift", "--out", str(out)], run=self.fake_run)
+        doc = json.loads((out / "coverage.json").read_text())
+        [tier] = doc["tiers"]
+        self.assertEqual(tier["name"], "swift")
+        listed = git(self.repo, "worktree", "list", "--porcelain")
+        self.assertEqual(listed.count("worktree "), 1, f"the HEAD worktree is removed: {listed}")
+        self.assertEqual([p.name for p in coverage.COV_ROOT.glob("wt-*")], [])
+        return code, doc, tier, stdout.getvalue()
+
+    def test_the_tier_exports_the_test_bundle_against_the_fresh_counters(self):
+        code, doc, tier, text = self.collect()
+        self.assertEqual(code, coverage.EXIT_OK, text)
+        scratch = self.work / "link" / "oracle-cov" / "swift"
+        self.assertEqual(tier["strip"], sorted([str(scratch / "src"), str(self.work / "real/oracle-cov/swift/src")]))
+        self.assertEqual(tier["testExit"], 1)
+        self.assertEqual(tier["binPath"], str(self.bin_dir))
+        self.assertIn("swift test exited 1 (its counters still count)", tier["notes"])
+        self.assertEqual(self.stale_at_test, [], "the last run's counters are deleted before the test")
+        [merge] = self.commands("llvm-profdata")
+        self.assertEqual(merge["args"][0], str(self.toolchain / "bin" / "llvm-profdata"))
+        self.assertEqual(merge["args"][-1:], [str(self.bin_dir / "codecov" / "1-2.profraw")])
+        [export] = self.commands("llvm-cov")
+        self.assertEqual(export["args"][0], str(self.toolchain / "bin" / "llvm-cov"))
+        self.assertEqual(export["args"][-1], str(self.bin_dir / "APackageTests.xctest"))
+        self.assertFalse(any("-object=" in a for a in export["args"]), "a directory .xctest is not a bundle")
+        [tier_build] = [c for c in self.commands("swift-tier.sh") if "--build-tests" in c["args"]]
+        self.assertTrue(str(tier_build["cwd"]).startswith(str(coverage.COV_ROOT / "wt-")))
+        self.assertIn("--enable-code-coverage", tier_build["args"])
+        self.assertEqual(len(self.commands("build-app-ffi.sh")), 1)
+        [entry] = doc["report"]["files"]
+        self.assertEqual((entry["path"], entry["tier"]), ("Sources/A/A.swift", "swift"))
+        self.assertEqual(entry["incremental"], {"covered": 2, "executable": 4})
+        self.assertEqual(doc["report"]["uncoveredHunks"], ["Sources/A/A.swift:5-6"])
+
+    def test_a_tier_that_does_not_build_says_so_and_removes_its_worktree(self):
+        self.build_exit = 1
+        code, doc, tier, _ = self.collect()
+        self.assertEqual(code, coverage.EXIT_NO_COVERAGE)
+        self.assertIsNone(tier["lcov"])
+        self.assertTrue(any("does not build" in note for note in tier["notes"]), tier["notes"])
+        self.assertEqual(self.commands("llvm-cov"), [])
+        self.assertEqual(doc["report"]["unmeasured"], ["Sources/A/A.swift"])
+
+    def test_a_test_run_past_its_bound_is_a_note_and_its_counters_still_count(self):
+        self.test_times_out = True
+        code, _, tier, text = self.collect()
+        self.assertEqual(code, coverage.EXIT_OK, text)
+        self.assertIsNone(tier["testExit"])
+        self.assertTrue(any(f"timed out after {coverage.TEST_TIMEOUT} s" in note for note in tier["notes"]),
+                        tier["notes"])
+        self.assertIsNotNone(tier["lcov"])
+
+    def test_a_queued_daemon_run_has_no_client_bound_and_its_timeout_keeps_the_other_tier(self):
+        build_dir = self.work / "daemon-build"
+        build_dir.mkdir()
+        (build_dir / "build.json").write_text(json.dumps({"coverage": {
+            "llvmProfdata": str(self.toolchain / "bin" / "llvm-profdata"),
+            "llvmCov": str(self.toolchain / "bin" / "llvm-cov"), "sourceRoot": str(self.repo)}}))
+        swift_run = self.fake_run
+
+        def fake_run(argv, **kwargs):
+            args = list(argv[3:])
+            if args[:1] == ["bash"] and args[1].endswith("linux_run.sh"):
+                self.calls.append({"args": args, "timeout": kwargs.get("timeout"), "cwd": kwargs.get("cwd")})
+                if args[2] == "build":
+                    return subprocess.CompletedProcess(argv, 0, stdout=f"{build_dir / 'cmux-tui'}\n")
+                raise subprocess.TimeoutExpired(argv, 14400)
+            return swift_run(argv, **kwargs)
+
+        out = self.work / "out"
+        with redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()):
+            code = coverage.main(["--repo", str(self.repo), "--base", self.base, "--head", self.head,
+                                  "--out", str(out)], run=fake_run)
+        self.assertEqual(code, coverage.EXIT_OK, stdout.getvalue())
+        queued = self.commands("linux_run.sh")
+        self.assertEqual(sorted(c["args"][2] for c in queued), ["build", "run"])
+        self.assertTrue(all(c["timeout"] is None for c in queued), "runnerd bounds a queued job, not the client")
+        doc = json.loads((out / "coverage.json").read_text())
+        tiers = {tier["name"]: tier for tier in doc["tiers"]}
+        self.assertIsNone(tiers["daemon"]["lcov"])
+        [run] = tiers["daemon"]["runs"]
+        self.assertIsNone(run["exit"])
+        self.assertIn("linux_run.sh run", run["error"])
+        self.assertTrue(any("timed out after 14400 s" in note for note in tiers["daemon"]["notes"]))
+        self.assertIsNotNone(tiers["swift"]["lcov"])
+        self.assertTrue((out / "report.txt").is_file())
+
+    def test_a_tier_that_stops_on_an_error_is_a_note(self):
+        def fake_run(argv, **kwargs):
+            if list(argv[3:5]) == ["bash", str(coverage.HERE / "linux_run.sh")]:
+                raise OSError("runnerd socket gone")
+            return self.fake_run(argv, **kwargs)
+
+        out = self.work / "out"
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            code = coverage.main(["--repo", str(self.repo), "--base", self.base, "--head", self.head,
+                                  "--out", str(out)], run=fake_run)
+        self.assertEqual(code, coverage.EXIT_OK)
+        tiers = {tier["name"]: tier for tier in json.loads((out / "coverage.json").read_text())["tiers"]}
+        self.assertEqual(tiers["daemon"]["notes"], ["collection stopped: runnerd socket gone"])
+        self.assertIsNotNone(tiers["swift"]["lcov"])
+
+    def test_a_toolchain_without_llvm_cov_is_a_usage_error_before_anything_runs(self):
+        (self.toolchain / "bin" / "llvm-cov").unlink()
+        with redirect_stderr(io.StringIO()) as err:
+            code = coverage.main(["--repo", str(self.repo), "--base", self.base, "--head", self.head, "--tiers",
+                                  "swift", "--out", str(self.work / "out")], run=self.fake_run)
+        self.assertEqual(code, coverage.EXIT_USAGE)
+        self.assertIn("llvm-cov: not in the Swift toolchain", err.getvalue())
+        self.assertEqual([c["args"][1] for c in self.calls], ["-print-target-info"])
 
 
 if __name__ == "__main__":

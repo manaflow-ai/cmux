@@ -23,6 +23,7 @@ What runs, all at HEAD only (the base is only the other end of the diff):
   `-- test --skip-build --enable-code-coverage --parallel`, then the toolchain's llvm-profdata and llvm-cov over
   the tier's test bundle. A tier that does not build gives no Swift coverage and says so (swift-tier.sh --all
   names its red targets). The worktree is removed at the end; the scratch stays as the next run's build cache.
+A step past its bound is a tier note like a red exit; the queued linux_run.sh jobs have only runnerd's bound.
 
 The change is `git diff -U0 -M MERGE_BASE HEAD`: added and modified lines of the head, renames without their
 unchanged lines. For a switch, MERGE_BASE is the parent of the commit that added
@@ -72,6 +73,9 @@ COV_ROOT = Path("/tmp/oracle-cov")
 SWIFT_SCRATCH = COV_ROOT / "swift"
 BUILD_TIMEOUT = 7200
 TEST_TIMEOUT = 7200
+# linux_run.sh build and run wait in the runnerd queue, which bounds each job from its start (linux_run.sh
+# BUILD_TIMEOUT, RUN_TIMEOUT); a client bound would also count the queue wait and abandon a job runnerd still runs.
+QUEUED: Optional[float] = None
 EXIT_OK, EXIT_USAGE, EXIT_NO_COVERAGE = 0, 2, 3
 
 # path -> line -> execution count, for the lines a tier instruments.
@@ -81,6 +85,10 @@ Hunk = Tuple[int, int]
 
 class UsageError(Exception):
     """A bad argument, a ref that is not a commit, a missing tool: exit 2."""
+
+
+class StepTimeout(RuntimeError):
+    """A collection step ran past its bound; its tier says so in a note."""
 
 
 # ---- tracefiles ------------------------------------------------------------------------------
@@ -369,14 +377,25 @@ def last_line(text: str) -> str:
     return lines[-1].strip() if lines else ""
 
 
-def call(run: Run, argv: Sequence[str], *, cwd: Path, timeout: float,
+def call(run: Run, argv: Sequence[str], *, cwd: Path, timeout: Optional[float],
          stdout_to: Optional[Path] = None) -> subprocess.CompletedProcess:
-    """`argv` under nice, its stderr passed through; stdout captured, or written to `stdout_to`."""
+    """`argv` under nice, its stderr passed through; stdout captured, or written to `stdout_to`.
+
+    Raises StepTimeout when `argv` runs past `timeout` (None: no bound here)."""
     command = ["nice", "-n", "10", *argv]
-    if stdout_to is None:
-        return run(command, cwd=str(cwd), timeout=timeout, check=False, stdout=subprocess.PIPE, text=True)
-    with open(stdout_to, "w", encoding="utf-8") as handle:
-        return run(command, cwd=str(cwd), timeout=timeout, check=False, stdout=handle, text=True)
+    try:
+        if stdout_to is None:
+            return run(command, cwd=str(cwd), timeout=timeout, check=False, stdout=subprocess.PIPE, text=True)
+        with open(stdout_to, "w", encoding="utf-8") as handle:
+            return run(command, cwd=str(cwd), timeout=timeout, check=False, stdout=handle, text=True)
+    except subprocess.TimeoutExpired as error:
+        raise StepTimeout(f"{step_name(argv)} timed out after {error.timeout:g} s") from error
+
+
+def step_name(argv: Sequence[str]) -> str:
+    """`argv` for a note: the script's name for `bash SCRIPT ARGS`, else the program's, then its arguments."""
+    program, rest = (argv[1], argv[2:]) if argv[0] == "bash" and len(argv) > 1 else (argv[0], argv[1:])
+    return " ".join([Path(program).name, *rest])
 
 
 def export_lcov(run: Run, tools: Mapping[str, str], profiles: Sequence[Path], objects: Sequence[str],
@@ -407,8 +426,12 @@ def daemon_plan(head: str, suites: Sequence[str], arms: Sequence[str]) -> List[L
 def collect_daemon(run: Run, repo: Path, head: str, suites: Sequence[str], arms: Sequence[str], out: Path,
                    jobs: int) -> TierResult:
     result = TierResult("daemon")
-    build = call(run, ["bash", str(HERE / "linux_run.sh"), "build", head, "--coverage"], cwd=repo,
-                 timeout=BUILD_TIMEOUT)
+    try:
+        build = call(run, ["bash", str(HERE / "linux_run.sh"), "build", head, "--coverage"], cwd=repo,
+                     timeout=QUEUED)
+    except StepTimeout as error:
+        result.notes.append(f"the instrumented build of {head[:12]}: {error}")
+        return result
     binary = last_line(build.stdout or "")
     receipt_path = Path(binary).parent / "build.json"
     if build.returncode != 0 or not binary or not receipt_path.is_file():
@@ -424,11 +447,14 @@ def collect_daemon(run: Run, repo: Path, head: str, suites: Sequence[str], arms:
     runs: List[Dict[str, object]] = []
 
     def one(argv: List[str]) -> Dict[str, object]:
-        done = call(run, argv, cwd=repo, timeout=BUILD_TIMEOUT + TEST_TIMEOUT)
-        run_dir = last_line(done.stdout or "")
-        profile = Path(run_dir) / "coverage.profdata" if run_dir else None
         suite = argv[argv.index("--suite") + 1]
         arm = argv[argv.index("--arm") + 1] if "--arm" in argv else "-"
+        try:
+            done = call(run, argv, cwd=repo, timeout=QUEUED)
+        except StepTimeout as error:
+            return {"suite": suite, "arm": arm, "exit": None, "error": str(error), "runDir": None, "profdata": None}
+        run_dir = last_line(done.stdout or "")
+        profile = Path(run_dir) / "coverage.profdata" if run_dir else None
         return {"suite": suite, "arm": arm, "exit": done.returncode, "runDir": run_dir or None,
                 "profdata": str(profile) if profile and profile.is_file() else None}
 
@@ -436,7 +462,9 @@ def collect_daemon(run: Run, repo: Path, head: str, suites: Sequence[str], arms:
         runs = list(pool.map(one, plan))
     result.detail = {"binary": binary, "build": str(receipt_path), "runs": runs}
     for entry in runs:
-        if entry["exit"]:
+        if entry.get("error"):
+            result.notes.append(f"suite {entry['suite']} arm {entry['arm']}: {entry['error']}")
+        elif entry["exit"]:
             result.notes.append(f"suite {entry['suite']} arm {entry['arm']}: oracle exit {entry['exit']} "
                                 "(its counters still count)")
         if not entry["profdata"]:
@@ -455,7 +483,7 @@ def collect_daemon(run: Run, repo: Path, head: str, suites: Sequence[str], arms:
                     result.arms[side] = str(lcov)
         export_lcov(run, tools, every, [binary], out / "daemon.profdata", out / "daemon.lcov")
         result.lcov = str(out / "daemon.lcov")
-    except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
+    except (RuntimeError, OSError) as error:  # StepTimeout is a RuntimeError
         result.notes.append(f"export: {error}")
     return result
 
@@ -463,10 +491,17 @@ def collect_daemon(run: Run, repo: Path, head: str, suites: Sequence[str], arms:
 def swift_tools(run: Run) -> Dict[str, str]:
     """llvm-profdata and llvm-cov of the Swift toolchain that swift-tier.sh runs (SWIFT, else swift on PATH)."""
     swift = os.environ.get("SWIFT") or shutil.which("swift") or "swift"
-    info = run([swift, "-print-target-info"], check=False, stdout=subprocess.PIPE, text=True, timeout=120)
+    hint = "(scripts/cmux-next/linux/setup-swift.sh)"
+    try:
+        info = run([swift, "-print-target-info"], check=False, stdout=subprocess.PIPE, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise UsageError(f"{swift} -print-target-info: {error} {hint}") from error
     if info.returncode != 0:
-        raise UsageError(f"{swift} -print-target-info exited {info.returncode} (scripts/cmux-next/linux/setup-swift.sh)")
-    resource = Path(json.loads(info.stdout)["paths"]["runtimeResourcePath"])  # <toolchain>/usr/lib/swift
+        raise UsageError(f"{swift} -print-target-info exited {info.returncode} {hint}")
+    try:
+        resource = Path(json.loads(info.stdout)["paths"]["runtimeResourcePath"])  # <toolchain>/usr/lib/swift
+    except (ValueError, KeyError, TypeError) as error:
+        raise UsageError(f"{swift} -print-target-info has no paths.runtimeResourcePath: {error!r} {hint}") from error
     bin_dir = resource.parent.parent / "bin"
     tools = {"llvmProfdata": str(bin_dir / "llvm-profdata"), "llvmCov": str(bin_dir / "llvm-cov")}
     for path in tools.values():
@@ -496,6 +531,9 @@ def collect_swift(run: Run, repo: Path, head: str, out: Path, workers: int, tool
         git(repo, "worktree", "add", "--detach", "--quiet", str(worktree), head)
         try:
             return swift_in_worktree(run, worktree, tools, head, out, workers, result)
+        except StepTimeout as error:
+            result.notes.append(f"{error} at {head[:12]}")
+            return result
         finally:
             git(repo, "worktree", "remove", "--force", str(worktree))
 
@@ -513,14 +551,24 @@ def swift_in_worktree(run: Run, worktree: Path, tools: Mapping[str, str], head: 
     if built.returncode != 0:
         result.notes.append(f"the Swift tier does not build at {head[:12]} (swift-tier.sh --all names the red targets)")
         return result
-    bin_dir = Path(last_line(call(run, bin_path, cwd=worktree, timeout=600).stdout or ""))
+    shown = call(run, bin_path, cwd=worktree, timeout=600)
+    bin_text = last_line(shown.stdout or "")
+    if shown.returncode != 0 or not os.path.isabs(bin_text):
+        result.notes.append(f"swift build --show-bin-path exited {shown.returncode} with {bin_text!r} at {head[:12]}")
+        return result
+    bin_dir = Path(bin_text)
     codecov = bin_dir / "codecov"
     for stale in codecov.glob("*.profraw"):
         stale.unlink()
-    tested = call(run, test, cwd=worktree, timeout=TEST_TIMEOUT)
-    result.detail = {"testExit": tested.returncode, "binPath": str(bin_dir)}
-    if tested.returncode != 0:
-        result.notes.append(f"swift test exited {tested.returncode} (its counters still count)")
+    try:
+        tested = call(run, test, cwd=worktree, timeout=TEST_TIMEOUT)
+        test_exit: Optional[int] = tested.returncode
+        if tested.returncode != 0:
+            result.notes.append(f"swift test exited {tested.returncode} (its counters still count)")
+    except StepTimeout as error:
+        test_exit = None
+        result.notes.append(f"{error} (the counters of its finished tests still count)")
+    result.detail = {"testExit": test_exit, "binPath": str(bin_dir)}
     profiles = sorted(codecov.glob("*.profraw"))
     bundles = sorted(str(p) for p in bin_dir.glob("*.xctest") if p.is_file())
     if not profiles or not bundles:
@@ -529,7 +577,7 @@ def swift_in_worktree(run: Run, worktree: Path, tools: Mapping[str, str], head: 
     try:
         export_lcov(run, tools, profiles, bundles, out / "swift.profdata", out / "swift.lcov")
         result.lcov = str(out / "swift.lcov")
-    except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
+    except (RuntimeError, OSError) as error:  # StepTimeout is a RuntimeError
         result.notes.append(f"export: {error}")
     return result
 
@@ -580,6 +628,14 @@ def tiers_of(args: argparse.Namespace, switch: Optional[Switch]) -> Tuple[str, .
             raise UsageError(f"--tiers {args.tiers}: one or more of {', '.join(TIERS)}")
         return names
     return ("swift",) if switch and switch.kind == "app" else TIERS
+
+
+def tier_result(name: str, future: "concurrent.futures.Future[TierResult]") -> TierResult:
+    """The tier's result; a tier that stops on an error gives no coverage and says why, the other tier still counts."""
+    try:
+        return future.result()
+    except (UsageError, RuntimeError, OSError, ValueError) as error:
+        return TierResult(name, notes=[f"collection stopped: {error}"])
 
 
 def main(argv: Optional[Sequence[str]] = None, run: Run = subprocess.run) -> int:
@@ -634,10 +690,10 @@ def report_main(args: argparse.Namespace, run: Run) -> int:
         with concurrent.futures.ThreadPoolExecutor(2) as pool:
             futures = []
             if "daemon" in tiers:
-                futures.append(pool.submit(collect_daemon, run, repo, head, suites, arms, out, args.jobs))
+                futures.append(("daemon", pool.submit(collect_daemon, run, repo, head, suites, arms, out, args.jobs)))
             if "swift" in tiers:
-                futures.append(pool.submit(collect_swift, run, repo, head, out, args.workers, tools))
-            results = [future.result() for future in futures]
+                futures.append(("swift", pool.submit(collect_swift, run, repo, head, out, args.workers, tools)))
+            results = [tier_result(name, future) for name, future in futures]
 
     traces: Dict[str, Trace] = {}
     arm_traces: Dict[str, Trace] = {}
