@@ -316,7 +316,7 @@ extension PageWebViewChromiumTests {
         }
         let window = pageWindow()
         window.contentView?.addSubview(views[0])
-        #expect(views.allSatisfy(\.showsChromium))
+        #expect(views.allSatisfy { $0.showsChromium })
         return (views, window)
     }
 
@@ -372,7 +372,7 @@ extension PageWebViewChromiumTests {
         let (views, window) = try await eightPages(hosting)
         endBrowser(hosting)
         // Waiting: every Chromium page closed, no page on WebKit, no new Chromium page.
-        #expect(hosting.made.allSatisfy(\.closed))
+        #expect(hosting.made.allSatisfy { $0.closed })
         #expect(views.allSatisfy { !$0.showsChromium && $0.chromiumRecovery != nil })
         #expect(webKitEngines(views) == 0)
         #expect(hosting.made.count == 8)
@@ -497,7 +497,7 @@ extension PageWebViewChromiumTests {
         for start in views.compactMap(\.chromiumStart) { await start.value }
 
         #expect(hosting.made.count == 8)
-        #expect(hosting.made.allSatisfy(\.closed))
+        #expect(hosting.made.allSatisfy { $0.closed })
         #expect(hosting.supervisorAsks == 8)
         #expect(views.allSatisfy { !$0.showsChromium && $0.chromiumRecovery != nil })
         #expect(onWebKit(views) == 0)

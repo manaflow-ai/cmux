@@ -170,9 +170,9 @@ import Foundation
 //     Undo, the pane model; no AppKit; plans/finder-parity/PARITY.md)
 //   CmuxNextFilesUI -> Files, Design, Compat (the Files pane's AppKit views: list, icons, columns,
 //     path bar, Quick Look, drag in and out)
-//   CmuxNextCrashReporting -> CmuxSentryReporting, Sentry (crash and exception reports to Sentry:
-//     consent, channel environment, release, scrubbing; no UI, no daemon; cx-urd.58)
-//   CmuxNextHangReports -> Compat, InputCore, system frameworks, MetricKit (opt-in hang reports for
+//   CmuxNextCrashReporting -> CmuxSentryReporting, Sentry, Features (crash and exception reports to Sentry:
+//     consent, channel environment, release, scrubbing, the launch's features; no UI, no daemon; cx-urd.58)
+//   CmuxNextHangReports -> Compat, InputCore, Features, system frameworks, MetricKit (opt-in hang reports for
 //     NIGHTLY: MetricKit, watchdog and input latency inputs, allow-list redaction, leak scan, rotating
 //     install id, outbox, upload; no UI, no daemon; plans/cmux-next/hang-reports-DESIGN.md)
 
@@ -227,11 +227,22 @@ let daemonSwiftSettings: [SwiftSetting] = [
 ///   723c4ab93): `GhosttyGPUResidency`, so `terminalGPURelease` and the larger warm set.
 /// - GHOSTTY_ENERGY_SAVER: `ghostty_app_set_energy_saver` (ghostty-next cp/p14-energy-114, not in
 ///   723c4ab93): `GhosttyRuntime.followEnergySaver(on:)` sends the saver's edges to libghostty.
+/// - GHOSTTY_RENDERER_FRAMES: renderer-owned frames (ghostty-next cp/p03-rendering-080 f60815cf5, not in
+///   723c4ab93): `void *ghostty_surface_presented_frame(ghostty_surface_t)` (an IOSurfaceRef, +1, NULL
+///   before the first frame and after a purge; Swift sees `UnsafeMutableRawPointer?`),
+///   `void ghostty_surface_set_presentation(ghostty_surface_t, ghostty_presentation_e)` with
+///   `GHOSTTY_PRESENTATION_HIDDEN`, `_SHOWN`, `_PURGE`, and the surface config's
+///   `ghostty_surface_presented_cb presented_cb` (userdata, frame id, host time, presented time) with
+///   `presented_userdata`. CmuxNextTerminal reads, hides and purges frames through the first two
+///   (`GhosttyFrameSource`), reads no layer contents, and takes each presented frame as its contents mark
+///   (`ghosttySurfacePresented`, p03-rendering-081).
 let ghosttyNextKitHasGPUResident = false
 let ghosttyNextKitHasEnergySaver = false
+let ghosttyNextKitHasRendererFrames = false
 let ghosttyNextKitCapabilities: [SwiftSetting] =
     (ghosttyNextKitHasGPUResident ? [.define("GHOSTTY_GPU_RESIDENT")] : [])
     + (ghosttyNextKitHasEnergySaver ? [.define("GHOSTTY_ENERGY_SAVER")] : [])
+    + (ghosttyNextKitHasRendererFrames ? [.define("GHOSTTY_RENDERER_FRAMES")] : [])
 
 /// The app's ONE Rust static library, CCmuxAppFFI (cmux-tui/crates/cmux-app-ffi):
 /// the remote desktop core C ABI (module CCmuxRdFFI), the sidebar layout
@@ -1542,12 +1553,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // MetricKit and watchdog inputs, redaction by allow-list, leak scan, upload.
         .target(
             name: "CmuxNextHangReports",
-            dependencies: ["CmuxNextCompat", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups", "CmuxNextInputCore"],
+            dependencies: ["CmuxNextCompat", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups", "CmuxNextInputCore", "CmuxNextFeatures"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextHangReportsTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextHangReports", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextWakeups",
+            dependencies: ["CmuxNextCompat", "CmuxNextHangReports", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextWakeups", "CmuxNextFeatures",
                            .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: daemonSwiftSettings
         ),
@@ -1563,6 +1574,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "Sentry-Dynamic", package: "sentry-cocoa"),
                 "CmuxNextTrace",
                 "CmuxNextWakeups",
+                // FeatureFieldState: the launch's features on the Sentry scope (p12-perf-process-151).
+                "CmuxNextFeatures",
             ],
             swiftSettings: daemonSwiftSettings
         ),

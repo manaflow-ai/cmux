@@ -2415,9 +2415,10 @@ mod disconnect;
 pub use disconnect::detach_control_client;
 pub use disconnect::detach_size_participant;
 use disconnect::{
-    complete_daemon_shutdown_after_ack, detach_actor, detach_own_view, detached_event_json,
-    disconnect_client, kick_client, own_view_detach_target, size_state_event_json,
-    size_state_for_client,
+    SizeStateReader, complete_daemon_shutdown_after_ack, detach_actor, detach_own_view,
+    detached_event_json, disconnect_client, kick_client, kick_terminal_views,
+    own_view_detach_target, size_state_event_json, size_state_for_client,
+    terminal_views_kick_target,
 };
 
 mod journal_filter;

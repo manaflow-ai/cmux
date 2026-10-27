@@ -172,7 +172,10 @@ import Testing
         w.window.displayIfNeeded()
         #expect(hosts.map(\.frame) == frames, "no host frame set during the pan")
         #expect(hosts.map(\.chrome.frame) == chromeFrames, "no ring or dim frame set during the pan")
-        #expect(hosts.map { $0.layer?.mask }.elementsEqual(masks, by: { $0 === $1 }), "no mask set during the pan")
+        let masksAfter: [CALayer?] = hosts.map { $0.layer?.mask }
+        let masksUnchanged: Bool = masksAfter.count == masks.count
+            && zip(masksAfter, masks).allSatisfy { (after: CALayer?, before: CALayer?) -> Bool in after === before }
+        #expect(masksUnchanged, "no mask set during the pan")
         #expect(container.frame == containerFrame, "the clip stays where it is")
         #expect(w.root.overlayHostsPlaced == placed, "no overlay sync places a ring during the pan")
         #expect(contents.map(\.trackingAreaUpdates) == tracking, "no tracking area rebuilt")

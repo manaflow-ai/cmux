@@ -64,6 +64,7 @@ struct SidebarCardTransition {
     /// the caller hides it in `completion`.
     func exit(_ view: NSView, completion: @escaping @MainActor @Sendable () -> Void) {
         let fade = policy.duration(.fadeOut)
+        // visibility-walk-allow: this view's motion gate: a hidden card plays no exit and completes at once (no node holds one view's isHidden)
         guard let layer = view.layer, fade > 0, Motion.canAnimate(in: view), !view.isHiddenOrHasHiddenAncestor else {
             completion()
             return
