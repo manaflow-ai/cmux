@@ -1,5 +1,5 @@
 import Foundation
-import Security
+public import Security
 
 /// The Chief Secure Store (cmux issue 25830, the `sign_in` card): sign-ins a person adds from a
 /// Chief's "Secure Store" card, kept in this Mac's login keychain as internet-password items
@@ -117,5 +117,17 @@ public struct ChiefSecureStore: Sendable {
         guard SecItemCopyMatching(find as CFDictionary, &result) == errSecSuccess,
               let items = result as? [[String: Any]] else { return [] }
         return items.filter(Self.isOurs).compactMap { Self.value($0, kSecAttrServer) }
+    }
+}
+
+extension ChiefSecureStore {
+    /// ``save(site:username:password:)`` off the caller's actor (the keychain blocks); true when saved.
+    public func saveInBackground(site: String, username: String, password: String) async -> Bool {
+        await Task.detached(priority: .userInitiated) { (try? save(site: site, username: username, password: password)) != nil }.value
+    }
+
+    /// ``sites()`` off the caller's actor (the keychain blocks).
+    public func sitesInBackground() async -> [String] {
+        await Task.detached(priority: .utility) { sites() }.value
     }
 }
