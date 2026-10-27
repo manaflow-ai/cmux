@@ -408,22 +408,12 @@ public final class TerminalSurfaceView: NSView {
         }
     }
 
-    /// Locks the mirror to the owner's grid on the output lane, behind every
-    /// earlier chunk (`ghostty_surface_set_grid`), at the owner's point in the
-    /// byte stream. `restored`: a local-history restore resizes the terminal
-    /// itself, so only the lock's record follows (no set_grid).
-    func applyAnnouncedGrid(_ grid: TerminalGridSize, restored: Bool = false) {
+    /// The owner announced `grid`: the surface renders it and reports against it. Its lock
+    /// (`ghostty_surface_set_grid`) is already queued on the output lane at the owner's point in the
+    /// byte stream (``TerminalOutputLane/lockGrid(_:)``); this is the view's side, once per frame.
+    func applyAnnouncedGrid(_ grid: TerminalGridSize) {
         geometry.announce(grid)
-        if restored { gridLock.adopt(grid) } else { lockAnnouncedGrid() }
         updateSurfaceSize()
-    }
-
-    /// Sends the announced grid to Ghostty in stream order (``TerminalGridLock``).
-    private var gridLock = TerminalGridLock()
-
-    private func lockAnnouncedGrid() {
-        guard let grid = geometry.gridToRender, let lane else { return }
-        gridLock.lock(grid, on: lane)
     }
 
     /// Whether the surface draws its reflow preview: only a view whose
