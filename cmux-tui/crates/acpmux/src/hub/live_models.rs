@@ -133,6 +133,8 @@ impl Hub {
     }
 
     async fn probe_live(self: &Arc<Self>, target: Target) {
+        // MDM's off as the list starts: its one read, taken first (review 120 of #23322).
+        let latch = self.off_latch();
         // The CLIs need the login environment (PATH, API keys).
         self.wait_startup().await;
         let program = target.argv.first().map(std::path::PathBuf::from);
@@ -143,7 +145,7 @@ impl Hub {
         let started = std::time::Instant::now();
         // MDM forces full access off (#23322): a profile pinning it is never started to list its
         // models, and a list that runs when the off lands ends then (`probe_bound`).
-        let listed = match self.probe_bound(&self.off_latch(), &target.argv) {
+        let listed = match self.probe_bound(&latch, &target.argv) {
             Err(e) => Err(e),
             Ok(mut bound) => {
                 let probe = crate::live_models::probe(

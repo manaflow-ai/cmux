@@ -1275,6 +1275,10 @@ impl Hub {
         name: &str,
         profile: &HarnessProfile,
     ) -> anyhow::Result<usize> {
+        // MDM's off as the probe starts: its one read, taken first (review 120). An off that holds
+        // or begins while it runs ends it once its harness reported full access, an unset after it
+        // too (reviews 71 and 73 of #23322).
+        let latch = self.off_latch();
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
         // What the harness reports while its session starts (`StartReports`, reviews 41 and 46 of
         // #23322). The tap sees each line before its answer is handed back, so none sent before
@@ -1300,9 +1304,6 @@ impl Hub {
         let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
             .await
             .unwrap_or_else(|_| std::env::temp_dir());
-        // MDM's off as the probe starts: an off that holds or begins while it runs ends it once its
-        // harness reported full access, an unset after it too (reviews 71 and 73 of #23322).
-        let latch = self.off_latch();
         // MDM forces full access off (#23322): a profile pinning it is never started to probe,
         // and a probe that runs when the off lands ends then (`probe_bound`).
         let mut bound =

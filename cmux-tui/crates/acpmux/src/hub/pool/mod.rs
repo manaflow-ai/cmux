@@ -152,6 +152,10 @@ pub(super) struct Pooled {
     /// the entry, so a report no ready or claimed entry held (one a chat was claiming) still keeps
     /// it from a chat, though the off is unset by then (review 76 of #23322).
     reported_off: Arc<AtomicBool>,
+    /// MDM's off as its start began (`pool_want`): on once an off held or began since, though an
+    /// unset followed. An entry a chat was claiming when an off came and went is out of the
+    /// push's drain, and may not reach a chat or go back after the unset (review 120 of #23322).
+    started: crate::hub::full_access_bound::OffLatch,
 }
 
 impl Pooled {
@@ -561,7 +565,7 @@ impl Hub {
             // pool lock, as at completion (`pool_want`), so a drain after this one finds it.
             let latch = self.off_latch();
             let mut pool = lock(&self.pool.pool);
-            if latch.off() || p.reported_off.load(Ordering::SeqCst) {
+            if latch.off() || p.started.off() || p.reported_off.load(Ordering::SeqCst) {
                 Some(p)
             } else {
                 pool.restore(&key, p, now)
@@ -718,7 +722,9 @@ impl Hub {
         // since `cap_full_access` may read the session before those reports reach it. Nor is one
         // that reported it while the off held, though it is unset now (review 76). The chat
         // starts cold under the bound.
-        if p.reported_off.load(Ordering::SeqCst) || (off.off() && p.runs_full_access(&spawn.argv)) {
+        if p.reported_off.load(Ordering::SeqCst)
+            || ((off.off() || p.started.off()) && p.runs_full_access(&spawn.argv))
+        {
             tracing::info!(session = %id, "pooled session not taken: it runs in full access, which MDM forces off");
             self.pool_discard(vec![p]);
             return None;

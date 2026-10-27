@@ -230,6 +230,7 @@ impl Hub {
             opencode_asks: spec.spawn.env.contains_key(crate::opencode_ask::MARKER),
             preview: Default::default(),
             reported_off,
+            started: latch.clone(),
         };
         // An off this start began under, or that began while it ran, holds though an unset
         // followed (review 73): an agent that came up in full access then is not kept.

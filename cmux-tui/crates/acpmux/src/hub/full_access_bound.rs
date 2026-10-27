@@ -377,7 +377,9 @@ impl Hub {
 
 /// MDM's off as one operation (a start, a probe, a pooled agent, a switch, an ask) saw it: on
 /// when it was off as the operation began, or began while it ran, though an unset followed
-/// (reviews 71, 73, 75 and 77 of #23322). The operation's only read of MDM's off.
+/// (reviews 71, 73, 75 and 77 of #23322). The operation's only read of MDM's off. A pooled
+/// entry keeps its start's (`Pooled::started`), so an off it lived through counts at its take.
+#[derive(Clone)]
 pub(super) struct OffLatch {
     offs: tokio::sync::watch::Receiver<u64>,
     seen: u64,
