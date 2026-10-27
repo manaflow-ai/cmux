@@ -60,10 +60,22 @@ const idle: Idle = {
 /// opening a turn first, ends that. A page may start inside a turn because its opener is in an
 /// older page. Copy and compare the complete state at page boundaries so adding older context
 /// re-evaluates newer records until their state converges.
+const UNKNOWN = Symbol("older history not read");
+type PromptId = string | undefined | typeof UNKNOWN;
+
 export class TurnStarts {
-  private open = false;
-  private interrupting?: string;
-  continued?: string;
+  private open: boolean | typeof UNKNOWN;
+  private interrupting: PromptId;
+  continued: PromptId;
+
+  constructor(complete = true) {
+    this.open = complete ? false : UNKNOWN;
+    this.interrupting = this.continued = complete ? undefined : UNKNOWN;
+  }
+
+  get known(): boolean {
+    return this.open !== UNKNOWN && this.interrupting !== UNKNOWN && this.continued !== UNKNOWN;
+  }
 
   copy(): TurnStarts {
     const copy = new TurnStarts();
@@ -83,20 +95,26 @@ export class TurnStarts {
   }
 
   /// Whether `record` is a prompt that opens a turn.
-  opens(record: PromptRecord): boolean {
+  opens(record: PromptRecord): boolean | undefined {
     const msg = record.msg ?? {};
     const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
     switch (record.kind) {
       case "user_message": {
         if (record.dir !== "mux" || msg.steer === true) return false;
-        const continues = promptId !== undefined && promptId === this.continued;
+        const continues =
+          promptId !== undefined && this.continued === UNKNOWN
+            ? undefined
+            : promptId !== undefined && promptId === this.continued;
         this.continued = undefined;
         if (promptId !== undefined && promptId === this.interrupting) this.interrupting = undefined;
         this.open = true;
-        return !continues;
+        return continues === undefined ? undefined : !continues;
       }
       case "queue_order":
-        if (msg.next === true && this.open && promptId) this.interrupting = promptId;
+        if (msg.next === true && promptId) {
+          if (this.open === true) this.interrupting = promptId;
+          else if (this.open === UNKNOWN && this.interrupting !== promptId) this.interrupting = UNKNOWN;
+        }
         return false;
       case "queue_removed":
       case "prompt_refused":
@@ -105,8 +123,10 @@ export class TurnStarts {
         return false;
       case "turn_result":
         this.open = false;
-        if (this.interrupting !== undefined && String(msg.status ?? "completed") !== "failed")
-          this.continued = this.interrupting;
+        if (String(msg.status ?? "completed") !== "failed") {
+          if (this.interrupting === UNKNOWN) this.continued = UNKNOWN;
+          else if (this.interrupting !== undefined) this.continued = this.interrupting;
+        }
         this.interrupting = undefined;
         return false;
       default:
@@ -117,7 +137,31 @@ export class TurnStarts {
 
 /// A page's raw events, output state, and current opening prompts/rows, oldest first.
 /// Even rowless pages are kept: a queue order, result, or refusal can affect a later prompt.
-type Chunk = { events: PromptRecord[]; records: PromptRecord[]; rows: AcpmuxRow[]; end?: TurnStarts };
+type BoundaryRecord = { event: PromptRecord; prompt?: PromptRecord; input?: TurnStarts };
+type Chunk = {
+  pending: BoundaryRecord[];
+  records: PromptRecord[];
+  rows: AcpmuxRow[];
+  input?: TurnStarts;
+  end?: TurnStarts;
+  fixed?: boolean;
+};
+
+// Keep only transition fields in unresolved boundaries, never queue payloads or tool metadata.
+const boundaryRecord = (record: PromptRecord): BoundaryRecord => ({
+  event: {
+    seq: record.seq,
+    kind: record.kind,
+    dir: record.dir,
+    msg: {
+      promptId: record.msg?.promptId,
+      steer: record.msg?.steer,
+      next: record.msg?.next,
+      status: record.msg?.status,
+    },
+  },
+  ...(record.kind === "user_message" && record.dir === "mux" && record.msg?.steer !== true ? { prompt: record } : {}),
+});
 
 /// The earlier prompts of the shown chat. `start` begins reading below a seq; each page that lands
 /// calls `changed`. It stops on its own once acpmux has nothing older, after PROMPT_PAGES_MAX pages,
@@ -143,6 +187,7 @@ export class EarlierPrompts {
   /// The prompts held, and how many there were when `changed` was last called.
   private count = 0;
   private told = 0;
+  private publishedVersion = 0;
   /// The last `shown` answer: the whole list, oldest first, and the one cut at its bound.
   private memo?: { version: number; all: AcpmuxRow[]; below: number; shown: readonly AcpmuxRow[] };
 
@@ -182,6 +227,7 @@ export class EarlierPrompts {
     }
     this.count = 0;
     this.told = 0;
+    this.publishedVersion = this.version;
   }
 
   /// What a prompt shows changed (a sender became known, incomingMessage.ts): the rows are built
@@ -190,6 +236,13 @@ export class EarlierPrompts {
     if (!this.chunks.length) return;
     for (const chunk of this.chunks) chunk.rows = this.rowsOf(chunk.records);
     this.version += 1;
+    this.publish();
+  }
+
+  private publish(): void {
+    if (this.publishedVersion === this.version) return;
+    this.publishedVersion = this.version;
+    this.told = this.count;
     this.changed();
   }
 
@@ -225,10 +278,7 @@ export class EarlierPrompts {
       if (run === this.run) {
         this.done = true;
         // A failed page is a terminal stop too: publish rows accumulated since the last batch.
-        if (this.count !== this.told) {
-          this.told = this.count;
-          this.changed();
-        }
+        this.publish();
       }
       return;
     }
@@ -238,36 +288,68 @@ export class EarlierPrompts {
     const more = page.hasMore && records.length > 0;
     if (records.length) {
       this.before = records[0]!.seq;
-      this.chunks.push({ events: records, records: [], rows: [] });
-      // Re-evaluate toward newer pages with ALL turn state, including interrupting and continued.
-      // Stop when a page's output state converges: every newer page then has the same input as
-      // before. No history is revisited for streaming tokens; only an index page triggers this.
-      const starts = new TurnStarts();
-      for (let index = this.chunks.length - 1; index >= 0; index -= 1) {
-        const chunk = this.chunks[index]!;
-        const opening = chunk.events.filter((record) => starts.opens(record));
-        if (opening.length !== chunk.records.length || opening.some((record, at) => record !== chunk.records[at])) {
-          const held = new Map(chunk.rows.map((row) => [row.id, row]));
-          const rows: AcpmuxRow[] = [];
-          for (const record of opening) {
-            const row = held.get(`user-${record.seq}`) ?? this.toRow(record);
-            if (row) rows.push(row);
-          }
-          this.count += rows.length - chunk.rows.length;
-          chunk.records = opening;
-          chunk.rows = rows;
-          this.version += 1;
+      this.chunks.push({ pending: records.map(boundaryRecord), records: [], rows: [] });
+    }
+    // Until actual exhaustion the oldest boundary is unknown, including at the safety cap.
+    // Refinement is monotone: each of three state fields changes from unknown to known at most
+    // once. A record runs initially and at most once per incoming-field refinement (4N total).
+    const starts = new TurnStarts(!page.hasMore || this.before <= 1);
+    for (let index = this.chunks.length - 1; index >= 0; index -= 1) {
+      const chunk = this.chunks[index]!;
+      const wasFixed = chunk.fixed;
+      if (starts.same(chunk.input)) break;
+      chunk.input = starts.copy();
+      const opening = new Map(chunk.records.map((record) => [record.seq, record]));
+      let changed = false;
+      let cutoff = chunk.pending.length;
+      let converged = false;
+      for (let at = 0; at < chunk.pending.length; at++) {
+        const node = chunk.pending[at]!;
+        if (starts.same(node.input)) {
+          converged = true;
+          break;
         }
-        if (starts.same(chunk.end)) break;
-        chunk.end = starts.copy();
+        node.input = starts.copy();
+        const opens = starts.opens(node.event);
+        if (opens === true && node.prompt && !opening.has(node.event.seq)) {
+          opening.set(node.event.seq, node.prompt);
+          changed = true;
+        }
+        // A known output cannot change as older context refines; release its raw prompt payload.
+        if (opens !== undefined) node.prompt = undefined;
+        if (starts.known) {
+          cutoff = Math.min(cutoff, opens === undefined ? at + 1 : at);
+        }
       }
+      if (changed) {
+        const held = new Map(chunk.rows.map((row) => [row.id, row]));
+        chunk.records = [...opening.values()].sort((a, b) => a.seq - b.seq);
+        const rows = chunk.records.flatMap((record) => {
+          const row = held.get(`user-${record.seq}`) ?? this.toRow(record);
+          return row ? [row] : [];
+        });
+        this.count += rows.length - chunk.rows.length;
+        chunk.rows = rows;
+        this.version += 1;
+      }
+      // The suffix after a known outgoing state is independent of older context. Its raw records
+      // are discarded; only visible prompt records remain for late-sender refresh.
+      if (cutoff < chunk.pending.length) {
+        chunk.pending.length = cutoff;
+        chunk.fixed = true;
+      }
+      if (converged || wasFixed) break;
+      if (starts.same(chunk.end)) break;
+      chunk.end = starts.copy();
     }
     this.done = !more || this.before <= 1 || this.pages >= PROMPT_PAGES_MAX;
     if (!this.done) this.next();
-    if (this.done || this.count - this.told >= Math.max(PROMPT_PAGE_LIMIT / 4, this.told / 2)) {
-      this.told = this.count;
-      this.changed();
-    }
+    if (
+      this.done ||
+      this.count === this.told ||
+      this.count - this.told >= Math.max(PROMPT_PAGE_LIMIT / 4, this.told / 2)
+    )
+      this.publish();
   }
 
   /// The prompts older than `belowSeq` (the oldest the transcript holds), oldest first: the same list

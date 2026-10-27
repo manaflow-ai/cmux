@@ -13,6 +13,7 @@ import {
   EarlierPrompts,
   PROMPT_PAGE_LIMIT,
   TURN_KINDS,
+  TurnStarts,
   type PromptPage,
   type PromptRecord,
 } from "../src/agent-session/acpmux/threadMinimap/earlierPrompts";
@@ -400,7 +401,7 @@ test("a failed page publishes rows accumulated since the last notification", asy
           seq: first + index,
           kind: "user_message",
           dir: "mux",
-          msg: { promptId: `p-${first + index}`, text: `Question ${first + index}` },
+          msg: { text: `Question ${first + index}` },
         })),
         hasMore: true,
       };
@@ -520,4 +521,130 @@ test("paginated turn-start decisions equal one whole transcript across generated
       ).toEqual(expected);
     }
   }
+});
+
+test("the page cap keeps an unresolved continuation out of the prompt index", async () => {
+  const idle = manualIdle();
+  let reads = 0;
+  const earlier = new EarlierPrompts(
+    async () => {
+      reads++;
+      return {
+        events:
+          reads === 200
+            ? [
+                { seq: 2, dir: "mux", kind: "queue_order", msg: { next: true, promptId: "p" } },
+                { seq: 3, dir: "mux", kind: "turn_result", msg: { status: "cancelled" } },
+                { seq: 4, dir: "mux", kind: "user_message", msg: { promptId: "p", text: "continuation" } },
+              ]
+            : [{ seq: 1000 - reads, dir: "mux", kind: "queue_removed", msg: { promptId: "other" } }],
+        hasMore: true,
+      };
+    },
+    toRow,
+    () => {},
+    idle,
+  );
+  earlier.start("s", 1001);
+  while (idle.queue.length) {
+    idle.queue.shift()!();
+    await flush();
+  }
+  expect(reads).toBe(200);
+  expect(earlier.loading).toBe(false);
+  expect(earlier.shown(1001)).toEqual([]);
+});
+
+test("equal-count reclassification is published before another page and survives read failure", async () => {
+  const idle = manualIdle();
+  let reads = 0;
+  const heard: string[][] = [];
+  const earlier = new EarlierPrompts(
+    async () => {
+      if (++reads === 1)
+        return {
+          events: Array.from({ length: 100 }, (_, index) => ({
+            seq: 100 + index,
+            kind: "user_message",
+            dir: "mux",
+            msg: { text: index ? `prompt ${index}` : "continuation", ...(index ? {} : { promptId: "p" }) },
+          })),
+          hasMore: true,
+        };
+      if (reads === 2)
+        return {
+          events: [
+            { seq: 50, dir: "mux", kind: "user_message", msg: { text: "root" } },
+            { seq: 51, dir: "mux", kind: "queue_order", msg: { next: true, promptId: "p" } },
+            { seq: 52, dir: "mux", kind: "turn_result", msg: { status: "cancelled" } },
+          ],
+          hasMore: true,
+        };
+      throw new Error("offline");
+    },
+    toRow,
+    () => heard.push(earlier.shown(200).map((row) => row.id)),
+    idle,
+  );
+  earlier.start("s", 200);
+  idle.queue.shift()!();
+  await flush();
+  idle.queue.shift()!();
+  await flush();
+  expect(heard.at(-1)?.[0]).toBe("user-50");
+  expect(heard.at(-1)).toHaveLength(100);
+  idle.queue.shift()!();
+  await flush();
+  expect(heard.at(-1)).toEqual(earlier.shown(200).map((row) => row.id));
+});
+
+test("cap cost stays linear and releases payloads after state becomes known", async () => {
+  const measurements: unknown[] = [];
+  const original = TurnStarts.prototype.opens;
+  for (const complete of [false, true]) {
+    const idle = manualIdle();
+    let reads = 0;
+    let transitions = 0;
+    let rawBytes = 0;
+    TurnStarts.prototype.opens = function (record) {
+      transitions++;
+      return original.call(this, record);
+    };
+    try {
+      const earlier = new EarlierPrompts(
+        async () => {
+          const page = reads++;
+          const events = Array.from({ length: 400 }, (_, index): PromptRecord => ({
+            seq: (200 - page) * 400 + index,
+            kind: "queue_removed",
+            dir: "mux",
+            msg: { promptId: "p", payload: "x".repeat(157) },
+          }));
+          rawBytes += new TextEncoder().encode(JSON.stringify(events)).length;
+          return { events, hasMore: !complete || reads < 200 };
+        },
+        toRow,
+        () => {},
+        idle,
+      );
+      earlier.start("s", 80400);
+      while (idle.queue.length) {
+        idle.queue.shift()!();
+        await flush();
+      }
+      const chunks = (earlier as unknown as { chunks: { pending: { event: PromptRecord; prompt?: PromptRecord }[] }[] })
+        .chunks;
+      const retained = chunks.flatMap((chunk) => chunk.pending.map((node) => node.event));
+      const retainedBytes = new TextEncoder().encode(JSON.stringify(retained)).length - 2;
+      expect(reads).toBe(200);
+      expect(transitions).toBeLessThanOrEqual(4 * 200 * 400);
+      expect(retainedBytes).toBeLessThan(rawBytes / 2);
+      if (complete) expect(retained).toHaveLength(0);
+      expect(earlier.shown(80400)).toEqual([]);
+      measurements.push({ complete, transitions, rawBytes, retainedBytes, retainedRecords: retained.length });
+    } finally {
+      TurnStarts.prototype.opens = original;
+    }
+  }
+  console.info("prompt index cap cost", JSON.stringify(measurements));
 });
