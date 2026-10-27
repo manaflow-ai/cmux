@@ -93,10 +93,10 @@ public actor ChiefHomeDirectory {
         do {
             try await router.warm(sessionIds: sessionIds)
         } catch {
-            if !owned, await own.starting.hasWarmedSessions { launchHomes.insert(host) }
+            if await own.starting.hasWarmedSessions { launchHomes.insert(host) }
             throw error
         }
-        if !owned, await own.starting.hasWarmedSessions { launchHomes.insert(host) }
+        if await own.starting.hasWarmedSessions { launchHomes.insert(host) }
     }
 
     /// Ends only older homes warmed by this launch, and only while no other build owns the home.
