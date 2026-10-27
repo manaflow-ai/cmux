@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
+public import CmuxNextWakeups
 
 /// A pinned action's button (`tabs.toolbarButtons`): its symbol, its title and key in the tooltip.
 public struct PaneToolbarItem: Equatable, Sendable {
@@ -48,7 +49,7 @@ public final class PaneToolbarView: NSView {
     /// The tab bar's tracking area (``refreshCorner()``) reports the pointer.
     public private(set) lazy var reveal = HoverReveal(region: self, tracksPointer: false)
     private var corner: NSTrackingArea?
-    private var restObservation: Task<Void, Never>?
+    private var restObservation: VisibleObservation<CGFloat>?
     private weak var cornerHost: NSView?
 
     override public init(frame: NSRect) {
@@ -67,21 +68,22 @@ public final class PaneToolbarView: NSView {
         // "…" slides right into its slot as it fades in, and back as it fades out (Lawrence 2026-10-20).
         reveal.onChange = { [weak self] revealed in self?.slideMore(revealed: revealed) }
         // Hidden at rest by default (Lawrence 2026-10-20; Leo's muted look is a value above 0); a Debug
-        // Settings change applies at once. task-owner: this view (cancelled in deinit); event-driven.
+        // Settings change applies through `follow(_:on:)`.
         reveal.restAlpha = TabTunables.restingControlOpacity.value
         _ = reveal.add(moreButton)
-        restObservation = Task { [weak self] in
-            for await rest in ObservationStream({ TabTunables.restingControlOpacity.value }) { self?.reveal.restAlpha = rest }
-        }
     }
 
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated { restObservation?.cancel() }
+    /// Follows the resting opacity (`tabs.restingControlOpacity`) while `node` (the pane's) is visible: a Debug Settings
+    /// change applies once per change in its cause's class, and a hidden pane's bar applies the latest when it shows.
+    public func follow(_ node: VisibilityNode, on mainWork: MainWorkScheduler) {
+        restObservation = VisibleObservation(node, owner: "PaneToolbar.restingOpacity", on: mainWork) {
+            TabTunables.restingControlOpacity.value
+        } apply: { [weak self] rest in
+            self?.reveal.restAlpha = rest
+        }
     }
 
     override public var isFlipped: Bool { true }
@@ -233,6 +235,7 @@ public final class PaneToolbarView: NSView {
     public func refreshCorner() {
         let rect = stripFrame?().map { $0.union(frame) } ?? frame
         // Any control that shows (Search Tabs with a chat selected has no "…") brightens on hover.
+        // visibility-walk-allow: the corner's tracking area follows this view's own AppKit hidden state (hide and unhide refresh it; no node holds a view's isHidden)
         let live = superview != nil && window != nil && (hasMore || !buttons.isEmpty) && !isHiddenOrHasHiddenAncestor
         if live, let corner, corner.rect == rect, cornerHost === superview { return }
         if let corner { cornerHost?.removeTrackingArea(corner) }

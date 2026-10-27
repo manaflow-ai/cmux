@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextInput
+import CmuxNextWakeups
 
 final class DemoContentView: NSView {
     private let top = TabStripDemo.makeModel()
@@ -24,14 +25,17 @@ final class DemoContentView: NSView {
         wire(top, other: bottom)
         wire(bottom, other: top)
 
-        let savedBar = SavedGroupsBarView(model: saved)
+        // The demo's one scheduler and node, as the App has one of each.
+        let deadlines = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()))
+        let node = VisibilityNode(root: "tabs-demo", own: .visible)
+        let savedBar = SavedGroupsBarView(model: saved, mainWork: deadlines.work)
         saved.intentHandler = { [weak self] intent in
             guard let self, case .open(let id) = intent, let item = self.saved.groups.first(where: { $0.id == id }) else { return }
             self.log.stringValue = Strings.demoLog(String(describing: intent))
             self.reopen(item)
         }
-        let topStrip = TabStripView(model: top, background: .glass, input: input)
-        let bottomStrip = TabStripView(model: bottom, background: .glass, input: input)
+        let topStrip = TabStripView(model: top, background: .glass, input: input, deadlines: deadlines, visibilityNode: node)
+        let bottomStrip = TabStripView(model: bottom, background: .glass, input: input, deadlines: deadlines, visibilityNode: node)
         topStrip.dragsWindowFromEmptySpace = false
         bottomStrip.dragsWindowFromEmptySpace = false
         for strip in [topStrip, bottomStrip] { strip.previewProvider = provider }

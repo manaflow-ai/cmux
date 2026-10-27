@@ -20,12 +20,15 @@ public final class SavedGroupsBarView: NSView {
     private var order: [TabGroupID] = []
     private(set) var hovered: TabGroupID?
     /// The bar's hover moves (feature `pointerFrameHover`, `hoverFrameInput`).
-    private lazy var hoverMoves = PointerFrameHover(owner: "SavedGroupsBarView.hover", view: self) { [weak self] point in
+    private lazy var frameInputHover = PointerFrameHover(owner: "SavedGroupsBarView.hover", view: self) { [weak self] point in
         self?.hover(atWindowPoint: point)
     }
     private var pressed: TabGroupID?
-    private var observation: Task<Void, Never>?
-    private var tokenObservation: Task<Void, Never>?
+    /// The app's one main-thread scheduler: the bar's observation flushes on it.
+    private let mainWork: MainWorkScheduler
+    /// The saved groups and the strip tokens, followed while the bar is in a window and the window shows
+    /// (``VisibleObservation`` on its window's node: the apply only redraws the chips).
+    private var observation: VisibleObservation<([SavedTabGroupItem], TabStripMetrics)>?
     private var metrics = TabStripMetrics.standard
     /// Holds the chips; its bounds origin is the scroll offset.
     private let contentLayer = CALayer()
@@ -35,8 +38,12 @@ public final class SavedGroupsBarView: NSView {
     private(set) var scrollOffset: CGFloat = 0
     var maxScrollOffset: CGFloat { max(0, contentWidth - bounds.width) }
 
-    public init(model: SavedGroupsBarModel) {
+    /// - Parameters:
+    ///   - model: The saved groups the bar shows.
+    ///   - mainWork: The app's one main-thread scheduler (the demo and tests pass their own).
+    public init(model: SavedGroupsBarModel, mainWork: MainWorkScheduler) {
         self.model = model
+        self.mainWork = mainWork
         super.init(frame: CGRect(x: 0, y: 0, width: 400, height: Self.preferredHeight))
         wantsLayer = true
         layerContentsRedrawPolicy = .never
@@ -63,30 +70,19 @@ public final class SavedGroupsBarView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard window != nil else {
-            observation?.cancel()
-            tokenObservation?.cancel()
-            observation = nil
-            tokenObservation = nil
-            return
-        }
-        sync()
-        guard observation == nil else { return }
+        observation?.cancel()
+        observation = nil
+        guard let window else { return }
+        // The first read syncs now; a hidden window's bar reads nothing until it shows, then syncs once.
         let model = model
-        observation = Task { [weak self] in
-            for await _ in ObservationStream({ model.groups }) {
-                guard let self else { return }
-                self.sync()
-            }
-        }
-        tokenObservation = Task { [weak self] in
-            for await snapshot in ObservationStream({ TabStripMetrics() }) {
-                guard let self else { return }
-                if snapshot != self.metrics { self.sync() }
-            }
+        observation = VisibleObservation(WindowVisibilitySource.of(window).node, owner: "SavedGroupsBar.groups", on: mainWork) {
+            (model.groups, TabStripMetrics())
+        } apply: { [weak self] _ in
+            self?.sync()
         }
     }
 
+    // visibility-walk-allow: hands the chips' layers the bar's theme scope only (their colors; no layout)
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         let scope = themeScope
@@ -174,6 +170,7 @@ public final class SavedGroupsBarView: NSView {
         return true
     }
 
+    // local-monitor-allow: each wheel or trackpad delta scrolls the bar in order, 1:1 with the fingers (a forwarded event keeps its order and count)
     public override func scrollWheel(with event: NSEvent) {
         // Trackpads scroll horizontally; a plain mouse wheel's vertical
         // motion scrolls the bar too, like the tab strip.
@@ -199,11 +196,11 @@ public final class SavedGroupsBarView: NSView {
     /// hovers at once and the rest once at its frame, at the latest point (Chromium's rAF-aligned moves,
     /// main_thread_event_queue.cc). Nil: each move hovers at once.
     public var hoverFrameInput: FrameInputCoalescers? {
-        get { hoverMoves.frames }
-        set { hoverMoves.frames = newValue }
+        get { frameInputHover.frames }
+        set { frameInputHover.frames = newValue }
     }
 
-    public override func mouseMoved(with event: NSEvent) { hoverMoves.moved(event) }
+    public override func mouseMoved(with event: NSEvent) { frameInputHover.moved(event) }
 
     /// Hovers the chip under `windowPoint`, hit-tested where the chips are scrolled to now.
     private func hover(atWindowPoint windowPoint: CGPoint) {
@@ -212,12 +209,12 @@ public final class SavedGroupsBarView: NSView {
 
     // Exit and a press are discrete: the pending moves land first (Chromium's `ShouldFlushQueue`).
     public override func mouseExited(with event: NSEvent) {
-        hoverMoves.flush()
+        frameInputHover.flush()
         setHovered(nil)
     }
 
     public override func mouseDown(with event: NSEvent) {
-        hoverMoves.flush()
+        frameInputHover.flush()
         pressed = chip(at: convert(event.locationInWindow, from: nil))
         if let pressed { chips[pressed]?.isPressed = true }
     }

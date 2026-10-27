@@ -49,6 +49,7 @@ final class TabGroupSwatchView: NSView {
         updateColors()
     }
 
+    // visibility-walk-allow: sets the swatch's layer colors and its accessibility value only (no layout); the editor is a shown bubble
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateColors()
@@ -117,6 +118,7 @@ final class TabGroupEditorRow: NSView {
         }
     }
 
+    // visibility-walk-allow: sets the row's hover fill and its text color only (no layout); the editor is a shown bubble
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateColors()

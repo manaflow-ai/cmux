@@ -24,7 +24,7 @@ final class SidebarBridge {
     /// Weak: a daemon command's `Task` can outlive the window.
     weak var state: WindowState?
     /// The rows and selection observations, also run in the turn the window shows a workspace.
-    private(set) lazy var sameTurn = SidebarSameTurn(view: container.sidebarView)
+    private(set) lazy var sameTurn = SidebarSameTurn(view: container.sidebarView, mainWork: services.mainWork)
     private var widthObservation: ServiceObservation<(CGFloat, SidebarPresentation)>?
     /// Item presentation for sidebar sections (SidebarBridge+Sections).
     var sectionsObservation: ServiceObservation<SectionInputs>?
@@ -41,7 +41,7 @@ final class SidebarBridge {
     /// sidebar region ready for `LaunchReveal`.
     private(set) var isReadyForReveal = false
     /// The window's saved rows, shown until live data replaces them.
-    private var seed = SidebarSeed()
+    private lazy var seed = SidebarSeed(grace: SidebarPlaceholderGrace(deadlines: services.mainDeadlines))
     /// The one writer of the rows: live rows plus pending edits (cx-odqn).
     lazy var rows = SidebarRows(model: model)
     lazy var selectionHold = SidebarSelectionHold(model: model, deadlines: services.mainDeadlines)

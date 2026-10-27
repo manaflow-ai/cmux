@@ -12,7 +12,7 @@ extension TabStripView {
         // The block is lifted where its chip shows now (a move may be in flight).
         if let shown = shownMaxX(chipID) { chip.x = shown - max(0, chip.width) }
         placed[chipID] = chip
-        groups.holdTask?.cancel()
+        chipHold.cancel()
         let members = displayed.filter { $0.groupID == group }.map(\.id)
         let local = convert(press.start, to: tabsClip)
         let contentX = scrollMapping.contentX(local.x, isPinned: false)

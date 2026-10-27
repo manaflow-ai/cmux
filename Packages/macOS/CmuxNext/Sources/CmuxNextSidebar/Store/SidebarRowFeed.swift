@@ -103,6 +103,7 @@ public final class SidebarRowFeed {
     /// and maps every dirty row: one flush per turn. `observations` gets the feed's counts (the app's ledger).
     public convenience init(schedule: Schedule? = nil, observations: ObservationLedger.Owner? = nil) {
         // task-owner: the feed; one flush per main-actor turn after the store's batch applies
+        // main-hop-allow: the rows' observation primitive (p06 task 329 allow-list): this default serves a feed made with no schedule (tests); the app hands FrameBatcher's display frame
         let plain = schedule ?? { work in Task { @MainActor in work() } }
         self.init(cause: { .program }, rowsPerBudgetedFlush: .max, schedule: { _, work in plain(work) },
                   observations: observations)

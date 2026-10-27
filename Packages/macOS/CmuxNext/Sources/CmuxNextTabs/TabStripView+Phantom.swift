@@ -111,7 +111,7 @@ extension TabStripView {
 
     func target(atScreenPoint screenPoint: CGPoint, verticalSlop: CGFloat?, groupWidth: CGFloat?) -> TabStripDropTarget? {
         let verticalSlop = verticalSlop ?? Metrics.space4
-        guard let window, !isHiddenOrHasHiddenAncestor else { return nil }
+        guard let window, isShownInWindow else { return nil }
         let point = convert(window.convertPoint(fromScreen: screenPoint), from: nil)
         guard point.x >= 0, point.x <= bounds.width, point.y >= -verticalSlop, point.y <= bounds.height + verticalSlop else {
             return nil

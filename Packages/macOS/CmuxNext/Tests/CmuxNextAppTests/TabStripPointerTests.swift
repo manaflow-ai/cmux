@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextInput
 @testable import CmuxNextTabs
+import CmuxNextWakeups
 import Testing
 
 /// Tab strip hover once per frame (feature `pointerFrameHover`, p04-input-033) on p04-input-030's
@@ -86,7 +87,7 @@ import Testing
         harness.frames.frame()
         #expect(harness.hoverChanges == [TabID("t0"), TabID("t\(7 % 6)")])
         #expect(harness.strip.hoveredID == TabID("t\(7 % 6)"))
-        #expect(harness.strip.hoverMoves.maxDeliveriesPerFrame == 2)
+        #expect(harness.strip.frameInputHover.maxDeliveriesPerFrame == 2)
         #expect(!harness.frames.coalescer.hasPending)
     }
 
@@ -142,7 +143,7 @@ import Testing
         defer { frames.close() }
         let ids: [TabGroupID] = ["saved-a", "saved-b", "saved-c", "saved-d"]
         let model = SavedGroupsBarModel(groups: ids.map { SavedTabGroupItem(id: $0, name: "\($0)", colorToken: .blue, tabCount: 2) })
-        let bar = SavedGroupsBarView(model: model)
+        let bar = SavedGroupsBarView(model: model, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: SavedGroupsBarView.preferredHeight),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

@@ -12,6 +12,7 @@ final class SidebarRowWatch {
     /// write was on the main thread (`onMain` true), else on a main-actor task.
     @MainActor func track(_ make: () -> SidebarWorkspace,
                           changed: @escaping @MainActor @Sendable (_ onMain: Bool) -> Void) -> SidebarWorkspace {
+        // view-observation-allow: SidebarRowFeed is the rows' observation primitive (p06 task 329 allow-list): one tracking per watched row, flushed by the feed's caused schedule
         withObservationTracking {
             _ = epoch
             return make()
@@ -20,6 +21,7 @@ final class SidebarRowWatch {
                 MainActor.assumeIsolated { changed(true) } // main-proof: checked on the line above
             } else {
                 // task-owner: the row feed; one re-map of this row after an off-main write
+                // main-hop-allow: the primitive's one hop for an off-main will-set (no main turn to run in); the re-map it marks flushes on the feed's caused schedule
                 Task { @MainActor in changed(false) }
             }
         }

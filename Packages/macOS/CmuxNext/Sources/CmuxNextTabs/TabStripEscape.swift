@@ -45,7 +45,7 @@ import CmuxNextInput
     /// it). The strip holds it while it has a multi-selection.
     static func multiSelectionClear(strip: TabStripView) -> TabStripEscape {
         TabStripEscape(strip: strip, order: .standard) { strip in
-            guard !strip.isHiddenOrHasHiddenAncestor, strip.drag == nil else { return .pass }
+            guard strip.isShownInWindow, strip.drag == nil else { return .pass }
             strip.model.clearMultiSelection()
             return .pass
         }

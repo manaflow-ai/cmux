@@ -256,7 +256,7 @@ extension TabStripView {
         }
         if inOrder, grouped { return discardPendingReorder() }
         let pending = (order: orderOverride, groups: groups.membershipOverride)
-        reorderSettle.scheduleOnMain(after: Self.reorderSettleTimeout) { [weak self] in
+        reorderSettle.schedule(after: Self.reorderSettleTimeout) { [weak self] in
             // Each part ends on its own: a sync can end the order alone (a tab torn out meanwhile).
             guard let self else { return }
             var changed = false

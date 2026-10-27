@@ -117,7 +117,7 @@ final class TabHoverCardController: HoverCardSource {
     /// A point in the strip on no tab (a gap, a New Tab page's tab): a shown card waits
     /// there for the next tab.
     func hoverCardBridges(at screenPoint: CGPoint) -> Bool {
-        guard let strip, let window = strip.window, !strip.isHiddenOrHasHiddenAncestor else { return false }
+        guard let strip, let window = strip.window, strip.isShownInWindow else { return false }
         return strip.visibleRect.contains(strip.convert(window.convertPoint(fromScreen: screenPoint), from: nil))
     }
 
@@ -258,6 +258,7 @@ final class TabHoverCardController: HoverCardSource {
         let scale = strip?.window?.backingScaleFactor ?? 2
         let size = CGSize(width: TabHoverCardView.thumbnailSize.width * scale, height: TabHoverCardView.thumbnailSize.height * scale)
         let target = Self.targetID(id)
+        // main-hop-allow: the providers picture their views on the main actor (TabContentCache, ScreenBarController); the card applies the image in this task's one resume, and a retarget cancels it
         thumbnailTask = Task { [weak self] in
             let image = await provider.previewImage(for: id, maxPixelSize: size)
             guard let self, !Task.isCancelled, self.bodyID == target else { return }

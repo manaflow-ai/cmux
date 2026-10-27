@@ -64,8 +64,7 @@ final class CloseUndoToasts {
     /// Tabs whose page decides a person's close now: a quick next Cmd-W skips them (``PageClosingTabs``).
     let pageClosing = PageClosingTabs()
     /// Closes of several tabs waiting for their pages, so each stays one Reopen Closed step.
-    let pageDecidedCloses = PageDecidedCloses<PaneController, PreparedTabClose>(
-        prepare: { pane, ids in pane.prepareClose(ids) }, send: { PaneController.send($0, from: $1, userClose: $2) })
+    let pageDecidedCloses: PageDecidedCloses<PaneController, PreparedTabClose>
 
     /// ``pageDecidesClose``'s answer in the app: the tab's browser page decides.
     static func livePageDecidesClose(_ pane: PaneController, _ id: StripTabID) -> Bool {
@@ -121,6 +120,8 @@ final class CloseUndoToasts {
 
     init(services: AppServices) {
         self.services = services
+        pageDecidedCloses = PageDecidedCloses(prepare: { pane, ids in pane.prepareClose(ids) },
+                                              send: { PaneController.send($0, from: $1, userClose: $2) }, deadlines: services.mainDeadlines)
         let machines = services.machines
         seenDaemonItems = Set(Self.daemonItemIDs(machines.daemons))
         observation = ServiceObservation(.visible, owner: "CloseUndoToasts.closedItems", on: services.mainWork) {

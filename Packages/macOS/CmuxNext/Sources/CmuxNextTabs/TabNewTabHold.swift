@@ -1,23 +1,25 @@
 import AppKit
+import CmuxNextWakeups
 
 /// Press-and-hold on + opens the new tab menu (`TabStripView.showNewTabMenu`), as a long press on a
-/// back button opens history. The strip holds one: `start` on a press on +, `end` on mouse-up.
+/// back button opens history. The strip holds one: `start` on a press on +, `end` on mouse-up. The hold is a
+/// `userBlocking` deadline on the app's placer: the person waits on it.
 @MainActor final class TabNewTabHold {
     private weak var strip: TabStripView?
-    private var task: Task<Void, Never>?
+    private let hold: MainDeadline
     private var openedMenu = false
 
-    init(strip: TabStripView) { self.strip = strip }
+    init(strip: TabStripView) {
+        self.strip = strip
+        hold = MainDeadline(owner: "TabStrip.newTabHold", workClass: .userBlocking, scheduler: strip.deadlines)
+    }
 
     /// Holding + opens the new tab menu, as a long press on a back button opens history.
     func start() {
-        task?.cancel()
         openedMenu = false
-        guard let sleep = strip?.groups.sleep else { return }
-        task = Task { [weak self] in
-            do { try await sleep(.milliseconds(450)) } catch { return } // wakeup-allow: deadline of the 450 ms press-and-hold; end() cancels it; main actor, see TabStripGroupState.sleep
-            guard let self, let strip = self.strip, !Task.isCancelled, strip.pressedNewTab else { return }
-            self.openedMenu = true
+        hold.schedule(after: .milliseconds(450)) { [weak self] in
+            guard let self, let strip, strip.pressedNewTab else { return }
+            openedMenu = true
             strip.newTabButton.isPressed = false
             strip.pressedNewTab = false
             strip.showNewTabMenu()
@@ -27,8 +29,7 @@ import AppKit
     /// Mouse-up: ends the hold. Returns whether the hold already showed the menu (the press must not
     /// also open a tab).
     func end() -> Bool {
-        task?.cancel()
-        task = nil
+        hold.cancel()
         defer { openedMenu = false }
         return openedMenu
     }
