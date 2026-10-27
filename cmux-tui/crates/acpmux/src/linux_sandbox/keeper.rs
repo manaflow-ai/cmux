@@ -273,7 +273,14 @@ fn listener_in_keeper_namespace(fd: RawFd) -> Result<bool> {
     // SAFETY: fd is a live socket; SIOCGSKNS returns a descriptor, not an output buffer.
     let netns = unsafe { libc::ioctl(fd, SIOCGSKNS as _, 0) };
     if netns < 0 {
-        return Err(io::Error::last_os_error().to_string());
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::EPERM) {
+            return Err(
+                "handoff listener is not in the sandbox network namespace (SIOCGSKNS: EPERM)"
+                    .into(),
+            );
+        }
+        return Err(error.to_string());
     }
     // SAFETY: successful SIOCGSKNS returns a new owned descriptor.
     let netns = unsafe { OwnedFd::from_raw_fd(netns) };
@@ -895,7 +902,7 @@ mod tests {
         let error =
             validate_handoff_with_notify(&payload(port, None), vec![fd, notify], port, None)
                 .expect_err("a host listener must fail the namespace proof");
-        assert!(error.contains("handoff listener is in the keeper network namespace"), "{error}");
+        assert!(error.contains("network namespace"), "{error}");
     }
     #[test]
     fn handoff_without_notify_fd_is_refused() {
