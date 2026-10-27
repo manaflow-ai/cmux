@@ -3,6 +3,7 @@ import CmuxHomeCore
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextFocus
+import CmuxNextFocusUI
 import CmuxNextHome
 import CmuxNextTerminal
 import Foundation
@@ -58,34 +59,36 @@ struct HomePendingTerminalFocusTests {
                 let focus = window.focus.state
                 return "responder \(String(describing: shell.firstResponder)), focus \(focus.resolved.kind) pane \(focus.pane ?? "-") generation \(focus.generation)"
             }
-            @MainActor func type(_ text: String) throws {
-                for character in text {
-                    let event = try Self.key(character, in: shell)
-                    if !services.keyRouter.interceptKeyDown(event, in: shell) { shell.sendEvent(event) }
-                }
-            }
 
-            // Control, nothing pending: the app's own focus of Home's pane lands the keyboard in the box, and a typed key
-            // goes there (the paths the pending terminal must stop; without this the checks below prove nothing).
-            try #require(shell.makeFirstResponder(holder) && shell.firstResponder === holder, "the test view did not take the keyboard")
-            window.focus.send(.focusPane(dockKey, source: .programmatic))
-            try #require(shell.firstResponder === box, "control: Home's pane focus did not land in the box: \(state())")
-            try #require(shell.makeFirstResponder(holder) && shell.firstResponder === holder, "the test view did not take the keyboard")
-            try type("x")
-            try #require(box.string == "x", "control: a typed key did not reach the box: \"\(box.string)\", \(state())")
-            box.string = ""
-            try #require(shell.makeFirstResponder(holder) && shell.firstResponder === holder, "the test view did not take the keyboard")
+            // Before the request the window's typing keys go straight to the focused view (no owner holds them).
+            #expect(!services.keyRouter.modes.contains(.creationCapture), "a key hold was open before the request")
+            let holds = shell.makeFirstResponder(holder) && shell.firstResponder === holder
+            try #require(holds, "the test view did not take the keyboard")
 
             // The journey's request: a script's new workspace with one terminal, shown in this window.
             let request = ActionInvocation(arguments: ["focus": .bool(true), "name": .string("pending-terminal")], origin: .script)
             #expect(services.registry.perform("newTab", invocation: request))
+            // From this moment the window's keys are the new terminal's: the key router holds them for it, so neither
+            // Home's primary input (`typesIntoPrimaryInput`) nor its first responder gets them.
+            let held = services.keyRouter.modes.contains(.creationCapture)
+            #expect(held, "nothing holds the keys typed for the new terminal: they go to Home (\(state()))")
 
             // In the same turn, before the daemon made the terminal: the app focuses Home's pane again by itself.
             window.focus.send(.focusPane(dockKey, source: .programmatic))
-            #expect(shell.firstResponder !== box, "Home's message box took the keyboard while a new terminal was pending: \(state())")
+            let boxTookKeyboard = shell.firstResponder === box
+            #expect(!boxTookKeyboard, "Home's message box took the keyboard while a new terminal was pending: \(state())")
             // The keys typed for the new terminal, as the app dispatches them (the router first, then the window).
-            try type("echo ok")
-            #expect(box.string.isEmpty, "keys typed for the new terminal went to Home's message box: \"\(box.string)\", \(state())")
+            var passed: [Character] = []
+            for character in "echo ok" {
+                let event = try Self.key(character, in: shell)
+                if !services.keyRouter.interceptKeyDown(event, in: shell) {
+                    passed.append(character)
+                    shell.sendEvent(event)
+                }
+            }
+            #expect(passed.isEmpty, "keys typed for the new terminal were not held for it: \(String(passed)), \(state())")
+            let boxText = box.string
+            #expect(boxText.isEmpty, "keys typed for the new terminal went to Home's message box: \"\(boxText)\", \(state())")
 
             // The new terminal shows in the window and has the keyboard; the box never got a key.
             try await PasswordManagerRouteTests.until({
@@ -93,7 +96,8 @@ struct HomePendingTerminalFocusTests {
             }, report: {
                 "workspace \(String(describing: window.state.workspaceID)) (Home \(home.id)), responder \(String(describing: shell.firstResponder))"
             })
-            #expect(box.string.isEmpty, "keys typed for the new terminal went to Home's message box: \"\(box.string)\"")
+            let finalText = box.string
+            #expect(finalText.isEmpty, "keys typed for the new terminal went to Home's message box: \"\(finalText)\"")
         }
     }
 }
