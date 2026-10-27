@@ -4,12 +4,14 @@ name: cmux-tui Windows check
 # x86_64-pc-windows-gnu, cross-compiled on Linux. Two feat-cmux-next landings
 # broke the Windows build on 2026-10-08 and only the dispatch-only full-mode
 # cmux-tui.yml run (test (windows)) caught them hours later. This runs on every
-# push to feat-cmux-next and to its side branches (feat-cmux-next-*), so a
-# unix-only item is caught within minutes, before or right after it lands.
+# same-repository pull request into feat-cmux-next that touches cmux-tui, so a
+# unix-only item is caught within minutes, before it lands; the base push's
+# cmux-tui artifacts run builds the Windows daemon after it lands. It used to
+# run on pushes to feat-cmux-next-* side branches, which also started it for
+# side branches with no pull request (the 2026-10-27 push flood).
 on:
-  push:
-    branches:
-      - "feat-cmux-next-*"
+  pull_request:
+    branches: [feat-cmux-next]
     paths:
       - "cmux-tui/**"
       - "ghostty-next"
@@ -34,6 +36,9 @@ env:
 jobs:
   windows-gnu-check:
     name: cargo check (x86_64-pc-windows-gnu)
+    # Forks never ran this (it was push-only), and its 32 vCPU runner stays
+    # for this repository's own branches.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     steps:
@@ -69,8 +74,8 @@ jobs:
       - name: Install the Windows GNU Rust target
         run: rustup target add x86_64-pc-windows-gnu
 
-      # One key per branch scope; feat-cmux-next side branches restore the
-      # trunk's cache and build incrementally.
+      # One key for every pull request; each restores the newest cache its
+      # scope can read and builds incrementally.
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:

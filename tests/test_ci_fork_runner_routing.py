@@ -187,6 +187,10 @@ OWNED_RUNNER_SELECTOR = re.compile(
 )
 # (workflow, stripped line) -> why a runner variable read there picks no runner.
 FORK_GATE_EXEMPT = {
+    ("cmux-tui-windows-check.yml", "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}"): (
+        "windows-gnu-check's job if skips a fork pull request head (head.repo.full_name == "
+        "github.repository), so fork code never reaches this selector"
+    ),
     ("cmux-next-guards.yml", "LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}"): (
         "signing-runner-variables reads the value to check it is ephemeral; the job runs on a "
         "literal label and selects no runner"

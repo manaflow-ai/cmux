@@ -258,6 +258,10 @@ path = "tests/test_ci_nightly_push_throttle.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_push_trigger_branches.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_nightly_off_blacksmith.py"
 lane = "linux-guard"
 
