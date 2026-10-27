@@ -92,7 +92,7 @@ import { WorkflowTasks } from "./WorkflowTasks";
 import type { WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
-import { MIN_GUTTER } from "../threadMinimap/model";
+import { RAIL_MIN_GUTTER } from "../threadMinimap/model";
 import "./inspector.css";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
@@ -122,9 +122,8 @@ export const pushedWidth = (paneWidth: number, width: number) =>
 /// shifted left". When the right gutter (model.ts transcriptColumn) holds the panel and its margins,
 /// nothing moves; when the two gutters together hold it, the column moves left by what the right one
 /// lacks; otherwise nothing moves and the panel floats over the chat. The left gutter keeps the
-/// thread rail's room (threadMinimap/model.ts MIN_GUTTER), so the column never slides over the rail,
-/// which stays at the pane's left edge (inspector.css; Leo, 2026-10-25: "when that session rail is
-/// there, the session rail ends up pushing it to the side").
+/// thread rail's usable gutter (threadMinimap/model.ts RAIL_MIN_GUTTER), so the column only slides
+/// as far as the rail can follow it. The rail itself moves toward the text as the gutter shrinks.
 /// A handoff review's form (handoff/styles.css: 760px, 18px from each edge) is wider than the column:
 /// with `wide`, the gutter is the form's. The form takes the transcript's place, so no thread rail
 /// draws beside it: the shift keeps the form's own edge clearance instead of the rail's room.
@@ -138,7 +137,7 @@ export const inspectorChatShift = (paneWidth: number, width: number, column?: Ch
     ? Math.min(columnInset, (paneWidth - Math.min(HANDOFF_FORM_WIDTH, paneWidth - 2 * HANDOFF_FORM_EDGE)) / 2)
     : columnInset;
   const lacks = width + 2 * FLOAT_MARGIN - inset;
-  const room = inset - (wide ? HANDOFF_FORM_EDGE : MIN_GUTTER);
+  const room = inset - (wide ? HANDOFF_FORM_EDGE : RAIL_MIN_GUTTER);
   return lacks > 0 && lacks <= room ? lacks : 0;
 };
 
@@ -230,13 +229,29 @@ export function paneRoom(shell: HTMLElement): PaneRoom {
 /// the new width: the observer runs after that frame's layout and before its paint, and `flushSync`
 /// renders the panel's place there (state set plainly drew a frame or more later, the panel floating
 /// over the narrowed transcript before the chat jumped aside: "WHY DOES IT FLICKER").
-function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, beside: unknown): PaneRoom {
-  const [room, setRoom] = useState(UNMEASURED);
+type PaneRoomState = PaneRoom & { shellWidth: number; suppressShiftTransition: boolean };
+
+function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, beside: unknown): PaneRoomState {
+  const [room, setRoom] = useState<PaneRoomState>({ ...UNMEASURED, shellWidth: 0, suppressShiftTransition: false });
   useLayoutEffect(() => {
     if (!shell || !live) return;
+    let lastShellWidth = shell.clientWidth;
     const measure = () => {
       const next = paneRoom(shell);
-      setRoom((current) => (current.width === next.width && current.side === next.side ? current : next));
+      const shellWidth = shell.clientWidth;
+      const suppressShiftTransition = lastShellWidth !== shellWidth;
+      setRoom((current) =>
+        current.width === next.width && current.side === next.side && current.shellWidth === shellWidth
+          ? current
+          : {
+              ...next,
+              shellWidth,
+              // A native pane changes the shell's own width. An artifact only changes `side`, so it
+              // keeps the Session Info shift transition and its normal floating motion.
+              suppressShiftTransition,
+            },
+      );
+      lastShellWidth = shellWidth;
     };
     measure();
     if (typeof ResizeObserver !== "function") return;
@@ -246,6 +261,15 @@ function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, besid
     if (side) observer.observe(side);
     return () => observer.disconnect();
   }, [shell, live, beside]);
+  useLayoutEffect(() => {
+    if (!room.suppressShiftTransition) return;
+    const frame = requestAnimationFrame(() =>
+      setRoom((current) =>
+        current.suppressShiftTransition ? { ...current, suppressShiftTransition: false } : current,
+      ),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [room]);
   return room;
 }
 
@@ -558,7 +582,7 @@ function InspectorPresence({
   const drawn = presence.present;
   // The chat's room: the pane less the side panel beside it (a document), whose edge the floating
   // panel keeps clear of, so it never lies over the document.
-  const { width: paneWidth, side } = usePaneRoom(shell, drawn, beside);
+  const { width: paneWidth, side, suppressShiftTransition } = usePaneRoom(shell, drawn, beside);
   const push = pushes(display.inspector);
   const chatShift = push ? 0 : inspectorChatShift(paneWidth, width, column, wide);
   const overChat = !push && inspectorOverChat(paneWidth, width, column, wide);
@@ -574,16 +598,20 @@ function InspectorPresence({
     if (!shell) return;
     if (!drawn) {
       delete shell.dataset.inspectorChatPlacement;
+      delete shell.dataset.inspectorChatResizing;
       shell.style.removeProperty("--acpmux-chat-shift");
       return;
     }
     shell.dataset.inspectorChatPlacement = push ? "push" : "overlay";
+    if (suppressShiftTransition) shell.dataset.inspectorChatResizing = "true";
+    else delete shell.dataset.inspectorChatResizing;
     shell.style.setProperty("--acpmux-chat-shift", `${chatShift}px`);
-  }, [shell, drawn, push, chatShift]);
+  }, [shell, drawn, push, chatShift, suppressShiftTransition]);
   useLayoutEffect(() => {
     if (!shell) return;
     return () => {
       delete shell.dataset.inspectorChatPlacement;
+      delete shell.dataset.inspectorChatResizing;
       shell.style.removeProperty("--acpmux-chat-shift");
     };
   }, [shell]);
