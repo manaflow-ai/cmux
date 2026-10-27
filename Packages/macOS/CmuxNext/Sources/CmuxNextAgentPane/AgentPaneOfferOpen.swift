@@ -27,7 +27,7 @@ enum AgentPaneOfferOpen {
         let shown = focus ? header.showSession(session) : (header.showSessionBackground?(session) ?? false)
         if !shown {
             if focus { header.openSide(chat, session) }
-            else { (header.openSideBackground ?? header.openSide)(chat, session) }
+            else { header.openSideBackground?(chat, session) }
         }
         return AgentPaneReply.success()
     }
