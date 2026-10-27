@@ -110,7 +110,7 @@ extension HoverCardPanel {
             let rect = CGRect(x: cardInHost.minX + corner.x * (cardInHost.width - size.width),
                               y: cardInHost.minY + corner.y * (cardInHost.height - size.height), width: size.width, height: size.height)
             let radius = host.cornerRadius
-            return CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+            return CGPath.roundedRect(rect, cornerWidth: radius, cornerHeight: radius)
         }
         func cutout(_ size: CGSize) -> CGPath {
             let path = CGMutablePath()

@@ -65,6 +65,8 @@ final class CEFHostStart {
     var hangMonitor: ChromiumHostHangMonitor?
     /// The attached host reports to ``hangMonitor``: it acks its dispatch and the remote shim has the host watch.
     private(set) var watchesHangs = false
+    /// The pages of a crashed host that come back on the next one (task 083, ``CEFRuntime/restorePagesOnNextHost(_:reading:)``).
+    let pageRestores = CEFHostPageRestores()
     /// The host Chromium ran on ended and its pages do not show it yet: `CEFRuntime.hostWireEnded` sets it,
     /// `CEFRuntime.hostEnded(_:)` takes it with the exit they show; the next attach clears it.
     var pagesAwaitEnd = false
