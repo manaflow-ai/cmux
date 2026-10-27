@@ -34,6 +34,7 @@ import shutil
 import sys
 import tarfile
 import tempfile
+import unicodedata
 from contextlib import redirect_stdout
 from pathlib import Path, PurePosixPath
 
@@ -140,10 +141,11 @@ def prescan(archive: Path) -> None:
 
 
 def fold(name: str) -> str:
-    """A path as a case-insensitive volume (APFS, where the app is unpacked) compares it. The
+    """A path as APFS, where the app is unpacked, compares it: insensitive to letter case and to
+    Unicode normalization (Unicode canonical caseless matching, NFD(casefold(NFD(name)))). The
     checks below run on exact and on folded names, so an archive is refused when either a
-    case-sensitive or a case-insensitive volume would let it out, on every OS."""
-    return name.casefold()
+    case-sensitive or an APFS volume would let it out, on every OS."""
+    return unicodedata.normalize("NFD", unicodedata.normalize("NFD", name).casefold())
 
 
 def same(name: str) -> str:

@@ -147,6 +147,10 @@ class Products(unittest.TestCase):
                            ("cmux.app/Contents/B/payload", None, None)],
             "duplicate": [("cmux.app/Contents/x", None, None), ("cmux.app/Contents/x", None, None)],
             "duplicate but for case": [("cmux.app/Contents/x", None, None), ("cmux.app/Contents/X", None, None)],
+            # APFS also ignores Unicode normalization: é (one code point) and e + U+0301 are one name.
+            "duplicate but for normalization": [("cmux.app/Contents/\u00e9", None, None),
+                                                ("cmux.app/Contents/e\u0301", None, None)],
+            "loops but for normalization": [("cmux.app/Contents/\u00e9", "e\u0301", None)],
             # Exactly named, a loops (a -> B/../a, and B is no link); folded, B is b and the walk
             # ends inside. Both walks run, so it is refused.
             "loops only by exact name": [("cmux.app/Contents/deep/deeper/f", None, None),
