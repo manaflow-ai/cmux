@@ -36,7 +36,8 @@ def macho(text: bytes, cms: bytes, page_shift: int = 12, pad: int = 0) -> bytes:
         index += struct.pack(">II", typ, off)
         payload += blob
         off += len(blob)
-    superblob = struct.pack(">III", 0xFADE0CC0, index_len + len(payload) + pad, len(blobs)) + index + payload + bytes(pad)
+    # As codesign writes it: the superblob, then zero padding up to datasize.
+    superblob = struct.pack(">III", 0xFADE0CC0, index_len + len(payload), len(blobs)) + index + payload + bytes(pad)
     header = struct.pack("<IiiIIIII", 0xFEEDFACF, 0x0100000C, 0, 2, 2, sizeofcmds, 0, 0)
     linkedit = struct.pack("<II16sQQQQiiII", 0x19, 72, b"__LINKEDIT", 0x4000, 0x1000 + len(superblob),
                            0, dataoff + len(superblob), 1, 1, 0, 0)
@@ -209,6 +210,41 @@ class ReviewFindingTests(unittest.TestCase):
         rc, failures = self.compare(a, b)
         self.assertEqual(rc, 1)
         self.assertTrue(any("(B): LC_CODE_SIGNATURE points outside the slice" in f for f in failures), failures)
+
+    def test_bytes_hidden_in_a_malformed_signature_fail(self):
+        good = bytearray(macho(b"T" * 32, b"c", pad=16))
+        sig_at = struct.unpack("<I", bytes(good[32 + 72 + 8:32 + 72 + 12]))[0]
+        a = make_app(self.root / "a", tool=bytes(good))
+        hidden = bytearray(good)
+        hidden[-4:] = b"HIDE"  # in the zero padding after the superblob
+        b = make_app(self.root / "b", tool=bytes(hidden))
+        rc, failures = self.compare(a, b)
+        self.assertEqual(rc, 1)
+        self.assertTrue(any("not zero padding" in f for f in failures), failures)
+        empty = bytearray(good)
+        empty[sig_at + 8:sig_at + 12] = struct.pack(">I", 0)  # a superblob with no blobs
+        c = make_app(self.root / "c", tool=bytes(empty))
+        self.assertEqual(self.compare(a, c)[0], 1)
+
+    def test_malformed_load_commands_fail_without_a_crash(self):
+        good = macho(b"T" * 32, b"c")
+        broken = bytearray(good)
+        broken[16:20] = struct.pack("<I", 4000)  # ncmds far past the load commands
+        a = make_app(self.root / "a", tool=bytes(broken))
+        b = make_app(self.root / "b", tool=bytes(broken))
+        rc, failures = self.compare(a, b)
+        self.assertEqual(rc, 1)
+        self.assertTrue(any("malformed Mach-O" in f or "LC_CODE_SIGNATURE" in f for f in failures), failures)
+
+    def test_code_resources_on_one_side_only_is_reported_not_failed(self):
+        a = make_app(self.root / "a", tool=macho(b"T" * 32, b"c"))
+        b = make_app(self.root / "b", tool=macho(b"T" * 32, b"c"))
+        (a / "Contents/_CodeSignature/CodeResources").unlink()
+        out = self.root / "out.json"
+        proc = subprocess.run([sys.executable, "-I", str(SCRIPT), str(a), str(b), str(out)], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(json.loads(out.read_text())["code_resources_differences"],
+                         {"Contents/_CodeSignature/CodeResources": ["only in B"]})
 
     def test_setuid_bit_is_payload(self):
         a = make_app(self.root / "a", tool=macho(b"T" * 32, b"c"))

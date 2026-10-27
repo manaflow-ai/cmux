@@ -112,13 +112,25 @@ def signature_range(macho: bytes):
             dataoff, datasize = struct.unpack("<II", macho[off + 8:off + 16])
             if datasize < 12 or dataoff + datasize > len(macho):
                 raise ValueError("LC_CODE_SIGNATURE points outside the slice")
+            # The region left out of the payload must hold signature data only:
+            # a superblob whose index is followed by its blobs back to back,
+            # with a CodeDirectory among them, then zero padding to datasize.
             magic, length, count = struct.unpack(">III", macho[dataoff:dataoff + 12])
-            if magic != 0xFADE0CC0 or length > datasize or 12 + 8 * count > length:
+            if magic != 0xFADE0CC0 or not 12 + 8 * count <= length <= datasize or count == 0:
                 raise ValueError("the signature is not a complete embedded-signature superblob")
-            for i in range(count):
-                _, at = struct.unpack(">II", macho[dataoff + 12 + 8 * i:dataoff + 20 + 8 * i])
-                if at + 8 > length or at + struct.unpack(">I", macho[dataoff + at + 4:dataoff + at + 8])[0] > length:
-                    raise ValueError("a signature blob runs past the superblob")
+            entries = sorted(struct.unpack(">II", macho[dataoff + 12 + 8 * i:dataoff + 20 + 8 * i])[::-1]
+                             for i in range(count))
+            at, types = 12 + 8 * count, set()
+            for blob_at, typ in entries:
+                blob_magic, blob_length = struct.unpack(">II", macho[dataoff + blob_at:dataoff + blob_at + 8])
+                if blob_at != at or blob_length < 8 or blob_at + blob_length > length or blob_magic >> 16 != 0xFADE:  # every code-signing blob magic is 0xFADExxxx
+                    raise ValueError("the signature's blobs are not back to back after its index")
+                at += blob_length
+                types.add(typ)
+            if at != length or 0 not in types:
+                raise ValueError("the signature has bytes outside its blobs, or no CodeDirectory")
+            if macho[dataoff + length:dataoff + datasize].strip(b"\0"):
+                raise ValueError("the bytes after the signature superblob are not zero padding")
             return dataoff, datasize
         off += size
     return None
@@ -255,7 +267,10 @@ def describe(root: str, rel: str, path: str) -> dict:
     with open(path, "rb") as handle:
         data = handle.read()
     record = {"kind": "file", "mode": oct(stat.S_IMODE(st.st_mode)), "sha256": hashlib.sha256(data).hexdigest()}
-    parts = slices(data)
+    try:
+        parts = slices(data)
+    except struct.error:
+        parts = None  # not a parseable Mach-O: its bytes are compared as they are
     if parts is not None:
         digest = hashlib.sha256()
         fat = fat_header(data)
@@ -266,8 +281,8 @@ def describe(root: str, rel: str, path: str) -> dict:
             signed = all(signature_range(body) for _, body in parts)
             for arch, body in parts:
                 digest.update(arch.encode() + b"\0" + payload(body))
-        except ValueError as error:
-            record["signature_error"] = str(error)
+        except (ValueError, struct.error) as error:
+            record["signature_error"] = str(error) if isinstance(error, ValueError) else f"malformed Mach-O ({error})"
             signed = False
             digest.update(b"invalid\0" + data)
         record.update(kind="macho", archs=[a for a, _ in parts], payload_sha256=digest.hexdigest(),
@@ -344,22 +359,25 @@ def main() -> int:
             failures.append(f"{rel}: payload differs ({', '.join(diff)})")
         else:
             counts["equal"] += 1
-        if pa is not None and pb is not None and not diff:
+        if pa is not None and pb is not None and not diff and ra.get("signed") and rb.get("signed"):
             counts["macho"] += 1
             sig = {arch: signature_diff(x, y) for (arch, x), (_, y) in zip(pa, pb)}
             sig = {arch: d for arch, d in sig.items() if d}
             if sig:
                 signatures[rel] = sig
         records.append({"path": rel, la: ra, lb: rb, "differs": diff})
-    for rel in sorted(set(os.path.relpath(os.path.join(d, f), args.a)
-                          for d, _, fs in os.walk(args.a) for f in fs if f == "CodeResources")):
-        other = os.path.join(args.b, rel)
-        if os.path.isfile(other):
-            diff = code_resources_diff(os.path.join(args.a, rel), other)
-            if diff:
-                resources[rel] = diff
+    # Signature output: differences, and a CodeResources on one side only, are
+    # reported here and never fail the payload compare.
+    def code_resources(root):
+        return {os.path.relpath(os.path.join(d, f), root) for d, _, fs in os.walk(root) for f in fs if f == "CodeResources"}
+    ca, cb = code_resources(args.a), code_resources(args.b)
+    for rel in sorted(ca | cb):
+        if rel in ca and rel in cb:
+            diff = code_resources_diff(os.path.join(args.a, rel), os.path.join(args.b, rel))
         else:
-            failures.append(f"{rel}: only in {la}")
+            diff = [f"only in {la if rel in ca else lb}"]
+        if diff:
+            resources[rel] = diff
     result = {"labels": [la, lb], "counts": counts, "payload_failures": failures,
               "signature_differences": signatures, "code_resources_differences": resources, "records": records}
     with open(args.out, "w", encoding="utf-8") as handle:
