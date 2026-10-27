@@ -77,7 +77,8 @@ import Testing
         first.tab.load(typed)
         let again = try #require(cache.existingBrowser(tab.id)?.tab as? DeferredBrowserTab)
         #expect(again.state.url == typed)
-        for _ in 0..<10 where written.isEmpty { await Task.yield() }
+        // Quit's flush waits for the write, so a quit right away still reopens the typed address.
+        await cache.browserTabs.flushRecords()
         #expect(written == [typed.absoluteString], "the restart the notice asks for opens the typed address")
     }
 

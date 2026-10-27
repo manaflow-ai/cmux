@@ -1,5 +1,4 @@
 import CmuxNextBrowser
-import CmuxNextBrowserHistory
 import Foundation
 import CmuxNextDaemon
 import os
@@ -71,12 +70,7 @@ extension TabContentCache {
         let next = typed ?? (incognito ? shown : tab.url.flatMap(URL.init(string:)))
         if let reason = browserTabs.cefUnavailable(), reason.keepsChromiumTabsOutOfWebKit {
             _ = chromiumUnavailable(tab, url: next, reason: reason)
-            if let typed, typed.absoluteString != tab.url, tab.isFrontendOwned, !incognito,
-               !ProvisionalTab.isProvisional(surface: tab.surface) {
-                let daemon = browserTabs.daemon(for: tab), update = browserTabs.update, surface = tab.surface
-                // task-owner: one record write; the tab's next page writes over it
-                Task { _ = await update(daemon, surface, BrowserRecordUpdate(url: typed.absoluteString, title: nil, favicon: .unchanged)) }
-            }
+            if let typed, typed.absoluteString != tab.url { browserTabs.writeRecordURL(typed, for: tab) }
         } else if let entry = browser(for: tab), let typed, typed.absoluteString != tab.url {
             entry.tab.load(typed)
         }

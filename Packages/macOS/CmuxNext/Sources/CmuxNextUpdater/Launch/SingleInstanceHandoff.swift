@@ -14,8 +14,8 @@ import os
 /// starts a new one, which takes the claim like any launch. An agent launch (`CMUX_NEXT_NO_ACTIVATE=1`) hands
 /// nothing on: any open would bring the person's copy forward.
 ///
-/// Stop conditions: it exits ``settle`` after launch (and after each later open event, so events AppKit delivers
-/// after `applicationDidFinishLaunching` still go), and at ``deadline`` whatever happens.
+/// Stop conditions: it exits ``settle`` after launch, the last open event and the last helper (so events AppKit
+/// delivers late still go), and at ``deadline`` once the URLs in hand have a helper, whatever arrives after.
 @MainActor final class SingleInstanceHandoff: NSObject, NSApplicationDelegate {
     nonisolated private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "launch")
     nonisolated static let settle: Duration = .milliseconds(300)
@@ -35,7 +35,7 @@ import os
         // `run` never returns, so this timer lives until the exit.
         let deadline = DemandTimer(owner: "SingleInstanceHandoff.deadline")
         let handoff = SingleInstanceHandoff()
-        deadline.schedule(after: Self.deadline) { @MainActor in handoff.finish() }
+        deadline.schedule(after: Self.deadline) { @MainActor in handoff.finish(deadline: true) }
         // No saved windows of this copy: its restoration store would take over the running copy's.
         UserDefaults.standard.setVolatileDomain(["ApplePersistenceIgnoreState": true], forName: UserDefaults.argumentDomain)
         let app = NSApplication.shared
@@ -70,30 +70,37 @@ import os
         quiet.schedule(after: Self.settle) { @MainActor [weak self] in self?.finish() }
     }
 
-    private var finished = false
     /// How many of ``urls`` a helper already carries; nil before the first helper.
     private var handed: Int?
+    /// A helper is starting; its end settles again (``helperStarted()``).
+    private var starting = false
+    /// The deadline passed: exit once the URLs in hand have a helper, whatever arrives after.
+    private var closing = false
 
-    /// Starts a helper for the URLs no helper carries yet (a bare launch: one with none), then exits. The exit is
-    /// decided on the main actor, where open events arrive, so one that came in while a helper started gets its
-    /// own helper first. Each helper waits on this pid, so LaunchServices never routes back here.
-    private func finish() {
-        guard !finished else { return }
-        finished = true
-        handOn()
-    }
-
-    private func handOn() {
+    /// Starts a helper for the URLs no helper carries yet (a bare launch: one with none). The process exits
+    /// only from here, ``settle`` after the last helper started and the last open event came in, with the run
+    /// loop turning all along: an event AppKit had queued meanwhile reaches the delegate, re-arms the settle and
+    /// gets its own helper. Each helper waits on this pid, so LaunchServices never routes back here.
+    private func finish(deadline: Bool = false) {
+        closing = closing || deadline
+        guard !starting else { return }
         let batch = Array(urls[(handed ?? 0)...])
         // The first helper always starts (a bare launch reopens the running copy); a later one only for new URLs.
         guard handed == nil || !batch.isEmpty else { exit(0) }
         handed = urls.count
+        starting = true
         let command = Self.reopenCommand(pid: getpid(), bundleIdentifier: Bundle.main.bundleIdentifier ?? "", urls: batch)
+        // task-owner: the hand-off process; `helperStarted` settles or exits after it.
         Task.detached(priority: .userInitiated) { [weak self] in
             Self.spawn(command)
             Self.logger.notice("launch: \(batch.count, privacy: .public) URL(s) go to the running copy once this one exits")
-            await self?.handOn()
+            await self?.helperStarted()
         }
+    }
+
+    private func helperStarted() {
+        starting = false
+        if closing { finish(deadline: true) } else { scheduleFinish() }
     }
 
     /// `/bin/sh` that waits on `pid`'s exit (`caffeinate -w`, the kernel's exit event, as
