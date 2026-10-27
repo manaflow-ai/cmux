@@ -31,7 +31,9 @@ import Testing
     static func updater(_ server: Server, store: WebUpdateStore, app: WebUpdater.App = .init(abi: 2, webBuiltAt: 1_700_000_000),
                         kept: WebUpdater.Kept? = nil) -> WebUpdater {
         let updater = WebUpdater(
-            store: store, app: app, keys: .keys(WebUpdatePointerTests.keys), energy: EnergyPolicySource(), kept: kept,
+            store: store, app: app, keys: .keys(WebUpdatePointerTests.keys), energy: EnergyPolicySource(),
+            deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())), work: BackgroundWork(label: "test.web-updater"),
+            kept: kept,
             fetch: { request in
                 server.pointerReads += 1
                 let url = try #require(request.url)

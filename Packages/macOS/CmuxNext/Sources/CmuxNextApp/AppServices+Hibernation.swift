@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFeatures
 package import CmuxNextHibernation
+import CmuxNextHostPressure
 import CmuxNextInput
 import CmuxNextMemory
 import CmuxNextPages
@@ -39,9 +40,11 @@ extension AppServices {
         hibernation.discardsGrowingFrozenPages = features.isEnabled(.frozenGrowthDiscard)
         hibernation.discardsAppPages = features.isEnabled(.memoryDiscardPageTabs)
         hibernation.discardsStreamedPages = features.isEnabled(.memoryDiscardRemoteTabs)
+        hibernation.freezesOffScreenShownPages = features.isEnabled(.offScreenWindowPageFreeze)
         hibernation.discardsCrashedSubframes = features.isEnabled(.memoryDiscardCrashedSubframes)
         hibernation.openerLinks = { [weak self] in self?.scriptOpenerLinks() ?? [:] }
         hibernation.ranksUrgentDiscards = features.isEnabled(.memoryUrgentDiscardRanking)
+        hibernation.admission = WakeAdmission(isEnabled: features.isEnabled(.memoryWakeAdmission), freeBytes: { HostSampler().freePhysicalBytes() })
         hibernation.snapshots.keepsCompressed = features.isEnabled(.compressedSnapshots)
         let agentPages = AgentPageHibernation(services: self)
         memoryHistograms.follow(hibernation, agentPages: agentPages)
@@ -152,6 +155,15 @@ extension AppServices {
             deadline: MainDeadline(owner: "HiddenFrameLRU.cull", workClass: .background, scheduler: mainDeadlines),
             evictions: MainDeadline(owner: "HiddenFrameLRU.evict", workClass: .background, scheduler: mainDeadlines),
             memory: memoryCoordinator)
+    }
+
+    /// A window's detach of workspaces hidden past the grace with `hiddenWorkspaceDetachAfterGrace`
+    /// (p03-rendering-096), on one background deadline; nil while off: hidden workspaces stay in their window.
+    func makeHiddenWorkspaceDetach() -> HiddenWorkspaceDetach? {
+        guard features.isEnabled(.hiddenWorkspaceDetachAfterGrace) else { return nil }
+        return HiddenWorkspaceDetach(
+            grace: Feature.hiddenWorkspaceDetachAfterGrace.durationParam("grace") ?? .seconds(30),
+            deadline: MainDeadline(owner: "HiddenWorkspaceDetach", workClass: .background, scheduler: mainDeadlines))
     }
 }
 
