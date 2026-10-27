@@ -258,6 +258,7 @@ extension DockSplitStore {
         }
     }
 
+    /// Restores one Dock terminal, including a truncated scrollback replay when the snapshot says so.
     private func restoreSessionTerminal(
         from snapshot: SessionPanelSnapshot,
         inPane paneId: PaneID,
@@ -587,9 +588,9 @@ extension DockSplitStore {
         if let managedResumeBinding {
             managedAgentResumeBindingsByPanelId[terminal.id] = managedResumeBinding
         }
-        rememberRestoredTerminalScrollback(
+        restoredTerminalScrollbackByPanelId.rememberRestoredScrollback(
             restoredScrollback,
-            panelId: terminal.id,
+            for: terminal.id,
             wasTruncated: restoredScrollback != nil && scrollbackWasTruncated
         )
         terminalStartupRestoreCoordinator.stage(

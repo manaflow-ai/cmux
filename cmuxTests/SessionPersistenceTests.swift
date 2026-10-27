@@ -1554,6 +1554,7 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(resolved, "fallback-value")
     }
 
+    /// A fallback longer than the character cap is stored as that cap.
     func testResolvedSnapshotTerminalScrollbackTruncatesFallback() {
         let oversizedFallback = String(
             repeating: "x",
@@ -1688,6 +1689,7 @@ final class SessionPersistenceTests: XCTestCase {
         let notice = SessionScrollbackReplayStore.truncationNoticeLine()
 
         XCTAssertTrue(contents.hasPrefix(notice + "\n"))
+        XCTAssertFalse(notice.localizedCaseInsensitiveContains("snapshot"))
         XCTAssertTrue(contents.contains(String(repeating: "x", count: 32)))
         XCTAssertEqual(SessionPersistencePolicy.maxScrollbackLinesPerTerminal, 4_000)
         XCTAssertEqual(SessionPersistencePolicy.maxScrollbackCharactersPerTerminal, 400_000)
@@ -1704,6 +1706,7 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(complete.contains("complete output"))
     }
 
+    /// An unsafe restore does not persist fallback scrollback.
     func testResolvedSnapshotTerminalScrollbackSkipsFallbackWhenRestoreIsUnsafe() {
         let resolved = Workspace.resolvedSnapshotTerminalScrollback(
             capturedScrollback: nil,

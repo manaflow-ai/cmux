@@ -1157,7 +1157,11 @@ struct DockSessionPersistenceTests {
             terminal.surface.setNeedsConfirmCloseOverrideForTesting(nil)
         }
         let fallbackScrollback = "persisted idle Dock output"
-        store.restoredTerminalScrollbackByPanelId[panelID] = fallbackScrollback
+        store.restoredTerminalScrollbackByPanelId.rememberRestoredScrollback(
+            fallbackScrollback,
+            for: panelID,
+            wasTruncated: false
+        )
 
         let snapshot = store.sessionSnapshot(includeScrollback: false)
         let panelSnapshot = try #require(

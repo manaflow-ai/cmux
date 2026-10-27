@@ -1,4 +1,5 @@
 import CmuxTerminal
+import CmuxWorkspaces
 import Foundation
 
 extension Workspace {
@@ -46,13 +47,17 @@ extension Workspace {
         await task?.value
     }
 
+    /// Captures the live tail, or the restored fallback, and respawns the placeholder.
+    ///
+    /// `fallbackScrollback` is the cache entry taken before this task waits, so
+    /// its text and truncation stay the pair that was stored together.
     private func prepareRemoteDisconnectPlaceholder(
         surfaceId: UUID,
         token: UUID,
         runtimeSurface: TerminalSurface,
         target: String,
         reconnectCommand: String?,
-        fallbackScrollback: String?,
+        fallbackScrollback: SessionPersistedScrollback?,
         temporaryDirectory: URL
     ) async {
         let capturedScrollback = await runtimeSurface.boundedScreenTailVT(
@@ -71,11 +76,11 @@ extension Workspace {
         if boundedCapture.text?.contains(where: { !$0.isWhitespace }) == true {
             scrollback = boundedCapture.text
             scrollbackWasTruncated = boundedCapture.wasTruncated
-        } else if let fallback = Self.plainTextRemoteDisconnectFallbackScrollback(fallbackScrollback) {
+        } else if let fallback = Self.plainTextRemoteDisconnectFallbackScrollback(fallbackScrollback?.text) {
             scrollback = fallback
             let boundedFallback = SessionPersistencePolicy.persistedScrollback(fallback)
             scrollbackWasTruncated = boundedFallback.wasTruncated
-                || restoredTerminalScrollbackWasTruncatedByPanelId[surfaceId] == true
+                || fallbackScrollback?.wasTruncated == true
         } else {
             scrollback = nil
             scrollbackWasTruncated = false
@@ -127,9 +132,9 @@ extension Workspace {
         pendingRemoteDisconnectReplacementsBySurfaceId.removeValue(forKey: surfaceId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(surfaceId)
         remoteDisconnectPlaceholderPanelIds.insert(surfaceId)
-        rememberRestoredTerminalScrollback(
+        restoredTerminalScrollbackByPanelId.rememberRestoredScrollback(
             scrollback,
-            panelId: surfaceId,
+            for: surfaceId,
             wasTruncated: scrollbackWasTruncated
         )
     }

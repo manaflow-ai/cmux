@@ -224,6 +224,7 @@ extension DockSplitStore {
         return result
     }
 
+    /// Builds one Dock panel's session snapshot, including bounded scrollback and its truncation marker.
     private func sessionPanelSnapshot(
         panelId: UUID,
         includeScrollback: Bool,
@@ -337,17 +338,18 @@ extension DockSplitStore {
                     lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal + 1
                 )
                 : nil
+            let storedFallback = restoredTerminalScrollbackByPanelId[panelId]
             let persistedScrollback = SessionPersistencePolicy.persistedSnapshotScrollback(
                 capturedScrollback: capturedScrollback,
-                fallbackScrollback: restoredTerminalScrollbackByPanelId[panelId],
-                fallbackWasTruncated: restoredTerminalScrollbackWasTruncatedByPanelId[panelId] == true,
+                fallbackScrollback: storedFallback?.text,
+                fallbackWasTruncated: storedFallback?.wasTruncated == true,
                 allowFallbackScrollback: shouldPersistScrollback
             )
             let scrollback = persistedScrollback.text
             if scrollback != nil {
-                rememberRestoredTerminalScrollback(
+                restoredTerminalScrollbackByPanelId.rememberRestoredScrollback(
                     scrollback,
-                    panelId: panelId,
+                    for: panelId,
                     wasTruncated: persistedScrollback.wasTruncated
                 )
             }
