@@ -3466,6 +3466,42 @@ async fn an_ack_failure_with_mdm_unset_leaves_its_chat_as_before() {
     assert!(alive(harness_pid), "an ack failure with MDM unset ended the agent");
 }
 
+/// Review 2 of #26059: a link that broke while MDM was unset (`ACPMUX_TEST_UNLOGGED_ONCE`) is
+/// reattached by the next request, and the broken link's notice arrives late
+/// (`ACPMUX_TEST_LINK_BROKEN_DELAY_MS`), after MDM turned full access off. It leaves the reattached
+/// link's open requests alone: a prompt in flight is answered by its agent.
+#[tokio::test]
+async fn a_late_notice_of_a_reattached_link_leaves_its_requests_alone() {
+    let env = [
+        ("ACPMUX_TEST_UNLOGGED_ONCE", "unheard-marker"),
+        ("ACPMUX_TEST_LINK_BROKEN_DELAY_MS", "5000"),
+    ];
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let (daemon, mut rpc) = proven_daemon("mdmlatebreak", fake, &env).await;
+    let session = new_session(&daemon).await;
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
+    // The harness reports an option whose entry is not logged: the link breaks.
+    let mut first = daemon.rpc().await;
+    let breaks = json!({"sessionId": session,
+                        "prompt": [{"type": "text", "text": "set-option: unheard-marker on"}]});
+    first.send("session/prompt", breaks).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    // The next request reattaches the host, with MDM unset.
+    rpc.reply("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    // A prompt in flight on the reattached link when the old link's notice arrives.
+    let held = json!({"sessionId": session,
+                      "prompt": [{"type": "text", "text": "set-mode-hold: 6000 normal"}]});
+    let answered = tokio::time::timeout(Duration::from_secs(25), rpc.reply("session/prompt", held))
+        .await
+        .expect("the prompt was answered");
+    assert_eq!(
+        answered["result"]["stopReason"], "end_turn",
+        "a late notice of the old link failed a request on the reattached one: {answered}"
+    );
+}
+
 /// Review 68 of #23322: a host link whose acknowledgement failed (the debug seam
 /// `ACPMUX_TEST_ACK_FAILS_ONCE`) stops its reader while its socket may still look open. Under
 /// MDM's off what the host reports from then on is not heard, so the agent ends at once, before

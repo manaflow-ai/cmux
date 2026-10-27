@@ -1681,6 +1681,17 @@ impl ChildAgent {
                     // Open requests stay open; the next request reattaches.
                     tracing::warn!(agent = %reader.name, "agent host entry {h} not logged; acks stop");
                     hosted.broken.store(true, Ordering::SeqCst);
+                    // Debug builds only: `ACPMUX_TEST_LINK_BROKEN_DELAY_MS` holds the notice of a
+                    // broken link before it is sent, as a busy inbound loop does, so the daemon's
+                    // integration tests can reattach the link first. Bounded; release builds have
+                    // no seam.
+                    #[cfg(debug_assertions)]
+                    if let Some(ms) = std::env::var("ACPMUX_TEST_LINK_BROKEN_DELAY_MS")
+                        .ok()
+                        .and_then(|v| v.parse::<u64>().ok())
+                    {
+                        tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
+                    }
                     let _ =
                         hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
                     return;
