@@ -120,3 +120,50 @@ test("a Find jump stays on its match when the transcript measures again before t
     await act(async () => root.unmount());
   }
 });
+
+for (const mode of ["find", "count"] as const) {
+  test(`manual input cancels a pending ${mode} reveal before its row arrives`, async () => {
+    const rows = turnView(turns, new Set());
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const late = row("late-answer", "assistant", "Late answer.\n\n".repeat(30));
+    const find: ChatFind = {
+      open: true,
+      query: "Late answer",
+      matches: [{ rowIndex: rows.length, rowId: late.id, occurrence: 0 }],
+      active: 0,
+      show: noop,
+      hide: noop,
+      setQuery: noop,
+      next: noop,
+      previous: noop,
+      focusRequest: 1,
+    };
+    const render = (shown: AcpmuxRow[], key = 1) =>
+      root.render(
+        <VirtualTranscript
+          rows={shown}
+          onToggleActivity={noop}
+          expanded={new Set()}
+          find={mode === "find" ? { ...find, query: key === 1 ? "Late answer" : "Late" } : undefined}
+          reveal={mode === "count" ? { rowId: late.id, key, toolId: "late" } : undefined}
+        />,
+      );
+    try {
+      await act(async () => render(rows));
+      const node = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      await act(async () => {
+        node.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -80 }));
+        node.scrollTop -= 80;
+        node.dispatchEvent(new dom.window.Event("scroll", { bubbles: true }));
+      });
+      const parked = node.scrollTop;
+      await act(async () => render([...rows, late]));
+      expect(node.scrollTop).toBe(parked);
+      // A new explicit request remains usable within the same input hold.
+      await act(async () => render([...rows, late], 2));
+      expect(node.scrollTop).toBeGreaterThan(parked);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+}

@@ -48,11 +48,11 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
             let source = readFileSync(process.env.CMUX_PARKED_SOURCE ?? id, "utf8");
             const inserts = [
               [
-                "const top = scrollAnchorBase(live, scrolledTo.current.top, readerLeft);",
+                "const top = scrollAnchorBase(live, scrolledTo.current.top, readerLeft || userScrollIntent(node).isHeld());",
                 'globalThis.__geometry?.("anchor-base", {live, stored: scrolledTo.current.top, top, readerLeft});',
               ],
               [
-                "anchorTop: top,\n        });",
+                "anchorTop: top + (anchorCorrection.current?.top === top ? anchorCorrection.current.remainder : 0),\n        });",
                 'globalThis.__geometry?.("anchor-correction", {top, nextTop, live: node.scrollTop});',
               ],
               ["followingRef.current = next;", 'globalThis.__probe?.("follow", next);'],
