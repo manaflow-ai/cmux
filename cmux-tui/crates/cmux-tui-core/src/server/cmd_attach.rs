@@ -31,6 +31,7 @@ use super::encode_browser_attach_update;
 use super::get_surface;
 use super::handle_attach_send_error;
 use super::kick_client;
+use super::kick_terminal_views;
 use super::mark_client_attached;
 use super::own_view_detach_target;
 use super::render_state_message;
@@ -41,6 +42,7 @@ use super::send_encoded_browser_attach_update;
 use super::spawn_attach_notification_stream;
 use super::terminal_colors_json;
 use super::terminal_snapshot;
+use super::terminal_views_kick_target;
 use super::wait_for_initial_browser_resize;
 use crate::Mux;
 use crate::RenderAttachFrame;
@@ -92,6 +94,14 @@ pub(super) fn detach_client(
             &detached_event_json(placement, &notice, Some(&view)),
         );
         return Ok(json!({}));
+    }
+    if let Some((owner, views)) = terminal_views_kick_target(mux, &target, surface)
+        && owner != client
+    {
+        // One terminal's views of an app leave; the app's connection and its
+        // other terminals stay.
+        kick_terminal_views(mux, owner, &views, by);
+        return Ok(json!({"scope": "terminal"}));
     }
     let target_client = match &target {
         DetachClientTarget::Client(target) => Some(*target),

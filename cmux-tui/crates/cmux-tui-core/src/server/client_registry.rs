@@ -27,6 +27,7 @@ use super::ResourceWorkerAdmissionError;
 use super::ResourceWorkerPermit;
 use super::SHARED_SIZING_CAPABILITY;
 use super::SIZING_VIEW_DETACH_CAPABILITY;
+use super::SizeStateReader;
 use super::TERMINAL_COLOR_OVERRIDES_CAPABILITY;
 use super::TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY;
 use super::TERMINAL_PENDING_SEQUENCE_CAPABILITY;
@@ -784,6 +785,7 @@ impl ClientRegistry {
         surface: SurfaceId,
         runtime: SurfaceId,
         size_state: &TerminalSizingState,
+        scheme: crate::mux::ParticipantScheme,
     ) {
         let targets = {
             let state = self.state.lock().recover_poison();
@@ -801,15 +803,15 @@ impl ClientRegistry {
                     }
                     let open = record.capabilities.contains(OPEN_DEVICE_KINDS_CAPABILITY);
                     Some((
-                        (*client, open),
+                        SizeStateReader { client: *client, open, scheme },
                         record.writer.clone(),
                         Self::event_streams(record, surface),
                     ))
                 })
                 .collect::<Vec<_>>()
         };
-        for (client, writer, streams) in targets {
-            let event = size_state_event_json(surface, runtime, size_state, Some(client));
+        for (reader, writer, streams) in targets {
+            let event = size_state_event_json(surface, runtime, size_state, Some(reader));
             for stream in streams {
                 let _ = writer.send_stream(&event, &stream);
             }
