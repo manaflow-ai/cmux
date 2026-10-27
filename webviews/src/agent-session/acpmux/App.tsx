@@ -9239,7 +9239,10 @@ function AcpmuxPane() {
             environments={preview}
             onBrowseFolder={
               canMove
-                ? () => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd)
+                ? () =>
+                    callNative<{ cwd?: string }>("project.browse")
+                      .then((result) => result?.cwd)
+                      .catch(() => undefined)
                 : undefined
             }
             // A started local chat's folder is fixed (Leo 2026-10-13): its folder menu starts a new chat
