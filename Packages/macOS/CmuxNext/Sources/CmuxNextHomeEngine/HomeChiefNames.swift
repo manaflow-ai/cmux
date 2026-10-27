@@ -101,6 +101,18 @@ public nonisolated struct HomeLocalChiefRename: Hashable, Sendable {
         "home-chief-rename-\(chief)-\(unique)"
     }
 
+    /// Saves the rename on `connection`, the app's trusted connection to this Mac's Chief owner.
+    /// Nil when saved, else why not.
+    public func send(over connection: DaemonConnection) async -> HomeChiefRenameFailure? {
+        do {
+            _ = try await ResourceRelayClient(connection: connection).send(operation: operation, params: params,
+                                                                           idempotencyKey: idempotencyKey())
+            return nil
+        } catch {
+            return Self.failure(error)
+        }
+    }
+
     /// The card's reason for an error of the owner call.
     public static func failure(_ error: any Error) -> HomeChiefRenameFailure {
         guard case DaemonError.command(_, let message, let code, let details, _) = error else { return .noConnection }

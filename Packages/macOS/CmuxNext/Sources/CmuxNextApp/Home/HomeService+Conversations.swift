@@ -239,14 +239,7 @@ extension HomeService {
         let participants = homeStore.summary(conversation)?.participants ?? []
         let owned = homeInbox.rows?.first { $0.id == conversation.rawValue }?.chief
         guard let chief = owned ?? Self.soleChief(of: participants) else { return .notFound }
-        let rename = HomeLocalChiefRename(chief: chief, name: name)
-        do {
-            _ = try await ResourceRelayClient(connection: connection).send(
-                operation: rename.operation, params: rename.params, idempotencyKey: rename.idempotencyKey())
-            return nil
-        } catch {
-            return HomeLocalChiefRename.failure(error)
-        }
+        return await HomeLocalChiefRename(chief: chief, name: name).send(over: connection)
     }
 
     /// Each listed Chief's avatar as its Home row, header and bubbles draw it: its own picture or
