@@ -355,8 +355,7 @@ PROTECTED_EVENTS = frozenset({"merge_group", "release", "create", "delete", "dep
 # Long-lived branches whose pushes are the base other work merges onto, like
 # main's: no pull request ever has their head, so a push there would otherwise
 # read as stale (lost_pr_state()).
-NEXT_BRANCH = "feat-cmux-next"
-PROTECTED_PUSH_BRANCHES = frozenset({"main", NEXT_BRANCH})
+PROTECTED_PUSH_BRANCHES = frozenset({"main", "feat-cmux-next"})
 MAIN_ONLY_EVENTS = frozenset({"schedule", "workflow_dispatch", "repository_dispatch"})
 PROTECTED_WORKFLOW = re.compile(r"release|nightly|testflight|app[-_ ]?store|appstore|publish|notar", re.IGNORECASE)
 TAG_LIKE_REF = re.compile(r"^(v\d|cmux-tui-v\d|.*-v\d+\.\d+)")
@@ -432,19 +431,9 @@ def linux_only_workflow_paths(workflows_dir: Path) -> frozenset[str]:
     return frozenset(paths)
 
 
-def needs_jobs(run: Mapping[str, Any], linux_only_paths: frozenset[str], now: dt.datetime,
-               next_linux_only: frozenset[str] = frozenset()) -> bool:
-    """Whether a run's jobs are worth one API call this sweep.
-
-    `next_linux_only` is linux_only_workflow_paths() of feat-cmux-next's workflow files
-    (ci-queue-janitor.yml checks them out beside main's): a run that follows that branch's copy
-    (follows_another_copy()) of a workflow that cannot schedule a macOS job there is not listed
-    either. About 10% of every sweep's job listings at 06:30Z on 2026-10-27 (22 of 226: gallery,
-    TUI, Rust and fast-gate runs into feat-cmux-next), on the cmux-bot installation's 5000 an hour,
-    which ran out five hours in a row that night. A run whose target is unknown is still listed."""
+def needs_jobs(run: Mapping[str, Any], linux_only_paths: frozenset[str], now: dt.datetime) -> bool:
+    """Whether a run's jobs are worth one API call this sweep."""
     if run.get("path") in linux_only_paths and not follows_another_copy(run):
-        return False
-    if run.get("path") in next_linux_only and run_target_branch(run) == NEXT_BRANCH:
         return False
     if run.get("event") in PROTECTED_EVENTS - {"merge_group"}:
         # Deployment/tag bookkeeping never holds pool capacity worth counting.
@@ -2626,7 +2615,8 @@ def request_kind(method: str, path: str, repo: str) -> str:
 
 
 def rest_line(kinds: Mapping[str, int]) -> str:
-    """`REST by kind: GET /actions/runs/{id}/jobs 226, ...`, most first, for measuring a sweep from its log."""
+    """`REST by kind: GET /actions/runs/{id}/jobs 285, ...`, most first: what a sweep spent on the
+    cmux-bot installation's 5000 an hour (it ran out five hours in a row on 2026-10-27), by endpoint."""
     return "REST by kind: " + (", ".join(f"{kind} {count}" for kind, count in
                                          sorted(kinds.items(), key=lambda item: (-item[1], item[0]))) or "none")
 
@@ -2913,8 +2903,7 @@ class _Transient(Exception):
 
 
 def read_run_jobs(github: GitHub, runs: Sequence[Mapping[str, Any]], linux_only: frozenset[str],
-                  now: dt.datetime, next_linux_only: frozenset[str] = frozenset(),
-                  ) -> tuple[dict[int, list[dict[str, Any]]], set[int]]:
+                  now: dt.datetime) -> tuple[dict[int, list[dict[str, Any]]], set[int]]:
     """({run id: jobs} for the runs needs_jobs() lists, the ids whose listing failed).
 
     One run's failed listing skips that run, not the sweep (a rate limit still ends it): the sweep
@@ -2922,7 +2911,7 @@ def read_run_jobs(github: GitHub, runs: Sequence[Mapping[str, Any]], linux_only:
     jobs_by_run: dict[int, list[dict[str, Any]]] = {}
     unread: set[int] = set()
     for run in runs:
-        if not needs_jobs(run, linux_only, now, next_linux_only):
+        if not needs_jobs(run, linux_only, now):
             continue
         try:
             jobs_by_run[run["id"]] = github.jobs(run["id"])
@@ -2946,9 +2935,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--max-orphan-cancels", type=int, default=None)
     parser.add_argument("--workflows-dir", type=Path,
                         default=Path(__file__).resolve().parents[2] / ".github" / "workflows")
-    parser.add_argument("--next-workflows-dir", type=Path, default=(
-        Path(os.environ["NEXT_WORKFLOWS_DIR"]) if os.environ.get("NEXT_WORKFLOWS_DIR") else None),
-        help="feat-cmux-next's .github/workflows, for its Linux-only workflows (needs_jobs())")
     parser.add_argument("--pool-load", type=Path, default=(
         Path(os.environ["POOL_LOAD_OUT"]) if os.environ.get("POOL_LOAD_OUT") else None),
         help="write this sweep's per-pool macOS demand here as JSON")
@@ -2986,11 +2972,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     github = GitHub(token, args.repo, fallback_token=os.environ.get("GH_FALLBACK_TOKEN") or "")
     now = utc_now()
     linux_only = linux_only_workflow_paths(args.workflows_dir)
-    # Missing (a fork, or the checkout failed): every feat-cmux-next run is listed, as before.
-    next_linux_only = linux_only_workflow_paths(args.next_workflows_dir) if args.next_workflows_dir else frozenset()
     try:
         runs = github.in_flight_runs()
-        jobs_by_run, unread = read_run_jobs(github, runs, linux_only, now, next_linux_only)
+        jobs_by_run, unread = read_run_jobs(github, runs, linux_only, now)
         # A run whose jobs could not be read: the snapshot below is still written from every other run,
         # and then the sweep decides nothing (no cancel, re-run or orphan), since a partial inventory
         # misjudges the others too (a newer run at the same head, the pool's wait p90).
