@@ -303,7 +303,9 @@ pub(super) fn create_terminal(
             keep,
             identity: (registry_id, generation),
         };
-        let _ = async_start;
+        if async_start && create.may_start_after_reply(mux, client) {
+            return create.admit(mux);
+        }
         create.run(mux)
     } else {
         let (workspace, key) = resolved?;
