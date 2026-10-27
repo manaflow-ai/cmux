@@ -133,13 +133,14 @@ D8_SURFACES = ("terminal", "agent-composer-chromium", "chromium-page-scroll")
 D8_SPLIT_SPRING = ("split-spring pane motion (0 dropped frames at 120 Hz, saver off and always): not measured, "
                    "split-spring-terminal.py cannot set energy.saver yet")
 D9_BINARIES = ("idle_wakeups", "daemon_idle")
-# D9 on Linux: each idle test binary through plain `cargo test` (libtest output), both run even when the first fails.
+# D9 on Linux: each idle test binary through plain `cargo test` (libtest output), both run even when the first fails,
+# with umask 022 as cmux-tui-rust-check.sh (acpmux refuses a home other users may write).
 # Each is built first (--no-run), so its run alone is bounded: a test that blocks forever ends the binary at
 # D9_LINUX_TIMEOUT_S (exit 124), its unfinished tests named as hung, instead of holding the step and the box.
 D9_LINUX_TESTS = (("cmux-tui", "idle_wakeups"), ("acpmux", "daemon_idle"))
 D9_LINUX_TIMEOUT_S = 600
 TIMEOUT_EXITS = (124, 137)  # timeout(1): the time limit, or its -k kill after it
-D9_LINUX_SCRIPT = "cd cmux-tui && rc=0; " + " ".join(
+D9_LINUX_SCRIPT = "umask 022; cd cmux-tui && rc=0; " + " ".join(
     f"{{ cargo test --locked -p {crate} --test {binary} --no-run && timeout -k 30 {D9_LINUX_TIMEOUT_S} "
     f"cargo test --locked -p {crate} --test {binary}; }} || rc=$?;" for crate, binary in D9_LINUX_TESTS) + " exit $rc"
 # Pins a Testbox (an exact checkout of main once warmed) to the measured commit, as blacksmith-testbox-demo.sh does:

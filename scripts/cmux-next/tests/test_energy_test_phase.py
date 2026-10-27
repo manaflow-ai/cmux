@@ -259,7 +259,7 @@ class CommandLineTests(unittest.TestCase):
     def test_without_a_linux_host_the_linux_step_is_skipped_but_printed(self):
         _, text = dry_run("--checks", "D9")
         self.assertIn("# rust-idle-linux (D9): skipped, needs --linux-testbox TBX", text)
-        self.assertIn("blacksmith testbox run --id TBX 'cd cmux-tui && rc=0; { cargo test --locked -p cmux-tui", text)
+        self.assertIn("blacksmith testbox run --id TBX 'umask 022; cd cmux-tui && rc=0; { cargo test --locked -p cmux-tui", text)
 
     def test_linux_local_runs_cargo_only_on_a_linux_checkout_at_the_ref(self):
         saved = phase.IS_LINUX
@@ -267,7 +267,7 @@ class CommandLineTests(unittest.TestCase):
             phase.IS_LINUX = False
             _, text = dry_run("--checks", "D9", "--linux-local")
             self.assertIn("# rust-idle-linux (D9): skipped, --linux-local runs cargo on this host, which is not Linux", text)
-            self.assertIn("bash -c 'cd cmux-tui && rc=0; { cargo test --locked -p cmux-tui --test idle_wakeups --no-run", text)
+            self.assertIn("bash -c 'umask 022; cd cmux-tui && rc=0; { cargo test --locked -p cmux-tui --test idle_wakeups --no-run", text)
             phase.IS_LINUX = True
             self.assertIn(f"not --ref {SHA[:12]}", phase.linux_local_problem(SHA))  # this checkout is not at SHA
         finally:

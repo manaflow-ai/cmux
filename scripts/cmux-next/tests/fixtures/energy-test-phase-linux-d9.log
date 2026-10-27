@@ -1,4 +1,4 @@
-$ bash -c 'cd cmux-tui && rc=0; { cargo test --locked -p cmux-tui --test idle_wakeups --no-run && timeout -k 30 600 cargo test --locked -p cmux-tui --test idle_wakeups; } || rc=$?; { cargo test --locked -p acpmux --test daemon_idle --no-run && timeout -k 30 600 cargo test --locked -p acpmux --test daemon_idle; } || rc=$?; exit $rc'
+$ bash -c 'umask 022; cd cmux-tui && rc=0; { cargo test --locked -p cmux-tui --test idle_wakeups --no-run && timeout -k 30 600 cargo test --locked -p cmux-tui --test idle_wakeups; } || rc=$?; { cargo test --locked -p acpmux --test daemon_idle --no-run && timeout -k 30 600 cargo test --locked -p acpmux --test daemon_idle; } || rc=$?; exit $rc'
    Compiling cmux-tui v1.0.0 (/work/cmux/cmux-tui/crates/cmux-tui)
     Finished `test` profile [optimized + debuginfo] target(s) in 1m 43s
   Executable tests/idle_wakeups.rs (/work/tmp/cargo/target/debug/deps/idle_wakeups-403b34695df82888)
