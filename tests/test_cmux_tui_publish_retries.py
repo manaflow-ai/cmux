@@ -62,7 +62,9 @@ class PublishRetries(unittest.TestCase):
                 self.assertRegex(str(backoff.get("run", "")), rf"gh_budget_wait\.sh --backoff {index}\b")
                 env = backoff.get("env", {})
                 # Without a token the backoff cannot read the reset and the next try hits the same limit.
-                self.assertEqual(env.get("GH_TOKEN"), "${{ github.token }}", f"{job_name}: the backoff reads the budget with the job's token")
+                # It reads the budget the tries spend: the release App's when its token minted.
+                self.assertEqual(env.get("GH_TOKEN"), "${{ steps.attest_app_token.outputs.token || github.token }}",
+                                 f"{job_name}: the backoff reads the budget with the attestation's token")
                 self.assertLessEqual(int(env.get("GH_BUDGET_WAIT_MAX_SECONDS", "3600")), 900, f"{job_name}: the backoffs wait 15 minutes at most in all")
             self.assertFalse(last.get("continue-on-error"), f"{job_name}: the last try must pass; nothing ships without provenance")
             self.assertGreaterEqual(

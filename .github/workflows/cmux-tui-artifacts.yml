@@ -1582,6 +1582,10 @@ jobs:
       # publish-windows runs these same steps (the publish-steps anchor) once
       # build-windows is done; this run's Windows build usually ends later.
       CMUX_TUI_PUBLISH_PASS: unix
+      # Whether the release App credentials are in the artifacts environment
+      # (a step's if cannot read secrets). The attestation tries use the App's
+      # token when it mints, else github.token.
+      CMUX_RELEASE_APP_CONFIGURED: ${{ secrets.CMUX_RELEASE_APP_ID != '' && secrets.CMUX_RELEASE_APP_KEY != '' }}
     steps: &publish-steps
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1935,11 +1939,30 @@ jobs:
       # reads a budget exhausted, else 60, 120 and 240 s for the secondary limit,
       # at most 15 minutes in all. The last try is not continue-on-error, so no
       # binary is published without provenance.
+      # The attestation writes through the release App's installation token when
+      # it mints, so they spend the App's own rate budget, not the github.token
+      # installation budget the rest of the run shares (tree publishes failed
+      # with "API rate limit exceeded for installation"). The mint asks only for
+      # attestations:write; when it fails (the App lacks that permission) or the
+      # credentials are absent, every try uses github.token as before.
+      - name: Mint the release App token for the attestation
+        id: attest_app_token
+        if: env.CMUX_RELEASE_APP_CONFIGURED == 'true'
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-attestations: write
+
       - name: Attest raw binary subjects
         id: attest_subjects
         continue-on-error: true
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with: &attest-subjects
+          github-token: ${{ steps.attest_app_token.outputs.token || github.token }}
           subject-path: |
             assets/cmux-tui/cmux-tui-*
             assets/cmux-tui/manifest.json
@@ -1957,7 +1980,8 @@ jobs:
       - name: Back off before the second attestation try
         if: steps.attest_subjects.outcome == 'failure'
         env: &attest-backoff-env
-          GH_TOKEN: ${{ github.token }}
+          # The budget the attestation spends: the App's when its token minted.
+          GH_TOKEN: ${{ steps.attest_app_token.outputs.token || github.token }}
           GH_BUDGET_WAIT_MAX_SECONDS: "900"
         run: bash scripts/ci/gh_budget_wait.sh --backoff 1 "the attestation"
 
@@ -2400,6 +2424,10 @@ jobs:
       attestations: write
     env:
       CMUX_TUI_PUBLISH_PASS: windows
+      # Whether the release App credentials are in the artifacts environment
+      # (a step's if cannot read secrets). The attestation tries use the App's
+      # token when it mints, else github.token.
+      CMUX_RELEASE_APP_CONFIGURED: ${{ secrets.CMUX_RELEASE_APP_ID != '' && secrets.CMUX_RELEASE_APP_KEY != '' }}
     steps: *publish-steps
 
   # The source-addressed copy cmux-next dev, tagged and nightly builds fetch
