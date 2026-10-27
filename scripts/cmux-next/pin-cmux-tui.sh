@@ -396,8 +396,8 @@ github_api() {
 # commit has tree <key>, nothing when the runs list has none, or "unknown" when
 # the runs list cannot be read (rate limit, network, an unparsable body): a
 # caller that fails fast on "no publisher" must not read a failed read as none.
-# A commit missing locally is fetched once (depth 1, best effort); one it
-# cannot read does not count.
+# A commit missing locally is fetched once (best effort; depth 1 only in a
+# shallow clone, so a full clone stays full); one it cannot read does not count.
 active_publisher_for_key() {
   local key="$1" body candidate depth=()
   body="$(github_api GET "actions/workflows/cmux-tui-artifacts.yml/runs?per_page=50" 2>/dev/null)" || {

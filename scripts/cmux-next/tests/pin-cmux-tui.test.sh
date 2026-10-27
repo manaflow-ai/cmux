@@ -82,6 +82,39 @@ not_shallow "before the unpushed commit"
 out=$(run "$TMP/job")
 grep -q 'on no remote branch' <<<"$out" || { printf 'an unpushed commit was not refused:\n%s\n' "$out" >&2; exit 1; }
 
+# A same-tree run whose commit neither this clone nor origin has is fetched from
+# the public repository, and that fetch keeps a full clone full (it once passed
+# --depth=1, which made the clone shallow and so skipped the refusal above). A
+# stub curl answers the runs list with one active run on that commit.
+git_q clone --bare "$TMP/origin.git" "$TMP/public.git"
+git_q clone "$TMP/public.git" "$TMP/public-work"
+echo elsewhere > "$TMP/public-work/cmux-tui/a"
+git_q -C "$TMP/public-work" add cmux-tui/a
+git_q -C "$TMP/public-work" commit -m "a commit only the public repository has"
+git_q -C "$TMP/public-work" push origin HEAD:refs/heads/other
+public_only=$(git -C "$TMP/public-work" rev-parse HEAD)
+git_q clone "$TMP/origin.git" "$TMP/full"
+git -C "$TMP/full" cat-file -e "$public_only^{commit}" 2>/dev/null && { echo "setup: the full clone already has the run commit" >&2; exit 1; }
+mkdir -p "$TMP/bin"
+cat > "$TMP/bin/curl" <<'STUB'
+#!/usr/bin/env bash
+for arg; do url="$arg"; done
+case "$url" in
+  */actions/workflows/cmux-tui-artifacts.yml/runs\?head_sha=*) echo '{"workflow_runs": []}' ;;
+  */actions/workflows/cmux-tui-artifacts.yml/runs\?per_page=*)
+    printf '{"workflow_runs": [{"status": "in_progress", "head_sha": "%s"}]}\n' "$STUB_RUN_SHA" ;;
+  *) exit 7 ;;
+esac
+STUB
+chmod +x "$TMP/bin/curl"
+out=$(cd "$TMP/full" && PATH="$TMP/bin:$PATH" STUB_RUN_SHA="$public_only" "${offline[@]}" \
+  CMUX_TUI_PUBLIC_GIT_URL="file://$TMP/public.git" bash scripts/cmux-next/pin-cmux-tui.sh fetch 2>&1) || true
+grep -q 'is not published' <<<"$out" || { printf 'the public-fallback fetch did not reach the published-tree check:\n%s\n' "$out" >&2; exit 1; }
+git -C "$TMP/full" cat-file -e "$public_only^{commit}" 2>/dev/null \
+  || { printf 'the run commit was not fetched from the public repository:\n%s\n' "$out" >&2; exit 1; }
+[[ "$(git -C "$TMP/full" rev-parse --is-shallow-repository)" == false ]] \
+  || { printf 'the public-repository fetch made the full clone shallow:\n%s\n' "$out" >&2; exit 1; }
+
 # Pin mode: the Cloud app server fields go together, and cloud-server-path names
 # the file fetch puts beside the pinned binary (no network).
 pin_dir="$TMP/job/scripts/cmux-next"
