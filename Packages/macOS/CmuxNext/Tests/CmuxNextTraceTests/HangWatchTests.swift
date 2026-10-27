@@ -1,6 +1,7 @@
 import CmuxNextCompat
 @testable import CmuxNextTrace
 import Darwin
+import Foundation
 import Testing
 
 /// The hang-watch slot table and its monitor rule (p02-threads-016, p09-observability 066 and 067's rule),
@@ -336,6 +337,49 @@ import Testing
         #expect(watch.scan(nowNanos: now.nanos).overdue.map(\.name) == ["test.next"])
         scope.close()
         #expect(watch.watch(old, deadline: .milliseconds(1)) { 5 } == 5)
+    }
+
+    /// `begin` and `end` (a C hook's frame begin and end, p09-observability-120): one unnested scope, reported
+    /// with the registration's subject; a second begin replaces the first, so one end closes it.
+    @Test func beginAndEndAreOneUnnestedScopeWithTheSubject() {
+        let (watch, now, _) = Self.monitored()
+        let thread = watch.registerThread(.renderer, name: "test.renderer", subject: 0xABC)
+        #expect(watch.isMonitored)
+        watch.begin(thread, deadline: .milliseconds(500))
+        now.advance(.milliseconds(2_600))
+        let overdue = watch.scan(nowNanos: now.nanos).overdue
+        #expect(overdue.map(\.name) == ["test.renderer"])
+        #expect(overdue.first?.tier == .hang)
+        #expect(overdue.first?.kind == .renderer)
+        #expect(overdue.first?.subject == 0xABC)
+        watch.end(thread)
+        #expect(overdue.first.map(watch.isStillOpen) == false)
+
+        watch.begin(thread, deadline: .milliseconds(500))
+        watch.begin(thread, deadline: .milliseconds(500)) // its end never came: no nesting
+        watch.end(thread)
+        now.advance(.seconds(5))
+        #expect(watch.scan(nowNanos: now.nanos).overdue.isEmpty, "one end closed both begins")
+        watch.end(thread) // an end with nothing open leaves the slot closed
+        now.advance(.seconds(5))
+        #expect(watch.scan(nowNanos: now.nanos).overdue.isEmpty)
+        #expect(HangWatch.Registration(packed: thread.packed) == thread)
+        #expect(watch.registerLane("test.lane").packed != 0)
+    }
+
+    /// On a thread's slot, `begin` and `end` from another thread do nothing: the stack sample would be the
+    /// wrong thread's (a Ghostty frame drawn on the main thread).
+    @Test func beginFromAnotherThreadThanTheSlotsDoesNothing() async {
+        let (watch, now, _) = Self.monitored()
+        let thread = watch.registerThread(.renderer, name: "test.renderer")
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            Thread {
+                watch.begin(thread, deadline: .milliseconds(100))
+                done.resume()
+            }.start()
+        }
+        now.advance(.seconds(5))
+        #expect(watch.scan(nowNanos: now.nanos).overdue.isEmpty)
     }
 
     @Test func aDetachedMonitorIsNeverWoken() {

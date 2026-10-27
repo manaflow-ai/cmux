@@ -7,6 +7,7 @@ import CmuxNextMetrics
 @testable import CmuxNextWakeups
 import Darwin
 import Dispatch
+import Foundation
 import Testing
 
 /// The Ghostty trace hook (p09-observability-049): `ghostty.render` around a frame, `frame.gpu_done` at its GPU
@@ -60,9 +61,9 @@ struct GhosttyTraceHookTests {
         let key: TypingLatencyProbe.SurfaceKey
 
         init(trace: TraceRuntime, probe: TypingLatencyProbe, heard: Heard? = nil, gate: TerminalContentsGate = TerminalContentsGate(),
-             echoStage: TerminalEchoStage? = nil) {
+             echoStage: TerminalEchoStage? = nil, hangWatch: HangWatch? = nil) {
             let installed = Installed()
-            hook = GhosttyTraceHook(gate: gate, trace: trace, probe: probe, setter: { callback, context in
+            hook = GhosttyTraceHook(gate: gate, trace: trace, probe: probe, hangWatch: hangWatch, setter: { callback, context in
                 installed.callback = callback
                 installed.context = context
                 installed.calls += 1
@@ -89,6 +90,44 @@ struct GhosttyTraceHookTests {
             let surface = UInt64(UInt(bitPattern: Unmanaged.passUnretained(bridge).toOpaque()))
             installed.callback?(installed.context, event.rawValue, surface, seq)
         }
+
+        /// This surface's hook calls as its renderer thread makes them, from any thread; nil while the hook is unset.
+        var renderer: RendererCalls? {
+            guard installed.callback != nil, let context = installed.context else { return nil }
+            return RendererCalls(context: UInt(bitPattern: context),
+                                 surface: UInt64(UInt(bitPattern: Unmanaged.passUnretained(bridge).toOpaque())))
+        }
+    }
+
+    /// What a renderer thread saw while it was stuck in a frame, then after the frame's end.
+    nonisolated struct RendererSeen: Sendable {
+        let hung: [HangWatch.Overdue]
+        let port: UInt32
+        let afterEnd: Int
+    }
+
+    /// One surface's hook calls, made on the calling thread through the installed hook (``ghosttyTraceHook``).
+    nonisolated struct RendererCalls: Sendable {
+        let context: UInt
+        let surface: UInt64
+
+        func callAsFunction(_ event: GhosttyTraceHook.Event, seq: UInt64) {
+            ghosttyTraceHook(UnsafeMutableRawPointer(bitPattern: context), event.rawValue, surface, seq)
+        }
+    }
+
+    /// Runs `body` on a thread of its own (a Ghostty renderer thread stand-in) and returns what it returns.
+    nonisolated static func onRendererThread<T: Sendable>(_ body: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { continuation in
+            Thread { continuation.resume(returning: body()) }.start()
+        }
+    }
+
+    /// A slot table with a monitor attached (it never runs: the tests scan it themselves).
+    nonisolated static func monitoredHangWatch() -> HangWatch {
+        let watch = HangWatch()
+        watch.attachMonitor(wake: {})
+        return watch
     }
 
     /// One key press on `key` whose echo was parsed; returns its flow.
@@ -310,6 +349,87 @@ struct GhosttyTraceHookTests {
         trace.setCategoryMask(Self.allCategories)
         unsupported.refreshDemand()
         #expect(!unsupported.isSupported && !unsupported.isInstalled)
+    }
+
+    /// p09-observability-120: a monitored hang watch keeps the hook set, so every renderer frame is watched.
+    @Test func aHangMonitorKeepsTheHookSet() {
+        let trace = TraceRuntime(role: .app)
+        let rig = Rig(trace: trace, probe: TypingLatencyProbe(path: nil, trace: trace), hangWatch: Self.monitoredHangWatch())
+        rig.hook.refreshDemand()
+        #expect(rig.hook.isInstalled)
+    }
+
+    /// p09-observability-120: a renderer thread blocked inside a frame gives one hang, named `ghostty-renderer` with
+    /// the surface's trace id; the frame's end closes it, and the destroy event frees the slot.
+    @Test func aBlockedRendererThreadGivesOneHangNamingItsSurface() async throws {
+        let trace = TraceRuntime(role: .app)
+        let watch = Self.monitoredHangWatch()
+        let rig = Rig(trace: trace, probe: TypingLatencyProbe(path: nil, trace: trace), hangWatch: watch)
+        rig.hook.refreshDemand()
+        let renderer = try #require(rig.renderer)
+
+        let seen = await Self.onRendererThread {
+            renderer(.frameBegin, seq: 1)
+            // The renderer is stuck in frame 1 past its 500 ms budget and the 2 s hang tier after it.
+            let hung = watch.scan(nowNanos: watch.nowNanos() + 3_000_000_000).overdue
+            renderer(.frameEnd, seq: 1)
+            let afterEnd = watch.scan(nowNanos: watch.nowNanos() + 10_000_000_000).overdue.count
+            return RendererSeen(hung: hung, port: UInt32(truncatingIfNeeded: HangWatch.currentPort()), afterEnd: afterEnd)
+        }
+        #expect(seen.hung.count == 1)
+        let hang = try #require(seen.hung.first)
+        #expect(hang.tier == .hang)
+        #expect(hang.name == "ghostty-renderer")
+        #expect(hang.kind == .renderer)
+        #expect(hang.subject == rig.key.traceID)
+        #expect(hang.port == seen.port, "the renderer thread itself is sampled")
+        #expect(seen.afterEnd == 0, "the frame's end closed the scope")
+
+        let slot = rig.bridge.frames.rendererSlot.load(ordering: .relaxed)
+        rig.call(.surfaceDestroy, seq: 0)
+        #expect(rig.bridge.frames.rendererSlot.load(ordering: .relaxed) == GhosttyTraceHook.Surface.rendererGone)
+        let next = watch.registerLane("test.next")
+        #expect(next.slot == HangWatch.Registration(packed: slot).slot, "the destroy event freed the renderer's slot")
+    }
+
+    /// p09-observability-120: a frame drawn on the main thread (a display pass) registers nothing: the main-thread
+    /// watchdog watches it.
+    @Test func aMainThreadFrameRegistersNoRenderer() {
+        let trace = TraceRuntime(role: .app)
+        let rig = Rig(trace: trace, probe: TypingLatencyProbe(path: nil, trace: trace), hangWatch: Self.monitoredHangWatch())
+        rig.hook.refreshDemand()
+        rig.call(.frameBegin, seq: 1)
+        rig.call(.frameEnd, seq: 1)
+        #expect(rig.bridge.frames.rendererSlot.load(ordering: .relaxed) == 0)
+    }
+
+    /// p09-observability-120: once the renderer thread registered, its frames' hang scopes add no allocation.
+    @Test func aWatchedRendererFrameAllocatesNothing() async throws {
+        let trace = TraceRuntime(role: .app)
+        let watch = Self.monitoredHangWatch()
+        let rig = Rig(trace: trace, probe: TypingLatencyProbe(path: nil, trace: trace), hangWatch: watch)
+        rig.hook.refreshDemand()
+        let renderer = try #require(rig.renderer)
+        let counts = await Self.onRendererThread { () -> [Int?] in
+            renderer(.frameBegin, seq: 1) // registers (its slot chunk may be new)
+            renderer(.frameEnd, seq: 1)
+            var sink = 0
+            let control = MallocProbe.allocations { sink += ContiguousArray(repeating: 1, count: 64).count }
+            var seq: UInt64 = 1
+            let baseline = MallocProbe.allocations { for _ in 0..<1_000 { seq += 1 } }
+            let frames = MallocProbe.allocations {
+                for _ in 0..<1_000 {
+                    seq += 1
+                    renderer(.frameBegin, seq: seq)
+                    renderer(.frameEnd, seq: seq)
+                }
+            }
+            return [control, baseline, frames]
+        }
+        try #require((counts[0] ?? 0) > 0, "malloc_logger saw no allocation on this thread: the probe cannot measure here")
+        let baseline = try #require(counts[1])
+        #expect(counts[2] == baseline, "the loop alone made \(baseline)")
+        #expect(rig.bridge.frames.rendererSlot.load(ordering: .relaxed) != 0, "the renderer thread registered")
     }
 
     /// p09-observability-054: the hook turns echo sampling on, sampling keeps the hook set with nothing recording,

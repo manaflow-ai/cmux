@@ -91,9 +91,11 @@ public final class HangWatch: Sendable {
     /// - Parameters:
     ///   - kind: What the thread runs (it picks the default deadline and the report's grouping).
     ///   - name: The thread's name in hang reports (a catalog string, never a person's text).
+    ///   - subject: What the thread works for, in its hang reports (``Overdue/subject``): a Ghostty renderer
+    ///     thread's surface trace id. 0: nothing. An id, never a person's text.
     /// - Returns: The slot; pass it to ``watch(_:deadline:)`` and ``unregister(_:)``.
-    public func registerThread(_ kind: ThreadKind, name: StaticString) -> Registration {
-        register(kind, name: name, port: Self.currentPort())
+    public func registerThread(_ kind: ThreadKind, name: StaticString, subject: UInt64 = 0) -> Registration {
+        register(kind, name: name, port: Self.currentPort(), subject: subject)
     }
 
     /// Registers a serial lane (a dispatch queue or a lane of `BackgroundWork`): its jobs may run on any
@@ -102,8 +104,12 @@ public final class HangWatch: Sendable {
     /// - Parameter name: The lane's name in hang reports.
     /// - Returns: The slot.
     public func registerLane(_ name: StaticString) -> Registration {
-        register(.lane, name: name, port: 0)
+        register(.lane, name: name, port: 0, subject: 0)
     }
+
+    /// Whether a monitor reads the slots (``attachMonitor(wake:)``, not detached since): with none, a scope
+    /// is never reported, so a caller may skip registering.
+    public var isMonitored: Bool { plan.load(ordering: .relaxed) != 0 }
 
     /// Frees a slot (the thread ends or the lane closes); its open scopes are forgotten.
     public func unregister(_ registration: Registration) {
@@ -121,19 +127,38 @@ public final class HangWatch: Sendable {
         guard let live = liveSlot(registration) else {
             return HangWatchScope(registration: registration, previousDeadline: 0, slotAddress: 0, owner: nil)
         }
-        let slot = live.slot
-        if live.state & Self.kindMask == UInt64(ThreadKind.lane.rawValue) {
-            Self.word(slot, Self.portWord).store(Self.currentPort(), ordering: .relaxed)
-        }
-        let (sum, overflow) = clock.nowNanos().addingReportingOverflow(timeoutNanos(deadline, slot: slot))
-        let due = overflow ? Self.deadlineMask : max(min(sum, Self.deadlineMask), 1)
-        // The deadline, then the plan: the monitor stores its scanning mark, then reads the slots, so
-        // either it sees this deadline or this open sees the mark and wakes it. The exchange returns the
-        // enclosing scope with every flag the monitor set on it, up to this instant.
-        let previous = Self.word(slot, Self.deadlineWord).exchange(due, ordering: .sequentiallyConsistent)
-        requestScan(by: due)
-        return HangWatchScope(registration: registration, previousDeadline: previous, slotAddress: UInt(bitPattern: slot),
+        let previous = open(live, deadline: deadline)
+        return HangWatchScope(registration: registration, previousDeadline: previous, slotAddress: UInt(bitPattern: live.slot),
                               owner: self)
+    }
+
+    /// Opens an unnested scope whose open and close are two separate calls, such as a C hook's frame begin
+    /// and end (Ghostty's renderer, p09-observability-120), where no ``HangWatchScope`` can live from one
+    /// call to the next. It replaces any scope open on the slot, so a begin whose end never came does not
+    /// nest the next one; only use it on a slot that ``watch(_:deadline:)`` never opens. On a thread's slot
+    /// (``registerThread(_:name:subject:)``), a call from another thread does nothing: the stack sample would
+    /// be the wrong thread's. Cost: the clock read, one exchange and the plan's load, as ``watch(_:deadline:)``.
+    @inline(__always)
+    public func begin(_ registration: Registration, deadline: Duration) {
+        guard let live = ownSlot(registration) else { return }
+        _ = open(live, deadline: deadline)
+    }
+
+    /// Closes the scope ``begin(_:deadline:)`` opened on `registration`'s slot: one compare-and-swap; with
+    /// no scope open, it leaves the slot closed. From another thread than a thread slot's own, nothing.
+    @inline(__always)
+    public func end(_ registration: Registration) {
+        guard let live = ownSlot(registration) else { return }
+        close(slotAddress: UInt(bitPattern: live.slot), registration: registration, previous: 0)
+    }
+
+    /// The slot while `registration` owns it and, for a thread's slot, the caller is that thread.
+    @inline(__always)
+    private func ownSlot(_ registration: Registration) -> (slot: UnsafeMutablePointer<UInt64>, state: UInt64)? {
+        guard let live = liveSlot(registration) else { return nil }
+        guard live.state & Self.kindMask == UInt64(ThreadKind.lane.rawValue)
+            || Self.word(live.slot, Self.portWord).load(ordering: .relaxed) == Self.currentPort() else { return nil }
+        return live
     }
 
     /// Runs `body` inside a scope on `registration`'s slot.
@@ -165,6 +190,23 @@ public final class HangWatch: Sendable {
     }
 
     // MARK: - Scopes
+
+    /// Stores the deadline of a scope opening on `live`'s slot; returns the packed word it replaced.
+    @inline(__always)
+    private func open(_ live: (slot: UnsafeMutablePointer<UInt64>, state: UInt64), deadline: Duration) -> UInt64 {
+        let slot = live.slot
+        if live.state & Self.kindMask == UInt64(ThreadKind.lane.rawValue) {
+            Self.word(slot, Self.portWord).store(Self.currentPort(), ordering: .relaxed)
+        }
+        let (sum, overflow) = clock.nowNanos().addingReportingOverflow(timeoutNanos(deadline, slot: slot))
+        let due = overflow ? Self.deadlineMask : max(min(sum, Self.deadlineMask), 1)
+        // The deadline, then the plan: the monitor stores its scanning mark, then reads the slots, so
+        // either it sees this deadline or this open sees the mark and wakes it. The exchange returns the
+        // enclosing scope with every flag the monitor set on it, up to this instant.
+        let previous = Self.word(slot, Self.deadlineWord).exchange(due, ordering: .sequentiallyConsistent)
+        requestScan(by: due)
+        return previous
+    }
 
     /// Restores `previous` (the enclosing scope's packed word) when a scope closes. An enclosing scope
     /// keeps its jank and reported flags, so no tier is reported twice, and takes the ignore flag of
@@ -242,7 +284,7 @@ public final class HangWatch: Sendable {
 
     // MARK: - Slots
 
-    private func register(_ kind: ThreadKind, name: StaticString, port: UInt64) -> Registration {
+    private func register(_ kind: ThreadKind, name: StaticString, port: UInt64, subject: UInt64) -> Registration {
         for index in 0..<Self.capacity {
             guard let slot = slot(at: index) ?? addChunk(for: index) else { break }
             let state = Self.word(slot, Self.stateWord)
@@ -255,6 +297,7 @@ public final class HangWatch: Sendable {
                                         ordering: .acquiringAndReleasing).exchanged else { continue }
             Self.word(slot, Self.deadlineWord).store(0, ordering: .relaxed)
             Self.word(slot, Self.nameWord).store(Self.pack(name), ordering: .relaxed)
+            Self.word(slot, Self.subjectWord).store(subject, ordering: .relaxed)
             Self.word(slot, Self.portWord).store(port, ordering: .releasing)
             (slot + Self.timeoutNanosWord).pointee = 0
             var end = claimedEnd.load(ordering: .relaxed)
@@ -312,8 +355,9 @@ public final class HangWatch: Sendable {
     /// 16 words: one 128-byte cache line on Apple silicon.
     static let wordsPerSlot = 16
     // Slot words. The timeout cache (4 to 6) is plain memory of the scope's thread; the last word the
-    // monitor saw (7) is plain memory of the monitor's thread.
+    // monitor saw (7) is plain memory of the monitor's thread; the subject (8) is set at registration.
     static let deadlineWord = 0, portWord = 1, stateWord = 2, nameWord = 3, timeoutWord = 4, timeoutNanosWord = 6, seenWord = 7
+    static let subjectWord = 8
     /// The packed deadline (Chrome's `HangWatchDeadline`): the budget's `CLOCK_UPTIME_RAW` nanoseconds in
     /// the low 60 bits (0: no scope opened yet; 2^60 ns is 36 years of uptime), then the flags.
     static let deadlineMask: UInt64 = 1 << 60 - 1
@@ -396,5 +440,16 @@ extension HangWatch {
         public let slot: UInt32
         /// The slot's generation when it was registered (0: no slot; its scopes watch nothing).
         public let generation: UInt32
+
+        /// The registration in one word, the generation above the slot, for a holder that keeps it in an
+        /// atomic (``init(packed:)`` reads it back). Never 0: a refused registration's slot is `.max`.
+        public var packed: UInt64 { UInt64(generation) << 32 | UInt64(slot) }
+    }
+}
+
+extension HangWatch.Registration {
+    /// The registration whose ``packed`` word is `packed`.
+    public init(packed: UInt64) {
+        self.init(slot: UInt32(truncatingIfNeeded: packed), generation: UInt32(truncatingIfNeeded: packed >> 32))
     }
 }

@@ -42,6 +42,9 @@ extension HangWatch {
         public let port: UInt32
         /// When the scope's budget passed (`CLOCK_UPTIME_RAW` nanoseconds), in both tiers.
         public let deadlineNanos: UInt64
+        /// What the thread works for (``HangWatch/registerThread(_:name:subject:)``): a Ghostty renderer's
+        /// surface trace id; 0: nothing.
+        public let subject: UInt64
         let slot: Int
         let marked: UInt64
     }
@@ -131,7 +134,8 @@ extension HangWatch {
             overdue.append(Overdue(tier: tier, name: Self.unpack(Self.word(slot, Self.nameWord).load(ordering: .relaxed)),
                                    kind: ThreadKind(rawValue: UInt8(truncatingIfNeeded: state & Self.kindMask)),
                                    port: UInt32(truncatingIfNeeded: Self.word(slot, Self.portWord).load(ordering: .relaxed)),
-                                   deadlineNanos: current & Self.deadlineMask, slot: index, marked: marked))
+                                   deadlineNanos: current & Self.deadlineMask,
+                                   subject: Self.word(slot, Self.subjectWord).load(ordering: .relaxed), slot: index, marked: marked))
         }
         let next = changed ? now &+ periodNanos : earliest // `.max`: park
         var final = next

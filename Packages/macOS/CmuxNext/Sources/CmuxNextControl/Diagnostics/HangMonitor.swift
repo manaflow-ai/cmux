@@ -144,6 +144,8 @@ struct HangMonitor {
         let overrun = Duration.nanoseconds(Int64(clamping: overrunNanos))
         var details: [String: JSONValue] = ["scope": .string(overdue.name),
                                             "thread_kind": .string(overdue.kind.map { "\($0)" } ?? "")]
+        // What the thread works for: a Ghostty renderer's surface trace id, as the trace ring's `ghostty.render` arg0.
+        if overdue.subject != 0 { details["subject"] = .string("0x" + String(overdue.subject, radix: 16)) }
         guard overdue.tier == .hang else {
             details["thread"] = .string(MachThreads.name(overdue.port))
             janks.append(startUptimeNanos: overdue.deadlineNanos, duration: overrun, addresses: [], kind: .jank, details: details)
@@ -189,6 +191,7 @@ struct HangMonitor {
         case "daemon.line": return .daemonReader
         case "terminal.feed": return .terminalOutput
         case "lane.files", "lane.system", "lane.cpu": return .backgroundWork
+        case "ghostty-renderer": return .ghosttyRenderer
         default: break
         }
         switch kind {

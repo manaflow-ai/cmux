@@ -1,5 +1,6 @@
 @testable import CmuxNextControl
 import CmuxNextCompat
+import CmuxNextMetrics
 import CmuxNextSettings
 import CmuxNextTrace
 import CmuxNextWakeups
@@ -40,6 +41,26 @@ import Testing
         _ = monitor.service()
         #expect(keys.snapshot().hungThreadCount == 0, "the thread stayed named after its scope ended")
     }
+
+    /// p09-observability-120: a hung Ghostty renderer thread's dump names its surface (the registration's subject)
+    /// and counts in the `ghostty_renderer` lane.
+    @Test func aRendererHangNamesItsSurface() throws {
+        let now = Counter(1_000_000_000)
+        let watch = HangWatch(clock: TraceClock(reader: .init(uptimeNanos: { now.value }, continuousNow: { ContinuousClock.now })))
+        try #require(watch.attachMonitor(wake: {}))
+        let log = HangLog(capacity: 8)
+        var monitor = HangMonitor(source: HangMonitor.Source(watch: watch, crashKeys: nil), log: log, janks: HangLog(capacity: 8), logger: nil,
+                                  intervalNanos: 0, deliver: { _ in })
+        let scope = HeldScope(watch: watch, kind: .renderer, name: "ghostty-renderer", subject: 0xBEEF)
+
+        now.add(2_600_000_000) // past the 100 ms budget and the 2 s hang tier after it
+        _ = monitor.service()
+        scope.close()
+        let record = try #require(log.records().first)
+        #expect(record.details["scope"] == .string("ghostty-renderer"))
+        #expect(record.details["subject"] == .string("0xbeef"))
+        #expect(HangMonitor.lane(name: "ghostty-renderer", kind: .renderer) == .ghosttyRenderer)
+    }
 }
 
 /// A scope opened on a thread of its own, held until ``close()``: the monitor samples a live thread.
@@ -48,10 +69,10 @@ private final class HeldScope: Sendable {
     private let release = DispatchSemaphore(value: 0)
     private let closed = DispatchSemaphore(value: 0)
 
-    init(watch: HangWatch) {
+    init(watch: HangWatch, kind: HangWatch.ThreadKind = .io, name: StaticString = "test.crash_keys", subject: UInt64 = 0) {
         let (opened, release, closed) = (opened, release, closed)
         let thread = Thread {
-            let registration = watch.registerThread(.io, name: "test.crash_keys")
+            let registration = watch.registerThread(kind, name: name, subject: subject)
             let scope = watch.watch(registration, deadline: .milliseconds(100))
             opened.signal()
             release.wait()

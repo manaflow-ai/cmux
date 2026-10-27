@@ -45,6 +45,12 @@ import Darwin
 /// The handoff then marks nothing, so no frame counts twice and no frame counts before it shows. Each shown frame
 /// is also a contents set of ``TerminalSurfaceView`` in the app's ``RenderStats`` (``countPresentedFrames(in:)``),
 /// which no `setContents:` hook sees once the renderer presents.
+///
+/// It also watches each surface's renderer thread for hangs (p09-observability-120), as Chrome watches its
+/// compositor and IO threads with `base::HangWatcher` (base/threading/hang_watcher.h): the renderer thread
+/// registers in the process's ``HangWatch`` on its first frame, named `ghostty-renderer` with the surface's trace
+/// id as the subject, each frame's begin and end open and close a 500 ms scope on it, and the surface's destroy
+/// event frees the slot. A frame drawn on the main thread (a display pass) is the main-thread watchdog's.
 @MainActor
 public final class GhosttyTraceHook {
     /// `ghostty_trace_hook_cb`.
@@ -82,9 +88,10 @@ public final class GhosttyTraceHook {
     ///   - trace: The runtime the records go to.
     ///   - probe: The typing probe the handoffs mark.
     ///   - setter: `ghostty_set_trace_hook`; nil: the linked libghostty has no hook (``linkedSetter()``).
+    ///   - hangWatch: The slot table the renderer threads register in; nil: `trace`'s.
     init(gate: TerminalContentsGate, trace: TraceRuntime = .shared, probe: TypingLatencyProbe = .shared,
-         setter: Setter? = GhosttyTraceHook.linkedSetter()) {
-        recorder = Recorder(gate: gate, trace: trace, probe: probe)
+         hangWatch: HangWatch? = nil, setter: Setter? = GhosttyTraceHook.linkedSetter()) {
+        recorder = Recorder(gate: gate, trace: trace, probe: probe, hangs: hangWatch ?? trace.hangWatch)
         // SAFETY: the setter the caller passed (`setter`'s note), stored once.
         self.setter = unsafe setter
         // SAFETY: one retain for the process, never released (`context`'s note).
@@ -147,7 +154,8 @@ public final class GhosttyTraceHook {
     }
 
     /// Sets the hook while something reads it and clears it otherwise. Call it at start and after the typing
-    /// probe's flows or the trace categories change (`trace.start`, `trace.stop`).
+    /// probe's flows or the trace categories change (`trace.start`, `trace.stop`). A hang monitor reading the
+    /// renderer threads' slots keeps it set.
     public func refreshDemand() {
         // This libghostty reports every handoff or presented frame, so a key.echo_frame sample can end: turn the
         // probe's sampling on.
@@ -156,6 +164,7 @@ public final class GhosttyTraceHook {
         let wanted = echoStagesNeedFrames || recorder.probe.isRecording || recorder.probe.samplesEchoFrames
             || recorder.trace.isEnabled(categoryBit: SignpostCategory.ghostty.traceBit)
             || recorder.trace.isEnabled(categoryBit: SignpostCategory.frame.traceBit)
+            || recorder.hangs.isMonitored
         guard wanted != isInstalled else { return }
         isInstalled = wanted
         if wanted {
@@ -201,7 +210,13 @@ extension GhosttyTraceHook {
         let renderOpen = Atomic<Bool>(false)
         /// Every frame below this seq finished its GPU work.
         let gpuDoneBelow = Atomic<UInt64>(0)
+        /// The renderer thread's hang-watch slot (``HangWatch/Registration/packed``): 0 before its first frame,
+        /// ``rendererGone`` after the destroy event.
+        let rendererSlot = Atomic<UInt64>(0)
         let gpuWaits: [GPUWait]
+
+        /// ``rendererSlot`` once the surface is destroyed: no thread registers for it again.
+        static let rendererGone = UInt64.max
 
         init(key: TypingLatencyProbe.SurfaceKey, echoStage: TerminalEchoStage?) {
             self.key = key
@@ -251,15 +266,21 @@ extension GhosttyTraceHook {
         let gate: TerminalContentsGate
         let trace: TraceRuntime
         let probe: TypingLatencyProbe
+        /// Where each surface's renderer thread registers (the type's hang-watch note).
+        let hangs: HangWatch
         /// The ``GPUDelivery`` (``deliverGPU(_:)``), empty until the app gives one.
         private let gpuDelivery = ProcessOnceSlot<GPUDelivery>()
         /// The app's ``RenderStats`` counts of presented frames (``countPresentedFrames(in:)``), empty until given.
         private let presentedFrameCounts = ProcessOnceSlot<RenderStats.PresentedFrames>()
 
-        init(gate: TerminalContentsGate, trace: TraceRuntime, probe: TypingLatencyProbe) {
+        /// A renderer frame's hang-watch budget: its jank deadline, with the hang 2 s past it (``HangWatch``).
+        static let rendererFrameDeadline = Duration.milliseconds(500)
+
+        init(gate: TerminalContentsGate, trace: TraceRuntime, probe: TypingLatencyProbe, hangs: HangWatch) {
             self.gate = gate
             self.trace = trace
             self.probe = probe
+            self.hangs = hangs
         }
 
         /// Sends GPU completions to `delivery` from now on; the first one given stays for the process.
@@ -283,15 +304,20 @@ extension GhosttyTraceHook {
         func record(_ event: Event, on surface: Surface, seq: UInt64) {
             switch event {
             case .frameBegin:
+                beginRendererScope(on: surface)
                 guard trace.isEnabled(categoryBit: SignpostName.ghosttyRender.traceCategory.traceBit) else { return }
                 let flow = probe.echoFlow(on: surface.key) ?? 0
                 if trace.begin(.ghosttyRender, arg0: surface.key.traceID, arg1: flow) {
                     surface.renderOpen.store(true, ordering: .relaxed)
                 }
-            case .frameEnd, .surfaceDestroy:
-                guard surface.renderOpen.exchange(false, ordering: .relaxed) else { return }
-                trace.writeEnd(name: SignpostName.ghosttyRender.rawValue, categoryBit: SignpostName.ghosttyRender.traceCategory.traceBit,
-                               phase: .end, arg0: surface.key.traceID)
+            case .frameEnd:
+                let slot = surface.rendererSlot.load(ordering: .relaxed)
+                if slot != 0, slot != Surface.rendererGone { hangs.end(HangWatch.Registration(packed: slot)) }
+                endRenderSlice(on: surface)
+            case .surfaceDestroy:
+                endRenderSlice(on: surface)
+                let slot = surface.rendererSlot.exchange(Surface.rendererGone, ordering: .acquiringAndReleasing)
+                if slot != 0, slot != Surface.rendererGone { hangs.unregister(HangWatch.Registration(packed: slot)) }
             case .contentsHandoff:
                 // Presented frames are the marks when the surfaces report them (``presented(on:frameID:)``).
                 guard !GhosttyTraceHook.presentsFrames else { return }
@@ -302,6 +328,34 @@ extension GhosttyTraceHook {
             case .ioWrite:
                 return // Ghostty's io_write_cb marks the write (``TypingLatencyProbe/inputWritten(on:)``).
             }
+        }
+
+        /// Opens the frame's hang-watch scope on the surface's renderer thread, which registers on its first frame
+        /// while a monitor reads the slots (no allocation once its slot chunk exists). A frame on the main thread
+        /// opens none and registers none: the main-thread watchdog watches it.
+        private func beginRendererScope(on surface: Surface) {
+            var slot = surface.rendererSlot.load(ordering: .relaxed)
+            if slot == 0 {
+                guard hangs.isMonitored, pthread_main_np() == 0 else { return }
+                let registration = hangs.registerThread(.renderer, name: "ghostty-renderer", subject: surface.key.traceID)
+                // The destroy event may have come meanwhile: then the slot goes back.
+                guard surface.rendererSlot.compareExchange(expected: 0, desired: registration.packed,
+                                                           ordering: .acquiringAndReleasing).exchanged else {
+                    hangs.unregister(registration)
+                    return
+                }
+                slot = registration.packed
+            }
+            guard slot != Surface.rendererGone else { return }
+            // From another thread than the registered one (a main-thread display pass), nothing.
+            hangs.begin(HangWatch.Registration(packed: slot), deadline: Self.rendererFrameDeadline)
+        }
+
+        /// Writes the `ghostty.render` end when its begin was written.
+        private func endRenderSlice(on surface: Surface) {
+            guard surface.renderOpen.exchange(false, ordering: .relaxed) else { return }
+            trace.writeEnd(name: SignpostName.ghosttyRender.rawValue, categoryBit: SignpostName.ghosttyRender.traceCategory.traceBit,
+                           phase: .end, arg0: surface.key.traceID)
         }
 
         /// The renderer presented frame `frameID` of `surface` (``ghosttySurfacePresented(_:_:_:_:)``) from a Core
