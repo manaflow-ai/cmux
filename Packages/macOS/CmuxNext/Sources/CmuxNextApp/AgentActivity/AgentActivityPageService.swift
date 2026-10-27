@@ -4,6 +4,7 @@ import CmuxNextAgentActivity
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextPages
 import CmuxNextWakeups
 import Foundation
 
@@ -38,8 +39,8 @@ final class AgentActivityPageService {
     }
 
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> AgentActivityPageTab {
-        AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource(), webUI: services.webUI,
-                             deadlines: services.mainDeadlines)
+        AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource(),
+                             openPage: { services.webUI.open($0) }, deadlines: services.mainDeadlines)
     }
 
     /// Shows a lane's chat where ``AgentChatJump`` says it lives. Back returns

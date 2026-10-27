@@ -1,4 +1,7 @@
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 @MainActor
 extension AuthCoordinator {
@@ -184,9 +187,10 @@ extension AuthCoordinator {
 
     func waitForSignOutCredentialCapture() async {
         guard isCapturingSignOutCredentials else { return }
-        await withCheckedContinuation { continuation in
+        // A dropped waiter returns as a resumed one does: sign-out goes on with what was captured.
+        _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
             guard isCapturingSignOutCredentials else {
-                continuation.resume()
+                continuation.resume(returning: ())
                 return
             }
             signOutCredentialCaptureWaiters.append(continuation)
@@ -201,7 +205,7 @@ extension AuthCoordinator {
         let waiters = signOutCredentialCaptureWaiters
         signOutCredentialCaptureWaiters = []
         for waiter in waiters {
-            waiter.resume()
+            waiter.resume(returning: ())
         }
     }
 }

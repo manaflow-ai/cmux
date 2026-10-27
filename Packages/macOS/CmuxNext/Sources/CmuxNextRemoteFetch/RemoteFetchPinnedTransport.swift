@@ -1,5 +1,7 @@
 import Foundation
 import Network
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// HTTP/1.1 over TLS to one checked address (Network.framework): the connection goes to the IP
 /// the fetch checked, never to a name, so no second DNS answer can change the target (a DNS
@@ -75,7 +77,7 @@ public nonisolated struct PinnedTLSTransport: RemoteFetchTransport {
         // carve-out: NWConnection delivers its callbacks on a dispatch queue.
         private let queue = DispatchQueue(label: "com.cmuxterm.next.remote-fetch", qos: .userInitiated)
         // Queue-confined.
-        private var continuation: CheckedContinuation<RemoteFetchResponse, any Error>?
+        private var continuation: OnceContinuation<RemoteFetchResponse, any Error>?
         private var cancelled = false
         private var ready = false
 
@@ -85,9 +87,12 @@ public nonisolated struct PinnedTLSTransport: RemoteFetchTransport {
         }
 
         func run(_ request: Data) async throws -> RemoteFetchResponse {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<RemoteFetchResponse, any Error>) in
                 queue.async { [self] in
-                    guard !cancelled else { return continuation.resume(throwing: CancellationError()) }
+                    guard !cancelled else {
+                        continuation.resume(throwing: CancellationError())
+                        return
+                    }
                     self.continuation = continuation
                     connection.stateUpdateHandler = { [weak self] state in
                         switch state {

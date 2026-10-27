@@ -13,4 +13,7 @@ public nonisolated enum AgentActivityPageAddress {
         guard let url, url.scheme?.lowercased() == "cmux" else { return false }
         return url.host()?.lowercased() == "agent-activity"
     }
+
+    /// The page's bundled `index.html` (Resources/agent-activity), nil when the build wrote none.
+    public static var bundledPage: URL? { Bundle.module.url(forResource: "index", withExtension: "html", subdirectory: "agent-activity") }
 }

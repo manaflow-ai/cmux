@@ -67,6 +67,11 @@ struct AppEnvironment: Sendable {
     /// The kept web update (`WebUpdates`, NIGHTLY): its state and verified tree, read on a launch lane from `main`.
     /// Nil where the bundle takes no web updates and in tests that build `AppServices`.
     var webUpdates: LaunchRead<WebUpdates.Launch?>?
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The launch's global-job census (`CMUX_NEXT_GLOBAL_JOB_CENSUS=1`, p08-startup-082): `debug.startup.global_jobs`
+    /// reads it. Only the real app process arms it.
+    var globalJobCensus: GlobalJobCensus?
+    #endif
     /// The Labs page's local feature choices and their file (``FeatureLocalOverrides``), read on a launch lane from
     /// `main` before the settings read, so `AppServices` resolves its features with them. DEV and NIGHTLY only; nil in
     /// Release and in tests that build `AppServices`.

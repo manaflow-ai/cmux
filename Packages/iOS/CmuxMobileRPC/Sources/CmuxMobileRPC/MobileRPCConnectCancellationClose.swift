@@ -1,4 +1,7 @@
 internal import CMUXMobileCore
+internal import class CmuxSafeConcurrency.OnceContinuation
+internal import enum CmuxSafeConcurrency.OnceContinuationError
+internal import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Captures the physical close started by a connect task's cancellation
 /// handler. The abandoned-connect cleaner combines this task with any late
@@ -7,7 +10,7 @@ actor MobileRPCConnectCancellationClose {
     private var closeTask: Task<Void, Never>?
     private var settledWithoutClose = false
     private var startWaiters: [
-        CheckedContinuation<Task<Void, Never>?, Never>
+        OnceContinuation<Task<Void, Never>?, OnceContinuationError>
     ] = []
 
     func start(_ candidate: any CmxByteTransport) {
@@ -40,8 +43,9 @@ actor MobileRPCConnectCancellationClose {
         if settledWithoutClose {
             return nil
         }
-        return await withCheckedContinuation {
-            startWaiters.append($0)
+        // A dropped waiter reads as settled without a close.
+        return try? await withOnceContinuation { (waiter: OnceContinuation<Task<Void, Never>?, OnceContinuationError>) in
+            startWaiters.append(waiter)
         }
     }
 }

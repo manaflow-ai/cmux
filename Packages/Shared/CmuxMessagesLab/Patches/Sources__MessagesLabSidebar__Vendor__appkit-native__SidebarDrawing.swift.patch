@@ -18,15 +18,43 @@
      /// `tile`: a pinned tile's name; `tileBubble`: its newest-message bubble.
      enum Kind: Hashable { case row, time, tile, tileBubble }
      var kind: Kind
-@@ -35,6 +35,7 @@
+@@ -35,12 +35,32 @@
  
  /// Bitmaps of one sidebar, least recently used out first, with a byte budget. Main thread
  /// only (the render queue hands its results to the main thread).
+-final class SidebarBitmapCache {
 +@MainActor // cmux: Swift 6 (main thread only, as above)
- final class SidebarBitmapCache {
++final class SidebarBitmapCache { // memory: consumer via MessagesLabMemoryConsumer (CmuxNextHome)
      private var map: [SidebarBitmapKey: (image: CGImage, bytes: Int, used: UInt64)] = [:]
      private var clock: UInt64 = 0
-@@ -74,34 +75,31 @@
+     private(set) var bytes = 0
+-    let budget: Int
+-    init(budget: Int = 40 << 20) { self.budget = budget }
++    /// cmux: MessagesLab's 40 MB until the host sizes the cache (`setBudget(bytes:)`, p07-memory-081).
++    static let defaultBudget = 40 << 20
++    private(set) var budget: Int
++    init(budget: Int = SidebarBitmapCache.defaultBudget) { self.budget = budget }
++    /// cmux: the host's cap (p07-memory-081). Lowering it frees nothing: the next insert trims to it.
++    func setBudget(bytes: Int) { budget = max(0, bytes) }
++    /// cmux: frees the least recently used bitmaps until at most `fraction` of the bytes held now remain (0 frees
++    /// every one), off main (p07-memory-081). A row on screen keeps the bitmap its layer shows; the next pass draws
++    /// what is missing.
++    func trim(toFraction fraction: Double) {
++        guard !fraction.isNaN else { return }
++        let target = CrashGuard.int(Double(bytes) * min(max(fraction, 0), 1), in: 0...max(bytes, 0))
++        guard bytes > target else { return }
++        var dropped: [CGImage] = []
++        for (key, v) in map.sorted(by: { $0.value.used < $1.value.used }) where bytes > target {
++            map[key] = nil
++            bytes -= v.bytes
++            dropped.append(v.image)
++        }
++        SidebarDraw.release(dropped)
++    }
+ 
+     func image(_ k: SidebarBitmapKey) -> CGImage? {
+         guard var e = map[k] else { return nil }
+@@ -74,34 +94,31 @@
  
  /// Circle avatars by spec, diameter, scale and appearance; shared by the rows, tiles and the
  /// header. Locked (the render queue reads it).
@@ -72,7 +100,7 @@
      /// Frees bitmaps off the main thread (a large free can block it), after Core Animation
      /// has dropped its references in the current turn.
      static func release(_ images: [CGImage]) {
-@@ -109,50 +107,67 @@
+@@ -109,50 +126,67 @@
          DispatchQueue.main.async { DispatchQueue.global(qos: .utility).async { withExtendedLifetime(images) {} } }
      }
      // no force unwrap: Core Text's UI font lookup returns an optional.
@@ -169,7 +197,7 @@
                                  bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue) else {
              return SidebarBitmapFailure.checked(nil, size: size)
          }
-@@ -168,7 +183,10 @@
+@@ -168,7 +202,10 @@
              NSAttributedString.Key(kCTFontAttributeName as String): font,
              NSAttributedString.Key(kCTForegroundColorAttributeName as String): color]))
      }
@@ -181,7 +209,7 @@
      static func truncated(_ l: CTLine, _ w: CGFloat, _ font: CTFont, _ color: CGColor) -> CTLine {
          guard width(l) > w else { return l }
          return CTLineCreateTruncatedLine(l, Double(max(1, w)), .end, line("…", font, color)) ?? l
-@@ -212,7 +230,8 @@
+@@ -212,7 +249,8 @@
              g.saveGState()
              g.addEllipse(in: r); g.clip()
              // an optional gradient draws nothing when it fails (SidebarCrashSafe).
@@ -191,7 +219,7 @@
              g.drawLinearGradient(grad, start: CGPoint(x: r.midX, y: r.minY), end: CGPoint(x: r.midX, y: r.maxY), options: [])
              g.restoreGState()
              let font = monogramFont((r.width * 0.42).rounded()) // held, no force unwrap (cx-qpqs)
-@@ -236,11 +255,7 @@
+@@ -236,11 +274,7 @@
          case let .emoji(e):
              g.setFillColor(p.groupDisc)
              g.fillEllipse(in: r)
@@ -204,7 +232,7 @@
          case let .group(members):
              g.setFillColor(p.groupDisc)
              g.fillEllipse(in: r)
-@@ -263,6 +278,33 @@
+@@ -263,6 +297,33 @@
          }
      }
  
@@ -238,7 +266,7 @@
      // MARK: Row
  
      /// The row's parts, each its own layer: the avatar (shared avatar bitmap) and the unread
-@@ -298,8 +340,11 @@
+@@ -298,8 +359,11 @@
      /// Name and preview at the list's text width; `timeWidth`: the time part's width.
      static func rowText(_ c: ConversationSummary, emphasized: Bool, ctx: SidebarRenderContext, timeWidth: CGFloat,
                          text: SidebarTextCache) -> CGImage? { // nil when the bitmap cannot be allocated
@@ -252,7 +280,7 @@
      }
  
      /// Everything a row's text bitmap depends on other than its key: where the name is truncated
-@@ -307,7 +352,7 @@
+@@ -307,7 +371,7 @@
      /// truncated (nil: not truncated). The lines are drawn left-aligned at x 0, so two text widths
      /// with the same layout draw the same pixels (the wider bitmap's extra columns are empty; the
      /// layer's contents gravity is top-left, nothing is scaled).
@@ -261,7 +289,7 @@
          var name: CGFloat?
          var breaks: [Int]
          var lastLine: Bool
-@@ -319,18 +364,21 @@
+@@ -319,18 +383,21 @@
      /// screen, drawn at another width, has these pixels already); nil when the bitmap cannot be allocated.
      static func rowText(_ c: ConversationSummary, emphasized: Bool, ctx: SidebarRenderContext, timeWidth: CGFloat,
                          text: SidebarTextCache, unless shown: RowTextLayout?) -> (image: CGImage?, layout: RowTextLayout)? {
@@ -291,7 +319,7 @@
          let nameW = w - timeWidth - M.timeGap
          let name = truncated(m.name, nameW, nameFont, m.nameColor)
          var layout = RowTextLayout(name: name === m.name ? nil : nameW, breaks: [], lastLine: false, truncatedAt: nil, scale: ctx.scale)
-@@ -405,7 +453,8 @@
+@@ -405,7 +472,8 @@
      /// The avatar's rect in a tile (tile coordinates).
      static func tileAvatar(_ m: SidebarMetrics) -> CGRect {
          let d = m.pinAvatar
@@ -301,7 +329,7 @@
      }
  
      /// A pinned tile is layers: the avatar (one bitmap at the largest pin size, scaled), the
-@@ -422,8 +471,10 @@
+@@ -422,8 +490,10 @@
          return (n, b)
      }
      /// The width a tile name bitmap is drawn for: 0 when the name fits (natural width), else the room.
@@ -314,7 +342,7 @@
      }
      /// The width a bubble is drawn for: 0 when the preview fits on one line, else the bubble's room.
      static func tileBubbleKeyWidth(natural: CGFloat, tileWidth: CGFloat) -> CGFloat {
-@@ -432,7 +483,7 @@
+@@ -432,7 +502,7 @@
      /// The name, 16 pt tall, baseline 11 pt; `keyWidth` 0: natural width.
      static func tileNameImage(_ c: ConversationSummary, emphasized: Bool, keyWidth: CGFloat, ctx: SidebarRenderContext) -> CGImage? { // nil when the bitmap cannot be allocated
          let p = ctx.palette
@@ -323,7 +351,7 @@
          let full = line(tileName(c), pinNameFont, color)
          let l = keyWidth > 0 ? truncated(full, keyWidth, pinNameFont, color) : full
          let w = max(1, width(l).rounded(.up))
-@@ -450,7 +501,8 @@
+@@ -450,7 +520,8 @@
          return bitmap(size: CGSize(width: bw2 + 1, height: bh + 5), ctx: ctx) { g in
              let br = CGRect(x: 1, y: 0, width: bw2, height: bh)
              g.setFillColor(p.bubble)
@@ -333,7 +361,7 @@
              // The tail at the lower left, toward the avatar (as an incoming bubble's; to verify).
              g.addPath(tailPath(bubbleBottomLeft: CGPoint(x: br.minX, y: br.maxY))); g.fillPath()
              for (i, l) in lines.enumerated() { draw(l, x: br.minX + 8, baseline: 13 + CGFloat(i) * 13 - 1, g) }
-@@ -485,21 +537,39 @@
+@@ -485,21 +556,39 @@
          return CGRect(x: (c.x - d / 2).rounded(), y: (c.y - d / 2).rounded(), width: d, height: d)
      }
  
@@ -381,7 +409,7 @@
  enum SidebarMotion {
      /// Off: every change shows at once (benches; a host may turn it off).
      static var enabled = true
-@@ -609,12 +679,13 @@
+@@ -609,12 +698,13 @@
      static let dotDiameter: CGFloat = 6
      static let dotPitch: CGFloat = 8
      /// The transcript's two tail circles (9 pt at the bubble's lower left, 5 pt below-left of it), scaled.
@@ -397,7 +425,7 @@
      /// Measured pulse (transcript): period 1.0 s, dots 0.247 s apart, a Gaussian of width 0.22 s.
      static let period: CFTimeInterval = 1.0
      static let phaseStep = 0.247
-@@ -648,9 +719,9 @@
+@@ -648,9 +738,9 @@
          for d in lit { d.backgroundColor = p.typingDot; d.contentsScale = scale }
      }
      /// The dots pulse (tests: every lit dot has its animation, or the still phase is set).
@@ -409,7 +437,7 @@
      private static func level(_ i: Int, phase t: Double) -> Double {
          var x = t - 0.45 - Double(i) * phaseStep
          x -= x.rounded()
-@@ -658,9 +729,13 @@
+@@ -658,9 +748,13 @@
      }
      /// Starts the pulse once. Phase-locked to whole periods of the media clock, so every bubble
      /// in the list pulses in step and a row that scrolls back in does not restart its cycle.
@@ -426,7 +454,7 @@
              return
          }
          let begin = (CACurrentMediaTime() / Self.period).rounded(.down) * Self.period
-@@ -682,7 +757,12 @@
+@@ -682,7 +776,12 @@
  
  /// Text measurement per conversation (the name line and the preview's typesetter), shared by
  /// every width: a live resize only breaks lines again. Locked (render queue and main).
@@ -440,7 +468,7 @@
      struct Measured {
          let name: CTLine
          let nameColor: CGColor
-@@ -691,33 +771,56 @@
+@@ -691,33 +790,56 @@
          let secondary: CGColor
      }
      private struct Key: Hashable { var id: ConversationID; var version: Int; var emphasized: Bool; var generation: Int }

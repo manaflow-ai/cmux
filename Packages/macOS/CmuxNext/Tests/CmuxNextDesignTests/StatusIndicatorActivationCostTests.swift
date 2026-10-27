@@ -14,7 +14,8 @@ import Testing
         let parked: NSView
         let shown: [StatusIndicatorView]
         let hidden: [StatusIndicatorView]
-        let center = NotificationCenter()
+        /// The appearance's follows; its app notices arrive on `follows.app`.
+        let follows = StatusIndicatorTestFollows()
         let appearance: StatusIndicatorAppearance
 
         init(shown shownCount: Int, hidden hiddenCount: Int) {
@@ -29,7 +30,8 @@ import Testing
             parked = NSView(frame: content.bounds)
             parked.isHidden = true // a parked workspace's sidebar and strips
             content.addSubview(parked)
-            appearance = StatusIndicatorAppearance(appCenter: center, workspaceCenter: NotificationCenter())
+            appearance = StatusIndicatorAppearance(windows: { [] })
+            follows.start(appearance)
             let parked = parked
             shown = (0..<shownCount).map { _ in Self.indicator(in: content) }
             hidden = (0..<hiddenCount).map { _ in Self.indicator(in: parked) }
@@ -45,7 +47,7 @@ import Testing
 
         func activate() -> UInt64 {
             let before = StatusIndicatorAppearance.resyncs
-            center.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+            follows.app.post(name: NSApplication.didBecomeActiveNotification, object: nil)
             return StatusIndicatorAppearance.resyncs - before
         }
     }
