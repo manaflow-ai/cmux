@@ -9,12 +9,12 @@ import Security
     typealias Failure = CloudCredentialTransfer.Failure
     typealias Provider = CloudCredentialTransfer.Provider
 
-    nonisolated static func name(provider: Provider, teamID: String, userID: String) -> String {
-        let scope = SHA256.hash(data: Data((userID + ":" + teamID).utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
+    nonisolated static func name(provider: Provider, teamID: String?, userID: String) -> String {
+        let scope = SHA256.hash(data: Data((userID + ":" + (teamID ?? "personal")).utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
         return "\(provider.rawValue.uppercased())_TRANSFER_\(scope)"
     }
 
-    @concurrent static func load(provider: Provider, teamID: String, userID: String) async throws -> Data? {
+    @concurrent static func load(provider: Provider, teamID: String?, userID: String) async throws -> Data? {
         var result: CFTypeRef?
         let status = SecItemCopyMatching([
             kSecClass: kSecClassGenericPassword, kSecAttrService: "cmux-cloud-secret",
@@ -32,7 +32,7 @@ import Security
         return data
     }
 
-    static func store(_ value: Data, provider: Provider, teamID: String, userID: String) async throws {
+    static func store(_ value: Data, provider: Provider, teamID: String?, userID: String) async throws {
         guard let binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: [:]) else { throw Failure.storeFailed }
         let envelope = try JSONSerialization.data(withJSONObject: [
             "created": Date().timeIntervalSince1970, "credential": value.base64EncodedString(),

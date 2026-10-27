@@ -12,7 +12,8 @@ import Foundation
 
     let provider: Provider
     let machineID: String
-    let teamID: String
+    /// Nil is the authenticated user's personal Cloud scope; a non-nil value is a selected team.
+    let teamID: String?
     let userID: String
     let openTerminal: @MainActor (String) -> Bool
 
@@ -23,7 +24,7 @@ import Foundation
             effects: Effects(
                 exec: { try await pinned.exec(machineID, command: $0, timeoutMs: 20_000).exitCode },
                 write: { try await pinned.writeFile(machineID, path: $0, data: $1, mode: 0o600) },
-                load: { try await CloudCredentialLogin.load(provider: provider, teamID: teamID, userID: userID) },
+            load: { try await CloudCredentialLogin.load(provider: provider, teamID: teamID, userID: userID) },
                 acquire: { try await CloudCredentialLogin.acquire(provider: provider, openTerminal: openTerminal) },
                 store: { try await CloudCredentialLogin.store($0, provider: provider, teamID: teamID, userID: userID) }))
     }
@@ -51,7 +52,7 @@ import Foundation
         guard confirmed else { throw Failure.consentRequired }
         func checkScope() throws {
             try Task.checkCancellation()
-            guard !teamID.isEmpty, !machineID.isEmpty, !userID.isEmpty, currentTeamID() == teamID, currentUserID() == userID else { throw Failure.scopeChanged }
+            guard !machineID.isEmpty, !userID.isEmpty, currentTeamID() == teamID, currentUserID() == userID else { throw Failure.scopeChanged }
         }
         try checkScope()
         // No credential is acquired/read until the authenticated target proves owner-only policy.
