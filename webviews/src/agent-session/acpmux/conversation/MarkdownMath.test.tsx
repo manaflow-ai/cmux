@@ -4,6 +4,7 @@ import { isValidElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Markdown, parseMarkdown, renderInline } from "./Markdown";
 import { MathInline } from "./Math";
+import { safeTail } from "./safeTail";
 
 const html = (source: string) => renderToStaticMarkup(<Markdown plainCode>{source}</Markdown>);
 const math = (source: string) =>
@@ -49,4 +50,10 @@ test("explicit backslash math accepts parentheses and braces", () => {
     if (block?.type !== "paragraph") throw new Error("missing inline math paragraph");
     expect(math(block.text)).toEqual([source.slice(2, -2)]);
   }
+});
+
+test("streaming shell substitutions stay visible and partial equations still wait", () => {
+  for (const source of ["$(cmd)", "${HOME}", 'key="$(cmd)" and name=file-$key']) expect(safeTail(source)).toBe(source);
+  expect(safeTail("before $x^2")).toBe("before ");
+  expect(safeTail(String.raw`before \((x+1)^2`)).toBe("before ");
 });
