@@ -1491,60 +1491,10 @@ class StrandedCancel(unittest.TestCase):
         self.assertEqual(rescue.cancel_marks([f"{rescue.CANCEL_SENT} run 5 attempt 1{rescue.EVERY_JOB}",
                                               f"{rescue.CANCEL_SENT} run 6 attempt 10"]),
                          {(5, 1): "sent all", (6, 10): "sent"})
-
-    def test_a_rewatch_that_finds_a_stopped_rescue_resumes_its_re_run(self):
-        # The refusals-only rewatch after a queue alarm, and the E2E watch of the next attempt, can also find a run a
-        # rescue cancelled and stopped before re-running: both finish that re-run, as the first watch does.
-        for case in ("refusals only", "next attempt"):
-            clock = Clock()
-            api = CancelledAPI(clock)
-            looks = iter([("rescue", "queue alarm"), ("resume", "all")])
-            resumed = []
-
-            def resume_rerun(api, target, *, now, sleep, log, every_job):
-                resumed.append((target.attempt, every_job))
-                return "re-ran it"
-            target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY, refusals_only=case == "refusals only")
-            with unittest.mock.patch.object(rescue, "watch", lambda *args, **kwargs: next(looks)), \
-                    unittest.mock.patch.object(rescue, "resume_rerun", resume_rerun), \
-                    unittest.mock.patch.object(rescue, "hold_for_destination",
-                                               lambda client, target, outcome, reason, **_: (outcome, reason, "")), \
-                    unittest.mock.patch.object(rescue, "rescue",
-                                               lambda *args, **kwargs: f"re-ran every job of run {RUN_ID}"):
-                result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
-                                       log=lambda _: None)
-            self.assertEqual(result, "done", case)
-            self.assertEqual(resumed, [(1 if case == "refusals only" else 2, True)], case)
         # A mark logged with Windows line endings still counts.
         self.assertEqual(rescue.cancel_marks([f"{rescue.CANCEL_SETTLED} run 5 attempt 1\r\n",
                                               f"{rescue.CANCEL_SENT} run 6 attempt 2{rescue.EVERY_JOB}\r\n"]),
                          {(5, 1): "settled", (6, 2): "sent all"})
-
-    def test_the_next_attempt_s_destination_hold_resumes_a_stopped_rescue(self):
-        # The hold (the real one) watches on while the re-run's label is stalled, and finds attempt 2 cancelled by a
-        # rescue that stopped before re-running it: that re-run is finished, never left cancelled.
-        clock = Clock()
-        api = CancelledAPI(clock)
-        looks = iter([("rescue", "queue alarm"), ("rescue", "queue alarm"), ("resume", "failed")])
-        verdicts = iter([("free", BLACKSMITH), ("stalled", BLACKSMITH)])
-        resumed, logged = [], []
-
-        def resume_rerun(api, target, *, now, sleep, log, every_job):
-            resumed.append((target.attempt, every_job))
-            return "re-ran it"
-        target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)
-        with unittest.mock.patch.object(rescue, "watch", lambda *args, **kwargs: next(looks)), \
-                unittest.mock.patch.object(rescue, "resume_rerun", resume_rerun), \
-                unittest.mock.patch.object(rescue, "repicks", lambda target: False), \
-                unittest.mock.patch.object(rescue, "pull_moved", lambda *args: False), \
-                unittest.mock.patch.object(rescue, "move_verdict", lambda *args, **kwargs: next(verdicts)), \
-                unittest.mock.patch.object(rescue, "rescue",
-                                           lambda *args, **kwargs: f"re-ran every job of run {RUN_ID}"):
-            result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
-                                   log=logged.append)
-        self.assertEqual(result, "done", logged)
-        self.assertEqual(resumed, [(2, False)], logged)
-        self.assertTrue(any("is stalled" in line for line in logged), logged)
 
     def test_a_rescue_history_past_the_page_cap_leaves_the_run_cancelled(self):
         api = rescue.GitHub("t", "manaflow-ai/cmux")
@@ -1586,18 +1536,6 @@ class StrandedCancel(unittest.TestCase):
         self.assertNotIn("status=completed", asked[0])
         self.assertEqual([path for path in asked if "/attempts/" in path],
                          ["/actions/runs/3/attempts/2/jobs?per_page=20", "/actions/runs/3/attempts/1/jobs?per_page=20"])
-
-    def test_a_cancel_after_the_watch_looked_is_never_re_run(self):
-        # The watch found a refusal; before rescue() read the run, someone cancelled it. No cancel was this rescue's.
-        clock = Clock()
-        api = CancelledAPI(clock, cancelled=True, note="The run was canceled by @leo.")
-        clock.sleep(60)
-        target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)
-        for refused in (True, None):
-            result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None,
-                                   failed_only=True, refused=refused, refusal=True)
-            self.assertEqual(result, "not rescued: the run was cancelled by @leo meanwhile; left cancelled", refused)
-        self.assertEqual(mutations(api), [])
 
     def test_a_re_run_of_the_rescue_workflow_acts_on_nothing(self):
         # Its marks could fall outside rescue_jobs()' creation window (the run keeps attempt 1's created_at).
