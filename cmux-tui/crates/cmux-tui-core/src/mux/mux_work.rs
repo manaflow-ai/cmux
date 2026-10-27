@@ -27,6 +27,11 @@ impl MuxWork {
     pub(super) fn bind(&self, mux: Weak<Mux>) {
         let _ = self.mux.set(mux);
     }
+
+    /// The owning mux, for a caller that holds it only by reference.
+    pub(super) fn owner(&self) -> Option<Arc<Mux>> {
+        self.mux.get()?.upgrade()
+    }
 }
 
 impl Mux {

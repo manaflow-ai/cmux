@@ -133,7 +133,11 @@ fn memory_budget_store_start_registers_and_a_level_change_runs_a_pass() {
     let root = std::env::temp_dir()
         .join(format!("cmux-scrollback-pressure-{}", crate::workspace_registry::new_uuid_v4()));
     let memory = Arc::new(DaemonMemory::without_system_source());
-    let setup = crate::memory::MemorySetup { memory: memory.clone(), scrollback_pressure: true };
+    let setup = crate::memory::MemorySetup {
+        memory: memory.clone(),
+        scrollback_pressure: true,
+        kitty_share: false,
+    };
     let mux = crate::Mux::open_persistent_with_memory_for_test(
         "scrollback-pressure",
         crate::SurfaceOptions::default(),

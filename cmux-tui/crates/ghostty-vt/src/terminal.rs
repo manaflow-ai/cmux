@@ -1203,6 +1203,18 @@ impl Terminal {
         snapshot.map(|_| ())
     }
 
+    /// Drop the replay encoder's decoded Kitty pixel copies. Lossless: the
+    /// next replay copies the images libghostty still stores again. The
+    /// daemon calls it under critical memory pressure.
+    pub fn clear_kitty_replay_pixel_cache(&mut self) {
+        self.kitty_replay_pixel_cache.0 = HashMap::new();
+    }
+
+    /// Decoded Kitty pixel bytes the replay encoder's cache holds.
+    pub fn kitty_replay_pixel_cache_bytes(&self) -> usize {
+        kitty::pixel_cache_bytes(&self.kitty_replay_pixel_cache.0)
+    }
+
     pub fn kitty_image_storage_limit(&self) -> Result<u64> {
         self.get(sys::GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_STORAGE_LIMIT)
     }
