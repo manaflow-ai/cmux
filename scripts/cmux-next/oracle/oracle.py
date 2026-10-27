@@ -79,9 +79,11 @@ run format baselines.py (016) reads (a `cases` list, the case name without its s
 Engine parity (spec 3F.4, task 113): `run --engine webkit|chromium` is one engine arm (the app's
 browser.defaultEngine, also the engine of a case that pins one; recorded as config.engine), and
 `diff --product app --engine webkit,chromium --ref SHA` runs both arms of one build through fleet.py.
-Any comparison of two different engine arms requires each arm to read its own engine back from a
-browser tab (else `engine-not-exercised`), drops the tabs' `engine` and applies
-tests/oracle/engine-parity.json, the engine differences with their reasons.
+An engine arm's driver canonicalizes without the tabs' `engine` (normalize Context.drop, so no set order
+or id label depends on it) and records each checkpoint's raw tab engines as `engines`. Any comparison of
+two different engine arms requires each arm to read its own engine back (else `engine-not-exercised`) and
+no tab to still show one (else `engine-not-neutral`), and applies tests/oracle/engine-parity.json, the
+engine differences with their reasons.
 
 `diff` exit codes: 0 no unexplained divergence, 1 divergences, 2 bad input, 3 refused (host
 mismatch, an incomplete or mismatched shard set, nothing compared), 4 diff.py internal error.
@@ -109,7 +111,6 @@ import json
 import os
 import platform as platform_mod
 import random
-import shutil
 import socket
 import subprocess
 import sys
@@ -169,8 +170,8 @@ BUILDS = ("debug", "bench", "asan", "tsan")
 ARMS = ("old", "new")
 # Engine parity (spec 3F.4, task 113): an engine arm is the app's `browser.defaultEngine` (BrowserDefaultEngine raw
 # values, which are also the case-v1 environment.engine names), and the tabs facet reads each tab's engine back as
-# BrowserEngineKind. A comparison of two engine arms drops ENGINE_FIELD from every tab and explains the differences
-# ENGINE_PARITY_FILE lists, the way run_web_tests.py --flag-specific reads FlagExpectations/<flag>
+# BrowserEngineKind. An engine arm canonicalizes without ENGINE_FIELD (driver_app.ENGINE_DROP) and a comparison of
+# two engine arms explains the differences ENGINE_PARITY_FILE lists, the way run_web_tests.py --flag-specific reads FlagExpectations/<flag>
 # (third_party/blink/web_tests/FlagExpectations/README.txt).
 ENGINE_READBACK = {"webkit": "webkit", "chromium": "cef"}
 ENGINE_FIELD = "engine"
@@ -544,6 +545,8 @@ def coerce_result(raw: Any) -> Dict[str, Any]:
         for extra in ("uncertain", "notComparable"):
             if cp.get(extra):
                 row[extra] = cp[extra]
+        if isinstance(cp.get("engines"), dict):  # an engine arm's raw tab engines (driver_app.tab_engines)
+            row["engines"] = cp["engines"]
         rows.append(row)
     step = raw.get("step")
     environment = raw.get("environment")
@@ -1353,20 +1356,6 @@ def browser_tabs(snapshot: Any) -> List[Any]:
     return [tab for pane in panes if isinstance(pane, dict) and isinstance(pane.get("tabs"), list) for tab in pane["tabs"]]
 
 
-def without_engine(snapshot: Any) -> Any:
-    """The snapshot with ENGINE_FIELD left out of every tab of the tabs facet; every other value is unchanged."""
-    if not browser_tabs(snapshot):
-        return snapshot
-    facets = snapshot["facets"]
-    panes = [
-        {**pane, "tabs": [{k: v for k, v in tab.items() if k != ENGINE_FIELD} if isinstance(tab, dict) else tab
-                          for tab in pane["tabs"]]}
-        if isinstance(pane, dict) and isinstance(pane.get("tabs"), list) else pane
-        for pane in facets["tabs"]["panes"]
-    ]
-    return {**snapshot, "facets": {**facets, "tabs": {**facets["tabs"], "panes": panes}}}
-
-
 def read_checkpoint_rows(run_dir: Path) -> Iterator[Dict[str, Any]]:
     path = run_dir / "checkpoints.jsonl"
     if not path.is_file():
@@ -1384,31 +1373,18 @@ def read_checkpoint_rows(run_dir: Path) -> Iterator[Dict[str, Any]]:
             yield row
 
 
-def engine_readback(run_dir: Path) -> Dict[str, int]:
-    """How many browser-tab checkpoint values of the run show each engine (BrowserEngineKind)."""
+def engine_readback(run_dir: Path) -> Tuple[Dict[str, int], Optional[str]]:
+    """How many browser tabs of the run's checkpoints showed each engine (BrowserEngineKind) before the driver
+    dropped it, and the first checkpoint whose canonical tabs still show an engine (None when none does)."""
     counts: Dict[str, int] = {}
+    kept = None
     for row in read_checkpoint_rows(run_dir):
-        for tab in browser_tabs(row.get("snapshot")):
-            kind = tab.get(ENGINE_FIELD) if isinstance(tab, dict) else None
-            if isinstance(kind, str):
-                counts[kind] = counts.get(kind, 0) + 1
-    return dict(sorted(counts.items()))
-
-
-def write_engine_neutral(run_dir: Path, out: Path) -> Path:
-    """A copy of the run directory for diff.py: the receipt as is, every checkpoint without the tabs' engine (its
-    hash recomputed, so diff.py's equal-hash shortcut stays true to the values it compares)."""
-    check_out_dir(out)
-    out.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(run_dir / "receipt.json", out / "receipt.json")
-    rows = []
-    for row in read_checkpoint_rows(run_dir):
-        snapshot = without_engine(row.get("snapshot"))
-        if snapshot is not row.get("snapshot"):
-            row = {**row, "snapshot": snapshot, **({"sha256": snapshot_sha256(snapshot)} if "sha256" in row else {})}
-        rows.append(row)
-    write_jsonl(out / "checkpoints.jsonl", rows)
-    return out
+        for kind, count in (row.get("engines") or {}).items():
+            if isinstance(kind, str) and isinstance(count, int):
+                counts[kind] = counts.get(kind, 0) + count
+        if kept is None and any(isinstance(tab, dict) and ENGINE_FIELD in tab for tab in browser_tabs(row.get("snapshot"))):
+            kept = f"{row.get('case')} {row.get('step')}/{row.get('checkpoint')}"
+    return dict(sorted(counts.items())), kept
 
 
 def engine_sides(a: RunView, b: RunView, labels: Tuple[str, str]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
@@ -1416,6 +1392,7 @@ def engine_sides(a: RunView, b: RunView, labels: Tuple[str, str]) -> Tuple[Optio
     engines = (a.receipt["config"].get("engine"), b.receipt["config"].get("engine"))
     if engines[0] == engines[1]:
         return None, None
+    # `dropped`: the driver leaves it out before canonicalization (driver_app.ENGINE_DROP).
     record = {"engines": dict(zip(labels, engines)), "dropped": f"/facets/tabs/panes/*/tabs/*/{ENGINE_FIELD}",
               "expected": str(ENGINE_PARITY_FILE)}
     if None in engines:
@@ -1426,12 +1403,23 @@ def engine_sides(a: RunView, b: RunView, labels: Tuple[str, str]) -> Tuple[Optio
 
 def check_engine_exercised(record: Dict[str, Any], dirs: Tuple[Path, Path]) -> Optional[str]:
     """Like arm-not-exercised for a switch: each arm must read its own engine back from at least one browser tab,
-    else the setting never reached the app or no case opened a browser tab, and equal sides prove nothing."""
-    record["readback"] = {label: engine_readback(d) for label, d in zip(record["engines"], dirs)}
+    else the setting never reached the app or no case opened a browser tab, and equal sides prove nothing. And
+    no canonical tab may still show its engine: the set order and id labels would then depend on it."""
+    readback = {label: engine_readback(d) for label, d in zip(record["engines"], dirs)}
+    record["readback"] = {label: counts for label, (counts, _) in readback.items()}
+    for label, (_, kept) in readback.items():
+        if kept is not None:
+            return (f"engine-not-neutral: side {label} checkpoint {kept} still shows the tabs' {ENGINE_FIELD}; an "
+                    "engine arm is canonicalized without it (driver_app.ENGINE_DROP), else the pane order and "
+                    "labels depend on the engine")
     for label, engine in record["engines"].items():
         if not record["readback"][label].get(ENGINE_READBACK[engine]):
             return (f"engine-not-exercised: side {label} (--engine {engine}) shows no {ENGINE_READBACK[engine]} "
                     f"browser tab at any checkpoint (read back: {record['readback'][label] or 'no browser tab'})")
+    first, second = record["readback"].values()
+    if first == second:
+        # A tab that pins its engine (TabLifecycle.newBrowser engine webkit) reads back on both arms.
+        return f"engine-not-exercised: both arms read back the same tab engines ({first}); --engine changed no tab"
     return None
 
 
@@ -1499,8 +1487,8 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
     all-match comparison from two hosts is refused like a divergent one. Flaky cases are
     reported as flaky by diff.py and never count as compared. With `order_parity`, a case that
     leaked state on one side only is a divergence too: its leak depends on the order. Two sides of
-    different `--engine` arms are an engine parity comparison: each arm must read its engine back,
-    the tabs' engine is dropped, and ENGINE_PARITY_FILE explains the differences it lists.
+    different `--engine` arms are an engine parity comparison: each arm must read its engine back
+    and show no tab engine (its driver dropped it), and ENGINE_PARITY_FILE explains the differences it lists.
     """
     target = out / "divergence.json"
     target.unlink(missing_ok=True)
@@ -1510,8 +1498,6 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
     if engine is not None and refused is None:
         refused = check_engine_exercised(engine, (a_dir, b_dir))
     if engine is not None and refused is None:
-        a_dir = write_engine_neutral(a_dir, out / "a-engine-neutral")
-        b_dir = write_engine_neutral(b_dir, out / "b-engine-neutral")
         expected = [*expected, ENGINE_PARITY_FILE]
     document: Dict[str, Any] = {}
     code = None
@@ -1568,7 +1554,7 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
                   f"pointer={item['pointer']} a={json.dumps(item['a'], sort_keys=True)} b={json.dumps(item['b'], sort_keys=True)}")
         if engine is not None:
             print("  engine parity: " + " vs ".join(f"{label} --engine {name}" for label, name in engine["engines"].items())
-                  + f"; {ENGINE_FIELD} dropped from the tabs facet; explained by {ENGINE_PARITY_FILE.relative_to(REPO)}")
+                  + f"; tabs canonicalized without {ENGINE_FIELD}; explained by {ENGINE_PARITY_FILE.relative_to(REPO)}")
             for label, counts in (engine.get("readback") or {}).items():
                 print(f"  engine read back on {label}: {counts or 'no browser tab'}")
         for cid in leaks_differ:

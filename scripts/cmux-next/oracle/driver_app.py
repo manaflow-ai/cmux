@@ -36,7 +36,9 @@ marks that step's checkpoints uncertain (never baselined) and says so in the res
 Facets: `debug.oracle.snapshot` gives the app's facets (a facet with no provider in the build comes back
 not-comparable from the app); the `daemon` facet is read from the tag's own cmux-tui (the `--socket` of its
 `--headless` process, found by TagTeardown's bundle-path match) through the Python SDK, with the snapshot
-schema's capture rules. Every checkpoint of a case is canonicalized together by normalize.py.
+schema's capture rules. Every checkpoint of a case is canonicalized together by normalize.py. An engine arm
+(the session's `engine`) canonicalizes without the tabs' engine (normalize.Context.drop ENGINE_DROP), so no pane
+order or id label depends on it, and gives each checkpoint the engines its raw tabs showed (`engines`).
 
 Chrome reference (chromium/src):
 - ui/base/interaction/interactive_test.h, chrome/test/interaction/README.md (Kombucha): Action, WaitForState and
@@ -102,6 +104,8 @@ ORACLE_CONFIG = {"appearance": {"backgroundOpacity": 1}, "ui": {"animations": {"
 # `browser.defaultEngine` values (BrowserDefaultEngine), which are also the case-v1 environment.engine names; `none`
 # (the case needs no engine) leaves the launch's engine as the run set it (oracle.py --engine) or the app default.
 ENGINES = ("webkit", "chromium")
+# The tab field an engine arm leaves out before canonicalization (spec 3F.4: the arms compare without it).
+ENGINE_DROP = "/facets/tabs/panes/*/tabs/*/engine"
 # The user's app (CLAUDE.md: never quit, kill, relaunch, replace or launch it).
 USER_APP = "/Applications/cmux.app"
 USER_BUNDLE_ID = "com.cmuxterm.app"
@@ -917,7 +921,8 @@ class CaseRun:
 # The session
 
 
-Canonicalize = Callable[[Sequence[Dict[str, Any]], Any, Sequence[str]], List[Any]]
+# (snapshots, paths, labels, drop): drop is normalize.Context.drop, the pointers the session leaves out.
+Canonicalize = Callable[[Sequence[Dict[str, Any]], Any, Sequence[str], Sequence[str]], List[Any]]
 AppFactory = Callable[[str, Path, Mapping[str, str]], Any]
 
 
@@ -932,11 +937,26 @@ def normalize_canonicalizer(schema_path: Optional[str] = None) -> Tuple[Canonica
     except normalize.OracleError as error:
         raise ValueError(f"normalize.py refuses the snapshot schema, so no snapshot can be canonical: {error}") from None
 
-    def canonicalize(snapshots: Sequence[Dict[str, Any]], paths: OraclePaths, labels: Sequence[str]) -> List[Any]:
-        ctx = normalize.Context(root=paths.roots, home=(str(paths.home),))
+    def canonicalize(snapshots: Sequence[Dict[str, Any]], paths: OraclePaths, labels: Sequence[str],
+                     drop: Sequence[str]) -> List[Any]:
+        ctx = normalize.Context(root=paths.roots, home=(str(paths.home),), drop=tuple(drop))
         return [r.value for r in normalize.canonicalize_case(list(snapshots), schema, ctx, list(labels))]
 
     return canonicalize, schema.doc
+
+
+def tab_engines(snapshot: Any) -> Dict[str, int]:
+    """How many tabs of the snapshot's tabs facet show each engine (BrowserEngineKind); page tabs show none."""
+    facets = snapshot.get("facets") if isinstance(snapshot, dict) else None
+    tabs = facets.get("tabs") if isinstance(facets, dict) else None
+    panes = tabs.get("panes") if isinstance(tabs, dict) else None
+    counts: Dict[str, int] = {}
+    for pane in panes if isinstance(panes, list) else ():
+        for tab in (pane.get("tabs") if isinstance(pane, dict) else None) or ():
+            kind = tab.get("engine") if isinstance(tab, dict) else None
+            if isinstance(kind, str):
+                counts[kind] = counts.get(kind, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def app_identity(app: str) -> Tuple[str, Optional[str], str, str]:
@@ -1066,9 +1086,14 @@ class AppSession:
     def canonical(self, case_id: str, captures: Sequence[Capture]) -> List[Dict[str, Any]]:
         if not captures:
             return []
+        drop = (ENGINE_DROP,) if self.engine is not None else ()
         values = self.canonicalize([c.snapshot for c in captures], self.paths,
-                                   [f"{c.step}/{c.checkpoint}" for c in captures])
-        return [{"step": c.step, "checkpoint": c.checkpoint, "snapshot": v} for c, v in zip(captures, values)]
+                                   [f"{c.step}/{c.checkpoint}" for c in captures], drop)
+        rows = [{"step": c.step, "checkpoint": c.checkpoint, "snapshot": v} for c, v in zip(captures, values)]
+        if self.engine is not None:
+            for row, capture in zip(rows, captures):
+                row["engines"] = tab_engines(capture.snapshot)
+        return rows
 
     def close(self) -> None:
         try:

@@ -9,6 +9,7 @@ The Expectations tests run when expectations.py (p15-oracle-015) is beside this 
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import subprocess
@@ -23,9 +24,12 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+import driver_app  # noqa: E402
 import oracle  # noqa: E402
 
 HAS_EXPECTATIONS = (HERE / "expectations.py").is_file()
+EXAMPLE_SNAPSHOT_TEXT = (oracle.REPO / "schemas" / "oracle" / "fixtures" / "snapshot-example.json").read_text(
+    encoding="utf-8")
 
 
 class FakeSession:
@@ -634,53 +638,91 @@ class CompareTests(unittest.TestCase):
 
 
 class EngineSession(FakeSession):
-    """One launch of EngineDriver's app, with the engine its browser tabs take."""
+    """One launch of EngineDriver's app, with the engine its browser tabs take and the run's engine arm."""
 
-    def __init__(self, driver: "EngineDriver", number: int, engine: str) -> None:
+    def __init__(self, driver: "EngineDriver", number: int, engine: str, arm) -> None:
         super().__init__(driver, number)
         self.engine = engine
+        self.arm = arm
 
     def run_case(self, case, ctx):
         return self.driver.run_engine(case, ctx, self)
 
 
-class EngineDriver(FakeDriver):
-    """An app whose browser tabs take the launch's engine (the session's `engine`, else the app default chromium)
-    unless `ignores_engine`. `differs` gives those cases another load state on the WebKit arm (an engine defect)."""
+def tagged_sha256(text: str) -> str:
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-    def __init__(self, ignores_engine=False, differs=()):
+
+class EngineDriver(FakeDriver):
+    """The app as driver_app.AppSession sees it: a schema-valid snapshot (schemas/oracle/fixtures/snapshot-example.json)
+    canonicalized by the real normalize.py, on an engine arm without the tabs' engine (driver_app.ENGINE_DROP) and
+    with the raw tabs' engines as `engines`, unless `keeps_engine`. The default-engine tab takes the launch's engine
+    (the arm's, else the app default chromium) unless `ignores_engine`, and with `pinned_webkit` each case also has
+    a WebKit tab in a pane of its own (misc/_tuning.json: TabLifecycle.newBrowser engine webkit), so the chromium
+    arm's panes hold both engines and their set order would follow the engine. The daemon and the app settings
+    hash each arm's own config, as the real arms do. `differs` gives those cases another load state on the WebKit
+    arm (an engine defect)."""
+
+    canonicalize = None
+
+    def __init__(self, ignores_engine=False, differs=(), keeps_engine=False, pinned_webkit=True):
         super().__init__()
         self.ignores_engine = ignores_engine
         self.differs = set(differs)
+        self.keeps_engine = keeps_engine
+        self.pinned_webkit = pinned_webkit
         self.engines = []
         self.cases = {}
+        if EngineDriver.canonicalize is None:
+            EngineDriver.canonicalize = staticmethod(driver_app.normalize_canonicalizer()[0])
 
     def open_session(self, ctx):
         with self.mutex:
             self.sessions += 1
             self.engines.append(ctx.get("engine"))
             engine = "chromium" if self.ignores_engine else ctx.get("engine") or "chromium"
-            return EngineSession(self, self.sessions, engine)
+            return EngineSession(self, self.sessions, engine, ctx.get("engine"))
+
+    def snapshot(self, engine, case_id):
+        doc = json.loads(EXAMPLE_SNAPSHOT_TEXT)
+        facets = doc["facets"]
+        tab = facets["tabs"]["panes"][0]["tabs"][0]
+
+        def pane(number, kind, name, load):
+            tab_id = f"tab_{number + 16:032x}"
+            return {"pane": f"pane_{number:032x}", "selected": tab_id,
+                    "tabs": [{**tab, "tab": tab_id, "engine": kind, "url": f"$WEB/{name}.html", "loadState": load}]}
+
+        load = "failed" if engine == "webkit" and case_id in self.differs else "finished"
+        panes = [pane(0xa2, oracle.ENGINE_READBACK[engine], "b", load)]
+        if self.pinned_webkit:
+            panes.insert(0, pane(0xa1, "webkit", "a", "finished"))
+        facets["tabs"]["panes"] = panes
+        facets["daemon"]["settings"].update(effective_sha256=tagged_sha256("effective " + engine),
+                                            file_sha256=tagged_sha256("file " + engine))
+        facets["settings"]["effectiveSha256"] = tagged_sha256("app " + engine)
+        if engine == "webkit":
+            facets["settings"]["nonDefaultKeys"].append("browser.defaultEngine")
+        facets["liveObjects"]["cefBrowsers"] = 1 if engine == "chromium" else 0
+        return doc
 
     def run_engine(self, case, ctx, session):
         with self.mutex:
             self.cases[ctx["case_id"]] = case
-        engine = session.engine
-        load = "failed" if engine == "webkit" and ctx["case_id"] in self.differs else "finished"
-        tab = {"tab": "t1", "kind": "browser", "engine": oracle.ENGINE_READBACK[engine], "loadState": load}
-        page = {"tab": "t2", "kind": "page", "engine": None, "loadState": "unloaded"}
-        facets = {"tabs": {"panes": [{"pane": "p1", "selected": "t1", "tabs": [tab, page]}]},
-                  "settings": {"effectiveSha256": "sha256:" + engine,
-                               "nonDefaultKeys": ["browser.defaultEngine"] if engine == "webkit" else []},
-                  "liveObjects": {"cefBrowsers": 2 if engine == "chromium" else 0, "terminals": 1}}
-        return {"status": "Pass", "checkpoints": [
-            {"step": "s1", "checkpoint": "before", "snapshot": {"schema": "snapshot-v1", "facets": {}}},
-            {"step": "s1", "checkpoint": "settled", "snapshot": {"schema": "snapshot-v1", "facets": facets}}]}
+        raw = [self.snapshot(session.engine, ctx["case_id"]) for _ in range(2)]
+        drop = (driver_app.ENGINE_DROP,) if session.arm is not None and not self.keeps_engine else ()
+        paths = driver_app.OraclePaths(Path("/tmp/o/engine-parity-test"))
+        values = EngineDriver.canonicalize(raw, paths, ["s1/before", "s1/settled"], drop)
+        rows = [{"step": "s1", "checkpoint": cp, "snapshot": value} for cp, value in zip(("before", "settled"), values)]
+        if session.arm is not None:
+            for row, snapshot in zip(rows, raw):
+                row["engines"] = driver_app.tab_engines(snapshot)
+        return {"status": "Pass", "checkpoints": rows}
 
 
 class EngineParityTests(unittest.TestCase):
-    """Engine parity (p15-oracle-113): `--engine` arms, the readback check, the dropped engine and the
-    tests/oracle/engine-parity.json differences, through the real diff.py."""
+    """Engine parity (p15-oracle-113): `--engine` arms, the readback check, the engine-neutral canonicalization and
+    the tests/oracle/engine-parity.json differences, through the real normalize.py and diff.py."""
 
     def setUp(self):
         self.raw = tempfile.TemporaryDirectory()
@@ -707,6 +749,9 @@ class EngineParityTests(unittest.TestCase):
     def arms(self, webkit=None, chromium=None):
         self.run_arm("webkit", "webkit", webkit or EngineDriver())
         self.run_arm("chromium", "chromium", chromium or EngineDriver())
+
+    def rows(self, label):
+        return [json.loads(line) for line in (self.tmp / label / "checkpoints.jsonl").read_text().splitlines()]
 
     def test_parse_engines(self):
         self.assertEqual(oracle.parse_engines("webkit,chromium"), ("webkit", "chromium"))
@@ -742,7 +787,7 @@ class EngineParityTests(unittest.TestCase):
             with self.assertRaises(oracle.UsageError, msg=argv):
                 oracle.cmd_diff(parser.parse_args(["diff", "--out", str(self.tmp / "refused"), *argv]))
 
-    def test_equal_arms_pass_with_the_engine_dropped_and_the_listed_differences_explained(self):
+    def test_mixed_engine_panes_pass_and_every_arm_difference_is_explained(self):
         self.arms()
         code, cmp = self.diff()
         self.assertEqual(code, 0, cmp)
@@ -751,19 +796,28 @@ class EngineParityTests(unittest.TestCase):
         self.assertEqual(cmp["compared"], 4)
         parity = cmp["engine_parity"]
         self.assertEqual(parity["engines"], {"base": "webkit", "head": "chromium"})
-        self.assertEqual(parity["readback"], {"base": {"webkit": 4}, "head": {"cef": 4}})
+        self.assertEqual(parity["readback"], {"base": {"webkit": 16}, "head": {"cef": 8, "webkit": 8}})
         report = json.loads(Path(cmp["divergence"]).read_text())
         explained = {e["pointer"] for case in report["cases"] for e in case.get("explained") or ()}
-        self.assertEqual(explained, {"/facets/settings/effectiveSha256", "/facets/settings/nonDefaultKeys",
+        self.assertEqual(explained, {"/facets/daemon/settings/effective_sha256", "/facets/daemon/settings/file_sha256",
+                                     "/facets/settings/effectiveSha256", "/facets/settings/nonDefaultKeys",
                                      "/facets/liveObjects/cefBrowsers"})
-        neutral = [json.loads(line) for line in (self.tmp / "cmp" / "a-engine-neutral" / "checkpoints.jsonl").read_text().splitlines()]
-        tabs = [tab for row in neutral for tab in oracle.browser_tabs(row["snapshot"])]
-        self.assertTrue(tabs)
-        self.assertTrue(all("engine" not in tab and "loadState" in tab for tab in tabs))
-        self.assertTrue(all(row["sha256"] == oracle.snapshot_sha256(row["snapshot"]) for row in neutral))
-        original = [json.loads(line) for line in (self.tmp / "webkit" / "checkpoints.jsonl").read_text().splitlines()]
-        self.assertTrue(any(tab.get("engine") == "webkit" for row in original for tab in oracle.browser_tabs(row["snapshot"])),
-                        "the run directory keeps its engine")
+        for label in ("webkit", "chromium"):
+            tabs = [tab for row in self.rows(label) for tab in oracle.browser_tabs(row["snapshot"])]
+            self.assertTrue(tabs)
+            self.assertTrue(all("engine" not in tab and "loadState" in tab for tab in tabs), label)
+            urls = [[p["tabs"][0]["url"] for p in row["snapshot"]["facets"]["tabs"]["panes"]] for row in self.rows(label)]
+            self.assertEqual({tuple(u) for u in urls}, {("$WEB/a.html", "$WEB/b.html")}, label)
+
+    def test_an_arm_canonicalized_with_the_engine_is_refused(self):
+        # Kept through canonicalization, the engine orders the chromium arm's panes cef first: no later drop
+        # can undo that, so the comparison is refused instead of reporting a false pane divergence.
+        self.arms(chromium=EngineDriver(keeps_engine=True))
+        urls = [p["tabs"][0]["url"] for p in self.rows("chromium")[0]["snapshot"]["facets"]["tabs"]["panes"]]
+        self.assertEqual(urls, ["$WEB/b.html", "$WEB/a.html"])
+        code, cmp = self.diff()
+        self.assertEqual(code, oracle.EXIT_REFUSED)
+        self.assertTrue(cmp["refused"].startswith("engine-not-neutral: side head checkpoint browser/"), cmp["refused"])
 
     def test_any_other_tab_difference_is_a_divergence(self):
         self.arms(webkit=EngineDriver(differs={"browser/pinned"}))
@@ -771,15 +825,22 @@ class EngineParityTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(cmp["divergent"], ["browser/pinned"])
         report = json.loads(Path(cmp["divergence"]).read_text())
-        self.assertEqual(report["divergences"][0]["pointer"], "/facets/tabs/panes/0/tabs/0/loadState")
+        self.assertTrue(report["divergences"][0]["pointer"].startswith("/facets/tabs/panes/"), report["divergences"][0])
 
     def test_an_arm_that_reads_back_the_other_engine_is_refused(self):
-        self.arms(webkit=EngineDriver(ignores_engine=True))
+        self.arms(webkit=EngineDriver(ignores_engine=True, pinned_webkit=False),
+                  chromium=EngineDriver(pinned_webkit=False))
         code, cmp = self.diff()
         self.assertEqual(code, oracle.EXIT_REFUSED)
         self.assertTrue(cmp["refused"].startswith("engine-not-exercised: side base (--engine webkit)"), cmp["refused"])
         self.assertFalse(cmp["ok"])
         self.assertIsNone(cmp["diff_exit"])
+
+    def test_a_pinned_webkit_tab_alone_does_not_exercise_the_arm(self):
+        self.arms(webkit=EngineDriver(ignores_engine=True))
+        code, cmp = self.diff()
+        self.assertEqual(code, oracle.EXIT_REFUSED)
+        self.assertTrue(cmp["refused"].startswith("engine-not-exercised: both arms read back the same"), cmp["refused"])
 
     def test_an_engine_arm_against_the_default_engine_is_refused(self):
         self.run_arm("webkit", "webkit", EngineDriver())
@@ -792,9 +853,8 @@ class EngineParityTests(unittest.TestCase):
         self.run_arm("webkit", "chromium", EngineDriver())
         self.run_arm("chromium", "chromium", EngineDriver())
         code, cmp = self.diff()
-        self.assertEqual(code, 0)
+        self.assertEqual(code, 0, cmp)
         self.assertIsNone(cmp["engine_parity"])
-        self.assertFalse((self.tmp / "cmp" / "a-engine-neutral").exists())
 
     def test_the_engine_parity_file_is_diff_py_rules_each_with_a_reason_and_task(self):
         diff = oracle.require_sibling("diff", "p15-oracle-014")

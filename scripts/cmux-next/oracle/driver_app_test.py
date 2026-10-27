@@ -51,6 +51,7 @@ class FakeApp:
         self.fail_launch = False
         self.stops = 0
         self.hang: set = set()
+        self.tabs: Optional[Dict[str, Any]] = None
 
     # -- the port
 
@@ -92,6 +93,8 @@ class FakeApp:
         for name in names:
             if name == "topology":
                 out[name] = {"workspaces": self.workspaces}
+            elif name == "tabs" and self.tabs is not None:
+                out[name] = json.loads(json.dumps(self.tabs))
             elif name in PROVIDED:
                 out[name] = {"value": name}
             else:
@@ -178,7 +181,7 @@ def identity(app: str):
 
 
 def identity_canonicalizer():
-    return (lambda snapshots, paths, labels: [json.loads(json.dumps(s)) for s in snapshots]), {}
+    return (lambda snapshots, paths, labels, drop: [json.loads(json.dumps(s)) for s in snapshots]), {}
 
 
 class Recorder:
@@ -261,7 +264,7 @@ class AppSessionTest(unittest.TestCase):
         self.assertIn(str(session.paths.root), paths["root"])
 
     def test_the_same_case_twice_gives_equal_hashes(self) -> None:
-        def without_time(snapshots, paths, labels):  # normalize.py drops the volatile capturedAtMs
+        def without_time(snapshots, paths, labels, drop):  # normalize.py drops the volatile capturedAtMs
             out = [json.loads(json.dumps(s)) for s in snapshots]
             for snap in out:
                 snap["meta"].pop("capturedAtMs")
@@ -420,6 +423,33 @@ class AppSessionTest(unittest.TestCase):
         self.assertEqual(default, driver_app.ORACLE_CONFIG)
         with self.assertRaises(ValueError):
             self.session(engine="gecko")
+
+    def test_an_engine_arm_canonicalizes_without_the_tab_engine_and_reads_it_back(self) -> None:
+        drops: List[tuple] = []
+
+        def recording(snapshots, paths, labels, drop):
+            drops.append(tuple(drop))
+            return [json.loads(json.dumps(s)) for s in snapshots]
+
+        tabs = {"panes": [{"pane": "p1", "selected": "t1", "tabs": [
+            {"tab": "t1", "kind": "browser", "engine": "webkit"}, {"tab": "t2", "kind": "browser", "engine": "cef"},
+            {"tab": "t3", "kind": "page", "engine": None}]}]}
+        for engine, want in (("webkit", (driver_app.ENGINE_DROP,)), (None, ())):
+            drops.clear()
+            session = self.session(canonicalizer=(recording, {}), engine=engine)
+            session.ensure_launched(driver_app.launch_spec(case(NEW_WORKSPACE), engine))
+            self.apps[-1].tabs = tabs
+            result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
+            self.assertEqual(result["status"], "Pass", result["message"])
+            self.assertEqual(set(drops), {want}, engine)
+            rows = result["checkpoints"]
+            if engine is None:
+                self.assertTrue(all("engines" not in row for row in rows))
+                continue
+            with_tabs = [row for row in rows if "tabs" in row["snapshot"].get("facets", {})]
+            self.assertTrue(with_tabs)
+            self.assertTrue(all(row["engines"] == {"cef": 1, "webkit": 1} for row in with_tabs), with_tabs)
+        self.assertEqual(driver_app.tab_engines({"facets": {"tabs": {"status": "not-comparable"}}}), {})
 
     def test_viewport_relaunches_and_a_failed_launch_is_a_dirty_crash(self) -> None:
         session = self.session()
