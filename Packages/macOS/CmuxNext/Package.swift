@@ -462,6 +462,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextFloatingTests",
+            // CmuxNextWakeups: the pet's AppEvents and the scheduler its setting follow posts on (p06-scheduler-337).
             // WakeupsTestSupport: ChiefPetDragFramesTests' fake-link coalescer.
             dependencies: ["CmuxNextFloating", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
