@@ -56,6 +56,8 @@ enum CloudPresenter {
     /// The money confirmation of a machine create: only the person answers
     /// it (`DebugDialog.userOnly`), so automation can never approve a spend.
     static let createConfirmIdentifier = "cmux.dialog.cloud.createConfirm"
+    /// Credential installation always requires a real click; debug.dialog cannot approve it.
+    static let credentialRecoveryIdentifier = "cmux.dialog.cloud.credentialRecovery"
 
     /// Asks a yes/no question; `done(true)` only for a click on `button`.
     static func confirm(_ title: String, _ body: String, button: String, identifier: String = "cmux.dialog.cloud.confirm",
@@ -101,7 +103,7 @@ enum CloudPresenter {
             title: "Set up \(providerName) on \(session.machine.title)?",
             lines: [body, "This replaces \(providerName)'s login on this VM and restarts this chat before retrying its failed prompt."],
             buttons: [.cancel("Cancel"), CmuxDialogButton(id: "transfer", title: "Transfer and restart", role: .default)],
-            identifier: "cmux.dialog.cloud.credentialRecovery")
+            identifier: credentialRecoveryIdentifier)
         guard let window = services.windows.active?.window else { return false }
         let answer = await CmuxDialogCenter.shared.present(spec, in: .window(window))
         guard answer.button == "transfer", !answer.isDismissal else { return false }

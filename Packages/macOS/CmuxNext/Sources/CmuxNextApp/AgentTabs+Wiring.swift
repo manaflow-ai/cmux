@@ -165,9 +165,14 @@ extension AgentTabStore {
             guard let services else { return false }
             return AgentProcessTerminal(services: services).open(viewer, beside: chat)
         }
-        tabs.cloudCredentialTransfer = { [weak services] chat, request in
-            guard let services else { return false }
-            return await CloudPresenter.recoverCredentials(chat: chat, request: request, services: services)
+        // App-server `vm_…` IDs use a different backend contract; hide the transfer action
+        // until that backend exposes the credential delivery operation. Legacy provider VMs use
+        // the pinned `/api/vm/{id}/exec` path below.
+        if services.cloud.configuration.linkSource == .legacy {
+            tabs.cloudCredentialTransfer = { [weak services] chat, request in
+                guard let services else { return false }
+                return await CloudPresenter.recoverCredentials(chat: chat, request: request, services: services)
+            }
         }
         tabs.lookup = { [weak services] key in
             guard let services, let (tab, _) = services.locateTab(key), let record = tab.agentSession else { return nil }
