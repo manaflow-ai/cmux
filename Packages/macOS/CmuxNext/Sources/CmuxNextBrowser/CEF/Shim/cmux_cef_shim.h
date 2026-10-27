@@ -235,6 +235,19 @@ typedef enum {
   // a key selected, -1 none. HIDE: the token's rows close. ANNOUNCE: s1 =
   // what VoiceOver reads.
   CMUX_SHIM_SUGGESTIONS = 60,
+  // Host mode only (task p01-process-228): the Chromium Host's pushes of the
+  // fork API 31 color chooser, device chooser and screen-share picker
+  // handlers, which it installs while the app has set
+  // cmux_shim_set_color_chooser_handler, _set_device_chooser_handler or
+  // _set_desktop_media_handler. request = that handler's event
+  // (CMUX_SHIM_COLOR_CHOOSER_OPEN ...), a = token, b = the color (color
+  // chooser), s1 = the fork struct's fields as bytes
+  // (ChromiumHost/src/host_choosers.h). The remote shim calls the handler's
+  // fn with them; they never reach the event fn, and the in-process shim
+  // never sends them.
+  CMUX_SHIM_COLOR_CHOOSER = 61,
+  CMUX_SHIM_DEVICE_CHOOSER = 62,
+  CMUX_SHIM_DESKTOP_MEDIA = 63,
 } cmux_shim_event_kind_t;
 
 typedef enum {

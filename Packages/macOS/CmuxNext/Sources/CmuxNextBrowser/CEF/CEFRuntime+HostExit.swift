@@ -65,17 +65,18 @@ extension CEFRuntime {
         tab.host.recreateShown(tab)
     }
 
-    /// Puts a runtime that has not started in host mode (``adopt(stores:signInCallbacks:waitDeadlines:hostSupervisor:hostWidgets:hostDrags:hostResizeFence:hostPopupMenus:hostSuggestions:hostFileDialogs:)``):
+    /// Puts a runtime that has not started in host mode (``adopt(stores:signInCallbacks:waitDeadlines:hostSupervisor:hostWidgets:hostDrags:hostResizeFence:hostPopupMenus:hostSuggestions:hostChoosers:hostFileDialogs:)``):
     /// its start attaches through `supervisor` (host widgets in cmux with `showsWidgets`, drops with `takesDrags`, page
     /// resizes fenced with `fencesResizes`, `<select>` popups as cmux menus with `drawsPopupMenus`, suggestions in cmux's
-    /// list with `drawsSuggestions`, page file choosers answered by `fileDialogs`), and the host's ends reach
+    /// list with `drawsSuggestions`, choosers in cmux with `drawsChoosers`, page file choosers answered by `fileDialogs`), and the host's ends reach
     /// ``hostEnded(_:)`` when the supervisor reports them (``ChromiumHostExitReporting``).
     func adoptHost(_ supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, takesDrags: Bool = false,
-                   fencesResizes: Bool = false, drawsPopupMenus: Bool = false, drawsSuggestions: Bool = false,
+                   fencesResizes: Bool = false, drawsPopupMenus: Bool = false, drawsSuggestions: Bool = false, drawsChoosers: Bool = false,
                    fileDialogs: (any ChromiumFileDialogAnswering)? = nil) {
         hostStart = CEFHostStart(supervisor: supervisor, showsWidgets: showsWidgets, takesDrags: takesDrags,
                                  fencesResizes: fencesResizes, drawsPopupMenus: drawsPopupMenus, fileDialogs: fileDialogs)
         hostStart?.drawsSuggestions = drawsSuggestions
+        hostStart?.drawsChoosers = drawsChoosers
         guard let reporting = supervisor as? any ChromiumHostExitReporting else { return }
         reporting.onHostEnded = { [weak self] exit in self?.hostEnded(exit) }
     }

@@ -87,6 +87,7 @@ extension CEFRuntime {
             widgetHost?.ownerClosed(browser)
             hostStart?.popupMenus?.ownerClosed(browser)
             hostStart?.files?.browserClosed(browser)
+            hostStart?.choosers?.ownerClosed(browser)
             browserClosed(browser)
         case .beforeUnloadDialog(let browser, let token, let isReload):
             // A page with no tab to ask in never keeps its unload waiting: it leaves.

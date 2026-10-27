@@ -108,6 +108,7 @@ extension AppServices {
         // Host mode only: <select> popups as cmux menus (p01-process-060).
         chromiumRuntime.source.drawsHostPopupMenus = features.isEnabled(.chromiumHostPopupMenus)
         chromiumRuntime.source.drawsHostSuggestions = features.isEnabled(.chromiumHostSuggestions) // p01-process-061
+        chromiumRuntime.source.drawsHostChoosers = features.isEnabled(.chromiumHostChoosers) // p01-process-228
         // Host mode only: page file choosers in cmux's picker, the files sent as paths (p01-process-064).
         chromiumRuntime.source.hostFileDialogs = features.isEnabled(.chromiumHostFileDialogs) ? ChromiumFileDialogPanels(openPanel: openPanel) : nil
         // Restored pages start Chromium by their origin, the visible one after the first frame (p08-startup-040).

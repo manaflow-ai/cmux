@@ -67,6 +67,11 @@ enum DebugCEF {
             .object(["asked": .number(Double(report.asked)), "answered": .number(Double(report.answered)),
                      "waiting": .number(Double(report.waiting))])
         } ?? .null
+        // Host mode with feature chromiumHostChoosers (p01-process-228): null while cmux shows none of the host's choosers.
+        object["host_choosers"] = services.cache.cef.hostChoosers.map { report in
+            .object(["color_open": .bool(report.colorOpen), "device_choosers": .number(Double(report.deviceChoosers)),
+                     "screen_shares": .number(Double(report.screenShares)), "answers": .number(Double(report.answers))])
+        } ?? .null
         object["host_resize"] = services.cache.cef.hostResizeCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
         // Swipes over Chromium pages (p01-process-234): a hosted page on a host that acks wheels probes nothing.
         let swipe = services.cache.cef.swipeStats

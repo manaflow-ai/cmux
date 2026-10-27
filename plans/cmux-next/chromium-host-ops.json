@@ -834,7 +834,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Function-pointer arg. The client keeps fn and calls it on main with the COLOR_CHOOSER_OPEN, _SET_COLOR and _END events the host pushes; the host installs its own fork handler (host_dispatch.mm), so only the handler on/off crosses the wire (task 228)."
+      "reason": "Function-pointer arg. The client (ChromiumHost/client/remote_shim_choosers.mm) keeps fn and calls it on main with the COLOR_CHOOSER_OPEN, _SET_COLOR and _END events of the host's CMUX_SHIM_COLOR_CHOOSER pushes, the fork's struct rebuilt from their payload (HOST/src/host_choosers.h); the host installs its own fork handler (host_dispatch.mm) while cmux has one, so only installed/removed crosses the wire, as this export's op id with i32 installed, sent when it differs from what the host last took and again at each host's HELLO (task 228)."
     },
     {
       "name": "cmux_shim_color_chooser_choose",
@@ -894,7 +894,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Function-pointer arg. The client keeps fn and calls it on main with the DEVICE_CHOOSER_UPDATE and _CLOSE events the host pushes; the host installs its own fork handler (host_dispatch.mm), so only the handler on/off crosses the wire (task 228)."
+      "reason": "Function-pointer arg. The client (ChromiumHost/client/remote_shim_choosers.mm) keeps fn and calls it on main with the DEVICE_CHOOSER_UPDATE and _CLOSE events of the host's CMUX_SHIM_DEVICE_CHOOSER pushes, the fork's struct rebuilt from their payload (HOST/src/host_choosers.h); the host installs its own fork handler (host_dispatch.mm) while cmux has one, so only installed/removed crosses the wire, as this export's op id with i32 installed, sent when it differs from what the host last took and again at each host's HELLO (task 228)."
     },
     {
       "name": "cmux_shim_device_chooser_answer",
@@ -945,7 +945,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Function-pointer arg. The client keeps fn and calls it on main with the DESKTOP_MEDIA_OPEN and _CLOSE events the host pushes; the host installs its own fork handler (host_dispatch.mm), so only the handler on/off crosses the wire (task 228)."
+      "reason": "Function-pointer arg. The client (ChromiumHost/client/remote_shim_choosers.mm) keeps fn and calls it on main with the DESKTOP_MEDIA_OPEN and _CLOSE events of the host's CMUX_SHIM_DESKTOP_MEDIA pushes, the fork's struct rebuilt from their payload (HOST/src/host_choosers.h); the host installs its own fork handler (host_dispatch.mm) while cmux has one, so only installed/removed crosses the wire, as this export's op id with i32 installed, sent when it differs from what the host last took and again at each host's HELLO (task 228)."
     },
     {
       "name": "cmux_shim_desktop_media_answer",
@@ -4806,6 +4806,24 @@
       "value": 60,
       "refreshes": [],
       "reason": "A field's suggestions as data (fork API 31's suggestion handler, tasks 172 and 061): SHOW, SELECT, HIDE and ANNOUNCE for the page view's suggestion list (ChromiumHostSuggestionList), as Chrome's AutofillPopupController drives its view."
+    },
+    {
+      "kind": "CMUX_SHIM_COLOR_CHOOSER",
+      "value": 61,
+      "refreshes": [],
+      "reason": "Host mode only (task 228): the host's fork color chooser handler, installed while cmux's client has cmux_shim_set_color_chooser_handler set. request = CMUX_SHIM_COLOR_CHOOSER_OPEN, _SET_COLOR or _END, a = token, b = the color (0xAARRGGBB), s1 = OPEN's suggestions as bytes (HOST/src/host_choosers.h). The remote shim (HOST/client/remote_shim_choosers.mm) calls the app's fn with the fork's cmux_color_chooser_t rebuilt from it; the app's event fn never sees it."
+    },
+    {
+      "kind": "CMUX_SHIM_DEVICE_CHOOSER",
+      "value": 62,
+      "refreshes": [],
+      "reason": "Host mode only (task 228): the host's fork device chooser handler (Web Bluetooth, WebUSB, WebHID, Web Serial), installed while cmux's client has cmux_shim_set_device_chooser_handler set. request = CMUX_SHIM_DEVICE_CHOOSER_UPDATE or _CLOSE, a = token, s1 = UPDATE's whole chooser state as bytes (HOST/src/host_choosers.h); the remote shim calls the app's fn with the fork's cmux_device_chooser_t rebuilt from it."
+    },
+    {
+      "kind": "CMUX_SHIM_DESKTOP_MEDIA",
+      "value": 63,
+      "refreshes": [],
+      "reason": "Host mode only (task 228): the host's fork screen-share picker handler (getDisplayMedia, chrome.desktopCapture), installed while cmux's client has cmux_shim_set_desktop_media_handler set. request = CMUX_SHIM_DESKTOP_MEDIA_OPEN or _CLOSE, a = token, s1 = OPEN's request as bytes (HOST/src/host_choosers.h); the remote shim calls the app's fn with the fork's cmux_desktop_media_request_t rebuilt from it."
     }
   ],
   "optional_exports": [
@@ -5368,7 +5386,7 @@
       "kind": "CMUX_SHIM_WIDGET_CONTEXT",
       "value": 52,
       "refreshes": [],
-      "reason": "A Views widget with a WebContents is shown or changed (fork task 173: extension popup, side panel, DevTools, popup window, InitAsPopup page popup): browser = owner, request = widget id, a = CAContext id | kind << 32, s1 = bounds x,y,width,height in DIPs from the primary display's top-left (the side panel's: from its page's top-left), s2 = title; ChromiumHostWidgetHost shows it (task 066)."
+      "reason": "A Views widget with a WebContents is shown or changed (fork task 173: extension popup, side panel, DevTools, popup window, InitAsPopup page popup; fork API 31: video and document picture-in-picture, task 228): browser = owner, request = widget id, a = CAContext id | kind << 32 (ChromiumHostWidgetKind: 1 extension popup, 2 side panel, 3 DevTools, 4 DevTools window, 5 popup window, 6 page popup, 7 video picture-in-picture for the fork's CMUX_HOSTED_WIDGET_VIDEO_PIP, 8 document picture-in-picture for its CMUX_HOSTED_WIDGET_DOCUMENT_PIP), s1 = bounds x,y,width,height in DIPs from the primary display's top-left (the side panel's: from its page's top-left), s2 = title; ChromiumHostWidgetHost shows it (task 066)."
     },
     {
       "kind": "CMUX_SHIM_WIDGET_GONE",

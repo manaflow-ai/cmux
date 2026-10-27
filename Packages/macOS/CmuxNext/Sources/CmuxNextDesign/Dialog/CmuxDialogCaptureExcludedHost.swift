@@ -34,6 +34,10 @@ public final class CmuxDialogCaptureExcludedHost: CmuxDialogHosting {
         window.sharingType = .none
     }
 
+    public func dialogDidUpdate(_ dialog: CmuxDialogView) {
+        inner.dialogDidUpdate(dialog)
+    }
+
     public func hide(_ dialog: CmuxDialogView) {
         // Off the screen now: the overlay's fade-out would draw it after the window is capturable.
         dialog.isHidden = true

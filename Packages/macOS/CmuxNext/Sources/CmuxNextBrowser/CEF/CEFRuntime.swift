@@ -243,16 +243,16 @@ final class CEFRuntime {
     /// App's one engine hands them over before its first start or tab), and its host supervisor, which
     /// puts a runtime that has not started in host mode (host widgets in cmux with `hostWidgets`, drops with `hostDrags`,
     /// page resizes fenced with `hostResizeFence`, `<select>` popups as cmux menus with `hostPopupMenus`, suggestions in
-    /// cmux's list with `hostSuggestions`, page file choosers answered by `hostFileDialogs`). Without `waitDeadlines` the
+    /// cmux's list with `hostSuggestions`, choosers in cmux with `hostChoosers`, page file choosers answered by `hostFileDialogs`). Without `waitDeadlines` the
     /// runtime keeps its own queue; the pump made at the start runs on the queue adopted before it. Idempotent for the
     /// same stores.
     func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks, waitDeadlines: MainWakeUpQueue? = nil,
                hostSupervisor: (any ChromiumHostSupervising)? = nil, hostWidgets: Bool = false, hostDrags: Bool = false,
-               hostResizeFence: Bool = false, hostPopupMenus: Bool = false, hostSuggestions: Bool = false,
+               hostResizeFence: Bool = false, hostPopupMenus: Bool = false, hostSuggestions: Bool = false, hostChoosers: Bool = false,
                hostFileDialogs: (any ChromiumFileDialogAnswering)? = nil) {
         if let hostSupervisor, hostStart == nil, state == .idle {
             adoptHost(hostSupervisor, showsWidgets: hostWidgets, takesDrags: hostDrags, fencesResizes: hostResizeFence,
-                      drawsPopupMenus: hostPopupMenus, drawsSuggestions: hostSuggestions, fileDialogs: hostFileDialogs)
+                      drawsPopupMenus: hostPopupMenus, drawsSuggestions: hostSuggestions, drawsChoosers: hostChoosers, fileDialogs: hostFileDialogs)
         }
         self.signInCallbacks = signInCallbacks
         if let waitDeadlines { wakeUps = waitDeadlines }
@@ -505,7 +505,7 @@ final class CEFRuntime {
         if case .inProcess = library, shim.prepareApplication() != 1 { throw .application }
         self.shim = shim
         if case .host = library {
-            showHostNativeUI(shim, forkAPIVersion: shim.forkAPIVersion())
+            unsafe showHostNativeUI(shim, forkAPIVersion: shim.forkAPIVersion(), context: token.context) // the token's bits, as below
             answerHostFileDialogs(shim)
         }
         if case .inProcess(let loaded) = library {
@@ -517,7 +517,7 @@ final class CEFRuntime {
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(), rendererPaths: CEFForkFeatures(shim).rendererPaths,
             chromiumFeatures: chromiumFeatures, disabledChromiumFeatures: disabledChromiumFeatures,
-            spareAfterFirstTab: spareAfterFirstTabFeature(),
+            spareAfterFirstTab: spareAfterFirstTabFeature(), embedderColorChooser: drawsChoosersInCmux,
             bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment, builtInExtensions: builtInPlan.folders,
             builtInExtensionsAtFirstTab: builtInLoader.start(builtInPlan.folders, forkSupports: shim.extLoadLaterSupported() == 1),

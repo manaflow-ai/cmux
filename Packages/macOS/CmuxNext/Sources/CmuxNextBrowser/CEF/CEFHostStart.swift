@@ -34,6 +34,13 @@ final class CEFHostStart {
     /// The host's autofill, password and `<datalist>` suggestions show in cmux's list (feature
     /// `chromiumHostSuggestions`, ``CEFRuntimeSource/drawsHostSuggestions``; task 061). Read at the attach.
     var drawsSuggestions = false
+    /// The color chooser, device choosers and screen-share picker show in cmux (feature
+    /// `chromiumHostChoosers`, ``CEFRuntimeSource/drawsHostChoosers``; task 228). Read at the start.
+    var drawsChoosers = false
+    /// Those choosers, from the start on when ``drawsChoosers`` and the host's fork has their handlers
+    /// (`CEFRuntime.showHostChoosers(_:context:)`); nil otherwise. Kept for the runtime's life: the remote
+    /// shim keeps cmux's handlers across hosts.
+    var choosers: ChromiumHostChoosers?
     /// Page file choosers answered by cmux's pickers (feature `chromiumHostFileDialogs`,
     /// `CEFRuntime.fileDialogAsked`); nil leaves Chromium's own panel.
     let files: ChromiumHostFiles?
@@ -77,6 +84,7 @@ final class CEFHostStart {
         supervisor.observeHostEnds { [weak self] in
             self?.widgetHost?.hostEnded()
             self?.popupMenus?.hostEnded()
+            self?.choosers?.hostEnded()
         }
     }
 

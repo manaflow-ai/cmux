@@ -63,6 +63,10 @@
 //                                              that display's, task 221); held as
 //                                              kOpBrowserAccessibilityToken is, the newest
 //                                              one only
+//   kOpSetColorChooserHandler,                  i32 installed (host_choosers.h): the host
+//   kOpSetDeviceChooserHandler,                 installs its own handler in its shim while
+//   kOpSetDesktopMediaHandler                   cmux has one set (from initialize on) and
+//                                              pushes its events (task 228)
 // Every preinit op comes before kOpInitialize (the remote shim queues them,
 // task 014); everything else after it.
 //
@@ -77,6 +81,9 @@
 //   kOpReply   reply flag, token, the op's result and out-parameters
 //   kOpTextInputState  a watched browser's text input state, at most once per
 //              display frame (host_text_input.h)
+//   kOpEvent   CMUX_SHIM_COLOR_CHOOSER, _DEVICE_CHOOSER, _DESKTOP_MEDIA: an
+//              installed chooser handler's event, the fork's struct as s1's
+//              bytes (EncodePayloadEvent, host_choosers.h)
 //   kOpEvent   CMUX_SHIM_WHEEL_ACK: the fork's ack of one of a page's wheels,
 //              with that wheel's input seq (host_wheel_ack.h); the HELLO lists
 //              kWheelAcksHelloName when the fork has the handler
@@ -85,6 +92,7 @@
 // it holds no lock (p01-process section 4, rule 1).
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -100,6 +108,7 @@
 #include "chromium_host_control.h"
 #include "chromium_host_tlv.h"
 #include "chromium_host_wire.h"
+#include "host_choosers.h"
 #include "host_energy_saver.h"
 #include "host_mirror.h"
 #include "host_page_activity.h"
@@ -241,6 +250,15 @@ class HostContext {
   // fork's cmux_wheel_ack_t. Forwards CMUX_SHIM_WHEEL_ACK with the input seq
   // of the browser's oldest unacked wheel (WheelSent).
   static void OnWheelAck(void* ctx, int browser_id, const void* ack);
+  // The shim's chooser handlers the host installs (cmux_shim_set_color_chooser_handler,
+  // _set_device_chooser_handler, _set_desktop_media_handler); ctx is this HostContext and
+  // `data` the fork's struct of an OPEN or UPDATE. Each forwards the event with its payload.
+  static void OnColorChooser(void* ctx, int event, int browser_id, int64_t token, unsigned int color,
+                             const void* data);
+  static void OnDeviceChooser(void* ctx, int event, int browser_id, int64_t token, const void* data);
+  static void OnDesktopMedia(void* ctx, int event, int browser_id, int64_t token, const void* data);
+  // The chooser handlers installed in the host's shim now (tests, the bench).
+  bool chooser_installed(choosers::Handler handler) const { return chooser_installed_[handler]; }
   // The input dispatch gave Chromium's `chromium_id` the wheel of input seq
   // `seq` through the fork's wheel call (a momentum wheel when `momentum`):
   // the fork's first ack of that browser after the acks of the wheels sent
@@ -328,6 +346,8 @@ class HostContext {
     int kind, browser_id, request;
     int64_t a, b;
     std::string s1, s2;
+    // A chooser handler's event: s1's bytes (EncodePayloadEvent) instead of s1 and s2.
+    std::optional<std::string> payload;
   };
   // A minted id waiting for the event that names its browser.
   struct PendingBind {
@@ -382,7 +402,17 @@ class HostContext {
   void RunHeldForCreation(int32_t client_id);
   void ReplyResult(uint32_t token, int32_t result);
   void Watch(uint16_t op, const std::vector<control::Field>& key);
-  void ForwardEvent(int kind, int browser_id, int request, int64_t a, int64_t b, const char* s1, const char* s2);
+  // `payload`: a chooser handler's event, sent with EncodePayloadEvent (s1 and s2 unused).
+  void ForwardEvent(int kind, int browser_id, int request, int64_t a, int64_t b, const char* s1, const char* s2,
+                    const std::string* payload = nullptr);
+  // A setter op of a chooser handler (task 228): keeps whether cmux has one and, once
+  // initialize returned, installs or removes the host's. False for a malformed op.
+  bool HandleChooserHandler(choosers::Handler handler, const control::Message& message);
+  // Puts the wanted chooser handlers in the shim (Resume and HandleChooserHandler).
+  void ApplyChooserHandlers();
+  // An OPEN or UPDATE (with `data`, the fork's struct) or another event of `handler`.
+  void ForwardChooserEvent(choosers::Handler handler, int event, int browser_id, int64_t token, int64_t b,
+                           const void* data);
   void Refresh(const MirrorEvent& event);
   bool Produce(uint16_t op, const std::vector<control::Field>& key);
   void ProduceAttach(bool only_attach);
@@ -490,6 +520,11 @@ class HostContext {
   PageWindowVisibility page_windows_;
   PageShowActivity* page_activity_ = nullptr;
   GeometryStats geometry_stats_;
+  // The chooser handlers cmux has set (its last setter op of each) and those
+  // the host's shim has installed now; they differ until initialize returns,
+  // or while the fork refuses one (a fork below API 31).
+  std::array<bool, choosers::kHandlerCount> chooser_wanted_{};
+  std::array<bool, choosers::kHandlerCount> chooser_installed_{};
 };
 
 }  // namespace cmux_host

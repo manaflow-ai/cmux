@@ -290,6 +290,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let popupMenus: CEFShimPopupMenuOps
     /// Autofill, password and `<datalist>` suggestions as data (task 061, fork API 31).
     let suggestions: CEFShimSuggestionOps
+    /// The color chooser, device choosers and screen-share picker as data (task 228, fork API 31).
+    let choosers: CEFShimChooserOps
     let textInput: CEFShimTextInputOps
     /// `cmux_shim_browser_attach_view(browser, parent_view)` (fork API 36, p03-rendering-044, Track B): moves the
     /// browser's `WebContentsViewCocoa` into `parent_view` (an NSView), below its other subviews; 1 attached, 0

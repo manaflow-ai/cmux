@@ -18,6 +18,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// The default-off feature `chromiumSpareAfterFirstTab`: pass the fork's spare renderer policy
     /// (`spareRendererAfterFirstTab`).
     var spareAfterFirstTab = false
+    /// Host mode shows `<input type=color>` in cmux (``ChromiumHostChoosers``): the renderer asks the browser
+    /// for a chooser (fork API 31's Blink feature), so the fork's handler gets it, not Blink's own popup.
+    var embedderColorChooser = false
     /// Development builds share one ad hoc identity per tag; the real
     /// keychain would prompt for "Chromium Safe Storage" on every rebuild.
     var useMockKeychain: Bool
@@ -78,6 +81,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// profile, extension background pages and the spare windows should never make one. The
     /// spare keeps Chrome desktop's lifetime. Older forks ignore the switch.
     static let spareRendererAfterFirstTab = "cmux-spare-renderer-after-first-tab"
+    /// The fork's Blink runtime feature that sends `<input type=color>` to the embedder's color chooser
+    /// handler (include/cef_cmux.h, `cmux_set_color_chooser_handler`; Android's ColorChooserFactory path).
+    static let embedderColorChooserArgument = "enable-blink-features=CmuxEmbedderColorChooser"
 
     var arguments: [String] {
         var result: [String] = []
@@ -129,6 +135,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             result.append(Self.pageSchemeProcessPerSiteArgument(siteCaps))
         }
         if spareAfterFirstTab { result.append(Self.spareRendererAfterFirstTab) }
+        if embedderColorChooser { result.append(Self.embedderColorChooserArgument) }
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
         // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
@@ -363,6 +370,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         chromiumFeatures: [String] = [],
         disabledChromiumFeatures: [String] = [],
         spareAfterFirstTab: Bool = false,
+        embedderColorChooser: Bool = false,
         bundleIdentifier: String?,
         environment: [String: String],
         builtInExtensions: [String] = [],
@@ -394,6 +402,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             chromiumFeatures: chromiumFeatures,
             disabledChromiumFeatures: disabledChromiumFeatures,
             spareAfterFirstTab: spareAfterFirstTab,
+            embedderColorChooser: embedderColorChooser,
             useMockKeychain: dev,
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,

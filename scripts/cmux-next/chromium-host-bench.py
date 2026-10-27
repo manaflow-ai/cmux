@@ -135,7 +135,9 @@ chromiumHostWidgets on and two test extensions, then the autofill and password r
 p01-process-061): the field's suggestions in cmux's list (`debug.cef` `host_suggestions`) with feature
 chromiumHostSuggestions on, then the page dialog rows (chromium_host_native_ui_dialogs.py, p01-process-064): file
 picker, certificate error, beforeunload and renderer hang, each answered by cmux while the host is never frontmost
-and shows no window, with feature chromiumHostFileDialogs on.
+and shows no window, with feature chromiumHostFileDialogs on, then the chooser rows (chromium_host_native_ui_choosers.py,
+p01-process-228): color, device chooser, screen share, external protocol, Web Share (skipped until p01-process-228c), video
+and document picture-in-picture, with feature chromiumHostChoosers on.
 
 --kill-host runs instead the host kill rows (chromium_host_kill.py, p01-process-082): one `--signals` signal per row
 (default KILL; TRAP,SEGV,ABRT,KILL for the done check) to the Chromium Host under a Chromium tab of the app's backend:
@@ -172,7 +174,12 @@ import chromium_host_display  # noqa: E402
 import chromium_host_find  # noqa: E402
 import chromium_host_kill  # noqa: E402
 import chromium_host_native_ui  # noqa: E402
+import chromium_host_native_ui_choosers  # noqa: E402
 import chromium_host_native_ui_dialogs  # noqa: E402
+
+# Every --native-ui row, in the order they run.
+NATIVE_UI_ROWS = (chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS
+                  + chromium_host_native_ui_choosers.ROWS)
 
 
 def parse(argv=None):
@@ -189,7 +196,7 @@ def parse(argv=None):
     parser.add_argument("--ime", action="store_true", help="helper: TEXT_INPUT_STATE pushes per keystroke (ime_row)")
     parser.add_argument("--native-ui", nargs="?", const="", default=None, metavar="ROWS",
                         help="only the native UI rows (chromium_host_native_ui.py): all, or the comma-separated ROWS "
-                             f"({', '.join(chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS)})")
+                             f"({', '.join(NATIVE_UI_ROWS)})")
     parser.add_argument("--find", action="store_true", help="only the find rows (chromium_host_find.py)")
     parser.add_argument("--kill-host", action="store_true", help="only the host kill rows (chromium_host_kill.py)")
     parser.add_argument("--signals", default="KILL",
@@ -212,7 +219,7 @@ def parse(argv=None):
     if args.native_ui is not None:
         try:
             args.native_ui = chromium_host_native_ui.rows_named(
-                args.native_ui, chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS)
+                args.native_ui, NATIVE_UI_ROWS)
         except ValueError as error:
             parser.error(str(error))
     if args.tag is not None and tag_of(f"cmux DEV {args.tag}.app") != tag_of(args.app):
@@ -689,7 +696,11 @@ def main():
         open(native, "w").write(chromium_host_native_ui.PAGE)
         url = pathlib.Path(native).as_uri()
         env.update(chromium_host_native_ui.launch_env(chromium_host_native_ui.write_extensions(opts.out)))
-        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_native_ui_dialogs.FEATURES]))
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_native_ui_dialogs.FEATURES,
+                                                             chromium_host_native_ui_choosers.FEATURES]))
+        env.update(chromium_host_native_ui_choosers.ENV)
+        chooser_page = os.path.join(opts.out, "native-ui-choosers.html")
+        open(chooser_page, "w").write(chromium_host_native_ui_choosers.PAGE)
     if opts.kill_host:
         kill_page = os.path.join(opts.out, "kill-host.html")
         open(kill_page, "w").write(chromium_host_kill.PAGE)
@@ -734,6 +745,13 @@ def main():
                     on_screen_windows, rows_to_run=dialog_rows)
                 RESULT["modes"]["native_ui"].update(dialogs)
                 ok = ok and dialogs_ok
+            chooser_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_choosers.ROWS]
+            if chooser_rows:
+                chosen, choosers_ok = chromium_host_native_ui_choosers.run(
+                    rpc, wait, lambda script: page_eval(rpc, script, None), pathlib.Path(chooser_page).as_uri(),
+                    chromium_host_pid, front_pid, on_screen_windows, rows_to_run=chooser_rows)
+                RESULT["modes"]["native_ui"].update(chosen)
+                ok = ok and choosers_ok
         if opts.find:
             RESULT["modes"]["find"], ok = chromium_host_find.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
         if opts.kill_host:

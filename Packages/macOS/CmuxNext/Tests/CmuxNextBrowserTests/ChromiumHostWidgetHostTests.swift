@@ -106,6 +106,88 @@ import Testing
         #expect(ChromiumHostWidgetKind.devTools.placement == .fill)
         #expect(ChromiumHostWidgetKind.popupWindow.placement == .fill)
         #expect(ChromiumHostWidgetKind.sidePanel.placement == .inPage)
+        #expect(ChromiumHostWidgetKind.videoPictureInPicture.placement == .floating(keepsAspectRatio: true, takesKey: false))
+        #expect(ChromiumHostWidgetKind.documentPictureInPicture.placement == .floating(keepsAspectRatio: false, takesKey: true))
+        #expect(ChromiumHostWidgetKind.videoPictureInPicture.name == "video_pip")
+        #expect(ChromiumHostWidgetKind.documentPictureInPicture.name == "document_pip")
+    }
+
+    // MARK: Picture-in-picture (p01-process-228)
+
+    /// A video's picture-in-picture: its own floating panel at the bottom right of the screen, not a
+    /// child of the opener's window, never key, with the video's shape; the host's next size keeps the
+    /// panel's top left.
+    @Test func videoPictureInPictureFloatsInItsOwnPanel() throws {
+        let wire = RecordingWire()
+        let recorder = Recorder()
+        let ownerWindow = makeWindow()
+        defer { ownerWindow.close() }
+        var panels: [ChromiumHostPictureInPicturePanel] = []
+        let host = makeHost(wire, recorder, ownerWindow: ownerWindow) { seams in
+            seams.makePictureInPicturePanel = { size, _, keepsAspectRatio, takesKey in
+                let panel = ChromiumHostPictureInPicturePanel(contentSize: size, on: nil, keepsAspectRatio: keepsAspectRatio,
+                                                              takesKey: takesKey)
+                panels.append(panel)
+                return panel
+            }
+        }
+        host.show(context(5, .videoPictureInPicture, bounds: CGRect(x: 0, y: 0, width: 320, height: 180)))
+        let panel = try #require(panels.first)
+        defer { panel.close() }
+        #expect(recorder.panels.isEmpty, "not an anchored popup panel")
+        #expect(recorder.ordered.count == 1 && recorder.ordered.first?.parent == nil && recorder.ordered.first?.key == false)
+        #expect(!panel.canBecomeKey && !panel.canBecomeMain && !panel.hidesOnDeactivate)
+        #expect(panel.level == .floating && panel.collectionBehavior.contains(.canJoinAllSpaces))
+        #expect(panel.contentAspectRatio == CGSize(width: 320, height: 180))
+        let view = try #require(recorder.views.first)
+        #expect(view.window === panel && view.frame.size == CGSize(width: 320, height: 180))
+        #expect(host.diagnostics.map(\.kind) == [.videoPictureInPicture])
+
+        // The host's new size (the next video's shape): same panel, its top left kept.
+        panel.setFrameOrigin(CGPoint(x: 200, y: 300))
+        let top = panel.frame.maxY
+        host.show(context(5, .videoPictureInPicture, bounds: CGRect(x: 0, y: 0, width: 240, height: 240)))
+        #expect(panels.count == 1)
+        #expect(panel.contentRect(forFrameRect: panel.frame).size == CGSize(width: 240, height: 240))
+        #expect(panel.frame.maxY == top && panel.frame.minX == 200)
+        #expect(panel.contentAspectRatio == CGSize(width: 240, height: 240))
+
+        host.remove(ChromiumHostWidgetID(rawValue: 5))
+        #expect(view.window == nil && host.diagnostics.isEmpty)
+    }
+
+    /// A document picture-in-picture takes typing (its page's keys) and has no fixed shape.
+    @Test func documentPictureInPictureTakesKeys() throws {
+        var panels: [ChromiumHostPictureInPicturePanel] = []
+        let host = makeHost(RecordingWire(), Recorder()) { seams in
+            seams.makePictureInPicturePanel = { size, _, keepsAspectRatio, takesKey in
+                let panel = ChromiumHostPictureInPicturePanel(contentSize: size, on: nil, keepsAspectRatio: keepsAspectRatio,
+                                                              takesKey: takesKey)
+                panels.append(panel)
+                return panel
+            }
+        }
+        host.show(context(6, .documentPictureInPicture, bounds: CGRect(x: 0, y: 0, width: 400, height: 300)))
+        let panel = try #require(panels.first)
+        defer { panel.close() }
+        #expect(panel.canBecomeKey && !panel.canBecomeMain)
+        #expect(panel.contentAspectRatio == .zero)
+        host.hostEnded()
+        #expect(!panel.isVisible && host.diagnostics.isEmpty)
+    }
+
+    /// The first place: the bottom right of the screen's visible frame, a margin in; a widget larger than
+    /// the screen shrinks whole.
+    @Test func pictureInPictureStartsAtTheBottomRight() {
+        let visible = CGRect(x: 0, y: 40, width: 1_440, height: 860)
+        let margin = ChromiumHostPictureInPicturePanel.margin
+        #expect(ChromiumHostPictureInPicturePanel.initialFrame(contentSize: CGSize(width: 320, height: 180), visibleFrame: visible)
+            == CGRect(x: 1_440 - margin - 320, y: 40 + margin, width: 320, height: 180))
+        let big = ChromiumHostPictureInPicturePanel.initialFrame(contentSize: CGSize(width: 2_880, height: 1_620), visibleFrame: visible)
+        #expect(big.width <= visible.width - 2 * margin && big.height <= visible.height - 2 * margin)
+        #expect(abs(big.width / big.height - 16.0 / 9.0) < 0.01)
+        #expect(ChromiumHostPictureInPicturePanel.initialFrame(contentSize: CGSize(width: 10, height: 10), visibleFrame: nil).size
+            == CGSize(width: 10, height: 10))
     }
 
     // MARK: Anchored

@@ -32,6 +32,12 @@ nonisolated enum ChromiumHostWidgetKind: Int32, Sendable, CaseIterable {
     case popupWindow = 5
     /// An InitAsPopup page popup (date and time pickers, `<datalist>` suggestions): owner is its page.
     case pagePopup = 6
+    /// A video's picture-in-picture window (fork API 31's `CMUX_HOSTED_WIDGET_VIDEO_PIP`, task 228): owner is the
+    /// opener page; Chromium draws the video and its controls.
+    case videoPictureInPicture = 7
+    /// A document picture-in-picture window (`documentPictureInPicture.requestWindow`, the fork's
+    /// `CMUX_HOSTED_WIDGET_DOCUMENT_PIP`): owner is the opener page; the document and its frame's back-to-tab button.
+    case documentPictureInPicture = 8
 
     /// Where cmux shows a widget.
     nonisolated enum Placement: Equatable, Sendable {
@@ -46,11 +52,15 @@ nonisolated enum ChromiumHostWidgetKind: Int32, Sendable, CaseIterable {
         case fill
         /// At the widget's bounds inside a container (its owner's page): the host decides the rect.
         case inPage
+        /// A borderless cmux panel over every window and space that the person moves and resizes,
+        /// the size the host sends (picture-in-picture, which Chrome keeps always on top).
+        /// `keepsAspectRatio`: a resize keeps the widget's shape (a video's). `takesKey`: it takes typing.
+        case floating(keepsAspectRatio: Bool, takesKey: Bool)
 
         /// cmux decides where it is, so its geometry goes to the host.
         var reportsGeometry: Bool {
             switch self {
-            case .window, .fill: true
+            case .window, .fill, .floating: true
             case .anchored, .inPage: false
             }
         }
@@ -65,6 +75,8 @@ nonisolated enum ChromiumHostWidgetKind: Int32, Sendable, CaseIterable {
         case .devToolsWindow: "devtools_window"
         case .popupWindow: "popup_window"
         case .pagePopup: "page_popup"
+        case .videoPictureInPicture: "video_pip"
+        case .documentPictureInPicture: "document_pip"
         }
     }
 
@@ -75,6 +87,8 @@ nonisolated enum ChromiumHostWidgetKind: Int32, Sendable, CaseIterable {
         case .devToolsWindow: .window
         case .devTools, .popupWindow: .fill
         case .sidePanel: .inPage
+        case .videoPictureInPicture: .floating(keepsAspectRatio: true, takesKey: false)
+        case .documentPictureInPicture: .floating(keepsAspectRatio: false, takesKey: true)
         }
     }
 }
