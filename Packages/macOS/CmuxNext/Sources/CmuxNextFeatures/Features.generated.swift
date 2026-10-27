@@ -1704,6 +1704,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Tab strips and the saved groups bar scroll by moving one layer, on a display frame's first wheel or trackpad event and once more at the frame with its deltas summed per phase; tabs lay out again only when the tabs in view change or a gesture ends.
+    public static let tabStripScrollFrames = Feature(
+        index: 94,
+        name: "tabStripScrollFrames",
+        owner: "PL-motion-core",
+        description: "Tab strips and the saved groups bar scroll by moving one layer, on a display frame's first wheel or trackpad event and once more at the frame with its deltas summed per phase; tabs lay out again only when the tabs in view change or a gesture ends.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["motion"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.
     public static let taskManagerMemorySaved = Feature(
         index: 95,
@@ -2107,6 +2124,7 @@ nonisolated extension Feature {
         .sidebarSlideHoldsContent,
         .sleepWakeKeepalives,
         .stripPanResampling,
+        .tabStripScrollFrames,
         .taskManagerMemorySaved,
         .terminalGPURelease,
         .terminalHiddenActionHold,
@@ -2226,6 +2244,7 @@ nonisolated extension Feature {
         .sidebarSlideHoldsContent,
         .sleepWakeKeepalives,
         .stripPanResampling,
+        .tabStripScrollFrames,
         .taskManagerMemorySaved,
         .terminalGPURelease,
         .terminalHiddenActionHold,
