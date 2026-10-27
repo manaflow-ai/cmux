@@ -1,4 +1,4 @@
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import Foundation
 
 /// Runs main-actor work at most once per display frame. The App injects a
