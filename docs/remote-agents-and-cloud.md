@@ -125,7 +125,8 @@ the Linux installation and `host add` steps above instead. `host update`
 refuses a peer of another OS or architecture unless you pass `--binary-dir DIR`
 with a build named `acpmux-<target>` there (for example
 `acpmux-x86_64-unknown-linux-musl`); otherwise update that host by rebuilding
-it there.
+it there. Same-target peers can use the plain
+`acpmux host update NAME`.
 
 ## Work with a remote session
 
@@ -204,11 +205,15 @@ the file does not need to exist on the remote host.
 Replace `codex` with an installed harness, such as `claude`. A remote-started
 Claude session needs the host's sandbox, which acpmux has only on macOS so far:
 on a Linux host, `acpmux new --host` refuses `-m claude`. The exception is a
-dedicated agent VM whose `~/.acpmux/config.json` sets `"vmHost": true`: the VM
-is the sandbox, so Claude runs there, and sessions your peer daemon starts with
-no policy run approve-all. A Mac ignores `vmHost`, and Web clients and sessions
-started with an explicit `--policy` keep their approvals. Set it only on a
-machine that holds nothing but agent work. Ctrl-Q detaches
+dedicated agent VM (`vmHost`): the VM is the sandbox, so Claude runs there, and
+sessions your peer daemon starts with no policy run approve-all. A Cloud VM
+cmux created for you is one by default (its `/etc/cmux/vm-kind` reads `owner`);
+a team VM, a personal machine and an SSH-added machine never are. Turn it off
+or back on per machine with `acpmux host vm-host [NAME] off|on` (no restart;
+`on` is refused on a machine cmux did not create), or set `"vmHost": true` or
+`false` in that machine's `~/.acpmux/config.json`. A Mac ignores `vmHost`, and
+Web clients and sessions started with an explicit `--policy` keep their
+approvals. Ctrl-Q detaches
 the TUI; the agent remains on the host. You can use that TUI in a cmux terminal.
 To view a remote session as a native cmux NEXT chat tab, select a local pane,
 wait for the app's peer inventory to load, and run:
@@ -296,8 +301,8 @@ you would not hand to that person.
 
 Codex's own rules on the host still apply in every mode. A command that a rule
 in `~/.codex/rules` explicitly allows, such as a prefix someone once approved
-with "always allow", runs outside the sandbox without asking, in `read-only`
-as in `ask`.
+with "always allow", runs without asking. In `ask` it runs outside the sandbox;
+in `read-only` it stays inside the read-only sandbox.
 
 ## Use cmux Cloud
 

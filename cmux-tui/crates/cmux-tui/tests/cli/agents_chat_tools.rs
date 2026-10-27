@@ -691,17 +691,14 @@ fn an_agent_starts_a_chat_in_a_workspace_and_drives_it_without_the_app() {
 
     // In a pane of that workspace, named by its pane_ id.
     let output = as_caller().args(["--json", "agents", "snapshot"]).output().unwrap();
-    let snapshot: Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|_| {
-        panic!("snapshot: {}", String::from_utf8_lossy(&output.stderr))
-    });
+    let snapshot: Value = serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|_| panic!("snapshot: {}", String::from_utf8_lossy(&output.stderr)));
     let daemon_snapshot = snapshot.get("daemon").unwrap_or(&snapshot);
     let workspace_id = daemon_snapshot["workspaces"]
         .as_array()
         .into_iter()
         .flatten()
-        .find(|item| {
-            item["extra"]["key"].as_str().is_some_and(|key| uuid_form(key) == workspace)
-        })
+        .find(|item| item["extra"]["key"].as_str().is_some_and(|key| uuid_form(key) == workspace))
         .map(|item| item["id"].clone())
         .unwrap_or_else(|| panic!("no workspace {workspace} in {snapshot}"));
     let screen_ids: Vec<Value> = daemon_snapshot["screens"]
@@ -800,8 +797,18 @@ fn a_caller_with_its_own_acpmux_starts_and_drives_a_chat_of_the_apps_acpmux() {
         command
     };
 
-    let (code, created) =
-        chat_json(chief(), &["new", "--workspace", &workspace, "--cwd", work.to_str().unwrap(), "--", "hello from chief"]);
+    let (code, created) = chat_json(
+        chief(),
+        &[
+            "new",
+            "--workspace",
+            &workspace,
+            "--cwd",
+            work.to_str().unwrap(),
+            "--",
+            "hello from chief",
+        ],
+    );
     assert_eq!(code, Some(0), "{created}");
     assert_eq!(created["result"]["opened"], true, "{created}");
     assert_eq!(created["result"]["tab"], "tab_fake", "{created}");

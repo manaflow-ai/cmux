@@ -175,6 +175,67 @@ import Testing
         #expect(fixture.notices.map(\.id) == ["cmux16"])
     }
 
+    /// A machine too old to update in place (Cloud `machine_update_unsupported`) is no failure: no
+    /// notice, its line on the board, and it is not asked again on a later build of the app while
+    /// it runs the same build (a nightly every half hour asked it, and toasted, every time). Once it
+    /// runs another build (reinstalled), it is asked again.
+    @Test func aMachineThatCannotUpdateInPlaceIsNotAskedOrToastedOnEveryBuild() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let reason = "old-vm runs a cmux too old to update in place. Its chats and terminals keep working."
+        let target = fixture.target("old-vm", build: Self.older, outcomes: [.unsupported(reason: reason)])
+        await fixture.policy([target]).run()
+        await fixture.policy([target]).run()
+        await fixture.policy([target], bundled: "fedcba987 2026-10-21").run()
+
+        #expect(fixture.calls == ["old-vm"], "asked again on a later build")
+        #expect(fixture.notices.isEmpty, "a toast for a machine that cannot update in place")
+        #expect(fixture.states("old-vm") == [.updating, .cannotUpdate(reason: reason), .cannotUpdate(reason: reason), .cannotUpdate(reason: reason)])
+        #expect(fixture.ledger.targets == ["old-vm": "unsupported"])
+
+        target.reach("0123456aa 2026-10-05")
+        await fixture.policy([target], bundled: "fedcba987 2026-10-21").run()
+        #expect(fixture.calls == ["old-vm", "old-vm"])
+    }
+
+    /// Review of #25604: a machine reinstalled while the app runs is asked again at its next
+    /// offer in the same run (the run's memory of it does not outlast its old build).
+    @Test func aMachineReinstalledInTheSameRunIsAskedAgain() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let reason = "old-vm runs a cmux too old to update in place."
+        let target = fixture.target("old-vm", build: Self.older, outcomes: [.unsupported(reason: reason), .updated(build: nil)])
+        let policy = fixture.policy([target])
+        await policy.run()
+        await policy.offer(target)
+        await policy.drained()
+        #expect(fixture.calls == ["old-vm"])
+
+        target.reach("0123456aa 2026-10-05")
+        await policy.offer(target)
+        await policy.drained()
+        #expect(fixture.calls == ["old-vm", "old-vm"], "a reinstalled machine stayed skipped for the run")
+        #expect(fixture.ledger.targets == ["old-vm": "updated"])
+        #expect(fixture.ledger.cannotUpdate?["old-vm"] == nil)
+    }
+
+    /// Review of #25604: a machine whose build is unknown (a refused daemon) that cannot update is
+    /// not kept as cannot-update across builds: nothing shows it is still the same machine, so the
+    /// next build of the app asks it again (still without a toast).
+    @Test func aMachineOfUnknownBuildThatCannotUpdateIsAskedOnTheNextBuild() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let reason = "refused runs a cmux too old to update in place."
+        let target = fixture.target("refused", build: nil, urgent: true, outcomes: [.unsupported(reason: reason)])
+        await fixture.policy([target]).run()
+        #expect(fixture.ledger.cannotUpdate?["refused"] == nil)
+        await fixture.policy([target]).run()
+        #expect(fixture.calls == ["refused"])
+        await fixture.policy([target], bundled: "fedcba987 2026-10-21").run()
+        #expect(fixture.calls == ["refused", "refused"])
+        #expect(fixture.notices.isEmpty)
+    }
+
     @Test func aRollbackIsRecordedAndTriedAgainOnlyOnTheNextBuild() async throws {
         let fixture = try PolicyFixture()
         defer { fixture.remove() }

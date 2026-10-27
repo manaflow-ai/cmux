@@ -152,6 +152,9 @@ fn settled_retry_row(
 
 /// What a failed turn needs to be continued.
 pub(super) struct CutTurn<'a> {
+    /// The family sender its prompt spoke for (`subsession_guard::is_family`); its
+    /// continuation speaks for it too, and is checked as its message.
+    pub from: Option<&'a str>,
     pub prompt_id: &'a str,
     pub turn_id: &'a str,
     pub control: Control,
@@ -346,6 +349,7 @@ impl Hub {
         let (root, turn_id, error) =
             (root.to_owned(), cut.turn_id.to_owned(), cut.error.to_owned());
         let (control, trust_gate) = (cut.control, cut.trust_gate);
+        let from = cut.from.map(str::to_owned);
         let (hub, session) = (self.clone(), session.clone());
         // Off the turn's path: the turn lock is still held here.
         tokio::spawn(async move {
@@ -383,8 +387,14 @@ impl Hub {
                     () = wake.notified() => {}
                 }
             }
-            let cut =
-                CutTurn { prompt_id: &root, turn_id: &turn_id, control, trust_gate, error: &error };
+            let cut = CutTurn {
+                from: from.as_deref(),
+                prompt_id: &root,
+                turn_id: &turn_id,
+                control,
+                trust_gate,
+                error: &error,
+            };
             hub.auto_resume(&session, cut, attempt).await;
         });
     }
@@ -462,6 +472,7 @@ impl Hub {
         session: &Session,
         after: Option<&str>,
         exclusive: bool,
+        subagent_retry: bool,
         turn: super::TurnInfo,
     ) -> Result<(), RpcError> {
         let mut pending = self.auto_resumes.lock();
@@ -489,9 +500,10 @@ impl Hub {
                 return Err(stopped());
             }
         }
-        // A subagent retry skipped since its prompt went out does not start (`subagent_retry.rs`).
+        // A subagent retry skipped since its prompt went out, or that no attempt of this daemon
+        // sent (one a restart or a move restored), does not start (`subagent_retry.rs`).
         let prompt_id = turn.prompt_id.clone();
-        self.subagent_retries.start(&session.id, &prompt_id, || {
+        self.subagent_retries.start(&session.id, &prompt_id, subagent_retry, || {
             *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = Some(turn);
         })
     }
@@ -613,7 +625,10 @@ impl Hub {
             return;
         }
         let held = self.held_by(session, root, cut_turn);
-        let provenance = json!({"kind": "auto_resume", "promptId": root, "attempt": attempt, "turnId": cut_turn});
+        let mut provenance = json!({"kind": "auto_resume", "promptId": root, "attempt": attempt, "turnId": cut_turn});
+        if let Some(from) = cut.from {
+            provenance["from"] = json!(from);
+        }
         // Whether the attempt reached the chat (its turn started): one refused before that
         // (its folder gone, a dispatch check) leaves no record a watcher hears but this skip.
         let accepted = Arc::new(std::sync::atomic::AtomicBool::new(false));

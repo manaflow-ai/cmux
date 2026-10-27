@@ -45,14 +45,25 @@ const MAX_EVENT_PAGES: usize = 20;
 /// One `cmux agents chat` verb.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::cli) enum ChatCommand {
-    Send { target: String, text: String },
-    Read { target: String, after: u64, limit: usize },
+    Send {
+        target: String,
+        text: String,
+    },
+    Read {
+        target: String,
+        after: u64,
+        limit: usize,
+    },
     /// Start a GUI agent chat (chat_control.rs).
     New(super::chat_control::NewChat),
     /// What a chat is doing.
-    State { target: String },
+    State {
+        target: String,
+    },
     /// Cancel a chat's running turn.
-    Interrupt { target: String },
+    Interrupt {
+        target: String,
+    },
 }
 
 /// `chat send <chat> [--] <text>`, `chat read <chat> [--after N]
@@ -701,7 +712,10 @@ pub(super) mod acp {
     }
 
     /// The id and `_acpmux/info` of the session `key` names.
-    pub(in crate::cli) fn lookup(key: &str, socket: Option<&Path>) -> Result<(String, Value), String> {
+    pub(in crate::cli) fn lookup(
+        key: &str,
+        socket: Option<&Path>,
+    ) -> Result<(String, Value), String> {
         block_on(async {
             let client = client(socket).await?;
             let (id, _name) = acpmux::deliver::resolve_session(&client, key).await?;
