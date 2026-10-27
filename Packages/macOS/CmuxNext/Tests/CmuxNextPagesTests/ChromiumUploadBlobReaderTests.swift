@@ -1,4 +1,5 @@
 import Foundation
+import JavaScriptCore
 import Testing
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
@@ -89,5 +90,15 @@ struct ChromiumUploadBlobReaderTests {
         #expect(reply?.contains("\"t\":\"err\"") == true)
         #expect(reply?.contains("page.untrusted") == true)
         #expect(!page.calls.contains { $0.method == "IO.resolveBlob" })
+    }
+    @Test func nativeUploadCapabilityIsAdvertisedOnlyWhenInstalled() throws {
+        for installed in [false, true] {
+            let context = try #require(JSContext())
+            let calls = ChromiumPageHostBridge.setupCalls(handlers: [], documentScripts: [], supportsUploads: installed)
+            for (method, params) in calls where method == "Page.addScriptToEvaluateOnNewDocument" {
+                context.evaluateScript(params["source"] as? String ?? "")
+            }
+            #expect(context.evaluateScript("globalThis.__cmuxNativePromptUploads === true").toBool() == installed)
+        }
     }
 }
