@@ -1746,6 +1746,7 @@ jobs:
           python3 tests/test_ci_target_graph.py
           python3 tests/test_ci_swiftpm_build_metrics.py
           python3 tests/test_cmux_next_route_replay.py
+          python3 tests/test_ci_cmux_next_compile_revert.py
 
       # The CmuxNextAppTests dependencies are one sorted entry per line, so two
       # pull requests adding different modules merge cleanly; the long lines they
