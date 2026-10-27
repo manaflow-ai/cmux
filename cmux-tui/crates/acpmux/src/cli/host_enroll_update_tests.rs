@@ -195,6 +195,21 @@ fn a_drop_in_found_under_the_lock_stops_the_install() {
     assert!(script.contains(&hosts::install_script()), "{script}");
 }
 
+/// acpmux-update.timer is installed on Linux only, and not where the Cloud
+/// VM mark cannot be read.
+#[test]
+fn only_a_known_linux_host_gets_the_timer() {
+    for found in
+        [&["systemd"][..], &["os=FreeBSD", "systemd"], &["os=Linux", "cloud-unknown", "systemd"]]
+    {
+        let host = Host::new(found);
+        let r = update(&host, true, None);
+        assert_eq!(r.state, StepState::Warn, "{found:?}: {r:?}");
+        assert!(r.detail.contains("left as it is"), "{r:?}");
+        assert!(host.fenced.borrow().is_empty());
+    }
+}
+
 /// What the probe prints counts after its own `begin`, and `checked` only
 /// as its last line.
 #[test]
@@ -320,6 +335,10 @@ mod probe_in_a_shell {
         /// A unit file `acpmux-update.service` of another's text in this
         /// directory under $HOME (another unit path).
         full_unit_in: Option<&'static str>,
+        /// `sed` and `tr` fail (the probe uses neither).
+        no_sed: bool,
+        /// ~/.config/systemd/user/acpmux-update.service is a FIFO.
+        fifo: bool,
         /// The files in ~/.config/systemd/user: acpmux's text, another's, or none.
         service: Option<&'static str>,
         timer: Option<&'static str>,
@@ -344,6 +363,8 @@ mod probe_in_a_shell {
         no_manager: false,
         no_analyze: false,
         full_unit_in: None,
+        no_sed: false,
+        fifo: false,
         service: Some(hosts::UPDATE_SERVICE),
         timer: Some(hosts::UPDATE_TIMER),
         drop_in_dir: None,
@@ -364,6 +385,8 @@ mod probe_in_a_shell {
         no_manager: false,
         no_analyze: false,
         full_unit_in: None,
+        no_sed: false,
+        fifo: false,
         service: None,
         timer: None,
         drop_in_dir: None,
@@ -421,6 +444,16 @@ mod probe_in_a_shell {
         };
         read_only(0o444, 0o555);
         let manager = root.join(u.manager_dir);
+        if u.no_sed {
+            for tool in ["sed", "tr"] {
+                fs::write(bin.join(tool), "#!/bin/sh\nexit 127\n").unwrap();
+                fs::set_permissions(bin.join(tool), fs::Permissions::from_mode(0o755)).unwrap();
+            }
+        }
+        if u.fifo {
+            let fifo = units.join("acpmux-update.service");
+            assert!(Command::new("mkfifo").arg(&fifo).status().unwrap().success());
+        }
         if let Some(dir) = u.full_unit_in {
             fs::create_dir_all(home.join(dir)).unwrap();
             fs::write(home.join(dir).join("acpmux-update.service"), OTHER_TEXT).unwrap();
@@ -613,6 +646,24 @@ esac
         let (out, written) =
             run(Units { full_unit_in: control, ..NONE }, &guarded_install_script());
         assert!(parse(&out).foreign && !written, "{out}");
+    }
+
+    /// The probe needs neither `sed` nor `tr`: the manager's XDG_CONFIG_HOME
+    /// and a drop-in only its UnitPath names are still found.
+    #[test]
+    fn the_probe_runs_without_sed_or_tr() {
+        assert!(probe(Units { no_sed: true, manager_xdg: Some("/srv/leo-config"), ..NONE }).xdg);
+        let there =
+            Units { no_sed: true, manager_drop_in_dir: Some("acpmux-update.service.d"), ..NONE };
+        assert_eq!(kind(&probe(there)), "foreign");
+        assert_eq!(kind(&probe(Units { no_sed: true, ..OWN })), "timer");
+    }
+
+    /// A unit that is not a regular file (a FIFO, which `cmp` would wait on
+    /// for ever) is foreign, and read without blocking.
+    #[test]
+    fn a_unit_that_is_not_a_regular_file_is_foreign() {
+        assert_eq!(kind(&probe(Units { fifo: true, service: None, ..OWN })), "foreign");
     }
 
     /// The manager's `UnitPath` is space-separated: a path with spaces in it

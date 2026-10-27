@@ -52,13 +52,17 @@ pub(super) fn probe_script() -> String {
     let service = hosts::UPDATE_SERVICE;
     let timer = hosts::UPDATE_TIMER;
     format!(
-        r#"echo {MARK}begin; echo "{MARK}os=$(uname -s)"; [ ! -e {cloud} ] || echo {MARK}cloud; [ ! -e {home}/{off} ] || echo {MARK}off
+        r#"echo {MARK}begin; au_o=$(uname -s) && echo "{MARK}os=$au_o"
+if [ -e {cloud} ]; then echo {MARK}cloud; elif [ -e "${{cloud%/*}}" ] && [ ! -x "${{cloud%/*}}" ]; then echo {MARK}cloud-unknown; fi; [ ! -e {home}/{off} ] || echo {MARK}off
 if au_e=$(systemctl --user show-environment 2>/dev/null); then echo {MARK}systemd; set -f; au_ok=1
-au_m=$(printf '%s\n' "$au_e" | sed -n 's/^XDG_CONFIG_HOME=//p')
+au_m=; au_i=$IFS; IFS='
+'; for au_v in $au_e; do case "$au_v" in XDG_CONFIG_HOME=*) au_m=${{au_v#XDG_CONFIG_HOME=}} ;; esac; done; IFS=$au_i
 for au_v in "${{XDG_CONFIG_HOME:-}}" "$au_m"; do [ -z "$au_v" ] || [ "$au_v" = "$HOME/.config" ] || echo {MARK}xdg; done
+au_lines() {{ au_i=$IFS; IFS=$2; for au_v in $1; do printf '%s%s\n' "$au_v" "$3"; done; IFS=$au_i; }}
 au_mine() {{ [ -O "$1" ] || [ -w "$1" ] || [ -O "${{1%/*}}" ] || [ -w "${{1%/*}}" ]; }}
 au_d=$HOME/.config/systemd/user; au_there=; au_own=1; au_all=1
-au_c=${{XDG_CONFIG_HOME:-$HOME/.config}}; au_r=${{XDG_RUNTIME_DIR:-/run/user/$(id -u)}}; au_l=${{XDG_DATA_HOME:-$HOME/.local/share}}
+au_r=${{XDG_RUNTIME_DIR:-}}; [ -n "$au_r" ] || {{ au_r=/run/user/$(id -u) || au_ok=; }}
+au_c=${{XDG_CONFIG_HOME:-$HOME/.config}}; au_l=${{XDG_DATA_HOME:-$HOME/.local/share}}
 au_u=$(systemctl --user show -p UnitPath --value 2>/dev/null) && [ -n "$au_u" ] || au_ok=
 au_a=$(systemd-analyze --user unit-paths 2>/dev/null) && [ -n "$au_a" ] || au_ok=
 case "$au_u" in *"  "*|*"	"*) au_ok= ;; esac
@@ -68,11 +72,11 @@ au_k=; au_i=$IFS; IFS='
 "; done; IFS=$au_i; au_g="$au_k$au_e
 "; done
 au_paths="$au_a
-$(printf %s "$au_u" | tr ' ' '\n')
+$(au_lines "$au_u" ' ' '')
 $au_d
 $au_c/systemd/user.control
 $au_c/systemd/user
-$(printf %s "${{XDG_CONFIG_DIRS:-/etc/xdg}}" | tr : '\n' | sed 's|$|/systemd/user|')
+$(au_lines "${{XDG_CONFIG_DIRS:-/etc/xdg}}" : /systemd/user)
 /etc/systemd/user
 $au_r/systemd/user.control
 $au_r/systemd/transient
@@ -81,7 +85,7 @@ $au_r/systemd/user
 /run/systemd/user
 $au_r/systemd/generator
 $au_l/systemd/user
-$(printf %s "${{XDG_DATA_DIRS:-/usr/local/share:/usr/share}}" | tr : '\n' | sed 's|$|/systemd/user|')
+$(au_lines "${{XDG_DATA_DIRS:-/usr/local/share:/usr/share}}" : /systemd/user)
 /usr/local/lib/systemd/user
 /usr/lib/systemd/user
 /lib/systemd/user
@@ -102,9 +106,9 @@ set +f; set -- "$au_w"/*; set -f
 for au_z in "$@"; do [ ! -e "$au_z" ] || ! au_mine "$au_z" || {{ au_there=1; au_own=; }}; done; done; IFS=$au_i
 done
 if [ -n "$au_there" ]; then
-[ ! -e "$au_d/acpmux-update.service" ] || cmp -s - "$au_d/acpmux-update.service" <<'ACPMUX_UPDATE_SERVICE' || au_own=
+[ ! -e "$au_d/acpmux-update.service" ] || {{ [ -f "$au_d/acpmux-update.service" ] && [ ! -L "$au_d/acpmux-update.service" ] && cmp -s - "$au_d/acpmux-update.service"; }} <<'ACPMUX_UPDATE_SERVICE' || au_own=
 {service}ACPMUX_UPDATE_SERVICE
-[ ! -e "$au_d/acpmux-update.timer" ] || cmp -s - "$au_d/acpmux-update.timer" <<'ACPMUX_UPDATE_TIMER' || au_own=
+[ ! -e "$au_d/acpmux-update.timer" ] || {{ [ -f "$au_d/acpmux-update.timer" ] && [ ! -L "$au_d/acpmux-update.timer" ] && cmp -s - "$au_d/acpmux-update.timer"; }} <<'ACPMUX_UPDATE_TIMER' || au_own=
 {timer}ACPMUX_UPDATE_TIMER
 if [ -z "$au_own" ]; then echo {MARK}foreign
 elif [ -n "$au_all" ] && [ "$(systemctl --user is-enabled acpmux-update.timer 2>/dev/null)" = enabled ] && systemctl --user is-active --quiet acpmux-update.timer; then echo {MARK}timer
@@ -134,6 +138,9 @@ pub(super) struct Found {
     pub cloud: bool,
     pub off: bool,
     pub systemd: bool,
+    /// `/etc/cmux` is there but cannot be read: whether it is a Cloud VM is
+    /// not known.
+    pub cloud_unknown: bool,
     /// acpmux's own timer is enabled and running.
     pub timer: bool,
     /// acpmux's own timer is enabled but not running.
@@ -160,6 +167,7 @@ pub(super) fn parse(stdout: &str) -> Found {
     for word in mine.iter().filter_map(|line| line.strip_prefix(MARK)) {
         match word {
             "cloud" => found.cloud = true,
+            "cloud-unknown" => found.cloud_unknown = true,
             "off" => found.off = true,
             "systemd" => found.systemd = true,
             "timer" => found.timer = true,
@@ -223,6 +231,21 @@ pub(super) fn update(r: &dyn Remote, fix: bool, cmux_own: Option<&str>) -> StepR
             format!(
                 "cmux's own acpmux runs here ({path}): it is updated with cmux, as the install step says, not by acpmux-update.timer"
             ),
+        );
+    }
+    if found.os != "Linux" || found.cloud_unknown {
+        let what =
+            if found.os.is_empty() { "an unknown system".to_owned() } else { found.os.clone() };
+        let why = if found.cloud_unknown {
+            "cannot tell whether this is a cmux Cloud VM".to_owned()
+        } else {
+            format!("acpmux-update.timer is for Linux, and this is {what}")
+        };
+        return warn(
+            format!(
+                "{why}, so it is left as it is; cmux moves it to the app's build each time it connects"
+            ),
+            None,
         );
     }
     if !found.systemd {
