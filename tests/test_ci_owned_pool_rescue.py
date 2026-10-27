@@ -121,7 +121,9 @@ class FakeAPI:
         self.calls.append(f"branch:{branch}")
         return self.head
 
-    def cancel(self, run_id, before_retry=None):
+    def cancel(self, run_id, before_send=None):
+        if before_send is not None:
+            before_send()  # as GitHub.request() does, right before the request goes out
         self.calls.append("cancel")
         self.cancelled_at, self.cancel_attempt = self.clock.seconds, self.attempt
 
@@ -3145,9 +3147,9 @@ def cancel_times(api):
     """When each cancel was sent (FakeAPI forgets cancelled_at once the re-run starts)."""
     times, cancel = [], api.cancel
 
-    def recorded(run_id, before_retry=None):
+    def recorded(run_id, before_send=None):
         times.append(api.clock.seconds)
-        cancel(run_id, before_retry)
+        cancel(run_id, before_send)
     api.cancel = recorded
     return times
 
@@ -3235,7 +3237,7 @@ class NightlySigningStall(unittest.TestCase):
         api = NightlyAPI(clock, signing_run(), workflow=SIGN_WORKFLOW)
         result = rescue.rescue_stalled_signing(api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None,
                                                deadline=clock.now() + dt.timedelta(hours=1),
-                                               workflow_text=SIGN_WORKFLOW_BEFORE)
+                                               sign_seen={4: START, 5: START}, workflow_text=SIGN_WORKFLOW_BEFORE)
         self.assertIn("takes no alternate label on a re-run", result)
         self.assertEqual(mutations(api), [])
         # A job first seen queued late counts from then, not from its created_at.
@@ -3265,12 +3267,44 @@ class NightlySigningStall(unittest.TestCase):
         self.assertIn("build-sign-notarize-nightly (arm64) not finished", summary)
         self.assertEqual(mutations(api), [])
 
-    def test_the_cancel_is_never_re_sent_after_a_wait_once_the_stall_is_over(self):
+    def test_the_guard_runs_after_a_token_mint_and_before_every_send_of_the_cancel(self):
         api = rescue.GitHub("token", "manaflow-ai/cmux")
-        guard = unittest.mock.Mock()
-        with unittest.mock.patch.object(api, "request") as request:
-            api.cancel(RUN_ID, before_retry=guard)
-        request.assert_called_once_with("POST", f"/actions/runs/{RUN_ID}/cancel", before_retry=guard)
+        order: list[str] = []
+        api._fresh_token = lambda stale=None: order.append("mint")
+
+        def opened(request, timeout):
+            order.append(f"send:{request.get_method()}")
+            raise urllib.error.HTTPError(request.full_url, 403, "rate limited", {}, None)
+        waits = iter([True, False])
+        api._wait_for_rate_limit = lambda method, path, error: next(waits)
+        with unittest.mock.patch("urllib.request.urlopen", opened):
+            with self.assertRaises(urllib.error.HTTPError):
+                api.cancel(RUN_ID, before_send=lambda: order.append("guard"))
+        # Mint, guard, send; after the rate-limit wait: mint, guard, send again.
+        self.assertEqual(order, ["mint", "guard", "send:POST", "mint", "guard", "send:POST"])
+        # A guard that raises drops the request before it is sent.
+        order.clear()
+
+        def stop():
+            raise rescue.SignStallChanged("a signing job started")
+        with unittest.mock.patch("urllib.request.urlopen", opened):
+            with self.assertRaises(rescue.SignStallChanged):
+                api.cancel(RUN_ID, before_send=stop)
+        self.assertEqual(order, ["mint"])
+
+    def test_a_signing_job_first_seen_at_the_last_look_is_not_stalled_yet(self):
+        clock = Clock()
+        clock.seconds = 60 + rescue.SIGN_STALL_SECONDS + 30
+        api = NightlyAPI(clock, signing_run(), workflow=SIGN_WORKFLOW)
+        target = rescue.target_from_event(nightly_event(head_branch="nightly-next"), "manaflow-ai/cmux")
+        seen = {4: START}  # the watch saw the arm64 job, never the legacy one
+        result = rescue.rescue_stalled_signing(api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None,
+                                               deadline=clock.now() + dt.timedelta(hours=1), sign_seen=seen,
+                                               workflow_text=SIGN_WORKFLOW)
+        self.assertTrue(result.startswith(rescue.SIGN_NOT_YET), result)
+        self.assertIn("sign-nightly-identity-legacy not finished", result)
+        self.assertEqual(seen[5], clock.now())
+        self.assertEqual(mutations(api), [])
 
     def test_a_change_at_the_last_look_resumes_the_watch(self):
         # The final look finds a sibling running again; the watch goes on and rescues once it finishes.

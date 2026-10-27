@@ -1433,8 +1433,13 @@ class GitHub:
         return True
 
     def request(self, method: str, path: str, *, own_token: bool = False, body: Mapping | None = None,
-                before_retry: Callable[[], None] | None = None, refreshed: bool = False) -> Any:
+                before_retry: Callable[[], None] | None = None, refreshed: bool = False,
+                before_send: Callable[[], None] | None = None) -> Any:
         self._fresh_token()
+        if before_send is not None:
+            # After any token mint, right before the request goes out (and again before any retry of it):
+            # raises to drop the request (GitHub.cancel()).
+            before_send()
         headers = self.read_headers if method == "GET" and not own_token else self.headers
         with self._lock:
             # One token for the whole request, read under the lock _fresh_token() swaps it under.
@@ -1481,7 +1486,7 @@ class GitHub:
                 if before_retry is not None:
                     before_retry()  # what a write acts on may have changed while the token was minted
                 return self.request(method, path, own_token=own_token,
-                                    body=json.loads(data) if data is not None else None, before_retry=before_retry,
+                                    body=json.loads(data) if data is not None else None, before_retry=before_retry, before_send=before_send,
                                     refreshed=True)
             if headers is self.headers and error.code in (403, 429) and self._wait_for_rate_limit(method, path, error):
                 # The same request again, after the wait (a refused request did nothing on GitHub's side),
@@ -1489,7 +1494,7 @@ class GitHub:
                 if before_retry is not None:
                     before_retry()
                 return self.request(method, path, own_token=own_token,
-                                    body=json.loads(data) if data is not None else None, before_retry=before_retry,
+                                    body=json.loads(data) if data is not None else None, before_retry=before_retry, before_send=before_send,
                                     refreshed=refreshed)
             if error.code not in (401, 403, 429) or headers is self.headers:
                 raise
@@ -1644,10 +1649,10 @@ class GitHub:
     def branch_head(self, branch: str) -> str:
         return str(((self.request("GET", f"/branches/{branch}") or {}).get("commit") or {}).get("sha") or "")
 
-    def cancel(self, run_id: int, before_retry: Callable[[], None] | None = None) -> None:
-        """`before_retry` runs before the cancel is sent again after a rate-limit wait or a token refresh, and
-        raises to drop it (rescue(before_cancel=...))."""
-        self.request("POST", f"/actions/runs/{run_id}/cancel", before_retry=before_retry)
+    def cancel(self, run_id: int, before_send: Callable[[], None] | None = None) -> None:
+        """`before_send` runs right before the cancel is sent, after any token mint, and before every re-send
+        after a rate-limit wait or a token refresh; it raises to drop the cancel (rescue(before_cancel=...))."""
+        self.request("POST", f"/actions/runs/{run_id}/cancel", before_send=before_send)
 
     def force_cancel(self, run_id: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/force-cancel")
@@ -2157,8 +2162,8 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
            before_cancel: Callable[[], None] | None = None) -> str:
     """Cancel and re-run, unless the pull request has moved on. Returns what happened.
 
-    `before_cancel` runs right before the cancel and before every retry of it, and raises to leave the run
-    alone (rescue_stalled_signing()).
+    `before_cancel` runs right before the cancel is sent and before every re-send of it (GitHub.cancel()), and
+    raises to leave the run alone (rescue_stalled_signing()).
 
     `failed_only` (a refused job) re-runs only the failed and cancelled jobs,
     keeping what passed, and needs no cancel when the run already finished.
@@ -2228,8 +2233,7 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         if slot:
             return f"not rescued: a DEV feed compile started on {slot}; a started dev build is never cancelled"
     if before_cancel is not None:
-        before_cancel()
-        api.cancel(target.run_id, before_retry=before_cancel)
+        api.cancel(target.run_id, before_send=before_cancel)
     else:
         api.cancel(target.run_id)
     log(f"cancelled run {target.run_id}")
@@ -2294,15 +2298,22 @@ def rescue_stalled_signing(api: GitHub, target: Target, *, now: Callable[[], dt.
     The jobs are read again first, with the watch's first-seen times and the gate (gated_signing_stall()), so
     a job that started, a sibling that came back or a job without the alternate leaves the run alone, and
     rescue() reads the run's attempt and status before it cancels. The same look runs again right before
-    the cancel and before every retry of it (a rate-limit wait can last minutes), so a job that started
-    in the meantime leaves the run alone; only the one request between that look and GitHub acting on
-    the cancel remains, in which a job a runner just took has done no work. A cancel whose re-run fails
+    the cancel is sent, after any token mint, and before every re-send of it (a rate-limit wait can last
+    minutes), so a job that started in the meantime leaves the run alone; only the cancel request itself
+    remains between that look and GitHub acting on it, in which a job a runner just took has done no work. A cancel whose re-run fails
     leaves the run cancelled, which gave_up() annotates and nightly-next-tick.yml re-runs
     (scripts/ci/nightly_next_cancelled_tip.sh).
     """
+    seen: dict[Any, dt.datetime] = {} if sign_seen is None else sign_seen
+
     def look() -> Look | None:
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
-        return gated_signing_stall(jobs, now(), sign_seen or {}, workflow_text)
+        at = now()
+        for job in jobs:
+            # A job first seen queued here counts from now, as in watch(): it is not stalled yet.
+            if sign_job_key(job) and waiting_for_runner(job):
+                seen.setdefault(job.get("id"), at)
+        return gated_signing_stall(jobs, at, seen, workflow_text)
 
     def still_stalled() -> None:
         found = look()
