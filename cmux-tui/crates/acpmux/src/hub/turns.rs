@@ -28,13 +28,13 @@ pub(super) fn acp_prompt_blocks(
             .collect();
         let safe_name = if safe_name.is_empty() { "document.pdf" } else { &safe_name };
         let dir = session.meta().cwd.join(".cmux").join("attachments");
-        std::fs::create_dir_all(&dir).map_err(|e| {
+        cmux_blocking::fs::create_dir_all(&dir).map_err(|e| {
             RpcError::internal(format!("cannot create PDF attachment directory: {e}"))
         })?;
         // The folder sits in the user's project; keep it out of their commits.
         let ignore = dir.join(".gitignore");
-        if !ignore.exists() {
-            let _ = std::fs::write(&ignore, "*\n");
+        if cmux_blocking::fs::metadata(&ignore).is_err() {
+            let _ = cmux_blocking::fs::write(&ignore, "*\n");
         }
         let path = dir.join(format!("{}-{safe_name}", uuid::Uuid::now_v7()));
         let encoded = block.get("data").and_then(Value::as_str).unwrap_or("");
@@ -42,7 +42,7 @@ pub(super) fn acp_prompt_blocks(
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(encoded)
             .map_err(|e| RpcError::invalid_params(format!("invalid PDF attachment: {e}")))?;
-        std::fs::write(&path, bytes)
+        cmux_blocking::fs::write(&path, bytes)
             .map_err(|e| RpcError::internal(format!("cannot save PDF attachment: {e}")))?;
         let uri = file_uri(&path);
         out.push(json!({

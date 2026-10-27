@@ -127,6 +127,7 @@
       "CmuxNextCLIInstall",
       "CmuxNextOracle",
       "OracleConfigDump",
+      "CmuxNextInputModel",
       "CZlib"
     ],
     "testTargets": [
@@ -263,7 +264,6 @@
       ]
     },
     "absent": [
-      "CmuxNextInputModel",
       "OracleReplay",
       "OracleInputWalk",
       "CmuxNextHeadless"

@@ -13,6 +13,8 @@
 
 use std::borrow::Cow;
 
+use crate::panic_free::split_once_byte;
+
 /// The longest title the daemon stores or sends, in characters.
 pub(crate) const MAX_TITLE_CHARS: usize = 256;
 
@@ -95,6 +97,7 @@ pub(crate) struct TitleTracker {
 impl TitleTracker {
     /// `data` with the title sequences libghostty-vt cannot apply rewritten
     /// into the `OSC 2` that applies them; borrowed when nothing changed.
+    #[allow(clippy::indexing_slicing, reason = "INVARIANT: copied <= index + 1 <= data.len()")]
     pub(crate) fn rewrite<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
         let mut out: Option<Vec<u8>> = None;
         let mut copied = 0;
@@ -227,8 +230,7 @@ impl TitleTracker {
     }
 
     fn osc_end(&mut self) -> Option<Vec<u8>> {
-        let split = self.osc.iter().position(|&b| b == b';')?;
-        let (command, payload) = (&self.osc[..split], &self.osc[split + 1..]);
+        let (command, payload) = split_once_byte(&self.osc, b';')?;
         let payload = clip_utf8(payload, MAX_TITLE_BYTES);
         match command {
             b"0" | b"2" => {
@@ -246,6 +248,7 @@ impl TitleTracker {
 }
 
 /// At most `max` bytes of `bytes`, never ending inside a UTF-8 sequence.
+#[allow(clippy::indexing_slicing, reason = "INVARIANT: end <= max < bytes.len()")]
 fn clip_utf8(bytes: &[u8], max: usize) -> &[u8] {
     if bytes.len() <= max {
         return bytes;

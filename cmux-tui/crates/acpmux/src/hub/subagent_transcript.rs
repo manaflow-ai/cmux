@@ -208,7 +208,7 @@ fn read(
     let project = own.parent().ok_or_else(missing)?;
     let mut sessions = vec![session.to_owned()];
     if run.is_some() {
-        let mut others: Vec<String> = std::fs::read_dir(project)
+        let mut others: Vec<String> = cmux_blocking::fs::read_dir(project)
             .into_iter()
             .flatten()
             .flatten()
