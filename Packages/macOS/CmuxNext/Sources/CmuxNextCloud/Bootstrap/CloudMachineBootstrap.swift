@@ -210,11 +210,12 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
         repo_step
         repo_code=$?
         # \#(CloudMachineRepo.needsGitHubExit): the repo needs GitHub access the script may set up (a lane VM's broker helper); try again after it.
-        if [ "$repo_code" -ne 0 ] && [ "$repo_code" -ne \#(CloudMachineRepo.needsGitHubExit) ]; then status failed "$repo_code"; exit "$repo_code"; fi
+        if [ "$repo_code" -ne 0 ] && [ "$repo_code" -ne \#(CloudMachineRepo.needsGitHubExit) ]; then status failed "$repo_code" ',"step":"repo"'; exit "$repo_code"; fi
         "$d/script" >>"$d/bootstrap.log" 2>&1 </dev/null 8>&- 9>&-
-        code=$?
-        if [ "$code" -eq 0 ] && [ "$repo_code" -ne 0 ]; then repo_step; code=$?; fi
-        if [ "$code" -eq 0 ]; then status done 0; else status failed "$code"; fi
+        code=$?; step=script
+        if [ "$code" -eq 0 ] && [ "$repo_code" -ne 0 ]; then repo_step; code=$?; step=repo; fi
+        # `step`: which step failed, so a reader never takes a script's exit code for the repo step's.
+        if [ "$code" -eq 0 ]; then status done 0; else status failed "$code" ",\"step\":\"$step\""; fi
         exit "$code"
         """#
 }

@@ -115,12 +115,13 @@ extension CloudMachineBootstrap {
             let dir = (cloned?["dir"] as? String).flatMap { $0.hasPrefix("/") ? $0 : nil }
             return .ended(.finished(repoPath: dir ?? "/home/\(user)/\(repo.directory)"))
         case "failed":
-            if repoStatus == "failed" { return .ended(.repoFailed(repo: name)) }
-            if repoStatus == "needs_github", code == CloudMachineRepo.needsGitHubExit { return .ended(.needsGitHub(repo: name)) }
-            // The runner's own refusal when it came a minute after its start (`"late":true`); a script's own
-            // exit 75 is a script failure.
+            // The runner's own refusal when it came a minute after its start (`"late":true`), before any step.
             if status["late"] as? Bool == true { return .ended(.runnerNeverCame) }
-            return .ended(.scriptFailed(exitCode: code ?? -1))
+            // `step` says which step failed; a runner from before it (no `step`) is read from the repo status.
+            let repoStep = (status["step"] as? String).map { $0 == "repo" }
+                ?? (repoStatus == "failed" || (repoStatus == "needs_github" && code == CloudMachineRepo.needsGitHubExit))
+            guard repoStep else { return .ended(.scriptFailed(exitCode: code ?? -1)) }
+            return .ended(repoStatus == "needs_github" ? .needsGitHub(repo: name) : .repoFailed(repo: name))
         case "running":
             // Read under a free `alive`: the runner that wrote `running` is gone. Without an `alive` the read
             // raced the runner making it (the next read sees it); counted as a failed read, so it never spins.

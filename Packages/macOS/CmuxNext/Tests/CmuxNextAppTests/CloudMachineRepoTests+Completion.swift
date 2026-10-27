@@ -15,8 +15,9 @@ extension CloudMachineRepoTests {
         CloudExecResult(exitCode: 0, stdout: "cmux-wait \(lock) \(now)\n" + (status.map { $0 + "\n" } ?? ""), stderr: "")
     }
 
-    static func status(_ state: String, _ code: String = "null", repo: String = "null", at: Int = 990, late: Bool = false) -> String {
-        #"{"state":"\#(state)","exit_code":\#(code),"script_sha256":"a","start_sha256":"b","repo":\#(repo),"at":\#(at)\#(late ? #","late":true"# : "")}"#
+    static func status(_ state: String, _ code: String = "null", repo: String = "null", at: Int = 990, late: Bool = false, step: String? = nil) -> String {
+        let extra = (late ? #","late":true"# : "") + (step.map { #","step":"\#($0)""# } ?? "")
+        return #"{"state":"\#(state)","exit_code":\#(code),"script_sha256":"a","start_sha256":"b","repo":\#(repo),"at":\#(at)\#(extra)}"#
     }
 
     static func repoStatus(_ status: String) -> String {
@@ -72,6 +73,12 @@ extension CloudMachineRepoTests {
         #expect(CloudStrings.bootstrapScriptFailed(7, log: "L").contains("7"))
         #expect(await run(withRepo, [.success(Self.answer(Self.status("failed", "75", late: true)))]).0 == .runnerNeverCame, "the runner came a minute late")
         #expect(await run(scriptOnly, [.success(Self.answer(Self.status("failed", "75")))]).0 == .scriptFailed(exitCode: 75), "a script's own exit 75")
+        // The runner says which step failed: a script that exits 3 after a needs_github repo step is the script's failure,
+        // the repo step's retry after it is the repo's, and a late refusal wins over any repo status.
+        let needsGitHub = Self.repoStatus("needs_github")
+        #expect(await run(withRepo, [.success(Self.answer(Self.status("failed", "3", repo: needsGitHub, step: "script")))]).0 == .scriptFailed(exitCode: 3))
+        #expect(await run(withRepo, [.success(Self.answer(Self.status("failed", "3", repo: needsGitHub, step: "repo")))]).0 == .needsGitHub(repo: "o/r"))
+        #expect(await run(withRepo, [.success(Self.answer(Self.status("failed", "75", repo: Self.repoStatus("failed"), late: true)))]).0 == .runnerNeverCame)
         #expect(await run(withRepo, [.success(Self.answer(Self.status("starting", at: 1000), now: 1100))]).0 == .runnerNeverCame)
         #expect(await run(withRepo, [.success(Self.answer(nil))]).0 == .runnerNeverCame, "no status at all")
         #expect(await run(withRepo, [.success(Self.answer(Self.status("running")))]).0 == .stopped, "`running` read under a free lock")

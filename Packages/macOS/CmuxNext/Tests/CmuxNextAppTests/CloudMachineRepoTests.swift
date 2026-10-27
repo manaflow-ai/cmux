@@ -140,7 +140,7 @@ struct CloudMachineRepoTests {
         let runner = CloudMachineBootstrap.runner
         let step = try #require(runner.range(of: "repo_step\n")), script = try #require(runner.range(of: #""$d/script" >>"#))
         #expect(step.lowerBound < script.lowerBound)
-        #expect(runner.contains(#"if [ "$code" -eq 0 ] && [ "$repo_code" -ne 0 ]; then repo_step; code=$?; fi"#))
+        #expect(runner.contains(#"if [ "$code" -eq 0 ] && [ "$repo_code" -ne 0 ]; then repo_step; code=$?; step=repo; fi"#))
         #expect(runner.contains(#""repo":%s"#))
         #expect(runner.contains(#""script_sha256":"%s","start_sha256":"%s","repo":%s"#) && runner.contains(#"sum=$(sha256sum "$d/script" | cut -d' ' -f1)"#),
                 "script_sha256 stays the script's own digest; the repo step only joins start_sha256")
