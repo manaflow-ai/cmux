@@ -8,7 +8,7 @@ function fixture() {
   const saved = [globalThis.requestAnimationFrame, globalThis.cancelAnimationFrame] as const;
   const pending = new Map<number, FrameRequestCallback>();
   let handle = 0;
-  let now = performance.now();
+  let now = Math.floor(performance.now());
   const savedNow = performance.now;
   performance.now = () => now;
   globalThis.requestAnimationFrame = (run) => {
