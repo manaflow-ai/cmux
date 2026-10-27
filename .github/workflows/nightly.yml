@@ -1529,9 +1529,10 @@ jobs:
     # link failure that pinned this job to macOS 15 is gone. Zig on Linux has
     # no macOS SDK, so only a reused helper (resolve-nightly-ghostty-cli-helper)
     # leaves this job on Linux, for the source archive. A fresh helper takes an
-    # owned pool on attempt 1 of a push or schedule (main's trusted pool;
-    # nightly-next: pick-nightly-build-runner's owned pick, never the dedicated builder); a retry, dispatch or empty variable takes
-    # Blacksmith macOS 26, so a rescue re-run leaves a busy mini. Not
+    # owned pool on attempt 1 (main's trusted pool on a push or schedule;
+    # nightly-next: pick-nightly-build-runner's owned pick, never the dedicated
+    # builder, else its moving Blacksmith label); a retry, dispatch or empty
+    # variable takes Blacksmith macOS 26, so a rescue re-run leaves a busy mini. Not
     # CI_NIGHTLY_NEXT_BUILD_RUNNER: it holds every attempt on its label, and a
     # trusted NEXT runner admits only build-nightly-app. Never a hosted Mac past
     # the fork branch, never macOS 15. glaeda sizes it light at its measured cores.
