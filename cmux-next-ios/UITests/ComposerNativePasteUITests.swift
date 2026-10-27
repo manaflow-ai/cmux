@@ -67,8 +67,17 @@ final class ComposerNativePasteUITests: XCTestCase {
 
         // A file copied in Files, as Files puts it (seen on iOS 26.5): its own
         // private type first, then the file's type and bytes, no path.
+        // An item provider keeps that order (a dictionary of types does not).
         let pdf = Self.samplePDF()
-        UIPasteboard.general.setItems([["com.apple.DocumentManager.FINode.File": Data("Quarterly Report.pdf".utf8), UTType.pdf.identifier: pdf]])
+        let provider = NSItemProvider()
+        provider.suggestedName = "Quarterly Report.pdf"
+        for type in ["com.apple.DocumentManager.FINode.File", UTType.pdf.identifier] {
+            provider.registerDataRepresentation(forTypeIdentifier: type, visibility: .all) { completion in
+                completion(pdf, nil)
+                return nil
+            }
+        }
+        UIPasteboard.general.setItemProviders([provider], localOnly: false, expirationDate: nil)
         try menuPaste(app, field)
         let tiles = app.descendants(matching: .any).matching(identifier: attachment)
         XCTAssertTrue(XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "count >= 2"), object: tiles)], timeout: 5) == .completed,
