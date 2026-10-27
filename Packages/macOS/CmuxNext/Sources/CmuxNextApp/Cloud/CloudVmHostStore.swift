@@ -20,10 +20,10 @@ final class CloudVmHostStore {
     private(set) var entries: [String: Entry] = [:]
     /// The machines a set is running on (the switch is disabled meanwhile).
     private(set) var setting: Set<String> = []
-    /// Reads under way, with the generation each started at. Not observed: a read starts while
-    /// the page's host lists are being built (inside their observation), so it changes nothing
-    /// observed until it answers.
-    @ObservationIgnored private var reading: [String: Int] = [:]
+    /// Reads under way: the generation each started at, and its task (``forget(_:)`` cancels
+    /// it). Not observed: a read starts while the page's host lists are being built (inside
+    /// their observation), so it changes nothing observed until it answers.
+    @ObservationIgnored private var reading: [String: (generation: Int, task: Task<Void, Never>)] = [:]
     /// Bumped per machine when a set starts or the machine is forgotten: a read or set that
     /// either overtook drops its answer.
     @ObservationIgnored private var generation: [String: Int] = [:]
@@ -57,9 +57,9 @@ final class CloudVmHostStore {
     private func read(_ machineID: String) {
         let last = Self.known(entries[machineID])
         let started = generation[machineID, default: 0]
-        reading[machineID] = started
         let exec = exec, now = now
-        Task { @MainActor [weak self] in
+        // On the main actor, so it is stored below before its body runs.
+        let task = Task { @MainActor [weak self] in
             let entry: Entry
             do {
                 let ran = try await exec(machineID, CloudVmHost.command(on: nil))
@@ -69,9 +69,10 @@ final class CloudVmHostStore {
             }
             guard let self else { return }
             // A read for the machine after it was forgotten and came back is not this one's.
-            if reading[machineID] == started { reading[machineID] = nil }
+            if reading[machineID]?.generation == started { reading[machineID] = nil }
             if generation[machineID, default: 0] == started { entries[machineID] = entry }
         }
+        reading[machineID] = (started, task)
     }
 
     /// Turns the setting on or off on `machineID`: the error to show, or nil. Nothing runs unless
@@ -105,7 +106,7 @@ final class CloudVmHostStore {
     /// Forgets a machine that left the registry, and drops any read or set still under way for it.
     func forget(_ machineID: String) {
         generation[machineID, default: 0] += 1
-        reading[machineID] = nil
+        reading.removeValue(forKey: machineID)?.task.cancel()
         entries[machineID] = nil
     }
 
