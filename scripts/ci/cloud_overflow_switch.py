@@ -80,6 +80,9 @@ DEFAULT_PROBE_LABEL = "blacksmith-4vcpu-ubuntu-2404"
 # takes 2 vCPU.
 LINUX_FAILOVER = "blacksmith-16vcpu-ubuntu-2404"
 TRUSTED_FAILOVER = "blacksmith-2vcpu-ubuntu-2404"
+# When the probed label is that failover itself, the next size over.
+ALTERNATE_FAILOVERS = {LINUX_FAILOVER: "blacksmith-32vcpu-ubuntu-2404",
+                       TRUSTED_FAILOVER: "blacksmith-4vcpu-ubuntu-2404"}
 # The only Blacksmith labels CI_TRUSTED_RUNNER's readers accept.
 TRUSTED_BLACKSMITH_LABELS = frozenset({"blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"})
 HOSTED_LINUX_LABEL = re.compile(r"^ubuntu-")
@@ -269,7 +272,7 @@ def plan_on(record: Mapping[str, Any], current: Mapping[str, str | None]) -> lis
             continue
         before, after = change.get("before"), change.get("after")
         now = (current.get(name) or "").strip() or None
-        if now != after:
+        if now != after and not (now is not None and now == change.get("was")):
             restores.append(Restore(name, before, f"now {now or 'unset'}, not the failover {after}; "
                                                   "someone changed it, so it is left alone"))
             continue
@@ -295,12 +298,21 @@ def plan_resume(record: Mapping[str, Any], current: Mapping[str, str | None]) ->
         now = (current.get(name) or "").strip() or None
         if now == after:
             continue
-        if now == before:
+        if now == before or (now is not None and now == change.get("was")):
             resumes.append(Resume(name, after))
         else:
             resumes.append(Resume(name, after, f"now {now or 'unset'}, not the recorded before {before or 'unset'}; "
                                   "someone changed it, so it is left alone"))
     return resumes
+
+
+def away_from_probe(failover: Mapping[str, str], probe: str) -> dict[str, str]:
+    """A Linux failover never names the label whose stall triggered it."""
+    values = dict(failover)
+    for name in LINUX_VARIABLES:
+        if values.get(name) == probe and probe in ALTERNATE_FAILOVERS:
+            values[name] = ALTERNATE_FAILOVERS[probe]
+    return values
 
 
 def migrate_hosted_linux(record: Mapping[str, Any], current: Mapping[str, str | None],
@@ -318,14 +330,17 @@ def migrate_hosted_linux(record: Mapping[str, Any], current: Mapping[str, str | 
         if name not in LINUX_VARIABLES or not isinstance(change, Mapping):
             continue
         old, new = change.get("after"), failover.get(name)
-        if not isinstance(old, str) or not HOSTED_LINUX_LABEL.match(old.lower()) or not new or new == old:
+        if not isinstance(old, str) or not HOSTED_LINUX_LABEL.match(old.lower()) or not new or new == old \
+                or "was" in change:
             continue
         now = (current.get(name) or "").strip() or None
         if now == old:
             moves.append(Resume(name, new))
         elif now != change.get("before"):
             continue
-        changed[name] = {**change, "after": new}
+        # "was" keeps the hosted destination, so a move that fails after the record
+        # is written is still recognised (plan_resume, plan_on) rather than read as a hand edit.
+        changed[name] = {**change, "after": new, "was": old}
     return {**record, "changed": changed}, moves
 
 
@@ -607,6 +622,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         # A drill (workflow_dispatch probe_label) probes another label and never writes.
         label, args.dry_run = drill, True
         log(f"drill: probing {drill} instead; a dry run whatever it finds")
+    failover = away_from_probe(failover, label)
     state = f"off since {record.get('since')}" if record else "on"
     log(f"Blacksmith overflow is {state}; probing {label} (a probe queued {minutes} min with no runner is a stall)")
 

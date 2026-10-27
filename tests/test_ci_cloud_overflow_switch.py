@@ -322,7 +322,7 @@ class MainTests(unittest.TestCase):
         self.assertEqual(writer.writes[0][0], "CI_CLOUD_OVERFLOW_SAVED")
         saved = json.loads(writer.writes[0][1])["changed"]
         self.assertEqual(saved["LINUX_RUNNER"], {"before": "blacksmith-4vcpu-ubuntu-2404",
-                                                 "after": "blacksmith-16vcpu-ubuntu-2404"})
+                                                 "after": "blacksmith-16vcpu-ubuntu-2404", "was": "ubuntu-24.04"})
         self.assertEqual(saved["CI_TRUSTED_RUNNER"], {"before": None, "after": "ubuntu-24.04"})
         self.assertEqual(writer.writes[1:], [("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404")])
         # Turning overflow back on then restores from the migrated record.
@@ -340,6 +340,36 @@ class MainTests(unittest.TestCase):
         run_main(env, FakeActions(probe_job(0)), writer)
         self.assertNotIn(("LINUX_RUNNER", "ubuntu-24.04"), writer.writes)
         self.assertIn(("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404"), writer.writes)
+
+    def test_an_interrupted_migration_resumes_and_still_restores(self) -> None:
+        # The record was rewritten (after -> 16 vCPU, was -> ubuntu-24.04) but the variable write failed.
+        record = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
+            "LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "blacksmith-16vcpu-ubuntu-2404",
+                             "was": "ubuntu-24.04"}}}
+        env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record), "VAR_LINUX_RUNNER": "ubuntu-24.04",
+               "VAR_CMUX_CI_XCODE_APP_PR": PIN}
+        writer = FakeSwitch()
+        run_main(env, FakeActions(probe_job(0)), writer)
+        self.assertEqual(writer.writes, [("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404")])
+        restores = switch.plan_on(record, {"LINUX_RUNNER": "ubuntu-24.04"})
+        self.assertEqual([(r.name, r.value, r.skipped) for r in restores],
+                         [("LINUX_RUNNER", "blacksmith-4vcpu-ubuntu-2404", "")])
+
+    def test_the_failover_is_never_the_stalled_probe_label(self) -> None:
+        # LINUX_RUNNER already names 16 vCPU, so the probe asks for 16 vCPU; its failover is the next size.
+        env = {"VAR_LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404", "VAR_CMUX_CI_XCODE_APP_PR": PIN}
+        writer = FakeSwitch()
+        code, out, _ = run_main(env, FakeActions(probe_job(0)), writer)
+        self.assertEqual(code, 0)
+        self.assertIn("outcome=stalled", out)
+        saved = json.loads(writer.writes[0][1])
+        self.assertEqual(saved["probe"], "blacksmith-16vcpu-ubuntu-2404")
+        self.assertEqual(saved["changed"]["LINUX_RUNNER"], {"before": "blacksmith-16vcpu-ubuntu-2404",
+                                                            "after": "blacksmith-32vcpu-ubuntu-2404"})
+        self.assertIn(("LINUX_RUNNER", "blacksmith-32vcpu-ubuntu-2404"), writer.writes)
+        self.assertEqual(switch.away_from_probe({"CI_TRUSTED_RUNNER": "blacksmith-2vcpu-ubuntu-2404"},
+                                                "blacksmith-2vcpu-ubuntu-2404"),
+                         {"CI_TRUSTED_RUNNER": "blacksmith-4vcpu-ubuntu-2404"})
 
     def test_healthy_with_no_record_writes_nothing(self) -> None:
         writer = FakeSwitch()
