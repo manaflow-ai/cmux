@@ -18,6 +18,7 @@ import { setTabRow } from "./header/tabRow";
 import { setFloatingState } from "./floatingState";
 import { configureNativeSidebarPreviewVariant } from "./sidebarPreview";
 import { setSessionStatus } from "./sessionStatus";
+import { receivePromptUploadState } from "./promptUploadState";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -81,6 +82,8 @@ export function applyHostEvent(event: HostEvent): void {
   const bridge = window.cmuxAcpmuxBridge;
   const value = event.value as never;
   switch (event.kind) {
+    case "uploads.state":
+      return receivePromptUploadState(event.value);
     case "theme": {
       const theme = event.value as { web?: unknown; agent?: Record<string, unknown> };
       (window as { cmuxTheme?: { apply(payload: unknown): void } }).cmuxTheme?.apply(theme.web);
