@@ -117,7 +117,12 @@ xcodebuild -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp 
 status=$?
 set -e
 grep -E "error:|BUILD (SUCCEEDED|FAILED)" "$work/build.log" | sort -u | head -40 || true
-[[ $status -eq 0 ]] || { tail -40 "$work/build.log"; exit 1; }
+if [[ $status -ne 0 ]]; then
+  # The compiler's own lines (file:line:col diagnostics, crashes), which the summary above can miss.
+  grep -E "\.swift:[0-9]+:[0-9]+: (error|warning: .*isolat)|Stack dump|error: |PLEASE submit" "$work/build.log" | sort -u | head -80 || true
+  tail -40 "$work/build.log"
+  exit 1
+fi
 app="$dd/Build/Products/Demo-iphonesimulator/CmuxMobileApp.app"
 bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")"
 note "- build: $((SECONDS - t0)) s (FFI + xcodegen + Demo simulator app), bundle $bundle_id"

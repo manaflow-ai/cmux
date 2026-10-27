@@ -457,7 +457,10 @@ final class StreamView: UIView, UIKeyInput, UIContextMenuInteractionDelegate {
         model.requestContextMenu(x: x, y: y) { open in wait.arrived(open) }
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
             UIMenu(children: [UIDeferredMenuElement.uncached { completion in
-                wait.whenArrived { open in completion(self?.menuElements(open) ?? []) }
+                // UIKit asks for the rows on the main thread.
+                MainActor.assumeIsolated {
+                    wait.whenArrived { open in completion(self?.menuElements(open) ?? []) }
+                }
             }])
         }
     }
@@ -516,9 +519,8 @@ final class StreamView: UIView, UIKeyInput, UIContextMenuInteractionDelegate {
                 continue
             }
             let id = row.id
-            let action = UIAction(title: row.label, attributes: row.enabled ? [] : .disabled,
-                                  state: row.checked ? .on : .off) { _ in choose(id) }
-            action.accessibilityIdentifier = "browser.menu.\(id)"
+            let action = UIAction(title: row.label, identifier: UIAction.Identifier("browser.menu.\(id)"),
+                                  attributes: row.enabled ? [] : .disabled, state: row.checked ? .on : .off) { _ in choose(id) }
             sections[sections.count - 1].append(action)
         }
         let filled = sections.filter { !$0.isEmpty }
