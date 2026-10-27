@@ -114,14 +114,14 @@ final class UpdateRelaunchMomentHold {
     /// checked again when the caller resumes, so nothing that began in between is missed: the
     /// caller acts in the same main-actor turn as that last check.
     func waitUntilClear() async -> Bool {
-        while true {
-            let cleared = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-                let held = hold { done.resume(returning: true) }
-                if held { dropped = { done.resume(returning: false) } } else { done.resume(returning: true) }
-            }
-            guard cleared else { return false }
-            if moment().interruption == nil { return true }
+        // Each wait suspends on a hold (released only by the events or the 1 s timer), never spins.
+        let cleared = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            let held = hold { done.resume(returning: true) }
+            if held { dropped = { done.resume(returning: false) } } else { done.resume(returning: true) }
         }
+        guard cleared else { return false }
+        if moment().interruption == nil { return true }
+        return await waitUntilClear()
     }
 
     /// Drops the held install without running it.
