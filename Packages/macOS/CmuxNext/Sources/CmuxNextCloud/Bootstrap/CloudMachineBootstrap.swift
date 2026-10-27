@@ -126,7 +126,8 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
     /// cannot hand them over fails here instead of in the runner. Uploads land in this start's
     /// own folder, so no upload ever changes the files a running runner runs: the start moves
     /// them into the bootstrap folder only while it holds the runner's lock, and a start while a
-    /// runner runs says `running` and drops its files. The runner always runs as the work user
+    /// runner runs, or while an earlier start's runner has not taken over yet (its `starting`, for
+    /// up to a minute, the applier's wait too), says `running` and drops its files. The runner always runs as the work user
     /// with its home, in a transient systemd unit (it outlives the exec); without systemd, or
     /// when `systemd-run` fails, under `setsid`.
     public static func startCommand(_ staged: String) -> String { [
@@ -146,6 +147,10 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
         // `starting`. Let go before the launch, so this start's runner can take it.
         #"[ -e "$d/lock" ] || as_u touch "$d/lock"; { [ -f "$d/lock" ] && [ ! -L "$d/lock" ]; } || { echo "$d/lock is not a regular file" >&2; exit 1; }; exec 6<"$d/lock""#,
         #"flock -n 6 || { as_u rm -rf "$s" || true; echo running; exit 0; }"#,
+        // An earlier start launched a runner that has not taken over yet: its files are not replaced under it.
+        // After a minute without it (the applier's wait for a `starting` too) that start counts as dead.
+        #"at=$(sed -n 's/^{"state":"starting".*"at":\([0-9]*\)}$/\1/p' "$d/status.json" 2>/dev/null || true)"#,
+        #"if [ -n "$at" ] && [ $(( $(date +%s) - at )) -lt 60 ]; then as_u rm -rf "$s" || true; echo running; exit 0; fi"#,
         // No runner runs: this start's files become the bootstrap folder's (a rename each, as the work user),
         // where the runner and a machine-config apply read them (`script`, `repo.json`).
         #"for f in script env run repo repo.json; do as_u mv -f "$s/$f" "$d/$f"; done; as_u rm -rf "$s""#,
@@ -170,6 +175,11 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
         # writes ./status.json.
         set -u
         d=$(cd "$(dirname "$0")" && pwd)
+        # start.lock, exclusive, until `running` is out: a machine-config apply holds it shared for its whole
+        # run, so a runner scheduled late never begins beside an apply (it waits for the apply to end).
+        { [ -f "$d/start.lock" ] && [ ! -L "$d/start.lock" ]; } || exit 1
+        exec 7<"$d/start.lock"
+        flock -w 10800 7 || exit 1
         # One runner at a time; a start while this one runs says `running`.
         exec 9>"$d/lock"
         flock -n 9 || exit 0
@@ -191,6 +201,7 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
         # Not its locks: a daemon the repo step or the script leaves running must not keep them held after this runner ends.
         repo_step() { "$d/repo" >>"$d/bootstrap.log" 2>&1 </dev/null 8>&- 9>&-; }
         status running null
+        exec 7<&-
         [ -f "$d/env" ] && . "$d/env"
         cd "$HOME" 2>/dev/null || cd /
         printf '== cmux bootstrap %s at %s\n' "$key" "$(date -u +%FT%TZ)" >>"$d/bootstrap.log"

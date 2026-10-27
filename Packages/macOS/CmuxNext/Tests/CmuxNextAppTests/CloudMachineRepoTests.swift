@@ -145,5 +145,12 @@ struct CloudMachineRepoTests {
         #expect(held.lowerBound < moved.lowerBound && moved.lowerBound < released.lowerBound,
                 "a start's files replace the bootstrap folder's only while it holds the runner's lock: never under a running runner")
         #expect(start.contains(#"flock -n 6 || { as_u rm -rf "$s" || true; echo running; exit 0; }"#), "a start while a runner runs drops its own files")
+        let fresh = try #require(start.range(of: #"-lt 60 ]; then as_u rm -rf "$s" || true; echo running"#))
+        #expect(held.lowerBound < fresh.lowerBound && fresh.lowerBound < moved.lowerBound,
+                "an earlier start's runner that has not taken over yet keeps its files")
+        let gate = try #require(runner.range(of: "flock -w 10800 7")), own = try #require(runner.range(of: #"exec 9>"$d/lock""#))
+        let running = try #require(runner.range(of: "status running null\nexec 7<&-")), first = try #require(runner.range(of: "repo_step\n"))
+        #expect(gate.lowerBound < own.lowerBound && running.upperBound < first.lowerBound,
+                "a runner begins only under start.lock, never beside a machine-config apply, and lets it go once `running` is out")
     }
 }
