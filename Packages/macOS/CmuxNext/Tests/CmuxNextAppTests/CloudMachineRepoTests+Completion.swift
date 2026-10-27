@@ -103,6 +103,13 @@ extension CloudMachineRepoTests {
         let unreachable = await run(withRepo, [.failure(Timeout()), .failure(Timeout()), .failure(Timeout())])
         #expect(unreachable.1 == 3)
         guard case .unreachable = unreachable.0 else { Issue.record("three failed reads in a row end the wait"); return }
+        // Cancelled during a read after two failed ones: still running, not unreachable.
+        let cancelling = Script([.failure(Timeout()), .failure(Timeout())])
+        let cancelled = await withRepo.waitForRun(on: CloudMachineBootstrap.Machine(write: { _, _, _ in }, exec: { command in
+            if cancelling.commands.count == 2 { withUnsafeCurrentTask { $0?.cancel() }; throw Timeout() }
+            return try await cancelling.machine.exec(command)
+        }))
+        #expect(cancelled == .stillRunning)
         let bounded = await run(withRepo, [.success(Self.answer(Self.status("running"), lock: "held"))], bound: .zero)
         #expect(bounded == (Run.stillRunning, 1))
         #expect(CloudMachineBootstrap.completion(.stillRunning) == .failed(reason: CloudStrings.bootstrapStillRunning(log: CloudMachineBootstrap.logPath)))
@@ -232,8 +239,9 @@ extension CloudMachineRepoTests {
     @MainActor @Test func aStartThatReturnsAfterTheTearDownStartsNoWait() {
         // The flow was cancelled while `start` was out on the machine; its outcome comes back afterwards.
         let creation = CloudMachineCreation(windowID: nil)
+        let attempt = creation.beginBootstrapAttempt()
         creation.tearDown()
-        creation.awaitBootstrapCompletion(CloudMachineBootstrap.Outcome(status: "started")) {
+        creation.awaitBootstrapCompletion(CloudMachineBootstrap.Outcome(status: "started"), attempt: attempt) {
             Issue.record("a torn-down creation reads nothing")
             return .finished(repoPath: nil)
         }
@@ -241,9 +249,28 @@ extension CloudMachineRepoTests {
         #expect(creation.bootstrapCompletion == nil)
     }
 
+    @MainActor @Test func aRetryDropsTheEarlierStartsLateOutcome() {
+        let creation = CloudMachineCreation(windowID: nil)
+        creation.awaitBootstrapCompletion(CloudMachineBootstrap.Outcome(status: "failed", reason: "x"), attempt: creation.beginBootstrapAttempt()) {
+            .finished(repoPath: nil)
+        }
+        #expect(creation.bootstrapCompletion != nil)
+        let first = creation.beginBootstrapAttempt()
+        #expect(creation.bootstrapCompletion == nil, "a new start clears the last completion before it goes out")
+        let second = creation.beginBootstrapAttempt()
+        // The first start comes back after the Retry began the second: dropped.
+        creation.awaitBootstrapCompletion(CloudMachineBootstrap.Outcome(status: "started"), attempt: first) {
+            Issue.record("a stale start reads nothing")
+            return .finished(repoPath: "/stale")
+        }
+        #expect(creation.completionTask == nil && creation.bootstrap?.status == "failed")
+        creation.awaitBootstrapCompletion(CloudMachineBootstrap.Outcome(status: "failed", reason: "y"), attempt: second) { .finished(repoPath: nil) }
+        #expect(creation.bootstrapCompletion == .failed(reason: CloudStrings.bootstrapStartFailed("y")))
+    }
+
     @MainActor @Test func aStartThatFailedEndsAtOnceWithItsReason() {
         let creation = CloudMachineCreation(windowID: nil)
-        creation.awaitBootstrapCompletion(CloudMachineBootstrap.Outcome(status: "failed", reason: "no sudo")) {
+        creation.awaitBootstrapCompletion(CloudMachineBootstrap.Outcome(status: "failed", reason: "no sudo"), attempt: creation.beginBootstrapAttempt()) {
             Issue.record("a failed start reads nothing")
             return .finished(repoPath: nil)
         }

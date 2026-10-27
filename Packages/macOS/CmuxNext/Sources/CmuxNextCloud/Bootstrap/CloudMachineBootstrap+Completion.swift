@@ -82,6 +82,8 @@ extension CloudMachineBootstrap {
                 failures += 1
                 last = String(describing: error)
             }
+            // Cancelled during the read: the run's end is unknown, never the machine's fault.
+            guard !Task.isCancelled else { break }
             if failures >= 3 { return .unreachable(last) }
             if clock.now >= deadline { break }
         }

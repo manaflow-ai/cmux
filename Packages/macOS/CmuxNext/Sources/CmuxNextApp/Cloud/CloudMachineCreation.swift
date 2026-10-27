@@ -37,6 +37,9 @@ final class CloudMachineCreation: Identifiable {
     /// removal (the workspace is mirrored) cancels ``task`` and must not end this wait. It ends with its
     /// bound, a new start (Retry), ``tearDown()`` or the creation's release (it holds the creation weakly).
     @ObservationIgnored private(set) var completionTask: Task<Void, Never>?
+    /// The bootstrap start in flight (``beginBootstrapAttempt()``): a start that returns after a newer one
+    /// began (a Retry while it was out on the machine) changes nothing.
+    @ObservationIgnored private var bootstrapAttempt = 0
     /// ``tearDown()`` ran: the bootstrap wait stopped, and a start that returns after it (its flow was
     /// cancelled mid-start) starts none. Observed: a caller waiting on ``bootstrapCompletion`` stops on it.
     private(set) var isTornDown = false
@@ -99,11 +102,20 @@ final class CloudMachineCreation: Identifiable {
 
     /// Waits for the run a start began (`wait`, which reads the machine) in a task of its own; a start
     /// that failed ends at once with its reason (a Retry starts it again).
-    func awaitBootstrapCompletion(_ outcome: CloudMachineBootstrap.Outcome,
-                                  wait: @escaping @Sendable () async -> CloudMachineBootstrap.Completion) {
+    /// A new bootstrap start: the last one's wait stops and its completion goes, before the start is sent.
+    func beginBootstrapAttempt() -> Int {
         completionTask?.cancel()
-        guard !isTornDown else { return }
+        completionTask = nil
         bootstrapCompletion = nil
+        bootstrapAttempt += 1
+        return bootstrapAttempt
+    }
+
+    /// `attempt` is the start's ``beginBootstrapAttempt()``; an older one's outcome is dropped.
+    func awaitBootstrapCompletion(_ outcome: CloudMachineBootstrap.Outcome, attempt: Int,
+                                  wait: @escaping @Sendable () async -> CloudMachineBootstrap.Completion) {
+        guard !isTornDown, attempt == bootstrapAttempt else { return }
+        noteBootstrap(outcome)
         guard outcome.status != "failed" else {
             bootstrapCompletion = .failed(reason: CloudStrings.bootstrapStartFailed(outcome.reason ?? ""))
             return
@@ -237,14 +249,14 @@ struct CloudCreationFlow {
     static func needsBootstrap(_ creation: CloudMachineCreation) -> Bool { needsScript(creation) || needsMachineConfig(creation) }
 
     /// The ``bootstrap`` hook's work on `machine`: starts the requested bootstrap and, in the creation's own
-    /// task (``CloudMachineCreation/awaitBootstrapCompletion(_:wait:)``), waits for its end without holding
+    /// task (``CloudMachineCreation/awaitBootstrapCompletion(_:attempt:wait:)``), waits for its end without holding
     /// up the open; then applies the requested machine config. The first workspace still opens at the
     /// machine's default folder: a caller that wants the clone opens its own at the completion's `repoPath`.
     static func startBootstrap(_ creation: CloudMachineCreation, on machine: CloudMachineBootstrap.Machine) async {
         if let script = creation.request.script, needsScript(creation) {
+            let attempt = creation.beginBootstrapAttempt()
             let outcome = await script.start(name: creation.request.name, on: machine)
-            creation.noteBootstrap(outcome)
-            creation.awaitBootstrapCompletion(outcome) { await script.waitForCompletion(on: machine) }
+            creation.awaitBootstrapCompletion(outcome, attempt: attempt) { await script.waitForCompletion(on: machine) }
         }
         // After the bootstrap's start: the applier waits for its lock, so a --repo clone is there first.
         if let config = creation.request.machineConfig, needsMachineConfig(creation) {
