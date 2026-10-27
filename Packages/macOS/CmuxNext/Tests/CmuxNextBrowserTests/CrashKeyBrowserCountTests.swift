@@ -1,4 +1,4 @@
-import CmuxNextBrowser
+@testable import CmuxNextBrowser
 import CmuxNextTrace
 import CmuxNextWakeups
 import Testing
