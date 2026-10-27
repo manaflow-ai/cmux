@@ -273,7 +273,7 @@ describe("app pricing page", () => {
 
     expect(html).toMatch(/>\$50</);
     expect(html).not.toMatch(/>\$40</);
-    expect(html).toMatch(/interval(=|%3D|%253D)month/);
+    expect(html).toMatch(/plan%253Dpro[^"]*interval%253Dmonth/);
     expect(html).not.toMatch(/plan%253Dpro[^"]*interval%253Dyear/);
     expect(html).not.toMatch(/plan%253D(go|team)[^"]*interval%253Dyear/);
   });
