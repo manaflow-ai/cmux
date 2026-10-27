@@ -2917,6 +2917,14 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         # A job killed between the cancel and the re-run would leave the
         # pull request's run cancelled for good; leave it as GitHub has it.
         return "not rescued: too little of the job left to cancel and re-run"
+    if run.get("status") == "completed" and run.get("conclusion") == "cancelled":
+        # This rescue sent no cancel. One someone made after the watch looked (a person, the queue janitor, a newer
+        # dispatch) is final, even beside a refusal; a job timeout names no canceller and is re-run as before.
+        by = canceller(api, read(lambda: api.jobs(target.run_id, target.attempt), sleep, log), sleep, log)
+        if by is None:
+            return "not rescued: the run was cancelled, and who cancelled it could not be read; left cancelled"
+        if by:
+            return f"not rescued: the run was cancelled by @{by} meanwhile; left cancelled"
     if run.get("status") == "completed":
         should_rerun = failed_only if refused is None else refused
         if not should_rerun:
@@ -3281,6 +3289,9 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
         outcome, reason = watch(client, target, budget_seconds=max(effective_seconds, remaining),
                                 now=clock, sleep=sleep, log=log, deadline=deadline,
                                 floor_seconds=effective_seconds)
+        if outcome == "resume":
+            # A rescue stopped between its cancel and its re-run while this watch waited: finish its re-run.
+            return settle(outcome, reason)[3]
     if target.refusals_only and outcome != "refused":
         return f"stopped: {reason}; attempt {target.attempt} stays on the minis (refusals only)"
     refusal_jobs: list[Mapping[str, Any]] | None = None
@@ -3357,9 +3368,15 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
         seen = {}
         outcome, reason = watch(client, target, budget_seconds=effective_seconds, now=clock, sleep=sleep, log=log,
                                 deadline=deadline, seen=seen)
+        if outcome == "resume":
+            # The next attempt was cancelled by a rescue that stopped before its re-run: finish that re-run.
+            return settle(outcome, reason)[3]
         outcome, reason, held = hold_for_destination(
             client, target, outcome, reason, budget_seconds=effective_seconds, floor_seconds=None,
             deadline=deadline, now=clock, sleep=sleep, log=log, seen=seen)
+        if outcome == "resume":
+            # The hold watches on, and can find the same stopped rescue.
+            return settle(outcome, reason)[3]
         if outcome not in ("rescue", "refused"):
             return f"stopped watching attempt {target.attempt}: {reason}" + (
                 f"; kept on the owned pool: {held}" if held else "")
