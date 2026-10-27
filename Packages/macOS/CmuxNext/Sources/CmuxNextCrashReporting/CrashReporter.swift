@@ -81,10 +81,25 @@ public final class CrashReporter: Sendable {
     public let hangTracking: HangTracking
     private let sentryHandlers = Mutex<SignalActions?>(nil)
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// With `CMUX_NEXT_SENTRY_RECORDER=<dir>`, every event goes to a file in `<dir>` instead of Sentry.
+    private let recorder: SentryRecorderTransport?
+
+    /// - Parameter recorder: Records events instead of sending them; by default the one the process
+    ///   environment asks for (``SentryRecorderTransport/environmentKey``).
+    public init(policy: CrashReportingPolicy,
+                hangTracking: HangTracking = .sentry,
+                recorder: SentryRecorderTransport? = SentryRecorderTransport(environment: ProcessInfo.processInfo.environment)) {
+        self.policy = policy
+        self.hangTracking = hangTracking
+        self.recorder = recorder
+    }
+    #else
     public init(policy: CrashReportingPolicy, hangTracking: HangTracking = .sentry) {
         self.policy = policy
         self.hangTracking = hangTracking
     }
+    #endif
 
     /// Whether Sentry runs in this process.
     public var isStarted: Bool { sentryHandlers.withLock { $0 != nil } }
@@ -121,13 +136,17 @@ public final class CrashReporter: Sendable {
         options.enableLogs = false
         let scrubber = SentryEventScrubber()
         let labels = CrashEventLabels(policy: policy)
-        options.beforeSend = { event in
+        let prepare: (Event) -> Event = { event in
             let scrubbed = scrubber.scrub(event)
             labels.apply(to: scrubbed)
             return scrubbed
         }
+        options.beforeSend = { event in prepare(event) }
         options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
         options.beforeSendSpan = { span in scrubber.scrub(span) }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        recorder?.install(on: options, prepare: prepare)
+        #endif
         return options
     }
 

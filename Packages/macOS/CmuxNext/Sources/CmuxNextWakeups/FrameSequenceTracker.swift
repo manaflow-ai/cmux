@@ -204,7 +204,9 @@ public final class FrameSequenceTracker {
     }
 
     private func keepTicking(_ scheduler: FrameScheduler) {
-        let client = hold ?? FrameClient(owner: "FrameSequenceTracker", isAnimation: false, on: scheduler) { [weak self] _ in
+        // Motion rate: it counts every display frame.
+        // frame-client: ticks while a commit window is open, so the tracker counts main's frames (main state)
+        let client = hold ?? FrameClient(owner: "FrameSequenceTracker", isAnimation: false, rate: .motion, on: scheduler) { [weak self] _ in
             self?.isOpen ?? false
         }
         hold = client

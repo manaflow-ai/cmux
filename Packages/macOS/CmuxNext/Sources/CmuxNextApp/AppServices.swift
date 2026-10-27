@@ -466,7 +466,8 @@ final class AppServices {
                     self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
                 },
                 keyRouter: keyRouter, work: work, dialogs: .shared,
-                hangWork: features.isEnabled(.pageHangNotice) ? mainWork : nil, pushChannel: features.isEnabled(.pagePushChannel)),
+                hangWork: features.isEnabled(.pageHangNotice) ? mainWork : nil, pageChannel: features.isEnabled(.pageHostChannel),
+                pushChannel: features.isEnabled(.pagePushChannel)),
             openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, deadlines: mainDeadlines,
             processGroups: makeWebProcessGroups(), startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
             hoverFrameInput: hoverFrameInput, retirer: PageRetirer(deadlines: mainDeadlines))
@@ -756,13 +757,15 @@ final class AppServices {
         // In host mode one Chromium Host serves every tab of every profile (p01-process-080).
         let hostSupervisor = Self.chromiumHostSupervisor(work: work, mainWork: mainWork, features: launchFeatures)
         chromiumRuntime = ChromiumRuntimeService.make(work: work, hostSupervisor: hostSupervisor)
-        mobile = MobileHostService(displayName: { await MacName().displayName() }, work: work)
+        mobile = MobileHostService(displayName: { await MacName().displayName() }, work: work, mainWork: mainWork)
         let runTiming = SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys, crashKeyPage: traceBlackBox?.blackBox.crashKeys)
         #if DEBUG || CMUX_BENCH_HOOKS
-        registry = ActionRegistry.standard(runTiming: runTiming,
+        registry = ActionRegistry.standard(launch: environment.actionCatalog,
+                                           runTiming: runTiming,
                                            turnObserver: oracleTurns, mainWork: mainWork)
         #else
-        registry = ActionRegistry.standard(runTiming: runTiming,
+        registry = ActionRegistry.standard(launch: environment.actionCatalog,
+                                           runTiming: runTiming,
                                            mainWork: mainWork)
         #endif
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
@@ -872,6 +875,9 @@ final class AppServices {
         let inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputLatency = inputLatency
+        #if DEBUG || CMUX_BENCH_HOOKS
+        cache.webKit.pageInputTiming = WebPageInputTiming(tracker: inputLatency.tracker)  // WebKit pages' presented stage (p04-input-099)
+        #endif
         (registry.dispatchingInputEvent, inputTap.dispatchedEvent) = ({ inputDispatch.event }, { inputDispatch.event })
         registry.isDispatchingKeyDown = { inputDispatch.isKeyDown }
         registry.effectExpectsFrame = { inputDispatch.noteFrameExpected() }
@@ -933,6 +939,9 @@ final class AppServices {
         }
         scrollerStyleWatch = SystemScrollers.follow(settingChangesOn: appEvents)
         AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
+        if let access = environment.actionCatalog.mainAccess {  // the registry's catalog read above (p08-startup-092)
+            launchValues.recordActionCatalogMainAccess(waitMicroseconds: access.waitMicroseconds, readMicroseconds: access.microseconds)
+        }
     }
     /// Builds and starts the browser host's engine provider once, from its launch post (p08-startup-031). Its
     /// `start()` follows the settings `AppDelegate` set before it (`browser.showAgentCursor`).

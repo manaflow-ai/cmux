@@ -298,7 +298,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
          openPanel: MadeAheadOpenPanel? = PageWebView.openPanel, registry: PageRegistry = .processWide,
          processGroup: PageWebKitProcessGroup? = nil, startsAtFirstShow: Bool = false,
          deadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
-         trace: any PageTraceSink = TraceRuntime.shared, chatOpen: ChatOpenStages? = nil) {
+         trace: any PageTraceSink = TraceRuntime.shared, chatOpen: ChatOpenStages? = nil, origin: PageOpenOrigin = .user) {
         let constructionStart = openRequested ?? ProcessInfo.processInfo.systemUptime
         self.deadlines = deadlines
         chromiumDeadlines = deadlines
@@ -315,12 +315,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         router = PageRouter(descriptor: descriptor, routes: routes)
         webKitRecipe = PageWebKitRecipe(configuration: configuration, processGroup: processGroup, openPanel: openPanel)
         self.inputReadiness = inputReadiness
-        // No script until the first show (``PageScriptTarget/hasDocument``); the engine that shows the document sets the bridge.
-        let target = PageScriptTarget(hasDocument: !(load && startsAtFirstShow))
+        let decision = Self.engineDecision(for: descriptor, options: options, hosting: chromium)
+        let decided = !load ? decision.webKitOnly : decision
+        engineDecision = decided
+        // A Chromium page the launch restored waits for its show or launch turn (``PageOpenOrigin/launchRestore``), as one
+        // that starts at its first show does; until it starts it sends no script (``PageScriptTarget/hasDocument``).
+        let restoredAtLaunch = load && origin == .launchRestore && decided.engine == .cef && chromium?.holdsRestoredPages == true
+        let waits = load && (startsAtFirstShow || restoredAtLaunch)
+        // No script until the page starts; the engine that shows the document sets the bridge.
+        let target = PageScriptTarget(hasDocument: !waits)
         scriptTarget = target
         scripts = PageScriptPipeline(deliver: { target.deliver($0) }, form: { target.deliveryForm }) // MQ12 held queue: the router holds envelopes while hidden
-        let decision = Self.engineDecision(for: descriptor, options: options, hosting: chromium)
-        engineDecision = !load ? decision.webKitOnly : decision
         super.init(frame: .zero)
         // A WebKit page builds its engine now; a Chromium page only when it falls back.
         if engineDecision.engine != .cef { _ = webKit }
@@ -358,10 +363,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         self.route = route.map { $0.hasPrefix("#") ? $0 : "#" + $0 }
         installDocumentStartTheme()
         guard load else { return }
-        let start = PageFirstShowStart(chromium: chromium, requested: constructionStart)
+        let start = PageFirstShowStart(chromium: chromium, requested: constructionStart, opener: origin,
+                                       atLaunchTurn: restoredAtLaunch && !startsAtFirstShow)
         // A view is in no window while it is made: one opened to show starts at its pane's attach
-        // in this turn; one opened hidden makes no renderer until it shows.
-        if startsAtFirstShow { firstShowStart = start } else { startDocument(start) }
+        // in this turn; one opened hidden makes no renderer until it shows (a restored one: or its launch turn).
+        if waits { firstShowStart = start } else { startDocument(start, origin: start.chromiumOrigin(shown: false)) }
     }
 
     /// The current document painted its first frame (``PagePaintProbe``, either engine).

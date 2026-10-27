@@ -166,6 +166,11 @@ extension AppControl {
                 if call.params["reset_layout_passes"]?.boolValue == true { LayoutPassGuard.shared.reset() }
                 return .value(DebugLayers.report(services: services, params: call.params))
             },
+            // Overlay reorders per event cycle (p01-process-223); `reset: true` starts the counts over first.
+            .mainActor("debug.overlay") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugLayers.overlay(services: services, params: call.params))
+            },
             // The one hover card: machine phase, card window, timer, monitor.
             // `{dismiss: true}` first dismisses the shown card as an app action would (live checks).
             .mainActor("debug.hover_cards") { [weak services] call in
@@ -211,6 +216,9 @@ extension AppControl {
                 } else if call.params["file_dialog_cancel"]?.boolValue == true {
                     _ = services.cache.cef.answerHostFileDialog(with: nil)
                 }
+                // {"color_chooser_pick": 0xRRGGBB} or {"color_chooser_close": true}: the open <input type=color>'s panel (p01-process-228).
+                if let color = call.params["color_chooser_pick"]?.intValue { _ = services.cache.cef.pickHostColor(UInt32(truncatingIfNeeded: color)) }
+                if call.params["color_chooser_close"]?.boolValue == true { _ = services.cache.cef.closeHostColorChooser() }
                 return .value(DebugCEF.report(services))
             },
             // Remote localhost proxy: port, counters, recent outcomes.
