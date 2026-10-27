@@ -284,6 +284,15 @@ describe("release feed routes", () => {
     expect(calls).toEqual([{ name: "tip", path: "/poke", feed: "tip", method: "POST", upgrade: null }]);
   });
 
+  it("serves the bare nightly-next appcast as nightly-next-legacy", async () => {
+    expect(RELEASE_FEEDS["nightly-next-legacy"]).toBe("https://files-next.cmux.com/nightly-next/appcast-arm64.xml");
+    expect(parseReleaseFeedId("nightly-next-legacy")).toBe("nightly-next-legacy");
+    const { calls, env } = fakeNamespace();
+    const poke = await releaseFeedRoute(new Request("https://presence.cmux.dev/releases/v1/poke?feed=nightly-next-legacy", { method: "POST" }), env);
+    expect(poke.status).toBe(202);
+    expect(calls).toEqual([{ name: "nightly-next-legacy", path: "/poke", feed: "nightly-next-legacy", method: "POST", upgrade: null }]);
+  });
+
   it("checks methods and the WebSocket upgrade", async () => {
     const { calls, env } = fakeNamespace();
     const base = "https://presence.cmux.dev/releases/v1";
