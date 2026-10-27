@@ -2,7 +2,9 @@ import { expect, test } from "bun:test";
 import { artifactKind } from "../src/agent-session/acpmux/conversation/artifactPreview";
 import { outputArtifacts } from "../src/agent-session/acpmux/inspector/OutputsSection";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { artifactGallery } from "../src/agent-session/acpmux/conversation/artifactSandbox";
+import { artifactGallery, artifactNeedsRun } from "../src/agent-session/acpmux/conversation/artifactSandbox";
+import { uniqueArtifacts } from "../src/agent-session/acpmux/conversation/artifactDedupe";
+import { writtenArtifacts } from "../src/agent-session/acpmux/conversation/writtenArtifacts";
 
 const page = '<title>Counter</title><button onclick="this.textContent++">0</button>';
 const rows = (tool: NonNullable<AcpmuxActivity["tool"]>): AcpmuxRow[] => [
@@ -33,6 +35,17 @@ test("offline artifacts use the sandbox in dev and built gallery frame routes on
 test("JSX fences use the HTML artifact surface", () => {
   expect(artifactKind("jsx", "export default () => <button>Hi</button>")).toBe("html");
   expect(artifactKind("tsx", "export default () => <svg />")).toBe("html");
+});
+
+test("artifact script consent conservatively catches parsed handlers and encoded javascript URLs", () => {
+  for (const code of [
+    '<svg/onload="for(;;){}"></svg>',
+    '<a href="java&#x09;script:alert(1)">link</a>',
+    '<a href="&#x6a;ava&#x73;cript&#x3a;alert(1)">link</a>',
+  ]) {
+    expect(artifactNeedsRun(code)).toBe(true);
+  }
+  expect(artifactNeedsRun("<p>plain markup</p>")).toBe(false);
 });
 
 for (const title of ["Write", "apply_patch", "write", "write_file"])
@@ -82,4 +95,17 @@ test("Outputs uses the latest write per path, keeping same-title files distinct"
     ["a.html", latest],
     ["b.html", page],
   ]);
+});
+
+test("the standalone opened-write version list drops repeated contents", () => {
+  const write = (id: string, code: string) =>
+    rows({ id, title: "Write", kind: "edit", status: "completed", diffs: [{ path: "counter.html", newText: code }] });
+  const second = page.replace(">0<", ">1<");
+  const opened = { kind: "html" as const, lang: "html", code: page, path: "counter.html" };
+  const versions = uniqueArtifacts(
+    writtenArtifacts([...write("a", page), ...write("b", second), ...write("c", page)]).filter(
+      (item) => item.path === opened.path,
+    ),
+  );
+  expect(versions.map((item) => item.code)).toEqual([page, second]);
 });
