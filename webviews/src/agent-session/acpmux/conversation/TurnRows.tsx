@@ -18,6 +18,7 @@ import { ToolRun } from "./ToolRun";
 import { ThoughtRow } from "./ThoughtRow";
 import { awaitsPermission, toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
+import type { RetryNote } from "../subagents/retryState";
 import { TurnActionsContext } from "./turnActions";
 import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
 import { hasTokens, TimedLabel, TurnTokens } from "./TurnTokens";
@@ -297,6 +298,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     forkSeq,
     forkAny,
     retry,
+    retryFailed,
     retryWith,
     reauthenticate,
     transferCloudCredentials,
@@ -320,6 +322,22 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // prompt row takes the button away first). A chat without the action (View Only, disconnected)
   // draws no Continue, so its footer is empty or not as it would be without one.
   const [resuming, setResuming] = useState(false);
+  // A failed turn's Retry (card and footer) asks acpmux's turn retry where the chat has one
+  // (turnRetry.ts): one at a time, and a refusal leaves its note on the card.
+  const [retrying, setRetrying] = useState(false);
+  const [retryNote, setRetryNote] = useState<RetryNote>();
+  const failedRetry =
+    failed && prompt && (retryFailed || retry)
+      ? () => {
+          const rowId = row.retryRowId ?? "";
+          if (!retryFailed) return retry?.(rowId, prompt);
+          setRetrying(true);
+          setRetryNote(undefined);
+          void retryFailed(rowId, prompt)
+            .then(setRetryNote, () => setRetryNote("retry.failed"))
+            .finally(() => setRetrying(false));
+        }
+      : undefined;
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
   // into it (Codex, Claude desktop). The row is one quiet line under the answer's left edge; it
   // shows on hover or keyboard focus, and always for a failed turn (VirtualTranscript marks the
@@ -333,7 +351,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           route={route}
           switchModel={switchModel}
           compact={compact}
-          retry={retry && prompt && row.retryRowId ? () => retry(row.retryRowId!, prompt) : undefined}
+          retry={row.retryRowId ? failedRetry : undefined}
+          retrying={retrying}
+          retryNote={retryNote}
         />
       )}
       <div
@@ -377,13 +397,14 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           )}
           <span className="cv-turn-action-group">
             {text && <MessageCopy text={text} />}
-            {failed && retry && prompt && (
+            {failedRetry && (
               <button
                 type="button"
                 className="cv-iconbtn cv-iconbtn--compact"
                 aria-label={t("turn.retry")}
                 title={t("turn.retryLabel")}
-                onClick={() => retry(row.retryRowId ?? "", prompt)}
+                disabled={retrying}
+                onClick={failedRetry}
               >
                 <Retry size={ROW_ICON} />
               </button>
@@ -440,6 +461,8 @@ function TurnFailure({
   switchModel,
   compact,
   retry,
+  retrying = false,
+  retryNote,
 }: {
   message: string | undefined;
   code?: string;
@@ -447,6 +470,10 @@ function TurnFailure({
   switchModel?: () => void;
   compact?: () => Promise<void>;
   retry?: () => void;
+  /// A Retry is in flight: its button waits.
+  retrying?: boolean;
+  /// Why acpmux refused the last Retry (turnRetry.ts), shown beside the actions.
+  retryNote?: RetryNote;
 }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
@@ -524,6 +551,7 @@ function TurnFailure({
           <button
             type="button"
             className={`cv-turn-auth-action${switchFirst || offerLeads || compactFirst ? "" : " cv-turn-error__primary"}`}
+            disabled={retrying}
             onClick={retry}
           >
             {t("turn.retry")}
@@ -537,6 +565,7 @@ function TurnFailure({
             className={`cv-turn-auth-action${offerFilled ? " cv-turn-error__primary" : ""}`}
           />
         )}
+        {retryNote && <output className="cv-turn-error__note text-detail text-dim">{t(retryNote)}</output>}
         {message && (
           <details className="cv-turn-error__details" onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
             {/* The chat's chevron, as on Worked for, not the browser's triangle. */}

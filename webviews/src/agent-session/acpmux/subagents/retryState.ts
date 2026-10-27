@@ -207,7 +207,7 @@ export type RetryDeps = {
 
 /// A refusal's words. `retry.nothing_failed` says why (`data.why`): running again, or gone for
 /// good (the chat closed, the subagent resumed, replaced, ended or forgotten), else nothing failed.
-function refusalNote(error: unknown): RetryNote | "ask" | "unknown-method" {
+export function refusalNote(error: unknown): RetryNote | "ask" | "unknown-method" {
   const value = (error ?? {}) as { code?: unknown; reason?: unknown; data?: { why?: unknown } };
   const codes = [value.code, value.reason].map((part) => (part === undefined ? "" : String(part)));
   const has = (code: string) => codes.includes(code);
