@@ -1,0 +1,33 @@
+/* One compact geometry, independent of the message's placement, menu or retry wrapper. */
+.cv-message-actions.cv-message-actions {
+  align-items: center;
+  gap: 0;
+}
+.cv-message-actions.cv-message-actions:has([aria-expanded="true"]) {
+  opacity: 1;
+}
+.cv-message-actions.cv-message-actions .cv-iconbtn:not(.cv-turn-continue) {
+  flex: none;
+  box-sizing: border-box;
+  width: var(--cv-meta-row, 24px);
+  height: var(--cv-meta-row, 24px);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border-radius: 5px;
+}
+.cv-message-actions .cv-turn-action-group,
+.cv-message-actions .cv-message-retry {
+  gap: 0;
+}
+.cv-message-action-symbol {
+  display: inline-block;
+  flex: none;
+  background-color: currentColor;
+  mask-position: center;
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+}

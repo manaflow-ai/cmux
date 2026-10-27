@@ -5,7 +5,7 @@
 // the top ones under a More models submenu (retryModelSections.ts). Leo 2026-10-20: the menu was a
 // raw list in the bare system font with models twice; the pane does not load ui.css, so a menu
 // without the pane's classes draws unstyled (test/pane-menus-styled.test.ts).
-import { ChevronDown } from "./icons";
+import { MessageActionIcon } from "./MessageActionRow";
 import {
   Menu,
   MenuButton,
@@ -56,7 +56,7 @@ export function RetryModelMenu({
         label={t("turn.retryWith")}
         title={t("turn.retryWith")}
       >
-        <ChevronDown size={12} />
+        <MessageActionIcon name="menu" />
       </MenuButton>
       <MenuPopup label={t("turn.retryWith")} align="start" className="acpmux-quick-menu acpmux-retry-menu">
         <MenuGroup label={t("turn.retryWith")}>{rows(latest)}</MenuGroup>
