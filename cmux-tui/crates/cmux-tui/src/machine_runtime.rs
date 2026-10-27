@@ -413,11 +413,19 @@ impl HostNames<'_> {
         for (keyword, values) in contents.lines().filter_map(ssh_config_line) {
             match keyword.as_str() {
                 "host" => {
+                    // A negated pattern (`!lab`, `!*.corp`) keeps the block
+                    // from every host it matches, as ssh reads it.
+                    let negated: Vec<String> = values
+                        .iter()
+                        .filter_map(|v| v.strip_prefix('!'))
+                        .map(str::to_ascii_lowercase)
+                        .collect();
                     *block = Some(
                         values
                             .into_iter()
                             .filter(|h| is_concrete_ssh_host(h))
                             .map(|h| h.to_ascii_lowercase())
+                            .filter(|h| !negated.iter().any(|n| ssh_pattern_matches(n, h)))
                             .filter(|h| gate.is_none_or(|g| g.contains(h)))
                             .collect(),
                     );
@@ -487,6 +495,31 @@ fn ssh_config_line(line: &str) -> Option<(String, Vec<String>)> {
     values.extend(words);
     values.retain(|v| !v.is_empty());
     Some((keyword.to_ascii_lowercase(), values))
+}
+
+/// Whether `host` matches ssh's `pattern` (`*` any run, `?` one character),
+/// both lowercased.
+fn ssh_pattern_matches(pattern: &str, host: &str) -> bool {
+    let (p, h): (Vec<char>, Vec<char>) = (pattern.chars().collect(), host.chars().collect());
+    // The classic two-pointer wildcard match, backtracking to the last `*`.
+    let (mut i, mut j, mut star, mut mark) = (0, 0, None, 0);
+    while j < h.len() {
+        if i < p.len() && (p[i] == '?' || p[i] == h[j]) {
+            i += 1;
+            j += 1;
+        } else if i < p.len() && p[i] == '*' {
+            star = Some(i);
+            mark = j;
+            i += 1;
+        } else if let Some(s) = star {
+            i = s + 1;
+            mark += 1;
+            j = mark;
+        } else {
+            return false;
+        }
+    }
+    p[i..].iter().all(|&c| c == '*')
 }
 
 fn is_concrete_ssh_host(host: &str) -> bool {
@@ -1183,6 +1216,35 @@ mod tests {
                 ("other".to_owned(), None),
             ]
         );
+    }
+
+    #[test]
+    fn a_negated_host_keeps_its_block_and_includes_from_that_host() {
+        let config: &[&str] = &[
+            "Host lab !lab",
+            "  HostName github.com",
+            "Host box gpu.corp !*.corp",
+            "  HostName gitlab.com",
+            "  Include under",
+            "Host lab",
+            "  HostName lab.internal",
+            "Host gpu.corp",
+            "  HostName 10.0.0.9",
+        ];
+        let names = host_names_of(&[("config", config), ("under", &["HostName ignored.example"])]);
+        assert_eq!(
+            names,
+            vec![
+                // Discovery order is unchanged: every concrete alias, in order.
+                named("lab", "lab.internal"),
+                named("box", "gitlab.com"),
+                named("gpu.corp", "10.0.0.9"),
+            ]
+        );
+        assert!(ssh_pattern_matches("*.corp", "gpu.corp"));
+        assert!(ssh_pattern_matches("g?u*", "gpu.corp"));
+        assert!(!ssh_pattern_matches("*.corp", "corp"));
+        assert!(!ssh_pattern_matches("lab", "lab2"));
     }
 
     #[test]
