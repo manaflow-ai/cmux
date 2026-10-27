@@ -1167,6 +1167,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-ffi-guard"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-flow-trace"
 version = "0.1.0"
 dependencies = [
@@ -1361,6 +1365,7 @@ dependencies = [
 name = "cmux-palette-ranker"
 version = "0.1.0"
 dependencies = [
+ "cmux-ffi-guard",
  "serde",
  "serde_json",
  "unicode-general-category",
