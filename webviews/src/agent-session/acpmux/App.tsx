@@ -8457,13 +8457,10 @@ function AcpmuxPane() {
       // with no folder yet may still start in the workspace's root, so nothing is checked then.
       noProject: cwd ? isAgentHome(cwd) : chooseFolder,
       onPick: chooseProject,
-      onBrowse: () => {
-        void callNative<{ cwd?: string }>("project.browse")
-          .then((result) => {
-            if (result?.cwd) chooseProject(result.cwd);
-          })
-          .catch(() => undefined);
-      },
+      onBrowse: () =>
+        callNative<{ cwd?: string }>("project.browse").then((result) => {
+          if (result?.cwd) chooseProject(result.cwd);
+        }),
       // The chat starts in its agent-home folder, never the workspace's (AcpmuxPathPolicy).
       // A refused start keeps the folder picked before.
       onNoProject: () => {
@@ -9222,11 +9219,9 @@ function AcpmuxPane() {
                 ? chooseWorkspaceFolder
                 : freshChat && !quick
                   ? () => {
-                      void callNative<{ cwd?: string }>("project.browse")
-                        .then((result) => {
-                          if (result?.cwd) chooseProject(result.cwd);
-                        })
-                        .catch(() => undefined);
+                      return callNative<{ cwd?: string }>("project.browse").then((result) => {
+                        if (result?.cwd) chooseProject(result.cwd);
+                      });
                     }
                   : undefined
             }
@@ -9244,10 +9239,7 @@ function AcpmuxPane() {
             environments={preview}
             onBrowseFolder={
               canMove
-                ? () =>
-                    callNative<{ cwd?: string }>("project.browse")
-                      .then((result) => result?.cwd)
-                      .catch(() => undefined)
+                ? () => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd)
                 : undefined
             }
             // A started local chat's folder is fixed (Leo 2026-10-13): its folder menu starts a new chat
@@ -9572,12 +9564,7 @@ function AcpmuxPane() {
               {...(newTabChatsPending ? { chatsPending: true } : {})}
               {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
               projects={newTabProjects}
-              onBrowseProject={() =>
-                callNative<{ cwd?: string }>("project.browse").then(
-                  (result) => result?.cwd,
-                  () => undefined,
-                )
-              }
+              onBrowseProject={() => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd)}
               chips={registryChips ?? NewTabComposerChips}
               focusField={newTab.focusesField !== false}
               {...withSubmitAfterHandshake(
@@ -9620,11 +9607,7 @@ function AcpmuxPane() {
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
               onOpenSession={selectSession}
               onShowAll={showAllChats}
-              onBrowseProject={() =>
-                callNative<{ cwd?: string }>("project.browse")
-                  .then((result) => result?.cwd)
-                  .catch(() => undefined)
-              }
+              onBrowseProject={() => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd)}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
               inputToken={newTab.inputToken}
               onInputReady={(token) => void callNative("newTab.inputReady", { token })}

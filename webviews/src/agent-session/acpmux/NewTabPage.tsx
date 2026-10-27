@@ -719,7 +719,7 @@ export function NewTabPage({
                   onBrowse={
                     onBrowseProject &&
                     (() =>
-                      void onBrowseProject().then((picked) => {
+                      onBrowseProject().then((picked) => {
                         if (picked) setProjectCwd(picked);
                       }))
                   }
