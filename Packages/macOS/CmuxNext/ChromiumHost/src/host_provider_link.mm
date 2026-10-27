@@ -208,17 +208,21 @@ void ProviderLink::Write(std::string json) {
   session->outbox_ready.notify_one();
 }
 
+// The next frame to write, after waiting for one (no timeout: a frame or the link's end wakes it);
+// false once the link closed.
+bool ProviderLink::NextOutbound(Session& session, std::string* bytes) {
+  std::unique_lock<std::mutex> lock(session.mutex);
+  session.outbox_ready.wait(lock, [&] { return session.closed || (session.connected && !session.outbox.empty()); });
+  if (session.closed) return false;
+  *bytes = std::move(session.outbox.front());
+  session.outbox.pop_front();
+  session.outbox_bytes -= bytes->size();
+  return true;
+}
+
 void ProviderLink::WriteLoop(std::shared_ptr<Session> session) {
-  while (true) {
-    std::string bytes;
-    {
-      std::unique_lock<std::mutex> lock(session->mutex);
-      session->outbox_ready.wait(lock, [&] { return session->closed || (session->connected && !session->outbox.empty()); });
-      if (session->closed) return;
-      bytes = std::move(session->outbox.front());
-      session->outbox.pop_front();
-      session->outbox_bytes -= bytes.size();
-    }
+  std::string bytes;
+  while (NextOutbound(*session, &bytes)) {
     if (!WriteAll(session->fd, bytes)) {
       std::lock_guard<std::mutex> lock(session->mutex);
       session->CloseLocked();

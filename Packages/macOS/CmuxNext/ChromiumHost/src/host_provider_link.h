@@ -237,7 +237,9 @@ inline std::optional<Flat> ReadFlat(std::string_view p) {
   if (i >= n || d[i] != '{') return std::nullopt;
   i = SkipSpace(d, n, i + 1);
   if (i < n && d[i] == '}') return SkipSpace(d, n, i + 1) == n ? std::optional<Flat>(flat) : std::nullopt;
-  while (true) {
+  // One member per pass, up to its ',' or the object's '}': every pass consumes input.
+  bool more = true;
+  while (more) {
     if (i >= n || d[i] != '"') return std::nullopt;
     size_t key_end = 0;
     std::optional<std::string> key = ReadString(p, i, &key_end);
@@ -272,10 +274,9 @@ inline std::optional<Flat> ReadFlat(std::string_view p) {
       if (integer) flat.integers[*key] = negative ? -value : value;
     }
     i = SkipSpace(d, n, i);
-    if (i >= n) return std::nullopt;
-    if (d[i] == '}') break;
-    if (d[i] != ',') return std::nullopt;
-    i = SkipSpace(d, n, i + 1);
+    if (i >= n || (d[i] != '}' && d[i] != ',')) return std::nullopt;
+    more = d[i] == ',';
+    if (more) i = SkipSpace(d, n, i + 1);
   }
   if (SkipSpace(d, n, i + 1) != n) return std::nullopt;
   return flat;
@@ -557,6 +558,7 @@ class ProviderLink {
   struct Session;
   static void ReadLoop(ProviderLink* link, std::shared_ptr<Session> session, ProviderLinkConfig dial, Post post);
   static void WriteLoop(std::shared_ptr<Session> session);
+  static bool NextOutbound(Session& session, std::string* bytes);
   void Drain(uint64_t generation);
   void Ended(uint64_t generation);
 
