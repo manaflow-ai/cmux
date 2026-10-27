@@ -92,16 +92,22 @@ page never pushes them, and no byte travels on the page binding.
 - It keeps each attachment's Blob or File (from a paste, a browser drop or `<input type=file>`)
   in `window.__cmuxUploadBlobs: Map<token, Blob>`. The token is a random string of at least 128
   bits.
-- Over the binding it sends one control call per file:
+- Before any upload, `transport.gesture` reserves a ticket for that exact `promptId` and
+  `sessionId`. Native holds the ticket, reports progress on it and releases it.
+- Over the binding the page sends one control call per file:
 
   ```json
   {"op": "uploads.begin",
    "params": {"token": "<random>", "name": "shot.png", "type": "image/png",
-              "size": 812345, "sessionId": "<chat>"}}
+              "size": 812345, "sessionId": "<chat>", "promptId": "<prompt id>",
+              "ticket": "<ticket>"}}
   ```
 
-  Native answers `{uploadId}` once `file_put_begin` returns it, then pushes progress
-  `{token, uploadId, offset, size}` to the page as frames are acknowledged.
+  Native refuses the call unless the ticket is live and reserved for this `promptId` and
+  `sessionId`. It answers `{uploadId}` once `file_put_begin` returns it, then pushes progress
+  `{token, uploadId, offset, size}` to the page as data is acknowledged.
+- The final prompt redeems the ticket exactly once, in native, before native sends it to the
+  daemon.
 - A retry keeps the token. The page keeps the Blob until the prompt is accepted or the person
   removes the attachment.
 - The prompt names the file by its `uploadId` (section 5).
@@ -118,9 +124,11 @@ call came from (main frame, PageHostTrust, as today). The steps:
      until `eof`, then `IO.close`.
    - Fallback: `Runtime.callFunctionOn` with `this.slice(o, o+n).arrayBuffer()`, returning the
      chunk as base64.
-3. Send each chunk as one AMUP binary frame (section 1) at the next offset. Read the next chunk
-   only after the daemon acknowledges the previous frame, or keep a fixed window of at most 4
-   frames in flight. Memory then stays at a few chunks whatever the file's size.
+3. Send each chunk at the next offset. With `uploadFrames`, send one AMUP binary frame
+   (section 1) per chunk. Until then, native's own daemon connection sends `file_put_chunk`
+   calls of at most 512 KiB each. Either way, no attachment byte crosses the page binding.
+   Read the next chunk only after the daemon acknowledges the previous one, or keep a fixed
+   window of at most 4 in flight. Memory then stays at a few chunks whatever the file's size.
 4. Finish with `file_put_finish`, then `Runtime.releaseObject`.
 
 A file dropped on a native view, or picked with the native picker, is streamed by native straight
@@ -131,6 +139,21 @@ from its path. The page only gets `{token, name, type, size}` for its preview ro
 - A token resolves only in the calling context's own registry. Native never reads by an objectId,
   a URL or a host path that the page names.
 - A page can send only bytes it already holds.
+
+### The ticket and the daemon
+
+The ticket is page-to-native only, and the daemon contract does not change for it:
+
+- The daemon never sees the ticket. Native checks it on `uploads.begin` and redeems it on the
+  prompt. Native does not forward it in any daemon call. A daemon that got one would ignore it.
+- The daemon does not bind an upload to a `promptId`. What it already enforces is enough:
+  - only the local app's connection or the unix socket can upload (section 2);
+  - a reference resolves only to a finished upload in the prompt's own chat (section 5);
+  - a `promptId` runs once (section 7).
+- Binding to the gesture is native's job: it is the one caller that holds the person's gesture.
+- A retried prompt under the same `promptId` names the same `uploadId`s, and the daemon answers it
+  as a duplicate (section 7). The ticket's single redemption therefore has nothing to add on the
+  daemon side.
 
 ### What the daemon guarantees for this pacing
 
