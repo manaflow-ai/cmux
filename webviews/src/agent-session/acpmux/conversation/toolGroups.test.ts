@@ -6,6 +6,7 @@ import { expect, test } from "bun:test";
 import type { AcpmuxActivity } from "../model";
 import { mcpCall } from "./mcpCalls";
 import { toolGroups } from "./toolGroups";
+import { recordedMessageBodyParseCountForTests, resetRecordedMessageBodyCacheForTests } from "./acpmuxSends";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -97,4 +98,85 @@ test("the other calls still draw as ToolRows around them", () => {
   expect(drawn.map((entry) => entry.tool!.title).sort()).toEqual(
     ["Fetch", "Fetch", "Read a.ts", "Read a.ts", "ls", "ls"].sort(),
   );
+});
+
+test("a later Bash send resolves only a prior same-turn recorded message write", () => {
+  const writer = item({
+    title: "Bash",
+    kind: "execute",
+    command: "cat > /tmp/review.md <<'EOF'\n## Ready\n\n- checks pass\nEOF",
+  });
+  const send = item({
+    title: "Bash",
+    kind: "execute",
+    command: "acpmux send --no-wait coord-deputy - < /tmp/review.md",
+    output: "queued",
+  });
+  const group = toolGroups([writer, send]).find((entry) => entry.type === "send");
+  expect(group?.type).toBe("send");
+  if (group?.type === "send") {
+    expect(group.send.text).toBe("## Ready\n\n- checks pass\n");
+    expect(group.send.others).toBeUndefined();
+  }
+  const standalone = toolGroups([send]).find((entry) => entry.type === "send");
+  expect(standalone?.type).toBe("send");
+  if (standalone?.type === "send") expect(standalone.send.text).toBeUndefined();
+});
+
+test("producer cache remains bounded across many completed writer replays", () => {
+  resetRecordedMessageBodyCacheForTests();
+  const rows = Array.from({ length: 65 }, (_, index) =>
+    item({
+      title: "Bash",
+      kind: "execute",
+      command: `cat > /tmp/message-${index}.md <<'EOF'\nbody ${index}\nEOF`,
+    }),
+  );
+  toolGroups(rows);
+  expect(recordedMessageBodyParseCountForTests()).toBe(65);
+  toolGroups(rows.slice(1));
+  // WeakMap parsing by immutable tool object keeps all unchanged revisions from replaying.
+  expect(recordedMessageBodyParseCountForTests()).toBe(65);
+});
+
+test("unchanged streamed tool revisions reuse the bounded body parser cache", () => {
+  resetRecordedMessageBodyCacheForTests();
+  const writer = item({
+    title: "Bash",
+    kind: "execute",
+    command: "cat > /tmp/review.md <<'EOF'\nready\nEOF",
+  });
+  const send = item({
+    title: "Bash",
+    kind: "execute",
+    command: "acpmux send lane - < /tmp/review.md",
+  });
+  toolGroups([writer, send]);
+  expect(recordedMessageBodyParseCountForTests()).toBe(2);
+  // Streaming appends a new tool but keeps the prior tool snapshots unchanged.
+  const later = item({ title: "Bash", kind: "execute", command: "echo done" });
+  toolGroups([writer, send, later]);
+  expect(recordedMessageBodyParseCountForTests()).toBe(3);
+  toolGroups([writer, send, later]);
+  expect(recordedMessageBodyParseCountForTests()).toBe(3);
+  // A same-id command revision is a new cache key, so stale content cannot survive an overwrite.
+  const changedWriter = { ...writer, tool: { ...writer.tool!, command: "echo replacement > /tmp/review.md" } };
+  const changed = toolGroups([changedWriter, send]);
+  expect(recordedMessageBodyParseCountForTests()).toBe(4);
+  const changedSend = changed.find((entry) => entry.type === "send");
+  expect(changedSend?.type).toBe("send");
+  if (changedSend?.type === "send") expect(changedSend.send.text).toBeUndefined();
+
+  const skippedWriter = {
+    ...writer,
+    tool: { ...writer.tool!, command: "true || cat > /tmp/review.md <<'EOF'\nskipped\nEOF" },
+  };
+  const skipped = toolGroups([writer, skippedWriter, send]).find((entry) => entry.type === "send");
+  expect(skipped?.type).toBe("send");
+  if (skipped?.type === "send") expect(skipped.send.text).toBeUndefined();
+
+  const failedWriter = { ...writer, tool: { ...writer.tool!, status: "failed" } };
+  const failed = toolGroups([writer, failedWriter, send]).find((entry) => entry.type === "send");
+  expect(failed?.type).toBe("send");
+  if (failed?.type === "send") expect(failed.send.text).toBeUndefined();
 });

@@ -5,7 +5,7 @@
 import { pathKey, type AcpmuxActivity } from "../model";
 import type { Translate } from "../i18n";
 import { isBareShellName } from "../toolPaths";
-import { acpmuxSendCall, type AcpmuxSendCall } from "./acpmuxSends";
+import { acpmuxSendCall, recordedMessageBodyChangesForTool, type AcpmuxSendCall } from "./acpmuxSends";
 import { agentMessage, type AgentMessage } from "./agentMessages";
 import { dispatchCall, type DispatchCall } from "./dispatchCalls";
 import { mcpCall, mcpKey } from "./mcpCalls";
@@ -63,6 +63,9 @@ export function toolGroupKind(tool: Tool): ToolGroupKind | undefined {
 /// thought (thoughts.ts `mergeThoughts`).
 export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
   const groups: ToolGroup[] = [];
+  // One turn's bounded, transcript-recorded message files. A later Bash `acpmux send - <file>`
+  // may use a body written by an earlier Bash call; no host filesystem read is allowed here.
+  const messageFiles = new Map<string, string>();
   let run: { kind: ToolGroupKind; items: AcpmuxActivity[] } | undefined;
   let mcp: { key: string; items: AcpmuxActivity[] } | undefined;
   // Thoughts after the open run's latest call: they join it if a call of its kind comes next.
@@ -86,20 +89,47 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     }
     const tool = item.tool;
     const dispatch = tool ? dispatchCall(item) : undefined;
-    const send = tool && !dispatch ? acpmuxSendCall(tool) : undefined;
+    const send = tool && !dispatch ? acpmuxSendCall(tool, messageFiles) : undefined;
     const message = tool && !dispatch && !send ? agentMessage(tool) : undefined;
     const named = tool && !dispatch && !send && !message ? mcpCall(tool) : undefined;
     const subsession = named && subsessionCall(tool!, named);
     const call = subsession ? undefined : named;
     const key = call && mcpKey(call);
+    const rememberMessageFiles = () => {
+      if (!tool) return;
+      // A failed or still-running writer did not produce a durable body. Clear the bounded
+      // producer set so a later send cannot display stale content from an earlier call.
+      if (
+        !tool.command ||
+        tool.status !== "completed" ||
+        (tool.exitCode !== undefined && tool.exitCode !== 0) ||
+        (tool.background && tool.background.state !== "completed")
+      ) {
+        messageFiles.clear();
+        return;
+      }
+      for (const change of recordedMessageBodyChangesForTool(tool)) {
+        if ("reset" in change) {
+          messageFiles.clear();
+          continue;
+        }
+        if (change.text === undefined) messageFiles.delete(change.path);
+        else {
+          messageFiles.set(change.path, change.text);
+          while (messageFiles.size > 64) messageFiles.delete(messageFiles.keys().next().value!);
+        }
+      }
+    };
     if (key && mcp?.key === key) {
       mcp.items.push(item);
+      rememberMessageFiles();
       continue;
     }
     const kind = tool && !send && !message && !subsession && !call ? toolGroupKind(tool) : undefined;
     if (kind && run?.kind === kind) {
       run.items.push(...held, item);
       held = [];
+      rememberMessageFiles();
       continue;
     }
     close();
@@ -110,6 +140,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     else if (key) mcp = { key, items: [item] };
     else if (kind) run = { kind, items: [item] };
     else groups.push({ type: "item", item });
+    rememberMessageFiles();
   }
   close();
   return groups;
