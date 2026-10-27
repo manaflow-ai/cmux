@@ -25,6 +25,15 @@
 #   cmux-ci run --class isolated --script scripts/measure/acpmux-overhead.sh --ref SHA \
 #     --arg=bench=daemon [--arg=before=SHA] --timeout 5400 \
 #     [--artifact .build/acpmux-overhead/perf-after.log] [--artifact .build/acpmux-overhead/perf-before.log]
+#
+# bench=prewarm: a new chat's Enter to its first answer text, cold and after the typing prewarm
+# (webviews newChatPrewarm.ts, acpmux `_acpmux/prewarm`), same harnesses, stand-in model and
+# acpmux build; each run in a fresh folder. Plus the idle cost of typing in 5 new chats in 5
+# folders and sending none (warm sessions left, their RSS). With before=SHA both builds run.
+# Output: ACPMUX-OVERHEAD lines (one table per build). Exit 1 when a prewarmed Enter at this ref
+# missed the pool or a run failed.
+#   cmux-ci run --class exclusive --script scripts/measure/acpmux-overhead.sh --ref SHA \
+#     --arg=bench=prewarm [--arg=n=20] [--arg=before=SHA] --timeout 5400
 set -euo pipefail
 n=20
 harness="claude,codex,opencode"
@@ -54,7 +63,7 @@ for v in "$claude_version" "$codex_version" "$opencode_version"; do
   [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "acpmux-overhead.sh: versions are X.Y.Z" >&2; exit 2; }
 done
 [[ "$guard_ms" =~ ^[0-9]{1,4}$ ]] || { echo "acpmux-overhead.sh: guard_ms is a number" >&2; exit 2; }
-[[ "$bench" =~ ^(harness|daemon)$ ]] || { echo "acpmux-overhead.sh: bench=harness or bench=daemon" >&2; exit 2; }
+[[ "$bench" =~ ^(harness|daemon|prewarm)$ ]] || { echo "acpmux-overhead.sh: bench=harness, daemon or prewarm" >&2; exit 2; }
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 work="$root/.build/acpmux-overhead"
@@ -144,11 +153,37 @@ export PATH="$work/tools/node_modules/.bin:$PATH"
 echo "ACPMUX-OVERHEAD-BIN claude $(claude --version) codex $(codex --version) opencode $(opencode --version)"
 
 status=0
+mode=overhead
+[[ "$bench" == prewarm ]] && mode=prewarm
 run() {
   local label="$1" bin="$2"
-  python3 -I scripts/cmux-next/acpmux-overhead-bench.py --acpmux "$bin" --harness "$harness" -n "$n" \
+  python3 -I scripts/cmux-next/acpmux-overhead-bench.py --acpmux "$bin" --harness "$harness" -n "$n" --mode "$mode" \
     --label "$label" --json "$work/$label.json" --md "$work/table.md" 2> "$work/$label.log" | sed "s/^/ACPMUX-OVERHEAD /"
 }
+if [[ "$bench" == prewarm ]]; then
+  [[ -n "$before" ]] && run before "$work/before/acpmux"
+  run after "$work/after/acpmux"
+  tail -n 20 "$work/after.log" | sed "s/^/ACPMUX-OVERHEAD-LOG /"
+  echo "ACPMUX-OVERHEAD-LOAD end $(sysctl -n vm.loadavg)"
+  python3 -I - "$work/after.json" <<'PY' || status=1
+import json, sys
+d = json.load(open(sys.argv[1]))
+bad = []
+for h, s in d.items():
+    if h.startswith("_"):
+        continue
+    if s["errors"]:
+        bad.append(f"{h}: {len(s['errors'])} failed runs, first: {s['errors'][0]}")
+    hits = [r.get("pool_hit", 0) for r in s["runs"]["prewarmed"]]
+    print(f"ACPMUX-PREWARM-HITS {h} {sum(hits)}/{len(hits)}")
+    if not hits or sum(hits) < len(hits):
+        bad.append(f"{h}: a prewarmed Enter missed the pool ({sum(hits)}/{len(hits)})")
+for b in bad:
+    print("ACPMUX-PREWARM-FAIL " + b)
+sys.exit(1 if bad else 0)
+PY
+  exit "$status"
+fi
 [[ -n "$before" ]] && run before "$work/before/acpmux"
 run after "$work/after/acpmux"
 [[ -n "$before" ]] && run before-again "$work/before/acpmux"
