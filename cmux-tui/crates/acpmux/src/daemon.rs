@@ -307,6 +307,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // The kernel's memory pressure reaches the hub's consumers (`memory.rs`),
     // with the `memoryAcpmuxPressure` feature on.
     hub.memory().watch_if_enabled();
+    // Pooled agents and this daemon run best-effort while nobody needs them,
+    // with the `idleHelperBackgroundPriority` feature on.
+    let idle_priority = install_idle_priority(&hub).await;
     // Temporary folders of sessions this daemon no longer has, before the
     // socket serves (`agent/session_tmp.rs`).
     #[cfg(unix)]
@@ -539,6 +542,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if let Some(t) = ws_task {
         t.abort();
     }
+    // The shutdown's own work runs at the daemon's normal priority.
+    if let Some(t) = idle_priority {
+        t.abort();
+    }
+    hub.clients.foreground();
     // How many hosted agents this shutdown kept running for the next
     // daemon; unknown (a timeout) counts as kept.
     let kept = match tokio::time::timeout(SHUTDOWN_BUDGET, hub.shutdown_all()).await {
@@ -558,6 +566,43 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     tracing::info!("stopped");
     Ok(())
+}
+
+/// With the `idleHelperBackgroundPriority` feature on (p14-energy-038), idle
+/// helpers run best-effort, as Chromium runs its spare and hidden renderers
+/// (`RenderProcessHostImpl::UpdateProcessPriority`). The call sites:
+/// - a pooled agent's host and harness groups once it is ready
+///   (`Hub::pool_want`) or a claim gave it back (`Hub::pool_return_claimed`),
+///   and normal again before a claim serves it (`Hub::pool_claim`;
+///   `hub/pool/priority.rs`);
+/// - this daemon when its last client leaves and no agent runs
+///   (`ClientPresence::run_idle_priority`), normal again when a client
+///   connects (`ClientPresence::connect`) and before an agent starts
+///   (`Hub::ensure_child`).
+///
+/// Terminal hosts and holders never: they are not acpmux's. Nothing changes
+/// where a lowered priority could not be raised again (Linux without root
+/// or `RLIMIT_NICE`). Returns the daemon's idle task, ended at shutdown.
+async fn install_idle_priority(hub: &Arc<Hub>) -> Option<tokio::task::JoinHandle<()>> {
+    use cmux_tui_platform::process_priority;
+    let features = cmux_blocking::spawn_blocking(crate::daemon_lifecycle::daemon_features).await;
+    let on = features.is_ok_and(|features| {
+        features.is_enabled(cmux_features::feature::IDLE_HELPER_BACKGROUND_PRIORITY)
+    });
+    if !on {
+        return None;
+    }
+    if !process_priority::reversible() {
+        tracing::info!("idle helpers keep their priority: this process could not raise it again");
+        return None;
+    }
+    hub.set_pool_priority(Arc::new(process_priority::set_group));
+    hub.clients.install_priority(Arc::new(process_priority::set_self));
+    let weak = Arc::downgrade(hub);
+    Some(tokio::spawn(hub.clients.run_idle_priority(move || {
+        weak.upgrade()
+            .is_some_and(|hub| hub.live_agent_count() == 0 && hub.live_process_count() == 0)
+    })))
 }
 
 /// The next delivery of a registered signal; never, if registration failed.
