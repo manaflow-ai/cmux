@@ -30,6 +30,11 @@ final class NotificationContentModel {
     /// A file picked from Files larger than this is refused (the Mac's link carries it whole).
     nonisolated static let maxFileBytes = 25 * 1024 * 1024
 
+    /// The height iOS gives the view; short while the reply field's keyboard is up.
+    var availableHeight: CGFloat = .infinity
+    /// Messages' compact header (a small avatar beside the name) when the card is short.
+    var isCompact: Bool { availableHeight < 440 }
+
     /// When the notification arrived: a chat the app saved before it does not hold its message.
     private(set) var notifiedAt: Date?
     /// The notification's request id: what the attachments are staged under.
@@ -254,15 +259,16 @@ struct NotificationContentView: View {
     @State private var historyHeight: CGFloat = 0
 
     static let maxHistoryHeight: CGFloat = 380
+    static let minHistoryHeight: CGFloat = 60
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let payload = model.payload {
-                header(payload)
+                header(payload).fixedSize(horizontal: false, vertical: true)
                 if model.showsContent {
                     preview(payload)
-                    if model.actionable, let form = model.form { options(form) }
-                    if model.showsAttach, !model.sent { AttachTray(model: model) }
+                    if model.actionable, let form = model.form { options(form).fixedSize(horizontal: false, vertical: true) }
+                    if model.showsAttach, !model.sent { AttachTray(model: model).fixedSize(horizontal: false, vertical: true) }
                     if model.sent {
                         Label("Opening cmux to send…", systemImage: "paperplane")
                             .font(.footnote).foregroundStyle(.secondary)
@@ -281,7 +287,7 @@ struct NotificationContentView: View {
         .padding(.horizontal, 12)
         .padding(.top, 14)
         .padding(.bottom, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     // MARK: Header
@@ -290,7 +296,7 @@ struct NotificationContentView: View {
     private func header(_ payload: PushPayload) -> some View {
         if payload.kind == .chief {
             // Chief's own header, as its chat draws it: which Chief, on which Mac.
-            ChiefHeader(name: model.chiefName, avatar: model.chiefAvatar, mac: payload.macDisplayName)
+            ChiefHeader(name: model.chiefName, avatar: model.chiefAvatar, mac: payload.macDisplayName, compact: model.isCompact)
         } else {
             HStack(alignment: .center, spacing: 10) {
                 Image(systemName: symbol(payload.kind))
@@ -386,7 +392,11 @@ struct NotificationContentView: View {
         .defaultScrollAnchor(.bottom)
         .scrollBounceBehavior(.basedOnSize)
         .scrollIndicators(historyHeight > Self.maxHistoryHeight ? .automatic : .hidden)
-        .frame(height: min(max(historyHeight, 1), Self.maxHistoryHeight))
+        // The one part that gives: with the keyboard up the card is short, and the
+        // history shrinks and scrolls (newest at the bottom) so the rest stays whole.
+        .frame(minHeight: min(max(historyHeight, 1), Self.minHistoryHeight),
+               idealHeight: min(max(historyHeight, 1), Self.maxHistoryHeight),
+               maxHeight: min(max(historyHeight, 1), Self.maxHistoryHeight))
     }
 
     // MARK: Options

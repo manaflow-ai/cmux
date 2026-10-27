@@ -88,8 +88,30 @@ struct ChiefHeader: View {
     let name: String
     let avatar: String
     let mac: String?
+    /// Messages' compact header: a small avatar beside the name and the Mac.
+    var compact = false
 
     var body: some View {
+        Group {
+            if compact { compactBody } else { fullBody }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(mac.map { String(localized: "\(name) on \($0)") } ?? name)
+        .accessibilityIdentifier("cmux.push.chief.header")
+    }
+
+    private var compactBody: some View {
+        HStack(spacing: 10) {
+            MonogramAvatar(text: avatar, diameter: 36)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(name).font(Font(ConversationLook.nameFont)).lineLimit(1)
+                if let mac { Text(mac).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var fullBody: some View {
         VStack(spacing: 4) {
             ZStack(alignment: .top) {
                 // ConversationHeaderView: a 60 pt avatar, the capsule 55 pt below its top, the avatar over it.
@@ -112,9 +134,6 @@ struct ChiefHeader: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(mac.map { String(localized: "\(name) on \($0)") } ?? name)
-        .accessibilityIdentifier("cmux.push.chief.header")
     }
 }
 

@@ -38,6 +38,12 @@ final class NotificationViewController: UIViewController, @MainActor UNNotificat
         model.presentPicker = { [weak self] picker in self?.present(picker, animated: true) }
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // The keyboard of the system's reply field shortens the view: the header goes compact.
+        if model.availableHeight != view.bounds.height { model.availableHeight = view.bounds.height }
+    }
+
     override func preferredContentSizeDidChange(forChildContentContainer container: any UIContentContainer) {
         super.preferredContentSizeDidChange(forChildContentContainer: container)
         preferredContentSize = CGSize(width: view.bounds.width, height: container.preferredContentSize.height)
