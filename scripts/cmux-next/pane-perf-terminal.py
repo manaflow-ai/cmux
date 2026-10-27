@@ -79,7 +79,7 @@ parser.add_argument("--missed-budget", type=int, default=0)
 parser.add_argument("--story", help="the lab story (stories.d/<id>.json) to record result-v1 for; none: no result-v1")
 parser.add_argument("--enable-features", default="",
                     help="comma-separated features the app starts with (CMUX_ENABLE_FEATURES), for example "
-                         "cefHelperHost,chromiumHostResizeFence (cef-resize-sync-bench.py --modes host)")
+                         "cefHelperHost,chromiumHostTabs (cef-resize-sync-bench.py --modes host)")
 opts, _unknown = parser.parse_known_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
