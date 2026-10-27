@@ -3,7 +3,7 @@
   "corpusVersion": 1,
   "id": "ownership-faults-0218",
   "suite": "tla",
-  "title": "TLA OwnershipConvergence (faults): tab.close, tab.move",
+  "title": "TLA OwnershipConvergence (faults): tab.move",
   "surface": "cmux-next-daemon",
   "source": {
     "repo": "manaflow-ai/cmux",
@@ -66,61 +66,7 @@
       }
     },
     {
-      "id": "m05-close",
-      "op": "resource.call",
-      "target": {
-        "machine": "current",
-        "session": "current",
-        "tab": "$step:fx-workspace#/value/tab_id"
-      },
-      "args": {
-        "method": "tab.close",
-        "idempotencyKey": "ownership-faults-0218.c2-1"
-      },
-      "expect": {
-        "outcome": "ok",
-        "receipt": "mutation_result"
-      },
-      "note": "TLA step 6 Commit(close t1, id c2.1): applied"
-    },
-    {
-      "id": "m08-retry",
-      "op": "resource.call",
-      "target": {
-        "machine": "current",
-        "session": "current",
-        "tab": "$step:fx-workspace#/value/tab_id"
-      },
-      "args": {
-        "method": "tab.close",
-        "idempotencyKey": "ownership-faults-0218.c2-1"
-      },
-      "expect": {
-        "outcome": "ok",
-        "receipt": "mutation_result"
-      },
-      "note": "TLA step 9 OwnerReceive(close t1, id c2.1) of a decided key: answered from the ledger; the keyed retry of step m05-close"
-    },
-    {
-      "id": "m12-retry",
-      "op": "resource.call",
-      "target": {
-        "machine": "current",
-        "session": "current",
-        "tab": "$step:fx-workspace#/value/tab_id"
-      },
-      "args": {
-        "method": "tab.close",
-        "idempotencyKey": "ownership-faults-0218.c2-1"
-      },
-      "expect": {
-        "outcome": "ok",
-        "receipt": "mutation_result"
-      },
-      "note": "TLA step 13 OwnerReceive(close t1, id c2.1) of a decided key: answered from the ledger; the keyed retry of step m05-close"
-    },
-    {
-      "id": "m23-move",
+      "id": "m07-move",
       "op": "resource.call",
       "target": {
         "machine": "current",
@@ -133,18 +79,18 @@
           "destination_workspace": "$step:fx-workspace#/value/workspace_id",
           "destination_screen": "$step:fx-workspace#/value/screen_id",
           "destination_pane": "$step:fx-workspace#/value/pane_id",
-          "index": 1
+          "index": 2
         },
         "idempotencyKey": "ownership-faults-0218.c1-1"
       },
       "expect": {
-        "outcome": "error",
-        "error": "selector.not_found"
+        "outcome": "ok",
+        "receipt": "mutation_result"
       },
-      "note": "TLA step 24 Commit(move t1 to p1, id c1.1): rejected"
+      "note": "TLA step 8 Commit(move t1 to p1, id c1.1): applied"
     },
     {
-      "id": "m26-retry",
+      "id": "m12-move",
       "op": "resource.call",
       "target": {
         "machine": "current",
@@ -157,19 +103,67 @@
           "destination_workspace": "$step:fx-workspace#/value/workspace_id",
           "destination_screen": "$step:fx-workspace#/value/screen_id",
           "destination_pane": "$step:fx-workspace#/value/pane_id",
-          "index": 1
+          "index": 2
         },
-        "idempotencyKey": "ownership-faults-0218.c1-1"
+        "idempotencyKey": "ownership-faults-0218.c2-1"
       },
       "expect": {
-        "outcome": "error",
-        "error": "selector.not_found"
+        "outcome": "ok",
+        "receipt": "mutation_result"
       },
-      "note": "TLA step 27 OwnerReceive(move t1 to p1, id c1.1) of a decided key: answered from the ledger; the keyed retry of step m23-move"
+      "note": "TLA step 13 Commit(move t1 to p1, id c2.1): applied"
+    },
+    {
+      "id": "m21-retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "tab": "$step:fx-workspace#/value/tab_id"
+      },
+      "args": {
+        "method": "tab.move",
+        "params": {
+          "destination_workspace": "$step:fx-workspace#/value/workspace_id",
+          "destination_screen": "$step:fx-workspace#/value/screen_id",
+          "destination_pane": "$step:fx-workspace#/value/pane_id",
+          "index": 2
+        },
+        "idempotencyKey": "ownership-faults-0218.c2-1"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "TLA step 22 OwnerReceive(move t1 to p1, id c2.1) of a decided key: answered from the ledger; the keyed retry of step m12-move"
+    },
+    {
+      "id": "m22-retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "tab": "$step:fx-workspace#/value/tab_id"
+      },
+      "args": {
+        "method": "tab.move",
+        "params": {
+          "destination_workspace": "$step:fx-workspace#/value/workspace_id",
+          "destination_screen": "$step:fx-workspace#/value/screen_id",
+          "destination_pane": "$step:fx-workspace#/value/pane_id",
+          "index": 2
+        },
+        "idempotencyKey": "ownership-faults-0218.c2-1"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "TLA step 23 OwnerReceive(move t1 to p1, id c2.1) of a decided key: answered from the ledger; the keyed retry of step m12-move"
     }
   ],
   "invariants": [
-    "generated by scripts/cmux-next/oracle/gen_tla.py (p15-oracle-100) from a TLC simulate trace of plans/cmux-next/formal/OwnershipConvergence.tla (OwnershipConvergence.cfg, seed 6001, trace 889); tests/oracle/corpus/tla/_expected-ownership.json holds the model's abstract state after each mapped step, which `gen_tla.py check` compares to the run's daemon facet",
+    "generated by scripts/cmux-next/oracle/gen_tla.py (p15-oracle-100) from a TLC simulate trace of plans/cmux-next/formal/OwnershipConvergence.tla (OwnershipConvergence.cfg, seed 6003, trace 193); tests/oracle/corpus/tla/_expected-ownership.json holds the model's abstract state after each mapped step, which `gen_tla.py check` compares to the run's daemon facet",
     "each owner step expects the model's outcome: ok, selector.not_found for an op on a closed tab or a removed pane, validation.invalid for a dock that leaves no scrolling column; a replayed key answers as its first call did and changes nothing"
   ],
   "teardown": [

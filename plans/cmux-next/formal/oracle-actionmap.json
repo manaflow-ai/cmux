@@ -1,7 +1,8 @@
 {
   "schema": "cmux.oracle.tla-actionmap/v1",
-  "description": "How scripts/cmux-next/oracle/gen_tla.py turns TLC simulate traces of these specs into tests/oracle/corpus/tla/ cases (p15-oracle-100). Each action is one disjunct of the spec's Next with its bound variables; gen_tla.py writes a trace module that EXTENDS the spec, keeps Next as the step relation and labels every step with the action that took it (a step no action here explains is a generator error, so this map covers Next exactly). An action maps to `owner` (the spec's owner op, which gen_tla.py turns into resource-operations-v2 calls by its op kind under `ops`), `restart` (the daemon restarts on the same state root), or `internal` with the reason it has no product step (client mirror, view or channel state). An op kind marked `unmapped` has no product op: a trace that applies it is dropped and counted in coverage.json. `view` names client view state that only the app product checks (its layout facet); the daemon facet has none.",
+  "description": "How scripts/cmux-next/oracle/gen_tla.py turns TLC simulate traces of these specs into tests/oracle/corpus/tla/ cases (p15-oracle-100). Each action is one disjunct of the spec's Next with its bound variables; gen_tla.py writes a trace module that EXTENDS the spec, keeps Next as the step relation and labels every step with the action that took it (a step no action here explains is a generator error, so this map covers Next exactly). An action maps to `owner` (the spec's owner op, which gen_tla.py turns into resource-operations-v2 calls by its op kind under `ops`), `restart` (the daemon restarts on the same state root), `internal` with the reason it has no product step (client mirror, view or channel state), or `unmapped` with the reason no product op exists. An op kind marked `unmapped` has no product op: a trace that applies it is dropped and counted in coverage.json. A config's `constants` replace the .cfg's values for the simulation. A spec with `excluded` makes no cases: its configs only check that the map labels every Next step, and coverage.json lists it as excluded with that reason. `view` names client view state no product checks yet (`viewExcluded` says which follow-up does); the daemon facet has none. `restartRace` is a daemon defect after an owner restart: gen_tla.py keeps `keep` cases per spec with one racing call, each under a `[ Pass Failure ]` line it writes to tests/oracle/Expectations.d/tla.txt, and drops and counts the other racing cases.",
   "suite": "tla",
+  "restartRace": {"issue": "#25999", "methods": ["tab.move"], "keep": 3, "why": "after a daemon restart the terminals adopt on their own threads; a tab.move on a tab still adopting fails nondeterministically with operation.failed layout-conservation-violation (the layout reducer disagrees with the live move), and no event or read tells a client the adoption ended"},
   "specs": {
     "LayoutRows": {
       "slug": "layoutrows",
@@ -37,7 +38,7 @@
       "module": "TabLayout",
       "projection": "tabs",
       "configs": [
-        {"name": "fixed", "cfg": "TabLayout_fixed.cfg", "depth": 32, "seed": 4001, "batch": 1000, "maxBatches": 60, "cases": 220}
+        {"name": "fixed", "cfg": "TabLayout_fixed.cfg", "constants": {"MaxOps": 3}, "depth": 32, "seed": 4001, "batch": 1000, "maxBatches": 60, "cases": 220}
       ],
       "actions": [
         {"label": "StartDrag", "over": [["c", "Clients"], ["t", "AllTabs"]], "call": "StartDrag(c, t)", "map": "internal", "why": "a drag gesture hides the tab in the client's strip (DP1 drag presentation)"},
@@ -78,7 +79,8 @@
         {"label": "Resync", "call": "Resync", "map": "internal", "why": "the client settles unchanged geometry again (client view state)"}
       ],
       "ops": {},
-      "view": "focus: the window's focused pane after FocusAfterClose.pane (close-focus.md), which the app's layout facet records as the active screen's focusedPane. The daemon's active pane is not the window's focus, so a daemon run checks the columns only. The scroll target and offset are not in any facet."
+      "view": "focus: the window's focused pane after FocusAfterClose.pane (close-focus.md). The daemon's active pane is not the window's focus, so a daemon run checks the columns only; the app's layout facet (the active screen's focusedPane) could check it, but driver_app.py runs no resource.call step. The scroll target and offset are not in any facet.",
+      "viewExcluded": "#26009: no product checks the focus after a close yet; the app variant of these cases (action.run steps on named panes, checked against focusedPane) is the follow-up"
     },
     "OwnershipConvergence": {
       "slug": "ownership",
@@ -107,6 +109,45 @@
         "move-to-empty-pane": {"unmapped": "the model keeps an emptied pane and moves a tab into it; the daemon has no empty pane to name (an emptied pane is removed in the same commit), and moving a tab into a new pane has no resource-operations-v2 op"},
         "write": {"unmapped": "a client-owned record write needs the writer's connection identity; the case driver has one connection (a second identified connection is p15-oracle-237's user connection)"}
       }
+    },
+    "FeedHandoff": {
+      "slug": "feedhandoff",
+      "module": "FeedHandoff",
+      "excluded": "the handoff is between the daemon's local feed server and FeedDO (cloud-api), and the oracle's daemon runs offline with no FeedDO; the local feed verbs are daemon commands, not resource-operations-v2 ops",
+      "configs": [
+        {"name": "faults", "cfg": "FeedHandoff.cfg", "depth": 16, "seed": 7001, "batch": 200, "maxBatches": 1, "cases": 0}
+      ],
+      "actions": [
+        {"label": "LocalAnswer", "call": "LocalAnswer", "map": "unmapped", "why": "the user answers the item at the local feed server (a daemon feed command, not a resource-operations-v2 op)"},
+        {"label": "StartHandoff", "call": "StartHandoff", "map": "unmapped", "why": "the local server freezes the item and sends feed.adopt to FeedDO, which the offline oracle has none of"},
+        {"label": "Resend", "call": "Resend", "map": "unmapped", "why": "the local server resends feed.adopt with key adopt:<id> to FeedDO"},
+        {"label": "LocalMoved", "call": "LocalMoved", "map": "unmapped", "why": "the local server records moved after FeedDO's result"},
+        {"label": "TimeoutUnfreeze", "call": "TimeoutUnfreeze", "map": "internal", "why": "the Unfreeze mutant only (Unfreeze = FALSE in every config here)"},
+        {"label": "CloudAnswer", "call": "CloudAnswer", "map": "unmapped", "why": "the user answers at FeedDO (cloud-api)"},
+        {"label": "CloudAdopt", "over": [["m", "msgs"]], "call": "CloudAdopt(m)", "map": "unmapped", "why": "FeedDO commits the adopt or replays it from its ledger (cloud-api)"},
+        {"label": "Lose", "over": [["m", "msgs"]], "call": "Lose(m)", "map": "internal", "why": "the network loses a message (channel state)"},
+        {"label": "WaiterLocal", "call": "WaiterLocal", "map": "unmapped", "why": "an agent's cmux feed watch reads the local owner and follows owner.moved (a daemon feed command)"},
+        {"label": "WaiterCloud", "call": "WaiterCloud", "map": "unmapped", "why": "the watch reads the answer at FeedDO (cloud-api)"}
+      ],
+      "ops": {}
+    },
+    "hovercard": {
+      "slug": "hovercard",
+      "module": "hovercard",
+      "excluded": "HoverCardMachine.swift is app view state driven by the pointer, the timer and scroll or drag suppression; no resource-operations-v2 op, daemon state or app facet carries it, and driver_app.py has no pointer step",
+      "configs": [
+        {"name": "three", "cfg": "hovercard.cfg", "depth": 16, "seed": 8001, "batch": 200, "maxBatches": 1, "cases": 0}
+      ],
+      "actions": [
+        {"label": "Hit", "over": [["t", "Targets \\cup {None}"], ["m", "BOOLEAN"]], "call": "Hit(t, m)", "map": "unmapped", "why": "a hit test under the pointer (moved or not): pointer input, no product op"},
+        {"label": "Deadline", "over": [["k", "1..MaxToken"]], "call": "Deadline(k)", "map": "internal", "why": "the card timer fires or a stale token arrives (the machine's own timer)"},
+        {"label": "Dismiss", "call": "Dismiss", "map": "unmapped", "why": "Escape or a click dismisses the card: pointer and key input on the card, no product op"},
+        {"label": "Suppress", "over": [["r", "Reasons"]], "call": "Suppress(r)", "map": "unmapped", "why": "a drag or scroll starts (pointer input)"},
+        {"label": "Unsuppress", "over": [["r", "Reasons"]], "call": "Unsuppress(r)", "map": "unmapped", "why": "a drag or scroll ends (pointer input)"},
+        {"label": "Removed", "over": [["t", "Targets"]], "call": "Removed(t)", "map": "internal", "why": "the target under the card leaves the view (a geometry change the machine observes)"},
+        {"label": "Pin", "over": [["t", "Targets"]], "call": "Pin(t)", "map": "unmapped", "why": "a click pins the card for t (pointer input)"}
+      ],
+      "ops": {}
     }
   }
 }

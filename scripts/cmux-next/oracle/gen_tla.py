@@ -19,7 +19,13 @@ OwnershipConvergence) this script:
 4. writes the model's abstract state after each mapped step to `_expected-<spec slug>.json` (ids erased but tab
    and pane identity kept, as LayoutRows' Sig does), which `check` compares to a run's daemon facet;
 5. drops a trace that applies an op kind with no product op (the map's `unmapped`), and one whose reject
-   only comes from the model's bounded id pools, and counts every drop by reason in coverage.json.
+   only comes from the model's bounded id pools, and counts every drop by reason in coverage.json;
+6. keeps only product-distinct cases (`product_digest`: two traces that differ only in internal steps are one
+   case), and handles the known restart defect of the map's `restartRace`: a few cases with one racing call
+   stay under a generated `[ Pass Failure ]` line in tests/oracle/Expectations.d/tla.txt, the rest are dropped.
+
+Specs with `excluded` in the map (FeedHandoff, hovercard) make no cases: their configs are simulated only to
+check that the map labels every Next step, and coverage.json lists them as excluded with the reason.
 
 Chrome reference: Chromium checks its state machines against models by differential tests that replay
 generated operation sequences on the real object (base/containers/flat_tree_unittest.cc's model checks,
@@ -83,6 +89,13 @@ def owns(rel: str, slugs: Sequence[str]) -> bool:
         return True
     stem = rel[len("_expected-"):] if rel.startswith("_expected-") else rel
     return slug_of(stem.removesuffix(".json")) in slugs
+
+
+def expectations_path(out: Path) -> Path:
+    """`<oracle root>/Expectations.d/tla.txt` for the suite directory `<oracle root>/corpus/tla`."""
+    return out.parent.parent / "Expectations.d" / f"{SUITE}.txt"
+
+
 TRACE_MODULE = "OracleTrace"
 UNLABELED = "?"
 VIEWPORT_WIDTH = 0.5
@@ -305,6 +318,9 @@ class Action:
     excluded: str = ""
 
 
+ACTION_MAPS = ("owner", "restart", "internal", "unmapped")
+
+
 @dataclass(frozen=True)
 class Config:
     name: str
@@ -314,6 +330,19 @@ class Config:
     batch: int
     max_batches: int
     cases: int
+    constants: Tuple[Tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class RestartRace:
+    """A known daemon defect after an owner restart (the action map's `restartRace`): a fresh call of one of
+    `methods` after a restart races the daemon's terminal adoption. `keep` cases per spec that have exactly
+    one such call stay in the suite with a `[ Pass Failure ]` line on that step naming `issue`; every other
+    case with such a call is dropped and counted until the issue is fixed."""
+    issue: str
+    methods: Tuple[str, ...]
+    keep: int
+    why: str
 
 
 @dataclass
@@ -326,6 +355,9 @@ class SpecMap:
     actions: List[Action]
     ops: Dict[str, Dict[str, str]]
     view: str = ""
+    view_excluded: str = ""
+    excluded: str = ""
+    race: Optional[RestartRace] = None
 
     def unmapped(self, kind: str) -> Optional[str]:
         return (self.ops.get(kind) or {}).get("unmapped")
@@ -338,14 +370,22 @@ def load_actionmap(path: Path = ACTIONMAP) -> Dict[str, SpecMap]:
         raise GenError(f"{path}: {error}") from None
     if data.get("schema") != "cmux.oracle.tla-actionmap/v1":
         raise GenError(f"{path}: schema is not cmux.oracle.tla-actionmap/v1")
+    race = None
+    if "restartRace" in data:
+        raw_race = data["restartRace"]
+        race = RestartRace(raw_race["issue"], tuple(raw_race["methods"]), int(raw_race["keep"]), raw_race["why"])
+        if not re.fullmatch(r"#\d+|p\d{2}-[a-z0-9-]+-\d{3}", race.issue):
+            raise GenError(f"{path}: restartRace.issue {race.issue!r} is neither #issue nor a task id")
     specs: Dict[str, SpecMap] = {}
     for name, raw in data["specs"].items():
         actions = []
         for item in raw["actions"]:
-            if item["map"] not in ("owner", "restart", "internal"):
+            if item["map"] not in ACTION_MAPS:
                 raise GenError(f"{name}: action {item['label']} maps to {item['map']!r}")
-            if item["map"] == "internal" and not item.get("why"):
-                raise GenError(f"{name}: internal action {item['label']} needs a why")
+            if item["map"] in ("internal", "unmapped") and not item.get("why"):
+                raise GenError(f"{name}: {item['map']} action {item['label']} needs a why")
+            if item["map"] in ("owner", "restart") and raw.get("excluded"):
+                raise GenError(f"{name}: an excluded spec has no {item['map']} action ({item['label']})")
             actions.append(Action(item["label"], tuple(tuple(pair) for pair in item.get("over", [])), item["call"],
                                   item["map"], item.get("why", ""), item.get("excluded", "")))
         labels = [a.label for a in actions]
@@ -354,9 +394,16 @@ def load_actionmap(path: Path = ACTIONMAP) -> Dict[str, SpecMap]:
         if not re.fullmatch(r"[a-z0-9]+", raw["slug"]):
             raise GenError(f"{name}: slug {raw['slug']!r} must be [a-z0-9]+ (case ids are <slug>-<config>-<n>)")
         configs = [Config(c["name"], c["cfg"], int(c["depth"]), int(c["seed"]), int(c["batch"]),
-                          int(c["maxBatches"]), int(c["cases"])) for c in raw["configs"]]
-        specs[name] = SpecMap(name, raw["slug"], raw["module"], raw["projection"], configs, actions,
-                              raw.get("ops", {}), raw.get("view", ""))
+                          int(c["maxBatches"]), int(c["cases"]),
+                          tuple((k, str(v)) for k, v in sorted((c.get("constants") or {}).items())))
+                   for c in raw["configs"]]
+        if raw.get("excluded") and any(c.cases for c in configs):
+            raise GenError(f"{name}: an excluded spec makes no cases; its configs only check the labels")
+        if raw.get("view") and not raw.get("viewExcluded"):
+            raise GenError(f"{name}: `view` needs `viewExcluded` (no product checks it yet) or a product check")
+        specs[name] = SpecMap(name, raw["slug"], raw["module"], raw.get("projection", ""), configs, actions,
+                              raw.get("ops", {}), raw.get("view", ""), raw.get("viewExcluded", ""),
+                              raw.get("excluded", ""), race)
     return specs
 
 
@@ -431,6 +478,16 @@ def cfg_constants(text: str) -> Dict[str, Any]:
     return out
 
 
+def override_constants(text: str, constants: Sequence[Tuple[str, str]]) -> str:
+    """The config text with each `name = value` of `constants` replacing the config's own value (the action
+    map raises a bound for more distinct traces without a second .cfg file)."""
+    for name, value in constants:
+        text, hits = re.subn(rf"(?m)^(\s*{re.escape(name)}\s*=\s*)\S.*$", lambda m: m.group(1) + value, text)
+        if hits != 1:
+            raise GenError(f"constant {name} is set {hits} times in the config, not once")
+    return text
+
+
 def trace_cfg(text: str) -> str:
     """The simulate config: the spec config's CONSTANTS and CONSTRAINT sections, our Init and Next."""
     kept = [f"{keyword}\n{body}" for keyword, body in cfg_sections(text)
@@ -485,7 +542,7 @@ class Trace:
 def simulate(spec: SpecMap, config: Config, batch: int, jar: Path, keep: Set[str]) -> Iterator[Trace]:
     """One TLC simulate batch: `config.batch` traces of depth <= config.depth, seed config.seed + batch,
     each with the variables in `keep` and its labels."""
-    cfg_text = (FORMAL / config.cfg).read_text(encoding="utf-8")
+    cfg_text = override_constants((FORMAL / config.cfg).read_text(encoding="utf-8"), config.constants)
     constants = cfg_constants(cfg_text)
     with tempfile.TemporaryDirectory(prefix="gen-tla-") as tmp:
         work = Path(tmp)
@@ -534,7 +591,7 @@ def value_ref(step: str, field_name: str) -> str:
 class CaseBuilder:
     """One case: its steps, the model's abstract state after each mapped step, and what it exercises."""
 
-    def __init__(self, case_id: str):
+    def __init__(self, case_id: str, race_methods: Sequence[str] = ()):
         self.case_id = case_id
         self.steps: List[Dict[str, Any]] = []
         self.expected: List[Dict[str, Any]] = []
@@ -542,6 +599,10 @@ class CaseBuilder:
         self.exercised: Set[str] = set()
         self.calls: Dict[Any, Tuple[str, Dict[str, Any], Dict[str, Any], Dict[str, Any]]] = {}
         self.owner_steps = 0
+        self.race_methods = tuple(race_methods)
+        self.restarted = False
+        # Fresh calls of a restartRace method after a restart (RestartRace).
+        self.race_steps: List[str] = []
 
     def unique(self, step_id: str) -> str:
         taken = {s["id"] for s in self.steps}
@@ -566,6 +627,8 @@ class CaseBuilder:
         if note:
             step["note"] = note
         self.steps.append(step)
+        if self.restarted and method in self.race_methods:
+            self.race_steps.append(step_id)
         return step_id
 
     def read(self, step_id: str, method: str, target: Mapping[str, str], note: str) -> str:
@@ -595,10 +658,45 @@ class CaseBuilder:
                            "expect": {"outcome": "ok", "noReceiptReason": "a daemon restart runs no action"},
                            "note": note})
         self.requires.add("restart")
+        self.restarted = True
         return step_id
 
     def state(self, step_id: str, state: Mapping[str, Any]) -> None:
         self.expected.append({"step": step_id, "state": state})
+
+
+_STEP_REF = re.compile(r"^\$step:([^#]+)#(.*)$")
+
+
+def product_digest(steps: Sequence[Mapping[str, Any]], expected: Sequence[Mapping[str, Any]]) -> str:
+    """The sha256 of what a product sees of a case: each step's op, target, method, params and expect, and the
+    model's states after them. Step ids, notes and the TLA step numbers in them are dropped, step refs and
+    expected-state steps name the step's position, and an idempotency key names the position of the first
+    step that sent it (a keyed retry stays a retry). Two TLC traces that only interleave internal steps
+    differently give one product case."""
+    position = {step["id"]: n for n, step in enumerate(steps)}
+    first_key: Dict[str, int] = {}
+
+    def form(value: Any) -> Any:
+        if isinstance(value, str):
+            ref_match = _STEP_REF.match(value)
+            return f"$step:{position[ref_match.group(1)]}#{ref_match.group(2)}" if ref_match else value
+        if isinstance(value, dict):
+            return {k: form(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [form(v) for v in value]
+        return value
+
+    forms = []
+    for n, step in enumerate(steps):
+        body = {k: form(v) for k, v in step.items() if k not in ("id", "note")}
+        args = dict(body.get("args") or {})
+        if "idempotencyKey" in args:
+            args["idempotencyKey"] = first_key.setdefault(args["idempotencyKey"], n)
+            body["args"] = args
+        forms.append(body)
+    states = [{"step": position[entry["step"]], "state": entry["state"]} for entry in expected]
+    return hashlib.sha256(json.dumps({"steps": forms, "expected": states}, sort_keys=True).encode()).hexdigest()
 
 
 def tab_token(tab: Any) -> str:
@@ -1040,7 +1138,7 @@ class RowsProjector:
 
 class StripProjector:
     """closefocus.tla, Kind = "strip": columns of panes. Close, Focus and Create are product calls; the
-    focus after them is view state (`view`) that the app's layout facet records."""
+    focus after them is view state (`view`), which no product checks yet (the action map's `viewExcluded`)."""
 
     reads = {"cols", "focus"}
 
@@ -1112,7 +1210,7 @@ def case_document(spec: SpecMap, trace: Trace, case: CaseBuilder) -> Dict[str, A
         "its first call did and changes nothing",
     ]
     if spec.view:
-        invariants.append(f"view (app product only): {spec.view}")
+        invariants.append(f"view (not checked yet, {spec.view_excluded}): {spec.view}")
     return {
         "$schema": CASE_SCHEMA_REF,
         "corpusVersion": 1,
@@ -1155,79 +1253,69 @@ def coverage_items(spec: SpecMap) -> Dict[str, Optional[str]]:
     """Coverage key -> None (must be exercised) or the reason it is excluded."""
     items: Dict[str, Optional[str]] = {}
     for action in spec.actions:
-        items[f"{spec.name}:{action.label}"] = action.excluded or None
+        reason = action.excluded or (action.why if action.map == "unmapped" else "")
+        if spec.excluded and not reason:
+            reason = f"{spec.excluded} ({action.why})" if action.why else spec.excluded
+        items[f"{spec.name}:{action.label}"] = reason or None
     for kind, entry in spec.ops.items():
-        items[f"{spec.name}:op/{kind}"] = entry.get("unmapped")
+        items[f"{spec.name}:op/{kind}"] = entry.get("unmapped") or spec.excluded or None
+    if spec.view:
+        items[f"{spec.name}:view"] = spec.view_excluded
+    if spec.race is not None and not spec.excluded and any(a.map == "restart" for a in spec.actions):
+        items[f"{spec.name}:restart-race"] = None
     return items
+
+
+def label_check(spec: SpecMap, jar: Path) -> Tuple[Dict[str, Any], Dict[str, int]]:
+    """An excluded spec makes no cases, but its configs are simulated so the map still covers its Next
+    exactly (an unlabeled step is a GenError in `simulate`); returns the trace stats and the labels taken."""
+    stats: Dict[str, Any] = {}
+    exercised: Dict[str, int] = {}
+    for config in spec.configs:
+        simulated = 0
+        for batch in range(config.max_batches):
+            for trace in simulate(spec, config, batch, jar, set()):
+                simulated += 1
+                for label in {trace.label(i)["name"] for i in range(1, len(trace.states))}:
+                    key = f"{spec.name}:{label}"
+                    exercised[key] = exercised.get(key, 0) + 1
+        stats[config.name] = {"simulated": simulated, "batches": config.max_batches, "kept": 0}
+    return stats, exercised
 
 
 def generate(specs: Mapping[str, SpecMap], only: Sequence[str] = (), jar: Optional[Path] = None,
              log: Callable[[str], None] = lambda _: None) -> Dict[str, Any]:
-    """{relative path: JSON value} of the whole suite."""
+    """{relative path: JSON value} of the whole suite; coverage.json's `expectations` holds the lines the
+    generator owns in Expectations.d/tla.txt."""
     jar = jar or tlc_jar()
     files: Dict[str, Any] = {}
     coverage: Dict[str, Any] = {"generator": GENERATOR, "actionmap": str(ACTIONMAP.relative_to(REPO)),
                                 "actionmap_sha256": sha256_file(ACTIONMAP), "tlc": "tla2tools %s (tlc.sh pin)" % tlc_pin()[0],
                                 "suite": SUITE, "total": 0, "covered": 0, "verdicts": "not run",
-                                "excluded": {}, "missing": [], "specs": {}}
+                                "distinct": "product_digest: the steps without ids, notes or TLA step numbers, step "
+                                            "refs by position, plus the model's states",
+                                "excluded": {}, "missing": [], "specs": {}, "expectations": []}
     for name, spec in specs.items():
         if only and name not in only and spec.slug not in only:
             continue
-        projector = PROJECTORS[spec.projection](spec)
         expected: Dict[str, Any] = {}
-        seen: Set[str] = set()
         exercised: Dict[str, int] = {}
         spec_stats: Dict[str, Any] = {}
-        for config in spec.configs:
-            stats = ConfigStats()
-            kept_here = 0
-            for batch in range(config.max_batches):
-                if kept_here >= config.cases:
-                    break
-                stats.batches += 1
-                for trace in simulate(spec, config, batch, jar, projector.reads):
-                    if kept_here >= config.cases:
-                        break
-                    stats.simulated += 1
-                    case_id = f"{spec.slug}-{config.name}-{kept_here + 1:04d}"
-                    case = CaseBuilder(case_id)
-                    try:
-                        projector.build(trace, case)
-                    except Unmapped as drop:
-                        stats.dropped[drop.key] = stats.dropped.get(drop.key, 0) + 1
-                        continue
-                    if not case.owner_steps:
-                        stats.no_owner_step += 1
-                        continue
-                    document = case_document(spec, trace, case)
-                    body = {"steps": document["steps"], "expected": case.expected}
-                    digest = hashlib.sha256(json.dumps(body, sort_keys=True).replace(case_id, "ID").encode()).hexdigest()
-                    if digest in seen:
-                        stats.duplicates += 1
-                        continue
-                    seen.add(digest)
-                    kept_here += 1
-                    stats.kept += 1
-                    for key in case.exercised:
-                        exercised[key] = exercised.get(key, 0) + 1
-                    files[f"{case_id}.json"] = document
-                    expected[case_id] = case.expected
-            if kept_here < config.cases:
-                raise GenError(f"{name} ({config.cfg}): {kept_here} distinct mapped traces after {stats.batches} "
-                               f"batches of {config.batch}, {config.cases} wanted; raise maxBatches or batch")
-            spec_stats[config.name] = stats.as_json()
-            log(f"{name} {config.name}: {stats.kept} kept of {stats.simulated} simulated, "
-                f"{sum(stats.dropped.values())} dropped, {stats.duplicates} duplicates")
-        files[expected_name(spec.slug)] = {
-            "schema": EXPECTED_SCHEMA, "spec": name, "generator": GENERATOR,
-            "description": "The model's abstract state after each mapped step of each case. Tokens t:<id> are the "
-                           "spec's tab ids and p:<id> its pane ids; `check` binds each to one daemon id per case. "
-                           "{\"set\": [...]} is unordered. `view` is client view state only the app product checks.",
-            "cases": expected,
-        }
-        items = coverage_items(spec)
+        if spec.excluded:
+            spec_stats, exercised = label_check(spec, jar)
+            log(f"{name}: excluded, labels checked on {sum(s['simulated'] for s in spec_stats.values())} traces")
+        else:
+            spec_stats, exercised = generate_spec(spec, jar, files, expected, coverage["expectations"], log)
+            files[expected_name(spec.slug)] = {
+                "schema": EXPECTED_SCHEMA, "spec": name, "generator": GENERATOR,
+                "description": "The model's abstract state after each mapped step of each case. Tokens t:<id> are "
+                               "the spec's tab ids and p:<id> its pane ids; `check` binds each to one daemon id per "
+                               "case. {\"set\": [...]} is unordered. `view` is client view state no product checks "
+                               "yet (coverage.json `excluded`).",
+                "cases": expected,
+            }
         missing = []
-        for key, reason in items.items():
+        for key, reason in coverage_items(spec).items():
             coverage["total"] += 1
             if reason:
                 coverage["excluded"][key] = reason
@@ -1236,10 +1324,101 @@ def generate(specs: Mapping[str, SpecMap], only: Sequence[str] = (), jar: Option
             else:
                 missing.append(key)
         coverage["missing"].extend(missing)
-        coverage["specs"][name] = {"cfgs": {c.name: c.cfg for c in spec.configs}, "cases": sum(c.cases for c in spec.configs),
-                                   "traces": spec_stats, "exercised": dict(sorted(exercised.items()))}
+        entry: Dict[str, Any] = {"cfgs": {c.name: c.cfg for c in spec.configs},
+                                 "cases": sum(c.cases for c in spec.configs), "traces": spec_stats,
+                                 "exercised": dict(sorted(exercised.items()))}
+        if spec.excluded:
+            entry["excluded"] = spec.excluded
+        coverage["specs"][name] = entry
+    coverage["expectations"].sort()
     files[COVERAGE] = coverage
     return files
+
+
+def generate_spec(spec: SpecMap, jar: Path, files: Dict[str, Any], expected: Dict[str, Any], lines: List[str],
+                  log: Callable[[str], None]) -> Tuple[Dict[str, Any], Dict[str, int]]:
+    """The cases of one spec into `files` and `expected`, its restart-race lines into `lines`; returns the trace
+    stats per config and the coverage keys exercised."""
+    projector = PROJECTORS[spec.projection](spec)
+    race = spec.race if any(a.map == "restart" for a in spec.actions) else None
+    seen: Set[str] = set()
+    exercised: Dict[str, int] = {}
+    spec_stats: Dict[str, Any] = {}
+    race_kept = 0
+    for config in spec.configs:
+        stats = ConfigStats()
+        kept_here = 0
+        for batch in range(config.max_batches):
+            if kept_here >= config.cases:
+                break
+            stats.batches += 1
+            for trace in simulate(spec, config, batch, jar, projector.reads):
+                if kept_here >= config.cases:
+                    break
+                stats.simulated += 1
+                case_id = f"{spec.slug}-{config.name}-{kept_here + 1:04d}"
+                case = CaseBuilder(case_id, race.methods if race else ())
+                try:
+                    projector.build(trace, case)
+                except Unmapped as drop:
+                    stats.dropped[drop.key] = stats.dropped.get(drop.key, 0) + 1
+                    continue
+                if not case.owner_steps:
+                    stats.no_owner_step += 1
+                    continue
+                digest = product_digest(case.steps, case.expected)
+                if digest in seen:
+                    stats.duplicates += 1
+                    continue
+                if race is not None and case.race_steps:
+                    if len(case.race_steps) != 1 or race_kept >= race.keep:
+                        key = f"{spec.name}:restart-race ({race.issue})"
+                        stats.dropped[key] = stats.dropped.get(key, 0) + 1
+                        continue
+                    race_kept += 1
+                    case.exercised.add(f"{spec.name}:restart-race")
+                    lines.append(f"{race.issue} [ daemon ] {SUITE}/{case_id}/{case.race_steps[0]} [ Pass Failure ]")
+                seen.add(digest)
+                kept_here += 1
+                stats.kept += 1
+                for key in case.exercised:
+                    exercised[key] = exercised.get(key, 0) + 1
+                files[f"{case_id}.json"] = case_document(spec, trace, case)
+                expected[case_id] = case.expected
+        if kept_here < config.cases:
+            raise GenError(f"{spec.name} ({config.cfg}): {kept_here} product-distinct mapped traces after "
+                           f"{stats.batches} batches of {config.batch}, {config.cases} wanted; raise a bound "
+                           f"(`constants`), maxBatches or batch")
+        spec_stats[config.name] = stats.as_json()
+        log(f"{spec.name} {config.name}: {stats.kept} kept of {stats.simulated} simulated, "
+            f"{sum(stats.dropped.values())} dropped, {stats.duplicates} duplicates")
+    if race is not None and race_kept < race.keep:
+        raise GenError(f"{spec.name}: {race_kept} restart-race cases, {race.keep} wanted (restartRace.keep)")
+    return spec_stats, exercised
+
+
+# The generator owns one block of the suite's expectations file (expectations.py); lines outside it are kept,
+# as gen_daemon_ops.py does for daemon-ops.
+EXPECTATIONS_BEGIN_PREFIX = f"# BEGIN {GENERATOR}:"
+EXPECTATIONS_BEGIN = f"{EXPECTATIONS_BEGIN_PREFIX} the restart-race cases of coverage.json (action map restartRace)"
+EXPECTATIONS_END = f"# END {GENERATOR}"
+EXPECTATIONS_HEADER = (f"# {SUITE} expectations (format: scripts/cmux-next/oracle/expectations.py).\n"
+                       f"# {GENERATOR} writes the block below from coverage.json: edit the action map,\n"
+                       "# not the block. Lines outside the block are kept.\n")
+
+
+def render_expectations(existing: str, lines: Sequence[str]) -> str:
+    """`existing` with the generator's block replaced by `lines` (or appended, with a header for a new file)."""
+    block = "\n".join([EXPECTATIONS_BEGIN, *lines, EXPECTATIONS_END]) + "\n"
+    begin, end = existing.find(EXPECTATIONS_BEGIN_PREFIX), existing.find(EXPECTATIONS_END)
+    if begin >= 0 and end > begin:
+        tail = existing[end + len(EXPECTATIONS_END):]
+        return existing[:begin] + block + (tail[1:] if tail.startswith("\n") else tail)
+    if begin >= 0 or end >= 0:
+        raise GenError(f"the {SUITE} expectations file has one of the generator's block markers without the other")
+    if not existing.strip():
+        return EXPECTATIONS_HEADER + block
+    return existing + ("" if existing.endswith("\n") else "\n") + block
 
 
 def dump(value: Any) -> str:
@@ -1503,7 +1682,7 @@ def cmd_vm(argv: Sequence[str]) -> int:
         print(f"{slug}: {passed} pass, {failed} fail")
     unchecked = sorted({u for r in results for u in r.unchecked})
     if unchecked:
-        print(f"not checked on this product: {', '.join(unchecked)} (app product only)")
+        print(f"not checked: {', '.join(unchecked)} (no product checks it yet; coverage.json `excluded`)")
     return 0 if all(r.status == "Pass" for r in results) else 1
 
 
@@ -1521,15 +1700,25 @@ def cmd_generate(argv: Sequence[str]) -> int:
             raise GenError(f"no spec {', '.join(unknown)} in the action map")
         slugs = [m.slug for n, m in specs.items() if n in only or m.slug in only]
         files = generate(specs, only, log=lambda line: print(f"gen_tla: {line}", file=sys.stderr))
+        # The Expectations block comes from every spec: a run of some specs leaves it alone.
+        expectations_file = expectations_path(args.out)
+        existing = expectations_file.read_text(encoding="utf-8") if expectations_file.is_file() else ""
+        rendered = existing if only else render_expectations(existing, files[COVERAGE]["expectations"])
         if only:
             files.pop(COVERAGE)
         if args.check:
             problems = drift(args.out, files, slugs)
+            if rendered != existing:
+                problems.append(f"{expectations_file.name}: the generated block differs from coverage.json")
             for problem in problems[:50]:
                 print(f"gen_tla: {problem}", file=sys.stderr)
             print(f"gen_tla: {len(files)} files, {'stale' if problems else 'up to date'}")
             return 1 if problems else 0
         written, removed = write(args.out, files, slugs)
+        if rendered != existing:
+            expectations_file.parent.mkdir(parents=True, exist_ok=True)
+            expectations_file.write_text(rendered, encoding="utf-8")
+            written += 1
     except GenError as error:
         print(f"gen_tla: {error}", file=sys.stderr)
         return 2

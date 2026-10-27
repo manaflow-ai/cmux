@@ -2,7 +2,7 @@
   "schema": "cmux.oracle.tla-expected/v1",
   "spec": "closefocus",
   "generator": "scripts/cmux-next/oracle/gen_tla.py",
-  "description": "The model's abstract state after each mapped step of each case. Tokens t:<id> are the spec's tab ids and p:<id> its pane ids; `check` binds each to one daemon id per case. {\"set\": [...]} is unordered. `view` is client view state only the app product checks.",
+  "description": "The model's abstract state after each mapped step of each case. Tokens t:<id> are the spec's tab ids and p:<id> its pane ids; `check` binds each to one daemon id per case. {\"set\": [...]} is unordered. `view` is client view state no product checks yet (coverage.json `excluded`).",
   "cases": {
     "closefocus-strip-0001": [
       {

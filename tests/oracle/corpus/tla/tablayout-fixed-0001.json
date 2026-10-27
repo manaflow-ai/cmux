@@ -91,7 +91,7 @@
       "target": {
         "machine": "current",
         "session": "current",
-        "tab": "$step:fx-workspace#/value/tab_id"
+        "tab": "$step:fx-tab-2#/value/tab_id"
       },
       "args": {
         "method": "tab.close",
@@ -101,10 +101,10 @@
         "outcome": "ok",
         "receipt": "mutation_result"
       },
-      "note": "TLA step 10 OwnerApply(op 2 close tab 1): applied"
+      "note": "TLA step 10 OwnerApply(op 1 close tab 2): applied"
     },
     {
-      "id": "m10-move",
+      "id": "m17-move",
       "op": "resource.call",
       "target": {
         "machine": "current",
@@ -117,15 +117,33 @@
           "destination_workspace": "$step:fx-workspace#/value/workspace_id",
           "destination_screen": "$step:fx-workspace#/value/screen_id",
           "destination_pane": "$step:fx-workspace#/value/pane_id",
-          "index": 0
+          "index": 1
         },
-        "idempotencyKey": "tablayout-fixed-0001.m10-move"
+        "idempotencyKey": "tablayout-fixed-0001.m17-move"
       },
       "expect": {
         "outcome": "ok",
         "receipt": "mutation_result"
       },
-      "note": "TLA step 11 OwnerApply(op 1 move tab 3 to pane 1 at 1): applied"
+      "note": "TLA step 18 OwnerApply(op 3 move tab 3 to pane 1 at 2): applied"
+    },
+    {
+      "id": "m22-close",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "tab": "$step:fx-tab-2#/value/tab_id"
+      },
+      "args": {
+        "method": "tab.close",
+        "idempotencyKey": "tablayout-fixed-0001.m22-close"
+      },
+      "expect": {
+        "outcome": "error",
+        "error": "selector.not_found"
+      },
+      "note": "TLA step 23 OwnerApply(op 2 close tab 2): rejected"
     }
   ],
   "invariants": [

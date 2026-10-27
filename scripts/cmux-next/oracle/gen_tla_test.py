@@ -107,10 +107,77 @@ class ConfigTest(unittest.TestCase):
             for cfg in spec.configs:
                 self.assertTrue((gen_tla.FORMAL / cfg.cfg).is_file(), cfg.cfg)
 
+    def test_override_constants_replaces_one_value(self):
+        out = gen_tla.override_constants(self.CFG, (("NTabs", "5"),))
+        self.assertEqual(gen_tla.cfg_constants(out)["NTabs"], 5)
+        self.assertIn("InitLayout <- StripInit", out)
+        with self.assertRaises(gen_tla.GenError):
+            gen_tla.override_constants(self.CFG, (("MaxOps", "3"),))
+
+    def test_excluded_specs_and_views_say_why(self):
+        specs = gen_tla.load_actionmap()
+        for name in ("FeedHandoff", "hovercard"):
+            spec = specs[name]
+            self.assertTrue(spec.excluded, name)
+            self.assertFalse([a for a in spec.actions if a.map in ("owner", "restart")], name)
+            self.assertFalse([c for c in spec.configs if c.cases], name)
+            items = gen_tla.coverage_items(spec)
+            self.assertTrue(items and all(items.values()), f"{name}: every item is excluded with a reason")
+        closefocus = gen_tla.coverage_items(specs["closefocus"])
+        self.assertIn("#26009", closefocus["closefocus:view"])
+        self.assertIsNone(gen_tla.coverage_items(specs["TabLayout"])["TabLayout:restart-race"])
+        self.assertNotIn("LayoutRows:restart-race", gen_tla.coverage_items(specs["LayoutRows"]))
+
     def test_tlc_pin_is_tlc_sh(self):
         version, digest = gen_tla.tlc_pin()
         self.assertEqual(version, "1.7.4")
         self.assertEqual(len(digest), 64)
+
+
+class ProductDigestTest(unittest.TestCase):
+    @staticmethod
+    def case(prefix: str, note: str, index: int = 0, retry: bool = False):
+        case = gen_tla.CaseBuilder(f"tablayout-{prefix}-0001")
+        made = case.call(f"{prefix}-ws", "workspace.create", {}, {"initial_content": "terminal"})
+        tab = gen_tla.value_ref(made, "tab_id")
+        move = case.call(f"{prefix}-move", "tab.move", {"tab": tab}, {"index": index}, note=note)
+        case.remember(1, move)
+        if retry:
+            case.replay(f"{prefix}-again", 1, note)
+        else:
+            case.call(f"{prefix}-again", "tab.move", {"tab": tab}, {"index": index}, note=note)
+        case.state(move, {"workspaces": {"set": []}})
+        return gen_tla.product_digest(case.steps, case.expected)
+
+    def test_ids_notes_and_keys_do_not_make_a_case_distinct(self):
+        self.assertEqual(self.case("m07", "TLA step 8"), self.case("m12", "TLA step 13"))
+
+    def test_params_and_keyed_retries_do(self):
+        self.assertNotEqual(self.case("m07", "x"), self.case("m07", "x", index=1))
+        self.assertNotEqual(self.case("m07", "x"), self.case("m07", "x", retry=True))
+
+
+class RestartRaceTest(unittest.TestCase):
+    def test_a_fresh_move_after_a_restart_is_a_race_step(self):
+        case = gen_tla.CaseBuilder("tablayout-t-0001", ("tab.move",))
+        case.call("m01-move", "tab.move", {"tab": "x"}, {"index": 0})
+        case.remember(1, "m01-move")
+        case.restart("m02-restart", "restart")
+        case.call("m03-close", "tab.close", {"tab": "x"})
+        case.replay("m04-retry", 1, "retry")
+        self.assertEqual(case.race_steps, [])
+        case.call("m05-move", "tab.move", {"tab": "x"}, {"index": 1})
+        self.assertEqual(case.race_steps, ["m05-move"])
+
+    def test_expectations_block_keeps_other_lines(self):
+        lines = ["#25999 [ daemon ] tla/tablayout-fixed-0001/m03-move [ Pass Failure ]"]
+        fresh = gen_tla.render_expectations("", lines)
+        self.assertTrue(fresh.startswith("# tla expectations"))
+        self.assertIn(lines[0], fresh)
+        kept = gen_tla.render_expectations("p15-oracle-100 tla/x [ Skip ]\n" + fresh, [])
+        self.assertIn("p15-oracle-100 tla/x [ Skip ]", kept)
+        self.assertNotIn(lines[0], kept)
+        self.assertEqual(gen_tla.render_expectations(fresh, lines), fresh)
 
 
 class DaemonMoveTest(unittest.TestCase):
@@ -314,10 +381,15 @@ class CorpusTest(unittest.TestCase):
         coverage = json.loads((CORPUS / gen_tla.COVERAGE).read_text(encoding="utf-8"))
         self.assertFalse(coverage["missing"], coverage["missing"])
         for spec in specs.values():
+            if spec.excluded:
+                self.assertEqual(coverage["specs"][spec.name]["excluded"], spec.excluded)
+                self.assertFalse(list(CORPUS.glob(f"{spec.slug}-*.json")), spec.name)
+                continue
             expected = json.loads((CORPUS / gen_tla.expected_name(spec.slug)).read_text(encoding="utf-8"))["cases"]
             cases = sorted(CORPUS.glob(f"{spec.slug}-*.json"))
             self.assertGreaterEqual(len(cases), 200, spec.name)
             self.assertEqual(set(expected), {p.stem for p in cases})
+            digests = set()
             for path in cases:
                 case = json.loads(path.read_text(encoding="utf-8"))
                 findings = [f.message for f in case_checks.check_case(case, rules)]
@@ -326,7 +398,28 @@ class CorpusTest(unittest.TestCase):
                 ids = {s["id"] for s in case["steps"]}
                 for entry in expected[path.stem]:
                     self.assertIn(entry["step"], ids)
+                digests.add(gen_tla.product_digest(case["steps"], expected[path.stem]))
+            self.assertEqual(len(digests), len(cases), f"{spec.name}: every case is a distinct product run")
         self.assertEqual(sorted(p.name for p in CORPUS.iterdir() if p.is_dir()), [], "the suite is flat")
+
+    def test_restart_race_cases_have_their_expectations_lines(self):
+        import expectations  # noqa: E402
+
+        coverage = json.loads((CORPUS / gen_tla.COVERAGE).read_text(encoding="utf-8"))
+        path = gen_tla.expectations_path(CORPUS)
+        text = path.read_text(encoding="utf-8")
+        self.assertEqual(gen_tla.render_expectations(text, coverage["expectations"]), text)
+        race = gen_tla.load_actionmap()["TabLayout"].race
+        self.assertEqual(len(coverage["expectations"]), 2 * race.keep)
+        for line in coverage["expectations"]:
+            self.assertTrue(line.startswith(f"{race.issue} [ daemon ] tla/"), line)
+            target = line.split()[4]
+            _, case_id, step = target.split("/")
+            case = json.loads((CORPUS / f"{case_id}.json").read_text(encoding="utf-8"))
+            moves = [s["id"] for s in case["steps"] if (s.get("args") or {}).get("method") == "tab.move"]
+            self.assertIn(step, moves)
+        diags = expectations.lint(expectations.Expectations.load([path.parent], []), CORPUS.parent)
+        self.assertFalse([d for d in diags if d.file.endswith("tla.txt") or d.code == "golden-budget"], diags)
 
     def test_oracle_check_accepts_the_suite(self):
         import oracle  # noqa: E402
@@ -355,6 +448,16 @@ class SimulateTest(unittest.TestCase):
         self.assertEqual(first, second)
         labels = {s["oracleAct"]["name"] for states in first for s in states}
         self.assertTrue(labels <= {"Init", "Close", "Focus", "Create", "Animate", "Resync"}, labels)
+
+    def test_excluded_specs_label_every_next_step(self):
+        specs = gen_tla.load_actionmap()
+        jar = gen_tla.tlc_jar()
+        for name in ("FeedHandoff", "hovercard"):
+            spec = specs[name]
+            small = gen_tla.Config("t", spec.configs[0].cfg, 12, 91, 30, 1, 0)
+            labels = {s["oracleAct"]["name"] for t in gen_tla.simulate(spec, small, 0, jar, set()) for s in t.states}
+            self.assertTrue(labels - {"Init"} <= {a.label for a in spec.actions}, f"{name}: {labels}")
+            self.assertGreater(len(labels), 2, name)
 
 
 if __name__ == "__main__":

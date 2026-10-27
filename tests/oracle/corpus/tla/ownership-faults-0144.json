@@ -67,7 +67,25 @@
       }
     },
     {
-      "id": "m03-restart",
+      "id": "m04-close",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "tab": "$step:fx-tab-2#/value/tab_id"
+      },
+      "args": {
+        "method": "tab.close",
+        "idempotencyKey": "ownership-faults-0144.c1-1"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "TLA step 5 Commit(close t2, id c1.1): applied"
+    },
+    {
+      "id": "m05-restart",
       "op": "restart",
       "target": {
         "process": "daemon"
@@ -76,7 +94,7 @@
         "outcome": "ok",
         "noReceiptReason": "a daemon restart runs no action"
       },
-      "note": "TLA step 4 OwnerRestart: the store is durable, the staged op is lost"
+      "note": "TLA step 6 OwnerRestart: the store is durable, the staged op is lost"
     },
     {
       "id": "m10-close",
@@ -88,49 +106,31 @@
       },
       "args": {
         "method": "tab.close",
+        "idempotencyKey": "ownership-faults-0144.c2-1"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "TLA step 11 Commit(close t1, id c2.1): applied"
+    },
+    {
+      "id": "m11-retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "tab": "$step:fx-tab-2#/value/tab_id"
+      },
+      "args": {
+        "method": "tab.close",
         "idempotencyKey": "ownership-faults-0144.c1-1"
       },
       "expect": {
         "outcome": "ok",
         "receipt": "mutation_result"
       },
-      "note": "TLA step 11 Commit(close t1, id c1.1): applied"
-    },
-    {
-      "id": "m13-close",
-      "op": "resource.call",
-      "target": {
-        "machine": "current",
-        "session": "current",
-        "tab": "$step:fx-workspace#/value/tab_id"
-      },
-      "args": {
-        "method": "tab.close",
-        "idempotencyKey": "ownership-faults-0144.c2-1"
-      },
-      "expect": {
-        "outcome": "error",
-        "error": "selector.not_found"
-      },
-      "note": "TLA step 14 Commit(close t1, id c2.1): rejected"
-    },
-    {
-      "id": "m14-retry",
-      "op": "resource.call",
-      "target": {
-        "machine": "current",
-        "session": "current",
-        "tab": "$step:fx-workspace#/value/tab_id"
-      },
-      "args": {
-        "method": "tab.close",
-        "idempotencyKey": "ownership-faults-0144.c2-1"
-      },
-      "expect": {
-        "outcome": "error",
-        "error": "selector.not_found"
-      },
-      "note": "TLA step 15 OwnerReceive(close t1, id c2.1) of a decided key: answered from the ledger; the keyed retry of step m13-close"
+      "note": "TLA step 12 OwnerReceive(close t2, id c1.1) of a decided key: answered from the ledger; the keyed retry of step m04-close"
     },
     {
       "id": "m16-retry",
@@ -138,17 +138,17 @@
       "target": {
         "machine": "current",
         "session": "current",
-        "tab": "$step:fx-workspace#/value/tab_id"
+        "tab": "$step:fx-tab-2#/value/tab_id"
       },
       "args": {
         "method": "tab.close",
-        "idempotencyKey": "ownership-faults-0144.c2-1"
+        "idempotencyKey": "ownership-faults-0144.c1-1"
       },
       "expect": {
-        "outcome": "error",
-        "error": "selector.not_found"
+        "outcome": "ok",
+        "receipt": "mutation_result"
       },
-      "note": "TLA step 17 OwnerReceive(close t1, id c2.1) of a decided key: answered from the ledger; the keyed retry of step m13-close"
+      "note": "TLA step 17 OwnerReceive(close t2, id c1.1) of a decided key: answered from the ledger; the keyed retry of step m04-close"
     },
     {
       "id": "m17-retry",
@@ -156,71 +156,53 @@
       "target": {
         "machine": "current",
         "session": "current",
-        "tab": "$step:fx-workspace#/value/tab_id"
+        "tab": "$step:fx-tab-2#/value/tab_id"
       },
       "args": {
         "method": "tab.close",
-        "idempotencyKey": "ownership-faults-0144.c2-1"
+        "idempotencyKey": "ownership-faults-0144.c1-1"
       },
       "expect": {
-        "outcome": "error",
-        "error": "selector.not_found"
+        "outcome": "ok",
+        "receipt": "mutation_result"
       },
-      "note": "TLA step 18 OwnerReceive(close t1, id c2.1) of a decided key: answered from the ledger; the keyed retry of step m13-close"
+      "note": "TLA step 18 OwnerReceive(close t2, id c1.1) of a decided key: answered from the ledger; the keyed retry of step m04-close"
     },
     {
-      "id": "m23-retry",
+      "id": "m18-retry",
       "op": "resource.call",
       "target": {
         "machine": "current",
         "session": "current",
-        "tab": "$step:fx-workspace#/value/tab_id"
+        "tab": "$step:fx-tab-2#/value/tab_id"
       },
       "args": {
         "method": "tab.close",
-        "idempotencyKey": "ownership-faults-0144.c2-1"
+        "idempotencyKey": "ownership-faults-0144.c1-1"
       },
       "expect": {
-        "outcome": "error",
-        "error": "selector.not_found"
+        "outcome": "ok",
+        "receipt": "mutation_result"
       },
-      "note": "TLA step 24 OwnerReceive(close t1, id c2.1) of a decided key: answered from the ledger; the keyed retry of step m13-close"
+      "note": "TLA step 19 OwnerReceive(close t2, id c1.1) of a decided key: answered from the ledger; the keyed retry of step m04-close"
     },
     {
-      "id": "m24-retry",
+      "id": "m21-retry",
       "op": "resource.call",
       "target": {
         "machine": "current",
         "session": "current",
-        "tab": "$step:fx-workspace#/value/tab_id"
+        "tab": "$step:fx-tab-2#/value/tab_id"
       },
       "args": {
         "method": "tab.close",
-        "idempotencyKey": "ownership-faults-0144.c2-1"
+        "idempotencyKey": "ownership-faults-0144.c1-1"
       },
       "expect": {
-        "outcome": "error",
-        "error": "selector.not_found"
+        "outcome": "ok",
+        "receipt": "mutation_result"
       },
-      "note": "TLA step 25 OwnerReceive(close t1, id c2.1) of a decided key: answered from the ledger; the keyed retry of step m13-close"
-    },
-    {
-      "id": "m28-retry",
-      "op": "resource.call",
-      "target": {
-        "machine": "current",
-        "session": "current",
-        "tab": "$step:fx-workspace#/value/tab_id"
-      },
-      "args": {
-        "method": "tab.close",
-        "idempotencyKey": "ownership-faults-0144.c2-1"
-      },
-      "expect": {
-        "outcome": "error",
-        "error": "selector.not_found"
-      },
-      "note": "TLA step 29 OwnerReceive(close t1, id c2.1) of a decided key: answered from the ledger; the keyed retry of step m13-close"
+      "note": "TLA step 22 OwnerReceive(close t2, id c1.1) of a decided key: answered from the ledger; the keyed retry of step m04-close"
     },
     {
       "id": "m29-retry",
@@ -228,21 +210,21 @@
       "target": {
         "machine": "current",
         "session": "current",
-        "tab": "$step:fx-workspace#/value/tab_id"
+        "tab": "$step:fx-tab-2#/value/tab_id"
       },
       "args": {
         "method": "tab.close",
-        "idempotencyKey": "ownership-faults-0144.c2-1"
+        "idempotencyKey": "ownership-faults-0144.c1-1"
       },
       "expect": {
-        "outcome": "error",
-        "error": "selector.not_found"
+        "outcome": "ok",
+        "receipt": "mutation_result"
       },
-      "note": "TLA step 30 OwnerReceive(close t1, id c2.1) of a decided key: answered from the ledger; the keyed retry of step m13-close"
+      "note": "TLA step 30 OwnerReceive(close t2, id c1.1) of a decided key: answered from the ledger; the keyed retry of step m04-close"
     }
   ],
   "invariants": [
-    "generated by scripts/cmux-next/oracle/gen_tla.py (p15-oracle-100) from a TLC simulate trace of plans/cmux-next/formal/OwnershipConvergence.tla (OwnershipConvergence.cfg, seed 6001, trace 591); tests/oracle/corpus/tla/_expected-ownership.json holds the model's abstract state after each mapped step, which `gen_tla.py check` compares to the run's daemon facet",
+    "generated by scripts/cmux-next/oracle/gen_tla.py (p15-oracle-100) from a TLC simulate trace of plans/cmux-next/formal/OwnershipConvergence.tla (OwnershipConvergence.cfg, seed 6002, trace 456); tests/oracle/corpus/tla/_expected-ownership.json holds the model's abstract state after each mapped step, which `gen_tla.py check` compares to the run's daemon facet",
     "each owner step expects the model's outcome: ok, selector.not_found for an op on a closed tab or a removed pane, validation.invalid for a dock that leaves no scrolling column; a replayed key answers as its first call did and changes nothing"
   ],
   "teardown": [

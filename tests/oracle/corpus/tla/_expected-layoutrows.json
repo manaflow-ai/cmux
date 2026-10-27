@@ -2,7 +2,7 @@
   "schema": "cmux.oracle.tla-expected/v1",
   "spec": "LayoutRows",
   "generator": "scripts/cmux-next/oracle/gen_tla.py",
-  "description": "The model's abstract state after each mapped step of each case. Tokens t:<id> are the spec's tab ids and p:<id> its pane ids; `check` binds each to one daemon id per case. {\"set\": [...]} is unordered. `view` is client view state only the app product checks.",
+  "description": "The model's abstract state after each mapped step of each case. Tokens t:<id> are the spec's tab ids and p:<id> its pane ids; `check` binds each to one daemon id per case. {\"set\": [...]} is unordered. `view` is client view state no product checks yet (coverage.json `excluded`).",
   "cases": {
     "layoutrows-one-0001": [
       {
@@ -2889,79 +2889,6 @@
         }
       },
       {
-        "step": "m05-move",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:2"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      },
-      {
-        "step": "m07-move",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:2"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      }
-    ],
-    "layoutrows-one-0034": [
-      {
-        "step": "fx-pane-2",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:1"
-                  ],
-                  [
-                    "t:2"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      },
-      {
-        "step": "m04-close",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:2"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      },
-      {
         "step": "m05-newcol",
         "state": {
           "cols": [
@@ -2996,7 +2923,7 @@
         }
       }
     ],
-    "layoutrows-one-0035": [
+    "layoutrows-one-0034": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -3069,7 +2996,7 @@
         }
       }
     ],
-    "layoutrows-one-0036": [
+    "layoutrows-one-0035": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -3180,7 +3107,7 @@
         }
       }
     ],
-    "layoutrows-one-0037": [
+    "layoutrows-one-0036": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -3256,7 +3183,7 @@
         }
       }
     ],
-    "layoutrows-one-0038": [
+    "layoutrows-one-0037": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -3331,7 +3258,7 @@
         }
       }
     ],
-    "layoutrows-one-0039": [
+    "layoutrows-one-0038": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -3404,7 +3331,7 @@
         }
       }
     ],
-    "layoutrows-one-0040": [
+    "layoutrows-one-0039": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -3500,7 +3427,7 @@
         }
       }
     ],
-    "layoutrows-one-0041": [
+    "layoutrows-one-0040": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -3579,7 +3506,7 @@
         }
       }
     ],
-    "layoutrows-one-0042": [
+    "layoutrows-one-0041": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -3653,7 +3580,7 @@
         }
       }
     ],
-    "layoutrows-one-0043": [
+    "layoutrows-one-0042": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -3736,7 +3663,7 @@
         }
       }
     ],
-    "layoutrows-one-0044": [
+    "layoutrows-one-0043": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -3842,7 +3769,7 @@
         }
       }
     ],
-    "layoutrows-one-0045": [
+    "layoutrows-one-0044": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -3953,7 +3880,7 @@
         }
       }
     ],
-    "layoutrows-one-0046": [
+    "layoutrows-one-0045": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -4026,7 +3953,7 @@
         }
       }
     ],
-    "layoutrows-one-0047": [
+    "layoutrows-one-0046": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -4127,7 +4054,7 @@
         }
       }
     ],
-    "layoutrows-one-0048": [
+    "layoutrows-one-0047": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -4206,7 +4133,7 @@
         }
       }
     ],
-    "layoutrows-one-0049": [
+    "layoutrows-one-0048": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -4279,7 +4206,7 @@
         }
       }
     ],
-    "layoutrows-one-0050": [
+    "layoutrows-one-0049": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -4352,7 +4279,7 @@
         }
       }
     ],
-    "layoutrows-one-0051": [
+    "layoutrows-one-0050": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -4460,7 +4387,7 @@
         }
       }
     ],
-    "layoutrows-one-0052": [
+    "layoutrows-one-0051": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -4533,7 +4460,7 @@
         }
       }
     ],
-    "layoutrows-one-0053": [
+    "layoutrows-one-0052": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -4644,7 +4571,7 @@
         }
       }
     ],
-    "layoutrows-one-0054": [
+    "layoutrows-one-0053": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -4720,7 +4647,7 @@
         }
       }
     ],
-    "layoutrows-one-0055": [
+    "layoutrows-one-0054": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -4805,7 +4732,7 @@
         }
       }
     ],
-    "layoutrows-one-0056": [
+    "layoutrows-one-0055": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -4901,7 +4828,7 @@
         }
       }
     ],
-    "layoutrows-one-0057": [
+    "layoutrows-one-0056": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -5010,7 +4937,7 @@
         }
       }
     ],
-    "layoutrows-one-0058": [
+    "layoutrows-one-0057": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -5096,7 +5023,7 @@
         }
       }
     ],
-    "layoutrows-one-0059": [
+    "layoutrows-one-0058": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -5174,7 +5101,7 @@
         }
       }
     ],
-    "layoutrows-one-0060": [
+    "layoutrows-one-0059": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -5255,7 +5182,7 @@
         }
       }
     ],
-    "layoutrows-one-0061": [
+    "layoutrows-one-0060": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -5370,7 +5297,7 @@
         }
       }
     ],
-    "layoutrows-one-0062": [
+    "layoutrows-one-0061": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -5432,7 +5359,7 @@
         }
       }
     ],
-    "layoutrows-one-0063": [
+    "layoutrows-one-0062": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -5508,7 +5435,7 @@
         }
       }
     ],
-    "layoutrows-one-0064": [
+    "layoutrows-one-0063": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -5590,7 +5517,7 @@
         }
       }
     ],
-    "layoutrows-one-0065": [
+    "layoutrows-one-0064": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -5695,7 +5622,7 @@
         }
       }
     ],
-    "layoutrows-one-0066": [
+    "layoutrows-one-0065": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -5803,7 +5730,7 @@
         }
       }
     ],
-    "layoutrows-one-0067": [
+    "layoutrows-one-0066": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -5915,7 +5842,7 @@
         }
       }
     ],
-    "layoutrows-one-0068": [
+    "layoutrows-one-0067": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -6031,7 +5958,7 @@
         }
       }
     ],
-    "layoutrows-one-0069": [
+    "layoutrows-one-0068": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -6149,7 +6076,7 @@
         }
       }
     ],
-    "layoutrows-one-0070": [
+    "layoutrows-one-0069": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -6242,7 +6169,7 @@
         }
       }
     ],
-    "layoutrows-one-0071": [
+    "layoutrows-one-0070": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -6348,7 +6275,7 @@
         }
       }
     ],
-    "layoutrows-one-0072": [
+    "layoutrows-one-0071": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -6453,7 +6380,7 @@
         }
       }
     ],
-    "layoutrows-one-0073": [
+    "layoutrows-one-0072": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -6532,7 +6459,7 @@
         }
       }
     ],
-    "layoutrows-one-0074": [
+    "layoutrows-one-0073": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -6644,7 +6571,7 @@
         }
       }
     ],
-    "layoutrows-one-0075": [
+    "layoutrows-one-0074": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -6756,7 +6683,7 @@
         }
       }
     ],
-    "layoutrows-one-0076": [
+    "layoutrows-one-0075": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -6853,7 +6780,7 @@
         }
       }
     ],
-    "layoutrows-one-0077": [
+    "layoutrows-one-0076": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -6963,7 +6890,7 @@
         }
       }
     ],
-    "layoutrows-one-0078": [
+    "layoutrows-one-0077": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -7071,7 +6998,7 @@
         }
       }
     ],
-    "layoutrows-one-0079": [
+    "layoutrows-one-0078": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -7177,7 +7104,7 @@
         }
       }
     ],
-    "layoutrows-one-0080": [
+    "layoutrows-one-0079": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -7253,7 +7180,7 @@
         }
       }
     ],
-    "layoutrows-one-0081": [
+    "layoutrows-one-0080": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -7346,7 +7273,7 @@
         }
       }
     ],
-    "layoutrows-one-0082": [
+    "layoutrows-one-0081": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -7434,7 +7361,7 @@
         }
       }
     ],
-    "layoutrows-one-0083": [
+    "layoutrows-one-0082": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -7542,7 +7469,7 @@
         }
       }
     ],
-    "layoutrows-one-0084": [
+    "layoutrows-one-0083": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -7618,7 +7545,7 @@
         }
       }
     ],
-    "layoutrows-one-0085": [
+    "layoutrows-one-0084": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -7733,7 +7660,7 @@
         }
       }
     ],
-    "layoutrows-one-0086": [
+    "layoutrows-one-0085": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -7812,7 +7739,7 @@
         }
       }
     ],
-    "layoutrows-one-0087": [
+    "layoutrows-one-0086": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -7874,7 +7801,7 @@
         }
       }
     ],
-    "layoutrows-one-0088": [
+    "layoutrows-one-0087": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -7950,7 +7877,7 @@
         }
       }
     ],
-    "layoutrows-one-0089": [
+    "layoutrows-one-0088": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -8013,7 +7940,7 @@
         }
       }
     ],
-    "layoutrows-one-0090": [
+    "layoutrows-one-0089": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -8104,7 +8031,7 @@
         }
       }
     ],
-    "layoutrows-one-0091": [
+    "layoutrows-one-0090": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -8219,7 +8146,7 @@
         }
       }
     ],
-    "layoutrows-one-0092": [
+    "layoutrows-one-0091": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -8316,7 +8243,7 @@
         }
       }
     ],
-    "layoutrows-one-0093": [
+    "layoutrows-one-0092": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -8389,7 +8316,7 @@
         }
       }
     ],
-    "layoutrows-one-0094": [
+    "layoutrows-one-0093": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -8488,7 +8415,7 @@
         }
       }
     ],
-    "layoutrows-one-0095": [
+    "layoutrows-one-0094": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -8570,7 +8497,7 @@
         }
       }
     ],
-    "layoutrows-one-0096": [
+    "layoutrows-one-0095": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -8621,7 +8548,7 @@
         }
       }
     ],
-    "layoutrows-one-0097": [
+    "layoutrows-one-0096": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -8727,7 +8654,7 @@
         }
       }
     ],
-    "layoutrows-one-0098": [
+    "layoutrows-one-0097": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -8842,7 +8769,7 @@
         }
       }
     ],
-    "layoutrows-one-0099": [
+    "layoutrows-one-0098": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -8954,7 +8881,7 @@
         }
       }
     ],
-    "layoutrows-one-0100": [
+    "layoutrows-one-0099": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -9062,7 +8989,7 @@
         }
       }
     ],
-    "layoutrows-one-0101": [
+    "layoutrows-one-0100": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -9135,7 +9062,7 @@
         }
       }
     ],
-    "layoutrows-one-0102": [
+    "layoutrows-one-0101": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -9186,100 +9113,7 @@
         }
       }
     ],
-    "layoutrows-one-0103": [
-      {
-        "step": "fx-pane-2",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:1"
-                  ],
-                  [
-                    "t:2"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      },
-      {
-        "step": "m04-close",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:2"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      },
-      {
-        "step": "m05-newcol",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:2"
-                  ]
-                ]
-              ]
-            },
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:3"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      },
-      {
-        "step": "m06-move",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:2"
-                  ]
-                ]
-              ]
-            },
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:3"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      }
-    ],
-    "layoutrows-one-0104": [
+    "layoutrows-one-0102": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -9370,7 +9204,7 @@
         }
       }
     ],
-    "layoutrows-one-0105": [
+    "layoutrows-one-0103": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -9449,7 +9283,7 @@
         }
       }
     ],
-    "layoutrows-one-0106": [
+    "layoutrows-one-0104": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -9561,7 +9395,7 @@
         }
       }
     ],
-    "layoutrows-one-0107": [
+    "layoutrows-one-0105": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -9657,7 +9491,7 @@
         }
       }
     ],
-    "layoutrows-one-0108": [
+    "layoutrows-one-0106": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -9763,7 +9597,7 @@
         }
       }
     ],
-    "layoutrows-one-0109": [
+    "layoutrows-one-0107": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -9855,7 +9689,7 @@
         }
       }
     ],
-    "layoutrows-one-0110": [
+    "layoutrows-one-0108": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -9965,7 +9799,7 @@
         }
       }
     ],
-    "layoutrows-one-0111": [
+    "layoutrows-one-0109": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -10043,90 +9877,7 @@
         }
       }
     ],
-    "layoutrows-one-0112": [
-      {
-        "step": "fx-pane-2",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:1"
-                  ],
-                  [
-                    "t:2"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      },
-      {
-        "step": "m08-close",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:1"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      },
-      {
-        "step": "m09-newcol",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:1"
-                  ]
-                ]
-              ]
-            },
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:3"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      },
-      {
-        "step": "m11-close",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:3"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      }
-    ],
-    "layoutrows-one-0113": [
+    "layoutrows-one-0110": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -10241,7 +9992,7 @@
         }
       }
     ],
-    "layoutrows-one-0114": [
+    "layoutrows-one-0111": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -10336,7 +10087,7 @@
         }
       }
     ],
-    "layoutrows-one-0115": [
+    "layoutrows-one-0112": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -10409,7 +10160,7 @@
         }
       }
     ],
-    "layoutrows-one-0116": [
+    "layoutrows-one-0113": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -10524,7 +10275,7 @@
         }
       }
     ],
-    "layoutrows-one-0117": [
+    "layoutrows-one-0114": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -10597,7 +10348,7 @@
         }
       }
     ],
-    "layoutrows-one-0118": [
+    "layoutrows-one-0115": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -10677,7 +10428,7 @@
         }
       }
     ],
-    "layoutrows-one-0119": [
+    "layoutrows-one-0116": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -10762,7 +10513,7 @@
         }
       }
     ],
-    "layoutrows-one-0120": [
+    "layoutrows-one-0117": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -10832,6 +10583,275 @@
                   [
                     "t:2",
                     "t:1"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "layoutrows-one-0118": [
+      {
+        "step": "fx-pane-2",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:1"
+                  ],
+                  [
+                    "t:2"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "step": "m04-close",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:1"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "step": "m06-move",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:1"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "step": "m07-move",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:1"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "layoutrows-one-0119": [
+      {
+        "step": "fx-pane-2",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:1"
+                  ],
+                  [
+                    "t:2"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "step": "m04-split",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:1"
+                  ],
+                  [
+                    "t:3"
+                  ],
+                  [
+                    "t:2"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "step": "m05-newcol",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:1"
+                  ],
+                  [
+                    "t:3"
+                  ],
+                  [
+                    "t:2"
+                  ]
+                ]
+              ]
+            },
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:4"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "layoutrows-one-0120": [
+      {
+        "step": "fx-pane-2",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:1"
+                  ],
+                  [
+                    "t:2"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "step": "m04-newcol",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:1"
+                  ],
+                  [
+                    "t:2"
+                  ]
+                ]
+              ]
+            },
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:3"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "step": "m06-split",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:1"
+                  ],
+                  [
+                    "t:2"
+                  ],
+                  [
+                    "t:4"
+                  ]
+                ]
+              ]
+            },
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:3"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "step": "m07-dock",
+        "state": {
+          "cols": [
+            {
+              "dock": "left",
+              "rows": [
+                [
+                  [
+                    "t:1"
+                  ],
+                  [
+                    "t:2"
+                  ],
+                  [
+                    "t:4"
+                  ]
+                ]
+              ]
+            },
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:3"
                   ]
                 ]
               ]
@@ -21062,107 +21082,6 @@
         }
       },
       {
-        "step": "m06-split",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:1"
-                  ],
-                  [
-                    "t:2"
-                  ],
-                  [
-                    "t:3"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      },
-      {
-        "step": "m13-retry",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:1"
-                  ],
-                  [
-                    "t:2"
-                  ],
-                  [
-                    "t:3"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      },
-      {
-        "step": "m18-newcol",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:1"
-                  ],
-                  [
-                    "t:2"
-                  ],
-                  [
-                    "t:3"
-                  ]
-                ]
-              ]
-            },
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:4"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      }
-    ],
-    "layoutrows-two-clients-0022": [
-      {
-        "step": "fx-pane-2",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:1"
-                  ],
-                  [
-                    "t:2"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      },
-      {
         "step": "m03-close",
         "state": {
           "cols": [
@@ -21214,7 +21133,7 @@
         }
       }
     ],
-    "layoutrows-two-clients-0023": [
+    "layoutrows-two-clients-0022": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -21287,7 +21206,7 @@
         }
       }
     ],
-    "layoutrows-two-clients-0024": [
+    "layoutrows-two-clients-0023": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -21349,7 +21268,7 @@
         }
       }
     ],
-    "layoutrows-two-clients-0025": [
+    "layoutrows-two-clients-0024": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -21400,7 +21319,7 @@
         }
       }
     ],
-    "layoutrows-two-clients-0026": [
+    "layoutrows-two-clients-0025": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -21508,7 +21427,7 @@
         }
       }
     ],
-    "layoutrows-two-clients-0027": [
+    "layoutrows-two-clients-0026": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -21596,7 +21515,7 @@
         }
       }
     ],
-    "layoutrows-two-clients-0028": [
+    "layoutrows-two-clients-0027": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -21708,7 +21627,7 @@
         }
       }
     ],
-    "layoutrows-two-clients-0029": [
+    "layoutrows-two-clients-0028": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -21796,7 +21715,7 @@
         }
       }
     ],
-    "layoutrows-two-clients-0030": [
+    "layoutrows-two-clients-0029": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -21885,7 +21804,7 @@
         }
       }
     ],
-    "layoutrows-two-clients-0031": [
+    "layoutrows-two-clients-0030": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -21961,7 +21880,7 @@
         }
       }
     ],
-    "layoutrows-two-clients-0032": [
+    "layoutrows-two-clients-0031": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -22034,7 +21953,7 @@
         }
       }
     ],
-    "layoutrows-two-clients-0033": [
+    "layoutrows-two-clients-0032": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -22140,7 +22059,7 @@
         }
       }
     ],
-    "layoutrows-two-clients-0034": [
+    "layoutrows-two-clients-0033": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -22208,7 +22127,7 @@
         }
       }
     ],
-    "layoutrows-two-clients-0035": [
+    "layoutrows-two-clients-0034": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -22320,86 +22239,7 @@
         }
       }
     ],
-    "layoutrows-two-clients-0036": [
-      {
-        "step": "fx-pane-2",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:1"
-                  ],
-                  [
-                    "t:2"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      },
-      {
-        "step": "m03-close",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:1"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      },
-      {
-        "step": "m07-split",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:1"
-                  ],
-                  [
-                    "t:3"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      },
-      {
-        "step": "m09-retry",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:1"
-                  ],
-                  [
-                    "t:3"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      }
-    ],
-    "layoutrows-two-clients-0037": [
+    "layoutrows-two-clients-0035": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -22477,98 +22317,7 @@
         }
       }
     ],
-    "layoutrows-two-clients-0038": [
-      {
-        "step": "fx-pane-2",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:1"
-                  ],
-                  [
-                    "t:2"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      },
-      {
-        "step": "m04-split",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:1"
-                  ],
-                  [
-                    "t:2"
-                  ],
-                  [
-                    "t:3"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      },
-      {
-        "step": "m21-move",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:1"
-                  ],
-                  [
-                    "t:2"
-                  ],
-                  [
-                    "t:3"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      },
-      {
-        "step": "m22-retry",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:1"
-                  ],
-                  [
-                    "t:2"
-                  ],
-                  [
-                    "t:3"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      }
-    ],
-    "layoutrows-two-clients-0039": [
+    "layoutrows-two-clients-0036": [
       {
         "step": "fx-pane-2",
         "state": {
@@ -22676,6 +22425,266 @@
         }
       }
     ],
+    "layoutrows-two-clients-0037": [
+      {
+        "step": "fx-pane-2",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:1"
+                  ],
+                  [
+                    "t:2"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "step": "m05-close",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:1"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "step": "m12-newcol",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:1"
+                  ]
+                ]
+              ]
+            },
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:3"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "step": "m19-retry",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:1"
+                  ]
+                ]
+              ]
+            },
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:3"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "layoutrows-two-clients-0038": [
+      {
+        "step": "fx-pane-2",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:1"
+                  ],
+                  [
+                    "t:2"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "step": "m03-split",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:1"
+                  ],
+                  [
+                    "t:2"
+                  ],
+                  [
+                    "t:3"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "step": "m06-retry",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:1"
+                  ],
+                  [
+                    "t:2"
+                  ],
+                  [
+                    "t:3"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "step": "m12-split",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:1"
+                  ],
+                  [
+                    "t:4"
+                  ],
+                  [
+                    "t:2"
+                  ],
+                  [
+                    "t:3"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "layoutrows-two-clients-0039": [
+      {
+        "step": "fx-pane-2",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:1"
+                  ],
+                  [
+                    "t:2"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "step": "m04-close",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:2"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "step": "m08-move",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:2"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "step": "m09-retry",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:2"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      }
+    ],
     "layoutrows-two-clients-0040": [
       {
         "step": "fx-pane-2",
@@ -22698,23 +22707,6 @@
         }
       },
       {
-        "step": "m03-close",
-        "state": {
-          "cols": [
-            {
-              "dock": "none",
-              "rows": [
-                [
-                  [
-                    "t:2"
-                  ]
-                ]
-              ]
-            }
-          ]
-        }
-      },
-      {
         "step": "m04-newcol",
         "state": {
           "cols": [
@@ -22723,7 +22715,20 @@
               "rows": [
                 [
                   [
+                    "t:1"
+                  ],
+                  [
                     "t:2"
+                  ]
+                ]
+              ]
+            },
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:3"
                   ]
                 ]
               ]
@@ -22732,7 +22737,7 @@
         }
       },
       {
-        "step": "m10-retry",
+        "step": "m09-retry",
         "state": {
           "cols": [
             {
@@ -22740,7 +22745,48 @@
               "rows": [
                 [
                   [
+                    "t:1"
+                  ],
+                  [
                     "t:2"
+                  ]
+                ]
+              ]
+            },
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:3"
+                  ]
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "step": "m13-move",
+        "state": {
+          "cols": [
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:2",
+                    "t:1"
+                  ]
+                ]
+              ]
+            },
+            {
+              "dock": "none",
+              "rows": [
+                [
+                  [
+                    "t:3"
                   ]
                 ]
               ]

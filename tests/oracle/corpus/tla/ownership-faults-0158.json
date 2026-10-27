@@ -66,25 +66,7 @@
       }
     },
     {
-      "id": "m07-close",
-      "op": "resource.call",
-      "target": {
-        "machine": "current",
-        "session": "current",
-        "tab": "$step:fx-tab-2#/value/tab_id"
-      },
-      "args": {
-        "method": "tab.close",
-        "idempotencyKey": "ownership-faults-0158.c2-1"
-      },
-      "expect": {
-        "outcome": "ok",
-        "receipt": "mutation_result"
-      },
-      "note": "TLA step 8 Commit(close t2, id c2.1): applied"
-    },
-    {
-      "id": "m11-move",
+      "id": "m05-move",
       "op": "resource.call",
       "target": {
         "machine": "current",
@@ -97,7 +79,7 @@
           "destination_workspace": "$step:fx-workspace#/value/workspace_id",
           "destination_screen": "$step:fx-workspace#/value/screen_id",
           "destination_pane": "$step:fx-workspace#/value/pane_id",
-          "index": 1
+          "index": 2
         },
         "idempotencyKey": "ownership-faults-0158.c1-1"
       },
@@ -105,7 +87,79 @@
         "outcome": "ok",
         "receipt": "mutation_result"
       },
-      "note": "TLA step 12 Commit(move t1 to p1, id c1.1): applied"
+      "note": "TLA step 6 Commit(move t1 to p1, id c1.1): applied"
+    },
+    {
+      "id": "m07-retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "tab": "$step:fx-workspace#/value/tab_id"
+      },
+      "args": {
+        "method": "tab.move",
+        "params": {
+          "destination_workspace": "$step:fx-workspace#/value/workspace_id",
+          "destination_screen": "$step:fx-workspace#/value/screen_id",
+          "destination_pane": "$step:fx-workspace#/value/pane_id",
+          "index": 2
+        },
+        "idempotencyKey": "ownership-faults-0158.c1-1"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "TLA step 8 OwnerReceive(move t1 to p1, id c1.1) of a decided key: answered from the ledger; the keyed retry of step m05-move"
+    },
+    {
+      "id": "m08-retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "tab": "$step:fx-workspace#/value/tab_id"
+      },
+      "args": {
+        "method": "tab.move",
+        "params": {
+          "destination_workspace": "$step:fx-workspace#/value/workspace_id",
+          "destination_screen": "$step:fx-workspace#/value/screen_id",
+          "destination_pane": "$step:fx-workspace#/value/pane_id",
+          "index": 2
+        },
+        "idempotencyKey": "ownership-faults-0158.c1-1"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "TLA step 9 OwnerReceive(move t1 to p1, id c1.1) of a decided key: answered from the ledger; the keyed retry of step m05-move"
+    },
+    {
+      "id": "m12-retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "tab": "$step:fx-workspace#/value/tab_id"
+      },
+      "args": {
+        "method": "tab.move",
+        "params": {
+          "destination_workspace": "$step:fx-workspace#/value/workspace_id",
+          "destination_screen": "$step:fx-workspace#/value/screen_id",
+          "destination_pane": "$step:fx-workspace#/value/pane_id",
+          "index": 2
+        },
+        "idempotencyKey": "ownership-faults-0158.c1-1"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "TLA step 13 OwnerReceive(move t1 to p1, id c1.1) of a decided key: answered from the ledger; the keyed retry of step m05-move"
     },
     {
       "id": "m13-retry",
@@ -121,7 +175,7 @@
           "destination_workspace": "$step:fx-workspace#/value/workspace_id",
           "destination_screen": "$step:fx-workspace#/value/screen_id",
           "destination_pane": "$step:fx-workspace#/value/pane_id",
-          "index": 1
+          "index": 2
         },
         "idempotencyKey": "ownership-faults-0158.c1-1"
       },
@@ -129,7 +183,55 @@
         "outcome": "ok",
         "receipt": "mutation_result"
       },
-      "note": "TLA step 14 OwnerReceive(move t1 to p1, id c1.1) of a decided key: answered from the ledger; the keyed retry of step m11-move"
+      "note": "TLA step 14 OwnerReceive(move t1 to p1, id c1.1) of a decided key: answered from the ledger; the keyed retry of step m05-move"
+    },
+    {
+      "id": "m14-retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "tab": "$step:fx-workspace#/value/tab_id"
+      },
+      "args": {
+        "method": "tab.move",
+        "params": {
+          "destination_workspace": "$step:fx-workspace#/value/workspace_id",
+          "destination_screen": "$step:fx-workspace#/value/screen_id",
+          "destination_pane": "$step:fx-workspace#/value/pane_id",
+          "index": 2
+        },
+        "idempotencyKey": "ownership-faults-0158.c1-1"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "TLA step 15 OwnerReceive(move t1 to p1, id c1.1) of a decided key: answered from the ledger; the keyed retry of step m05-move"
+    },
+    {
+      "id": "m16-retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "tab": "$step:fx-workspace#/value/tab_id"
+      },
+      "args": {
+        "method": "tab.move",
+        "params": {
+          "destination_workspace": "$step:fx-workspace#/value/workspace_id",
+          "destination_screen": "$step:fx-workspace#/value/screen_id",
+          "destination_pane": "$step:fx-workspace#/value/pane_id",
+          "index": 2
+        },
+        "idempotencyKey": "ownership-faults-0158.c1-1"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "TLA step 17 OwnerReceive(move t1 to p1, id c1.1) of a decided key: answered from the ledger; the keyed retry of step m05-move"
     },
     {
       "id": "m17-retry",
@@ -145,7 +247,7 @@
           "destination_workspace": "$step:fx-workspace#/value/workspace_id",
           "destination_screen": "$step:fx-workspace#/value/screen_id",
           "destination_pane": "$step:fx-workspace#/value/pane_id",
-          "index": 1
+          "index": 2
         },
         "idempotencyKey": "ownership-faults-0158.c1-1"
       },
@@ -153,10 +255,10 @@
         "outcome": "ok",
         "receipt": "mutation_result"
       },
-      "note": "TLA step 18 OwnerReceive(move t1 to p1, id c1.1) of a decided key: answered from the ledger; the keyed retry of step m11-move"
+      "note": "TLA step 18 OwnerReceive(move t1 to p1, id c1.1) of a decided key: answered from the ledger; the keyed retry of step m05-move"
     },
     {
-      "id": "m23-retry",
+      "id": "m18-retry",
       "op": "resource.call",
       "target": {
         "machine": "current",
@@ -169,7 +271,7 @@
           "destination_workspace": "$step:fx-workspace#/value/workspace_id",
           "destination_screen": "$step:fx-workspace#/value/screen_id",
           "destination_pane": "$step:fx-workspace#/value/pane_id",
-          "index": 1
+          "index": 2
         },
         "idempotencyKey": "ownership-faults-0158.c1-1"
       },
@@ -177,11 +279,29 @@
         "outcome": "ok",
         "receipt": "mutation_result"
       },
-      "note": "TLA step 24 OwnerReceive(move t1 to p1, id c1.1) of a decided key: answered from the ledger; the keyed retry of step m11-move"
+      "note": "TLA step 19 OwnerReceive(move t1 to p1, id c1.1) of a decided key: answered from the ledger; the keyed retry of step m05-move"
+    },
+    {
+      "id": "m27-close",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "tab": "$step:fx-tab-2#/value/tab_id"
+      },
+      "args": {
+        "method": "tab.close",
+        "idempotencyKey": "ownership-faults-0158.c2-1"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "note": "TLA step 28 Commit(close t2, id c2.1): applied"
     }
   ],
   "invariants": [
-    "generated by scripts/cmux-next/oracle/gen_tla.py (p15-oracle-100) from a TLC simulate trace of plans/cmux-next/formal/OwnershipConvergence.tla (OwnershipConvergence.cfg, seed 6001, trace 641); tests/oracle/corpus/tla/_expected-ownership.json holds the model's abstract state after each mapped step, which `gen_tla.py check` compares to the run's daemon facet",
+    "generated by scripts/cmux-next/oracle/gen_tla.py (p15-oracle-100) from a TLC simulate trace of plans/cmux-next/formal/OwnershipConvergence.tla (OwnershipConvergence.cfg, seed 6002, trace 543); tests/oracle/corpus/tla/_expected-ownership.json holds the model's abstract state after each mapped step, which `gen_tla.py check` compares to the run's daemon facet",
     "each owner step expects the model's outcome: ok, selector.not_found for an op on a closed tab or a removed pane, validation.invalid for a dock that leaves no scrolling column; a replayed key answers as its first call did and changes nothing"
   ],
   "teardown": [

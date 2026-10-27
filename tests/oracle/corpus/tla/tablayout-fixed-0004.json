@@ -3,7 +3,7 @@
   "corpusVersion": 1,
   "id": "tablayout-fixed-0004",
   "suite": "tla",
-  "title": "TLA TabLayout (fixed): tab.close, tab.move",
+  "title": "TLA TabLayout (fixed): tab.close",
   "surface": "cmux-next-daemon",
   "source": {
     "repo": "manaflow-ai/cmux",
@@ -86,7 +86,7 @@
       }
     },
     {
-      "id": "m06-move",
+      "id": "m05-close",
       "op": "resource.call",
       "target": {
         "machine": "current",
@@ -94,23 +94,17 @@
         "tab": "$step:fx-tab-2#/value/tab_id"
       },
       "args": {
-        "method": "tab.move",
-        "params": {
-          "destination_workspace": "$step:fx-workspace#/value/workspace_id",
-          "destination_screen": "$step:fx-workspace#/value/screen_id",
-          "destination_pane": "$step:fx-pane-2#/value/pane_id",
-          "index": 1
-        },
-        "idempotencyKey": "tablayout-fixed-0004.m06-move"
+        "method": "tab.close",
+        "idempotencyKey": "tablayout-fixed-0004.m05-close"
       },
       "expect": {
         "outcome": "ok",
         "receipt": "mutation_result"
       },
-      "note": "TLA step 7 OwnerApply(op 1 move tab 2 to pane 2 at 2): applied"
+      "note": "TLA step 6 OwnerApply(op 1 close tab 2): applied"
     },
     {
-      "id": "m09-close",
+      "id": "m10-close",
       "op": "resource.call",
       "target": {
         "machine": "current",
@@ -119,13 +113,31 @@
       },
       "args": {
         "method": "tab.close",
-        "idempotencyKey": "tablayout-fixed-0004.m09-close"
+        "idempotencyKey": "tablayout-fixed-0004.m10-close"
       },
       "expect": {
         "outcome": "ok",
         "receipt": "mutation_result"
       },
-      "note": "TLA step 10 OwnerApply(op 2 close tab 3): applied"
+      "note": "TLA step 11 OwnerApply(op 3 close tab 3): applied"
+    },
+    {
+      "id": "m12-close",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "tab": "$step:fx-pane-2#/value/tab_id"
+      },
+      "args": {
+        "method": "tab.close",
+        "idempotencyKey": "tablayout-fixed-0004.m12-close"
+      },
+      "expect": {
+        "outcome": "error",
+        "error": "selector.not_found"
+      },
+      "note": "TLA step 13 OwnerApply(op 2 close tab 3): rejected"
     }
   ],
   "invariants": [
