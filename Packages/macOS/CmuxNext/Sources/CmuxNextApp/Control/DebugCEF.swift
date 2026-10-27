@@ -241,9 +241,9 @@ enum DebugCEF {
             "geometry_skips": .number(Double(stats.geometrySkips)),
             "page_window_widget_shows": .number(Double(stats.pageWindowWidgetShows)),
             // Keyed by the fork's widget kind (CEFNativeWidget raw value): "2" autofill, "5" print preview.
-            "page_window_widget_shows_by_kind": .object(Dictionary(uniqueKeysWithValues: stats.pageWindowWidgetShowsByKind.map {
+            "page_window_widget_shows_by_kind": .object(Dictionary(stats.pageWindowWidgetShowsByKind.map {
                 (String($0.key), JSONValue.number(Double($0.value)))
-            })),
+            }, uniquingKeysWith: { first, _ in first })),
         ])
     }
 
