@@ -4,17 +4,37 @@ import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
 import Foundation
 
-/// Bounded, demand-driven buffer between an attach connection's reader
-/// thread and the terminal view that consumes `events`.
+/// Bounded, demand-driven buffer between an attach reader thread and the
+/// terminal view that consumes `events`. What happens once the consumer falls
+/// more than `highWater` output bytes behind depends on ``Backpressure``:
 ///
-/// Backpressure: once armed (after the attach response), the reader thread
-/// blocks while more than `highWater` output bytes wait, and resumes below
-/// `lowWater`. The socket then stops draining, so the daemon's bounded attach
-/// mailbox overflows and it ends the stream with `overflow` instead of the
-/// app buffering without limit; the view reattaches from a fresh replay.
-/// Replays never block (a 10 MiB replay must not wedge the attach
-/// handshake). Consecutive plain output chunks are merged on the way out.
+/// - ``Backpressure/parkReader`` (the legacy per-view attach connection): the
+///   reader thread blocks until the consumer drains to `lowWater`. The socket
+///   then stops draining, so the daemon's bounded attach mailbox overflows and
+///   it ends the stream with `overflow`; the view reattaches from a fresh replay.
+/// - ``Backpressure/dropAndResync(onResync:)`` (a stream on the shared
+///   connection): the reader never waits, so a stopped view cannot delay
+///   another stream or a control reply on that connection. The queue drops the
+///   output a fresh READY supersedes, asks once for that READY and drops such
+///   output until it arrives, as ``StreamDemux``'s sinks do (Chrome's
+///   `MultiplexRouter` never blocks its IO thread on one endpoint,
+///   `mojo/public/cpp/bindings/lib/multiplex_router.cc`).
+///
+/// Both bounds apply only once armed (after the attach reply): a replay or a
+/// READY's history (up to 32 MiB) is the handshake itself and must not wedge or
+/// resync it. Consecutive plain output chunks are merged on the way out.
 final class TerminalEventQueue: Sendable {
+    /// What a push does once the consumer is `highWater` output bytes behind.
+    enum Backpressure: Sendable {
+        /// Park the reader thread until the consumer drains to `lowWater` (the per-view connection).
+        case parkReader
+        /// Never wait. Drop the queued output a fresh READY supersedes and drop such output until that
+        /// READY; `onResync` runs once per overflow on the reader thread, outside the queue's lock, and
+        /// must not block (it enqueues the `snapshot-request`). A byte attach has no READY to ask for,
+        /// so it ends with `closed(.overflow)` instead and the view reattaches.
+        case dropAndResync(onResync: @Sendable () -> Void)
+    }
+
     let highWater: Int
     let lowWater: Int
     let mergeLimit: Int
@@ -25,6 +45,7 @@ final class TerminalEventQueue: Sendable {
     /// Counts the output bytes the queue copies when it merges chunks
     /// (``DaemonWireStats/Snapshot/outputBytesCopiedApp``); nil counts nothing.
     private let recorder: DaemonWireStats.Recorder?
+    private let backpressure: Backpressure
     private let state = Mutex(State())
     // concurrency-allow: the designed backpressure that makes the daemon drop a slow view: only the attach
     // connection's dedicated reader thread (LineTransport) waits on it, never the main thread or a pool thread.
@@ -39,6 +60,12 @@ final class TerminalEventQueue: Sendable {
         var armed = false
         /// The reader waits on `readerWake`; whoever clears this signals it exactly once.
         var readerParked = false
+        /// `dropAndResync` only: an overflow asked for a READY; output it supersedes is dropped until then.
+        var resyncing = false
+        /// A READY was queued: a snapshot attach, which resyncs in place.
+        var snapshotAttach = false
+        var overflows = 0
+        var droppedEvents = 0
 
         /// Whether the reader must wait now (armed, not finished, above `highWater`); marks it parked if so.
         mutating func parkReader(above highWater: Int) -> Bool {
@@ -50,6 +77,34 @@ final class TerminalEventQueue: Sendable {
         mutating func releaseReader() -> Bool {
             defer { readerParked = false }
             return readerParked
+        }
+
+        /// Whether `event` is dropped because the READY a resync asked for supersedes it. A READY (or a
+        /// replay) ends the resync and is queued.
+        mutating func dropWhileResyncing(_ event: TerminalChannelEvent) -> Bool {
+            guard resyncing else { return false }
+            if TerminalEventQueue.startsFreshState(event) {
+                resyncing = false
+                return false
+            }
+            guard TerminalEventQueue.isSupersededByReady(event) else { return false }
+            droppedEvents += 1
+            return true
+        }
+
+        /// Whether queuing `bulk` more bytes overflows. An item is admitted when no bulk is queued even
+        /// if it alone is larger, so one oversized chunk cannot resync forever.
+        func overflows(adding bulk: Int, highWater: Int) -> Bool {
+            armed && bulk > 0 && outputBytes > 0 && outputBytes + bulk > highWater
+        }
+
+        /// Drops every queued event a fresh READY supersedes; size, color and scroll states stay in order.
+        mutating func dropSuperseded() {
+            let kept = items.dropFirst(head).filter { !TerminalEventQueue.isSupersededByReady($0) }
+            droppedEvents += items.count - head - kept.count
+            items = Array(kept)
+            head = 0
+            outputBytes = 0
         }
 
         /// Next event, merging consecutive plain output chunks up to `mergeLimit`; nil when none is queued.
@@ -78,22 +133,40 @@ final class TerminalEventQueue: Sendable {
         }
     }
 
+    /// What a push that never waits did with its event.
+    private enum Admission: Sendable {
+        case queuedOrDropped
+        case handed(OnceContinuation<TerminalChannelEvent?, OnceContinuationError>)
+        /// A snapshot attach overflowed: the owner asks for a READY.
+        case resync
+    }
+
     init(highWater: Int = 8 << 20, lowWater: Int = 2 << 20, mergeLimit: Int = 1 << 20,
+         backpressure: Backpressure = .parkReader,
          recorder: DaemonWireStats.Recorder?, onReaderBlocked: (@Sendable () -> Void)? = nil) {
         self.highWater = highWater
         self.lowWater = lowWater
         self.mergeLimit = mergeLimit
+        self.backpressure = backpressure
         self.recorder = recorder
         self.onReaderBlocked = onReaderBlocked
     }
 
-    /// Enables blocking once the consumer can start draining.
+    /// Enables the bound once the consumer can start draining.
     func arm() {
         state.withLock { $0.armed = true }
     }
 
-    /// Reader thread. May block while the consumer is behind.
+    /// Reader thread. With ``Backpressure/parkReader`` it may block while the consumer is behind;
+    /// with ``Backpressure/dropAndResync(onResync:)`` it never waits.
     func push(_ event: TerminalChannelEvent) {
+        switch backpressure {
+        case .parkReader: pushParkingReader(event)
+        case .dropAndResync(let onResync): pushDroppingOnOverflow(event, onResync: onResync)
+        }
+    }
+
+    private func pushParkingReader(_ event: TerminalChannelEvent) {
         let (waiter, blocked) = state.withLock { state -> (OnceContinuation<TerminalChannelEvent?, OnceContinuationError>?, Bool) in
             guard !state.finished else { return (nil, false) }
             if let waiter = state.waiter.take() { return (waiter, false) }
@@ -113,11 +186,43 @@ final class TerminalEventQueue: Sendable {
         }
     }
 
+    private func pushDroppingOnOverflow(_ event: TerminalChannelEvent, onResync: @Sendable () -> Void) {
+        let admission = state.withLock { state -> Admission in
+            guard !state.finished, !state.dropWhileResyncing(event) else { return .queuedOrDropped }
+            if case .snapshot(let frame) = event, frame.phase == .ready { state.snapshotAttach = true }
+            let bulk = Self.outputSize(event)
+            if state.overflows(adding: bulk, highWater: highWater) {
+                state.overflows += 1
+                state.dropSuperseded()
+                state.droppedEvents += 1
+                guard state.snapshotAttach else {
+                    // A byte attach has no READY to ask for: end the stream, and the view reattaches.
+                    state.finished = true
+                    state.items.append(.closed(.overflow))
+                    return .queuedOrDropped
+                }
+                state.resyncing = true
+                return .resync
+            }
+            if let waiter = state.waiter.take() { return .handed(waiter) }
+            state.items.append(event)
+            state.outputBytes += bulk
+            return .queuedOrDropped
+        }
+        switch admission {
+        case .queuedOrDropped: break
+        case .handed(let waiter): waiter.resume(returning: event)
+        case .resync: onResync()
+        }
+    }
+
     /// Any thread. Queues a small, non-output event without the backpressure wait, so a caller may
     /// hold its own lock across it (a size state is pushed under the lock that orders generations).
+    /// While a resync waits for its READY, an event that READY supersedes (the echo of dropped output)
+    /// is dropped.
     func pushWithoutWaiting(_ event: TerminalChannelEvent) {
         let waiter = state.withLock { state -> OnceContinuation<TerminalChannelEvent?, OnceContinuationError>? in
-            guard !state.finished else { return nil }
+            guard !state.finished, !state.dropWhileResyncing(event) else { return nil }
             if let waiter = state.waiter.take() { return waiter }
             state.items.append(event)
             state.outputBytes += Self.outputSize(event)
@@ -183,6 +288,21 @@ final class TerminalEventQueue: Sendable {
         state.withLock { $0.outputBytes }
     }
 
+    /// Overflows so far (``Backpressure/dropAndResync(onResync:)``); each resynced or ended the stream once.
+    var overflowCount: Int {
+        state.withLock { $0.overflows }
+    }
+
+    /// Events dropped by overflows and while a resync waited for its READY.
+    var droppedEventCount: Int {
+        state.withLock { $0.droppedEvents }
+    }
+
+    /// True between an overflow of a snapshot attach and its READY.
+    var isResyncing: Bool {
+        state.withLock { $0.resyncing }
+    }
+
     /// Bulk bytes: output and snapshot history. A READY, like a replay,
     /// never blocks the reader (it is one screen, sent before the attach
     /// reply on attach).
@@ -191,6 +311,24 @@ final class TerminalEventQueue: Sendable {
         case .output(let data, _): data.count
         case .snapshot(let frame) where frame.phase != .ready: frame.data.count
         default: 0
+        }
+    }
+
+    /// A full terminal state the view applies in place of what it had: a READY or a replay.
+    private static func startsFreshState(_ event: TerminalChannelEvent) -> Bool {
+        switch event {
+        case .snapshot(let frame): frame.phase == .ready
+        case .replay, .resized: true
+        default: false
+        }
+    }
+
+    /// Terminal content a later READY replaces: output, its echo marks and older snapshots. Size, color and
+    /// scroll states and the end of the stream are kept, in order.
+    private static func isSupersededByReady(_ event: TerminalChannelEvent) -> Bool {
+        switch event {
+        case .output, .inputEcho, .snapshot, .replay, .resized: true
+        case .colorsChanged, .scrollChanged, .sizeState, .closed: false
         }
     }
 }

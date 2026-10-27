@@ -120,7 +120,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         NewTerminalTrace.shared.attachEvent(.attachStart, surface: target.surface.rawValue, intent: createIntent)
         let transport = try await LineTransport.open(path: endpoint.socketPath, bridge: endpoint.bridge, role: .terminalAttach,
                                                      stats: endpoint.wireStats, hangs: hangs, writerTarget: inputQueue)
-        let attachment = TerminalAttachment(transport: transport, surface: target.surface)
+        let attachment = TerminalAttachment(transport: transport, surface: target.surface, delivery: .ownConnection)
         do {
             try await attachment.open(target: target, size: size, claimGeometry: claimGeometry,
                                       snapshotVersion: snapshotVersion, localHistory: localHistory,
@@ -132,10 +132,13 @@ public actor TerminalAttachment: TerminalByteChannel {
         return attachment
     }
 
-    private init(transport: LineTransport, surface: SurfaceID) {
+    init(transport: LineTransport, surface: SurfaceID, delivery: Delivery) {
         self.transport = transport
-        resolvedSurface = SurfaceBox(surface)
-        let queue = TerminalEventQueue(recorder: transport.recorder)
+        let resolvedSurface = SurfaceBox(surface)
+        self.resolvedSurface = resolvedSurface
+        let backpressure = Self.backpressure(for: delivery, transport: transport,
+                                             surface: { resolvedSurface.value.withLock { $0 } })
+        let queue = TerminalEventQueue(backpressure: backpressure, recorder: transport.recorder)
         self.queue = queue
         events = AsyncStream(unfolding: { await queue.next() }, onCancel: { queue.cancel() })
     }
@@ -388,15 +391,6 @@ public actor TerminalAttachment: TerminalByteChannel {
     }
 
     private nonisolated func fireAndForget<R: DaemonRequest>(_ request: R) {
-        let logger = logger
-        do {
-            try transport.sendNoReply(cmd: R.command, onError: { error in
-                logger.error("\(R.command, privacy: .public) failed: \(error.description, privacy: .public)")
-            }) { id in
-                try WireCoding.encodeRequest(request, id: id)
-            }
-        } catch {
-            logger.debug("\(R.command, privacy: .public) dropped after close")
-        }
+        Self.fireAndForget(request, on: transport, logger: logger)
     }
 }
