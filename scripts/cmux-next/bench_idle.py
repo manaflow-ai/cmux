@@ -35,6 +35,11 @@ terminal hosts, and each Chromium helper over --measure seconds after
                    user's draw of occluded windows
                    (CMUX_NEXT_BENCH_SHIPPING_DRAW=1; a Debug automation launch
                    draws them otherwise), for every scenario of the run.
+  hidden-printing  --printing-terminals terminals (default 10), each printing
+                   a line every 50 ms (PRINT_LOOP), in a workspace that is
+                   not shown (p03-rendering-088: a hidden surface's renderer
+                   wakes nothing). Not idle, so reported, never judged:
+                   compare its CPU and wakeups between two builds.
   tabs-10          runs alone (--fresh --scenarios tabs-10 --engine chromium|webkit): 10
                    static tab_pages `engine` pages over 3 workspaces (4, 3, 3; a new workspace is action
                    newTab), each opened with openBrowser.<engine> and selected, so the
@@ -100,6 +105,7 @@ Usage:
       [--settle 20] [--scenarios terminals,chromium-static,chromium-hidden,minimized,mixed-hidden]
       [--url URL] [--out DIR] [--label NAME] [--no-fail] [--keep-running]
   scripts/cmux-next/bench-idle.sh <tag> --scenarios app-hidden,covered-window
+  scripts/cmux-next/bench-idle.sh <tag> --scenarios hidden-printing [--printing-terminals 10]
   scripts/cmux-next/bench-idle.sh <tag> --fresh --scenarios tabs-10 --engine chromium|webkit
 
 Writes artifacts/cmux-next-bench/<sha>-idle-<label>.json; exits 1 when a
@@ -696,7 +702,21 @@ def prepare(scenario, control, args, app_pid, bundle, pages=None):
         return refused(show_all(control, hidden=True))
     if scenario == COVERED_WINDOW:
         return cover_window(control, run_action)
+    if scenario == HIDDEN_PRINTING:
+        return hide_printing_terminals(run_action, args.printing_terminals)
     return None
+
+
+def hide_printing_terminals(run_action, count):
+    """hidden-printing's setup: `count` new terminals that each run PRINT_LOOP, then a new workspace hides them.
+    Returns a skip reason or None."""
+    for index in range(count):
+        for name, action_args in (("newSurface", {}), ("terminal.sendText", {"text": PRINT_LOOP})):
+            reason = refused_reply(run_action(name, **action_args))
+            if reason:
+                return f"printing terminal {index + 1}: {name}: {reason}"
+    reason = refused_reply(run_action("newTab"))
+    return f"new workspace: {reason}" if reason else None
 
 
 def window_entries(control):
@@ -771,6 +791,9 @@ MIXED_HIDDEN = ("mixed-hidden-visible", "mixed-hidden-app-hidden")
 # The phases measured with the app hidden: Show/Hide All Windows hides it before and shows it again after.
 APP_HIDDEN = ("mixed-hidden-app-hidden", "app-hidden")
 COVERED_WINDOW = "covered-window"
+HIDDEN_PRINTING = "hidden-printing"
+# hidden-printing's command in each terminal: a line every 50 ms, as an agent's status output prints.
+PRINT_LOOP = "while :; do date; sleep 0.05; done\r"
 # The scenarios of p03-rendering-097's occlusion family, judged on the main thread's wakes.
 OCCLUSION_SCENARIOS = ("app-hidden", COVERED_WINDOW)
 OCCLUSION_FEATURE = "windowOcclusionFamily"
@@ -808,7 +831,7 @@ def criteria(scenario, result, args):
     """The --max-* limits of the legacy scenarios. tabs-10 is judged by its result-v1 references (targets.json,
     idle-budget.json) and judge_tabs10, not by these flags."""
     failures = []
-    if scenario == TABS10 or "processes" not in result:
+    if scenario in (TABS10, HIDDEN_PRINTING) or "processes" not in result:
         return failures
     for row in result["processes"]:
         if row.get("partial"):
@@ -959,6 +982,8 @@ def main():
                         help="mixed-hidden, app-hidden, covered-window: main run-loop wakes/s (default 0.5)")
     parser.add_argument("--hidden-tabs", type=int, default=10, help="mixed-hidden: Chromium tabs (default 10)")
     parser.add_argument("--hidden-terminals", type=int, default=5, help="mixed-hidden: terminals (default 5)")
+    parser.add_argument("--printing-terminals", type=int, default=10,
+                        help="hidden-printing: printing terminals (default 10)")
     parser.add_argument("--no-fail", action="store_true")
     parser.add_argument("--keep-running", action="store_true")
     parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",

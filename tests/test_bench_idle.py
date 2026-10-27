@@ -22,6 +22,8 @@
    (not measured fails) and covered-window fails unless the covered window's family was occluded. Their launch
    turns the feature on as a Labs local choice (bench_launch.write_local_features keeps the file's other choices)
    with the user's draw of occluded windows.
+9. hidden-printing (p03-rendering-088) opens --printing-terminals terminals, starts PRINT_LOOP in each, then a new
+   workspace hides them; a refused step skips it, and its result is reported, never judged.
 
 No app, no build, no macOS tool. Not on CI (Lawrence 2026-10-23: no new CI tests; lane = "manual"): run
 python3 -I tests/test_bench_idle.py after changing bench_idle.py, bench_launch.py's order check or
@@ -76,7 +78,7 @@ class FakeControl:
 def args_for(**overrides):
     values = dict(max_cpu=0.5, max_wakeups=5, max_host_cpu=0.2, max_host_wakeups=2, max_helper_cpu=1.0,
                   max_mixed_wakeups=1.0, max_main_wakeups=0.5, hidden_tabs=10, hidden_terminals=5, url="http://x/p",
-                  mixed_ready=False, has_layout_counters=True)
+                  mixed_ready=False, has_layout_counters=True, printing_terminals=10)
     values.update(overrides)
     namespace = argparse.Namespace(**values)
     namespace.next_url = lambda: namespace.url
@@ -278,6 +280,23 @@ class ScenarioTests(unittest.TestCase):
             skipped = bi.prepare("mixed-hidden-visible", control, args_for(hidden_tabs=1), 7, "/b.app")
         self.assertEqual(skipped, "the main window is still minimized or hidden 15 s after showMainWindow")
         self.assertEqual(actions_of(control), ["showMainWindow"])
+
+    def test_hidden_printing_starts_each_terminal_then_hides_them(self):
+        control = FakeControl({"action.run": [{"result": {}}]})
+        self.assertIsNone(bi.prepare("hidden-printing", control, args_for(printing_terminals=2), 7, "/b.app"))
+        self.assertEqual(actions_of(control), ["newSurface", "terminal.sendText"] * 2 + ["newTab"])
+        texts = [params["args"]["text"] for _, params in control.calls if params.get("action") == "terminal.sendText"]
+        self.assertEqual(texts, [bi.PRINT_LOOP] * 2)
+
+    def test_a_refused_print_skips_hidden_printing(self):
+        def reply(params):
+            return {"ok": False, "error": {"code": "no_terminal"}} if params["action"] == "terminal.sendText" else {}
+        skipped = bi.prepare("hidden-printing", FakeControl({"action.run": reply}), args_for(), 7, "/b.app")
+        self.assertEqual(skipped, "printing terminal 1: terminal.sendText: {'code': 'no_terminal'}")
+
+    def test_hidden_printing_is_reported_not_judged(self):
+        busy = {"processes": [row("app", 400.0, cpu=30.0), row("daemon", 90.0, cpu=5.0, pid=2)]}
+        self.assertEqual(bi.criteria("hidden-printing", busy, args_for()), [])
 
     def test_main_window_shown(self):
         self.assertTrue(bi.main_window_shown(FakeControl({"debug.window_list": [SHOWN]})))
