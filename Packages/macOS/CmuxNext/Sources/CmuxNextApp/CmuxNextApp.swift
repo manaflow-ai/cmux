@@ -107,6 +107,13 @@ public struct CmuxNextApp {
                 environment.featureTunableOverrides = LaunchRead(in: ledgerThenSettings, dropped: [:]) { TunableFile.boolValues(tunables, keys: keys) }
             }
         }
+        // The run marker reads the last run's files and opens this run's (p08-startup-075), after the Labs and tunables
+        // reads (the launch's features take those without waiting) and before the settings read: the services, made
+        // after the settings read lands, take its result with no file call on main.
+        environment.runMarker = AppRunMarker.startLaunchRead(directory: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID),
+                                                             in: ledgerThenSettings)
+        // The saved sidebars, before the settings read: the launch window's first frame draws them (p08-startup-075).
+        environment.sidebarSnapshot = environment.sidebarSnapshotFile?.startLaunchRead(in: ledgerThenSettings)
         // cmux-next.json (made on first launch) read and merged with the managed layers on the files lane, next:
         // the launch steps that need it run when it lands, never waiting for it on main (p08-startup 025).
         let settingsRead = SettingsController.startLaunchRead(on: work, in: ledgerThenSettings)

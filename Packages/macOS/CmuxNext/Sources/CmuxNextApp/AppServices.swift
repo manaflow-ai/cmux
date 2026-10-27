@@ -742,12 +742,12 @@ final class AppServices {
         daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork, wireStats: wireStats,
                                hangWatch: hangWatch, crashKeys: crashKeys)
         self.launchReveal = launchReveal
-        sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
+        sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile, saved: environment.sidebarSnapshot ?? environment.sidebarSnapshotFile?.startLaunchRead(on: work))
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus
         popups = BrowserPopupWindows(contextMenus: contextMenus, mainWork: mainWork, inputTap: inputTap)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
-        crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun, crashKeys: crashKeys, work: work, mainWork: mainWork)
+        crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, runMarker: environment.runMarker, crashKeys: crashKeys, work: work, mainWork: mainWork)
         self.features = features ?? Self.launchFeatures(environment)
         launchPanes = LaunchPaneGate(startup: self.features.isEnabled(.launchVisiblePanesOnly) ? launchStartup : nil)
         crashReporting = AppCrashReporting(environment: environment, features: CrashFeatureScope(FeatureFlagsPage.report(self.features, tunables: TunableStore.shared).fieldState), afterStartup: .init(handlersFirst: self.features.isEnabled(.sentryHandlersFirst), startup: launchStartup))  // after the run marker's handlers
