@@ -58,15 +58,11 @@ nonisolated extension ColumnScrollState {
             if let first = recent.first, recent.count > 1 {
                 velocity = recent.reduce(0) { $0 + $1.delta } / CGFloat(max(time - first.time, 1.0 / 120.0))
             }
-            guard let strip else { return effects }
-            let snaps = ColumnViewOffset.snaps(strip: strip, mode: mode)
-            let target = ColumnStripGeometry.snapTarget(releaseOffset: spring.value, velocity: velocity, snaps: snaps.map(\.offset))
-            let forward = target >= spring.value
-            spring.target = target
-            spring.velocity = velocity
-            moveFocusAfterScroll(to: target, snaps: snaps, forward: forward, into: &effects)
-            effects.reportOnSettle = true
-            finish(animated: animated, into: &effects)
+            endGesture(velocity: velocity, animated: animated, into: &effects)
+        case let .gestureRested(animated):
+            guard gesture != nil else { return effects }
+            gesture = nil
+            endGesture(velocity: 0, animated: animated, into: &effects)
         case let .page(offset, animated):
             guard gesture == nil, let strip else { return effects }
             let target = strip.clamp(offset)
@@ -128,6 +124,19 @@ nonisolated extension ColumnScrollState {
         live.framePending = false
         live.shownRaw = live.raw
         gesture = live
+    }
+
+    /// The gesture's end: the snap from the release offset and `velocity`, and the focus there.
+    private mutating func endGesture(velocity: CGFloat, animated: Bool, into effects: inout ColumnScrollEffects) {
+        guard let strip else { return }
+        let snaps = ColumnViewOffset.snaps(strip: strip, mode: mode)
+        let target = ColumnStripGeometry.snapTarget(releaseOffset: spring.value, velocity: velocity, snaps: snaps.map(\.offset))
+        let forward = target >= spring.value
+        spring.target = target
+        spring.velocity = velocity
+        moveFocusAfterScroll(to: target, snaps: snaps, forward: forward, into: &effects)
+        effects.reportOnSettle = true
+        finish(animated: animated, into: &effects)
     }
 
     private mutating func finish(animated: Bool, into effects: inout ColumnScrollEffects) {

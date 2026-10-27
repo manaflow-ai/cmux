@@ -79,6 +79,9 @@ public nonisolated enum ColumnScrollEvent: Hashable, Sendable {
     case gestureBegan
     case gestureChanged(deltaX: CGFloat, time: TimeInterval)
     case gestureEnded(time: TimeInterval, animated: Bool)
+    /// The gesture ended at rest: its own momentum already coasted to a stop (AppKit's responsive
+    /// scroll), so it snaps to the snap nearest where it rests, with no release velocity.
+    case gestureRested(animated: Bool)
     /// One discrete mouse-wheel notch, +1 forward (offset increases).
     case wheel(direction: Int, animated: Bool)
     /// Scroll to an offset chosen by the strip scrollbar (a track click's

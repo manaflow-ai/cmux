@@ -119,14 +119,17 @@ final class StripScrollHost: NSScrollView {
         liveOffset = current
     }
 
-    /// AppKit's live scroll ended, momentum included: the reducer picks the snap and the focus, and the
-    /// host lands there. Returns the target, or nil when no live scroll was tracked.
+    /// AppKit's live scroll ended, momentum included, so the clip is at rest: the reducer picks the snap
+    /// nearest the rest offset and the focus there (``ColumnScrollEvent/gestureRested(animated:)``), and the
+    /// host lands there. The samples' deltas are the main thread's view of AppKit's moves (one large
+    /// catch-up after a stall), not a release velocity: AppKit's momentum already coasted. Returns the
+    /// target, or nil when no live scroll was tracked.
     @discardableResult
     func liveScrollEnded() -> CGFloat? {
         guard liveOffset != nil else { return nil }
         liveScrolled()
         liveOffset = nil
-        let effects = scrollState.reduce(.gestureEnded(time: now(), animated: true))
+        let effects = scrollState.reduce(.gestureRested(animated: true))
         let target = scrollState.spring.target
         land()
         if let focus = effects.focus { onFocus(focus) }

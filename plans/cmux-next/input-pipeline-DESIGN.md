@@ -109,12 +109,13 @@ Prototype: `CmuxNextLayout/Views/StripScrollHost.swift`. An `NSScrollView` whose
 responsive-scroll compatible and implement no `scrollWheel(_:)`; the document asks AppKit to keep the keep-alive
 band prepared, one viewport past each end (`prepareContent(in:)`); each clip move reaches `ColumnScrollState` as a
 gesture sample through the clip's own geometry hooks, and the end of the live scroll (momentum included, told by
-the owner) lands on the reducer's snap with a render-server spring of the document's translation. `StripScrollHostTests` cover these. The app does not
-place the host in a window, so DC4 measures only the p03-026 arm today.
+the owner, so the clip is at rest) lands on the snap nearest the rest offset (`ColumnScrollEvent.gestureRested`, no
+release velocity) with a render-server spring of the document's translation. `StripScrollHostTests` cover these. The
+app does not place the host in a window, so DC4 can measure only the p03-026 arm today (see "Measurement owed").
 
 Numbers. Model: 120 Hz (8.33 ms vsync), DC4's `--stall 50ms/100ms` (a 50 ms main stall every 100 ms), pan events
 at 120 Hz, `ScrollJankTracker`'s rules (janky above 1.5 vsync; missed vsyncs = round((gap + vsync/2)/vsync) - 1).
-Computed from the code paths, not measured yet:
+Computed from the code paths, not measured:
 
 | | p03-026 / 050 (main translation) | StripScrollHost (responsive) |
 |---|---|---|
@@ -122,16 +123,42 @@ Computed from the code paths, not measured yet:
 | Finger down, `--stall 50ms/100ms` | 1 janky frame per stall, gap 6-7 vsyncs, 5-7 missed vsyncs; DelayedFramesPercentage about 15 %, MissedVsyncsMax about 6, MissedVsyncsSum about 60 per 64-frame window | 0, while the pan moves less than the prepared band (1 viewport, 1000 pt) per stall: below 20,000 pt/s |
 | Fling or momentum, `--stall 50ms/100ms` | 0 (render-server spring) | 0 (AppKit's thread) |
 | Main work per pan event, main free | 1 layer write, O(1) (p03-026 acceptance: 0 frame sets, 0 `addTrackingArea`, p99 <= 0.3 ms) | 1 clip bounds change per main sync: AppKit updates the visible rect, tracking areas and cursor rects of every view in the document, O(views) |
-| End of gesture | one spring from release to the snap | AppKit's momentum to its own rest, then a second spring to the snap (`scroll` token, response 0.2 s, up to half a column: 300 pt here) |
+| End of gesture | one spring from release to the snap | AppKit's momentum to its own rest, then a second spring to the snap nearest the rest offset, no release velocity (`scroll` token, response 0.2 s, up to half the widest gap between neighboring snaps, column-scroll.md T2: 184 pt for 600 pt columns 16 pt apart in a 1000 pt viewport) |
 
-The measured column comes from `python3 scripts/cmux-next/scroll-jank-bench.py --app "$NX_APP" --targets strip,rows
---sessions light,stress --stall none,50ms/100ms` on a fleet mini with a 120 Hz virtual display; it fills the p03-026
-arm. The host arm stays computed: the decision below declines the wiring a measurement would need.
+Measured, filled by the test phase from `python3 scripts/cmux-next/scroll-jank-bench.py --app "$NX_APP" --targets
+strip,rows --sessions light,stress --stall none,50ms/100ms` on a fleet mini with a 120 Hz virtual display (per
+target, p50 / p95 / max over the run's fixed windows; "owed" until a run fills it):
 
-Decision: do not adopt. The strip and rows keep p03-026's and 050's main-thread translation with render-server
-flings. Under DC4 with a stall, strip and rows report the numbers above (`expectation: report` in
-scroll-jank-bench.py). The stall itself is the defect to fix (I2: main turn p99 <= 4 ms in input windows; MainJobGate,
-MQ-input-hotspots), not a second scroll path. Reasons:
+| Target, stall | Arm | DelayedFramesPercentage | MissedVsyncsMax | MissedVsyncsSum |
+|---|---|---|---|---|
+| strip, none | p03-026 | owed | owed | owed |
+| strip, none | StripScrollHost | owed | owed | owed |
+| strip, 50ms/100ms | p03-026 | owed | owed | owed |
+| strip, 50ms/100ms | StripScrollHost | owed | owed | owed |
+| rows, none | 050 | owed | owed | owed |
+| rows, none | StripScrollHost | owed | owed | owed |
+| rows, 50ms/100ms | 050 | owed | owed | owed |
+| rows, 50ms/100ms | StripScrollHost | owed | owed | owed |
+
+Measurement owed. The bench can fill the p03-026 / 050 rows today. The StripScrollHost rows need two things this
+spike does not have:
+
+- A default-off feature that hosts the strip container, and a column's row container, under `StripScrollHost`
+  (`ScreenContentView` lays the hosts out in the document's content space; `LayoutRootView`'s scroll claim forwards
+  the gesture's first `scrollWheel` to the host, reason 5).
+- A frame source for that arm. `ScrollJankTracker` counts frames from the slots `InputLatencyTracker` opens per
+  event the app dispatches and closes at the main thread's Core Animation commit (`InputLatencyTracker.swift`,
+  `InputLatencyLedger.gatherScrollFrame`). A frame that AppKit's thread shows during a stall has no main commit,
+  and AppKit's responsive tracking is expected to read the gesture's later events on its own thread, not through
+  the app's dispatch. The frame source must observe what the display shows without the main thread. The second
+  part is not verified.
+
+Proposed decision, pending the measured rows above: do not adopt. The strip and rows keep p03-026's and 050's
+main-thread translation with render-server flings. Under DC4 with a stall, strip and rows report their numbers
+(`expectation: report` in scroll-jank-bench.py). The stall itself is the defect to fix (I2: main turn p99 <= 4 ms in
+input windows; MainJobGate, MQ-input-hotspots), not a second scroll path. The measurement confirms or changes this
+decision: if the host arm shows 0 delayed frames under the stall and its main work per pan with the main thread free
+is within p03-026's budget (p99 <= 0.3 ms), reasons 1 and 2 fall and the decision is reopened. Reasons:
 
 1. Only the finger-down phase is exposed. Flings already run on the render server, so they survive a stall in both
    arms.
@@ -139,9 +166,12 @@ MQ-input-hotspots), not a second scroll path. Reasons:
    change makes AppKit walk every view under the document, which is the per-event work p03-026 removed.
 3. AppKit has no public API to change the target of responsive momentum. Every gesture would end with a second
    motion to the snap (column-scroll.md T2), or the strip would stop snapping.
-4. The reducer's camera anchor (a column inserted or closed during a pan, `ColumnScrollState.sync` step 1) cannot
-   move a clip that AppKit's thread owns. The strip would jump at the end of the gesture
-   (`aSnapshotDuringALiveScrollLeavesTheClipToAppKit` shows that the clip does not follow).
+4. Untested assumption: the reducer's camera anchor (a column inserted or closed during a pan,
+   `ColumnScrollState.sync` step 1) cannot move a clip that AppKit's thread owns during a live scroll, so the strip
+   would jump at the end of the gesture. The prototype does not try: it leaves the clip alone during a live scroll
+   by its own rule (`StripScrollHost.show`, `aSnapshotDuringALiveScrollDoesNotMoveTheClip`), so no test shows what
+   AppKit does with that move. To test it: on a fleet mini with real input, move the clip by the sync's shift while
+   the live scroll runs, and record whether the clip follows and the scroll goes on from there.
 5. Responsive tracking starts only when the scroll view itself gets the gesture's first `scrollWheel`.
    `LayoutRootView`'s scroll claim (pane horizontal scroll, terminal scrollback) decides first and would have to
    forward the event, and it could not take the gesture back after that. Chrome also scrolls on the main thread
@@ -149,7 +179,7 @@ MQ-input-hotspots), not a second scroll path. Reasons:
 6. Content in child windows (Chromium page windows) does not move with a clip; `pansOnContainer` excludes it today
    for the same reason.
 
-What reopens it: with `--stall none`, DC4 shows strip or rows delayed frames that trace to main work the pan cannot
+What else reopens it: with `--stall none`, DC4 shows strip or rows delayed frames that trace to main work the pan cannot
 remove; or AppKit gets a public momentum-target API. Agreement: proposed to PL-motion-core and the p03-rendering
 owner; not yet confirmed by them.
 

@@ -123,6 +123,27 @@ struct StripScrollHostTests {
         #expect(host.document.layer?.sublayerTransform.m41 == 0)
     }
 
+    /// A stall's catch-up: the main thread sees AppKit's moves as one small and one large delta 10 ms apart
+    /// just before the end, after AppKit's momentum already stopped. That is no release velocity (it would
+    /// read 45,000 pt/s and coast to the strip's end): the strip snaps to the snap nearest where it rests.
+    @Test func aStallsCatchUpAtTheEndLandsOnTheNearestSnap() throws {
+        let clock = Clock()
+        let host = Self.host(clock: clock)
+        let strip = Self.strip()
+        host.show(strip, focused: PaneID("p0"), source: .programmatic)
+        host.liveScrollBegan()
+        Self.scroll(host, to: 50)
+        clock.time += 0.01
+        Self.scroll(host, to: 450)
+        let landed = host.liveScrollEnded()
+        let target = try #require(landed)
+        let snaps = ColumnViewOffset.snaps(strip: strip, mode: .never).map(\.offset)
+        let coasted = ColumnStripGeometry.snapTarget(releaseOffset: 450, velocity: 45_000, snaps: snaps)
+        #expect(target == Self.expectedSnap(release: 450, strip: strip))
+        #expect(target != coasted)
+        #expect(host.offset == target)
+    }
+
     /// AppKit moving the clip is a gesture sample through the clip's own hook: nothing takes `scrollWheel(_:)`
     /// and nothing observes a bounds notification.
     @Test func clipMovesFeedTheGestureThroughTheClipsHook() throws {
@@ -145,8 +166,10 @@ struct StripScrollHostTests {
         #expect(host.offset == Self.expectedSnap(release: 900, strip: strip))
     }
 
-    /// During a live scroll the clip is AppKit's: a snapshot syncs the reducer and moves nothing.
-    @Test func aSnapshotDuringALiveScrollLeavesTheClipToAppKit() {
+    /// The prototype's own rule, not an observed AppKit limit: during a live scroll the host does not move
+    /// the clip (``StripScrollHost/show(_:focused:source:)``); a snapshot syncs the reducer and the gesture's
+    /// end lands on its target.
+    @Test func aSnapshotDuringALiveScrollDoesNotMoveTheClip() {
         let clock = Clock()
         let host = Self.host(clock: clock)
         let strip = Self.strip()

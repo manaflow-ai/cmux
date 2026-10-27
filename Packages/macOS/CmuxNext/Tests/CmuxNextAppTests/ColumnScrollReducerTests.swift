@@ -141,4 +141,22 @@ struct ColumnScrollReducerTests {
         // No gesture: no frame pan.
         #expect(on.framePan(at: 10.030) == nil)
     }
+
+    /// A gesture that ended at rest (AppKit's responsive momentum already coasted) snaps to the snap nearest the
+    /// rest offset whatever its samples' deltas: a large last delta 10 ms after the one before is no release velocity.
+    @Test func aRestedGestureSnapsToTheNearestSnapWithNoVelocity() {
+        var rested = Self.state(resamples: false)
+        var ended = Self.state(resamples: false)
+        rested.reduce(.gestureChanged(deltaX: -50, time: 10))
+        rested.reduce(.gestureChanged(deltaX: -400, time: 10.01))
+        ended.reduce(.gestureChanged(deltaX: -50, time: 10))
+        ended.reduce(.gestureChanged(deltaX: -400, time: 10.01))
+        rested.reduce(.gestureRested(animated: true))
+        ended.reduce(.gestureEnded(time: 10.01, animated: true))
+        #expect(!rested.isGestureActive)
+        #expect(rested.spring.velocity == 0)
+        // 450 pt rests between the snaps 232 and 600: nearest is 600; the velocity read coasts to the strip's end.
+        #expect(rested.spring.target == 600)
+        #expect(ended.spring.target > rested.spring.target)
+    }
 }
