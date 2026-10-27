@@ -133,7 +133,9 @@ test("an added file may match a diff through its normalized canonical path", () 
     "codex-canonical",
   );
 
-  expect(toolArtifacts(recorded)).toEqual([{ kind: "html", lang: "html", code: page, path: "/repo/real/weather.html" }]);
+  expect(toolArtifacts(recorded)).toEqual([
+    { kind: "html", lang: "html", code: page, path: "/repo/real/weather.html" },
+  ]);
 });
 
 test("untrusted or partial add provenance never opens a document", () => {
