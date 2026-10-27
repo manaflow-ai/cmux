@@ -135,10 +135,18 @@ public final class MainJobRing: @unchecked Sendable { // crash-allow: a slot's e
     /// The label of the labeled job running now, which the main-actor jobs it enqueues take.
     private let runningLabel: UnsafeMutablePointer<String?>
 
+    /// A ring on the `CLOCK_UPTIME_RAW` clock.
+    ///
+    /// - Parameter capacity: The jobs kept (one slot each, about 170 bytes).
+    public convenience init(capacity: Int) {
+        // Darwin is an internal import, so the clock cannot be a public default argument value.
+        self.init(capacity: capacity) { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
+    }
+
     /// - Parameters:
     ///   - capacity: The jobs kept (one slot each, about 170 bytes).
     ///   - clock: `CLOCK_UPTIME_RAW` nanoseconds (tests pass their own).
-    public init(capacity: Int, clock: @escaping @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }) {
+    public init(capacity: Int, clock: @escaping @Sendable () -> UInt64) {
         let count = max(capacity, 1)
         self.capacity = count
         self.clock = clock
