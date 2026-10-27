@@ -6,22 +6,34 @@ import CmuxNextDesign
 import Testing
 import CmuxNextWakeups
 
-/// The out-of-process Chromium host stays off until a developer turns it on: Chromium tabs run in
-/// process (Japanese IME, find, drag and permission prompts do not work in the host yet). The
-/// switch is the feature `cefHelperHost` (ChromiumHostSwitchTests in CmuxNextAppTests); its
-/// Debug Settings override `browserHost.helper` is unset by default.
+/// The out-of-process Chromium host is on by default in DEV and off in NIGHTLY and Release
+/// (p01-process task 100). The switch is the feature `cefHelperHost`, whose channel defaults
+/// ChromiumHostSwitchTests in CmuxNextAppTests check; its Debug Settings override
+/// `browserHost.helper` is unset by default, and off it keeps Chromium in process.
 @MainActor
 @Suite struct ChromiumHostDefaultOffTests {
-    @Test func theOverrideIsUnsetByDefault() {
+    /// Unset, the feature's channel default applies. The toggle shows the DEV value, the channel of
+    /// every Debug build.
+    @Test func theOverrideIsUnsetByDefaultAndShowsTheDEVValue() {
         let store = TunableStore()
         store.register(BrowserHostTunables.all)
         store.activate(file: nil)
-        #expect(BrowserHostTunables.helper.defaultValue == false)
+        #expect(BrowserHostTunables.helper.defaultValue == true)
         #expect(store.override(BrowserHostTunables.helper.key) == nil)
     }
 
-    /// Off keeps Chromium in process; on picks the host backend in Debug builds (task 015), and a
-    /// bench build never moves a tab to it.
+    /// Setting the toggle off is an override of its own: it is stored, so a DEV launch keeps Chromium in
+    /// process rather than falling back to the channel default.
+    @Test func turningTheToggleOffIsStored() {
+        let store = TunableStore()
+        store.register(BrowserHostTunables.all)
+        store.activate(file: nil)
+        store.set(BrowserHostTunables.helper.key, .bool(false))
+        #expect(store.override(BrowserHostTunables.helper.key)?.bool == false)
+    }
+
+    /// Off keeps Chromium in process; on (the DEV default) picks the host backend in Debug builds
+    /// (task 015), and a bench build never moves a tab to it.
     @Test func theBackendFollowsTheSwitch() {
         #expect(BrowserHostTunables.backend(hostEnabled: false) == .inProcess)
         #if DEBUG

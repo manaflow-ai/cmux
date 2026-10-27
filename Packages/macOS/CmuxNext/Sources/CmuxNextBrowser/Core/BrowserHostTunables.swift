@@ -14,8 +14,9 @@ public nonisolated enum BrowserBackend: String, Sendable, Equatable {
 /// Debug Settings of the Chromium Host app: Debug and bench builds only, like the
 /// host app itself (embed-cef.sh) and its Swift side, so a NIGHTLY never lists a
 /// toggle for a host it does not bundle. The switch is the bench-only feature
-/// `cefHelperHost` (schemas/features/features.d); ``helper`` is only its local
-/// override, which ``BrowserHostSwitch`` applies. A bench build has the
+/// `cefHelperHost` (schemas/features/features.d): on in DEV, off in NIGHTLY and
+/// Release (p01-process.md task 100; NIGHTLY is task 104). ``helper`` is only its
+/// local override, which ``BrowserHostSwitch`` applies. A bench build has the
 /// feature so `debug.chromium_host` can measure the host (chromium-host-bench.py), but
 /// never moves a tab to it: ``backend(hostEnabled:)`` stays in process there.
 /// plans/cmux-next/cef-helper-app-DESIGN.md.
@@ -47,13 +48,14 @@ public nonisolated struct BrowserHostTunables {
     public static let section = TunableSection(id: "browserHost", title: "Chromium Host App", symbol: "macwindow.on.rectangle", order: 44)
 
     /// The local override of `cefHelperHost` (FeatureList step 3: DEV and NIGHTLY, below
-    /// policy and the environment). Unset, the feature's own value applies (off on every channel):
-    /// `debug.chromium_host open` refuses. On: it shows a Chromium page whose browser process
-    /// runs in the Chromium Host app, over a pane.
+    /// policy and the environment). Unset, the feature's own value applies: on in DEV, so a
+    /// Debug build's backend is the host, and off in NIGHTLY, where `debug.chromium_host open`
+    /// refuses. Its default is the DEV value, the channel of every Debug build, so Debug
+    /// Settings shows what an unset toggle runs with there; off keeps Chromium in process.
     public static let helper = Tunable<Bool>.toggle(
         "browserHost.helper", section, "Chromium Host app",
-        help: "Overrides the cefHelperHost feature: lets debug.chromium_host show a Chromium page whose browser process runs in the Chromium Host app. Chromium tabs still run in cmux until the host supervisor lands. Debug and bench builds only.",
-        default: false, code: "BrowserHostTunables.helper")
+        help: "Overrides the cefHelperHost feature (on in DEV, off in NIGHTLY): Chromium's browser process runs in the Chromium Host app, and debug.chromium_host can show a page over a pane. Off keeps Chromium in cmux. Debug and bench builds only.",
+        default: true, code: "BrowserHostTunables.helper")
     #endif
 }
 

@@ -39,11 +39,34 @@ import Testing
         #expect(Feature.cefHelperHost.stories == ["chromium-host", "crash-survival"])
     }
 
+    /// Host mode is on by default in DEV only (p01-process task 100); NIGHTLY waits for task 104 and
+    /// Release for two Nightly weeks with no host regression.
+    @Test func theDefaultsAreDEVOnly() {
+        #expect(Feature.cefHelperHost.defaults == FeatureDefaults(dev: true, nightly: false, release: false))
+    }
+
     @Test(arguments: Feature.Channel.allCases)
-    func theHostIsOffByDefaultOnEveryChannel(_ channel: Feature.Channel) {
+    func theHostIsOnByDefaultInDEVOnly(_ channel: Feature.Channel) {
         let hostSwitch = Self.hostSwitch(Self.features(channel), Self.tunables())
-        #expect(hostSwitch.isEnabled == false)
-        #expect(BrowserHostTunables.backend(hostEnabled: hostSwitch.isEnabled) == .inProcess)
+        #expect(hostSwitch.localOverride == nil)
+        #expect(hostSwitch.isEnabled == (channel == .dev))
+        #if DEBUG
+        let defaultBackend: BrowserBackend = channel == .dev ? .host : .inProcess
+        #else
+        // A bench build measures the host but never moves a tab to it.
+        let defaultBackend = BrowserBackend.inProcess
+        #endif
+        #expect(BrowserHostTunables.backend(hostEnabled: hostSwitch.isEnabled) == defaultBackend)
+    }
+
+    /// The opt-outs a DEV person or bench has: `CMUX_DISABLE_FEATURES=cefHelperHost`, and Debug Settings'
+    /// `browserHost.helper` off.
+    @Test func devOptsOut() {
+        #expect(!Self.hostSwitch(Self.features(disabled: ["cefHelperHost"]), Self.tunables()).isEnabled)
+        let toggledOff = Self.hostSwitch(Self.features(), Self.tunables(helper: false))
+        #expect(toggledOff.localOverride == false)
+        #expect(!toggledOff.isEnabled)
+        #expect(BrowserHostTunables.backend(hostEnabled: toggledOff.isEnabled) == .inProcess)
     }
 
     /// An environment decision (`CMUX_ENABLE_FEATURES` in the list's overrides) turns the host on with no toggle.
