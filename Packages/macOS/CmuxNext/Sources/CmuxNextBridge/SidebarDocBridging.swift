@@ -210,11 +210,13 @@ public final class SidebarDocSections {
         }
         flush()
         if !leading.isEmpty {
-            // Newest first, each above the one before it. With no placed row, the unplaced run (Home among
-            // them) is the machine's first: below its leading Home row, not above it.
-            let before = sections.count, start = own == 0 && !first && !unanchored.isEmpty ? sections.count - 1 : 0
+            // Newest first, each above the one before it. With no row placed in the machine section, the unplaced
+            // run (Home among them) is the machine's first: below its leading Home row, not above it (below any
+            // band groups too, until the document places the row above them).
+            let inTrailingRun = own == 0 && !first && !unanchored.isEmpty
+            let before = sections.count, start = inTrailingRun ? sections.count - 1 : 0
             var rest = Array(sections[start...])
-            Self.insertFirst(Array(leading.reversed()), into: &rest, machineSections: start == 0 ? own : 1)
+            Self.insertFirst(Array(leading.reversed()), into: &rest, machineSections: inTrailingRun ? 1 : own)
             sections.replaceSubrange(start..., with: rest)
             own += sections.count - before
         }
