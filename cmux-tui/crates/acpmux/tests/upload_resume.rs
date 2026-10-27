@@ -17,7 +17,7 @@ use acpmux::server::{Origin, serve_connection_with};
 use base64::Engine;
 use serde_json::{Value, json};
 use sha2::Digest;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -166,4 +166,97 @@ async fn an_upload_resumes_from_its_status_and_its_finish_is_checked() {
     let refused = web.status(&session, &upload).await;
     let why = reason(&refused);
     assert!(why == "filePut.remote" || why.starts_with("remote."), "{refused}");
+}
+
+/// Calls on one upload never interleave: of eight writes at the same offset one lands, and two
+/// finishes at once both answer the one path. A finish that stopped after its rename (a crash
+/// before `.meta` went) is reported finished and answered again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn calls_on_one_upload_never_interleave_and_a_cut_short_finish_recovers() {
+    let hub = hub();
+    let mut c = Client::new(&hub, Origin::Local);
+    let made =
+        c.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []})).await;
+    let session = made["result"]["sessionId"].as_str().unwrap().to_owned();
+    let file = vec![5u8; CHUNK];
+    let upload = id_of(&c.begin(&session, "race.bin", file.len() as u64).await);
+    let mut clients: Vec<Client> = (0..8).map(|_| Client::new(&hub, Origin::Local)).collect();
+    let writes = clients.iter_mut().map(|c| c.chunk(&session, &upload, 0, &file));
+    let answers = futures_util::future::join_all(writes).await;
+    let landed = answers.iter().filter(|a| a.get("error").is_none()).count();
+    assert_eq!(landed, 1, "{answers:?}");
+    assert!(answers.iter().all(|a| a.get("error").is_none() || reason(a) == "upload.offset"));
+    let finish = json!({"sessionId": session, "uploadId": upload, "fileName": "race.bin",
+        "size": file.len(), "sha256": sha(&file)});
+    let finishes =
+        clients[..2].iter_mut().map(|c| c.call(method::MUX_FILE_PUT_FINISH, finish.clone()));
+    let done = futures_util::future::join_all(finishes).await;
+    let path = done[0]["result"]["path"].as_str().unwrap_or_else(|| panic!("{done:?}"));
+    assert_eq!(done[1]["result"]["path"], json!(path), "{done:?}");
+    assert_eq!(std::fs::read(path).unwrap(), file);
+
+    // A finish cut short after its rename: `.meta` is still there, `.part` is gone.
+    let cut = id_of(&c.begin(&session, "cut.bin", 3).await);
+    c.chunk(&session, &cut, 0, b"abc").await;
+    let folder = PathBuf::from(path).parent().unwrap().parent().unwrap().join(&cut);
+    std::fs::rename(folder.join(".part"), folder.join("cut.bin")).unwrap();
+    let at = c.status(&session, &cut).await;
+    assert_eq!(at["result"]["finished"], true, "{at}");
+    let finish = json!({"sessionId": session, "uploadId": cut, "fileName": "cut.bin", "size": 3});
+    let again = c.call(method::MUX_FILE_PUT_FINISH, finish).await;
+    assert!(again["result"]["path"].as_str().is_some_and(|p| p.ends_with("cut.bin")), "{again}");
+    assert!(!folder.join(".meta").exists());
+}
+
+/// A peer on a build without `uploadResume` would answer a status as unknown and finish without
+/// checking the `sha256`: both are refused before anything is sent. A peer that lists `old-1`.
+#[tokio::test]
+async fn a_peer_that_cannot_check_uploads_is_refused_before_anything_is_sent() {
+    use futures_util::{SinkExt, StreamExt};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio_tungstenite::tungstenite::Message as Ws;
+    let sent = Arc::new(AtomicUsize::new(0));
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = l.local_addr().unwrap().port();
+    let counted = sent.clone();
+    tokio::spawn(async move {
+        while let Ok((tcp, _)) = l.accept().await {
+            let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
+            let counted = counted.clone();
+            tokio::spawn(async move {
+                while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                    let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
+                        continue;
+                    };
+                    let result = match m.as_str() {
+                        method::INITIALIZE => json!({"protocolVersion": 1, "_meta": {"acpmux": {
+                            "build": "older", "origin": "peer",
+                            "features": ["filePut", "filePutChunks", "promptUploads"]}}}),
+                        method::MUX_WATCH => json!({"sessions": [{"sessionId": "old-1"}]}),
+                        _ => {
+                            counted.fetch_add(1, Ordering::SeqCst);
+                            json!({"path": "/old/x"})
+                        }
+                    };
+                    let reply = Message::ok(id, result).to_line();
+                    if ws.send(Ws::Text(reply.trim_end().to_owned().into())).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    let hub = hub();
+    hub.add_peer("old", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let mut c = Client::new(&hub, Origin::Local);
+    let upload = uuid::Uuid::now_v7().to_string();
+    let status = c.status("old-1", &upload).await;
+    assert_eq!(reason(&status), "filePut.unsupported", "{status}");
+    let finish = json!({"sessionId": "old-1", "uploadId": upload, "fileName": "x.bin",
+        "size": 3, "sha256": sha(b"abc")});
+    let finished = c.call(method::MUX_FILE_PUT_FINISH, finish).await;
+    assert_eq!(reason(&finished), "filePut.unsupported", "{finished}");
+    assert_eq!(sent.load(Ordering::SeqCst), 0, "nothing reached the old peer");
 }
