@@ -395,4 +395,53 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
       } else await page.close();
     },
   );
+  test.each(engines.map(([name]) => name))("%s: one continuous moving-target ride", async (name) => {
+    const page = await open(name);
+    const view = (await page.locator(".acpmux-scroll").boundingBox())!;
+    await page.mouse.move(view.x + view.width / 2, view.y + 120);
+    await page.mouse.wheel(0, -900);
+    await untilStill(page);
+    await page.locator(".acpmux-jump-latest[data-shown]").waitFor();
+    const capture = process.env.CMUX_JUMP_CAPTURE_DIR;
+    if (capture) await page.screenshot({ path: path.join(capture, `${name}-before.png`) });
+    await startFrames(page);
+    const settled = waitForJumpSettle(page);
+    await page.locator(".acpmux-jump-latest").click();
+    send(record("mux", "turn_started", {}));
+    for (let index = 1; index <= 12; index++) {
+      send(
+        record("in", "agent_message_chunk", chunk(`Streamed paragraph ${index}: the reply grows during the ride.\n\n`)),
+      );
+      await page.evaluate(() => window.cmuxPaintFrame());
+    }
+    send(record("mux", "turn_result", { status: "completed" }));
+    await settled;
+    const frames = await stopFrames(page);
+    const end = await measure(page);
+    const restarts = await page.evaluate(
+      () => (window as unknown as { jumpSmoothCalls: number[] }).jumpSmoothCalls.length,
+    );
+    const first = frames[0]!;
+    const landed = frames.findIndex((frame) => frame.fromEnd <= 1);
+    console.info(
+      "continuous jump ride",
+      JSON.stringify({
+        engine: name,
+        restarts,
+        frames: frames.length,
+        landingGap: end.fromEnd,
+        landingMs: frames[landed]!.at - first.at,
+      }),
+    );
+    if (capture) {
+      await page.screenshot({ path: path.join(capture, `${name}-landing.png`) });
+      const video = page.video();
+      await page.context().close();
+      await video?.saveAs(path.join(capture, `${name}-ride.webm`));
+    } else await page.close();
+    expect(end.fromEnd).toBe(0);
+    expect(landed).toBeGreaterThan(0);
+    expect(frames.slice(0, landed).some((frame) => frame.height > first.height)).toBe(true);
+    expect(restarts).toBeLessThanOrEqual(1);
+  });
 });
