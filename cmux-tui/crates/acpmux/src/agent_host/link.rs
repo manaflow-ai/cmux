@@ -169,35 +169,48 @@ static NEXT_RECEIPT: std::sync::LazyLock<std::sync::atomic::AtomicU64> =
         std::sync::atomic::AtomicU64::new(u64::from(u32::from_le_bytes(high)) << 32)
     });
 
-/// Keeps `fence` until its host's end settles it: its receipt.
-fn await_receipt(incarnation: &str, fence: &crate::agent::Fence) -> u64 {
+/// Keeps `fence`, its host's end watched, until its host's end settles it: its receipt.
+fn await_receipt(host: &HostRecord, fence: &crate::agent::Fence) -> u64 {
     let receipt = NEXT_RECEIPT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let mut receipts = RECEIPTS.lock_or_recover();
     // Settled ones another way (an answered request) go.
     receipts.retain(|_, (_, f)| !f.is_settled());
-    receipts.insert(receipt, (incarnation.to_owned(), fence.clone()));
+    receipts.insert(receipt, (host.incarnation.clone(), fence.clone()));
+    drop(receipts);
+    if WATCHED.lock_or_recover().insert(host.incarnation.clone()) {
+        // task-owner: ends with the host, or when its lock can not be watched.
+        tokio::spawn(watch_host_end(host.clone()));
+    }
     receipt
 }
 
-/// How long a host whose connection closed with no `Exit` may take to drop its live lock
-/// (`settle_once_dead`).
-const HOST_DEATH_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+/// The host incarnations whose end is watched (`watch_host_end`), one watch each.
+static WATCHED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(Default::default);
 
-/// The host behind `record` closed its connection with no `Exit` (it was killed): once its
-/// live lock proves it gone, within `HOST_DEATH_BUDGET`, what it had is never written now
-/// (review 85 of #23322). A host that runs on (another daemon took it) keeps its lines.
-pub async fn settle_once_dead(record: &HostRecord) {
-    let (session, nonce) = (record.session_id.clone(), record.start_nonce.clone());
-    let dead = tokio::task::spawn_blocking(move || {
-        let hosts = hosts_dir();
-        // A pooled host's lock moves to the hosts directory when a session takes it: the pool
-        // first, so a move between the two never reads as dead.
-        wait_dead_within(&pool_dir(&hosts), &session, &nonce, HOST_DEATH_BUDGET)
-            && wait_dead_within(&hosts, &session, &nonce, HOST_DEATH_BUDGET)
-    })
-    .await
-    .unwrap_or(false);
-    if dead {
+/// Settles what host `record` had once its live lock proves it gone, whatever logs its entries
+/// or holds its connection: a killed host leaves no `Exit` (review 87 of #23322). Ends with the
+/// host, or at once when its lock can not be watched, which leaves its lines to their answer,
+/// receipt or `Exit` (fail closed).
+async fn watch_host_end(record: HostRecord) {
+    let (sid, nonce) = (&record.session_id, &record.start_nonce);
+    let gone = loop {
+        let dirs = live_lock_dirs(&record);
+        let states: Vec<_> = dirs.iter().map(|d| (d, liveness(d, sid, nonce))).collect();
+        if states.iter().any(|(_, l)| *l == Liveness::Unknown) {
+            break false;
+        }
+        // Gone once no directory holds it live; a move from the pool wakes the watch, which
+        // looks again.
+        let Some((dir, _)) = states.into_iter().find(|(_, l)| *l == Liveness::Live) else {
+            break true;
+        };
+        if !dead(dir, sid, nonce).await {
+            break false;
+        }
+    };
+    WATCHED.lock_or_recover().remove(&record.incarnation);
+    if gone {
         settle_receipts_of(&record.incarnation);
     }
 }
@@ -291,7 +304,7 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
     let queries: Queries = Arc::default();
     // A host says nothing of when its harness has a fenced line: it stays unsettled until its
     // host ends or its request is answered (review 83 of #23322).
-    let incarnation = record.incarnation.clone();
+    let host = record.clone();
     tokio::spawn(async move {
         while let Some((frame, written, fence)) = rx.recv().await {
             if fence.as_ref().is_some_and(|f| !f.begin()) {
@@ -299,7 +312,7 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
             }
             let mut receipt = None;
             if let (Some(f), ControllerFrame::Line { .. }) = (&fence, &frame) {
-                receipt = Some(await_receipt(&incarnation, f));
+                receipt = Some(await_receipt(&host, f));
             }
             if write_frame(&mut wr, &frame).await.is_err() {
                 if let Some(r) = receipt {

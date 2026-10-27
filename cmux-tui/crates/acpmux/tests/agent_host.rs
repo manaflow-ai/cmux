@@ -535,10 +535,6 @@ fn slow_reader(dir: &Path, session: &str) -> SpawnSpec {
     launch
 }
 
-fn big_line() -> Value {
-    json!({"jsonrpc": "2.0", "method": "note", "params": {"text": "x".repeat(1 << 20)}})
-}
-
 /// A harness that never reads its stdin.
 fn never_reader(dir: &Path, session: &str) -> SpawnSpec {
     let idle = dir.join("agent");
