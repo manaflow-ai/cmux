@@ -534,7 +534,26 @@
       "extractionState": "manual",
       "localizations": {
         "en": {"stringUnit": {"state": "translated", "value": "Empty Folder"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "空のフォルダ"}}
+        "ar": {"stringUnit": {"state": "needs_review", "value": "مجلد فارغ"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Prazan folder"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Tom mappe"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Leerer Ordner"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Carpeta vacía"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Dossier vide"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Cartella vuota"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "空のフォルダ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ថតទទេ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "빈 폴더"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Tom mappe"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pusty folder"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Pasta vazia"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Пустая папка"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "โฟลเดอร์ว่าง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Boş Klasör"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Порожня папка"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thư mục trống"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "空文件夹"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "空資料夾"}}
       }
     },
     "settings.choice.cloudFolderInherit": {
@@ -542,7 +561,26 @@
       "extractionState": "manual",
       "localizations": {
         "en": {"stringUnit": {"state": "translated", "value": "Current Folder"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "現在のフォルダ"}}
+        "ar": {"stringUnit": {"state": "needs_review", "value": "المجلد الحالي"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Trenutni folder"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Aktuel mappe"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Aktueller Ordner"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Carpeta actual"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Dossier actuel"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Cartella attuale"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "現在のフォルダ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ថតបច្ចុប្បន្ន"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "현재 폴더"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Gjeldende mappe"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Bieżący folder"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Pasta atual"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Текущая папка"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "โฟลเดอร์ปัจจุบัน"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Geçerli Klasör"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Поточна папка"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thư mục hiện tại"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "当前文件夹"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "目前資料夾"}}
       }
     },
     "settings.cloud.newWorkspaceFolder": {
@@ -550,7 +588,26 @@
       "extractionState": "manual",
       "localizations": {
         "en": {"stringUnit": {"state": "translated", "value": "New Cloud Workspaces Start In"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "新しいクラウドワークスペースの開始フォルダ"}}
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تبدأ مساحات العمل السحابية الجديدة في"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Novi Cloud radni prostori počinju u"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Nye Cloud-arbejdsområder starter i"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Neue Cloud-Arbeitsbereiche starten in"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Los nuevos espacios de trabajo en la nube empiezan en"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Les nouveaux espaces de travail Cloud démarrent dans"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "I nuovi workspace Cloud iniziano in"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "新しいクラウドワークスペースの開始フォルダ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កន្លែងធ្វើការ Cloud ថ្មីចាប់ផ្ដើមនៅក្នុង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "새 클라우드 워크스페이스 시작 위치"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Nye Cloud-arbeidsområder starter i"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nowe obszary robocze w chmurze zaczynają w"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Novos espaços de trabalho na nuvem começam em"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Новые облачные рабочие области начинаются в"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เวิร์กสเปซคลาวด์ใหม่เริ่มต้นใน"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Yeni bulut çalışma alanları şurada başlar"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Нові хмарні робочі області починаються в"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không gian làm việc đám mây mới bắt đầu tại"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "新云工作区的起始位置"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "新雲端工作區的起始位置"}}
       }
     },
     "settings.cloud.newWorkspaceFolder.help": {
@@ -558,7 +615,26 @@
       "extractionState": "manual",
       "localizations": {
         "en": {"stringUnit": {"state": "translated", "value": "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "「現在のフォルダ」は作業中のフォルダ（git の作業コピー全体）を新しいマシンにコピーします。「空のフォルダ」はマシン自身の空のフォルダで始まります。"}}
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يقوم «المجلد الحالي» بنسخ المجلد الذي تعمل فيه (نسخة git العاملة بالكامل) إلى الجهاز الجديد. يبدأ «مجلد فارغ» في المجلد الفارغ الخاص بالجهاز."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Trenutni folder kopira folder u kojem radiš (cijelu git radnu kopiju) na novu mašinu. Prazan folder počinje u vlastitom praznom folderu mašine."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Aktuel mappe kopierer den mappe, du arbejder i (hele dens git-arbejdskopi), til den nye maskine. Tom mappe starter i maskinens egen tomme mappe."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Aktueller Ordner kopiert den Ordner, in dem du arbeitest (seine gesamte Git-Arbeitskopie), auf die neue Maschine. Leerer Ordner startet im eigenen leeren Ordner der Maschine."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Carpeta actual copia la carpeta en la que trabajas (toda su copia de trabajo de git) a la nueva máquina. Carpeta vacía empieza en la carpeta vacía propia de la máquina."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Dossier actuel copie le dossier dans lequel vous travaillez (toute sa copie de travail git) sur la nouvelle machine. Dossier vide démarre dans le dossier vide propre à la machine."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Cartella attuale copia la cartella in cui lavori (l'intera copia di lavoro git) sulla nuova macchina. Cartella vuota inizia nella cartella vuota della macchina."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "「現在のフォルダ」は作業中のフォルダ（git の作業コピー全体）を新しいマシンにコピーします。「空のフォルダ」はマシン自身の空のフォルダで始まります。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ថតបច្ចុប្បន្ន ចម្លងថតដែលអ្នកកំពុងធ្វើការ (ច្បាប់ចម្លងការងារ git ទាំងមូល) ទៅម៉ាស៊ីនថ្មី។ ថតទទេ ចាប់ផ្ដើមនៅក្នុងថតទទេរបស់ម៉ាស៊ីនផ្ទាល់។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "현재 폴더는 작업 중인 폴더(git 작업 사본 전체)를 새 머신에 복사합니다. 빈 폴더는 머신 자체의 빈 폴더에서 시작합니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Gjeldende mappe kopierer mappen du jobber i (hele git-arbeidskopien) til den nye maskinen. Tom mappe starter i maskinens egen tomme mappe."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Bieżący folder kopiuje folder, w którym pracujesz (całą kopię roboczą git), na nową maszynę. Pusty folder zaczyna w pustym folderze maszyny."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Pasta atual copia a pasta em que você trabalha (toda a cópia de trabalho do git) para a nova máquina. Pasta vazia começa na pasta vazia da própria máquina."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "«Текущая папка» копирует папку, в которой вы работаете (всю рабочую копию git), на новую машину. «Пустая папка» начинает в собственной пустой папке машины."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "โฟลเดอร์ปัจจุบันจะคัดลอกโฟลเดอร์ที่คุณทำงานอยู่ (สำเนาการทำงาน git ทั้งหมด) ไปยังเครื่องใหม่ โฟลเดอร์ว่างจะเริ่มในโฟลเดอร์ว่างของเครื่องเอง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Geçerli Klasör, çalıştığınız klasörü (tüm git çalışma kopyasını) yeni makineye kopyalar. Boş Klasör, makinenin kendi boş klasöründe başlar."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "«Поточна папка» копіює папку, у якій ви працюєте (усю робочу копію git), на нову машину. «Порожня папка» починає у власній порожній папці машини."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thư mục hiện tại sao chép thư mục bạn đang làm việc (toàn bộ bản sao làm việc git) sang máy mới. Thư mục trống bắt đầu trong thư mục trống của chính máy đó."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "“当前文件夹”会将你正在使用的文件夹（整个 git 工作副本）复制到新机器。“空文件夹”从机器自己的空文件夹开始。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "「目前資料夾」會將你正在使用的資料夾（整個 git 工作副本）複製到新機器。「空資料夾」從機器自己的空資料夾開始。"}}
       }
     },
     "settings.cloud.newWorkspacesInCloud": {
@@ -566,7 +642,26 @@
       "extractionState": "manual",
       "localizations": {
         "en": {"stringUnit": {"state": "translated", "value": "Run New Workspaces in Cloud"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "新しいワークスペースをクラウドで実行"}}
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تشغيل مساحات العمل الجديدة في السحابة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Pokreni nove radne prostore u Cloudu"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Kør nye arbejdsområder i Cloud"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Neue Arbeitsbereiche in der Cloud ausführen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Ejecutar nuevos espacios de trabajo en la nube"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Exécuter les nouveaux espaces de travail dans le Cloud"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Esegui i nuovi workspace nel Cloud"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "新しいワークスペースをクラウドで実行"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ដំណើរការកន្លែងធ្វើការថ្មីនៅលើ Cloud"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "새 워크스페이스를 클라우드에서 실행"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Kjør nye arbeidsområder i Cloud"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Uruchamiaj nowe obszary robocze w chmurze"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Executar novos espaços de trabalho na nuvem"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Запускать новые рабочие области в облаке"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เรียกใช้เวิร์กสเปซใหม่บนคลาวด์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Yeni çalışma alanlarını bulutta çalıştır"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Запускати нові робочі області в хмарі"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Chạy không gian làm việc mới trên đám mây"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "在云端运行新工作区"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "在雲端執行新工作區"}}
       }
     },
     "settings.cloud.newWorkspacesInCloud.help": {
@@ -574,7 +669,26 @@
       "extractionState": "manual",
       "localizations": {
         "en": {"stringUnit": {"state": "translated", "value": "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "新しいワークスペース（Cmd-N、サイドバーの +）ごとに新しいクラウドマシンが作られます。その中で始めたエージェントチャットはそのマシンで実行されます。"}}
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تحصل كل مساحة عمل جديدة (Cmd-N، أو + في الشريط الجانبي) على جهاز سحابي جديد خاص بها. تعمل محادثات الوكلاء التي تبدأها فيها على ذلك الجهاز."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Svaki novi radni prostor (Cmd-N, + na bočnoj traci) dobija svoju novu Cloud mašinu. Agent četovi koje u njemu pokreneš rade na toj mašini."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Hvert nyt arbejdsområde (Cmd-N, sidepanelets +) får sin egen nye Cloud-maskine. Agentchats, du starter i det, kører på den maskine."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Jeder neue Arbeitsbereich (Cmd-N, das + der Seitenleiste) erhält eine eigene neue Cloud-Maschine. Agent-Chats, die du darin startest, laufen auf dieser Maschine."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Cada nuevo espacio de trabajo (Cmd-N, el + de la barra lateral) obtiene su propia máquina nueva en la nube. Los chats de agentes que inicies en él se ejecutan en esa máquina."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Chaque nouvel espace de travail (Cmd-N, le + de la barre latérale) obtient sa propre nouvelle machine Cloud. Les chats d'agents que vous y lancez s'exécutent sur cette machine."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Ogni nuovo workspace (Cmd-N, il + della barra laterale) ottiene una propria nuova macchina Cloud. Le chat con gli agenti avviate al suo interno vengono eseguite su quella macchina."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "新しいワークスペース（Cmd-N、サイドバーの +）ごとに新しいクラウドマシンが作られます。その中で始めたエージェントチャットはそのマシンで実行されます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កន្លែងធ្វើការថ្មីនីមួយៗ (Cmd-N, + នៃរបារចំហៀង) ទទួលបានម៉ាស៊ីន Cloud ថ្មីផ្ទាល់ខ្លួន។ ការជជែកជាមួយភ្នាក់ងារដែលអ្នកចាប់ផ្ដើមនៅក្នុងនោះ ដំណើរការលើម៉ាស៊ីននោះ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "새 워크스페이스(Cmd-N, 사이드바의 +)마다 새 클라우드 머신이 하나씩 생깁니다. 그 안에서 시작한 에이전트 채팅은 해당 머신에서 실행됩니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Hvert nytt arbeidsområde (Cmd-N, sidefeltets +) får sin egen nye Cloud-maskin. Agentchatter du starter i det, kjører på den maskinen."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Każdy nowy obszar roboczy (Cmd-N, + na pasku bocznym) dostaje własną nową maszynę w chmurze. Czaty z agentami rozpoczęte w nim działają na tej maszynie."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Cada novo espaço de trabalho (Cmd-N, o + da barra lateral) ganha sua própria máquina nova na nuvem. Os chats de agentes que você iniciar nele rodam nessa máquina."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Каждая новая рабочая область (Cmd-N, + на боковой панели) получает собственную новую облачную машину. Чаты с агентами, начатые в ней, работают на этой машине."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เวิร์กสเปซใหม่แต่ละอัน (Cmd-N, ปุ่ม + ในแถบด้านข้าง) จะได้เครื่องคลาวด์ใหม่ของตัวเอง แชทเอเจนต์ที่คุณเริ่มในนั้นจะทำงานบนเครื่องนั้น"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Her yeni çalışma alanı (Cmd-N, kenar çubuğundaki +) kendi yeni bulut makinesini alır. İçinde başlattığınız ajan sohbetleri o makinede çalışır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Кожна нова робоча область (Cmd-N, + на бічній панелі) отримує власну нову хмарну машину. Чати з агентами, розпочаті в ній, працюють на цій машині."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Mỗi không gian làm việc mới (Cmd-N, nút + ở thanh bên) có máy đám mây mới của riêng nó. Các cuộc trò chuyện với tác tử bạn bắt đầu trong đó sẽ chạy trên máy đó."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "每个新工作区（Cmd-N、侧边栏的 +）都会获得一台自己的新云端机器。在其中开始的智能体聊天在该机器上运行。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "每個新工作區（Cmd-N、側邊欄的 +）都會取得一台自己的新雲端機器。在其中開始的代理程式聊天會在該機器上執行。"}}
       }
     },
     "settings.group.chiefEngine": {
@@ -714,7 +828,26 @@
       "extractionState": "manual",
       "localizations": {
         "en": {"stringUnit": {"state": "translated", "value": "Cloud Workspaces"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "クラウドワークスペース"}}
+        "ar": {"stringUnit": {"state": "needs_review", "value": "مساحات العمل السحابية"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Cloud radni prostori"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Cloud-arbejdsområder"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Cloud-Arbeitsbereiche"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Espacios de trabajo en la nube"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Espaces de travail Cloud"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Workspace Cloud"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "クラウドワークスペース"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កន្លែងធ្វើការ Cloud"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "클라우드 워크스페이스"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Cloud-arbeidsområder"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Obszary robocze w chmurze"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Espaços de trabalho na nuvem"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Облачные рабочие области"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เวิร์กสเปซบนคลาวด์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bulut çalışma alanları"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Хмарні робочі області"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không gian làm việc trên đám mây"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "云工作区"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "雲端工作區"}}
       }
     },
     "settings.home.chiefEngine": {
