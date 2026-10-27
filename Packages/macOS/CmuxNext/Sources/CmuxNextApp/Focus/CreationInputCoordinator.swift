@@ -18,8 +18,9 @@ import CmuxNextTerminal
 /// The person's new workspace with a terminal (`newTab` shown in this window, `beginWorkspace`) holds the keys the same
 /// way until the window shows that workspace and its terminal has the keyboard; keys typed for it never go anywhere else
 /// (a failed or never shown workspace drops them). It also claims the window's keyboard (`KeyboardClaim`) until the
-/// person's next intent there: a click, Escape, a focus move, another of their actions; or until the window shows it.
-/// Never by a timeout: after the hold, the keys the person types are still kept from the window. While a claim or a
+/// person's next intent there: a click, Escape, a focus move of theirs (mouse, keyboard, palette), another of their
+/// actions; or until the window shows it. Never by a timeout, and never by automation (a script's focus move or intent).
+/// After the hold, every key that runs no binding is still kept from the window. While a claim or a
 /// creation the person has not moved on from holds a window's keys, no primary input takes that window's keyboard by
 /// itself (``claimsKeyboard(in:generation:)``). Dogfood v2.2.3: Home's Chief message box took the keys typed for a new
 /// terminal and sent a shell command to the Chief as a message; terminal input must never reach an agent.
@@ -54,19 +55,27 @@ final class CreationInputCoordinator {
         }
     }
 
-    private func syncMode() { router?.modes.set(.creationCapture, !buffers.isEmpty || !claims.isEmpty) }
+    /// A claim whose window is gone holds nothing: it neither keeps the mode on nor slows keys.
+    private func syncMode() { router?.modes.set(.creationCapture, !buffers.isEmpty || claims.values.contains { $0.window != nil }) }
 
-    /// The person acted in `window` (`event`: a click, after its dispatch; nil: one of their actions): a claim there ends,
-    /// and the keys go where they put them. The click that asked for the claim does not end it.
-    func personActed(in window: NSWindow?, event: NSEvent? = nil) {
+    /// `window` closed: its claim goes with it.
+    func windowClosed(_ window: NSWindow?) {
+        guard let window else { return }
+        claims[window.windowNumber] = nil
+    }
+
+    /// The person acted in `window` (a click after its dispatch, a focus move of theirs, one of their actions), answering
+    /// input `event`: a claim there ends, and the keys go where they put them. The input that asked for the claim (the
+    /// click or key of New Workspace) does not end it.
+    func personActed(in window: NSWindow?, event: NSEvent?) {
         guard let window, !claims.isEmpty else { return }
         let shell = router?.focus(for: window).0?.window ?? window
         if let event, let made = claims[shell.windowNumber]?.inputTimestamp, made == event.timestamp { return }
         claims[shell.windowNumber] = nil
     }
 
-    /// `window`'s claim while it holds: the person made no new intent there (the focus generation is the claim's), and the
-    /// window does not show the claimed workspace yet. A claim that ended is removed here.
+    /// `window`'s claim while it holds: the window does not show the claimed workspace yet (the person's own intents end it
+    /// through ``personActed(in:event:)``). A claim that ended is removed here.
     private func activeClaim(in window: NSWindow) -> KeyboardClaim? {
         let number = window.windowNumber
         guard let claim = claims[number] else { return nil }
@@ -74,29 +83,33 @@ final class CreationInputCoordinator {
             claims[number] = nil
             return nil
         }
-        let focus = controller.focus.state
-        if focus.generation != claim.generation || (claim.workspace != nil && claim.workspace == focus.topology.workspace) {
+        if let workspace = claim.workspace, workspace == controller.focus.currentState().topology.workspace {
             claims[number] = nil
             return nil
         }
         return claim
     }
 
-    /// A key of `window` while its claim holds and no creation hold does (the terminal never showed): Escape ends the
-    /// claim and goes on; every other key without Command (text, Return, Control keys) is kept from the window: the
-    /// terminal it was typed for is not there, and no other input (Home's message box) takes it. Command chords go on
-    /// (an action they run is the person's next intent).
+    /// A key of `window` while its claim holds and no creation hold does (the terminal never showed). Escape ends the
+    /// claim and goes on. A key that runs a binding (Ctrl-Tab, a leader, Cmd-T) or the next key of a pending chord goes
+    /// on: the action it runs is the person's next intent. Every other key (text, Return, Cmd-V) is kept from the window:
+    /// the terminal it was typed for is not there, and no other input (Home's message box) takes it.
     private func keepsFromWindow(_ event: NSEvent, in window: NSWindow) -> Bool {
-        guard activeClaim(in: window) != nil else { return false }
+        guard activeClaim(in: window) != nil, let router else { return false }
         if event.keyCode == ChordTracker.escapeKeyCode {
             claims[window.windowNumber] = nil
             // The window's focus applies again, now that no claim refuses its primary input.
-            if let controller = router?.focus(for: window).0, let pane = controller.focus.state.pane {
+            if let controller = router.focus(for: window).0, let pane = controller.focus.state.pane {
                 controller.focus.send(.contentPresented(pane: pane))
             }
             return false
         }
-        return !event.modifierFlags.contains(.command)
+        if router.chords.isPending { return false }
+        if let controller = router.focus(for: window).0 {
+            let context = router.keyContext(for: controller.focus.currentState(), facts: router.facts(in: window, controller: controller))
+            if router.resolve(event, context: context) != nil { return false }
+        }
+        return true
     }
 
     /// Opens the window's buffer for one creation that moves focus under the user intent
@@ -339,7 +352,8 @@ extension CreationInputCoordinator {
     static func installPersonIntent(_ services: AppServices) {
         services.registry.willRunObservers.append { [weak services] _, origin in
             guard origin == .user, let services else { return }
-            services.keyRouter.creationInputCoordinator.personActed(in: services.windows.active?.window)
+            services.keyRouter.creationInputCoordinator.personActed(in: services.windows.active?.window,
+                                                                    event: services.registry.dispatchingInputEvent())
         }
     }
 }

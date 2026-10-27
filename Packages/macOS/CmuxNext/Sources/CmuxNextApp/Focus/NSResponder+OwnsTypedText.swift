@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextTerminal
 
 extension NSResponder {
     /// A text input the person can type into has the keyboard: a text view
@@ -27,16 +28,18 @@ extension NSView {
     }
 }
 
-extension NSWindow {
-    /// The person is typing in a text input of this window: an input that takes typed text has the keyboard and holds
-    /// their text (a draft, or text an input method is composing). Automation never takes the keyboard or the keys from
-    /// it (CLAUDE.md, "Go past Chrome where cmux is scripted"). An empty input that took the keyboard by itself (Home's
-    /// message box at launch) holds nothing of theirs to lose.
-    @MainActor var personIsTypingInTextInput: Bool {
-        guard let responder = firstResponder, responder.ownsTypedText else { return false }
-        if let client = responder as? any NSTextInputClient, client.hasMarkedText() { return true }
-        if let text = responder as? NSText { return !text.string.isEmpty }
-        if let field = responder as? NSTextField { return !field.stringValue.isEmpty }
-        return false
+extension WindowController {
+    /// A text input has this window's keyboard: an editable AppKit text view or field (empty or not; the person may have
+    /// just put the caret there), text an input method composes, or an editable element of the focused page (a web form
+    /// field, an editor). Automation does not take the window from it (CLAUDE.md, "Go past Chrome where cmux is
+    /// scripted"). A terminal is not a text input here: a person's `cmux open --focus` from a terminal moves on.
+    @MainActor var hasTextInputKeyboard: Bool {
+        guard let window else { return false }
+        if let responder = window.firstResponder {
+            if responder.ownsTypedText { return true }
+            if !(responder is TerminalSurfaceView), let client = responder as? any NSTextInputClient, client.hasMarkedText() { return true }
+        }
+        let router = services.keyRouter
+        return router.facts(in: window, controller: self).pageEditableFocused
     }
 }
