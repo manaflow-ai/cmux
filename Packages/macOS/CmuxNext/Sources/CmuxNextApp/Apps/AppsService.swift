@@ -91,9 +91,9 @@ final class AppsService {
         }, index: BundledAgentMemoryIndex.bundled())
         transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory]))
         if machineCatalog == nil {
-            machineCatalog = MachineCatalogPublisher { [weak machines = services.machines] in
+            machineCatalog = MachineCatalogPublisher(source: { [weak machines = services.machines] in
                 machines?.catalogSource()
-            }
+            }, on: services.mainWork)
             machineCatalog?.start()
         }
     }
