@@ -490,3 +490,65 @@ async fn a_peer_that_cannot_read_uploads_is_refused_before_anything_is_sent() {
     assert!(reply["error"]["message"].as_str().unwrap().contains("acpmux host update old"));
     assert_eq!(prompts.load(Ordering::SeqCst), 0);
 }
+
+/// A real `w`x`h` RGB PNG of noise, which no deflate shrinks: past the inline image size.
+fn noise_png(w: u32, h: u32) -> Vec<u8> {
+    let mut state = 0x2545_f491_4f6c_dd1du64;
+    let data: Vec<u8> = (0..w * h * 3)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state as u8
+        })
+        .collect();
+    let mut out = Vec::new();
+    let mut e = png::Encoder::new(&mut out, w, h);
+    e.set_color(png::ColorType::Rgb);
+    e.set_depth(png::BitDepth::Eight);
+    e.set_compression(png::Compression::Fast);
+    e.write_header().unwrap().write_image_data(&data).unwrap();
+    out
+}
+
+/// A screenshot past what the model takes inline reaches the agent as the link to its original
+/// and, next to it, a copy sized for the harness (`model_copies.rs`): long edge at most 1568 px,
+/// under the inline image size, saved next to the upload. The transcript keeps the prompt as
+/// sent.
+#[tokio::test]
+async fn a_large_screenshot_reaches_the_model_as_a_sized_copy_next_to_its_original() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let session = c.new_session("uploads-model-copy").await;
+    let big = noise_png(1700, 1000);
+    assert!(big.len() > acpmux::prompt_uploads::INLINE_IMAGE_BYTES, "{}", big.len());
+    let id = c.upload(&session, "shot.png", &big).await;
+    let p = prompt(&session, &v7(), "see", vec![image_ref(&id, "shot.png")]);
+    let reply = c.call(method::SESSION_PROMPT, p).await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    // The original, by its path, bytes intact.
+    let linked = links(&c.text);
+    assert_eq!(linked.len(), 1, "{}", c.text);
+    assert_eq!(sha(&std::fs::read(&linked[0].1).unwrap()), sha(&big));
+    // The copy the agent got is the one saved next to the upload, sized for the model.
+    let folder = linked[0].1.parent().unwrap().to_owned();
+    let copies: Vec<_> = std::fs::read_dir(&folder)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.file_name().unwrap().to_string_lossy().starts_with(".model-"))
+        .collect();
+    let sent: Vec<_> = copies
+        .iter()
+        .map(|p| std::fs::read(p).unwrap())
+        .filter(|b| c.text.contains(&format!("image:{}", sha(b))))
+        .collect();
+    assert_eq!(sent.len(), 1, "copies {copies:?}: {}", c.text);
+    let reader = png::Decoder::new(std::io::Cursor::new(&sent[0])).read_info().unwrap();
+    let (w, h) = (reader.info().width, reader.info().height);
+    assert!(w.max(h) <= 1568 && w > h, "{w}x{h}");
+    assert!(sent[0].len() <= acpmux::prompt_uploads::INLINE_IMAGE_BYTES, "{}", sent[0].len());
+    let messages = c.user_messages(&session).await;
+    let logged = serde_json::to_string(&messages).unwrap();
+    assert!(!logged.contains("scaled to"), "{logged}");
+}
