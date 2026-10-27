@@ -72,6 +72,9 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// `daemon.line` scope, never its `read(2)` wait). The App's composition root sets it to its
     /// ``HangWatch``; nil (the default) watches nothing.
     public var hangWatch: (any HangWatchScoping)?
+    /// The framed IPC upgrades the handshake asks for (``DaemonWireUpgrades``); none by default, so the
+    /// connection speaks JSON lines whatever the daemon offers.
+    public var wireUpgrades = DaemonWireUpgrades.none
     /// Echoes `diagnostic-sites-v1`, so the daemon pushes its first-seen blocking, inversion and slow-request
     /// sites as `server-diagnostic-site` events; the connection hands each to ``DaemonConnection/diagnosticSites``.
     /// Only the app's control connection to its local daemon sets it (`DaemonService.localConfiguration`).

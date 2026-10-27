@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextInputModel
 import CmuxNextTerminal
 import CmuxNextTrace
 import CmuxNextWakeups
@@ -200,7 +201,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                     driver.input(data)
                     return .next
                 }
-                Task {
+                // The drain's closure is nonisolated: the send never touches the main thread.
+                Task { @concurrent in
                     let sentByID = await creating.write(data)
                     queue.async {
                         if !sentByID { driver.input(data) }

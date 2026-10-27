@@ -45,6 +45,10 @@ public struct CmuxNextApp {
         // CMUX_NEXT_GLOBAL_JOB_CENSUS=1 (startup-queue.py globaljobs): every task that starts on the cooperative pool
         // until startup completes (p08-startup-082), its hook in before the launch starts tasks.
         let globalJobs = GlobalJobCensus.armed(environment: ProcessInfo.processInfo.environment, processStartNanos: DebugTimings.processStartUptimeNanos)
+        // CMUX_NEXT_ARM_CENSUS=1 (startup-queue.py arms): each timer, deadline and folder watch armed until startup
+        // completes, with its first fire (p08-startup-085).
+        let armCensus = WakeupLedger.shared.armCensus
+        armCensus.start(environment: ProcessInfo.processInfo.environment, processStartNanos: DebugTimings.processStartUptimeNanos)
         #endif
         // Before any socket or pipe exists (ChildSignalDefaults); the open-file limit before CefInitialize
         // (OpenFileLimit: launchd's 256 stopped the app at 80-100 Chromium tabs).
@@ -71,7 +75,7 @@ public struct CmuxNextApp {
         let mainBoard = MainTaskBoard()
         // The launch's file reads run on these lanes, never on the main thread (p08-startup 033).
         let work = BackgroundWork(hangs: hangWatch, onRan: startupTrace?.laneJobSink, inputTurns: mainBoard)
-        // Idle and best-effort lane work waits for startup complete, 3 s at most (Chrome's BeginBestEffortFence); the order made on it lowers it.
+        // Idle and best-effort lane work waits for the reveal (Chrome's BeginBestEffortFence; p06-scheduler-204); the order made on it lowers it.
         let fence = LaunchOrder.BestEffortFence(raisingOn: work)
         startupTrace?.start(writingOn: work) // its file is written on work's files lane, never here
         startupTrace?.whenClosed { work.stopReportingRuns() } // a closed trace costs the lanes nothing
@@ -236,6 +240,7 @@ public struct CmuxNextApp {
         #if DEBUG || CMUX_BENCH_HOOKS
         mainJobs?.freeze(after: order.startup)
         globalJobs?.freeze(after: order.startup)
+        armCensus.close(after: order.startup)
         #endif
         LaunchThreadCensus.post(on: order.startup) { LaunchMarkSink.shared.writeValue(name: $0, value: $1) } // Debug/bench: threads at the first frame (p08-startup-068)
         if let pictures = environment.windowPictures { order.startup.whenComplete { _ in pictures.dropFront() } } // decoded pictures are large
