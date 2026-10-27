@@ -138,6 +138,46 @@ test("an expired code is replaced: the store asks again once the shown one expir
   expect(asked()).toBe(2);
 });
 
+test("a hidden page asks nothing when its code expires; the show replaces it once (p13-webui-069)", async () => {
+  const { MobilePairingStore } = await import("../src/pages/mobile-pairing/store");
+  const { PageLifecycle } = await import("../src/pages/shared/pageLifecycle");
+  const { FakeLifecycleDocument, FakePollClock } = await import("./support/pagePollFakes");
+  const doc = new FakeLifecycleDocument();
+  const clock = new FakePollClock();
+  const ready: MobilePairingStatus = {
+    ...BASE,
+    state: "ready",
+    allowed: true,
+    account: "me@example.com",
+    qr: { url: "cmux-dev://attach?t=1", image: "data:image/png;base64,AAAA", expiresAt: 10_000 },
+  };
+  const fake = fakeHost(ready);
+  const store = new MobilePairingStore(fake.client, () => clock.now, {
+    lifecycle: new PageLifecycle(doc),
+    timers: clock,
+  });
+  await store.start();
+  const asked = () => fake.calls.filter((call) => call.op === "cmux.mobilePairing.status").length;
+  const cancel = store.refreshOnExpiry(10_000);
+
+  // Shown before the expiry: the rest of the wait is counted again.
+  doc.hide();
+  await clock.advance(5_000);
+  doc.show();
+  expect(asked()).toBe(1);
+  expect(clock.armed).toBe(1);
+
+  // Hidden through the expiry and a minute past it: nothing is asked; the show asks once.
+  doc.hide();
+  await clock.advance(60_000);
+  expect(asked()).toBe(1);
+  expect(clock.armed).toBe(0);
+  doc.show();
+  expect(asked()).toBe(2);
+  expect(clock.armed).toBe(0);
+  cancel();
+});
+
 test("no host: the page says so instead of loading forever", async () => {
   const { MobilePairingStore } = await import("../src/pages/mobile-pairing/store");
   const store = new MobilePairingStore(null);
