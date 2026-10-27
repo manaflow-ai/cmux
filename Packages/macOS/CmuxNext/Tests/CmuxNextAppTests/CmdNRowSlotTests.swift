@@ -70,12 +70,19 @@ struct CmdNRowSlotTests {
             // the store lags its shown version (+lag) and the app sent a sidebar change since the press (+sent).
             let lag = doc.version != doc.shownVersion ? " +lag" : ""
             let sent = doc.lastIntentKey != intentBefore ? " +sent" : ""
-            tags.append(frame.map { id in
+            // The rows the shown projection places (+s: an item in `shown`, +r: a confirmed record), with the version.
+            let shownItems = doc.shown?.items ?? [:]
+            func placedTag(_ id: String) -> String {
+                guard let workspace = services.machines.workspace(id: id)?.0, let ref = shownItems.keys.first(where: { $0.workspaceID == workspace.resourceID?.rawValue })
+                else { return "" }
+                return doc.records.items[shownItems[ref] ?? ""] != nil ? "+s+r" : "+s"
+            }
+            tags.append(" v\(doc.version)/\(doc.shownVersion) " + frame.map { id in
                 let item = SidebarDocWiring.item(workspace: id, services.machines) != nil ? "+d" : ""
                 let pending = PendingWorkspaceRows.shared.rows(in: window).contains { $0.id == id } ? "+pend" : ""
                 let placing = services.windows.pendingPlacements[id] != nil ? "+placing" : ""
                 let daemon = services.windows.newPlacements.placedByDaemon.contains(id) ? "+daemon" : ""
-                return "\(id.prefix(6))\(item)\(pending)\(placing)\(daemon)"
+                return "\(id.prefix(6))\(item)\(placedTag(id))\(pending)\(placing)\(daemon)"
             }.joined(separator: " ") + lag + sent)
         }
         _ = services.registry.perform("newTab")
