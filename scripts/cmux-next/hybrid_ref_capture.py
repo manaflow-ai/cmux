@@ -28,6 +28,16 @@ own paths, when the inputs that change build lines have no capture yet.
       them, cloned while the build still held its host lock (compile-dev-release.sh). It
       writes DIR/manifest.json: names, sizes and sha256 only, never file contents, since the
       manifest goes to this public repository's Actions artifacts.
+
+  hybrid_ref_capture.py have --key KEY --repo OWNER/NAME [--budget SECONDS]
+      Prints complete=N, the hybrid-ref-capture-KEY artifacts that are unexpired and under 13
+      days old (a capture counts while its packs are readable in the store), and
+      recent_incomplete=M, the hybrid-ref-capture-incomplete-KEY ones under a day old (a key
+      whose capture comes out incomplete is compiled for it again once a day, not on every
+      landing). A rate limit (403 or 429 that says so) waits for its Retry-After or reset,
+      other transient failures back off, and once the next wait would pass --budget (default
+      600 s, both lookups) it exits 1 with the last error, so the caller never reads "no
+      answer" as "a capture exists" (GH_TOKEN: the job's token).
 """
 from __future__ import annotations
 
@@ -44,6 +54,10 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 SCHEMA = 1
@@ -114,24 +128,41 @@ def key(repo: Path, environ=os.environ, toolchain: str | None = None) -> str:
 
 def drivers_and_lines(log: Path) -> tuple[list[str], set[str], str]:
     """The SwiftDriver task modules, the modules with a frontend compile line, and the xcodebuild line."""
-    modules, compiled, command = [], set(), ""
-    for raw in log.open(errors="replace"):
-        line = raw.rstrip("\n")
-        if line.startswith("xcodebuild command: ") and not command:
-            command = line.removeprefix("xcodebuild command: ")
-        match = DRIVER.match(line)
-        if match:
-            modules.append(match.group(1))
-            continue
-        text = line.strip()
-        if "/swift-frontend " not in text or " -frontend " not in text:
-            continue
-        try:
-            argv = shlex.split(text)
-        except ValueError:
-            continue
-        if argv and argv[0].endswith("swift-frontend") and "-c" in argv and "-module-name" in argv[:-1]:
-            compiled.add(argv[argv.index("-module-name") + 1])
+    # A driver task names its target ("SwiftDriver cmux-next ..."), and its module is the
+    # -module-name of the builtin-SwiftDriver line under it: they differ for the app (target
+    # cmux-next, module cmux), and the frontend lines name the module.
+    modules, compiled, command, target = [], set(), "", None
+    with log.open(errors="replace") as lines:
+        for raw in lines:
+            line = raw.rstrip("\n")
+            if line.startswith("xcodebuild command: ") and not command:
+                command = line.removeprefix("xcodebuild command: ")
+            match = DRIVER.match(line)
+            if match:
+                if target is not None:
+                    modules.append(target)
+                target = match.group(1)
+                continue
+            text = line.strip()
+            if target is not None and text.startswith("builtin-SwiftDriver "):
+                try:
+                    argv = shlex.split(text)
+                except ValueError:
+                    argv = []
+                name = argv[argv.index("-module-name") + 1] if "-module-name" in argv[:-1] else target
+                modules.append(name)
+                target = None
+                continue
+            if "/swift-frontend " not in text or " -frontend " not in text:
+                continue
+            try:
+                argv = shlex.split(text)
+            except ValueError:
+                continue
+            if argv and argv[0].endswith("swift-frontend") and "-c" in argv and "-module-name" in argv[:-1]:
+                compiled.add(argv[argv.index("-module-name") + 1])
+    if target is not None:
+        modules.append(target)
     return modules, compiled, command
 
 
@@ -250,6 +281,70 @@ def capture(a: argparse.Namespace, environ=os.environ) -> int:
     return 0
 
 
+class LookupFailed(Exception):
+    pass
+
+
+def retry_wait(status: int, headers, body: str, attempt: int, now: float) -> float | None:
+    """Seconds to wait before retrying a failed artifact lookup; None when retrying cannot help."""
+    limited = status == 429 or (status == 403 and (headers.get("x-ratelimit-remaining") == "0"
+                                                    or headers.get("retry-after") is not None
+                                                    or "rate limit" in body.lower()))
+    if limited:
+        if (headers.get("retry-after") or "").isdigit():
+            return max(1.0, float(headers["retry-after"]))
+        if headers.get("x-ratelimit-remaining") == "0" and (headers.get("x-ratelimit-reset") or "").isdigit():
+            return max(1.0, float(headers["x-ratelimit-reset"]) - now + 1)
+        # A secondary limit with no header: GitHub asks for at least a minute.
+        return 60.0 * (attempt + 1)
+    if status == 0 or status >= 500:
+        return min(15.0 * 2 ** attempt, 120.0)
+    return None
+
+
+def incomplete_name(key: str) -> str:
+    """The artifact name of an incomplete capture's manifest (the workflow's upload step)."""
+    return f"hybrid-ref-capture-incomplete-{key}"
+
+
+def have(key: str, repo: str, token: str, budget: float = 600, opener=urllib.request.urlopen,
+         sleep=time.sleep, clock=time.time) -> tuple[int, int]:
+    """(complete, recent_incomplete) captures of KEY (see the module doc); raises LookupFailed."""
+    start = clock()
+    complete = _count(f"hybrid-ref-capture-{key}", 13 * 24, repo, token, start + budget, opener, sleep, clock)
+    incomplete = _count(incomplete_name(key), 24, repo, token, start + budget, opener, sleep, clock)
+    return complete, incomplete
+
+
+def _count(name: str, hours: float, repo: str, token: str, deadline: float, opener, sleep, clock) -> int:
+    url = f"https://api.github.com/repos/{repo}/actions/artifacts?name={name}&per_page=100"
+    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}", "User-Agent": "cmux-hybrid-ref",
+                                                   "Accept": "application/vnd.github+json"})
+    for attempt in range(1000):
+        try:
+            with opener(request, timeout=30) as response:
+                artifacts = json.load(response)["artifacts"]
+            since = (datetime.fromtimestamp(clock(), timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            return sum(1 for a in artifacts if a.get("expired") is False and a.get("created_at", "") >= since)
+        except urllib.error.HTTPError as e:
+            status, headers = e.code, {k.lower(): v for k, v in (e.headers or {}).items()}
+            try:
+                body = e.read().decode(errors="replace")
+            except Exception as read_error:  # a truncated error body (IncompleteRead) is still this status
+                body = f"(error body unreadable: {read_error!r})"
+            finally:
+                e.close()
+        except (urllib.error.URLError, OSError, ValueError, KeyError) as e:
+            status, headers, body = 0, {}, str(e)
+        reason = f"HTTP {status}: {body.strip()[:200]}" if status else body
+        wait = retry_wait(status, headers, body, attempt, clock())
+        if wait is None or clock() + wait > deadline:
+            raise LookupFailed(f"artifact lookup {name[:40]} failed after {attempt + 1} attempt(s): {reason}")
+        print(f"hybrid-ref have: {reason}; retrying in {wait:.0f} s", file=sys.stderr)
+        sleep(wait)
+    raise LookupFailed("unreachable")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -263,9 +358,21 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--read-derived-data", help="where to read DerivedData from (a snapshot of --derived-data)")
     c.add_argument("--lane", default="hybrid-ref-dev")
     c.add_argument("--upload", action="store_true")
+    h = sub.add_parser("have")
+    h.add_argument("--key", required=True)
+    h.add_argument("--repo", required=True)
+    h.add_argument("--budget", type=float, default=600)
     a = parser.parse_args(argv)
     if a.cmd == "key":
         print(key(Path(a.repo)))
+        return 0
+    if a.cmd == "have":
+        try:
+            complete, incomplete = have(a.key, a.repo, os.environ["GH_TOKEN"], a.budget)
+            print(f"complete={complete}\nrecent_incomplete={incomplete}")
+        except LookupFailed as e:
+            print(f"hybrid_ref_capture: {e}", file=sys.stderr)
+            return 1
         return 0
     return capture(a)
 
