@@ -109,9 +109,9 @@ check(all(line.strip().startswith("[[ -n") for line in sign_code.splitlines() if
       "the Sparkle private key reaches the key derivation by environment, never on a command line")
 check("notary_id" not in workflow, "the tip job makes its own notarization submission")
 steps = [tip_dmg_build.find(marker) for marker in (
-    "name: Download the signed app\n", "codesign --verify --deep --strict", "-format ULMO",
+    "name: Download the signed app\n", "-format ULMO",
     "name: Upload the unsigned tip DMG", "name: Mark the unsigned DMG uploaded")]
-check(-1 not in steps and steps == sorted(steps), "tip-dmg-build: codesign the signed app, build the DMG, then hand it off")
+check(-1 not in steps and steps == sorted(steps), "tip-dmg-build: build the DMG from the signed app, then hand it off")
 steps = [tip_dmg.find(marker) for marker in (
     "name: Download the unsigned tip DMG", 'sha256sum -c "$APP_ARCHIVE_NAME.sha256"', 'cmp -s tip-unsigned/built-from.sha256',
     '"$UNSIGNED_SHA256  tip-unsigned/$TIP_DMG_NAME" | sha256sum -c -', "name: Download the DMG signer",
@@ -218,14 +218,13 @@ check(feed_job["needs"] == ["sign", "verify", "tip-dmg"] and "needs.tip-dmg.outp
       "tip writes the feed only after verify passed and tip-dmg handed off a ready DMG")
 dmg_steps = {step.get("name"): step for step in dmg_job["steps"]}
 build_dmg = {step.get("name"): step for step in build_job["steps"]}["Build the tip DMG"]
-check("continue-on-error" not in build_dmg, "tip-dmg's codesign check is never advisory")
 build_run = build_dmg["run"]
-codesign_line = next(line for line in build_run.splitlines() if "codesign --verify --deep --strict" in line)
-check("|| true" not in build_run and "||" not in codesign_line and "set -euo pipefail" in build_run,
-      "a codesign error fails tip-dmg: no || true, and pipefail keeps codesign's status through tee")
-check('grep -q "sealed resource is missing or invalid" codesign-verify.log; then' in build_run
-      and build_run.index("sealed resource is missing or invalid") < build_run.index("hdiutil create"),
-      "a sealed resource missing or invalid fails tip-dmg before the DMG exists")
+check("continue-on-error" not in build_dmg and "|| true" not in build_run and "set -euo pipefail" in build_run,
+      "a DMG build error fails tip-dmg-build: no || true")
+# Apple's codesign check is verify's alone (it ran in both): the feed takes the DMG only after verify
+# passed for the digest tip-dmg built from (tip's needs and the digest check above).
+check("codesign" not in build_run and "codesign --verify --deep --strict" in verify,
+      "Apple's codesign check of the signed app runs once, in verify")
 order = [tip_dmg.find(marker) for marker in (
     "./scripts/ci/rcodesign-notarize-dmg-dev.sh", "python3 scripts/ci/tip_appcast_linux.py",
     "python3 scripts/ci/tip_feed.py check", "name: Upload the tip DMG and appcast for tip", "name: Mark the tip DMG ready for tip")]
