@@ -147,6 +147,12 @@ LAUNCH_MARKS = [("main_start", 30.0), ("main.run", 45.0), ("did_finish_launching
                 ("first_window_frame_committed", 240.0), ("startup_complete", 900.0)]
 DAEMON_PID, DAEMON_SKEW_US, CEF_PID = 77, 2_000_000.0, 88
 DAEMON_MARK_DELAY_MS = 35.0  # the app emits a `daemon.*` mark when the identify reply that carries it arrives
+# A cold launch's marks of the daemon it spawned and of Chromium's start (``write_launch_fixture``'s `cold_marks`):
+# `daemon.spawned`, the daemon's own start as the app records it from identify's `startup_marks` (p08-startup 093:
+# DAEMON_START_MARKS in trace.py), and `cef.initialize_started`.
+COLD_START_MARKS = [("daemon.spawned", 62.0), ("daemon.main_start", 64.0), ("daemon.config_loaded", 70.0),
+                    ("daemon.mux_restored", 122.0), ("daemon.lifecycle_ready", 125.0),
+                    ("daemon.first_identify_served", 130.0), ("cef.initialize_started", 390.0)]
 LANE_TID = 27  # a StartupTrace lane job's background thread in the app process
 # Main-thread samples (ms since process start, frames leaf first): three before the first frame, one after.
 LAUNCH_SAMPLES = [(60.0, ("SessionStore.restore()", "AppDelegate.applicationDidFinishLaunching", "main")),
@@ -155,13 +161,16 @@ LAUNCH_SAMPLES = [(60.0, ("SessionStore.restore()", "AppDelegate.applicationDidF
                   (500.0, ("LateWork.run()", "main"))]
 
 
-def write_launch_fixture(out, scenario="launch-warm", daemon_skew_us=DAEMON_SKEW_US, hangs_dropped=0):
+def write_launch_fixture(out, scenario="launch-warm", daemon_skew_us=DAEMON_SKEW_US, hangs_dropped=0, cold_marks=False):
     """The raw files of a small launch recording in `out` (the shapes trace.py reads), returns `out`. `daemon_skew_us`:
-    how far the daemon's file clock is off CLOCK_UPTIME_RAW; `hangs_dropped`: the watchdog records the drain lost."""
+    how far the daemon's file clock is off CLOCK_UPTIME_RAW; `hangs_dropped`: the watchdog records the drain lost.
+    `cold_marks`: the launch also marks COLD_START_MARKS, the daemon's start reaches the trace only through them (no
+    daemon startup file, as a real daemon writes none) and the end ps snapshot names the daemon it spawned."""
     os.makedirs(os.path.join(out, "startup"), exist_ok=True)
     at = lambda ms: LAUNCH_START_US + ms * 1000  # CLOCK_UPTIME_RAW us of a time since process start
+    marks = sorted(LAUNCH_MARKS + (COLD_START_MARKS if cold_marks else []), key=lambda mark: mark[1])
     lines = ["#timebase 1/1", "#continuous-minus-uptime-us 0"]
-    for name, ms in LAUNCH_MARKS:
+    for name, ms in marks:
         lines.append(json.dumps({"eventType": "signpostEvent", "subsystem": "com.cmuxterm.app.next",
                                  "category": "launch", "signpostName": "launch.mark", "signpostID": 1,
                                  "signpostType": "event", "processID": LAUNCH_PID, "threadID": LAUNCH_MAIN_TID,
@@ -179,7 +188,7 @@ def write_launch_fixture(out, scenario="launch-warm", daemon_skew_us=DAEMON_SKEW
            {"ph": "M", "pid": LAUNCH_PID, "tid": LANE_TID, "name": "thread_name", "args": {"name": "lane.utility"}},
            {"ph": "i", "s": "t", "pid": LAUNCH_PID, "tid": LAUNCH_MAIN_TID, "name": "process_start", "ts": at(0)}]
     app += [{"ph": "i", "s": "t", "pid": LAUNCH_PID, "tid": LAUNCH_MAIN_TID, "name": "mark", "ts": at(ms),
-             "args": {"mark": name}} for name, ms in LAUNCH_MARKS]
+             "args": {"mark": name}} for name, ms in marks]
     app += [{"ph": "B", "pid": LAUNCH_PID, "tid": LAUNCH_MAIN_TID, "cat": "startup", "name": "SessionRestore", "ts": at(55)},
             {"ph": "E", "pid": LAUNCH_PID, "tid": LAUNCH_MAIN_TID, "ts": at(170)},
             {"ph": "X", "pid": LAUNCH_PID, "tid": LAUNCH_MAIN_TID, "cat": "startup", "name": "SessionRestore.decode",
@@ -196,8 +205,9 @@ def write_launch_fixture(out, scenario="launch-warm", daemon_skew_us=DAEMON_SKEW
               {"ph": "i", "s": "t", "pid": DAEMON_PID, "tid": 1, "name": "socket_bound", "ts": at(120) - daemon_skew_us},
               {"ph": "X", "pid": DAEMON_PID, "tid": 1, "name": "mux_restored", "ts": at(80) - daemon_skew_us,
                "dur": 30_000.0}]
-    with open(os.path.join(out, "startup", "startup-daemon.json"), "w") as f:
-        json.dump({"traceEvents": daemon}, f)
+    if not cold_marks:
+        with open(os.path.join(out, "startup", "startup-daemon.json"), "w") as f:
+            json.dump({"traceEvents": daemon}, f)
     cef = json.dumps({"traceEvents": [
         {"ph": "M", "pid": CEF_PID, "tid": 5, "name": "thread_name", "args": {"name": "CrBrowserMain"}},
         {"ph": "X", "pid": CEF_PID, "tid": 5, "name": "BrowserMainLoop::CreateThreads", "ts": at(400), "dur": 8_000.0},
@@ -225,8 +235,9 @@ def write_launch_fixture(out, scenario="launch-warm", daemon_skew_us=DAEMON_SKEW
         json.dump({"scenario": scenario, "app_pid": LAUNCH_PID, "tag": "fixture", "host": "fixture",
                    "window_start_us": at(-10), "window_end_us": at(2900),
                    "launch": {"temperature": "cold" if scenario == "launch-cold" else "warm"}}, f)
+    spawned = {str(DAEMON_PID): {"role": "daemon", "command": "/fixture/cmux-tui server --session cmux-app"}}
     with open(os.path.join(out, "processes.json"), "w") as f:
-        json.dump({"start": {}, "end": {}}, f)
+        json.dump({"start": {}, "end": spawned if cold_marks else {}}, f)
     return out
 
 

@@ -14,9 +14,10 @@
    sampled OS thread's.
 3. A cut file (StartupTrace's 64 KiB chunks after a crash, a killed Chromium) gives its whole events; a B with no E
    ends at the file's last time.
-3b. The three startup tracks (p08-startup 099): the summary names the sources that left a file (app, daemon,
-   Chromium) and warns about one the launch should have left: the app's always, the daemon's when the launch spawned
-   it (`daemon.spawned`), Chromium's when it started (`cef.initialize_started`).
+3b. The three startup tracks (p08-startup 099): a cold launch with a Chromium start has the app's file, the daemon's
+   track from the app's `daemon.*` start marks (identify's startup_marks, p08-startup 093; the daemon writes no file)
+   and Chromium's file; the summary names them and warns about one the launch should have: the app's always, the
+   daemon's when the launch spawned it (`daemon.spawned`), Chromium's when it started (`cef.initialize_started`).
 4. Existing scenarios are unchanged: a stress or light recording has no launch section, and --scenario still takes
    stress-storm and light-storm (default stress-storm).
 5. The record path: the measured launch's window runs inside BenchApp.launch's on_start (no socket call into the
@@ -131,11 +132,6 @@ class LaunchSummary(unittest.TestCase):
         self.assertIn("Main-thread turns of 4 ms or more (2; watchdog records dropped 0):", text)
         self.assertNotIn("WARNING: the watchdog ring dropped", text)
         self.assertIn("startup-cef.json: chromium, 2 events, TRUNCATED", text)
-
-    def test_three_startup_tracks(self):
-        tracks = self.launch["startup_tracks"]
-        self.assertEqual(tracks, {"present": ["app", "daemon", "chromium"], "missing": []})
-        self.assertIn("startup tracks: app, daemon, chromium", read(os.path.join(self.out, "SUMMARY.txt")))
 
     def test_files_on_one_clock(self):
         files = self.summary["sources"]["startup_files"]
@@ -267,11 +263,56 @@ class StartupFiles(unittest.TestCase):
         both = trace.startup_tracks(files, {"daemon.spawned": {}, "cef.initialize_started": {}})
         self.assertEqual([(gap["source"], gap["mark"]) for gap in both["missing"]],
                          [("daemon", "daemon.spawned"), ("chromium", "cef.initialize_started")])
+        reported = trace.startup_tracks(files, {"daemon.spawned": {}, "daemon.main_start": {}})  # the daemon's start
+        self.assertEqual((reported["present"], reported["missing"]), (["app", "daemon"], []))
         none = trace.startup_tracks({}, {})
         self.assertEqual((none["present"], [gap["source"] for gap in none["missing"]]), ([], ["app"]))
         text = "\n".join(trace.launch_text({"startup_tracks": both}, {}))
         self.assertIn("startup tracks: app", text)
         self.assertIn("WARNING: no chromium startup trace although the launch marked cef.initialize_started", text)
+
+
+class StartupTracks(unittest.TestCase):
+    """A cold launch that spawned the daemon and started Chromium: no daemon startup file, the daemon's start only in
+    the app's launch marks."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.out, cls.summary = built(cls, "launch-cold", cold_marks=True)
+        with gzip.open(os.path.join(cls.out, "trace.json.gz"), "rt") as f:
+            cls.events = json.load(f)["traceEvents"]
+
+    def test_three_startup_tracks(self):
+        self.assertNotIn("startup-daemon.json", self.summary["sources"]["startup_files"])
+        tracks = self.summary["launch"]["startup_tracks"]
+        self.assertEqual(tracks, {"present": ["app", "daemon", "chromium"], "missing": []})
+        text = read(os.path.join(self.out, "SUMMARY.txt"))
+        self.assertIn("startup tracks: app, daemon, chromium", text)
+        self.assertNotIn("no daemon startup trace", text)
+
+    def test_daemon_track_from_its_start_marks(self):
+        daemon = [e for e in self.events if e.get("cat") == "startup.daemon"]
+        self.assertEqual({e["pid"] for e in daemon}, {fixtures.DAEMON_PID})
+        self.assertEqual(len({e["tid"] for e in daemon}), 1)
+        start = next(e for e in daemon if e["ph"] == "i")
+        # At the daemon's times, not the emission DAEMON_MARK_DELAY_MS later.
+        self.assertEqual((start["name"], start["ts"]), ("daemon.main_start", AT(64)))
+        steps = [(e["name"], e["ts"], e["dur"]) for e in daemon if e["ph"] == "X"]
+        self.assertEqual(steps, [("config_loaded", AT(64), 6000.0), ("socket_bound", AT(70), 50000.0),
+                                 ("mux_restored", AT(120), 2000.0), ("lifecycle_ready", AT(122), 3000.0),
+                                 ("first_identify_served", AT(125), 5000.0)])
+        names = {(e["pid"], e.get("tid")): e["args"]["name"] for e in self.events
+                 if e.get("ph") == "M" and e.get("name") == "thread_name"}
+        self.assertEqual(names[(fixtures.DAEMON_PID, daemon[0]["tid"])], "startup daemon")
+        processes = {e["pid"]: e["args"]["name"] for e in self.events if e.get("name") == "process_name"}
+        self.assertTrue(processes[fixtures.DAEMON_PID].startswith("daemon:"), processes)
+
+    def test_an_older_daemon_names_the_missing_track(self):
+        marks = {"daemon.spawned": {"ms": 62.0, "at_us": AT(62)}}  # spawned, but no startup_marks in identify
+        tracks = trace.startup_tracks({"startup-app.json": {"source": "app", "events": 9}}, marks)
+        self.assertEqual(tracks["present"], ["app"])
+        self.assertEqual([(gap["source"], gap["mark"]) for gap in tracks["missing"]], [("daemon", "daemon.spawned")])
+        self.assertIn("startup_marks", tracks["missing"][0]["why"])
 
 
 class ExistingScenarios(unittest.TestCase):

@@ -4,9 +4,9 @@ public import Foundation
 /// browser process starts with Chrome's startup tracing switches (components/tracing/common/tracing_switches.cc)
 /// and writes a Chrome Trace Event JSON file at the end of `seconds` (content/browser/tracing/
 /// startup_tracing_controller.cc). Its timestamps are `TimeTicks` (mach_absolute_time, the app's
-/// `CLOCK_UPTIME_RAW`), so `scripts/cmux-next/trace.py` puts it on the app's clock beside the app's and the
-/// daemon's files. Without one (``CEFRuntimeSource/startupTrace`` nil, or nil when Chromium starts) the
-/// browser process gets no tracing switch.
+/// `CLOCK_UPTIME_RAW`), so `scripts/cmux-next/trace.py` puts it on the app's clock beside the app's file and the
+/// daemon's `daemon.*` launch marks. Without one (``CEFRuntimeSource/startupTrace`` nil, or nil when Chromium
+/// starts) the browser process gets no tracing switch.
 public nonisolated struct ChromiumStartupTrace: Sendable, Equatable {
     /// `--trace-startup-duration`: whole seconds, at least 1.
     public var seconds: Int

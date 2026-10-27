@@ -4,8 +4,8 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// p08-startup-099: the daemon's and Chromium's startup traces, asked of the app's (`CMUX_TRACE_STARTUP`): files
-/// next to the app's that `trace.py` reads the source from, and seconds until the app's trace closes.
+/// p08-startup-099: Chromium's startup trace, asked of the app's (`CMUX_TRACE_STARTUP`): a file next to the app's
+/// that `trace.py` reads the source from, and seconds until the app's trace closes.
 @Suite struct StartupTraceChildrenTests {
     private static let second: UInt64 = 1_000_000_000
 
@@ -17,10 +17,8 @@ import Testing
 
     @Test func childFilesSitNextToTheAppsAndNameTheirSource() {
         let harness = StartupTraceConfiguration(file: URL(fileURLWithPath: "/tmp/startup/startup-app.json"))
-        #expect(harness.childFile(.daemon).path == "/tmp/startup/startup-daemon.json")
         #expect(harness.childFile(.chromium).path == "/tmp/startup/startup-cef.json")
         let byPid = StartupTraceConfiguration(file: URL(fileURLWithPath: "/h/Library/Logs/cmux/startup-7.json"))
-        #expect(byPid.childFile(.daemon).path == "/h/Library/Logs/cmux/startup-7-daemon.json")
         #expect(byPid.childFile(.chromium).path == "/h/Library/Logs/cmux/startup-7-cef.json")
     }
 
@@ -29,16 +27,15 @@ import Testing
         let early = try #require(Self.trace(now: 2 * Self.second + 1_200_000_000).childTrace(.chromium))
         #expect(early.seconds == 4)
         #expect(early.file.path == "/tmp/startup/startup-cef.json")
-        let late = try #require(Self.trace(now: 6 * Self.second + 500_000_000).childTrace(.daemon))
+        let late = try #require(Self.trace(now: 6 * Self.second + 500_000_000).childTrace(.chromium))
         #expect(late.seconds == 1)
-        #expect(late.file.path == "/tmp/startup/startup-daemon.json")
-        #expect(Self.trace(now: 0).deadlineNanos == 7 * Self.second) // the daemon's launcher counts from it
+        #expect(Self.trace(now: 0).deadlineNanos == 7 * Self.second)
     }
 
-    /// A Chromium that starts, or a daemon a reconnect spawns, after the app's trace ended records nothing.
+    /// A Chromium that starts after the app's trace ended records nothing.
     @Test func noChildTraceAfterTheDeadline() {
         #expect(Self.trace(now: 7 * Self.second).childTrace(.chromium) == nil)
-        #expect(Self.trace(now: 9 * Self.second).childTrace(.daemon) == nil)
+        #expect(Self.trace(now: 9 * Self.second).childTrace(.chromium) == nil)
     }
 
     @Test func noChildTraceOnceTheAppsTraceClosed() async {
@@ -55,6 +52,5 @@ import Testing
         }
         #expect(status.closed)
         #expect(trace.childTrace(.chromium) == nil)
-        #expect(trace.childTrace(.daemon) == nil)
     }
 }

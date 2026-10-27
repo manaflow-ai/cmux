@@ -3857,21 +3857,55 @@ def startup_source(name):
     return os.path.splitext(name)[0]
 
 
-# The processes that write a startup trace (p08-startup 099), each with the launch mark that says it should have
-# (None: always) and what to check when it did not: the daemon traces only a start the launch's `server ensure`
-# spawned (a running owner started before the trace), Chromium only a start inside the app's trace window.
+# The daemon's own start in the order it reaches it (p08-startup 093): identify's `startup_marks`, which the app
+# records as these launch marks at the daemon's times, once per launch that spawned the daemon. They are the
+# daemon's startup track (p08-startup 099); the daemon writes no startup file.
+DAEMON_START_MARKS = ("daemon.main_start", "daemon.config_loaded", "daemon.owner_prepared", "daemon.socket_bound",
+                      "daemon.mux_restored", "daemon.owner_event_loop", "daemon.websocket_ready",
+                      "daemon.launch_snapshot_writer_started", "daemon.lifecycle_ready",
+                      "daemon.first_identify_served")
+
+# The startup tracks (p08-startup 099), each with the launch mark that says the launch should have one (None:
+# always) and what to check when it does not: the daemon reports its start only when the launch's `server ensure`
+# spawned it (a running owner started before the launch), Chromium writes a file only for a start inside the app's
+# trace window.
 STARTUP_TRACK_SOURCES = (
     ("app", None, "the app read no CMUX_TRACE_STARTUP, or its file was not written"),
-    ("daemon", "daemon.spawned", "a daemon that reads CMUX_TUI_TRACE_STARTUP_FILE writes it"),
+    ("daemon", "daemon.spawned", "the daemon answers identify's startup_marks (startup-marks-v1) and the app "
+                                 "records them as daemon.* launch marks"),
     ("chromium", "cef.initialize_started", "Chromium got --trace-startup-file and writes it at its deadline: the "
                                            "launch must last past it"),
 )
 
 
+def daemon_start_events(marks, daemon_pid, tracks, lane_names):
+    """The daemon's startup track from the app's launch marks (DAEMON_START_MARKS, at the times they name:
+    launch_mark_times): `daemon.main_start` as an instant and each later step as a slice from the step before it, on
+    one `startup daemon` track of the daemon's process. Empty when the launch has none (a warm launch, an older
+    daemon)."""
+    times = launch_mark_times(marks)
+    reached = [(mark, times[mark]) for mark in DAEMON_START_MARKS if mark in times]
+    if not reached:
+        return []
+    tid = tracks.tid(daemon_pid, ("startup", "daemon"))
+    lane_names[(daemon_pid, tid)] = "startup daemon"
+    first, at = reached[0]
+    events = [{"ph": "i", "s": "t", "pid": daemon_pid, "tid": tid, "ts": at, "name": first, "cat": "startup.daemon",
+               "args": {"mark": first}}]
+    for (before, start), (mark, end) in zip(reached, reached[1:]):
+        events.append({"ph": "X", "pid": daemon_pid, "tid": tid, "ts": start, "dur": max(0.0, end - start),
+                       "name": mark.removeprefix("daemon."), "cat": "startup.daemon",
+                       "args": {"from": before, "mark": mark}})
+    return events
+
+
 def startup_tracks(files, marks):
-    """{"present": the sources with events in DIR/startup, in app, daemon, chromium order, "missing": the ones the
-    launch should have left (STARTUP_TRACK_SOURCES: always, or when it marked their start) and did not}."""
+    """{"present": the startup tracks the launch has, in app, daemon, chromium order: a source with events in
+    DIR/startup, and the daemon's when the launch marks carry its start (DAEMON_START_MARKS), "missing": the ones the
+    launch should have (STARTUP_TRACK_SOURCES: always, or when it marked their start) and does not}."""
     present = {info["source"] for info in (files or {}).values() if info.get("events")}
+    if any(mark in marks for mark in DAEMON_START_MARKS):
+        present.add("daemon")
     order = [source for source, _, _ in STARTUP_TRACK_SOURCES]
     missing = [{"source": source, "mark": mark, "why": why} for source, mark, why in STARTUP_TRACK_SOURCES
                if source not in present and (mark is None or mark in marks)]
@@ -4346,6 +4380,10 @@ def build(out):
     events += span_events
     events += chromium_on_own_tracks(chrome, samples, tracks)
     events += chromium_on_own_tracks(startup, samples, tracks, kind="startup")
+    daemon_start = daemon_start_events(launch_marks(signposts, app_pid), daemon_pid, tracks, lane_names)
+    if daemon_start:
+        events += daemon_start
+        roles.setdefault(daemon_pid, "daemon")
     for info in startup_info.values():  # a process only a startup file names (no ps snapshot, no samples)
         for pid in info["pids"]:
             roles.setdefault(pid, {"app": "app", "daemon": "daemon"}.get(info["source"], "bundle-other"))
