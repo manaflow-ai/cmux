@@ -10,6 +10,7 @@ import Testing
 /// DEBUG builds only.
 @MainActor @Suite(.serialized)
 struct DebugCloudMachineFixtureTests {
+    #if DEBUG
     static let toolsRows: Set<ActionID> = ["cloudApplyMachineConfig", "cloudDeliverSecrets"]
 
     /// The rows the fixture machine's header menu runs, by folder title ("" for the top level).
@@ -25,7 +26,6 @@ struct DebugCloudMachineFixtureTests {
         return rows
     }
 
-    #if DEBUG
     @Test func theFixtureShowsTheToolsRowsTheHeaderMenuHidesWithoutIt() {
         let services = MachineIconTests.services()
         AppActions.bind(services)
