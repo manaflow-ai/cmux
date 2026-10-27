@@ -219,7 +219,7 @@ extension Workspace {
             focusedPanelId: focusedPanelId.flatMap { persistedPanelIds.contains($0) ? $0 : nil },
             layout: layout,
             layoutMode: layoutMode.rawValue,
-            canvasPanes: canvasPanesKeepingPersistedPanels(
+            canvasPanes: Self.canvasPanesKeepingPersistedPanels(
                 canvasSessionPaneSnapshots(),
                 persistedPanelIds: persistedPanelIds
             ),
@@ -285,7 +285,10 @@ extension Workspace {
     /// snapshot saved, so the file never names a panel it does not contain
     /// (one past the panel cap, or one with no persisted state). Restore
     /// already skips unknown panels; this keeps the saved file consistent.
-    private func canvasPanesKeepingPersistedPanels(
+    /// A tabbed pane keeps its `panelId`: that is the pane identity (its
+    /// founding panel's UUID, or a fresh id after a tear-out), not a tab
+    /// reference, so it stays even when the first kept tab is another panel.
+    static func canvasPanesKeepingPersistedPanels(
         _ panes: [SessionCanvasPaneSnapshot]?,
         persistedPanelIds: Set<UUID>
     ) -> [SessionCanvasPaneSnapshot]? {
@@ -296,7 +299,6 @@ extension Workspace {
                 let kept = panelIds.filter { persistedPanelIds.contains($0) }
                 guard let first = kept.first else { return nil }
                 copy.panelIds = kept
-                copy.panelId = first
                 copy.selectedPanelId = pane.selectedPanelId.flatMap { kept.contains($0) ? $0 : nil } ?? first
                 return copy
             }
