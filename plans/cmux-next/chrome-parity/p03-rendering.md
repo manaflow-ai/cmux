@@ -1500,6 +1500,10 @@ every task that changes behavior or performance and is not repeated per row.
   buffer. OpenGL keeps full redraws. No C API change (`RenderCounters.partial_frames` is Zig-only; 093 owns the
   counter ABI). The gitlink is not moved (task 079 lands it). Linux: the renderer-filtered zig build test passes
   with the new damage tests (147/147); Metal code is ast-checked only and compiles on the fleet.
+  Fix 8c9fef9c8: `Target.takeDamage` (`damage.take(epoch, pixelsKept())`) is the one call the draw makes, and
+  macOS tests run it on a real IOSurface: Target.zig "pixelsKept: a volatile or purged surface is not kept, and
+  is non-volatile after" and "takeDamage: a volatile or purged surface forces a full redraw" (renderer test
+  block), iosurface.zig `setPurgeable` tests (pkg/macos). They run in the fleet macOS `zig build test`.
 
 #### p03-rendering-093 Terminal frame ownership: probes, counters, hide/show
 - Files: `.../CmuxNextTerminal/TypingFrameProbe.swift`, `TerminalSurfaceView.swift`,
