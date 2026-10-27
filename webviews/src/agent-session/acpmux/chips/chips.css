@@ -313,7 +313,7 @@
 /* Short players have no room between their native control bars. Keep this row outside the
  * video both before and during playback, so playing does not shift the transcript. */
 .cv-media.has-short-video {
-  padding-top: 40px;
+  padding-top: calc(var(--ds-space-6) + var(--ds-space-2));
 }
 .cv-media.has-short-video > .cv-media__actions {
   top: 0;
