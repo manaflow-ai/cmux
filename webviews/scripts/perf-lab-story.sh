@@ -61,6 +61,7 @@ case "$engine" in
     part diff-stream env CMUX_DIFF_BENCH_RENDER_APP=1 bun run bench/diff-stream.bench.ts
     part settings env CMUX_SETTINGS_BENCH=1 bun test ./src/pages/settings/settingsPerf.test.tsx
     part ordered-rows bun test ./src/agent-session/acpmux/orderedRowsPerf.test.ts
+    part icon-picker bun run bench/icon-picker/model-bench.ts
     ;;
   chromium)
     # A lab host is a browser-lane machine (test/support/requireBrowserLane.ts).

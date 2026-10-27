@@ -88,6 +88,8 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   const FADE_FRAME_SLACK_MS = 50;
   /// How long after a chat draws the sampler watches it for shifts and blank frames.
   const SETTLE_MS = 700;
+  /// How long the sampler waits for a chat to draw before it gives up on the open.
+  const OPEN_LIMIT_MS = 8_000;
   /// `CMUX_CHAT_OPEN_PERF_VIDEO=<dir>` records the run, for a before/after on a pull request.
   const videoDir = process.env.CMUX_CHAT_OPEN_PERF_VIDEO;
 
@@ -536,14 +538,25 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   const report = (name: string, phase: "cold" | "cached", opened: Opened[], during: Measured[] = []) => {
     const drawn = opened.map((entry) => entry.drawn ?? Number.POSITIVE_INFINITY);
     const worst = Math.max(...drawn);
-    // `quiet cold` -> web.chat_open.quiet_cold.*; an open that never drew has no draw sample.
+    // `quiet cold` -> web.chat_open.quiet_cold.*. An open that never drew is recorded at the limit
+    // it was cut off at, and counted in never_drawn, so a regression to never drawing raises the
+    // draw distribution instead of leaving it out; it has no fade.
     const metric = (what: string) => `web.chat_open.${name.replaceAll(" ", "_")}.${what}`;
     perfOpens.push(
-      perfSeries(metric("draw"), "ms", drawn),
+      perfSeries(
+        metric("draw"),
+        "ms",
+        opened.map((entry) => entry.drawn ?? OPEN_LIMIT_MS),
+      ),
+      perfSeries(
+        metric("never_drawn"),
+        "count",
+        opened.map((entry) => (entry.drawn === null ? 1 : 0)),
+      ),
       perfSeries(
         metric("fade"),
         "ms",
-        opened.map((entry) => entry.fadeMs),
+        opened.map((entry) => (entry.drawn === null ? undefined : entry.fadeMs)),
       ),
       perfSeries(
         metric("draw_frames"),
@@ -635,7 +648,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
           sessionId: entry.sessionId,
           marker: entry.marker,
           settleMs: SETTLE_MS,
-          limitMs: 8_000,
+          limitMs: OPEN_LIMIT_MS,
         })})`,
       )) as Opened;
       during.push({ pushes: pushed - pushesBefore, attaches: attaches - attachesBefore });

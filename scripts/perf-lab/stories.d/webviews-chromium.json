@@ -8,7 +8,7 @@
   "config": "release",
   "metrics": [
     {"name": "web\\.chat_open\\.(quiet|loaded)_(cold|cached)\\.(draw|fade)", "unit": "ms", "better": "lower"},
-    {"name": "web\\.chat_open\\.(quiet|loaded)_(cold|cached)\\.(draw_frames|shifted_frames|blank_frames|flashes)", "unit": "count", "better": "lower"},
+    {"name": "web\\.chat_open\\.(quiet|loaded)_(cold|cached)\\.(draw_frames|shifted_frames|blank_frames|flashes|never_drawn)", "unit": "count", "better": "lower"},
     {"name": "web\\.diff_paint\\.(mixed|huge)\\.(first_row|first_highlight|complete)", "unit": "ms", "better": "lower"}
   ],
   "repeats": 1,

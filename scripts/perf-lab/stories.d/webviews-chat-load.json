@@ -8,14 +8,15 @@
   "config": "release",
   "metrics": [
     {"name": "web\\.chat_load\\.(open|switch|mock)\\.(t[0-9]+|default)\\.(first_paint|interactive|pane_painted|seed|daemon_cpu|script|layout|style|task)", "unit": "ms", "better": "lower"},
-    {"name": "web\\.chat_load\\.(open|switch|mock)\\.(t[0-9]+|default)\\.(utf16_in|requests|dom_nodes)", "unit": "count", "better": "lower"},
+    {"name": "web\\.chat_load\\.(open|switch|mock)\\.(t[0-9]+|default)\\.(utf16_in|requests|dom_nodes|timed_out)", "unit": "count", "better": "lower"},
     {"name": "web\\.chat_load\\.(open|switch|mock)\\.(t[0-9]+|default)\\.heap", "unit": "bytes", "better": "lower"},
     {"name": "web\\.chat_load\\.(open|mock)\\.(t[0-9]+|default)\\.scroll\\.wall", "unit": "ms", "better": "lower"},
     {"name": "web\\.chat_load\\.(open|mock)\\.(t[0-9]+|default)\\.scroll\\.(utf16_in|requests)", "unit": "count", "better": "lower"}
   ],
   "repeats": 1,
   "seconds": 900,
-  "needs": ["file:webviews/scripts/agent-pane/chat-load/browser_bench.mjs", "file:webviews/scripts/perf-result.mjs"],
+  "needs": ["file:webviews/scripts/agent-pane/chat-load/browser_bench.mjs", "file:webviews/scripts/perf-result.mjs",
+            "file:webviews/scripts/agent-pane/bench-perf-series.mjs"],
   "owner": "PL-acpmux",
   "component": "Agents>ChatLoad",
   "not_measurable": "run.sh takes ACPMUX_BIN OUT_DIR, not the runner's --app --tag --out, and the Linux runner builds no acpmux binary and no agent pane bundle at the measured commit; run it by hand with PERF_RESULT_DIR set."
