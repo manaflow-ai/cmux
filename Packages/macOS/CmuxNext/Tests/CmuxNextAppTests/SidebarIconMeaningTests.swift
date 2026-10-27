@@ -109,6 +109,41 @@ import Testing
         #expect(!label.contains(Strings.priorityNeedsYou))
     }
 
+    // MARK: Update Available button
+
+    /// The quiet Update Available button sits left of the bell and the + button and never
+    /// crosses the titlebar's leading reserve: with no room for both, the update notice takes the
+    /// bell's slot.
+    @Test func theUpdateButtonNeverOverlapsTheLeadingReserve() {
+        let sidebar = SidebarView(model: SidebarModel(sections: []), design: DesignSettings())
+        sidebar.showPriority(SidebarPriorityPanel(entries: [], shown: false))
+        sidebar.showUpdateAvailable("Update Available")
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        sidebar.layoutSubtreeIfNeeded()
+        let update = sidebar.updateAvailableButton, bell = sidebar.priorityButton
+        #expect(!update.isHidden)
+        #expect(update.accessibilityLabel() == "Update Available")
+        #expect(update.frame.maxX <= bell.frame.minX, "the update button overlaps the bell")
+        // A narrow sidebar whose reserve leaves room for one button only.
+        sidebar.titlebarLeadingReserve = sidebar.newButton.frame.minX - Metrics.space1 - sidebar.newButton.frame.width - 1
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(update.frame.minX >= sidebar.titlebarLeadingReserve, "the update button crossed the leading reserve")
+        #expect(update.frame.width > 0, "the update notice lost its slot")
+        #expect(bell.frame == .zero, "the bell kept a slot over the update button")
+        // No bell (Priority off) and no room left of +: no slot to take, so the update button steps out of the row.
+        sidebar.showPriority(nil)
+        sidebar.titlebarLeadingReserve = sidebar.newButton.frame.minX - 1
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(update.frame == .zero, "the update button crossed the leading reserve without a bell")
+        // A bell that crosses the reserve itself gives no slot either.
+        sidebar.showPriority(SidebarPriorityPanel(entries: [], shown: false))
+        sidebar.titlebarLeadingReserve = sidebar.newButton.frame.minX - 1
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(update.frame == .zero || update.frame.minX >= sidebar.titlebarLeadingReserve, "the update button took a bell slot across the reserve")
+        sidebar.showUpdateAvailable(nil)
+        #expect(update.isHidden)
+    }
+
     // MARK: Tab row unread dot
 
     @Test func anUnreadTabRowSaysUnread() {

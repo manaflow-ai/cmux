@@ -2360,132 +2360,133 @@
       }
     },
     "handlers.misc.unavailable.cloud": {
+      "comment": "A Cloud action this build has no handler for.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud actions arrive with the Cloud wave; cmux-next has no Cloud client yet."
+            "value": "This version of cmux can't run this Cloud action. Update cmux, then try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クラウド操作はクラウド対応のフェーズで追加されます。cmux-next にはまだクラウドクライアントがありません。"
+            "value": "このバージョンの cmux ではこの Cloud 操作を実行できません。cmux をアップデートしてから、もう一度お試しください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تصل إجراءات Cloud مع موجة Cloud؛ لا يحتوي cmux-next على عميل Cloud بعد."
+            "value": "لا يمكن لهذا الإصدار من cmux تشغيل إجراء Cloud هذا. حدّث cmux، ثم حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud radnje stižu s Cloud talasom; cmux-next još nema Cloud klijent."
+            "value": "Ova verzija cmuxa ne može pokrenuti ovu Cloud radnju. Ažurirajte cmux, pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud-handlinger kommer med Cloud-bølgen. cmux-next har endnu ingen Cloud-klient."
+            "value": "Denne version af cmux kan ikke køre denne Cloud-handling. Opdater cmux, og prøv så igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud-Aktionen kommen mit der Cloud-Welle; cmux-next hat noch keinen Cloud-Client."
+            "value": "Diese Version von cmux kann diese Cloud-Aktion nicht ausführen. Aktualisiere cmux und versuche es dann erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Las acciones de Cloud llegarán con la fase de Cloud; cmux-next aún no tiene cliente de Cloud."
+            "value": "Esta versión de cmux no puede ejecutar esta acción de Cloud. Actualiza cmux y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les actions Cloud arriveront avec la vague Cloud ; cmux-next n’a pas encore de client Cloud."
+            "value": "Cette version de cmux ne peut pas exécuter cette action Cloud. Mettez à jour cmux, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le azioni Cloud arriveranno con la fase Cloud; cmux-next non ha ancora un client Cloud."
+            "value": "Questa versione di cmux non può eseguire questa azione Cloud. Aggiorna cmux, poi riprova."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "សកម្មភាព Cloud នឹងមកដល់ជាមួយរលក Cloud។ cmux-next មិនទាន់មានកម្មវិធីភ្ញៀវ Cloud នៅឡើយទេ។"
+            "value": "កំណែ cmux នេះមិនអាចដំណើរការសកម្មភាព Cloud នេះបានទេ។ ធ្វើបច្ចុប្បន្នភាព cmux រួចព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud 작업은 Cloud 단계에서 제공됩니다. cmux-next에는 아직 Cloud 클라이언트가 없습니다."
+            "value": "이 버전의 cmux에서는 이 Cloud 작업을 실행할 수 없습니다. cmux를 업데이트한 다음 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud-handlinger kommer med Cloud-bølgen. cmux-next har ingen Cloud-klient ennå."
+            "value": "Denne versjonen av cmux kan ikke kjøre denne Cloud-handlingen. Oppdater cmux, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Akcje Cloud pojawią się w etapie Cloud; cmux-next nie ma jeszcze klienta Cloud."
+            "value": "Ta wersja cmux nie może wykonać tej akcji Cloud. Zaktualizuj cmux, a potem spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "As ações do Cloud chegam com a etapa do Cloud; o cmux-next ainda não tem cliente Cloud."
+            "value": "Esta versão do cmux não consegue executar esta ação do Cloud. Atualize o cmux e tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Действия Cloud появятся вместе с волной Cloud; в cmux-next пока нет клиента Cloud."
+            "value": "Эта версия cmux не может выполнить это действие Cloud. Обновите cmux, затем повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "การกระทำ Cloud จะมาพร้อมระลอก Cloud ขณะนี้ cmux-next ยังไม่มีไคลเอนต์ Cloud"
+            "value": "cmux เวอร์ชันนี้เรียกใช้การทำงาน Cloud นี้ไม่ได้ อัปเดต cmux แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud eylemleri Cloud aşamasıyla gelecek; cmux-next’te henüz Cloud istemcisi yok."
+            "value": "cmux'un bu sürümü bu Cloud işlemini çalıştıramaz. cmux'u güncelleyin, ardından tekrar deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Дії Cloud з’являться разом з етапом Cloud; cmux-next ще не має клієнта Cloud."
+            "value": "Ця версія cmux не може виконати цю дію Cloud. Оновіть cmux, а потім спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Các thao tác Cloud sẽ có cùng đợt Cloud; cmux-next chưa có ứng dụng khách Cloud."
+            "value": "Phiên bản cmux này không thể chạy thao tác Cloud này. Cập nhật cmux, rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud 操作将随 Cloud 阶段推出；cmux-next 尚无 Cloud 客户端。"
+            "value": "此版本的 cmux 无法运行这个 Cloud 操作。请更新 cmux，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud 動作將隨 Cloud 階段推出；cmux-next 尚無 Cloud 用戶端。"
+            "value": "此版本的 cmux 無法執行這個 Cloud 動作。請更新 cmux，然後再試一次。"
           }
         }
       }

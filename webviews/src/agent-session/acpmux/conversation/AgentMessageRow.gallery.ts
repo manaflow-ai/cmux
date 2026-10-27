@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample messages between agents), not shipped UI.
 // Messages between agents as the shared one-line row (AgentMessageRow.tsx): this agent's sends
-// (MessageCard.tsx: Claude Code's SendMessage, tell-coordinator, cmux send) collapsed
+// (MessageCard.tsx: Claude Code's SendMessage, acpmux_send, tell-coordinator, cmux send) collapsed
 // to "Sent to <name>", the message's first line and how far it got as one muted word (Sent,
 // Queued, Delivered), never the send's raw result; the recipient a name, never a hex agentId.
 // Opened, the message grows in place, capped near eight lines. A message another agent sent this
@@ -131,6 +131,38 @@ const sends = () =>
     ),
   ]);
 
+// acpmux_send (acpmux_mcp.rs) as Claude Code and Codex name it: to a lane, and to a session on a peer.
+const lanes = () =>
+  chat([
+    user("Ask lane-a to rebase, then tell the reviewer on build-box.", 3),
+    activity(
+      [
+        tool("mcp__cmux__acpmux_send", "other", "completed", {
+          inputSummary: JSON.stringify({
+            to: "lane-a",
+            text: "Rebase on feat-cmux-next.\nThen push and report the head.",
+          }),
+          output: "Sent to lane-a: steered into its running turn: it reads it at its next tool step (promptId 4f1c9e).",
+        }),
+      ],
+      2.9,
+    ),
+    activity(
+      [
+        tool("cmux", "other", "completed", {
+          inputSummary: JSON.stringify({
+            server: "cmux",
+            tool: "acpmux_send",
+            arguments: { to: "build-box/reviewer", text: "#23377 is ready for review at dce64b66.", steer: false },
+          }),
+          output:
+            "Sent to build-box/reviewer: queued behind its running turn: it reads it when that turn ends (promptId 81ab07).",
+        }),
+      ],
+      2.8,
+    ),
+  ]);
+
 const STOPPED_ID = "a5b7309ddf7afa44d";
 const stoppedAgent = (minutes: number) =>
   row(SUBAGENTS, minutes, {
@@ -231,11 +263,16 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/conversation/AgentMessageRow.tsx",
     "agent-session/acpmux/conversation/MessageCard.tsx",
+    "agent-session/acpmux/conversation/agentMessages.ts",
   ],
   variants: {
     sent: {
       note: 'Sends start collapsed: an envelope, "Sent to" and the recipient as a chip (a subagent by its description, never its agentId), the first line muted, a chevron, and one muted word for how far it got: Queued, Delivered, Sent. A send still going out reads "Sending to" with the working mark.',
       snapshot: sends(),
+    },
+    lanes: {
+      note: "acpmux_send to a lane and to a session on a peer (host/name), as Claude Code and Codex name the call: the same collapsed line, never an MCP row.",
+      snapshot: lanes(),
     },
     "sent-subagents": {
       note: "Messages to subagents read by the subagent's description (the Agent call's), never its agentId; an id no Agent call in the loaded transcript names reads as a short id. Each chip's tooltip holds the full id.",

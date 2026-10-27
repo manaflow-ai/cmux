@@ -1,6 +1,11 @@
 import React, { useCallback, useImperativeHandle, useRef, type RefObject } from "react";
 import type { ComposerAttachment } from "./attachments";
-import { AttachmentStrip, backspacedAttachment, type PendingAttachment } from "./composer/attachmentIntake";
+import {
+  AttachmentStrip,
+  backspacedAttachment,
+  type MadeFile,
+  type PendingAttachment,
+} from "./composer/attachmentIntake";
 import { reordered } from "./composer/stripReorder";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
@@ -48,6 +53,8 @@ export type ComposerBoxProps = {
   onRetryAttachment?(id: string): void;
   /// A staged chip dragged along the strip; unset, the box moves it in `attachments` itself.
   onReorderAttachment?(id: string, index: number): void;
+  /// Attaches a file as a pasted one is: a paste of text past what a prompt carries goes as one.
+  onPasteFile?(file: MadeFile): void;
   /// The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows.
   fieldMenu: ContextMenuItem[];
   onFieldMenuOpen?(): void;
@@ -98,6 +105,7 @@ export function ComposerBox({
   onCancelAttachment,
   onRetryAttachment,
   onReorderAttachment,
+  onPasteFile,
   fieldMenu,
   onFieldMenuOpen,
   fieldOverlay,
@@ -131,7 +139,7 @@ export function ComposerBox({
   const ownAttachments = useRef(attachments);
   if (!attachmentsRef) ownAttachments.current = attachments;
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
-  const pastedChips = usePastedChips(attachmentsRef ?? ownAttachments, setAttachments, prompt);
+  const pastedChips = usePastedChips(attachmentsRef ?? ownAttachments, setAttachments, prompt, onPasteFile);
   const plainPaste = useRef(pastedChips.plainPaste);
   plainPaste.current = pastedChips.plainPaste;
   useImperativeHandle(handle, () => ({ plainPaste: () => plainPaste.current() }), []);

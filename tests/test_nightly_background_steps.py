@@ -29,6 +29,7 @@ PROOF_START = "Prove the browser-data import is compiled out (cx-f58x notary tes
 PROOF_FINISH = "Finish the browser-data import proof"
 SENTRY_START = "Upload dSYMs to Sentry"
 SENTRY_FINISH = "Finish the dSYM upload to Sentry"
+PREPARE_JOBS = ("prepare-nightly-variant-primary", "prepare-nightly-variant-fallback")
 
 
 def steps(job: str) -> list[dict]:
@@ -72,42 +73,51 @@ class BackgroundStepTests(unittest.TestCase):
                               text=True, capture_output=True, timeout=60)
 
     def test_the_proof_finishes_before_the_prepared_app_is_uploaded(self):
-        job = "prepare-nightly-variant"
-        start, finish = index(job, PROOF_START), index(job, PROOF_FINISH)
-        self.assertLess(start, index(job, "Inject universal Ghostty CLI helper"))
-        self.assertLess(index(job, "Package prepared app for signing"), finish)
-        self.assertLess(finish, index(job, "Upload prepared app for signing"))
-        self.assertEqual(step(job, PROOF_START)["if"], step(job, PROOF_FINISH)["if"])
-        self.assertNotIn("continue-on-error", step(job, PROOF_FINISH))
+        for job in PREPARE_JOBS:
+            with self.subTest(job=job):
+                start, finish = index(job, PROOF_START), index(job, PROOF_FINISH)
+                self.assertLess(start, index(job, "Inject universal Ghostty CLI helper"))
+                self.assertLess(index(job, "Package prepared app for signing"), finish)
+                self.assertLess(finish, index(job, "Upload prepared app for signing"))
+                self.assertEqual(step(job, PROOF_START)["if"], step(job, PROOF_FINISH)["if"])
+                self.assertNotIn("continue-on-error", step(job, PROOF_FINISH))
 
     def test_a_clean_bundle_passes_even_when_later_steps_add_files(self):
-        started = self.run_step("prepare-nightly-variant", PROOF_START)
-        self.assertEqual(started.returncode, 0, started.stderr)
-        # A later step changes the original; the proof read the bundle as it was.
-        (self.ws / APP / "Contents/MacOS/added").write_text("Login Data\n")
-        finished = self.run_step("prepare-nightly-variant", PROOF_FINISH)
-        self.assertEqual(finished.returncode, 0, finished.stdout + finished.stderr)
-        self.assertIn("browser-data import targets absent", finished.stdout)
-        self.assertFalse((self.runner_temp / "browser-data-proof").exists())
+        for job in PREPARE_JOBS:
+            with self.subTest(job=job):
+                started = self.run_step(job, PROOF_START)
+                self.assertEqual(started.returncode, 0, started.stderr)
+                # A later step changes the original; the proof read the bundle as it was.
+                added = self.ws / APP / "Contents/MacOS/added"
+                added.write_text("Login Data\n")
+                finished = self.run_step(job, PROOF_FINISH)
+                self.assertEqual(finished.returncode, 0, finished.stdout + finished.stderr)
+                self.assertIn("browser-data import targets absent", finished.stdout)
+                self.assertFalse((self.runner_temp / "browser-data-proof").exists())
+                added.unlink()
 
     def test_a_bundle_with_a_browser_target_fails_the_finish_step(self):
         (self.ws / APP / "Contents/MacOS/cmux").write_text("Chrome Safe Storage\n")
-        started = self.run_step("prepare-nightly-variant", PROOF_START)
-        self.assertEqual(started.returncode, 0, started.stderr)
-        finished = self.run_step("prepare-nightly-variant", PROOF_FINISH)
-        self.assertNotEqual(finished.returncode, 0, finished.stdout)
-        self.assertIn("Chrome Safe Storage", finished.stdout)
-        self.assertIn("the browser-data import proof failed", finished.stderr)
+        for job in PREPARE_JOBS:
+            with self.subTest(job=job):
+                started = self.run_step(job, PROOF_START)
+                self.assertEqual(started.returncode, 0, started.stderr)
+                finished = self.run_step(job, PROOF_FINISH)
+                self.assertNotEqual(finished.returncode, 0, finished.stdout)
+                self.assertIn("Chrome Safe Storage", finished.stdout)
+                self.assertIn("the browser-data import proof failed", finished.stderr)
 
     def test_a_finish_without_a_start_fails(self):
-        finished = self.run_step("prepare-nightly-variant", PROOF_FINISH)
-        self.assertNotEqual(finished.returncode, 0)
-        self.assertIn("never started", finished.stderr)
+        for job in PREPARE_JOBS:
+            with self.subTest(job=job):
+                finished = self.run_step(job, PROOF_FINISH)
+                self.assertNotEqual(finished.returncode, 0)
+                self.assertIn("never started", finished.stderr)
 
     def test_the_sentry_upload_overlaps_the_artifact_uploads_and_stays_non_fatal(self):
         job = "build-nightly-app"
         self.assertLess(index(job, SENTRY_START), index(job, "Archive unsigned nightly app"))
-        self.assertLess(index(job, "Keep the nightly-next dSYMs (90 days)"), index(job, SENTRY_FINISH))
+        self.assertLess(index(job, "Keep the nightly-next dSYMs for publication"), index(job, SENTRY_FINISH))
         self.assertEqual(step(job, SENTRY_START)["if"], step(job, SENTRY_FINISH)["if"])
         self.assertIs(step(job, SENTRY_START)["continue-on-error"], True)
         self.assertIs(step(job, SENTRY_FINISH)["continue-on-error"], True)

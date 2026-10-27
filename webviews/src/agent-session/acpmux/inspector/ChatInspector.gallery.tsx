@@ -41,6 +41,8 @@ type Props = ComponentProps<typeof ChatInspector> & {
   header?: SubagentHeaderVariant;
   /// A gallery-only palette for the Context breakdown's categories (ContextSection.css tones).
   tones?: CSSProperties;
+  /// Gallery-only: a different height ceiling, for comparison with the shipped full-room one.
+  ceiling?: string;
 };
 
 const edit = (path: string, oldText: string | undefined, newText: string) =>
@@ -95,10 +97,12 @@ function GalleryInspector({
   scope,
   header = "title",
   tones,
+  ceiling,
   ...props
 }: Props) {
   return (
     <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
+      {ceiling ? <style>{`.acpmux-chat-inspector[data-placement]{max-height:${ceiling}}`}</style> : null}
       {transcript ? <Transcript /> : null}
       <InspectorPanel
         width={320}
@@ -264,6 +268,8 @@ const transcriptTasks: NonNullable<Props["transcriptTasks"]> = [
 const summary = {
   ...local.summary!,
   usage: { used: 94_000, size: 200_000 },
+  // At most 16 of the chats it started run at once (acpmux's default).
+  subsessionLimits: { maxRunning: 16, maxRunningSource: "default" as const },
   branch: "feat/next-inspector",
   mcpServers: [
     { name: "github", status: "connected" as const },
@@ -293,6 +299,7 @@ const full: Props = {
   onOpenOutput: () => undefined,
   onOpenSubagent: () => undefined,
   onSaveEnvironment: () => undefined,
+  onSetRunningLimit: async () => undefined,
   onReconnectMcp: async () => undefined,
   remoteControl: { on: false, set: () => undefined },
 };
@@ -487,6 +494,7 @@ export default componentEntry<Props>({
     "agent-session/acpmux/inspector/InspectorSection.tsx",
     "agent-session/acpmux/inspector/OutputsSection.tsx",
     "agent-session/acpmux/inspector/ServersSection.tsx",
+    "agent-session/acpmux/inspector/SubagentLimitStepper.tsx",
     "agent-session/acpmux/inspector/SubagentsSection.tsx",
     "agent-session/acpmux/inspector/SubagentScopeHeader.tsx",
     "agent-session/acpmux/inspector/subagentScope.ts",
@@ -497,6 +505,18 @@ export default componentEntry<Props>({
   ],
   load: async () => GalleryInspector,
   variants: {
+    "subagents-done": {
+      note: "A busy chat with Environment, Context, Outputs and 31 completed subagents: four static harness avatars beside the count, opening the named list.",
+      props: {
+        ...full,
+        agents: agents.slice(3, 34).map((agent, index) => ({
+          ...agent,
+          state: "completed",
+          harness: index % 2 ? "codex" : "claude",
+        })),
+        sessions: [],
+      },
+    },
     full: {
       note: "A chat on this Mac with every section, shipped layout (glance): no section is a box. Where it runs: the machine with Save, folder, repository, branch and Remote Control, then Context (47%) and Connectors (1 to reconnect) as one row each. A hairline, then what it made: eight pull requests across three repositories (five shown, then Show more) and its outputs. A hairline, then what it runs: three running subagents and two running chats with the 40 done · 1 failed row, and Background tasks, the dev server on :5173 first, then the commands (one only the transcript knows, without Stop) and four finished.",
       props: full,
@@ -611,6 +631,36 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-inspector-subagents__list") !== null);
       },
     },
+    "subagent-limit": {
+      note: 'Subagents with the chat\'s own running limit of 2: two of the chats it started run, a third waits for a slot ("1 queued"), with Reset back to the inherited limit and − / + beside it.',
+      props: {
+        ...full,
+        summary: { ...summary, subsessionLimits: { maxRunning: 2, maxRunningSource: "session" } },
+        sessions: [
+          ...sessions.slice(1),
+          { sessionId: "child-4", title: "Profile the sidebar", state: "running", createdAt: started - 300_000 },
+          {
+            sessionId: "child-5",
+            title: "Audit the strings",
+            state: "idle",
+            waitsForSlot: true,
+            createdAt: started - 200_000,
+          },
+        ],
+      },
+    },
+    "subagent-limit-hidden-default": {
+      note: "A chat that never started a subagent or a chat, at acpmux's default running limit: no Subagents card at all.",
+      props: { summary, machineName: "Studio", onSetRunningLimit: async () => undefined },
+    },
+    "subagent-limit-set-no-rows": {
+      note: "No subagents or chats yet, but the settings set the running limit to 4: Subagents shows only that limit, with − and +.",
+      props: {
+        summary: { ...summary, subsessionLimits: { maxRunning: 4, maxRunningSource: "settings" } },
+        machineName: "Studio",
+        onSetRunningLimit: async () => undefined,
+      },
+    },
     "subagents-busy": {
       note: "A busy coordinator: the first five of seventeen running subagents and chats, the one waiting on the person first, then Show 12 more and the 94 done · 1 failed row.",
       props: busy,
@@ -659,7 +709,7 @@ export default componentEntry<Props>({
       },
     },
     "fits-content": {
-      note: "A chat with little to show, over a 900px pane: Environment and Context only. The card ends right after Context, with the body's 10px under it and no fixed or minimum height: the 560px ceiling is only a maximum (Leo, 2026-10-22: \"the card should just end when there's no more content to show\").",
+      note: "A chat with little to show, over a 900px pane: Environment and Context only. The card ends right after Context, with the body's 10px under it and no fixed or minimum height: the ceiling (the room under the header) is only a maximum (Leo, 2026-10-22: \"the card should just end when there's no more content to show\").",
       props: {
         summary: { ...summary, mcpServers: [] },
         machineName: "Studio",
@@ -669,8 +719,21 @@ export default componentEntry<Props>({
       },
     },
     ceiling: {
-      note: "A busy coordinator over the same 900px pane: its sections run far past the ceiling, so the card stops at 560px (never more than 80% of the room under the header) and its body scrolls.",
+      note: "Chosen. A busy coordinator over the same 900px pane: the card uses the full room under the header, less its 8px inset at the foot, and only then does its body scroll; it still floats over the chat with its own edge (Leo, 2026-10-26: \"you still haven't done the full-length thing. It's still just this constrained height for, like, no reason at all\").",
       props: { ...busy, closable: true },
+    },
+    "ceiling-capped": {
+      note: 'Before, for comparison: the old ceiling, the smallest of 560px and 80% of the room under the header, so a busy card stopped with room left and scrolled (Leo: "this constrained height for, like, no reason at all").',
+      props: {
+        ...busy,
+        closable: true,
+        ceiling:
+          "min(560px, calc((100% - var(--acpmux-inspector-top, 0px)) * 0.8), calc(100% - var(--acpmux-inspector-top, 0px) - var(--acpmux-inspector-inset)))",
+      },
+    },
+    "ceiling-most": {
+      note: "Alternative: 90% of the room under the header, leaving a band of the chat under the card.",
+      props: { ...busy, closable: true, ceiling: "calc((100% - var(--acpmux-inspector-top, 0px)) * 0.9)" },
     },
     push: {
       note: "Settings > Agent Chat > Inspector set to Push: the panel sits beside the chat and narrows it, instead of lying over it with a shadow. It is glass there too, with its left hairline as its only edge.",

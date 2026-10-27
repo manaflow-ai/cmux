@@ -294,3 +294,63 @@ async fn a_move_whose_client_goes_away_before_the_target_finished_is_dropped_the
     let there = dst.request(method::MUX_INFO, json!({"sessionId": id})).await;
     assert!(there.is_err(), "the target has no copy: {there:?}");
 }
+
+/// A daemon whose store is on disk at `dir`, with `cmux-harness` among its agents: an import of a
+/// durable session writes its recovery marker beside the sessions (`hub/transfer.rs`).
+fn disk_hub(dir: &std::path::Path) -> Arc<Hub> {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let profile = HarnessProfile {
+        kind: Default::default(),
+        argv: vec!["python3".into(), fake.into()],
+        env: BTreeMap::new(),
+        description: None,
+        fallback: None,
+        family: None,
+        models: vec![],
+        model: None,
+        effort: None,
+        policy: None,
+    };
+    let harnesses = BTreeMap::from([("cmux-harness".to_owned(), profile)]);
+    let mut cfg = Config { harnesses, ..Default::default() };
+    cfg.store.mode = StoreMode::Local;
+    let store = acpmux::store::open(&cfg.store, dir).unwrap();
+    Hub::new(cfg, store)
+}
+
+/// A bundle of a cmux-harness chat whose agent session is `agent`, its log `events`, and no
+/// durable journal in its manifest.
+fn harness_bundle(dir: &std::path::Path, agent: &str, events: &str) -> std::path::PathBuf {
+    let id = uuid::Uuid::now_v7().to_string();
+    let bundle = dir.join(&id);
+    std::fs::create_dir_all(bundle.join("events")).unwrap();
+    let meta = json!({
+        "schema": "acpmux.session.v1", "id": id, "name": "durable", "harness": "cmux-harness",
+        "cwd": cwd(), "agentSessionId": agent, "status": "idle", "createdAt": 1, "updatedAt": 1,
+    });
+    std::fs::write(bundle.join("session.json"), meta.to_string()).unwrap();
+    std::fs::write(bundle.join("events").join("000001.ndjson"), events).unwrap();
+    let manifest = json!({"schema": "acpmux.bundle.v1", "id": id, "harness": null});
+    std::fs::write(bundle.join("manifest.json"), manifest.to_string()).unwrap();
+    bundle
+}
+
+#[tokio::test]
+async fn a_failed_durable_import_leaves_no_recovery_marker_so_a_retry_runs_on_the_same_daemon() {
+    let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
+    let hub = disk_hub(&dir.join("daemon"));
+    let marker = dir.join("daemon/sessions/.agent-0001.durable-transfer-state");
+    // Its log does not parse; then its durable journal is missing.
+    for (events, failure) in [("not a record\n", "import events"), ("", "import durable journal")] {
+        let bundle = harness_bundle(&dir.join("bundles"), "agent-0001", events);
+        for attempt in ["first", "retry"] {
+            let failed = hub.import(&bundle, None).await.err().map(|e| e.message);
+            assert!(
+                failed.as_deref().is_some_and(|m| m.starts_with(failure)),
+                "{attempt}: {failed:?}"
+            );
+            assert!(!marker.exists(), "{attempt} {failure} left its recovery marker");
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

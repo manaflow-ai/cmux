@@ -12,6 +12,7 @@ pub(super) fn connect_and_attach(
     record_session: String,
     params: Value,
     read_only: bool,
+    author: Option<Value>,
     writer: MessageWriter,
 ) {
     let sessions = &mux.control_clients.agent_sessions;
@@ -74,8 +75,14 @@ pub(super) fn connect_and_attach(
     // watchers; the reader keeps only this session's and its descendants'.
     // The answer (every session's summary) never reaches the client: only
     // the descendants it names are followed from now on.
-    let watched = link.call("_acpmux/watch", json!({"enabled": true}), CALL_TIMEOUT);
+    let mut watch = json!({"enabled": true});
+    if let Some(author) = &author {
+        watch["_meta"]["acpmux"]["author"] = author.clone();
+    }
+    let watched = link.call("_acpmux/watch", watch, CALL_TIMEOUT);
+    let page = if author.is_some() { without_drafts(page) } else { page };
     let attachment = Arc::new(Attachment {
+        author,
         client,
         surface,
         session: resolved,
@@ -91,7 +98,9 @@ pub(super) fn connect_and_attach(
         prompts: Mutex::default(),
         children: Mutex::default(),
     });
-    if let Ok(watched) = &watched {
+    if attachment.author.is_none()
+        && let Ok(watched) = &watched
+    {
         attachment
             .follow_children(&agent_session_children::descendant_ids(&attachment.session, watched));
     }
@@ -100,6 +109,16 @@ pub(super) fn connect_and_attach(
         if let Some(permission) = pending.get("permissionId").and_then(Value::as_str) {
             attachment.note_permission(permission);
         }
+    }
+    // A teammate's page is the shared chat's: from this check to the reply no rebind lands
+    // (AgentSessions::shared), and a rebind while acpmux answered ends it unseen.
+    let shared = attachment.author.is_some().then(|| sessions.shared());
+    if shared.is_some() && !attachment.tab_current() {
+        drop(shared);
+        release(sessions);
+        link.close();
+        refuse(&writer, id, Refusal::NotShared);
+        return;
     }
     {
         let mut state = sessions.lock();
@@ -113,6 +132,7 @@ pub(super) fn connect_and_attach(
         state.attachments.insert((client, surface), attachment.clone());
     }
     let replied = ok(&writer, id, page);
+    drop(shared);
     {
         // The held notifications go out after the reply, in order, before
         // any later one (the reader waits on this lock meanwhile).
@@ -161,6 +181,76 @@ pub(crate) fn bound_page(mut page: Value, newest_first: bool) -> Value {
     page
 }
 
+/// A `composer` record: someone's draft text. Kept on the owner's machine.
+fn is_draft(record: &Value) -> bool {
+    record.get("kind").and_then(Value::as_str) == Some("composer")
+}
+
+/// A replay page for a proxied (teammate) attachment: no `composer` records, no `presence`, and
+/// the session's summary cut to [`TEAMMATE_SUMMARY`].
+pub(crate) fn without_drafts(mut page: Value) -> Value {
+    if let Some(object) = page.as_object_mut() {
+        object.remove("presence");
+    }
+    if let Some(events) = page.get_mut("events").and_then(Value::as_array_mut) {
+        events.retain(|record| !is_draft(record));
+    }
+    if let Some(session) = page.get_mut("session") {
+        teammate_summary(session);
+    }
+    page
+}
+
+/// What a teammate sees of the shared chat's own summary: what the chat shows (its name, title,
+/// status, turn, queue and asks), never where it runs or what it is linked to (folder, parent,
+/// children, tags, tools, rules, policy, MCP servers, lane, peer, pull requests).
+const TEAMMATE_SUMMARY: &[&str] = &[
+    "sessionId",
+    "name",
+    "harness",
+    "status",
+    "createdAt",
+    "updatedAt",
+    "lastSeq",
+    "eventCount",
+    "turnCount",
+    "title",
+    "titleSource",
+    "preview",
+    "lastMessage",
+    "queued",
+    "queuePaused",
+    "steering",
+    "turn",
+    "queue",
+    "pending",
+    "pendingPermissions",
+    "currentModeId",
+    "model",
+    "stateSeq",
+    "logsLoading",
+];
+
+/// Keeps only [`TEAMMATE_SUMMARY`] of a session summary.
+pub(crate) fn teammate_summary(session: &mut Value) {
+    if let Some(object) = session.as_object_mut() {
+        object.retain(|key, _| TEAMMATE_SUMMARY.contains(&key.as_str()));
+    }
+}
+
+/// What a teammate sees of a `session_changed`: which record changed what, and the summary cut
+/// to [`TEAMMATE_SUMMARY`]; never the change's `peer` or any other field acpmux adds later.
+pub(crate) fn teammate_change(change: &mut Value) {
+    if let Some(object) = change.as_object_mut() {
+        object.retain(|key, _| {
+            matches!(key.as_str(), "sessionId" | "kind" | "recordKind" | "seq" | "session")
+        });
+    }
+    if let Some(session) = change.get_mut("session") {
+        teammate_summary(session);
+    }
+}
+
 /// One notification or the close from the attachment's acpmux link.
 pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
     if attachment.ended.load(Ordering::Acquire) {
@@ -171,11 +261,20 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
         Inbound::Notification(method, params) => (method, params),
     };
     let same_session = params.get("sessionId").and_then(Value::as_str) == Some(&attachment.session);
+    // A teammate's stream holds the rebind lock from its tab check to its write, and stops once
+    // the tab shows another chat, whatever the event (AgentSessions::shared).
+    let mux = attachment.author.is_some().then(|| attachment.mux.upgrade()).flatten();
+    let _shared = mux.as_ref().map(|mux| mux.control_clients.agent_sessions.shared());
+    if attachment.author.is_some() && (mux.is_none() || !attachment.tab_current()) {
+        return attachment.end(Some("detached"));
+    }
     // A closed tab, or one that now shows another session, stops streaming.
     if same_session && !attachment.tab_current() {
         return attachment.end(Some("detached"));
     }
     match method.as_str() {
+        // A teammate never sees anyone's unsent text (chat-multiplayer design section 5).
+        "_acpmux/event" if same_session && attachment.author.is_some() && is_draft(&params) => {}
         "_acpmux/event" if same_session => {
             let event = json!({"event": "agent-session-record", "surface": attachment.surface, "record": params});
             // Never blocks: a client that does not keep up overflows its
@@ -196,11 +295,28 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
         }
         // The session's own changes, and its descendants' (`agent-session-children-v1`),
         // while the tab still shows the session.
-        "_acpmux/session_changed" if same_session || attachment.follows_change(&params) => {
+        "_acpmux/session_changed"
+            if same_session
+                || (attachment.author.is_none() && attachment.follows_change(&params)) =>
+        {
             if !same_session && !attachment.tab_current() {
                 return attachment.end(Some("detached"));
             }
+            let mut params = params;
+            if attachment.author.is_some() {
+                teammate_change(&mut params);
+            }
             let event = json!({"event": "agent-session-changed", "surface": attachment.surface, "change": params});
+            if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
+                attachment.end(None);
+            }
+        }
+        // Who is in the chat: acpmux sends the whole set on every change, to a client that asked.
+        // Not to a teammate yet: the set names who else has the chat open.
+        "_acpmux/presence"
+            if same_session && attachment.author.is_none() && attachment.wants_presence() =>
+        {
+            let event = json!({"event": "agent-session-presence", "surface": attachment.surface, "presence": params});
             if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
                 attachment.end(None);
             }
@@ -214,5 +330,35 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
         }
         "_acpmux/lagged" => attachment.end(Some("lagged")),
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod draft_tests {
+    use super::*;
+
+    #[test]
+    fn a_teammate_page_keeps_every_record_but_drafts() {
+        let page = json!({"events": [{"seq": 1, "kind": "user_message"},
+            {"seq": 2, "kind": "composer", "msg": {"text": "secret"}}, {"seq": 3, "kind": "queued"}]});
+        let kept = without_drafts(page);
+        let seqs: Vec<u64> =
+            kept["events"].as_array().unwrap().iter().map(|e| e["seq"].as_u64().unwrap()).collect();
+        assert_eq!(seqs, vec![1, 3]);
+        assert!(is_draft(&json!({"kind": "composer"})));
+        let page = json!({"events": [], "session": {"sessionId": "s", "name": "chat",
+            "status": "running", "cwd": "/Users/owner/secret", "parentId": "p", "startedBy": "p",
+            "spawnedBy": "p", "children": 2, "tags": {"lane": "x"}, "tools": [{"name": "Bash"}],
+            "rules": true, "mcpServers": [], "pullRequests": ["https://example.com/1"],
+            "agentSessionId": "thread", "peer": "other", "turn": {"turnId": "t"}}});
+        let session = &without_drafts(page)["session"];
+        assert_eq!(
+            session,
+            &json!({"sessionId": "s", "name": "chat", "status": "running", "turn": {"turnId": "t"}})
+        );
+        assert!(!is_draft(&json!({"kind": "user_message"})));
+        let page = json!({"events": [], "presence": {"sessionId": "s", "participants": [
+            {"id": "tailnet:other@example.com", "name": "Other"}]}});
+        assert_eq!(without_drafts(page), json!({"events": []}), "no one's presence");
     }
 }

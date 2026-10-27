@@ -13,7 +13,8 @@ extension NotificationCenterService {
         let pet = ChiefPetRoutes(services: services).makePet()
         chiefPet = pet
         pet.start(enabled: { [weak settings] in settings?.snapshot.homeChiefPetEnabled ?? false },
-                  mascot: { [weak settings] in settings?.snapshot.homeChiefPetMascot ?? "" })
+                  mascot: { [weak settings] in settings?.snapshot.homeChiefPetMascot ?? "" },
+                  upload: { [weak services] in services?.wornUpload(of: nil)?.file })
     }
 
     /// An arrival that stays unread goes to the Chief pet when it would alert here, by a banner's

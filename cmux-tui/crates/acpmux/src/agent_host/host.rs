@@ -9,7 +9,6 @@ use std::os::fd::AsRawFd;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::UnixListener;
-use tokio::process::Command;
 use tokio::sync::mpsc;
 
 /// Entry point of `acpmux __agent-host`: read the spawn spec from stdin,
@@ -83,7 +82,7 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
     let live = lock_live_file(&live_file)?;
     // Until the start succeeds, every early return removes what it created.
     let mut cleanup = StartCleanup { paths: vec![live_file] };
-    let mut cmd = Command::new(&spec.program);
+    let mut cmd = crate::cwd_pin::CwdPin::command(&spec.program, spec.cwd_pin);
     cmd.args(&spec.args)
         .env_clear()
         .envs(spec.env.iter().map(|(k, v)| (k, v)))

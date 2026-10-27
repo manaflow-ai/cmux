@@ -175,12 +175,15 @@ fn primitive(expression: &Value) -> Value {
     schema
 }
 
-/// A public id, unique id prefix, session-qualified id, `current`, or name.
+/// A public id, unique id prefix, session-qualified id, `current`,
+/// `focused`, or name.
 pub(super) fn id(resource: &str) -> Value {
     let description = match id_prefix(resource) {
         Some(prefix) => format!(
             "The {resource}: its public id (`{prefix}_…`), a unique prefix of it, \
-             `<session>:{prefix}_…` for another session, `current`, or its exact name."
+             `<session>:{prefix}_…` for another session, `current` for the caller's own \
+             (the one that holds this chat), `focused` for the one the person looks at, \
+             or its exact name."
         ),
         None => format!("The {resource} id."),
     };

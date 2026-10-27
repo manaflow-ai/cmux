@@ -1092,6 +1092,78 @@ fn a_cloud_subagents_workspace_terminal_opens_in_a_folder_on_this_mac() {
     );
 }
 
+/// Records each workspace's name and group.
+#[derive(Default)]
+struct NameRecorder {
+    opened: std::sync::Mutex<Vec<(String, String)>>,
+}
+
+impl optchat_chief::workspaces::Workspaces for NameRecorder {
+    fn open(
+        &self,
+        key: &str,
+        _session: &str,
+        name: &str,
+        group: &str,
+        _cwd: &std::path::Path,
+    ) -> Result<String, String> {
+        self.opened
+            .lock()
+            .unwrap()
+            .push((name.to_owned(), group.to_owned()));
+        Ok(key.to_owned())
+    }
+    fn rename(&self, _key: &str, _name: &str) -> Result<(), String> {
+        Ok(())
+    }
+    fn place(&self) -> String {
+        "the test".into()
+    }
+}
+
+/// Oct 22-25: 31 cloud subagents' workspaces read "You are a subagent of
+/// Chief, an…" in the sidebar: the cloud placement puts the subagent
+/// instructions before the task, and the workspace name and group were read
+/// from that wrapped text, whose first lines are no `Title:`/`Group:`. They
+/// come from the task the Chief wrote.
+#[test]
+fn a_cloud_subagents_workspace_is_named_and_grouped_by_its_task_headers() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    std::fs::create_dir_all(h.dir.path().join("subagent")).unwrap();
+    let recorder = Arc::new(NameRecorder::default());
+    let ws: Arc<dyn optchat_chief::workspaces::Workspaces> = recorder.clone();
+    h.brain.set_workspaces(Some(ws.clone()));
+    let sp = Arc::new(
+        Arc::try_unwrap(spawner(
+            &h,
+            Some(CloudPlacement {
+                instructions: "You are a subagent of Chief, an AI agent that works for one user."
+                    .into(),
+                ..cloud()
+            }),
+        ))
+        .ok()
+        .unwrap()
+        .with_workspaces(Some(ws)),
+    );
+    let a = sp.clone();
+    let spawned = run(&mut h, move || {
+        a.spawn(
+            vec!["Title: Cloud thing\nGroup: Agents & routing\n\nbuild it".into()],
+            None,
+        )
+    })
+    .unwrap();
+    assert!(spawned.contains("Started a1"), "{spawned}");
+    let opened = recorder.opened.lock().unwrap().clone();
+    assert_eq!(
+        opened,
+        vec![("Cloud thing".to_owned(), "Agents & routing".to_owned())],
+        "{spawned}"
+    );
+}
+
 // ---- v2: every subagent in its own VM by default (cloud-subagents-DESIGN.md, "v2") ----
 
 /// A spawner and brain with `vms` as the pool tool and no `control cloud`.

@@ -161,12 +161,13 @@ const groupedShellRows = [
 
 const LONG_CP =
   "cp /private/tmp/claude-501/-Users-leo-Projects/scratch/transcript/before-after/ellipsis-before.png /Users/leo/Projects/cmux/docs/media/ellipsis-after.png";
-const LONG_SEND =
-  "acpmux send --no-wait coord-deputy '[transcript-parity] tool rows use the full width and end in an ellipsis at the right edge'";
+// Not an acpmux send: a send draws as its own "Sent message to" row (SentMessageLine.tsx).
+const LONG_GH =
+  "gh pr comment 4182 --body '[transcript-parity] tool rows use the full width and end in an ellipsis at the right edge'";
 const longCommandRows = [
-  user("Copy the screenshots over and tell the coordinator", 3, { id: "gallery-long-commands-user" }),
+  user("Copy the screenshots over and comment on the PR", 3, { id: "gallery-long-commands-user" }),
   activity(
-    [LONG_CP, LONG_SEND].map((command, at) =>
+    [LONG_CP, LONG_GH].map((command, at) =>
       tool("Run", "execute", "completed", {
         command,
         output: "",
@@ -178,7 +179,7 @@ const longCommandRows = [
     2.8,
     { id: "gallery-long-commands-activity" },
   ),
-  assistant("Copied both screenshots and sent the coordinator the merge.", 2.6, { id: "gallery-long-commands-answer" }),
+  assistant("Copied both screenshots and commented on the PR.", 2.6, { id: "gallery-long-commands-answer" }),
   summary(2.6, { id: "gallery-long-commands-summary", status: "completed", toolCount: 2 }),
 ];
 
@@ -1398,8 +1399,9 @@ export default agentPaneEntry({
       note: "Play: the folded thought opens to its full text under one left rule; the line still reads Thought for 12s.",
       checks: {
         layoutShiftMax: {
-          value: 0.01,
-          reason: "Opening the thought pushes the rows below it down by its text, on purpose.",
+          value: 0.02,
+          reason:
+            "Opening the thought pushes the rows below it down by its text, on purpose; Chromium measured 0.0103, so the budget leaves room for fractional rounding.",
         },
       },
       snapshot: thoughtChat([thought(SHORT_THOUGHT, { startedAt: 0, endedAt: 12_000 })]),
@@ -1524,8 +1526,9 @@ export default agentPaneEntry({
             "The key that opens the closed Worked for fold still re-renders the whole pane once (the fold state lives in AcpmuxPane; Find state moved below it in cx-ncc.86): 70-120 ms at 4x CPU throttle in dev React, other keys now render the transcript alone.",
         },
         layoutShiftMax: {
-          value: 0.01,
-          reason: "Find opens the fold that holds the match, which moves the rows below on purpose.",
+          value: 0.05,
+          reason:
+            "Find opens the fold that holds the match, which moves the rows below on purpose. Rows sit at their `top` (a translate put the line above the pointer under a drag, PR 23826), so that move counts as a layout shift: 0.034 in Chromium.",
         },
       },
       snapshot: chat([
@@ -3066,7 +3069,7 @@ export default agentPaneEntry({
       play: openGroupedShells,
     },
     "long-commands-fill-row": {
-      note: 'Leo 2026-10-22, of Ran rows cut with an ellipsis about two thirds across: "shouldnt these also ellipsis later". Long commands (a cp of two long paths, an acpmux send) draw their whole first step and end in an ellipsis at the row\'s right edge, before the chevron; no 60-character cut. Play: open Worked for and the run; each command line is the whole step.',
+      note: 'Leo 2026-10-22, of Ran rows cut with an ellipsis about two thirds across: "shouldnt these also ellipsis later". Long commands (a cp of two long paths, a gh pr comment) draw their whole first step and end in an ellipsis at the row\'s right edge, before the chevron; no 60-character cut. Play: open Worked for and the run; each command line is the whole step.',
       checks: shellDisclosureChecks,
       snapshot: chat(longCommandRows),
       play: async (ctx) => {

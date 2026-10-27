@@ -131,4 +131,87 @@ import Testing
         #expect(keyboard.post([]) == 1)
         #expect(!family.isInactive)
     }
+
+    /// Leo 2026-10-25: "when i go out of focus of the cmux-next app i still see it turn more frosted
+    /// like it frosts the glass before the background". AppKit redraws the glass for the key change
+    /// at once; the wash then faded in over `scrim`, a second step. A settled key change now sets the
+    /// wash with no animation, in the pass's own transaction, so the glass and the wash switch together.
+    /// The wash eases only in a window on screen, so this needs a display (CI's GUI runners have one).
+    @Test(.enabled("needs a display: the wash eases only in a window on screen") { !NSScreen.screens.isEmpty })
+    func aSettledKeyChangeSwitchesTheWashWithNoFade() throws {
+        let (keyboard, window, family, view) = try Self.onScreenGlass()
+        defer { window.orderOut(nil) }
+        let wash = try #require(view.inactiveTintView.layer)
+
+        // Cmd-Tab away: the wash is at its resting alpha in this pass, with no fade on top.
+        keyboard.key = nil
+        keyboard.active = false
+        keyboard.post([NSWindow.didResignKeyNotification, NSWindow.didResignMainNotification,
+                       NSApplication.didResignActiveNotification])
+        #expect(family.isInactive)
+        #expect(view.inactiveTintAlpha > 0)
+        #expect(!view.inactiveTintView.isHidden)
+        #expect(wash.opacity == Float(view.inactiveTintAlpha))
+        #expect(wash.animation(forKey: "opacity") == nil, "the wash fades in after the glass changed")
+
+        // Back: the wash is gone in the same pass as well.
+        keyboard.key = window
+        keyboard.active = true
+        keyboard.post([NSApplication.didBecomeActiveNotification, NSWindow.didBecomeKeyNotification])
+        #expect(!family.isInactive)
+        #expect(view.inactiveTintView.isHidden && wash.opacity == 0)
+        #expect(wash.animation(forKey: "opacity") == nil, "the wash fades out after the glass changed")
+
+        // Another window of this app takes the keys: settled too, no fade.
+        let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled],
+                             backing: .buffered, defer: true)
+        other.isReleasedWhenClosed = false
+        keyboard.key = other
+        keyboard.post([NSWindow.didResignKeyNotification, NSWindow.didBecomeKeyNotification])
+        #expect(family.isInactive)
+        #expect(wash.animation(forKey: "opacity") == nil)
+    }
+
+    /// An active app with no key window may be between a resign and a become a later pass posts:
+    /// the wash eases there, so a reversal one pass later does not flash (review of #25199).
+    @Test(.enabled("needs a display: the wash eases only in a window on screen") { !NSScreen.screens.isEmpty })
+    func anActiveAppWithNoKeyWindowStillEasesTheWash() throws {
+        let (keyboard, window, family, view) = try Self.onScreenGlass()
+        defer { window.orderOut(nil) }
+        let wash = try #require(view.inactiveTintView.layer)
+        keyboard.key = nil
+        keyboard.post(NSWindow.didResignKeyNotification)
+        #expect(family.isInactive)
+        #expect(wash.animation(forKey: "opacity") != nil, "an unsettled key change should ease, not snap")
+
+        // Another window takes the keys on a later pass: the state does not flip, but the easing
+        // wash lands at once, with the settled change.
+        let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled],
+                             backing: .buffered, defer: true)
+        other.isReleasedWhenClosed = false
+        keyboard.key = other
+        keyboard.post(NSWindow.didBecomeKeyNotification)
+        #expect(family.isInactive)
+        #expect(wash.animation(forKey: "opacity") == nil, "the settled change should land the wash")
+        #expect(wash.opacity == Float(view.inactiveTintAlpha))
+    }
+
+    /// A glass backdrop in a titled window on screen whose family holds the keys.
+    private static func onScreenGlass() throws -> (Keyboard, NSWindow, WindowKeyFamily, WindowMaterialView) {
+        _ = NSApplication.shared
+        let keyboard = Keyboard()
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 320, height: 200), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.orderFrontRegardless()
+        try #require(window.isVisible)
+        let family = WindowKeyFamily.of(window, environment: keyboard.environment)
+        let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
+        window.contentView?.addSubview(view)
+        view.apply(WindowBackdrop(backgroundOpacity: 0.5, backgroundBlur: -1), tint: .black)
+        keyboard.key = window
+        keyboard.post([NSWindow.didBecomeKeyNotification, NSApplication.didBecomeActiveNotification])
+        try #require(!family.isInactive && view.inactiveTintView.isHidden)
+        return (keyboard, window, family, view)
+    }
 }

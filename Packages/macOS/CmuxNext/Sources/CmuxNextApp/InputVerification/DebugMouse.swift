@@ -13,9 +13,9 @@ import CmuxNextSettings
 ///
 /// Params: `window` (id; default the first window); a point as `x`,`y`
 /// (window-local points from the top-left, as the journal records them) or
-/// `pane` (the center of that pane's content); `action`: `click` (default),
-/// `double_click`, `down`, `up`, `drag` (to `to_x`,`to_y` in `steps`),
-/// `move` (pointer motion with no button, for hover: tab and workspace
+/// `pane` (the center of that pane's content) or `row` (a sidebar workspace row, `DebugMouse+Rows`); `action`: `click` (default),
+/// `double_click`, `down`, `up`, `drag` (to `to_x`,`to_y`
+/// or `to_edge` of the shown workspace, in `steps`), `move` (pointer motion with no button, for hover: tab and workspace
 /// hover cards), `hover` (tracking-area owners get entered, moved and
 /// exited at once, `DebugHover`: the tab strip's hover reveal), or `scroll`
 /// (`dx`,`dy` pixels; `phase` began/changed/ended makes it a trackpad
@@ -41,7 +41,7 @@ enum DebugMouse {
         guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
               let window = controller.window else { return .object(["error": .string("no window")]) }
         guard let point = point(params, controller: controller, window: window) else {
-            return .object(["error": .string("pass x and y, or a pane shown in the window")])
+            return .object(["error": .string("pass x and y, a pane shown in the window, or a workspace row in its sidebar")])
         }
         let flags = modifiers(params["modifiers"]?.arrayValue ?? [])
         let (down, up, dragged) = eventTypes(button: params["button"]?.stringValue)
@@ -59,7 +59,7 @@ enum DebugMouse {
         case "up":
             events = [mouse(up, at: point, in: window, flags: flags, clicks: 1)]
         case "drag":
-            let target = NSPoint(x: params["to_x"]?.doubleValue ?? point.x, y: params["to_y"]?.doubleValue ?? point.y)
+            let target = dragTarget(params, from: point, controller: controller, window: window)
             let steps = min(max(params["steps"]?.intValue ?? 12, 1), 200)
             events = params["press"]?.boolValue == false ? [] : [mouse(down, at: point, in: window, flags: flags, clicks: 1)]
             for step in 1...steps {
@@ -128,7 +128,7 @@ enum DebugMouse {
         guard posted.count == events.count else { return .object(["error": .string("could not synthesize events")]) }
         // The layout's hover reads the pointer, not events: the synthesized
         // pointer ends where the last event is (cx-ww20).
-        let last = action == "drag" ? NSPoint(x: params["to_x"]?.doubleValue ?? point.x, y: params["to_y"]?.doubleValue ?? point.y) : point
+        let last = action == "drag" ? dragTarget(params, from: point, controller: controller, window: window) : point
         if action != "scroll" || params["hover"]?.boolValue != false { LayoutRootView.setDebugPointer(baseLocation(last, in: window), in: window) }
         // Agent input: never the user choosing the app (no-activate guard).
         SyntheticInput.register(posted)
@@ -143,6 +143,7 @@ enum DebugMouse {
     /// Top-left window-local point from `x`,`y` or the center of `pane`.
     private static func point(_ params: [String: JSONValue], controller: WindowController, window: NSWindow) -> NSPoint? {
         if let x = params["x"]?.doubleValue, let y = params["y"]?.doubleValue { return NSPoint(x: x, y: y) }
+        if let row = params["row"]?.stringValue { return rowPoint(row, controller: controller, window: window) }
         guard let key = params["pane"]?.stringValue, let pane = controller.content?.paneController(key: key) else { return nil }
         let view: NSView = pane.view.content ?? pane.view
         let center = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)

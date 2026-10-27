@@ -1,28 +1,5 @@
 import Foundation
 
-/// The App Group container the app and its notification extensions share
-/// (Info.plist `CmuxMobileAppGroup`). Nil in a build without the App Group
-/// entitlement (a hand-installed wildcard-signed build): the extension then
-/// offers "Open in app" only.
-public struct PushAppGroup: Sendable, Equatable {
-    public static let infoKey = "CmuxMobileAppGroup"
-
-    public var identifier: String
-    public var directory: URL
-
-    public init(identifier: String, directory: URL) {
-        self.identifier = identifier
-        self.directory = directory
-    }
-
-    /// The current bundle's group, when it is configured and entitled.
-    public static func current(bundle: Bundle = .main) -> PushAppGroup? {
-        guard let id = bundle.object(forInfoDictionaryKey: infoKey) as? String, !id.isEmpty,
-              let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: id) else { return nil }
-        return PushAppGroup(identifier: id, directory: url)
-    }
-}
-
 /// Replies the content extension hands the app (and replies the app keeps
 /// for a retry): one JSON file per reply. Safe across the two processes
 /// without `NSFileCoordinator` (whose daemon stalled reads for seconds in the

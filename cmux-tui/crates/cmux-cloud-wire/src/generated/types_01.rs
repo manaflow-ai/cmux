@@ -58,6 +58,7 @@ wire_enum! {
 pub enum Body {
     AgentPrompt(BodyAgentPrompt),
     Steps(BodySteps),
+    Chief(BodyChief),
     Code(BodyCode),
     /// A member this build does not know (a newer backend), kept verbatim.
     Unknown(Value),
@@ -111,6 +112,14 @@ pub struct BodyAgentPrompt {
 pub struct BodySteps {
     pub r#type: LitSteps,
     pub steps: Vec<Step>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct BodyChief {
+    pub r#type: LitChief,
+    pub chief: String,
+    pub conversation: ConversationId,
+    pub prompt: String,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -888,18 +897,5 @@ wire_enum! {
     HomeConversationSummaryState {
         Active = "active",
         Archived = "archived",
-    }
-}
-
-wire_enum! {
-    HomeDeliveryState {
-        Queued = "queued",
-        Sent = "sent",
-        Delivered = "delivered",
-        Bounced = "bounced",
-        Complained = "complained",
-        Failed = "failed",
-        Suppressed = "suppressed",
-        RefusedEnv = "refused_env",
     }
 }

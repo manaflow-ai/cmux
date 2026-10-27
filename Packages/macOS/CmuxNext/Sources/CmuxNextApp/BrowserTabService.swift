@@ -1,6 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
 import CmuxNextBrowserTabs
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextRemoteLocalhostService
@@ -86,6 +87,9 @@ final class BrowserTabService {
     /// a new TabModel in its destination pane), nil when it closed.
     var tabModel: @MainActor (_ id: String) -> TabModel?
     var writeBackDelay: Duration = .milliseconds(500)
+    /// How long a record write waits for the store to apply its events before the writer reads
+    /// the record anyway.
+    static let settleLimit: Duration = .seconds(2)
     // wakeup-allow: one-shot debounce of browser record write-back (injected for tests)
     var sleep: BrowserRecordWriter.Sleep = { try await ContinuousClock().sleep(for: $0) }
     private(set) var writers: [String: BrowserRecordWriter] = [:]
@@ -349,7 +353,7 @@ final class BrowserTabService {
         guard !ProvisionalTab.isProvisional(surface: tab.surface) else { return }
         trackEmulation(page, id: tab.id)
         guard tab.isFrontendOwned, writers[tab.id] == nil, !isIncognitoTab(tab.id) else { return }
-        let update = update, updateState = updateState, id = tab.id, daemonForTab = daemonForTab
+        let update = update, updateState = updateState, settled = settled, id = tab.id, daemonForTab = daemonForTab
         let keeps = keepsState(tab)
         if keeps, let zoom = tab.zoom, abs(page.state.zoom - zoom) > 0.001 { page.setZoom(zoom) }
         // The surface is looked up by tab id at send time. A moved tab (a
@@ -364,10 +368,21 @@ final class BrowserTabService {
         ) { [weak self] fields in
             guard let tab = self?.tabModel(id) else { return false }
             let daemon = daemonForTab(tab)
-            if fields.hasRecordFields, !(await update(daemon, tab.surface, fields)) { return false }
-            guard fields.hasStateFields else { return true }
-            guard let resource = tab.resourceID else { return false }
-            return await updateState(daemon, resource, fields)
+            let write: @MainActor () async -> Bool = {
+                if fields.hasRecordFields, !(await update(daemon, tab.surface, fields)) { return false }
+                guard fields.hasStateFields else { return true }
+                guard let resource = tab.resourceID else { return false }
+                return await updateState(daemon, resource, fields)
+            }
+            let sent = await write()
+            // The daemon publishes the record before it answers and the store applies it after:
+            // the writer reads the record only once the store holds the write's own events
+            // (BrowserRecordWriter, causal order). Bounded, so a store that stops applying (a
+            // resync that never lands) cannot hold quit, close or later writes.
+            _ = try? await ControlDeadline.shared.run(method: "browser.record.settle", deadline: .now + Self.settleLimit) {
+                @MainActor in await settled(daemon)
+            }
+            return sent
         }
         writers[id] = writer
         trackHistory(page, id: id, daemon: daemonForTab(tab), surface: tab.surface, recordURL: tab.url, while: writer)

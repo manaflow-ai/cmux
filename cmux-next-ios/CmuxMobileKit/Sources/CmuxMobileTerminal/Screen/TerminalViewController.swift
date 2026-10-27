@@ -1004,6 +1004,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             self?.pacer.newFrame()
             self?.pumpOutput()
         }, selector: #selector(DisplayLinkProxy.step(_:)))
+        link.preferredFrameRateRange = .terminal
         link.add(to: .main, forMode: .common)
         outputLink = link
     }
@@ -1224,6 +1225,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         #if DEBUG
         devProbe?.processed()
+        // Every parsed byte, the reset and replay the gate holds included:
+        // the bench's echo and drain offsets count them (fleet bench
+        // 2026-10-26: a 2-byte gap read idle echo as 413 ms, drain as -1).
+        TerminalBenchProbe.shared?.outputProcessed(raw)
         #endif
         let replayDone = replayGate.parsed(raw)
         if replayGate.isReplaying {
@@ -1250,9 +1255,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if freezeBatches >= 2, heldFrameMayGo() { unfreeze() }
         }
         if raw > Self.mirrorReset.count { model.liveOutputDrawn() }
-        #if DEBUG
-        TerminalBenchProbe.shared?.outputProcessed(raw)
-        #endif
         outputSinceProbe = true
         #if DEBUG
         if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm processed %@", debugState) }
@@ -1820,6 +1822,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 self.forceScroll = false
             }
         }, selector: #selector(DisplayLinkProxy.step(_:)))
+        link.preferredFrameRateRange = .terminal
         link.add(to: .main, forMode: .common)
         followFallback = link
     }
@@ -2625,7 +2628,7 @@ final class FlingAnimator {
 
     func start() {
         let link = CADisplayLink(target: self, selector: #selector(step(_:)))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
+        link.preferredFrameRateRange = .terminal
         link.add(to: .main, forMode: .common)
         self.link = link
     }

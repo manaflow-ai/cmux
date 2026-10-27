@@ -8039,6 +8039,28 @@
    },
    "additional_properties": false
   },
+  "CloudConversationPresenceParticipant": {
+   "kind": "object",
+   "fields": {
+    "participant": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "viewing": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
   "HomeInboxKind": {
    "kind": "enum",
    "values": [
@@ -23606,6 +23628,41 @@
     "While some client of the daemon subscribes the conversation (not_subscribed). Sends the owner's ephemeral typing {on, conversation} frame on the shared socket once it is live; the newest state replaces one not yet sent; nothing is stored. Answers the subscription's state. See spec/commands.md."
    ]
   },
+  "cloud-conversation-presence": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-conversation-presence-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "viewing": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "While some client of the daemon subscribes the conversation (not_subscribed). The person views while any client of the daemon views; a change of that goes out as the owner's ephemeral presence.set {conversation, viewing} frame on the shared socket once it is live, again on a new socket while viewing, and off when the last viewing client closes or unsubscribes; nothing is stored. Answers the subscription's state. See spec/commands.md."
+   ]
+  },
   "browser-host-provider": {
    "authority": "local-admin",
    "since": 12,
@@ -29861,6 +29918,55 @@
       "type": {
        "kind": "scalar",
        "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "account": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "cloud-conversation-presence": {
+   "since": 12,
+   "capability": "cloud-conversation-presence-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "cloud-conversation-presence"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "participants": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "CloudConversationPresenceParticipant"
+       }
       },
       "presence": "required",
       "nullable": false

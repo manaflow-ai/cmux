@@ -5,10 +5,10 @@
 // agentMessages.ts `messageDelivery`). The recipient is a name: a subagent by its description, or
 // a short id when nothing names it, the full id in the chip's tooltip (agentNames.ts). Copy
 // is in the line's hover row. Opened, the message grows in place: its whole text under the line,
-// with no box around it, capped near eight lines and scrolling past them under a fade, and
+// with no box around it, cut between whole lines with Show more, and
 // nothing else (Leo 2026-10-21: the result's JSON under it was "immediately TMI"). Whether it is open lasts across
 // the virtualized transcript (transcriptDisclosure.tsx), and Find in Chat opens it.
-import { useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { messageDelivery, notDeliveredReason, type AgentMessage, type Delivery } from "./agentMessages";
@@ -19,6 +19,7 @@ import { Envelope, Spinner } from "./icons";
 import { SentActions } from "./MessageActions";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { Markdown } from "./Markdown";
+import { wholeLineCut } from "./lineCut";
 
 export function MessageCard({
   item,
@@ -66,7 +67,7 @@ export function MessageCard({
         status ? <span className="cv-command__meta cv-agentmsg__status cv-message__status">{status}</span> : undefined
       }
       actions={message.text ? <SentActions text={message.text} /> : undefined}
-      body={<MessageText text={message.text || t("message.noText")} messageAt={messageAt} />}
+      body={<MessageText item={item} text={message.text || t("message.noText")} messageAt={messageAt} />}
     />
   );
 }
@@ -100,28 +101,55 @@ function deliveryWord(
   }
 }
 
-/// The opened message: its text, capped near eight lines, scrolling past them under a fade that
-/// lifts at the end.
-function MessageText({ text, messageAt }: { text: string; messageAt?: number }) {
+/// The opened message: whole lines, then an explicit disclosure control.
+function MessageText({ item, text, messageAt }: { item: AcpmuxActivity; text: string; messageAt?: number }) {
+  const t = useT();
+  const id = useId();
+  const [expanded, setExpanded] = useTranscriptDisclosure(`message-text:${item.tool!.id}`);
+  useFindReveal([item], () => setExpanded(true));
   const ref = useRef<HTMLDivElement>(null);
-  const [more, setMore] = useState(false);
+  const [cutAt, setCutAt] = useState<number>();
   const measure = () => {
     const node = ref.current;
-    if (node) setMore(node.scrollHeight - node.scrollTop - node.clientHeight > 1);
+    if (!node) return;
+    const limit = 8 * parseFloat(node.ownerDocument.defaultView!.getComputedStyle(node).lineHeight);
+    setCutAt(node.scrollHeight > limit + 1 ? wholeLineCut(node, limit) : undefined);
   };
   useLayoutEffect(() => {
     measure();
-    // The pane's width decides the wrap, so a resize can bring the fade in or take it away.
+    // The pane's width decides the wrap and therefore the safe cut.
     const node = ref.current;
     if (!node || typeof ResizeObserver !== "function") return;
     const observer = new ResizeObserver(measure);
     observer.observe(node);
+    observer.observe(node.firstElementChild ?? node);
     return () => observer.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- measure reads only the node
   }, [text]);
+  const cut = !expanded && cutAt !== undefined;
   return (
-    <div ref={ref} className={`cv-message__text${more ? " has-more" : ""}`} onScroll={measure}>
-      <Markdown messageAt={messageAt}>{text}</Markdown>
-    </div>
+    <>
+      <div
+        id={id}
+        ref={ref}
+        className={`cv-message__text${cut ? " is-cut" : ""}`}
+        style={cut ? { maxHeight: cutAt } : undefined}
+        onFocusCapture={cut ? () => setExpanded(true) : undefined}
+      >
+        <Markdown messageAt={messageAt}>{text}</Markdown>
+      </div>
+      {cutAt !== undefined && (
+        <button
+          type="button"
+          className="cv-user__more cv-message__more"
+          aria-expanded={expanded}
+          aria-controls={id}
+          data-find-skip=""
+          onClick={() => setExpanded(!expanded)}
+        >
+          {t(expanded ? "message.less" : "message.more")}
+        </button>
+      )}
+    </>
   );
 }

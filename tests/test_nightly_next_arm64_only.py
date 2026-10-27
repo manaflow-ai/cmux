@@ -18,10 +18,11 @@ import sys
 from pathlib import Path
 
 from test_ci_nightly_push_throttle import NEXT_ENV, run_decide
+from nightly_workflow_text import nightly_text
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
-TEXT = WORKFLOW.read_text()
+TEXT = nightly_text()
 FOUR = ["appcast-arm64.xml", "appcast-x86_64.xml", "appcast-universal.xml", "appcast.xml"]
 
 
@@ -127,6 +128,7 @@ def compile_commands(outputs):
             "bin/python3": 'case "${1:-}" in scripts/ci/nightly_build_state.py) exit 0;; scripts/ci/run-with-helper-prebuild.py) script="$1"; shift; exec "$script" "$@";; --) shift; exec "$@";; *) exec /usr/bin/python3 "$@";; esac',
             "bin/xcodebuild": 'printf "%s\\n" "$@" > "$CAPTURE/app"',
             "bin/lipo": 'exit 0',
+            "bin/rustup": 'exit 0',
             "scripts/ci/run-xcodebuild-with-diagnostics.sh": 'shift; exec "$@"',
             "scripts/ci/run-with-helper-prebuild.py": 'while [ "${1:-}" != -- ]; do shift; done; shift; exec "$@"',
             "scripts/cmux-next/build-acpmux.sh": 'printf "%s" "$CMUX_NEXT_ACPMUX_ARCHS" > "$CAPTURE/acpmux"',
@@ -138,6 +140,12 @@ def compile_commands(outputs):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text("#!/bin/bash\nset -eu\n" + body + "\n")
             target.chmod(0o755)
+        # The Chief step installs its toolchain, then builds in the background
+        # (background_build.py); the recorder joins it before reading.
+        (root / "cmux-tui").mkdir()
+        (root / "cmux-tui/rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.95.0"\n')
+        (root / "cmux-next-ios/rust").mkdir(parents=True)
+        (root / "scripts/ci/background_build.py").write_text((ROOT / "scripts/ci/background_build.py").read_text())
         capture = root / "capture"
         capture.mkdir()
         steps = (
@@ -160,6 +168,10 @@ def compile_commands(outputs):
                    "IMPORT_VARIANT": "full", "SWIFT_IMPORT_FLAGS": "", "EMPTY_BROWSER_SOURCES": "false"}
             subprocess.run(["/bin/bash", "-c", script], cwd=root, env=env,
                            capture_output=True, text=True, check=True)
+            if "background_build.py start" in script:
+                subprocess.run(["/usr/bin/python3", "scripts/ci/background_build.py", "join", "--state",
+                                str(root / "nightly-helper-builds"), "optchat-chief"],
+                               cwd=root, env=env, capture_output=True, text=True, check=True)
         return {path.name: path.read_text() for path in capture.iterdir()}
 
 

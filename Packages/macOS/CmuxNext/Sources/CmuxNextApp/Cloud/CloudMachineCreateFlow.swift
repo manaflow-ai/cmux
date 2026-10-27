@@ -92,7 +92,7 @@ struct CloudMachineCreateFlow {
     /// record (contract 1.2). `askedBy`: the agent chat that asked, if one did.
     func create(name: String?, startedByPerson: Bool, askedBy: String? = nil, gate: Gate = .allowed) async throws -> JSONValue {
         if case .upgrade(let need) = gate {
-            _ = await confirm(.upgrade(need))
+            if startedByPerson { _ = await confirm(.upgrade(need)) }
             throw Failure.upgradeRequired
         }
         let machine = Self.named(name, askedBy: askedBy)
@@ -138,13 +138,15 @@ struct CloudMachineCreateFlow {
     static func legacy<T>(name: String?, startedByPerson: Bool, askedBy: String? = nil, askFirst: Bool = false, gate: @MainActor () -> Gate = { .allowed },
                           confirm: @MainActor (Prompt) async -> Bool, create: @MainActor () async throws -> T) async throws -> T {
         if case .upgrade(let need) = gate() {
-            _ = await confirm(.upgrade(need))
+            // The upgrade card is for the person who asked for the machine; an agent's refused create
+            // only fails with the refusal, so the person is not prompted on every agent request.
+            if startedByPerson { _ = await confirm(.upgrade(need)) }
             throw Failure.upgradeRequired
         }
         if !startedByPerson, askFirst { guard await confirm(.agentRequest(named(name, sizeShown: false, askedBy: askedBy))) else { throw Failure.declined } }
         do {
             return try await create()
-        } catch CloudAPIError.http(let status, _, _) where status == 402 {
+        } catch CloudAPIError.http(let status, _, _, _, _) where status == 402 {
             _ = await confirm(.upgrade(Upgrade(reason: .server)))
             throw Failure.upgradeRequired
         }

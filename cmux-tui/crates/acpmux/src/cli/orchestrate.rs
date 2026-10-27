@@ -138,13 +138,22 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
         let name = s.get("name").and_then(Value::as_str).unwrap_or(&id).to_owned();
         let status = s.get("status").and_then(Value::as_str).unwrap_or("").to_owned();
         let pending = s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0);
-        let reply = if opts.print || json_out {
-            last_replies(&client, &id, 1).await.unwrap_or_default().pop().unwrap_or_default()
-        } else {
-            String::new()
+        let failed = failed_turn(s);
+        let reply = match (opts.print || json_out, failed.is_some()) {
+            (false, _) => String::new(),
+            // A failed turn's own output, never the reply of the turn before it.
+            (true, true) => match s.pointer("/lastTurn/turnId").and_then(Value::as_str) {
+                Some(turn) => turn_reply(&client, &id, turn).await.ok().flatten(),
+                None => None,
+            }
+            .unwrap_or_default(),
+            (true, false) => {
+                last_replies(&client, &id, 1).await.unwrap_or_default().pop().unwrap_or_default()
+            }
         };
         code = code.max(session_exit_code(s));
-        let row = json!({"name": name, "sessionId": id, "status": status, "pendingPermissions": pending, "waitingOn": s.get("waitingOn"), "waitingPrompt": s.get("waitingPrompt"), "unread": s.get("unread"), "matched": s.get("matched"), "reply": reply});
+        let retry = s.get("retry").filter(|r| r.is_object());
+        let row = json!({"name": name, "sessionId": id, "status": status, "pendingPermissions": pending, "waitingOn": s.get("waitingOn"), "waitingPrompt": s.get("waitingPrompt"), "unread": s.get("unread"), "matched": s.get("matched"), "reply": reply, "error": failed, "retry": retry});
         if opts.notify {
             terminal_notify("acpmux", &wait_notice(&name, &row));
         }
@@ -159,6 +168,11 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
         for r in &rows {
             let g = |k: &str| r.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
             println!("{:<24} {}", g("name"), wait_state(r));
+            if opts.print {
+                for line in failure_lines(r, crate::store::now_ms()) {
+                    println!("{line}");
+                }
+            }
             if opts.print && !g("reply").is_empty() {
                 println!("{}", g("reply"));
                 println!();
@@ -172,6 +186,57 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
         std::process::exit(code);
     }
     Ok(())
+}
+
+/// The error of the session's last turn when that turn failed and no turn runs now: what
+/// `wait` reports instead of a reply.
+fn failed_turn(s: &Value) -> Option<String> {
+    let last = &s["lastTurn"];
+    if last["status"] != "failed" || s.get("turn").is_some_and(|t| !t.is_null()) {
+        return None;
+    }
+    let text = ["errorText", "error", "detail"]
+        .iter()
+        .filter_map(|k| last[k].as_str())
+        .map(str::trim)
+        .find(|t| !t.is_empty())
+        .unwrap_or("no error text");
+    Some(text.to_owned())
+}
+
+/// What `wait --print` says of a failed turn: its error, then the automatic retry that waits
+/// (what it waits out and when its next attempt runs) and how to retry now, or that none waits.
+fn failure_lines(r: &Value, now: u64) -> Vec<String> {
+    let Some(error) = r["error"].as_str() else {
+        return Vec::new();
+    };
+    let name = r["name"].as_str().unwrap_or_default();
+    let retry_now = format!("`acpmux retry {}`", crate::harness_health::channel::quote(name));
+    let mut lines = vec![format!("error: {error}")];
+    let retry = &r["retry"];
+    if let (Some(attempt), Some(of), Some(next_at)) =
+        (retry["attempt"].as_u64(), retry["of"].as_u64(), retry["nextAt"].as_u64())
+    {
+        let cause = match retry["reason"].as_str().unwrap_or_default() {
+            "capacity" => "capacity: the provider or the gateway is full",
+            "transport" => "a dropped connection",
+            "agent_exited" => "the agent process's exit",
+            other => other,
+        };
+        lines.push(format!(
+            "retry {attempt} of {of} waits out {cause}; the next attempt runs in {} ({retry_now} runs it now)",
+            in_time(next_at.saturating_sub(now))
+        ));
+    } else {
+        lines.push(format!("no automatic retry waits; {retry_now} sends the turn again"));
+    }
+    lines
+}
+
+/// `ms` from now, as `45s` or `4m05s`.
+fn in_time(ms: u64) -> String {
+    let secs = ms.div_ceil(1000);
+    if secs < 60 { format!("{secs}s") } else { format!("{}m{:02}s", secs / 60, secs % 60) }
 }
 
 /// What a waited-on session's row says it is at: an agent's question reads as
@@ -188,6 +253,11 @@ fn wait_state(r: &Value) -> String {
         }
         (Some("question"), _) => "asks a question".to_owned(),
         _ if pending > 0 => format!("waiting for permission ({pending})"),
+        _ if r["error"].is_string() => {
+            let status = r.get("status").and_then(Value::as_str).unwrap_or("");
+            let retry = if r["retry"].is_object() { ", retry waits" } else { "" };
+            format!("{status}: turn failed{retry}")
+        }
         _ => r.get("status").and_then(Value::as_str).unwrap_or("").to_owned(),
     }
 }
@@ -198,6 +268,8 @@ fn wait_notice(name: &str, r: &Value) -> String {
         format!("{name} asks a question")
     } else if r.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0 {
         format!("{name} needs a permission")
+    } else if r["error"].is_string() {
+        format!("{name}'s turn failed")
     } else {
         format!("{name} finished")
     }
@@ -328,6 +400,21 @@ pub(crate) fn split_target(spec: &str) -> (String, Option<String>) {
     }
 }
 
+/// Parse repeatable creation tags once, before a session is made.
+pub(crate) fn parse_tags(assignments: &[String]) -> Result<Value> {
+    let mut tags = serde_json::Map::new();
+    for a in assignments {
+        let (key, value) = a
+            .split_once('=')
+            .ok_or_else(|| AppError::usage(format!("tag must be key=value, got {a:?}")))?;
+        if key.is_empty() {
+            return Err(AppError::usage(format!("tag key cannot be empty, got {a:?}")).into());
+        }
+        tags.insert(key.to_owned(), json!(value));
+    }
+    Ok(Value::Object(tags))
+}
+
 pub(crate) async fn ensure(
     client: Arc<Client>,
     name: &str,
@@ -337,6 +424,7 @@ pub(crate) async fn ensure(
     cwd: Option<std::path::PathBuf>,
     policy: Option<String>,
     effort: Option<String>,
+    tags: Vec<String>,
     json_out: bool,
 ) -> Result<()> {
     let (agent, model) = match &target {
@@ -347,6 +435,7 @@ pub(crate) async fn ensure(
         None => (None, None),
     };
     crate::session_name::validate(name).map_err(AppError::usage)?;
+    let tags = parse_tags(&tags)?;
     let existing = client.request(method::MUX_SESSIONS, json!({})).await?;
     let full = match &host {
         Some(h) => format!("{h}/{name}"),
@@ -377,6 +466,10 @@ pub(crate) async fn ensure(
             if let Some(e) = &effort {
                 meta["effort"] = json!(e);
             }
+            if !tags.as_object().is_none_or(|m| m.is_empty()) {
+                meta["tags"] = tags;
+            }
+            meta["argv"] = json!(crate::cli::entry::original_args());
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             match (&host, cwd) {
                 (Some(_), Some(c)) => p["cwd"] = json!(c),
@@ -590,6 +683,7 @@ pub(crate) async fn compare(
                         on_permission: OnPermission::Wait,
                         stall_secs: 0,
                         retries: 0,
+                        steer: false,
                     },
                     &crate::cli::output::PromptId::new(None),
                 )

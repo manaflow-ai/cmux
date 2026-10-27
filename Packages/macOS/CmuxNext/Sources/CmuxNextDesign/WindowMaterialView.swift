@@ -61,6 +61,8 @@ public final class WindowMaterialView: NSView {
     private var loadedTexture: BackdropTexture?
     /// The appearance the art loaded for: a dynamic Apple picture or shipped video has one of each.
     private var loadedDark = false
+    /// The desktop's ``DesktopWallpaperWatch/generation`` the Desktop Wallpaper art loaded for.
+    private var loadedDesktopGeneration = 0
     /// The last `apply`, run again when the appearance flips under art that follows it.
     private var applied: (backdrop: WindowBackdrop, tint: NSColor)?
     /// A video wallpaper over the art (its poster), playing while seen (``BackdropVideoView``).
@@ -71,6 +73,9 @@ public final class WindowMaterialView: NSView {
     /// The web views lensing this backdrop, told when what they draw changes (`glassSource`).
     let glassFeeds = NSHashTable<GlassBackdropFeed>.weakObjects()
     private let images: BackdropImageStore
+    /// The desktop picture (the image store's): its color leans the tint
+    /// (`appearance.wallpaperTint`), and the Desktop Wallpaper art reloads when it changes.
+    private var wallpaper: DesktopWallpaperWatch { images.desktop }
     /// Loads the art the last `apply` asked for when it was not decoded yet; a later `apply`
     /// that needs other art cancels and replaces it. Tests await its `value` to see the art the
     /// load shows.
@@ -123,6 +128,7 @@ public final class WindowMaterialView: NSView {
         // art (and the glass/material stack above art) so losing focus cannot dim or hide that art.
         addSubview(inactiveTintView, positioned: .below, relativeTo: artView)
         setAccessibilityElement(false)
+        images.desktop.register(self)
     }
 
     @available(*, unavailable)
@@ -169,6 +175,8 @@ public final class WindowMaterialView: NSView {
 
     override public func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        // The app's appearance has flipped by now; macOS's own notice can come before it does.
+        wallpaper.appearanceDidChange()
         // A dynamic Apple picture or a shipped video has a light and a dark file.
         if let applied, applied.backdrop.selection?.followsAppearance == true { apply(applied.backdrop, tint: applied.tint) }
     }
@@ -208,28 +216,34 @@ public final class WindowMaterialView: NSView {
         return !(appActive && familyHoldsKey)
     }
 
-    func updateInactiveTint() {
+    /// Shows the wash for the window's key state now. `fades` eases it in or out (`scrim`), for a
+    /// setting or theme change. A key change passes false: the wash then lands in the same
+    /// transaction as AppKit's own key-state redraw (Liquid Glass dropping its tint, the traffic
+    /// lights), so losing focus is one change, as native glass and NSVisualEffectView switch, not
+    /// the glass frosting first and the wash fading in after it (Leo 2026-10-25: "it frosts the
+    /// glass before the background").
+    func updateInactiveTint(fades: Bool = true) {
         let alpha = washColor == nil ? 0 : Self.inactiveTintAlpha(material: material, isKeyWindow: !resignedKey, tintAlpha: tintAlpha,
                                                                    dim: CGFloat(DesignSettings.shared.inactiveWindowDim))
         let wash = alpha > 0 ? washColor : nil
         guard let layer = inactiveTintView.layer else { return }
         let previous = inactiveTintTarget
         inactiveTintTarget = alpha
+        // A window not on screen, or a key change, applies at once.
+        let eases = fades && window?.isVisible == true
         // Visible now, mid-fade included (the model opacity of a fading-out wash is already 0).
         let showing = !inactiveTintView.isHidden
         // The wash's color: a tint change while it shows blends like the glass under it. A wash
         // fading out keeps its color until it is gone.
         if let wash, layer.backgroundColor != wash {
-            if layer.backgroundColor != nil, showing, window?.isVisible == true {
+            if layer.backgroundColor != nil, showing, eases {
                 ColorTransition.current.animate(layer, to: wash)
             } else {
                 layer.removeAnimation(forKey: ColorTransition.layerKey)
                 layer.backgroundColor = wash
             }
         }
-        // Showing or hiding the wash eases (`scrim`): the palette taking the keys darkened the
-        // whole window in one frame (Leo 2026-10-20). A window not on screen applies at once.
-        guard window?.isVisible == true else {
+        guard eases else {
             inactiveTintFade += 1
             layer.removeAnimation(forKey: "opacity")
             CATransaction.begin()
@@ -239,6 +253,8 @@ public final class WindowMaterialView: NSView {
             inactiveTintView.isHidden = alpha == 0
             return
         }
+        // Showing or hiding the wash for a setting or theme change eases (`scrim`): a whole-window
+        // dim in one frame reads as a flash (Leo 2026-10-20).
         // Same target: a fade under way runs on (a theme apply mid-fade does not cut it short).
         guard alpha != previous || (alpha > 0 && !showing) else { return }
         guard alpha > 0 || showing else { return }
@@ -271,11 +287,15 @@ public final class WindowMaterialView: NSView {
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let shown = backdrop.selection ?? backdrop.art.map(BackdropSelection.art)
         let flipped = shown?.followsAppearance == true && loadedDark != dark
-        if loadedSelection != backdrop.selection || loadedArt != backdrop.art || loadedTexture != backdrop.texture || flipped {
+        // The desktop moved on (a new picture, a Space with its own): the Desktop Wallpaper reloads.
+        let desktopMoved = shown == .desktop && loadedDesktopGeneration != wallpaper.generation
+        if loadedSelection != backdrop.selection || loadedArt != backdrop.art || loadedTexture != backdrop.texture || flipped || desktopMoved {
             loadedSelection = backdrop.selection
             loadedArt = backdrop.art
             loadedTexture = backdrop.texture
             loadedDark = dark
+            loadedDesktopGeneration = wallpaper.generation
+            if shown == .desktop { images.forgetDesktopPicture(olderThan: wallpaper.generation) }
             artLoad?.cancel()
             artLoad = nil
             let texture = backdrop.texture
@@ -315,7 +335,10 @@ public final class WindowMaterialView: NSView {
         // Frosted over art blurs the art itself (and a video over it), by the material's radius.
         applyArtBlur(backdrop.artBlurRadius)
         let alpha = backdrop.tintOpacity * (1 - backdrop.tuning.glassTransparency)
-        let color = tunedTint(tint, tuning: backdrop.tuning).withAlphaComponent(alpha)
+        // Where the desktop shows through, the tint takes its picture's hue (appearance.wallpaperTint).
+        let leaned = WallpaperTint.tint(tint, wallpaper: wallpaper.tint, enabled: wallpaper.tintEnabled,
+                                        material: backdrop.material, shown: shown)
+        let color = tunedTint(leaned, tuning: backdrop.tuning).withAlphaComponent(alpha)
         tintAlpha = alpha
         washColor = material == .opaque ? nil : color.withAlphaComponent(1).cgColor
         let glass = materialView as? GlassPanelView
@@ -337,6 +360,15 @@ public final class WindowMaterialView: NSView {
         }
         updateInactiveTint()
         noteGlassSourceChange()
+    }
+
+    /// The desktop picture or its color changed (``DesktopWallpaperWatch``), or
+    /// `appearance.wallpaperTint` did: a view that shows the desktop applies its backdrop again.
+    func desktopWallpaperDidChange() {
+        guard let applied else { return }
+        let shown = applied.backdrop.selection ?? applied.backdrop.art.map(BackdropSelection.art)
+        guard shown == nil || shown == .desktop else { return }
+        apply(applied.backdrop, tint: applied.tint)
     }
 
     private func showArt(_ image: NSImage?) {

@@ -596,6 +596,7 @@ impl Hub {
             trust_gate: false,
             steer_only: false,
             interrupt: false,
+            steer_now: false,
             interrupt_turn: None,
             provenance: None,
             agent: None,
@@ -603,6 +604,7 @@ impl Hub {
             supersede: None,
             display_parts: None,
             full_access_device: None,
+            no_queue: false,
         };
         let (hub, session) = (self.clone(), target.clone());
         let run =

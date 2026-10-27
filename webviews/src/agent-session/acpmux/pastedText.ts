@@ -10,6 +10,33 @@ import { pasteLines, pasteName, type PasteRange } from "./conversation/promptCol
 export const PASTE_CHIP_LINES = 20;
 /// A paste of more characters than this is a chip.
 export const PASTE_CHIP_CHARS = 2000;
+/// A paste longer than this goes as a file, never as text in the prompt or a chip that holds it:
+/// past it a prompt's text block is more than an agent's message carries (acpmux's 15 MiB) and the
+/// field could not lay it out (Leo, 2026-10-25: "arbitarrily large file sizes the composer should
+/// never ever freeze").
+export const PASTE_FILE_CHARS = 1024 * 1024;
+
+/// The text a task turns into bytes at a time while a huge paste becomes its file.
+const FILE_SLICE_CHARS = 4 * 1024 * 1024;
+export const PASTED_TEXT_NAME = "Pasted text.txt";
+
+/// A paste past PASTE_FILE_CHARS as the file it goes as (its copy is saved where the agent reads
+/// it), made a slice per task so a 100 MB paste never holds the page while its bytes are made.
+export async function pastedTextFile(text: string): Promise<File> {
+  const parts: Blob[] = [];
+  let at = 0;
+  while (at < text.length) {
+    // A slice never ends between the two halves of a character (a surrogate pair).
+    let end = Math.min(text.length, at + FILE_SLICE_CHARS);
+    const last = text.charCodeAt(end - 1);
+    if (end < text.length && last >= 0xd800 && last <= 0xdbff) end -= 1;
+    parts.push(new Blob([text.slice(at, end)]));
+    at = end;
+    if (at < text.length) await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  return new File(parts, PASTED_TEXT_NAME, { type: "text/plain" });
+}
+
 /// Whether a paste of `text` is a chip rather than prompt text. Its lines and name are counted as
 /// the transcript's paste chip counts them (promptCollapse.ts), so the two chips read the same.
 export function isLargePaste(text: string): boolean {

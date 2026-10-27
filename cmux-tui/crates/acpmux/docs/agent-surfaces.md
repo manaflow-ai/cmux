@@ -49,12 +49,13 @@ acpmux new -n gui/composer \
   (`Gui/Composer` is session `gui-composer`, folder `gui-composer`, branch
   `cmux/gui-composer`); the name as given is the sidebar title.
 - **Sidebar.** `--group G` runs `cmux agent open SESSION --group G` with a
-  workspace key derived from the session id, so a second run finds the same
-  row and opens nothing. A failed sidebar step warns; the prompt is still sent.
-  It needs the cmux app on this machine. Another machine's session cannot
-  be opened in a group yet: `cmux agent open` takes only this Mac's session
-  ids (no `HOST/NAME`), and its `host` only a Chief home (`chief:<id>`).
-  Leave `--group` off on other machines until it can.
+  workspace key derived from the session id, so reopening the same session
+  finds its row. Use `--name NAME --reuse` to reuse a launch; an unnamed launch
+  creates a new session each time. A failed sidebar step warns; the prompt is
+  still sent. It needs the cmux app on this machine. With `--host HOST`, the
+  returned session ID is mirrored locally, so the workspace opens here while
+  the agent runs there. A wrapper executing acpmux on HOST must omit `--group`
+  there and run `cmux agent open ID --group G` on the controller Mac afterward.
 
 ## Wrapping it
 

@@ -1,0 +1,49 @@
+{
+  "id": "upsell-a675-cloud-chief-checkout-link",
+  "group": "upsell",
+  "owner": "a675",
+  "about": "the Cloud Chief answered automation.plan.required with a checkout link: Chief relays it in one line as a Markdown link with the price",
+  "history": [
+    {
+      "kind": "user",
+      "text": "also every weekday at 8 check the deploys and tell me what failed"
+    },
+    {
+      "kind": "talk",
+      "text": "Asking the Cloud Chief to make it a job (it runs while your Mac sleeps)."
+    }
+  ],
+  "stubs": [],
+  "turns": [
+    {
+      "kind": "work",
+      "text": "[chief:cloud] chief-auto add answered 402: {\"code\":\"automation.plan.required\",\"plan\":\"pro\",\"checkout\":\"https://cloud-api.cmux.dev/v1/billing/plan/eyJ0IjoidGVhbV8xIn0.0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"test_mode\":true,\"error\":\"automation.plan.required: the free plan has 1 scheduled job; Pro ($50/month) has more\"}",
+      "checks": [
+        {
+          "type": "reply_matches",
+          "re": "\\[[^\\]]+\\]\\(https://cloud-api\\.cmux\\.dev/v1/billing/plan/[^)]+\\)"
+        },
+        {
+          "type": "reply_matches",
+          "re": "\\$50"
+        },
+        {
+          "type": "reply_not_matches",
+          "re": "(?i)\\b(I|we)('ve| have)? (bought|purchased|paid for|upgraded|subscribed)\\b"
+        },
+        {
+          "type": "max_words",
+          "n": 70
+        },
+        {
+          "type": "no_question"
+        },
+        {
+          "type": "not_called",
+          "cmd": "cmux",
+          "match": "billing checkout"
+        }
+      ]
+    }
+  ]
+}

@@ -53,7 +53,12 @@ def test_macos_job_runs_the_focused_filter() -> None:
         assert '"$TEST_FILTER"' in step["run"]
         assert step["env"]["TEST_FILTER"] == "${{ inputs.test_filter }}"
     macos_step = next(step for step in workflow["jobs"]["macos"]["steps"] if "cmux-tui-focused-test.sh" in str(step.get("run", "")))
-    assert macos_step["if"] == "inputs.mode == 'focused'"
+    # Chief's real-daemon selector has its own Linux job; other filters still
+    # execute on macOS after Clippy has run, including when it reports a red.
+    assert macos_step["if"] == (
+        "${{ !cancelled() && steps.clippy.outcome != 'skipped' && "
+        "inputs.mode == 'focused' && inputs.test_filter != 'optchat_chief' }}"
+    )
 
 
 def _run_focused(listing: str, ignored: str, extra_env: dict[str, str] | None = None) -> tuple[int, str]:
@@ -112,7 +117,7 @@ def test_a_host_that_compiles_none_of_the_filtered_tests_passes_when_allowed() -
 def test_focused_script_runs_the_selected_tests_with_extra_args() -> None:
     code, calls = _run_focused("tui::a_test: test\\n", "")
     assert code == 0
-    assert "test --workspace --locked some_filter -- --test-threads=2" in calls
+    assert "test --workspace --locked --no-fail-fast some_filter -- --test-threads=2" in calls
 
 
 def test_ignored_only_guard_returns_failure() -> None:
@@ -208,15 +213,15 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     oses = lambda job: [row["os"] for row in job["strategy"]["matrix"]["include"]]
     assert oses(test) == oses(lint) == ["linux"]
     assert "cargo fmt --check" in lint_commands
-    assert "cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked -- -D warnings" in lint_commands
+    assert "cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked --keep-going -- -D warnings" in lint_commands
     # Formatting is gated once, by lint; a format diff must not stop the tests.
     assert "cargo fmt --check" not in test_commands
-    assert "cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked -- -D warnings" not in test_commands
+    assert "cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked --keep-going -- -D warnings" not in test_commands
     macos_commands = "\n".join(str(step.get("run", "")) for step in macos["steps"])
     assert macos["name"] == "macOS lint and tests"
     # Formatting is host-independent and runs once, on Linux (#17095).
     assert "cargo fmt --check" not in macos_commands
-    assert "cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked -- -D warnings" in macos_commands
+    assert "cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked --keep-going -- -D warnings" in macos_commands
     assert "platform::tests::" in macos_commands
     # mac_process_scope / macos_pty_ unit tests were deleted with the unit suites (c38b54db5a6e, cx-034r).
     assert "a_daemon_integrated_zsh_titles_a_long_command_with_every_argument" in macos_commands
@@ -251,7 +256,7 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
         clippy_steps = [step for step in steps if step.get("name") == "cargo clippy"]
         assert len(clippy_steps) == 1
         assert clippy_steps[0]["working-directory"] == "cmux-tui"
-        assert "cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked -- -D warnings" in clippy_steps[0]["run"]
+        assert "cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked --keep-going -- -D warnings" in clippy_steps[0]["run"]
 
 
 def test_relay_filter_runs_on_the_linux_test_job() -> None:
