@@ -2265,6 +2265,19 @@ class NightlyRepick(unittest.TestCase):
                 self.assertIsNone(picker)
                 self.assertIn("cmux-next-source-archive again without overwrite", why)
 
+    def test_a_skipped_helper_uploaded_nothing(self):
+        jobs = self.picker_jobs(done("build-nightly-app", "failure"), done("build-nightly-ghostty-cli-helper", "skipped"))
+        self.assertEqual(rescue.repick_job(picker_workflow(None), jobs)[0], 901)
+
+    def test_a_picker_kept_from_an_earlier_attempt_is_re_run(self):
+        # After a re-run of failed jobs, attempt 2's list keeps attempt 1's picker (started before attempt 2).
+        picker = done("pick-nightly-build-runner", "success", id=901, started_at=stamp(-3600))
+        jobs = [picker, done("build-nightly-app", "cancelled", started_at=stamp(10))]
+        self.assertEqual(rescue.repick_job(picker_workflow(), jobs)[0], 901)
+        # A failure kept from earlier would still be retried by a re-run of failed jobs: it must need the picker.
+        kept = done("lint", "failure", started_at=stamp(-3500))
+        self.assertIsNone(rescue.repick_job(picker_workflow(), [*jobs, kept])[0])
+
     def test_a_helper_that_failed_too_re_runs_either_way(self):
         # Both builds re-run under a re-run of failed jobs as well: no extra upload.
         jobs = self.picker_jobs(done("build-nightly-app", "failure"), done("build-nightly-ghostty-cli-helper", "cancelled"))
@@ -2333,6 +2346,24 @@ class NightlyRepick(unittest.TestCase):
         text = rescue.rerun_failed_or_repick(api, target, clock.sleep, lambda line: None)
         self.assertEqual(api.calls, ["rerun-failed"])
         self.assertIn("re-ran the failed jobs", text)
+
+    def test_a_refused_job_re_run_re_runs_the_failed_jobs(self):
+        clock = Clock()
+
+        class Refusing(NightlyAPI):
+            def rerun_job(self, run_id, job_id, next_attempt):
+                self.calls.append(f"rerun-job:{job_id}")
+                raise urllib.error.HTTPError("u", 422, "cannot", {}, None)
+
+        jobs = [done("pick-nightly-build-runner", "success", id=901), done("build-nightly-app", "failure")]
+        api = Refusing(clock, lambda s: jobs, workflow=picker_workflow())
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, path=rescue.NIGHTLY_WORKFLOW_PATH, side=True, nightly=True,
+                               push_branch="nightly-next")
+        lines = []
+        text = rescue.rerun_failed_or_repick(api, target, clock.sleep, lines.append)
+        self.assertEqual(api.calls[-2:], ["rerun-job:901", "rerun-failed"])
+        self.assertIn("re-ran the failed jobs", text)
+        self.assertTrue(any("was refused (422)" in line for line in lines), lines)
 
     def test_an_unreadable_run_re_runs_its_failed_jobs(self):
         clock = Clock()

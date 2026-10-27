@@ -17,8 +17,8 @@ SCRIPT = ROOT / "scripts" / "ci" / "nightly_next_cancelled_tip.sh"
 TICK = ROOT / ".github" / "workflows" / "nightly-next-tick.yml"
 TIP = "e22f93846f54d679fb95dea965" + "0" * 14
 
-# git ls-remote prints the tip. gh api prints $RUNS for the runs list, the run's state ($NOW), the attempt
-# (run_started_at), nightly.yml at the tip ($WORKFLOW, base64 as the contents API has it), and the attempt's
+# git ls-remote prints the tip. gh api prints $RUNS for the runs list, the run's state ($NOW),
+# nightly.yml at the tip ($WORKFLOW, base64 as the contents API has it), and the attempt's
 # jobs page ($JOBS, a {"jobs": [...]} page) through the script's real --jq filter; JOBS_FAIL makes the jobs
 # read fail. Re-runs (gh run rerun, POST .../jobs/N/rerun) are logged with the wrapper's retry setting.
 FAKE_GIT = f"""#!/bin/bash
@@ -31,10 +31,9 @@ args=("$@")
 for ((i = 0; i < ${#args[@]}; i++)); do [ "${args[i]}" = --jq ] && jq_arg="${args[i+1]}"; done
 case "$1" in
   api) case "$*" in
-         *"-X POST"*/jobs/*/rerun*) echo "attempts=${GH_BUDGET_WAIT_ATTEMPTS:-}" >> "$LOG" ;;
+         *"-X POST"*/jobs/*/rerun*) echo "attempts=${GH_BUDGET_WAIT_ATTEMPTS:-}" >> "$LOG"; [ -z "${JOB_RERUN_FAIL:-}" ] ;;
          */jobs*) [ -n "${JOBS_FAIL:-}" ] && exit 1; printf '%s' "${JOBS:-}" | jq -c "$jq_arg" ;;
          */contents/*) [ -n "${WORKFLOW:-}" ] || exit 1; printf '%s' "$WORKFLOW" | base64 ;;
-         */attempts/[0-9]*) printf '2026-10-27T10:00:00Z' ;;
          */actions/runs/[0-9]*) printf '%s' "${NOW:-completed cancelled ${ATTEMPT:-1}}" ;;
          *) printf '%s' "$RUNS" ;;
        esac ;;
@@ -111,9 +110,8 @@ class CancelledTip(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("runs/40340830337/attempts/2/jobs", calls[1])
                 self.assertIn(f"contents/.github/workflows/nightly.yml?ref={TIP}", calls[2])
-                self.assertIn("runs/40340830337/attempts/2 --jq", calls[3])
-                self.assertIn("runs/40340830337 --jq", calls[4])
-                self.assertEqual(calls[5:], ["api -X POST repos/o/r/actions/jobs/901/rerun", "attempts=1"])
+                self.assertIn("runs/40340830337 --jq", calls[3])
+                self.assertEqual(calls[4:], ["api -X POST repos/o/r/actions/jobs/901/rerun", "attempts=1"])
                 self.assertFalse(any(call.startswith("run rerun") for call in calls), calls)
                 self.assertIn(f"build-nightly-app never served on {label}", result.stdout)
                 self.assertIn("chooses fresh", result.stdout)
@@ -133,6 +131,14 @@ class CancelledTip(unittest.TestCase):
                 self.assertEqual(calls[-2:], ["run rerun 40340830337 --failed -R o/r", "attempts=1"])
                 self.assertFalse(any("-X POST" in call or call == "run rerun 40340830337 -R o/r" for call in calls))
                 self.assertIn("the picker is not re-run", result.stdout)
+
+    def test_a_refused_picker_re_run_re_runs_the_failed_jobs(self):
+        result, calls = self.run_script("40340830337 completed cancelled 1\n", JOB_RERUN_FAIL="1",
+                                        JOBS=page(PICKER, unserved()), WORKFLOW=workflow())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls[-4:], ["api -X POST repos/o/r/actions/jobs/901/rerun", "attempts=1",
+                                      "run rerun 40340830337 --failed -R o/r", "attempts=1"])
+        self.assertIn("was refused", result.stdout)
 
     def test_an_unreadable_attempt_re_runs_its_failed_jobs(self):
         result, calls = self.run_script("40340830337 completed cancelled 1\n", JOBS_FAIL="1")

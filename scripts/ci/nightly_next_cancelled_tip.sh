@@ -70,12 +70,11 @@ fi
 # The picker job to re-run, when nightly.yml at the tip says that is safe.
 picker=""
 if [[ -n "$unserved" ]]; then
-  if gh api "repos/$repo/contents/.github/workflows/nightly.yml?ref=$tip" --jq .content | base64 -d >"$scratch/nightly.yml" \
-      && started="$(gh api "repos/$repo/actions/runs/$id/attempts/$attempt" --jq '.run_started_at // ""')"; then
-    picker="$(python3 "$(dirname "$0")/nightly_repick.py" "$scratch/nightly.yml" "$scratch/jobs" "$started" 2>"$scratch/why")" || picker=""
+  if gh api "repos/$repo/contents/.github/workflows/nightly.yml?ref=$tip" --jq .content | base64 -d >"$scratch/nightly.yml"; then
+    picker="$(python3 "$(dirname "$0")/nightly_repick.py" "$scratch/nightly.yml" "$scratch/jobs" 2>"$scratch/why")" || picker=""
     [[ "$picker" =~ ^[0-9]+$ ]] || picker=""
   else
-    echo "unreadable nightly.yml or attempt" >"$scratch/why"
+    echo "nightly.yml at the tip could not be read" >"$scratch/why"
   fi
 fi
 
@@ -91,11 +90,16 @@ fi
 if [[ -n "$unserved" ]]; then
   first="$(head -n1 <<<"$unserved")"
   if [[ -n "$picker" ]]; then
-    GH_BUDGET_WAIT_ATTEMPTS=1 gh api -X POST "repos/$repo/actions/jobs/$picker/rerun" >/dev/null
-    echo "::notice title=nightly-next tick::the tip ${tip:0:12}'s run $id ended cancelled (attempt $attempt) with ${first%%$'\t'*} never served on ${first#*$'\t'}; re-ran pick-nightly-build-runner and every job that needs it, so the runner picker chooses fresh"
-    exit 0
+    if GH_BUDGET_WAIT_ATTEMPTS=1 gh api -X POST "repos/$repo/actions/jobs/$picker/rerun" >/dev/null; then
+      echo "::notice title=nightly-next tick::the tip ${tip:0:12}'s run $id ended cancelled (attempt $attempt) with ${first%%$'\t'*} never served on ${first#*$'\t'}; re-ran pick-nightly-build-runner and every job that needs it, so the runner picker chooses fresh"
+      exit 0
+    fi
+    # Refused: the failed jobs below. If the job re-run did start, the run is no longer
+    # finished and GitHub refuses that re-run in turn.
+    echo "nightly-next tip ${tip:0:12}: the re-run of pick-nightly-build-runner was refused; re-running the failed jobs"
+  else
+    echo "nightly-next tip ${tip:0:12}: ${first%%$'\t'*} was never served on ${first#*$'\t'}, but the picker is not re-run ($(head -n1 "$scratch/why" 2>/dev/null)); re-running the failed jobs"
   fi
-  echo "nightly-next tip ${tip:0:12}: ${first%%$'\t'*} was never served on ${first#*$'\t'}, but the picker is not re-run ($(head -n1 "$scratch/why" 2>/dev/null)); re-running the failed jobs"
 fi
 GH_BUDGET_WAIT_ATTEMPTS=1 gh run rerun "$id" --failed -R "$repo"
 echo "::notice title=nightly-next tick::the tip ${tip:0:12}'s run $id ended cancelled (attempt $attempt); re-ran its failed and cancelled jobs"

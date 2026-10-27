@@ -2411,16 +2411,17 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
 NIGHTLY_BUILD_PICKER = "pick-nightly-build-runner"
 
 
-def repick_job(workflow_text: str, jobs: Sequence[Mapping[str, Any]],
-               attempt_started: dt.datetime | None = None) -> tuple[int | None, str]:
+def repick_job(workflow_text: str, jobs: Sequence[Mapping[str, Any]]) -> tuple[int | None, str]:
     """(the id of this attempt's NIGHTLY_BUILD_PICKER job, when re-running it and the jobs that need it
     re-runs everything a re-run of failed jobs would and nothing that could break, or None, why).
 
-    Every failed, timed-out or cancelled job of the attempt must need the picker, directly or through
-    others, so nothing a re-run of failed jobs would retry is left out. A finished job that needs the
-    picker but no failed job is re-run only by this (a re-run of failed jobs re-runs whatever needs a
-    failed job already): each of its artifact uploads must set `overwrite: true`, or its second upload
-    of the same name could fail. Names map to workflow jobs as in downstream_of_refusals()."""
+    `jobs` is the attempt's whole job list, the jobs a re-run kept from earlier attempts included (the picker
+    is one after a re-run of failed jobs). Every failed, timed-out or cancelled job in it must need the
+    picker, directly or through others, so nothing a re-run of failed jobs would retry is left out (GitHub
+    re-runs the picked job and its dependents only). A finished job that needs the picker but no failed job
+    is re-run only by this (a re-run of failed jobs re-runs whatever needs a failed job already): unless it
+    was skipped (it uploaded nothing), each of its artifact uploads must set `overwrite: true`, or its
+    second upload of the same name could fail. Names map to workflow jobs as in downstream_of_refusals()."""
     try:
         document = owned_pool_sources._load(workflow_text)
     except Exception as error:  # noqa: BLE001 - an unreadable file keeps the re-run of failed jobs
@@ -2450,7 +2451,7 @@ def repick_job(workflow_text: str, jobs: Sequence[Mapping[str, Any]],
         name = str(job.get("name") or "")
         return {key for key, pattern in patterns.items() if pattern.fullmatch(name)}
 
-    current = [job for job in jobs if not carried(job, attempt_started)]
+    current = list(jobs)
     pickers = [job for job in current if keys(job) == {NIGHTLY_BUILD_PICKER}]
     if len(pickers) != 1 or not pickers[0].get("id"):
         return None, f"this attempt has no single {NIGHTLY_BUILD_PICKER} job"
@@ -2471,7 +2472,7 @@ def repick_job(workflow_text: str, jobs: Sequence[Mapping[str, Any]],
     retried = failed_keys.union(*(descendants(key) for key in failed_keys))
     for job in current:
         found = keys(job)
-        if job is picker or not found or not found <= under or found <= retried:
+        if job is picker or not found or not found <= under or found <= retried or job.get("conclusion") == "skipped":
             continue
         for key in found:
             for step in spec[key].get("steps") or []:
@@ -2496,9 +2497,16 @@ def rerun_failed_or_repick(api: GitHub, target: Target, sleep: Callable[[float],
             jobs, text = [], None
             log(f"could not read the run for a fresh runner pick ({error}); re-running its failed jobs")
         if text:
-            picker, why = repick_job(text, jobs, target.attempt_started_at)
+            picker, why = repick_job(text, jobs)
             if picker is not None:
-                api.rerun_job(target.run_id, picker, target.attempt + 1)
+                try:
+                    api.rerun_job(target.run_id, picker, target.attempt + 1)
+                except urllib.error.HTTPError as error:
+                    # Refused (GitHub declines a job it cannot re-run): the failed jobs, as before. If the job
+                    # re-run did start, the run is no longer finished and this re-run is refused in turn.
+                    log(f"the re-run of {NIGHTLY_BUILD_PICKER} was refused ({error.code}); re-running the failed jobs")
+                    api.rerun_failed(target.run_id, target.attempt + 1)
+                    return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
                 return (f"re-ran {NIGHTLY_BUILD_PICKER} of run {target.run_id} and every job that needs it ({why}), "
                         f"so attempt {target.attempt + 1} picks its runner fresh")
             log(f"no fresh runner pick: {why}")
