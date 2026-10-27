@@ -2,25 +2,56 @@ public import CmuxNextAgentPane
 public import CmuxNextDaemon
 public import Foundation
 
+/// What an ``AgentPaneGitLink`` needs of its machine's daemon service: ``DaemonService`` in the
+/// app; a fake daemon in tests.
+@MainActor
+public protocol AgentPaneGitDaemon: AnyObject, Sendable {
+    /// This Mac's daemon.
+    var isLocal: Bool { get }
+    /// Whether the connected daemon has `capability`.
+    func supports(_ capability: String) -> Bool
+    /// The app's control connection, after the first connect while the service is starting; nil
+    /// when the daemon is not reachable (startup gave up, or the organization turned it off).
+    func controlConnection() async -> DaemonConnection?
+    /// The daemon's socket, for the connections of a daemon without
+    /// ``AgentPaneGitLink/sharedConnectionCapability``.
+    func endpoint() async throws -> DaemonEndpoint
+}
+
+extension DaemonService: AgentPaneGitDaemon {
+    public func controlConnection() async -> DaemonConnection? {
+        if policyBlock.isBlocked { return nil }
+        if connection == nil, startup == .connecting, isStarting { await firstConnection() }
+        return connection
+    }
+}
+
 /// The agent pane's changes view reads git through the session host:
 /// `git.diff`, `git.status`, `git.files.search` and `git.checkpoint.diff` with the chat session's
-/// folder as `path`.
-/// The reads use a daemon connection of their own. The daemon answers one
-/// connection's requests in order, and a read can take seconds in a large
-/// repository, so on the control connection it would hold terminal and
-/// layout commands behind it. Commits and pushes (`git.commit`,
-/// `git.push`) use a second connection, `writes`, for the same reason: a
-/// hook or a slow remote holds one for up to two minutes.
+/// folder as `path`, and commits and pushes (`git.commit`, `git.push`) the same way.
+///
+/// They go on the app's control connection when the daemon has
+/// ``sharedConnectionCapability``: it runs git off the connection's request thread, and a
+/// connection's reads in a sequence apart from its writes, so a read that takes seconds in a large
+/// repository holds no terminal or layout command, and a push held by a hook or a slow remote (up
+/// to two minutes) holds no read. Chrome carries each interface of a renderer as an associated
+/// interface on its one channel and runs each on its own sequence
+/// (mojo/public/cpp/bindings/associated_receiver.h). An older daemon answers a connection's git
+/// requests in order on its request thread, so there the reads and the writes each keep a
+/// connection of their own (``AgentPaneGitConnection``).
 public final class AgentPaneGitLink {
-    private let daemon: DaemonService
-    private let clientName: String
-    /// The commits' and pushes' own connection, opened at the first write.
-    private var writeLink: AgentPaneGitLink?
-    private var opening: Task<DaemonConnection, any Error>?
+    /// The daemon runs git requests off the request thread, reads apart from writes
+    /// (cmux-tui `git_ops/sequence.rs`).
+    public static let sharedConnectionCapability = "git-shared-connection-v1"
 
-    public init(daemon: DaemonService, clientName: String = "cmux-next-agent-git") {
+    private let daemon: any AgentPaneGitDaemon
+    private let reads: AgentPaneGitConnection
+    private let writes: AgentPaneGitConnection
+
+    public init(daemon: any AgentPaneGitDaemon, clientName: String = "cmux-next-agent-git") {
         self.daemon = daemon
-        self.clientName = clientName
+        reads = AgentPaneGitConnection(daemon: daemon, clientName: clientName)
+        writes = AgentPaneGitConnection(daemon: daemon, clientName: clientName + "-write")
     }
 
     /// This Mac's link: the Changes view's git writes run here only for a chat it reads.
@@ -35,13 +66,8 @@ public final class AgentPaneGitLink {
 
     /// Session host read `operation` with `params` as sent (the Files page's `git.files.list`).
     public func read(_ operation: String, params: [String: JSONValue]) async throws(AgentPaneGitFailure) -> Data {
-        let connection: DaemonConnection
-        do {
-            connection = try await self.connection()
-        } catch {
-            // The link did not open, so nothing was sent.
-            throw AgentPaneGitFailure.notConnected
-        }
+        // Nothing was sent when no connection is open.
+        let connection = try await self.connection(else: reads)
         do {
             let result = try await GitResourceClient(connection: connection).read(operation, params: params)
             return try await Self.encode(result)
@@ -60,14 +86,7 @@ public final class AgentPaneGitLink {
     /// that may have run without an answer is `native.timed_out`, and the
     /// page's retry with the same key reports what it did.
     public func write(_ request: AgentPaneGitWrite, in cwd: String) async throws(AgentPaneGitFailure) -> Data {
-        let connection: DaemonConnection
-        do {
-            let writes = writeLink ?? AgentPaneGitLink(daemon: daemon, clientName: clientName + "-write")
-            writeLink = writes
-            connection = try await writes.connection()
-        } catch {
-            throw AgentPaneGitFailure.notConnected
-        }
+        let connection = try await self.connection(else: writes)
         do {
             let result = try await GitResourceClient(connection: connection)
                 .write(request.operation, params: request.sessionHostParams(cwd: cwd), idempotencyKey: request.key)
@@ -77,10 +96,47 @@ public final class AgentPaneGitLink {
         }
     }
 
-    /// Opens the connection on the first read; afterwards it reconnects by
-    /// itself, finding a restarted daemon through the control connection's
-    /// endpoint. A failed open is tried again by the next read.
-    fileprivate func connection() async throws -> DaemonConnection {
+    /// The control connection, or `own`'s connection for a daemon without
+    /// ``sharedConnectionCapability``. A daemon that gained it (handed off to a newer build) closes
+    /// the link's own connections.
+    private func connection(else own: AgentPaneGitConnection) async throws(AgentPaneGitFailure) -> DaemonConnection {
+        guard let control = await daemon.controlConnection() else { throw AgentPaneGitFailure.notConnected }
+        if daemon.supports(Self.sharedConnectionCapability) {
+            reads.close()
+            writes.close()
+            return control
+        }
+        do {
+            return try await own.connection()
+        } catch {
+            throw AgentPaneGitFailure.notConnected
+        }
+    }
+
+    /// Ends the link for good (its machine left the app): closes the connections it opened. The
+    /// control connection is the service's.
+    public func close() {
+        reads.close()
+        writes.close()
+    }
+}
+
+/// A git link's own connection to a daemon without
+/// ``AgentPaneGitLink/sharedConnectionCapability``, opened at its first request.
+final class AgentPaneGitConnection {
+    private let daemon: any AgentPaneGitDaemon
+    private let clientName: String
+    private var opening: Task<DaemonConnection, any Error>?
+
+    init(daemon: any AgentPaneGitDaemon, clientName: String) {
+        self.daemon = daemon
+        self.clientName = clientName
+    }
+
+    /// Opens the connection on the first request; afterwards it reconnects by itself, finding a
+    /// restarted daemon through the control connection's endpoint. A failed open is tried again
+    /// by the next request.
+    func connection() async throws -> DaemonConnection {
         let task = opening ?? open()
         opening = task
         do {
@@ -91,14 +147,12 @@ public final class AgentPaneGitLink {
         }
     }
 
-    /// Ends the link for good (its machine left the app): closes the connection.
-    public func close() {
-        writeLink?.close()
-        writeLink = nil
-        let opening = opening
+    /// Closes the connection, if one is open or opening.
+    func close() {
+        guard let opening else { return }
         self.opening = nil
         // task-owner: one bounded close of a connection nothing else holds
-        Task { if let connection = try? await opening?.value { await connection.close() } }
+        Task { if let connection = try? await opening.value { await connection.close() } }
     }
 
     private func open() -> Task<DaemonConnection, any Error> {

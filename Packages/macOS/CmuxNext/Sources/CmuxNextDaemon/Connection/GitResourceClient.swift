@@ -25,17 +25,33 @@ public struct GitResourceClient: Sendable {
     /// Runs `operation` with `params` (`path` plus the operation's fields)
     /// and returns its `result`.
     public func read(_ operation: String, params: [String: JSONValue]) async throws -> JSONValue {
-        try await connection.resourceRequest({ id in
+        try await connection.gitRequest({ id in
             ResourceRequestEnvelope(id: id, operation: operation, params: params, idempotencyKey: nil)
-        }, as: JSONValue.self, timeout: Self.timeout)
+        }, timeout: Self.timeout)
     }
 
     /// Runs the mutation `operation` with `params` under `idempotencyKey` and
     /// returns its `MutationResult`. A retry with the same key and params
     /// replays the first result; it never commits or pushes twice.
     public func write(_ operation: String, params: [String: JSONValue], idempotencyKey: String) async throws -> JSONValue {
-        try await connection.resourceRequest({ id in
+        try await connection.gitRequest({ id in
             ResourceRequestEnvelope(id: id, operation: operation, params: params, idempotencyKey: idempotencyKey)
-        }, as: JSONValue.self, timeout: Self.writeTimeout)
+        }, timeout: Self.writeTimeout)
+    }
+}
+
+extension DaemonConnection {
+    /// A git request: a quiet handoff holds it as any request, but never waits for it
+    /// (``quietHandoff(_:)``). A read or a push can run for minutes, and on the control connection
+    /// a handoff waiting for it would hold every later command that long. A git request is safe
+    /// to cut: the page reads again, and a write's retry with its key reports what the first did.
+    func gitRequest(_ envelope: @escaping @Sendable (UInt64) -> ResourceRequestEnvelope,
+                    timeout: Duration) async throws -> JSONValue {
+        await waitOutHandoff()
+        guard let ready else { throw DaemonError.notConnected }
+        let response = try await ready.transport.request(cmd: DaemonCommandName(wire: envelope(0).operation), timeout: timeout) { id in
+            try envelope(id).lineData()
+        }
+        return try ResourceRequestEnvelope.decodeResult(JSONValue.self, from: response)
     }
 }

@@ -53,6 +53,12 @@
       "reason": "Not a cmux-tui daemon socket: the Tasks owner (cmux task serve)."
     },
     {
+      "queue": "Q4",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/AgentPaneGitLink.swift",
+      "key": "AgentPaneGitConnection.open: DaemonConnection(",
+      "reason": "Older daemons only (p05-ipc-105): one without git-shared-connection-v1 runs a connection's git requests in order on its request thread, so git keeps its own read and write connections there; with it, git uses the control connection."
+    },
+    {
       "queue": "Q8",
       "file": "cmux-tui/crates/cmux-tui/src/machine_agent/runtime.rs",
       "key": "<unresolved>",
