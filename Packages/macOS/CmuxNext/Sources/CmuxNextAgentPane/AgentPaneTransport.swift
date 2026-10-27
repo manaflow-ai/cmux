@@ -118,9 +118,10 @@ import CmuxNextCompat
     /// spent goes on to the chat that starts there (``pickCredit``), then its first prompt. The New
     /// Tab page asks for the folder in the same turn as the Send, so the pick took the Send's only
     /// gesture and the chat's first prompt was refused ("Not sent. Press Retry to send it.").
-    func grantPicked(_ folder: String) {
+    func grantPicked(_ folder: String, carryGesture: Bool = true, trust: Bool = true) async {
         grant(folder)
-        if socket != nil { pickCredit.give(connection: current, at: gestures.uptime) }
+        if carryGesture, socket != nil { pickCredit.give(connection: current, at: gestures.uptime) }
+        if trust { await trustPicked(folder) }
     }
     /// Whether the daemon's asking table (acpmux `web_modes.rs`) lists `mode` for the session's
     /// family: true or false, nil when it cannot tell (which needs the confirmation, fail closed).
