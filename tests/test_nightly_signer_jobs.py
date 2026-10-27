@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""nightly.yml's release-pool signer jobs (signer-*): opt-in, inert, and the
-secrets stay in the release-pool jobs; and verify_appcast_item.py checks the Sparkle
-item against the pinned key.
+"""nightly.yml's release-pool signer jobs (signer-*): opt-in, the macOS signer
+job as their fallback, and the secrets kept in the release-pool jobs; and
+verify_appcast_item.py checks the Sparkle item against the pinned key.
 
-Until a later change hands their output to verification and publication,
-nothing outside the signer jobs may need them or read their artifacts, so a
-failed or skipped pool run can never hold or change what publishes.
+Only signer-verify, after every check, hands output on, under the names the
+macOS signer job uses. That job runs whenever signer-verify did not pass, so a
+failed, skipped or not-opted-in pool run signs as before, and exactly one of
+the two produces what verify-signed-nightly, verify-final-dmg-nightly and
+publish-nightly read.
 """
 
 from __future__ import annotations
@@ -52,22 +54,62 @@ class Wiring(unittest.TestCase):
                 self.assertTrue(set(needs(JOBS[name])) & set(SIGNER_JOBS), name)
                 self.assertNotIn("always()", str(JOBS[name].get("if", "")))
 
-    def test_nothing_else_needs_them_or_reads_their_artifacts(self):
-        names = set()
-        for name in SIGNER_JOBS:
-            for step in JOBS[name]["steps"]:
-                if "upload-artifact" in str(step.get("uses", "")):
-                    names.add(step["with"]["name"].split("${{")[0])
-        self.assertEqual(names, {"nightly-signer-", "cmux-nightly-next-signer-app-",
-                                 "cmux-nightly-next-signer-unsigned-dmg-", "cmux-nightly-next-signer-variant-"})
+    def test_the_macos_signer_is_the_fallback_and_one_path_hands_on(self):
+        signed = "(needs.build-sign-notarize-nightly.result == 'success' || needs.signer-verify.result == 'success')"
+        fallback = JOBS["build-sign-notarize-nightly"]
+        self.assertIn("signer-verify", needs(fallback))
+        self.assertTrue(fallback["if"].startswith("!cancelled() && "))
+        self.assertIn("needs.signer-verify.result != 'success'", fallback["if"])
+        # Its own status check replaces the implicit success(), so it names every other need's success.
+        for need in needs(fallback):
+            if need != "signer-verify":
+                self.assertIn(f"needs.{need}.result == 'success'", fallback["if"])
+        for name in ("verify-signed-nightly", "verify-final-dmg-nightly", "publish-nightly"):
+            with self.subTest(job=name):
+                self.assertIn("signer-verify", needs(JOBS[name]))
+                self.assertIn(signed, JOBS[name]["if"])
+                self.assertNotRegex(JOBS[name]["if"], r"\(needs\.build-sign-notarize-nightly\.result == 'success' &&")
+        self.assertIn("REQUIRE_HELPER_TICKET: ${{ needs.signer-verify.result == 'success' }}",
+                      yaml.safe_dump(JOBS["verify-signed-nightly"]["env"], width=1000))
+        # A pool run that passed reads as the job's own success in publish's source pick.
+        self.assertIn("(needs.build-sign-notarize-nightly.result == 'success' || needs.signer-verify.result == 'success') && 'success' || needs.build-sign-notarize-nightly.result",
+                      yaml.safe_dump(JOBS["publish-nightly"], width=1000))
+        # Only signer-verify is needed outside the signer jobs; the failure report and its close
+        # never need a signer job, so a pool run the fallback covered raises no failure issue.
         for name, job in JOBS.items():
             if name in SIGNER_JOBS:
                 continue
             with self.subTest(job=name):
-                self.assertFalse(set(needs(job)) & set(SIGNER_JOBS))
-                text = yaml.safe_dump(job)
-                for prefix in names:
-                    self.assertNotIn(prefix, text)
+                self.assertLessEqual(set(needs(job)) & set(SIGNER_JOBS), {"signer-verify"})
+        for name in ("report-nightly-failure", "close-nightly-failure-issue"):
+            self.assertFalse(set(needs(JOBS[name])) & set(SIGNER_JOBS), name)
+
+    def test_signer_verify_hands_on_only_after_every_check(self):
+        steps = JOBS["signer-verify"]["steps"]
+        uploads = [i for i, s in enumerate(steps) if "upload-artifact" in str(s.get("uses", ""))]
+        checks = [i for i, s in enumerate(steps) if "run" in s]
+        self.assertTrue(uploads and checks)
+        self.assertGreater(min(uploads), max(checks))
+        names = {steps[i]["with"]["name"] for i in uploads}
+        self.assertEqual(names, {"cmux-nightly-variant-arm64",
+                                 "cmux-${{ needs.decide.outputs.channel }}-signed-app-arm64-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}"})
+        # Never replace what the macOS job uploaded: the verify jobs may already have passed on it, and a
+        # rerun of failed jobs would not run them again on the replacement.
+        for i in uploads:
+            self.assertNotIn("overwrite", steps[i]["with"], steps[i]["with"]["name"])
+        # "Re-run failed jobs" after a pool failure also reruns the jobs that need signer-verify, even when
+        # they passed: each of their uploads must take the place of its earlier one in this run.
+        for job in ("build-sign-notarize-nightly", "verify-final-dmg-nightly", "publish-nightly"):
+            for step in JOBS[job]["steps"]:
+                name = str((step.get("with") or {}).get("name", ""))
+                if "upload-artifact" not in str(step.get("uses", "")) or "github.run_attempt" in name:
+                    continue
+                self.assertIs(step["with"].get("overwrite"), True, f"{job}: {name}")
+        # The macOS job may replace what a pool run uploaded before it failed.
+        for step in JOBS["build-sign-notarize-nightly"]["steps"]:
+            name = str((step.get("with") or {}).get("name", ""))
+            if "upload-artifact" in str(step.get("uses", "")) and (name.startswith("cmux-nightly-variant-") or "-signed-app-" in name):
+                self.assertIs(step["with"].get("overwrite"), True, name)
 
     def test_secrets_stay_in_the_release_pool_jobs_of_the_release_environment(self):
         for name in SIGNER_JOBS:

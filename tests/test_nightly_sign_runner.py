@@ -225,7 +225,7 @@ class OwnedVerify(unittest.TestCase):
 
     def test_the_owned_pick_is_bounded_and_never_blocks(self) -> None:
         job = WORKFLOW["jobs"]["pick-nightly-sign-runner"]
-        self.assertEqual(job["outputs"]["owned"], "${{ steps.owned.outputs.label }}")
+        self.assertEqual(job["outputs"]["owned"], "${{ steps.owned.outputs.owned }}")
         self.assertNotIn("environment", job)
         step = next(s for s in job["steps"] if s.get("id") == "owned")
         self.assertTrue(step["continue-on-error"])
@@ -236,10 +236,16 @@ class OwnedVerify(unittest.TestCase):
             guard = next(s for s in job["steps"] if s.get("id") == name)["if"]
             with self.subTest(step=name):
                 self.assertIn("github.event_name == 'push' && github.ref_name == 'nightly-next'", guard)
-                self.assertIn("startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, 'glaeda-trusted-')", guard)
-                self.assertIn("startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-')", guard)
                 self.assertNotIn("||", guard)
-        self.assertIn("e2e_runner_pool.py", step["run"])
+        # The build picker's owned rule (nightly_build_runner.py verify), over the labels it offers the build,
+        # not the pull request pool picker: run 40515681971's verify got blacksmith-6vcpu-macos-15 from that one
+        # while owned side runners sat idle.
+        self.assertEqual(step["run"].strip(), "python3 .publish-tooling/scripts/ci/nightly_build_runner.py verify")
+        self.assertNotIn("e2e_runner_pool.py", yaml.safe_dump(job))
+        self.assertEqual(step["env"]["OWNED_LABELS"],
+                         "${{ format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}")
+        self.assertEqual(step["env"]["CANDIDATE"], "${{ vars.MACOS_RUNNER_26 }}")
+        self.assertNotIn("DEDICATED_LABEL", step["env"])
         # The job outlives its step budgets, and the Blacksmith pick comes first: a slow App API
         # never cancels the job before `runner` is written (a cancelled pick skips signing).
         ids = [s.get("id") for s in job["steps"]]
@@ -247,10 +253,6 @@ class OwnedVerify(unittest.TestCase):
         budget = sum(int(s.get("timeout-minutes", 0)) for s in job["steps"])
         self.assertTrue(all("timeout-minutes" in s for s in job["steps"] if s.get("id")))
         self.assertGreaterEqual(int(job["timeout-minutes"]), budget + 2)
-        # Only an owned label is ever offered; anything else leaves the Blacksmith pick.
-        self.assertIn('glaeda-*)', step["run"])
-        self.assertIn('label=""', step["run"])
-
 
 if __name__ == "__main__":
     unittest.main()
