@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHistory
 import CmuxNextLaunch
+import CmuxNextLayout
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -114,13 +115,15 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// - Parameter revealDeadlines: Times the collapsed band's close delay (the app's ``MainDeadlineScheduler``).
     /// - Parameter signals: Where display option changes come from (the composition root's ``AppearanceSignals``).
     /// - Parameter slideHoldsContent: Feature `sidebarSlideHoldsContent` (the app's); on by default.
+    /// - Parameter bandRendersOnServer: `motion.renderServer` for the collapsed band's reveal (`CollapsedBandReveal`).
     init(sidebar: SidebarContainerView,
          reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
          applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) },
          revealDeadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
-         signals: AppearanceSignals = DesignSettings.shared.signals, slideHoldsContent: @escaping @MainActor () -> Bool = { true }) {
+         signals: AppearanceSignals = DesignSettings.shared.signals, slideHoldsContent: @escaping @MainActor () -> Bool = { true },
+         bandRendersOnServer: @escaping () -> Bool = { LayoutTunables.motionRenderServer.value }) {
         self.sidebar = sidebar
-        collapsedBand = CollapsedBandReveal(deadlines: revealDeadlines)
+        collapsedBand = CollapsedBandReveal(deadlines: revealDeadlines, fullWidth: { TitlebarToolbarBand.width }, rendersOnServer: bandRendersOnServer)
         self.reduceTransparency = reduceTransparency
         self.applyWindowBlur = applyWindowBlur
         self.slideHoldsContent = slideHoldsContent
@@ -287,10 +290,11 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         let fullBandMaxX = lightsMaxX + Metrics.space3 + TitlebarToolbarBand.width
         sidebar.sidebarView.headerHasWindowControls = sidebarSide == .left
         sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? fullBandMaxX + Metrics.space2 : Metrics.space3
-        if presenceChanged { onToolbarBandPresenceChange?() }
         layoutTitlebarReveal(rowHeight: rowHeight, fullBandMaxX: fullBandMaxX)
         layoutRightPanel(rowHeight: rowHeight)
         layoutTitlebarAccessories(midY: midY)
+        // After the badge and the indicator move with the band: the strips' inset clears their final frames.
+        if presenceChanged { onToolbarBandPresenceChange?() }
     }
 
     /// Called after `show(_:)` swaps the content (a top page or a workspace).

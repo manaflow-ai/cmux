@@ -13,14 +13,14 @@ import Observation
 /// width and is clear, so only the traffic lights show (cx-uxdr, Lawrence
 /// 2026-10-08), until the pointer is over the top-left corner
 /// (`CollapsedBandReveal`, 2026-10-09); `presence` follows the larger of the
-/// sidebar's on-screen width and the corner hover's open share at rest
-/// (`WindowRootView.layout`), whose motion runs on the render server.
-final class TitlebarToolbarBand: NSView {
+/// two shares (`WindowRootView.layout`); with `motion.renderServer` on, the
+/// corner hover's share is 0 or 1 and the render server shows its motion.
+final class TitlebarToolbarBand: NSView, CollapsingBand {
     let sidebarToggle = TitlebarBandButton(symbol: SidebarToggleIcon.currentCollapseSymbol)
     /// How much of the band shows: 1 with the sidebar shown, 0 with it
-    /// hidden, in between while the sidebar's width animates (the corner
-    /// hover's `CollapsedBandReveal` sets 0 or 1 once). The items close up toward the band's
-    /// origin and fade with it. Fully collapsed, the band is clear and 0
+    /// hidden, in between while the sidebar's width (or the corner hover's
+    /// stepped `CollapsedBandReveal`) animates. The items close up toward the band's
+    /// origin and fade with it, unless ``keepsItemsFullSize``. Fully collapsed, the band is clear and 0
     /// wide but never hidden: keyboard and VoiceOver reach its buttons with
     /// no hover, and keyboard focus on one opens the band.
     var presence: CGFloat = 1 {
@@ -29,6 +29,10 @@ final class TitlebarToolbarBand: NSView {
             alphaValue = presence
             needsLayout = true // invalidate: a new presence (the guard above) closes the items up.
         }
+    }
+    /// The items keep their full size while a render-server reveal clips and fades the band.
+    var keepsItemsFullSize = false {
+        didSet { if keepsItemsFullSize != oldValue { needsLayout = true } } // invalidate: the items' widths change
     }
     /// Where the icon choice is read (tests pass their own store).
     var iconStore: TunableStore = .shared {
@@ -142,12 +146,11 @@ final class TitlebarToolbarBand: NSView {
     /// the band reaches 0 width with no jump.
     override func layout() {
         super.layout()
-        let side = TitlebarBandButton.side
-        let width = side * presence
+        let side = TitlebarBandButton.side, share = keepsItemsFullSize ? 1 : presence
         var x: CGFloat = 0
         for (button, gap) in [(sidebarToggle, Metrics.space3), (backButton, Metrics.space1), (forwardButton, 0)] {
-            button.frame = NSRect(x: x, y: (bounds.height - side) / 2, width: width, height: side)
-            x += (side + gap) * presence
+            button.frame = NSRect(x: x, y: (bounds.height - side) / 2, width: side * share, height: side)
+            x += (side + gap) * share
         }
     }
 

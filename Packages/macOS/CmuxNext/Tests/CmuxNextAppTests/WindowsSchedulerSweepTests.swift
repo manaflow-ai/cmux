@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextDesign
 import CmuxNextSidebar
 import CmuxNextWakeups
 import Foundation
@@ -109,7 +110,8 @@ import Testing
     // MARK: MainDeadline (CollapsedBandReveal, RestoredFullScreen)
 
     @Test func theCollapsedBandClosesOnItsDeadlineAndAReturnKeepsItOpen() {
-        let rig = MainDeadlineRig(), band = CollapsedBandReveal(deadlines: rig.deadlines)
+        let rig = MainDeadlineRig()
+        let band = CollapsedBandReveal(deadlines: rig.deadlines, fullWidth: { TitlebarToolbarBand.width }, rendersOnServer: { true })
         band.install(in: NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300)))
         band.setSidebarHidden(true)
         band.setEngaged(true)
