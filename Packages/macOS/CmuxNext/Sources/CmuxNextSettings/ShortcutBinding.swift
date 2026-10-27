@@ -76,7 +76,7 @@ public struct ShortcutBindingFormat {
         var parts = rawParts
         var keyToken = lastRaw
         if lastRaw.isEmpty, rawParts.count >= 2, rawParts[rawParts.count - 2].isEmpty {
-            parts.removeLast()
+            _ = parts.popLast()
             keyToken = "+"
         }
         var stroke = ShortcutStrokeSpec(key: "")

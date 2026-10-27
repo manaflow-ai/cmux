@@ -35,7 +35,7 @@ struct AgentPageProviderBridgeGapBench {
     }
 
     @Test func fixedBridgeGapPublishesAndReplays() async throws {
-        let provider = AgentPageProvider { _ in nil }
+        let provider = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         let publishStart = ContinuousClock.now
         for index in 0..<Self.eventCount { provider.publish(.command("bridge-gap-\(index)")) }
         let publishMilliseconds = Self.milliseconds(publishStart.duration(to: ContinuousClock.now))
