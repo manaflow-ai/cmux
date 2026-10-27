@@ -11,19 +11,27 @@ recreated (sql/database.cc, RazeAndPoison; sql/recovery.cc), never a crash at st
       [--only GLOB,...] [--seed N] [--include-chromium] [--list]
 
 Run:
-  1. Baseline. A fresh launch of the tag (its state roots moved aside to `<root>.bench-prev`), a workspace named
-     with a random marker that echoes the marker in its terminal, a quit that keeps the sessions, and the tag's
-     daemons ended (TagTeardown). A copy of every state root is the baseline.
+  1. Baseline. Refused unless no process of the tag runs. A fresh launch of the tag (its state roots moved aside to
+     `<root>.bench-prev`), a workspace named with a random marker that echoes the marker in its terminal, a quit that
+     keeps the sessions, and the tag's daemons ended (TagTeardown). A copy of every state root is the baseline; the
+     write-ahead log of each SQLite database in it is folded into the database (wal_checkpoint(TRUNCATE)), so the
+     damaged main file is all a reader opens.
   2. Control. The baseline restored and relaunched with nothing damaged: everything must come back. Files the app
-     itself removes on a clean relaunch are volatile and left out of the "other state kept" check. A failed control
-     stops the run (exit 2): no row after it would mean anything.
+     itself removes on a clean relaunch are volatile, and files it rewrites are not compared byte for byte; both are
+     left out of the "other state kept" check. A failed control stops the run (exit 2): no row after it would mean
+     anything.
   3. One row per (file, mutation). The baseline restored, one file damaged, the tag relaunched, then checked:
        app_started      the control socket answered with a window (BenchApp.launch)
        daemon_started   a cmux-tui daemon of the bundle runs and `cmux workspace list` answers
        set_aside        `<name>.corrupt*` or `<stem>.corrupt*` appeared next to the file
-       faults           error journal entries (warning or worse) since the relaunch that name the file or `corrupt`
+       faults           occurrences this relaunch added (against the journal on disk just before it) to error
+                        journal entries (warning or worse) that name the file's full path or its set-aside
        other_missing    baseline files, other than this one and the volatile ones, that are gone
+       other_changed    baseline files the control kept byte for byte that this relaunch rewrote (a reset store)
        workspace_kept   the marker workspace is listed (required unless the damaged file holds the marker)
+       crash_reports    reports of the app or daemon of this row: its pids, else a crash inside its window; a row that
+                        shows a crash waits for the report (--crash-wait), and one that comes later is the run's
+                        `late_crash_reports`, never the next row's
      A row passes when the app and the daemon started, the app is still up, no crash report was written, the other
      state was kept, and, when the format rejects the damaged bytes (`format_accepts` false for JSON, plist and
      SQLite; Python's own parsers and `PRAGMA integrity_check` decide), the file was set aside and a fault counted.
@@ -34,10 +42,11 @@ Mutations: `truncate` keeps the first half, `flip` XORs up to 16 random bytes (s
 
 Safety: the app must be a `cmux DEV <tag>.app` with a DEV bundle id (build_names.names refuses any other build). The
 script writes only inside the tag's own roots: `Application Support/cmux/tags/<tag>`, `.../cmux/builds/<key>`,
+`Application Support/<bundle id>` (browser history, error journal; refused for a shipped or shared id),
 `~/.acpmux/builds/<key>` (BuildIdentity) and its own scratch root, which holds the settings file and Chief home the
 launches use. A path whose real location is outside them is refused, and so is a socket whose name is not this
-build's tagged socket (`cmux-debug-<tag>.sock` or `cmux-debug--<key hash>.sock`). The baseline is restored only
-while no process of the tag runs.
+build's tagged socket (`cmux-debug-<tag>.sock` or `cmux-debug--<key hash>.sock`). The roots are moved and restored
+only while no process of the tag runs.
 
 Inputs: the files are found by walking the roots, not listed by name, so a new store is covered the day it ships.
 state-roots-baseline.tsv names the resolvers of those roots and the source sites not yet moved onto them (`move`
@@ -45,14 +54,15 @@ rows); the run summary lists those sites as out of this lane's reach.
 
 Rows: one JSON object per (file, mutation) line in `<out>/state-corruption.jsonl` (schema cmux-state-corruption/v1).
 `<out>/state-corruption-run.json` holds the roots, every file found or skipped, the control row, the daemon's state
-dir and the error journal's. Exit 0 when every row passed, 1 when a row failed, 2 when the run could not measure (a
-refused root or socket, a failed baseline or control).
+dir, the error journal's, and the late crash reports. Exit 0 when every row passed, 1 when a row failed or a crash
+report came late, 2 when the run could not measure (a refused root or socket, a failed baseline or control).
 
 Test phase: bare metal on a lab mini against the final tip; `python3 -I
 scripts/cmux-next/tests/test_state_corruption_e2e.py` for the pure parts and a fake app (any host).
 """
-import argparse, fnmatch, hashlib, json, os, plistlib, random, re, secrets, shutil, sqlite3, stat, subprocess, sys
-import tempfile, time
+import argparse, datetime, fnmatch, glob, hashlib, json, os, plistlib, random, re, secrets, shutil, sqlite3, stat
+import subprocess, sys, tempfile, time
+import xml.parsers.expat
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)  # its siblings, also under `python3 -I`
@@ -128,8 +138,9 @@ def kind_of(name, head):
     return "other"
 
 
-def format_accepts(kind, data):
-    """Whether the format still reads `data` (True/False), or None when this script has no parser for it."""
+def format_accepts(kind, data, wal=None):
+    """Whether the format still reads `data` (True/False), or None when this script has no parser for it. `wal`: a
+    SQLite database's write-ahead log, read with it."""
     if kind == "json":
         try:
             json.loads(data.decode("utf-8"))
@@ -140,22 +151,30 @@ def format_accepts(kind, data):
         try:
             plistlib.loads(data)
             return True
-        except (plistlib.InvalidFileException, ValueError, OverflowError, KeyError, IndexError, TypeError):
+        # An XML plist's damage surfaces as Expat's error or as an unknown encoding (LookupError), a binary one's as
+        # InvalidFileException.
+        except (plistlib.InvalidFileException, xml.parsers.expat.ExpatError, ValueError, OverflowError, LookupError,
+                TypeError):
             return False
     if kind == "sqlite":
-        return sqlite_accepts(data)
+        return sqlite_accepts(data, wal)
     return None
 
 
-def sqlite_accepts(data):
+def sqlite_accepts(data, wal=None):
     """SQLite's own verdict on a database file's bytes: `PRAGMA integrity_check` is `ok` (an empty file is an empty
-    database). The bytes are read from a scratch copy with immutable=1, which reads the main file only."""
+    database). The bytes are read from a scratch copy; `wal`, the bytes of a write-ahead log left next to the file,
+    goes beside it as `-wal`, so the check reads what a reader of the damaged file replays."""
     with tempfile.TemporaryDirectory(prefix="state-corruption-sqlite-") as scratch:
         path = os.path.join(scratch, "db")
         with open(path, "wb") as f:
             f.write(data)
+        if wal is not None:
+            with open(path + "-wal", "wb") as f:
+                f.write(wal)
         try:
-            connection = sqlite3.connect(f"file:{path}?immutable=1", uri=True)
+            connection = (sqlite3.connect(path) if wal is not None else
+                          sqlite3.connect(f"file:{path}?immutable=1", uri=True))
             try:
                 rows = connection.execute("PRAGMA integrity_check").fetchall()
             finally:
@@ -220,21 +239,63 @@ def set_aside_names(name, before, after):
     return sorted(entry for entry in set(after) - set(before) if entry.startswith(prefixes))
 
 
-def fault_entries(reply, since_ms, name):
-    """Error journal entries (errors.list) seen at or after `since_ms` that name the file (`name` or its stem) or say
-    `corrupt`."""
+def journal_counts(directory):
+    """{fingerprint: lifetime count} of the error journal on disk in `directory` (ErrorSegmentStore: NDJSON
+    `segment-<n>.ndjson` files of ErrorEntry snapshots, the newest line per fingerprint wins; a line that does not
+    decode is skipped, as the journal skips it). An absent journal is empty."""
+    counts = {}
+    segments = []
+    for path in glob.glob(os.path.join(directory or "", "segment-*.ndjson")) if directory else ():
+        number = os.path.basename(path)[len("segment-"):-len(".ndjson")]
+        if number.isdigit():
+            segments.append((int(number), path))
+    for _, path in sorted(segments):
+        try:
+            with open(path, "rb") as f:
+                lines = f.read().split(b"\n")
+        except OSError:
+            continue
+        for line in lines:
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(entry, dict) and isinstance(entry.get("fp"), str):
+                counts[entry["fp"]] = int(entry.get("count") or 0)
+    return counts
+
+
+def names_any(text, needles):
+    """Whether `text` holds one of `needles` as a whole name: not followed by a character that would make it a longer
+    name (`/x/run.json` is not in `/x/run.json.bak`), and for a bare file name not preceded by one either."""
+    for needle in needles:
+        if not needle:
+            continue
+        before = "" if needle.startswith(os.sep) else r"(?<![\w.-])"
+        if re.search(before + re.escape(needle) + r"(?![\w.-])", text):
+            return True
+    return False
+
+
+def fault_entries(reply, before, since_ms, paths, asides=()):
+    """[(entry, occurrences this relaunch added)] of the error journal entries (errors.list) that name the damaged
+    file. An entry names it when its sample, template or a context value holds one of `paths` (the file's full path,
+    as given and resolved) or one of `asides` (the `<name>.corrupt*` this row saw appear: the set-aside fault's own
+    words, `moved it to History.sqlite.corrupt`). A bare stem or the word `corrupt` names nothing: `run` is in
+    `running`, and another file's fault says `corrupt` too. `before` is {fingerprint: count} read from the journal on
+    disk just before the relaunch, so a fingerprint's lifetime count from earlier launches is not this one's."""
     if not isinstance(reply, dict):
         return []
-    stem = os.path.splitext(name)[0]
-    needles = {name.lower(), stem.lower(), "corrupt"}
+    needles = sorted({*(p for p in paths if p), *(os.path.realpath(p) for p in paths if p)}) + sorted(asides)
     found = []
     for entry in reply.get("entries") or []:
         if not isinstance(entry, dict) or (entry.get("last_ms") or 0) < since_ms:
             continue
-        text = " ".join(str(v) for v in (entry.get("template"), entry.get("sample"),
-                                         *((entry.get("context") or {}).values()))).lower()
-        if any(needle in text for needle in needles):
-            found.append(entry)
+        added = int(entry.get("count") or 1) - int((before or {}).get(entry.get("fingerprint"), 0))
+        context = entry.get("context") if isinstance(entry.get("context"), dict) else {}
+        text = "\n".join(str(v) for v in (entry.get("template"), entry.get("sample"), *context.values()) if v)
+        if added > 0 and names_any(text, needles):
+            found.append((entry, added))
     return found
 
 
@@ -252,6 +313,8 @@ def problems_of(row):
         out.append(f"crash reports: {', '.join(os.path.basename(p) for p in row['crash_reports'])}")
     if row["other_missing"]:
         out.append(f"other state lost: {', '.join(row['other_missing'])}")
+    if row.get("other_changed"):
+        out.append(f"other state rewritten (a clean relaunch keeps it): {', '.join(row['other_changed'])}")
     if row["other_set_aside"]:
         out.append(f"other files set aside: {', '.join(row['other_set_aside'])}")
     if row["workspace_expected"] and row["app_started"] and not row["workspace_kept"]:
@@ -276,28 +339,195 @@ def socket_allowed(path, tag, names):
     return base in own and base not in UNTAGGED_SOCKETS
 
 
+def cli_argv(cli, app_socket, argv):
+    """The bundled CLI's argv for `argv` on this build's app: `--app-socket` names the app control socket
+    (cli/app.rs command_socket); the daemon is the one the bundle names (cli/wire/socket.rs). `--socket` would name a
+    daemon socket, so a mux command there would speak the mux protocol to the app."""
+    return [cli, "--app-socket", app_socket, *argv]
+
+
+def other_changes(others, live_path, kept_by_control):
+    """(missing, changed) ids among `others` (targets other than the damaged one): `missing` no longer exist, and
+    `changed` exist with bytes other than the baseline's, for the files in `kept_by_control` (ids a clean relaunch
+    leaves byte for byte as they were). A reset store (a JSON rewritten as `{}`, a database recreated empty) is a
+    change, not only a loss."""
+    missing, changed = [], []
+    for target in others:
+        path = live_path(target)
+        if not os.path.exists(path):
+            missing.append(target["id"])
+            continue
+        if target["id"] not in kept_by_control:
+            continue
+        try:
+            with open(path, "rb") as f:
+                digest = hashlib.sha256(f.read()).hexdigest()
+        except OSError:
+            missing.append(target["id"])
+            continue
+        if digest != target["sha256"]:
+            changed.append(target["id"])
+    return sorted(missing), sorted(changed)
+
+
+def checkpoint_sqlite(root):
+    """Folds the write-ahead log of each SQLite database under `root` into its main file (`PRAGMA
+    wal_checkpoint(TRUNCATE)`, then the last connection's close removes the log), so the main file holds everything a
+    reader opens: damage to it is then the damage the app reads, with no log replayed over it. `root` is the run's own
+    baseline copy, never a live root. Returns {path: "folded" | "kept: <why>"} of each database that had a log."""
+    done = {}
+    for directory, _, files in os.walk(root):
+        for name in sorted(files):
+            if not name.endswith("-wal"):
+                continue
+            main = os.path.join(directory, name[:-len("-wal")])
+            try:
+                if not stat.S_ISREG(os.lstat(main).st_mode):
+                    continue
+                with open(main, "rb") as f:
+                    if not f.read(len(SQLITE_MAGIC)).startswith(SQLITE_MAGIC):
+                        continue
+            except OSError:
+                continue
+            try:
+                connection = sqlite3.connect(main)
+                try:
+                    busy = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
+                finally:
+                    connection.close()
+                done[main] = "folded" if not busy and not os.path.exists(main + "-wal") else "kept: the log stayed"
+            except sqlite3.DatabaseError as error:
+                done[main] = f"kept: {error}"
+    return done
+
+
+def report_facts(path):
+    """(when, pid, executable) of a crash or hang report: when its process crashed (the .ips header's `timestamp`, a
+    text report's `Date/Time`, else the file's write time, epoch seconds), its pid and executable path (None when the
+    report does not say). ReportCrash writes the file seconds after the crash, so the write time alone puts a late
+    report in the next row."""
+    pid = executable = stamp = None
+    try:
+        with open(path, errors="replace") as f:
+            text = f.read()
+    except OSError:
+        text = ""
+    if text.lstrip().startswith("{"):
+        header, _, body = text.partition("\n")
+        try:
+            stamp = json.loads(header).get("timestamp")
+        except (ValueError, AttributeError):
+            pass
+        try:
+            facts = json.loads(body)
+            pid, executable = facts.get("pid"), facts.get("procPath")
+            stamp = stamp or facts.get("captureTime")
+        except (ValueError, AttributeError):
+            pass
+    else:
+        found = re.search(r"^\s*Date/Time:\s+(.+?)\s*$", text, re.M)
+        stamp = found.group(1) if found else None
+        found = re.search(r"^\s*Process:\s.*\[(\d+)\]", text, re.M)
+        pid = int(found.group(1)) if found else None
+        found = re.search(r"^\s*Path:\s+(.+?)\s*$", text, re.M)
+        executable = found.group(1) if found else None
+    when = None
+    for layout in ("%Y-%m-%d %H:%M:%S.%f %z", "%Y-%m-%d %H:%M:%S %z"):
+        try:
+            when = datetime.datetime.strptime(str(stamp or ""), layout).timestamp()
+            break
+        except ValueError:
+            continue
+    if when is None:
+        try:
+            when = os.path.getmtime(path)
+        except OSError:
+            when = 0.0
+    return when, pid if isinstance(pid, int) else None, executable
+
+
+class CrashLedger:
+    """Which row each crash report belongs to. Each row is a window: its start (just before the relaunch), its end
+    (after its teardown) and the pids it ran. A report belongs to the row that ran its pid, else to the row whose
+    window holds the moment of the crash, and it is counted once. A report of an earlier row seen only later
+    (ReportCrash wrote it after that row's wait) is `late`: never charged to the row that found it, listed for the
+    run, and a failure of the run."""
+
+    def __init__(self):
+        self.windows = []
+        self.owner = {}
+        self.late = []
+
+    def open(self, start, label):
+        self.windows.append({"start": start, "end": None, "pids": set(), "label": label})
+        return len(self.windows) - 1
+
+    def ran(self, index, pids):
+        self.windows[index]["pids"].update(p for p in pids if p is not None)
+
+    def close(self, index, end):
+        self.windows[index]["end"] = end
+
+    def owner_of(self, when, pid):
+        for index, window in enumerate(self.windows):
+            if pid is not None and pid in window["pids"]:
+                return index
+        for index, window in enumerate(self.windows):
+            end = window["end"] if window["end"] is not None else float("inf")
+            if window["start"] <= when <= end:
+                return index
+        return None
+
+    def take(self, facts, index):
+        """The reports of row `index` among `facts` ([(path, when, pid)]); new reports of earlier rows go to `late`.
+        `index` None: the run's last read, where every new report is late."""
+        mine = []
+        for path, when, pid in facts:
+            if path not in self.owner:
+                owner = self.owner_of(when, pid)
+                if owner is None:
+                    continue
+                self.owner[path] = owner
+                if owner != index:
+                    self.late.append({"path": path, "row": self.windows[owner]["label"]})
+            if self.owner[path] == index:
+                mine.append(path)
+        return sorted(mine)
+
+
 def inside(path, root):
     """Whether the real location of `path` is `root` or below it (symlinks resolved on both)."""
     real, base = os.path.realpath(path), os.path.realpath(root)
     return real == base or real.startswith(base.rstrip(os.sep) + os.sep)
 
 
-def tag_roots(app_support, user_home, tag, names, scratch):
+def tag_roots(app_support, user_home, tag, names, scratch, bundle_id):
     """{label: directory} this run may write: the tag's state, the build's App Support and acpmux homes
-    (BuildIdentity: `builds/<key>`), and the run's scratch root. Raises Refused for a tag or key that is not one
-    path component of its own (BuildIdentity.tagSlug, component) or a tag a shipped build owns, and for a root that is
-    a shared one."""
+    (BuildIdentity: `builds/<key>`), the bundle's own Application Support folder (`<Application Support>/<bundle id>`:
+    the browser profiles' History.sqlite (BrowserVisitLog), incognito-workspaces.json, terminal themes, downloads and
+    the error journal), and the run's scratch root. Raises Refused for a tag, key or bundle id that is not one path
+    component of its own (BuildIdentity.tagSlug, component), a tag a shipped build owns, a bundle id that is not one
+    DEV build's own (a shipped id, or the bare `com.cmuxterm.app.debug` every untagged DEV build shares), and for a
+    root that is a shared one."""
     key = os.path.basename(names["acpmux_home"])
     if not TAG.fullmatch(tag or "") or tag in build_names.OWNED_TAGS:
         raise Refused(f"tag {tag!r} is not a DEV build's own tag")
     if not KEY.fullmatch(key) or not key.startswith("com.cmuxterm.app."):
         raise Refused(f"build key {key!r} is not a DEV build's own key")
+    if (not KEY.fullmatch(bundle_id or "") or not bundle_id.startswith("com.cmuxterm.app.")
+            or bundle_id == build_names.DEV_PREFIX or bundle_id.startswith(build_names.OTHER_KINDS)):
+        raise Refused(f"bundle id {bundle_id!r} is not one DEV build's own id")
+    support = os.path.dirname(app_support)  # `<Application Support>`: app_support is its `cmux`
     roots = {"tag-state": os.path.join(app_support, "tags", tag),
              "build-support": os.path.join(app_support, "builds", key),
+             "app-support": os.path.join(support, bundle_id),
              "acpmux": names["acpmux_home"], "scratch": scratch}
-    shared = {os.path.realpath(p) for p in (user_home, app_support, os.path.join(app_support, "tags"),
+    shared = {os.path.realpath(p) for p in (user_home, support, app_support, os.path.join(app_support, "tags"),
                                              os.path.join(app_support, "builds"), os.path.join(user_home, ".acpmux"),
-                                             os.path.join(user_home, ".acpmux", "builds"))}
+                                             os.path.join(user_home, ".acpmux", "builds"),
+                                             *(os.path.join(support, b) for b in ("com.cmuxterm.app",
+                                                                                  build_names.DEV_PREFIX,
+                                                                                  *build_names.OTHER_KINDS)))}
     for label, root in roots.items():
         if not os.path.isabs(root) or os.path.realpath(root) in shared:
             raise Refused(f"root {label} {root} is a shared state root")
@@ -402,7 +632,7 @@ class Run:
         env = {"CMUX_NEXT_CONFIG_FILE": self.settings, "CMUX_NEXT_CHIEF_HOME": os.path.join(scratch, "chief")}
         self.bench = bench_app(self.app, out=self.out, env=env, log_name="app.log")
         app_support = os.path.dirname(os.path.dirname(self.bench.state_root()))
-        self.roots = tag_roots(app_support, bench_launch.account_home(), self.tag, self.names, scratch)
+        self.roots = tag_roots(app_support, bench_launch.account_home(), self.tag, self.names, scratch, bundle_id)
         if any(inside(self.out, root) for label, root in self.roots.items() if label != "scratch"):
             raise Refused(f"--out {self.out} is inside a root this run replaces")
         self.pristine = os.path.join(self.out, "pristine")
@@ -410,7 +640,11 @@ class Run:
         self.summary_path = os.path.join(self.out, "state-corruption-run.json")
         self.marker = f"corrupt-e2e-{secrets.token_hex(4)}"
         self.volatile = set()
+        self.kept_by_control = None  # None: the control has not run, so no file is known to be kept
         self.journal_dir = None
+        self.checkpoints = {}
+        self.crashes = CrashLedger()
+        self.daemon_binary = os.path.join(self.app, "Contents/Resources/bin/cmux-tui")
 
     # The app's socket and CLI, only ever this build's.
     def socket(self):
@@ -426,8 +660,8 @@ class Run:
         env = {**bench_launch.BASE_ENV, "HOME": bench_launch.account_home(), "CMUX_SOCKET_PATH": sock,
                "CMUX_QUIET": "1"}
         try:
-            return subprocess.run([self.bench.cli, "--socket", sock, *argv], capture_output=True, text=True,
-                                  timeout=timeout, env=env)
+            return subprocess.run(cli_argv(self.bench.cli, sock, argv), capture_output=True, text=True,
+                                  timeout=timeout, env=env, stdin=subprocess.DEVNULL)
         except subprocess.TimeoutExpired as error:
             return subprocess.CompletedProcess(error.cmd, 124, "", f"timed out after {timeout} s")
 
@@ -435,11 +669,16 @@ class Run:
         """The error journal's entries (warning or worse) since `since_ms` (errors.list)."""
         return self.rpc("errors.list", {"since_ms": since_ms, "level": "warning", "limit": 1000})
 
+    def journal_folder(self):
+        """The error journal's folder: the one errors.list reported at the baseline, else the bundle's own
+        (ErrorJournalService.directory: `<Application Support>/<bundle id>/errors`)."""
+        return self.journal_dir or os.path.join(self.roots["app-support"], "errors")
+
     def idle(self):
         return not self.bench.tag_processes()
 
     def daemon_pids(self):
-        prefix = os.path.join(self.app, "Contents/Resources/bin/cmux-tui") + " "
+        prefix = self.daemon_binary + " "
         return [pid for pid, command in self.bench.tag_processes() if command.startswith(prefix)]
 
     def wait(self, predicate, seconds, step=0.5):
@@ -449,6 +688,19 @@ class Run:
             if value or time.monotonic() >= deadline:
                 return value
             time.sleep(step)  # a bounded poll of the app this run launched
+
+    def crash_facts(self):
+        """[(path, when, pid)] of the reports of this build's app and daemon written since the first row began."""
+        if not self.crashes.windows:
+            return []
+        since = self.crashes.windows[0]["start"]
+        facts = []
+        for name, binary in (("cmux DEV", self.bench.binary), ("cmux-tui", self.daemon_binary)):
+            for path in bench_launch.crash_report_candidates(since, name):
+                when, pid, executable = report_facts(path)
+                if executable and os.path.realpath(executable) == os.path.realpath(binary):
+                    facts.append((path, when, pid))
+        return facts
 
     def launch(self, fresh):
         """(started, error): one launch of the tag on the state on disk."""
@@ -472,7 +724,10 @@ class Run:
             self.bench.teardown.end()
 
     def baseline(self):
-        move_aside(self.roots, ("build-support", "acpmux"))
+        # Nothing of the tag may run while its roots move: a daemon an earlier run left would write into them.
+        if not self.idle():
+            raise Refused("processes of the tag still run; the baseline starts only with the tag idle")
+        move_aside(self.roots, ("build-support", "app-support", "acpmux"))
         os.makedirs(os.path.dirname(self.settings), exist_ok=True)
         with open(guard(self.settings, self.roots), "w") as f:
             json.dump(bench_launch.bench_env.with_config_defaults(self.bench.config), f)
@@ -492,6 +747,7 @@ class Run:
         if not self.idle():
             raise Refused("processes of the tag still run after the baseline teardown")
         copy_roots(self.roots, self.pristine)
+        self.checkpoints = checkpoint_sqlite(self.pristine)
         return discover({label: os.path.join(self.pristine, label) for label in self.roots},
                         self.args.include_chromium)
 
@@ -505,7 +761,7 @@ class Run:
         row = {"schema": SCHEMA, "tag": self.tag, "file": target["id"] if target else None,
                "mutation": mutation or "none", "kind": target["kind"] if target else None,
                "bytes_before": target["bytes"] if target else None, "seed": self.args.seed}
-        name = directory = None
+        name = directory = path = None
         before = []
         if target:
             path = guard(self.live_path(target), self.roots)
@@ -515,20 +771,32 @@ class Run:
             damaged, detail = mutate(data, mutation, row_rng(self.args.seed, target["id"], mutation))
             with open(path, "wb") as f:
                 f.write(damaged)
-            accepts = format_accepts(target["kind"], damaged)
+            # A log the checkpoint could not fold is read with the file, as the app's SQLite replays it.
+            wal = None
+            if target["kind"] == "sqlite" and os.path.isfile(path + "-wal"):
+                with open(path + "-wal", "rb") as f:
+                    wal = f.read()
+            accepts = format_accepts(target["kind"], damaged, wal)
             before = listing(directory)
             row.update(bytes_after=len(damaged), detail=detail, damaged_sha256=hashlib.sha256(damaged).hexdigest(),
-                       format_accepts=accepts, expect_set_aside=target["kind"] in STRICT_KINDS and accepts is False,
+                       wal_present=wal is not None, format_accepts=accepts,
+                       expect_set_aside=target["kind"] in STRICT_KINDS and accepts is False,
                        workspace_expected=not holds(os.path.join(self.pristine, target["id"]), self.marker))
         else:
             row.update(format_accepts=None, expect_set_aside=False, workspace_expected=True)
+        counts_before = journal_counts(self.journal_folder())
         since = time.time()
         since_ms = int(since * 1000)
+        window = self.crashes.open(since, f"{row['file'] or '(control)'} {row['mutation']}")
         started, error = self.launch(fresh=False)
+        process = self.bench.process
+        self.crashes.ran(window, [process.pid if process is not None else None])
         row.update(app_started=started, launch_error=error, daemon_started=False, workspace_kept=False, set_aside=[],
-                   set_aside_matches=None, faults=0, fault_samples=[], app_alive=False)
+                   set_aside_matches=None, faults=0, fault_samples=[], app_alive=False, daemon_pids=[])
+        respawned = False
         if started:
             daemons = self.wait(self.daemon_pids, 15)
+            self.crashes.ran(window, daemons or [])
             row["daemon_started"] = bool(daemons) and self.cli("workspace", "list").returncode == 0
             # Wait only for what this row expects to come; what it does not expect is read once.
             listed = self.wait(lambda: self.marker in self.cli("workspace", "list").stdout,
@@ -537,28 +805,38 @@ class Run:
             if target:
                 settle = self.args.settle if row["expect_set_aside"] else 0
                 row["set_aside"] = self.wait(lambda: set_aside_names(name, before, listing(directory)), settle)
-                faults = self.wait(lambda: fault_entries(self.journal(since_ms), since_ms, name), settle, 1.0)
-                row["faults"] = sum(int(entry.get("count") or 1) for entry in faults)
-                row["fault_samples"] = [str(e.get("sample") or e.get("template"))[:200] for e in faults[:3]]
+                faults = self.wait(lambda: fault_entries(self.journal(since_ms), counts_before, since_ms, [path],
+                                                         row["set_aside"]), settle, 1.0)
+                row["faults"] = sum(added for _, added in faults)
+                row["fault_samples"] = [str(e.get("sample") or e.get("template"))[:200] for e, _ in faults[:3]]
                 if row["set_aside"]:
                     with open(os.path.join(directory, row["set_aside"][0]), "rb") as f:
                         row["set_aside_matches"] = hashlib.sha256(f.read()).hexdigest() == row["damaged_sha256"]
-            row["app_alive"] = self.bench.process.poll() is None
-        daemon = os.path.join(self.app, "Contents/Resources/bin/cmux-tui")
-        row["crash_reports"] = [*bench_launch.crash_reports(since, binary=self.bench.binary),
-                                *bench_launch.crash_reports(since, name="cmux-tui", binary=daemon)]
+            row["app_alive"] = process.poll() is None
+            last = self.daemon_pids()
+            self.crashes.ran(window, last)
+            respawned = bool(daemons) and set(last) != set(daemons)
+            row["daemon_pids"] = sorted({*(daemons or []), *last})
+        self.end()
+        self.crashes.close(window, time.time())
+        # ReportCrash writes a report seconds after the crash: a row that shows one waits for it, bounded.
+        crashed = not started or not row["app_alive"] or not row["daemon_started"] or respawned
+        row["crash_reports"] = self.wait(lambda: self.crashes.take(self.crash_facts(), window),
+                                         self.args.crash_wait if crashed else 0)
+        # What the relaunch and its quit left of the other files, compared after the teardown wrote its last state.
         others = [t for t in targets if t is not target and t["id"] not in self.volatile]
-        missing = sorted(t["id"] for t in others if not os.path.exists(self.live_path(t)))
+        missing, changed = other_changes(others, self.live_path, self.kept_by_control or set())
         if target:
-            row["other_missing"] = missing
-        else:  # the control: what a clean relaunch removes by itself is volatile, not lost
-            row["other_missing"], row["volatile"] = [], missing
+            row["other_missing"], row["other_changed"] = missing, changed
+        else:  # the control: what a clean relaunch removes or rewrites by itself is volatile, not lost
+            row["other_missing"], row["other_changed"], row["volatile"] = [], [], missing
+            _, rewritten = other_changes(others, self.live_path, {t["id"] for t in others})
+            row["rewritten"] = rewritten
         row["other_set_aside"] = sorted({
             entry for t in others
             for entry in set_aside_names(os.path.basename(t["id"]),
                                          listing(os.path.dirname(os.path.join(self.pristine, t["id"]))),
                                          listing(os.path.dirname(self.live_path(t))))} - set(row["set_aside"]))
-        self.end()
         row["problems"] = problems_of(row)
         row["result"] = "fail" if row["problems"] else "pass"
         row["seconds"] = round(time.monotonic() - began, 1)
@@ -585,6 +863,7 @@ class Run:
             baselined = True
             chosen = select(targets, self.args.only)
             summary.update(targets=targets, chosen=[t["id"] for t in chosen], skipped=skipped,
+                           sqlite_checkpoints=self.checkpoints,
                            daemon_state_roots=sorted(self.bench.teardown.state_roots if self.bench.teardown else ()),
                            error_journal={"dir": self.journal_dir, "inside_roots": bool(self.journal_dir) and any(
                                inside(self.journal_dir, root) for root in self.roots.values())})
@@ -599,11 +878,15 @@ class Run:
                 return 0
             control = summary["control"] = self.case(None, None, targets)
             self.volatile = set(control["volatile"])
+            self.kept_by_control = {t["id"] for t in targets} - self.volatile - set(control["rewritten"])
             if control["problems"]:
                 print(f"state-corruption: the control relaunch failed: {'; '.join(control['problems'])}")
                 return 2
             if self.volatile:
                 print(f"state-corruption: volatile (removed by a clean relaunch): {', '.join(sorted(self.volatile))}")
+            if control["rewritten"]:
+                print(f"state-corruption: rewritten by a clean relaunch, so not compared: "
+                      f"{', '.join(control['rewritten'])}")
             open(self.rows_path, "w").close()
             for target in chosen:
                 for mutation in mutations:
@@ -612,17 +895,21 @@ class Run:
                     with open(self.rows_path, "a") as f:  # each row as it ends: a cut-off run keeps its rows
                         f.write(json.dumps(row, sort_keys=True) + "\n")
         finally:
-            summary["rows"] = len(rows)
-            summary["failed"] = sum(1 for r in rows if r["result"] == "fail")
-            with open(self.summary_path, "w") as f:
-                json.dump(summary, f, indent=1, sort_keys=True)
             if self.bench.process is not None and self.bench.process.poll() is None:
                 self.end()
+            self.crashes.take(self.crash_facts(), None)  # the last row's report, if it came after the row's read
+            summary["rows"] = len(rows)
+            summary["failed"] = sum(1 for r in rows if r["result"] == "fail")
+            summary["late_crash_reports"] = self.crashes.late
+            with open(self.summary_path, "w") as f:
+                json.dump(summary, f, indent=1, sort_keys=True)
             if baselined and self.idle():
                 restore_roots(self.roots, self.pristine, self.idle)
         failed = [r for r in rows if r["result"] == "fail"]
+        for late in self.crashes.late:
+            print(f"state-corruption: a crash report of row {late['row']} came after its row: {late['path']}")
         print(f"state-corruption: {len(rows) - len(failed)}/{len(rows)} rows passed; rows {self.rows_path}")
-        return 1 if failed else 0
+        return 1 if failed or self.crashes.late else 0
 
 
 def parse_args(argv=None):
@@ -637,6 +924,8 @@ def parse_args(argv=None):
     parser.add_argument("--launch-timeout", type=float, default=120.0)
     parser.add_argument("--settle", type=float, default=15.0,
                         help="seconds a relaunch may take to set aside and report")
+    parser.add_argument("--crash-wait", type=float, default=10.0,
+                        help="seconds a row that shows a crash waits for its report (ReportCrash writes it late)")
     parser.add_argument("--persist-seconds", type=float, default=5.0, help="seconds the baseline waits for writes")
     parser.add_argument("--list", action="store_true", help="make the baseline, list the files, damage nothing")
     return parser.parse_args(argv)

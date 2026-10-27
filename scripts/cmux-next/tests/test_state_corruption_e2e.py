@@ -2,13 +2,18 @@
 """state-corruption-e2e.py, the state-corruption chaos lane (p10-stability-174):
 
 1. Each mutation damages the bytes it says (flip: up to 16 bytes, each changed, the same offsets for the same seed).
-2. format_accepts is the format's own verdict: JSON and plist parsers, and SQLite's integrity_check on the main file.
+2. format_accepts is the format's own verdict: JSON and plist parsers (a torn or flipped XML plist included), and
+   SQLite's integrity_check on the main file with any log left beside it; the baseline copy's logs are folded in.
 3. Discovery finds regular files only and skips sockets, SQLite side files, empties, caches and Chromium user data.
-4. Only this build's tagged socket is used; a shipped build's tag, the untagged sockets and shared roots are refused,
-   and no path outside the tag's roots is written.
-5. A whole run against a fake app: one row per (file, mutation), the control finds the volatile files, a JSON file the
-   app sets aside passes, one it does not set aside fails, and the baseline is restored at the end.
-6. The lanes registry declares the lane the way stability-lab.py reads it.
+4. Only this build's tagged socket is used, and the CLI names it with --app-socket; a shipped build's tag, the untagged
+   sockets, shared roots and a shared bundle folder are refused, no path outside the tag's roots is written, and
+   nothing moves while a process of the tag runs.
+5. Faults name the damaged file by its path or set-aside and count only what the relaunch added; a crash report goes
+   to the row that ran its pid or held its crash time, never to the next row.
+6. A whole run against a fake app: one row per (file, mutation), the control finds the volatile and rewritten files,
+   a JSON file the app sets aside passes, one it does not set aside fails, one whose damage resets another store
+   fails, and the baseline is restored at the end.
+7. The lanes registry declares the lane the way stability-lab.py reads it.
 
 Runs on any host (Linux included): no app, no socket.
 
@@ -28,8 +33,10 @@ import socket
 import sqlite3
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 HERE = Path(__file__).resolve().parent.parent
@@ -109,12 +116,67 @@ class Formats(unittest.TestCase):
         self.assertTrue(sc.format_accepts("plist", plistlib.dumps({"a": 1}, fmt=plistlib.FMT_BINARY)))
         self.assertFalse(sc.format_accepts("plist", b"\0" * 40))
 
+    def test_damaged_xml_plists_are_rejected_not_raised(self):
+        """Expat's error (a torn or flipped XML plist) and an unknown encoding are the format's verdict, never an
+        exception out of the row after the file is already damaged."""
+        data = plistlib.dumps({"workspaces": ["a", "b"], "window": {"x": 1, "y": 2.5}, "on": True},
+                              fmt=plistlib.FMT_XML)
+        self.assertTrue(sc.format_accepts("plist", data))
+        self.assertFalse(sc.format_accepts("plist", sc.mutate(data, "truncate", None)[0]))
+        for seed in range(200):
+            flipped, _ = sc.mutate(data, "flip", random.Random(seed))
+            self.assertIn(sc.format_accepts("plist", flipped), (True, False), seed)
+        self.assertFalse(sc.format_accepts("plist", data.replace(b"UTF-8", b"UTF-Q")))
+        self.assertFalse(sc.format_accepts("plist", sc.mutate(data, "zero-fill", None)[0]))
+
     def test_sqlite_uses_its_own_integrity_check(self):
         data = sqlite_bytes()
         self.assertTrue(sc.format_accepts("sqlite", data))
         self.assertTrue(sc.format_accepts("sqlite", b""), "an empty file is an empty database")
         self.assertFalse(sc.format_accepts("sqlite", bytes(len(data))))
         self.assertFalse(sc.format_accepts("sqlite", sc.mutate(data, "truncate", None)[0]))
+
+    def wal_database(self, scratch):
+        """(main bytes, wal bytes) of a WAL database whose rows are still only in its log: copied while the
+        writer holds it open, as a teardown that kills the daemon leaves it."""
+        path = os.path.join(scratch, "live.sqlite3")
+        writer = sqlite3.connect(path)
+        writer.execute("PRAGMA journal_mode=WAL")
+        writer.execute("PRAGMA wal_autocheckpoint=0")
+        writer.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, body TEXT)")
+        writer.executemany("INSERT INTO t (body) VALUES (?)", [("y" * 300,)] * 50)
+        writer.commit()
+        main, wal = Path(path).read_bytes(), Path(path + "-wal").read_bytes()
+        writer.close()
+        return main, wal
+
+    def test_sqlite_reads_a_left_log_with_its_file(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            main, wal = self.wal_database(scratch)
+            self.assertTrue(wal)
+            self.assertTrue(sc.format_accepts("sqlite", main, wal))
+            zeroed = bytes(len(main))
+            self.assertFalse(sc.format_accepts("sqlite", zeroed), "the main file alone is damaged")
+            self.assertTrue(sc.format_accepts("sqlite", zeroed, wal),
+                            "but a reader that finds the log replays it over the damaged pages")
+            self.assertFalse(sc.format_accepts("sqlite", zeroed, bytes(len(wal))))
+
+    def test_checkpoint_folds_the_log_into_the_baseline_copy(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            main, wal = self.wal_database(scratch)
+            copy = os.path.join(scratch, "pristine", "tui")
+            os.makedirs(copy)
+            Path(copy, "registry.sqlite3").write_bytes(main)
+            Path(copy, "registry.sqlite3-wal").write_bytes(wal)
+            Path(copy, "notes.txt-wal").write_bytes(b"not a database's log")
+            done = sc.checkpoint_sqlite(os.path.join(scratch, "pristine"))
+            db = os.path.join(copy, "registry.sqlite3")
+            self.assertEqual(done, {db: "folded"})
+            self.assertFalse(os.path.exists(db + "-wal"), "no log is left to replay over a damaged main file")
+            immutable = sqlite3.connect(f"file:{db}?immutable=1", uri=True)
+            self.assertEqual(immutable.execute("SELECT count(*) FROM t").fetchone(), (50,),
+                             "the main file alone now holds every row")
+            immutable.close()
 
     def test_logs_and_unknown_formats_have_no_verdict(self):
         self.assertIsNone(sc.format_accepts("jsonl", b"{"))
@@ -171,16 +233,64 @@ class Checks(unittest.TestCase):
         self.assertEqual(sc.set_aside_names("a.json", ["a.json", "a.json.corrupt"], ["a.json", "a.json.corrupt"]), [],
                          "a set-aside that was already there is not this relaunch's")
 
-    def test_fault_entries_since_the_relaunch_and_about_the_file(self):
+    def test_fault_entries_name_the_file_by_its_path_or_its_set_aside(self):
         reply = {"entries": [
-            {"last_ms": 50, "template": "apps.json is corrupt", "count": 1},
-            {"last_ms": 150, "template": "moved <path> aside", "context": {"path": "/x/apps.json"}, "count": 2},
-            {"last_ms": 150, "template": "database disk image is malformed: corrupt", "count": 1},
-            {"last_ms": 150, "template": "network down", "count": 1}]}
-        found = sc.fault_entries(reply, 100, "apps.json")
-        self.assertEqual([e["count"] for e in found], [2, 1])
-        self.assertEqual(sc.fault_entries({"error": "x"}, 0, "a"), [])
-        self.assertEqual(sc.fault_entries(None, 0, "a"), [])
+            {"fingerprint": "old", "last_ms": 50, "sample": "/x/apps.json is corrupt", "count": 1},
+            {"fingerprint": "ctx", "last_ms": 150, "template": "moved <path> aside",
+             "context": {"path": "/x/apps.json"}, "count": 2},
+            {"fingerprint": "aside", "last_ms": 150,
+             "sample": "apps.json was unreadable; moved it to apps.json.corrupt", "count": 1},
+            {"fingerprint": "other", "last_ms": 150, "sample": "database disk image is malformed: corrupt", "count": 1},
+            {"fingerprint": "longer", "last_ms": 150, "sample": "read /x/apps.json.bak: corrupt", "count": 1},
+            {"fingerprint": "net", "last_ms": 150, "template": "network down", "count": 1}]}
+        found = sc.fault_entries(reply, {}, 100, ["/x/apps.json"], ["apps.json.corrupt"])
+        self.assertEqual([(e["fingerprint"], added) for e, added in found], [("ctx", 2), ("aside", 1)])
+        self.assertEqual(sc.fault_entries({"error": "x"}, {}, 0, ["/x/a"]), [])
+        self.assertEqual(sc.fault_entries(None, {}, 0, ["/x/a"]), [])
+
+    def test_an_unrelated_running_warning_is_not_a_damaged_run_json_fault(self):
+        """`run` is in `running`, and another file's warning says `corrupt`: neither is run.json's fault."""
+        reply = {"entries": [
+            {"fingerprint": "jobs", "last_ms": 150, "template": "running <n> jobs", "sample": "running 3 jobs",
+             "count": 1},
+            {"fingerprint": "cache", "last_ms": 150, "sample": "/x/other.json is corrupt; set aside", "count": 1},
+            {"fingerprint": "runtime", "last_ms": 150, "sample": "runtime.json: corrupt",
+             "context": {"path": "/x/runtime.json"}, "count": 1}]}
+        self.assertEqual(sc.fault_entries(reply, {}, 100, ["/x/run.json"]), [])
+
+    def test_faults_count_only_what_this_relaunch_added(self):
+        """A fingerprint's count is its lifetime total; the journal on disk before the relaunch is subtracted."""
+        reply = {"entries": [
+            {"fingerprint": "aside", "last_ms": 150, "context": {"path": "/x/run.json"}, "count": 5},
+            {"fingerprint": "same", "last_ms": 150, "context": {"path": "/x/run.json"}, "count": 3}]}
+        found = sc.fault_entries(reply, {"aside": 4, "same": 3}, 100, ["/x/run.json"])
+        self.assertEqual([(e["fingerprint"], added) for e, added in found], [("aside", 1)])
+
+    def test_journal_counts_from_disk(self):
+        with tempfile.TemporaryDirectory() as folder:
+            Path(folder, "segment-000001.ndjson").write_text(
+                json.dumps({"fp": "a", "count": 2}) + "\n" + json.dumps({"fp": "b", "count": 7}) + "\n")
+            Path(folder, "segment-000002.ndjson").write_text(
+                json.dumps({"fp": "a", "count": 3}) + "\n{torn")
+            Path(folder, "cursors.json").write_text("{}")
+            self.assertEqual(sc.journal_counts(folder), {"a": 3, "b": 7}, "the newest line per fingerprint wins")
+            self.assertEqual(sc.journal_counts(os.path.join(folder, "absent")), {})
+            self.assertEqual(sc.journal_counts(None), {})
+
+    def test_other_changes_find_a_reset_store(self):
+        with tempfile.TemporaryDirectory() as root:
+            def target(name, body):
+                Path(root, name).write_bytes(body)
+                return {"id": f"tag-state/{name}", "sha256": sc.hashlib.sha256(body).hexdigest()}
+            kept, reset, gone, rewritten = (target("kept.json", b'{"a": 1}'), target("prefs.json", b'{"t": 1}'),
+                                            target("gone.json", b"{}"), target("launches.json", b'{"n": 1}'))
+            Path(root, "prefs.json").write_text("{}")
+            Path(root, "launches.json").write_text('{"n": 2}')
+            os.unlink(os.path.join(root, "gone.json"))
+            live = lambda t: os.path.join(root, t["id"].split("/", 1)[1])  # noqa: E731
+            control_kept = {"tag-state/kept.json", "tag-state/prefs.json", "tag-state/gone.json"}
+            self.assertEqual(sc.other_changes([kept, reset, gone, rewritten], live, control_kept),
+                             (["tag-state/gone.json"], ["tag-state/prefs.json"]))
 
     def row(self, **changes):
         row = {"app_started": True, "launch_error": None, "daemon_started": True, "app_alive": True,
@@ -201,6 +311,49 @@ class Checks(unittest.TestCase):
         self.assertTrue(sc.problems_of(self.row(workspace_kept=False)))
         self.assertTrue(sc.problems_of(self.row(other_missing=["tag-state/x.json"])))
         self.assertTrue(sc.problems_of(self.row(crash_reports=["/r/cmux DEV-1.ips"])))
+        self.assertTrue(sc.problems_of(self.row(other_changed=["tag-state/prefs.json"]))[0]
+                        .startswith("other state rewritten"))
+
+
+class CrashReports(unittest.TestCase):
+    def test_report_facts_read_the_crash_time_not_the_write_time(self):
+        with tempfile.TemporaryDirectory() as folder:
+            ips = Path(folder, "cmux-tui-2026-10-27-101112.ips")
+            ips.write_text(json.dumps({"app_name": "cmux-tui", "timestamp": "2026-10-27 10:11:12.00 +0000"}) + "\n"
+                           + json.dumps({"pid": 77, "procPath": "/A/cmux DEV x.app/Contents/Resources/bin/cmux-tui"}))
+            os.utime(ips, (2_000_000_000, 2_000_000_000))
+            when, pid, executable = sc.report_facts(str(ips))
+            self.assertEqual(when, 1793095872.0)
+            self.assertEqual((pid, executable), (77, "/A/cmux DEV x.app/Contents/Resources/bin/cmux-tui"))
+            text = Path(folder, "cmux DEV-2026.crash")
+            text.write_text("Process:  cmux DEV [88]\nPath:  /A/x/Contents/MacOS/cmux DEV\n"
+                            "Date/Time:  2026-10-27 10:11:13.500 +0000\n")
+            self.assertEqual(sc.report_facts(str(text)), (1793095873.5, 88, "/A/x/Contents/MacOS/cmux DEV"))
+            bare = Path(folder, "cmux DEV-bare.ips")
+            bare.write_text("garbage")
+            os.utime(bare, (1234.0, 1234.0))
+            self.assertEqual(sc.report_facts(str(bare)), (1234.0, None, None))
+
+    def test_a_late_report_belongs_to_its_own_row(self):
+        ledger = sc.CrashLedger()
+        first = ledger.open(10.0, "a.json flip")
+        ledger.ran(first, [5, None])
+        ledger.close(first, 20.0)
+        second = ledger.open(30.0, "b.json flip")
+        ledger.ran(second, [6])
+        ledger.close(second, 40.0)
+        facts = [("/r/late.ips", 15.0, None), ("/r/pid.ips", 35.0, 5), ("/r/own.ips", 35.0, None),
+                 ("/r/own-pid.ips", 99.0, 6), ("/r/between.ips", 25.0, None)]
+        self.assertEqual(ledger.take(facts, second), ["/r/own-pid.ips", "/r/own.ips"])
+        self.assertEqual(ledger.late, [{"path": "/r/late.ips", "row": "a.json flip"},
+                                       {"path": "/r/pid.ips", "row": "a.json flip"}])
+        self.assertEqual(ledger.take(facts, second), ["/r/own-pid.ips", "/r/own.ips"], "a read again counts once")
+        self.assertEqual(len(ledger.late), 2)
+        third = ledger.open(50.0, "c.json flip")
+        ledger.close(third, 60.0)
+        self.assertEqual(ledger.take(facts, third), [], "the next row is never charged an earlier row's report")
+        ledger.take([("/r/last.ips", 55.0, None)], None)
+        self.assertEqual(ledger.late[-1], {"path": "/r/last.ips", "row": "c.json flip"})
 
 
 class Safety(unittest.TestCase):
@@ -222,17 +375,44 @@ class Safety(unittest.TestCase):
             with self.assertRaises(ValueError):
                 sc.build_names.names(bundle, TAG, "/Users/u")
         with self.assertRaises(sc.Refused):
-            sc.tag_roots("/s/cmux", "/Users/u", "nightly", self.names(), "/o/state")
+            sc.tag_roots("/s/cmux", "/Users/u", "nightly", self.names(), "/o/state", BUNDLE)
         with self.assertRaises(sc.Refused):
-            sc.tag_roots("/s/cmux", "/Users/u", "..", self.names(), "/o/state")
+            sc.tag_roots("/s/cmux", "/Users/u", "..", self.names(), "/o/state", BUNDLE)
 
     def test_roots_are_the_builds_own(self):
-        roots = sc.tag_roots("/s/cmux", "/Users/u", TAG, self.names(), "/o/state")
+        roots = sc.tag_roots("/s/cmux", "/Users/u", TAG, self.names(), "/o/state", BUNDLE)
         self.assertEqual(roots["tag-state"], f"/s/cmux/tags/{TAG}")
         self.assertEqual(roots["build-support"], f"/s/cmux/builds/{BUNDLE}")
+        self.assertEqual(roots["app-support"], f"/s/{BUNDLE}", "History.sqlite and the error journal live here")
         self.assertEqual(roots["acpmux"], f"/Users/u/.acpmux/builds/{BUNDLE}")
         with self.assertRaises(sc.Refused):
-            sc.tag_roots("/s/cmux", "/Users/u", TAG, self.names(), "/Users/u")
+            sc.tag_roots("/s/cmux", "/Users/u", TAG, self.names(), "/Users/u", BUNDLE)
+
+    def test_the_bundle_folder_of_a_shipped_or_shared_id_is_refused(self):
+        """`com.cmuxterm.app.debug` is every untagged DEV build's id: its folder is shared, never this run's."""
+        for bundle in ("com.cmuxterm.app", "com.cmuxterm.app.debug", "com.cmuxterm.app.nightly",
+                       "com.cmuxterm.app.nightly.x", "com.cmuxterm.app.debug/../x", "org.other.debug.x", "", None):
+            with self.assertRaises(sc.Refused, msg=bundle):
+                sc.tag_roots("/s/cmux", "/Users/u", TAG, self.names(), "/o/state", bundle)
+
+    def test_the_real_cli_names_the_app_socket_as_the_app_socket(self):
+        """Run.cli's own argv: `--app-socket`, never `--socket` (a daemon socket to the CLI), after the guard."""
+        sock = f"/tmp/cmux-debug-{TAG}.sock"
+        run = SimpleNamespace(socket=lambda: sock, bench=SimpleNamespace(cli="/A/bin/cmux"))
+        with mock.patch.object(sc.bench_launch, "account_home", return_value="/Users/u"), \
+                mock.patch.object(sc.subprocess, "run",
+                                  return_value=sc.subprocess.CompletedProcess([], 0, "", "")) as ran:
+            sc.Run.cli(run, "workspace", "create", "--name", "m", "--shell", "echo m")
+        argv = ran.call_args.args[0]
+        self.assertEqual(argv, ["/A/bin/cmux", "--app-socket", sock, "workspace", "create", "--name", "m",
+                                "--shell", "echo m"])
+        self.assertNotIn("--socket", argv)
+
+        def refused():
+            raise sc.Refused("not the tagged socket")
+        with mock.patch.object(sc.subprocess, "run") as ran, self.assertRaises(sc.Refused):
+            sc.Run.cli(SimpleNamespace(socket=refused, bench=run.bench), "workspace", "list")
+        ran.assert_not_called()
 
     def test_guard_refuses_paths_outside_and_symlink_escapes(self):
         with tempfile.TemporaryDirectory() as base:
@@ -288,9 +468,12 @@ class FakeProcess:
 
 
 class FakeApp:
-    """A cmux that keeps a JSON workspace registry and a JSON settings file and handles damage the way the lane
-    expects, except for `stubborn.json`, which it reads and silently replaces (no set-aside, no fault). Each launch
-    writes `run.json` and each quit removes it: a volatile file."""
+    """A cmux that keeps JSON stores and handles damage the way the lane expects, except:
+    `stubborn.json`, which it reads and silently replaces (no set-aside, no fault), and `resetter.json`, whose damage
+    it sets aside but also resets `prefs.json` to `{}` (another store lost to its defaults). Each launch writes
+    `run.json` and each quit removes it (a volatile file), rewrites `launches.json` with its count (a file a clean
+    relaunch rewrites), and journals an unrelated warning that says `running` and `corrupt`. The error journal is on
+    disk in the bundle's own folder, as ErrorSegmentStore keeps it, so its lifetime counts carry over launches."""
 
     def __init__(self, app, out=None, env=None, log_name=None):
         self.app, self.tag = os.path.realpath(app), TAG
@@ -302,39 +485,74 @@ class FakeApp:
         self.fresh_state = True
         self.binary = os.path.join(self.app, "Contents/MacOS/cmux DEV")
         self.cli = os.path.join(self.app, "Contents/Resources/bin/cmux")
-        self.faults = []
         self.launches = 0
+        self.lingering = False
 
     def state_root(self):
         return os.path.join(FakeApp.base, "tags", self.tag)
 
+    def journal_dir(self):
+        return os.path.join(os.path.dirname(FakeApp.base), BUNDLE, "errors")
+
     def tag_processes(self):
-        if self.process and not self.process.ended:
+        if self.lingering or (self.process and not self.process.ended):
             return [(1, os.path.join(self.app, "Contents/Resources/bin/cmux-tui") + " --headless")]
         return []
 
+    def journal(self):
+        entries = {}
+        for path in sorted(Path(self.journal_dir()).glob("segment-*.ndjson")):
+            for line in path.read_bytes().split(b"\n"):
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(entry, dict) and "fp" in entry:
+                    entries[entry["fp"]] = entry
+        return entries
+
+    def note(self, fp, template, sample, context=None):
+        entries = self.journal()
+        entry = entries.get(fp) or {"fp": fp, "source": "app", "level": "warning", "template": template, "count": 0,
+                                    "first_ms": int(time.time() * 1000)}
+        entry.update(sample=sample, ctx=context or {}, count=entry["count"] + 1, last_ms=int(time.time() * 1000))
+        entries[fp] = entry
+        os.makedirs(self.journal_dir(), exist_ok=True)
+        Path(self.journal_dir(), "segment-000001.ndjson").write_text(
+            "".join(json.dumps(e) + "\n" for e in entries.values()))
+
     def read_store(self, path, empty):
+        name = os.path.basename(path)
         try:
             return json.loads(Path(path).read_text())
         except FileNotFoundError:
             return empty
         except ValueError:
-            if os.path.basename(path) != "stubborn.json":
+            if name != "stubborn.json":
                 os.rename(path, path + ".corrupt")
-                self.faults.append({"last_ms": 10 ** 13, "template": f"{os.path.basename(path)} is corrupt; set aside",
-                                    "count": 1})
+                self.note(f"aside-{name}", "<path> was unreadable; moved it to <path>",
+                          f"{name} was unreadable; moved it to {name}.corrupt")
+                if name == "resetter.json":
+                    Path(self.state_root(), "prefs.json").write_text("{}")
             return empty
 
     def launch(self, timeout=0):
         root = self.state_root()
-        self.faults = []  # the journal is in the tag's roots: each case starts from the baseline's
         os.makedirs(os.path.join(root, "tui"), exist_ok=True)
         self.registry = os.path.join(root, "tui", "registry.json")
         self.workspaces = self.read_store(self.registry, {"workspaces": []})["workspaces"]
         self.read_store(os.path.join(root, "stubborn.json"), {})
         self.read_store(self.env["CMUX_NEXT_CONFIG_FILE"], {})
+        if self.read_store(os.path.join(root, "resetter.json"), None) is None:
+            Path(root, "resetter.json").write_text('{"r": 1}')
+        if self.read_store(os.path.join(root, "prefs.json"), None) is None:
+            Path(root, "prefs.json").write_text('{"theme": "dark"}')
+        count = (self.read_store(os.path.join(root, "launches.json"), {}) or {}).get("n", 0)
+        Path(root, "launches.json").write_text(json.dumps({"n": count + 1}))
         Path(root, "stubborn.json").write_text('{"ok": true}')
         Path(root, "run.json").write_text('{"pid": 4242}')
+        self.note("unrelated", "running <n> jobs; a corrupt cache entry was dropped",
+                  "running 3 jobs; a corrupt cache entry was dropped")
         self.save()
         self.process = FakeProcess()
         self.launches += 1
@@ -363,85 +581,132 @@ class FakeRun(sc.Run):
 
     def rpc(self, method, params=None, timeout=20):
         self.socket()
-        return {"dir": os.path.join(self.bench.state_root(), "errors"), "entries": list(self.bench.faults)}
+        entries = [{"fingerprint": e["fp"], "template": e["template"], "sample": e["sample"],
+                    "context": e.get("ctx") or {}, "count": e["count"], "last_ms": e["last_ms"]}
+                   for e in self.bench.journal().values()]
+        return {"dir": self.bench.journal_dir(), "entries": entries}
 
     def wait(self, predicate, seconds, step=0.5):
         return predicate()
 
 
 class WholeRun(unittest.TestCase):
-    def run_lane(self, *extra):
+    def run_lane(self, *extra, lingering=False):
         with tempfile.TemporaryDirectory() as base:
             home, support = os.path.join(base, "home"), os.path.join(base, "home", "Library/Application Support/cmux")
             app = os.path.join(base, "apps", f"cmux DEV {TAG}.app")
             os.makedirs(os.path.join(app, "Contents"))
             with open(os.path.join(app, "Contents", "Info.plist"), "wb") as f:
                 plistlib.dump({"CFBundleIdentifier": BUNDLE, "LSEnvironment": {"CMUX_TAG": TAG}}, f)
-            # Earlier state of the tag's acpmux home: moved aside, never mixed into the baseline.
-            os.makedirs(os.path.join(home, ".acpmux", "builds", BUNDLE))
-            Path(home, ".acpmux", "builds", BUNDLE, "old.json").write_text("{}")
+            # Earlier state of the tag's acpmux home and of the bundle's folder (an earlier run's journal): moved
+            # aside, never mixed into the baseline.
+            acpmux = os.path.join(home, ".acpmux", "builds", BUNDLE)
+            os.makedirs(acpmux)
+            Path(acpmux, "old.json").write_text("{}")
+            bundle_dir = os.path.join(os.path.dirname(support), BUNDLE)
+            os.makedirs(os.path.join(bundle_dir, "errors"))
+            Path(bundle_dir, "errors", "segment-000001.ndjson").write_text(json.dumps(
+                {"fp": "aside-registry.json", "template": "t", "sample": "registry.json was unreadable; moved it to "
+                 "registry.json.corrupt", "count": 40, "last_ms": 1}) + "\n")
             FakeApp.base = support
             out = os.path.join(base, "out")
             output = io.StringIO()
+            make = FakeApp
+            if lingering:
+                def make(*args, **kwargs):
+                    fake = FakeApp(*args, **kwargs)
+                    fake.lingering = True
+                    return fake
             with mock.patch.object(sc.bench_launch, "account_home", return_value=home), \
-                    mock.patch.object(sc.bench_launch, "crash_reports", return_value=[]), \
+                    mock.patch.object(sc.bench_launch, "crash_report_candidates", return_value=[]), \
                     mock.patch.object(sc.Run, "end", lambda run: run.bench.process and not run.bench.process.ended
                                       and run.bench.quit_keep_sessions()), \
                     mock.patch.object(sc, "Run", FakeRun), mock.patch.object(sc.time, "sleep"), \
                     contextlib.redirect_stdout(output):
-                code = sc.main(["--app", app, "--out", out, "--persist-seconds", "0", *extra], bench_app=FakeApp)
+                code = sc.main(["--app", app, "--out", out, "--persist-seconds", "0", *extra], bench_app=make)
             rows = [json.loads(line) for line in Path(out, "state-corruption.jsonl").read_text().splitlines()] \
                 if Path(out, "state-corruption.jsonl").exists() else []
             summary = json.loads(Path(out, "state-corruption-run.json").read_text())
             tag_dir = os.path.join(support, "tags", TAG)
-            restored = sorted(os.listdir(tag_dir)) if os.path.isdir(tag_dir) else None
-            acpmux_prev = os.path.exists(os.path.join(home, ".acpmux", "builds", BUNDLE + ".bench-prev", "old.json"))
-            return code, rows, summary, restored, acpmux_prev, output.getvalue()
+            return SimpleNamespace(
+                code=code, rows=rows, summary=summary, output=output.getvalue(),
+                restored=sorted(os.listdir(tag_dir)) if os.path.isdir(tag_dir) else None,
+                acpmux_prev=os.path.exists(acpmux + ".bench-prev/old.json"),
+                acpmux_kept=os.path.exists(os.path.join(acpmux, "old.json")),
+                bundle_prev=os.path.isdir(bundle_dir + ".bench-prev"),
+                journal_restored=sc.journal_counts(os.path.join(bundle_dir, "errors")))
 
     def test_one_row_per_file_and_mutation(self):
-        code, rows, summary, restored, acpmux_prev, output = self.run_lane()
+        run = self.run_lane()
+        rows, output = run.rows, run.output
         files = sorted({r["file"] for r in rows})
-        self.assertEqual(files, ["scratch/settings/cmux-next.json", "tag-state/stubborn.json",
-                                 "tag-state/tui/registry.json"], output)
+        self.assertEqual(files, ["app-support/errors/segment-000001.ndjson", "scratch/settings/cmux-next.json",
+                                 "tag-state/launches.json", "tag-state/prefs.json", "tag-state/resetter.json",
+                                 "tag-state/stubborn.json", "tag-state/tui/registry.json"], output)
         self.assertEqual(len(rows), len(files) * len(sc.MUTATIONS))
         self.assertEqual(len({(r["file"], r["mutation"]) for r in rows}), len(rows))
-        self.assertEqual(summary["control"]["volatile"], [], "run.json is removed at quit, so the baseline has none")
-        self.assertTrue(acpmux_prev)
+        control = run.summary["control"]
+        self.assertEqual(control["volatile"], [], "run.json is removed at quit, so the baseline has none")
+        self.assertEqual(control["rewritten"], ["app-support/errors/segment-000001.ndjson", "tag-state/launches.json"])
+        self.assertTrue(run.acpmux_prev)
+        self.assertTrue(run.bundle_prev, "the bundle's own folder is moved aside at the baseline")
+        self.assertTrue(run.summary["error_journal"]["inside_roots"])
         by = {(r["file"], r["mutation"]): r for r in rows}
         registry = by[("tag-state/tui/registry.json", "zero-fill")]
         self.assertEqual(registry["result"], "pass", registry["problems"])
         self.assertEqual(registry["set_aside"], ["registry.json.corrupt"])
         self.assertTrue(registry["set_aside_matches"])
+        self.assertEqual(registry["faults"], 1)
         self.assertFalse(registry["workspace_expected"], "the registry holds the marker workspace")
         settings = by[("scratch/settings/cmux-next.json", "truncate")]
         self.assertEqual(settings["result"], "pass", settings["problems"])
         self.assertTrue(settings["workspace_kept"])
+        launches = by[("tag-state/launches.json", "zero-length")]
+        self.assertEqual(launches["result"], "pass", launches["problems"])
         stubborn = by[("tag-state/stubborn.json", "zero-length")]
         self.assertEqual(stubborn["result"], "fail")
         self.assertIn("the damaged file was not set aside as *.corrupt", stubborn["problems"])
-        self.assertIn("no fault was counted", stubborn["problems"])
-        self.assertEqual(code, 1)
-        self.assertEqual(restored, ["stubborn.json", "tui"], "the baseline is back at the end")
+        self.assertIn("no fault was counted", stubborn["problems"],
+                      "the unrelated warning that says `corrupt` is not this file's fault")
+        resetter = by[("tag-state/resetter.json", "zero-fill")]
+        self.assertEqual(resetter["other_changed"], ["tag-state/prefs.json"])
+        self.assertEqual(resetter["result"], "fail")
+        self.assertTrue(any(p.startswith("other state rewritten") for p in resetter["problems"]))
+        for row in rows:
+            if row["file"] not in ("tag-state/resetter.json",):
+                self.assertEqual(row["other_changed"], [], row["file"])
+        self.assertEqual(run.code, 1)
+        self.assertEqual(run.restored, ["launches.json", "prefs.json", "resetter.json", "stubborn.json", "tui"],
+                         "the baseline is back at the end")
+        self.assertNotIn("aside-registry.json", run.journal_restored, "the bundle's folder is the baseline's again")
 
     def test_only_and_mutations_narrow_the_rows(self):
-        code, rows, *_ = self.run_lane("--only", "tag-state/tui/*", "--mutations", "zero-fill,zero-length")
-        self.assertEqual([(r["file"], r["mutation"], r["result"]) for r in rows],
+        run = self.run_lane("--only", "tag-state/tui/*", "--mutations", "zero-fill,zero-length")
+        self.assertEqual([(r["file"], r["mutation"], r["result"]) for r in run.rows],
                          [("tag-state/tui/registry.json", "zero-fill", "pass"),
-                          ("tag-state/tui/registry.json", "zero-length", "pass")])
-        self.assertEqual(code, 0)
+                          ("tag-state/tui/registry.json", "zero-length", "pass")], run.output)
+        self.assertEqual(run.code, 0)
 
     def test_list_damages_nothing(self):
-        code, rows, summary, _, _, output = self.run_lane("--list")
-        self.assertEqual((code, rows), (0, []))
-        self.assertIn("tag-state/tui/registry.json json", output)
-        self.assertNotIn("control", summary)
+        run = self.run_lane("--list")
+        self.assertEqual((run.code, run.rows), (0, []))
+        self.assertIn("tag-state/tui/registry.json json", run.output)
+        self.assertNotIn("control", run.summary)
 
     def test_a_socket_of_another_build_is_refused(self):
         with mock.patch.object(FakeApp, "launch", lambda app, timeout=0: setattr(app, "socket", "/tmp/cmux.sock") or
                                setattr(app, "process", FakeProcess()) or app):
-            code, rows, summary, *_ , output = self.run_lane()
-        self.assertEqual((code, rows), (2, []))
-        self.assertIn("is not the tagged socket", output)
+            run = self.run_lane()
+        self.assertEqual((run.code, run.rows), (2, []))
+        self.assertIn("is not the tagged socket", run.output)
+
+    def test_a_running_tag_is_refused_before_any_root_moves(self):
+        run = self.run_lane(lingering=True)
+        self.assertEqual((run.code, run.rows), (2, []))
+        self.assertIn("processes of the tag still run", run.output)
+        self.assertTrue(run.acpmux_kept)
+        self.assertFalse(run.acpmux_prev, "nothing is moved aside while a process of the tag runs")
+        self.assertFalse(run.bundle_prev)
 
 
 class Registry(unittest.TestCase):
