@@ -108,7 +108,7 @@ enum WorkspaceVerbHandlers {
                               newTabPage: Bool, firstChat: AgentPaneSeed? = nil,
                               then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil) throws {
         let windows = context.services.windows
-        let window = anchor.flatMap { windows.registry.value.owner(of: $0.id) } ?? context.activeWindow?.state.id
+        let window = anchor.flatMap { windows.registry.value.owner(of: $0.id) } ?? windows.activeWindowID
         let target = windows.targetWindow(preferring: window)
         var spawn = WorkspaceSpawn(cwd: cwd)
         spawn.slot = slot
