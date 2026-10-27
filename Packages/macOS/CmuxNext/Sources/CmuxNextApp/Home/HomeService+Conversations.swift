@@ -145,7 +145,7 @@ extension HomeService {
                            chief: { [weak self] in
             guard let self, let chief = TopHomePageView.chief(self) else { return nil }
             return ConversationID(chief)
-        })
+        }, chiefNames: { [weak self] in self?.chiefNames ?? [:] })
     }
 
     /// The Home sidebar's data source (the vendored MessagesLab sidebar reads it):
@@ -196,14 +196,57 @@ extension HomeService {
         }
     }
 
-    /// Each cloud Chief's own name by its main conversation (`chief.list`, kept current by a rename),
-    /// for the list's tiles; a Chief with no name set is left out and reads "Chief".
-    var chiefNames: [ConversationID: String] {
-        Dictionary(directory.chiefs.compactMap { chief in
-            chief.mainConversation.flatMap { conversation in
-                chief.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : (ConversationID(conversation), chief.name)
-            }
-        }, uniquingKeysWith: { first, _ in first })
+    /// Each Chief's one name by its conversation (issue 26393): its record's (a cloud Chief's
+    /// `chief.list` entry, a Chief of this Mac its registry name from `home-inbox`), or a rename
+    /// being saved. The list's tiles, the chat header, the settings card, the tab strip and banners
+    /// all read it; a Chief with no record keeps its conversation's title.
+    var chiefNameBook: HomeChiefNames {
+        var records = HomeChiefNames.localRecords(homeInbox.rows)
+        for chief in directory.chiefs {
+            guard let conversation = chief.mainConversation else { continue }
+            records[ConversationID(conversation)] = chief.name
+        }
+        var names = chiefRenames
+        names.records = HomeChiefNames(records: records).records
+        return names
+    }
+
+    /// Each named Chief's name by its conversation, for the list's tiles (``chiefNameBook``).
+    var chiefNames: [ConversationID: String] { chiefNameBook.all }
+
+    /// The name `conversation`'s Chief shows everywhere; nil when it is no Chief's with a name.
+    func chiefName(of conversation: ConversationID) -> String? { chiefNameBook.name(of: conversation) }
+
+    /// Renames the Chief of `conversation`, from its header card or anywhere else: the new name shows
+    /// on every surface at once and stays while it is saved, then the record's name decides; a
+    /// refused save shows the record's name again. A cloud Chief renames its account record (UserDO
+    /// renames its conversation after); a Chief of this Mac its registry record, whose owner
+    /// retitles the Chief's own conversation. Nil when saved, else why not.
+    func renameChief(conversation: String, to name: String) async -> HomeChiefRenameFailure? {
+        let id = ConversationID(conversation)
+        var book = chiefNameBook
+        book.rename(id, to: name)
+        chiefRenames = book
+        let failure = isCloudConversation(id) ? await directory.renameChief(conversation: conversation, to: name)
+            : await renameLocalChief(id, to: name)
+        if failure != nil { chiefRenames.rollBack(id, name: name) }
+        return failure
+    }
+
+    /// `chief.profile.update {display_name}` for the Chief of `conversation` on this Mac's Chief owner.
+    private func renameLocalChief(_ conversation: ConversationID, to name: String) async -> HomeChiefRenameFailure? {
+        guard let connection else { return .noConnection }
+        let participants = homeStore.summary(conversation)?.participants ?? []
+        let owned = homeInbox.rows?.first { $0.id == conversation.rawValue }?.chief
+        guard let chief = owned ?? Self.soleChief(of: participants) else { return .notFound }
+        let rename = HomeLocalChiefRename(chief: chief, name: name)
+        do {
+            _ = try await ResourceRelayClient(connection: connection).send(
+                operation: rename.operation, params: rename.params, idempotencyKey: rename.idempotencyKey())
+            return nil
+        } catch {
+            return HomeLocalChiefRename.failure(error)
+        }
     }
 
     /// Each listed Chief's avatar as its Home row, header and bubbles draw it: its own picture or
