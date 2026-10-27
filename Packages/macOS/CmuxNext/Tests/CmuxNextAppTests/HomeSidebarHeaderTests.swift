@@ -114,7 +114,10 @@ struct HomeSidebarHeaderTests {
             #expect(tint != before.tint, "\(name) kept its dark tint")
             #expect(tint == button.performWithTheme { Palette.textSecondary })
             #expect(button.contentTintColor == tint)
-            #expect(button.glyphSize == 14)
         }
+        // The glyph keeps its size across the switch: 14 pt in the 28 pt Unread toggle. The list's compose button is
+        // hidden and zero-sized since 1cc2f1b57d133 (compose is the chat's at every width), so its glyph is the 10 pt floor.
+        #expect(home.unreadToggle.frame.height == HomeSidebarHeaderLayout.side && home.unreadToggle.glyphSize == 14)
+        #expect(home.compose.frame.size == .zero && home.compose.glyphSize == 10)
     }
 }
