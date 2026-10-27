@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 
 /// Tells the person when cmux-next.json holds a value this build refuses
@@ -16,6 +17,10 @@ import Foundation
 /// `SettingsController.start(announcingDiagnostics:)` and the window side
 /// (`SettingsDiagnosticPresenting`); Debug Settings
 /// `settings.diagnosticToast` keeps it up until closed or turns it off.
+///
+/// It follows the loads through a `visible` ``ServiceObservation`` (it also remembers what it
+/// announced, so it runs whether or not a window shows) and a window taking the keys through the
+/// presenter (the app's one ``AppEvents`` observer per notice).
 @MainActor
 final class SettingsDiagnosticToasts {
     static let toastID = "settings-diagnostics"
@@ -23,6 +28,9 @@ final class SettingsDiagnosticToasts {
     static let rememberedKey = "settings.diagnosticNotices.announced"
     /// The longest value the toast quotes; Settings and the file hold the rest.
     static let valueLimit = 80
+
+    /// One load's refusals, the user's file and the managed keys.
+    private typealias Loaded = (diagnostics: [SettingsDiagnostic], file: JSONValue, managed: Set<String>)
 
     private let registry: ActionRegistry
     private let presenter: any SettingsDiagnosticPresenting
@@ -34,6 +42,7 @@ final class SettingsDiagnosticToasts {
     private var pending: [SettingsDiagnosticNotices.Notice] = []
     /// Closes the toast on screen.
     private var dismissShown: (@MainActor () -> Void)?
+    private var loads: ServiceObservation<Loaded?>?
 
     init(registry: ActionRegistry, presenter: any SettingsDiagnosticPresenting,
          availability: @escaping @MainActor () -> SettingsAvailability) {
@@ -43,15 +52,15 @@ final class SettingsDiagnosticToasts {
         notices = SettingsDiagnosticNotices(remembered: Set(UserDefaults.standard.stringArray(forKey: Self.rememberedKey) ?? []))
     }
 
-    /// Follows `settings`' loads; the controller holds this object for the app's life.
+    /// Follows `settings`' loads, from its first one (call it after that load); the controller holds this
+    /// object for the app's life.
     func follow(_ settings: SettingsController) {
-        Task { [weak self] in // task-owner: lives with the settings controller
-            await settings.waitForLoad(atLeast: 1)
-            for await (diagnostics, file, managed) in ObservationStream({
-                (settings.diagnostics, settings.fileRoot, Set(settings.managedKeys.keys).union(settings.managedPolicy.keys))
-            }) {
-                self?.load(diagnostics, file: file, managed: managed)
-            }
+        loads = ServiceObservation(.visible, owner: "SettingsDiagnosticToasts.load", on: settings.mainWork) { [weak settings] () -> Loaded? in
+            guard let settings else { return nil }
+            return (settings.diagnostics, settings.fileRoot, Set(settings.managedKeys.keys).union(settings.managedPolicy.keys))
+        } apply: { [weak self] loaded in
+            guard let loaded else { return }
+            self?.load(loaded.diagnostics, file: loaded.file, managed: loaded.managed)
         }
         // Retries a refusal that found no window.
         presenter.followKeyWindows { [weak self] in self?.showPending() }

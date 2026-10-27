@@ -84,12 +84,27 @@ struct OpenWithCacheTests {
         let system = OpenWithWorkspace(apps: [Self.textEdit, Self.xcode], defaultApp: Self.textEdit)
         let apps = Self.apps(system)
         _ = await apps.openWithList(forFileNamed: "notes.txt", isDirectory: false)
-        let menu = FileActionsMenu(apps: apps, actions: .init(openInCmux: { _ in }, revealInFiles: { _ in }))
+        let menu = FileActionsMenu(apps: apps, mainWork: MainWorkScheduler(budget: MainFrameBudget()), actions: .init(openInCmux: { _ in }, revealInFiles: { _ in }))
         let row = menu.openWithItem(forFileNamed: "readme.txt") { nil }
         // Default, separator, Xcode, separator, Other…: no Loading row.
         #expect(row.submenu?.items.count == 5)
         #expect(row.submenu?.items.first?.isEnabled == true)
         #expect(system.mainAsks.withLock { $0 } == 0)
+    }
+
+    /// A cold Open With (no kept list) shows Loading, asks Launch Services off main, and fills the submenu
+    /// in one posted userBlocking task when it answers (p06-scheduler-337: no main-actor task waits on it).
+    @Test func theFileMenusColdOpenWithFillsWhenTheLaneAnswers() {
+        let system = OpenWithWorkspace(apps: [Self.textEdit, Self.xcode], defaultApp: Self.textEdit)
+        let apps = Self.apps(system)
+        let menu = FileActionsMenu(apps: apps, mainWork: MainWorkScheduler(budget: MainFrameBudget()),
+                                   actions: .init(openInCmux: { _ in }, revealInFiles: { _ in }))
+        let row = menu.openWithItem(forFileNamed: "notes.txt") { nil }
+        #expect(row.submenu?.items.count == 1, "a cold submenu shows only its Loading row")
+        Self.spin { row.submenu?.items.count == 5 }
+        // Default, separator, Xcode, separator, Other….
+        #expect(row.submenu?.items.count == 5)
+        #expect(system.mainAsks.withLock { $0 } == 0, "Launch Services was asked on the main thread")
     }
 
     @Test func theRowsOnScreenWarmOneListPerType() {
