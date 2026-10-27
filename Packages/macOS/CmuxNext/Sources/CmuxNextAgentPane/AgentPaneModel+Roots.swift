@@ -102,10 +102,10 @@ extension AgentPaneModel {
             chosenFolder = folder
             pickedFolder = nil
             _ = beginPick()
-            let picked = await Task.detached(priority: .userInitiated) {
-                AcpmuxPathPolicy.canonical(folder)
+            let homeFolder = transport.homeFolder
+            let (picked, home) = await Task.detached(priority: .userInitiated) {
+                (AcpmuxPathPolicy.canonical(folder), homeFolder.flatMap(AcpmuxPathPolicy.canonical))
             }.value
-            let home = transport.homeFolder.flatMap(AcpmuxPathPolicy.canonical)
             if let picked, !AgentHome.isHomeOrAbove(picked, home: home) {
                 await transport.grantPicked(picked)
             }

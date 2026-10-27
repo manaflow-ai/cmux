@@ -216,6 +216,8 @@ import CmuxNextCompat
         socketPath = connection.socketPath
         remoteApprovals = connection.remote?.approvals
         remoteWire = connection.remote != nil
+        if !remoteWire, let daemon = connection.socketPath { await restorePendingTrust(daemon: daemon, connection: id) }
+        guard id == current else { throw .staleConnection }
         let wire = connection.remote?.makeWire()
         if let wire {
             remoteImageLoader = { path in try await wire.loadRemoteImage(path) }

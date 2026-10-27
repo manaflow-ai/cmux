@@ -145,17 +145,17 @@ struct AgentPaneSendPickedFolderPromptTests {
         try await startAfterDeferredTrust(pane)
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func journalReplayWaitsForDeferredTrustAcknowledgement(refuseFirst: Bool) async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [0, 1, 2])
+    func journalReplayWaitsForDeferredTrustAcknowledgement(recovery: Int) async throws {
         let pane = try await pane(connected: false)
         defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
-        let transport = pane.model.transport
+        var transport = pane.model.transport
         let daemon = pane.base.appendingPathComponent("acpmux.sock").path
-        let journal = AgentPanePromptJournal(url: pane.base.appendingPathComponent("prompts.json"))
+        var journal = AgentPanePromptJournal(url: pane.base.appendingPathComponent("prompts.json"))
         let entry = AgentPanePromptJournal.Entry(daemon: daemon, sessionId: "s-new", promptId: "replay-1",
             params: #"{"sessionId":"s-new","prompt":[{"type":"text","text":"Continue"}],"_meta":{"acpmux":{"promptId":"replay-1"}}}"#, at: Date())
         let owner = UUID()
-        let recorded = await Task.detached { journal.record(entry, owner: owner) }.value
+        let recorded = await Task.detached { [journal] in journal.record(entry, owner: owner) }.value
         #expect(recorded)
         journal.connectionEnded(owner: owner, byDaemon: false)
         transport.promptJournal = journal
@@ -169,7 +169,10 @@ struct AgentPaneSendPickedFolderPromptTests {
         #expect(await pane.server.wait { $0.last?.frames.contains { $0.contains("acp.trust.set") } == true })
         #expect(pane.server.peers.last?.frames.contains { $0.contains("session/prompt") } == false)
         #expect(journal.entries().count == 1)
-        if refuseFirst {
+        let journalURL = journal.url
+        let savedTrust = await Task.detached { AgentPanePromptJournal(url: journalURL).pendingTrustFolders(daemon: daemon) }.value
+        #expect(savedTrust == [pane.folder], "the trust barrier must reach disk before the first trust send")
+        if recovery > 0 {
             let socket = try #require(transport.socket)
             let trust = try #require(pane.server.peers.last?.frames.first { $0.contains("acp.trust.set") })
             let object = try #require(try JSONSerialization.jsonObject(with: Data(trust.utf8)) as? [String: Any])
@@ -180,6 +183,15 @@ struct AgentPaneSendPickedFolderPromptTests {
             #expect(pane.server.peers.last?.frames.contains { $0.contains("session/prompt") } == false)
             pane.server.releaseHeld()
             pane.server.hold("acp.trust.set")
+            if recovery == 2 {
+                // A full app restart: neither transport nor journal memory survives.
+                await journal.settle()
+                journal = AgentPanePromptJournal(url: pane.base.appendingPathComponent("prompts.json"))
+                transport = AgentPaneTransport()
+                transport.promptJournal = journal
+                transport.webModes = { _, _, _ in nil }
+                transport.deliver = { event, done in pane.inbox.deliver(event.frames); done() }
+            }
             id = try await transport.open(connection)
             #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
             #expect(await pane.server.wait { $0.last?.frames.contains { $0.contains("acp.trust.set") } == true })
@@ -189,6 +201,44 @@ struct AgentPaneSendPickedFolderPromptTests {
         pane.server.releaseHeld()
         #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":1,"method":"_acpmux/status","params":{}}"#]) == nil)
         #expect(await pane.server.wait { $0.last?.frames.contains { $0.contains("session/prompt") && $0.contains("replay-1") } == true })
+        let remainingTrust = await Task.detached { AgentPanePromptJournal(url: journalURL).pendingTrustFolders(daemon: daemon) }.value
+        #expect(remainingTrust.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aFailedTrustJournalWriteDoesNotReleaseTheSendQueue() async throws {
+        let pane = try await pane(connected: false)
+        defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
+        let blocker = pane.base.appendingPathComponent("not-a-directory")
+        try Data("file".utf8).write(to: blocker)
+        let transport = pane.model.transport
+        transport.promptJournal = AgentPanePromptJournal(url: blocker.appendingPathComponent("prompts.json"))
+        transport.webModes = { _, _, _ in nil }
+        #expect(await transport.pick(pane.folder) == pane.folder)
+        let id = try await transport.open(AcpmuxConnection(url: pane.server.url, dashboardToken: "t", localAppToken: nil,
+            socketPath: pane.base.appendingPathComponent("acpmux.sock").path))
+        defer { transport.close(connection: id) }
+        let socket = try #require(transport.socket)
+        #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
+        #expect(await pane.server.wait { _ in socket.isClosed })
+        #expect(pane.server.peers.last?.frames.contains { $0.contains("acp.trust.set") || $0.contains("session/prompt") } == false)
+    }
+
+    @Test func persistedTrustKeepsDaemonBoundariesAndReadsTheOldJournal() async throws {
+        let pane = try await pane(connected: false)
+        defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
+        let url = pane.base.appendingPathComponent("legacy.json"), folder = pane.folder
+        let result = try await Task.detached {
+            try Data(#"{"version":1,"entries":[]}"#.utf8).write(to: url)
+            let journal = AgentPanePromptJournal(url: url)
+            let first = journal.recordPendingTrust(daemon: "one", folder: folder)
+            let second = journal.recordPendingTrust(daemon: "two", folder: folder)
+            journal.clearPendingTrust(daemon: "one", folder: folder)
+            let restored = AgentPanePromptJournal(url: url)
+            return (first && second, restored.pendingTrustFolders(daemon: "one"), restored.pendingTrustFolders(daemon: "two"))
+        }.value
+        #expect(result.0)
+        #expect(result.1.isEmpty)
+        #expect(result.2 == [folder])
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
@@ -233,6 +283,19 @@ struct AgentPaneSendPickedFolderPromptTests {
         #expect(await pane.server.wait { $0.first?.frames.contains { $0.contains("acp.trust.set") && $0.contains(pane.folder) } == true })
         #expect(await start(pane, id: 1) == nil)
         #expect(await prompt(pane, id: 2) == nil)
+    }
+
+    @Test func theNativeChooserCanonicalizesHomeBeforeGrantingTrust() async throws {
+        let pane = try await pane()
+        defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
+        let alias = pane.base.appendingPathComponent("home-link").path
+        try FileManager.default.createSymbolicLink(atPath: alias, withDestinationPath: pane.folder)
+        pane.model.transport.homeFolder = pane.folder
+        pane.model.onChooseFolder = { .chosen(alias) }
+        pane.model.transport.gestures.record(click: true)
+        _ = await pane.model.respond(to: .chooseFolder)
+        #expect(pane.model.transport.addedRoots.isEmpty)
+        #expect(pane.server.peers.first?.frames.contains { $0.contains("acp.trust.set") } != true)
     }
 
     @Test func pickingAnExistingRootCarriesTheSendGesture() async throws {
