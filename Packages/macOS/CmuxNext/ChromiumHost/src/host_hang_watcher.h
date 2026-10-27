@@ -39,10 +39,11 @@
 // of each ordered input frame the dispatch gave Chromium (IsOrderedInput: a
 // kPing's or kStats' `seq` is its request id, never acked), and the turn's end
 // sends the newest one as one kOpInputDispatched, so a turn that dispatched a
-// batch acks it once. cmux's
-// ChromiumHostHangMonitor arms one deadline only while a seq is not acked and
-// shows "Chromium is busy" when none came for 2 s (InputAcks below is its
-// count, kept by the remote shim).
+// batch acks it once. Input on the control channel (wheels, locked mouse
+// moves and widget input until the ring carries them) is acked per op by the
+// kOpAck its dispatch already sends. cmux's ChromiumHostHangMonitor arms one
+// deadline only while input is not acked and shows "Chromium is busy" when
+// none came for 2 s (InputAcks below is its count, kept by the remote shim).
 //
 // Wire (host -> cmux; remote_shim.mm takes both, the HELLO lists
 // kHangWatchHelloName when the host sends them):
@@ -375,51 +376,80 @@ class Watch {
 };
 
 // cmux's view of the host's input acks: the remote shim (main thread) counts
-// the seqs it gives the input ring's writer against the host's
-// kOpInputDispatched, and says when input starts waiting, when the host
-// dispatched some of it with more still waiting, and when none waits.
-// RenderWidgetHostImpl keeps the same count (in_flight_event_count_,
-// content/browser/renderer_host/render_widget_host_impl.cc), with the
-// renderer's ack where this has the host's dispatch.
+// the input it sends against the host's acks, and says when input starts
+// waiting, when the host dispatched some of it with more still waiting, and
+// when none waits. RenderWidgetHostImpl keeps the same count
+// (in_flight_event_count_, content/browser/renderer_host/
+// render_widget_host_impl.cc), with the renderer's ack where this has the
+// host's dispatch. Two streams carry input to the host, each with its own ack:
+//   ring     the input seqs cmux_remote_shim_order_input gives the input
+//            ring's writer, acked by kOpInputDispatched (the newest seq a
+//            UI turn dispatched)
+//   control  the tokens of input ops on the control channel (PostInput's
+//            wheels, locked mouse moves and widget input, the scripted
+//            click), acked by the host's kOpAck of each once it ran
+//            (HostContext::Ack after DispatchOp). The host applies the
+//            channel in order, so its ack or answer of any token posted at or
+//            after a waiting input op says that op ran.
+// Seqs and tokens both count up and skip 0 (NextSeq, NextToken).
 class InputAcks {
  public:
   enum class Change {
     kNone,
-    kOutstanding,  // the first seq that waits for the host
-    kProgress,     // the host dispatched input; later seqs still wait
-    kSettled,      // every seq written was dispatched (or went with the host)
+    kOutstanding,  // the first input that waits for the host
+    kProgress,     // the host dispatched input; later input still waits
+    kSettled,      // all input sent was dispatched (or went with the host)
   };
 
-  Change Written(uint32_t seq) {
-    if (seq == 0) return Change::kNone;
-    newest_written_ = seq;
-    if (waiting_) return Change::kNone;
-    waiting_ = true;
-    return Change::kOutstanding;
-  }
-
-  Change Dispatched(uint32_t seq) {
-    if (!waiting_ || seq == 0) return Change::kNone;
-    if (SeqAtOrBefore(newest_written_, seq)) {
-      waiting_ = false;
-      return Change::kSettled;
-    }
-    return Change::kProgress;
-  }
+  // Ring input of seq `seq` was written.
+  Change Written(uint32_t seq) { return Wrote(&ring_, seq); }
+  // The host dispatched ring input up to `seq` (kOpInputDispatched).
+  Change Dispatched(uint32_t seq) { return Acked(&ring_, seq); }
+  // Control-channel input went out in the op of token `token`.
+  Change ControlWritten(uint32_t token) { return Wrote(&control_, token); }
+  // The host acked or answered the op of token `token`: the input ops posted
+  // at or before it ran.
+  Change ControlAcked(uint32_t token) { return Acked(&control_, token); }
 
   // The host ended or detached: nothing it took waits any longer.
   Change Reset() {
-    newest_written_ = 0;
-    if (!waiting_) return Change::kNone;
-    waiting_ = false;
-    return Change::kSettled;
+    const bool was = waiting();
+    ring_ = Stream();
+    control_ = Stream();
+    return was ? Change::kSettled : Change::kNone;
   }
 
-  bool waiting() const { return waiting_; }
+  bool waiting() const { return ring_.waiting || control_.waiting; }
 
  private:
-  uint32_t newest_written_ = 0;
-  bool waiting_ = false;
+  struct Stream {
+    uint32_t oldest = 0;  // the oldest seq or token that may still wait
+    uint32_t newest = 0;  // the newest one sent
+    bool waiting = false;
+  };
+
+  Change Wrote(Stream* stream, uint32_t id) {
+    if (id == 0) return Change::kNone;
+    const bool was = waiting();
+    if (!stream->waiting) stream->oldest = id;
+    stream->newest = id;
+    stream->waiting = true;
+    return was ? Change::kNone : Change::kOutstanding;
+  }
+
+  // An ack before the oldest waiting id names input dispatched already.
+  Change Acked(Stream* stream, uint32_t id) {
+    if (!stream->waiting || id == 0 || !SeqAtOrBefore(stream->oldest, id)) return Change::kNone;
+    if (SeqAtOrBefore(stream->newest, id)) {
+      stream->waiting = false;
+    } else {
+      stream->oldest = NextSeq(id);
+    }
+    return waiting() ? Change::kProgress : Change::kSettled;
+  }
+
+  Stream ring_;
+  Stream control_;
 };
 
 // The host's watch on its main run loop (host_hang_watcher.mm, Apple only):

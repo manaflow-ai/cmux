@@ -116,11 +116,14 @@ typedef enum {
                                            // kOpHostHang flags (1 still running, 2 dumped, 4 the
                                            // turn's end of a hang the still-running report sent)
 } cmux_remote_host_watch_event;
-// Main thread, in the order the host's frames came, and from inside cmux_remote_shim_order_input
-// (OUTSTANDING) and cmux_remote_shim_detach (SETTLED). `a` and `b` are 0 but for a hang.
+// Main thread, in the order the host's frames came, and from inside the input posts
+// (cmux_remote_shim_order_input, and on the control channel cmux_shim_browser_send_wheel,
+// cmux_shim_browser_send_locked_mouse_move, cmux_shim_widget_send_input, cmux_shim_tab_send_click:
+// OUTSTANDING) and cmux_remote_shim_detach (SETTLED). `a` and `b` are 0 but for a hang.
 typedef void (*cmux_remote_host_watch_fn)(void* ctx, int32_t event, int64_t a, int64_t b);
 // Main thread. The host watch's changes go to `watch(ctx, ...)` from now on; NULL drops them. Input
-// is counted only on a host whose HELLO listed kHangWatchHelloName (it acks dispatched input).
+// is counted only on a host whose HELLO listed kHangWatchHelloName: ring input against its
+// kOpInputDispatched, control-channel input (sent with a token) against its kOpAck of the op.
 CMUX_REMOTE_EXPORT void cmux_remote_shim_set_host_watch(void* ctx, cmux_remote_host_watch_fn watch);
 // Main thread. Takes `port`, a send right to the attached host's resize fence inbox (the
 // bootstrap name cmux passed as --resize-fence, looked up off the main thread after the HELLO;

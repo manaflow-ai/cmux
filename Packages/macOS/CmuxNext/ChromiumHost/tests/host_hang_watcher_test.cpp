@@ -340,6 +340,22 @@ void TestInputAcks() {
   Check(acks.Written(3) == Change::kOutstanding && acks.Reset() == Change::kSettled && !acks.waiting(),
         "a host that ends settles what waited");
   Check(acks.Reset() == Change::kNone, "a second reset changes nothing");
+
+  // Control-channel input: tokens acked by the host's kOpAck; an ack of any token at or after a
+  // waiting one says it ran, an ack before the oldest waiting one says nothing.
+  Check(acks.ControlWritten(10) == Change::kOutstanding, "a control input op waits");
+  Check(acks.ControlAcked(9) == Change::kNone, "an op posted before it ran: no news of the input");
+  Check(acks.ControlWritten(12) == Change::kNone, "a second joins the wait");
+  Check(acks.ControlAcked(11) == Change::kProgress, "an op between them ran: the first did");
+  Check(acks.ControlAcked(11) == Change::kNone, "a repeated ack changes nothing");
+  Check(acks.ControlAcked(13) == Change::kSettled && !acks.waiting(), "an op after the newest ran: all did");
+  // Both streams wait together.
+  Check(acks.Written(5) == Change::kOutstanding, "ring input waits");
+  Check(acks.ControlWritten(20) == Change::kNone, "control input joins the wait");
+  Check(acks.Dispatched(5) == Change::kProgress && acks.waiting(), "the ring is done, the control op waits");
+  Check(acks.ControlAcked(20) == Change::kSettled && !acks.waiting(), "both done");
+  Check(acks.ControlWritten(21) == Change::kOutstanding && acks.Reset() == Change::kSettled && !acks.waiting(),
+        "a host that ends settles control input too");
 }
 
 }  // namespace

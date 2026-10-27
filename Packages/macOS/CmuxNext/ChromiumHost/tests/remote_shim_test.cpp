@@ -591,11 +591,80 @@ void TestHostWatch() {
   CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_SETTLED, 0, 0}}));
   watch_events.clear();
 
-  // A host that does not ack its dispatch: nothing is counted (no busy banner for it).
+  // Control-channel input (the wheel, until the ring carries it): each goes with a token, and the
+  // host's kOpAck of it, sent once the op ran, is its ack. A wheel waits from its post on.
+  Host wheels;
+  CHECK(AttachNew(&wheels) == 1);
+  SayHello(&wheels, {hang::kHangWatchHelloName});
+  Drain(&wheels);
+  watch_events.clear();
+  CHECK(cmux_shim_browser_send_wheel(7, 10, 20, 0, -3, 1, 0, 0, 0) == 1);
+  CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_OUTSTANDING, 0, 0}}));
+  CHECK(cmux_shim_browser_send_wheel(7, 10, 20, 0, -3, 1, 0, 0, 0) == 1);
+  CHECK(watch_events.size() == 1);  // the second joins the wait
+  watch_events.clear();
+  std::vector<uint32_t> wheel_tokens;
+  for (const Message& message : wheels.Read(2)) {
+    CHECK(message.op == cmux_remote::kOpBrowserSendWheel && message.token != 0);
+    wheel_tokens.push_back(message.token);
+  }
+  CHECK(wheel_tokens.size() == 2 && wheel_tokens[0] != wheel_tokens[1]);
+  auto host_ack = [](uint32_t token) {
+    Message ack;
+    ack.op = cmux_remote::kOpAck;
+    ack.reply = true;
+    ack.token = token;
+    return ack;
+  };
+  if (wheel_tokens.size() == 2) {
+    wheels.Send(host_ack(wheel_tokens[0]));
+    CHECK(PumpUntil([] { return !watch_events.empty(); }));
+    CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_PROGRESS, 0, 0}}));
+    watch_events.clear();
+    wheels.Send(host_ack(wheel_tokens[1]));
+    CHECK(PumpUntil([] { return !watch_events.empty(); }));
+    CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_SETTLED, 0, 0}}));
+    watch_events.clear();
+  }
+  // Ring and control input wait together: the ring's dispatch alone is progress, the wheel's ack
+  // settles both.
+  const uint32_t ring = cmux_remote_shim_order_input(&ctl);
+  CHECK(cmux_shim_browser_send_locked_mouse_move(7, 1, 1, 0) == 1);
+  CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_OUTSTANDING, 0, 0}}));
+  watch_events.clear();
+  const std::vector<Message> moved = wheels.Read(1);
+  CHECK(moved.size() == 1 && moved[0].op == cmux_remote::kOpBrowserSendLockedMouseMove && moved[0].token != 0);
+  wheels.Send(hang::DispatchedMessage(ring));
+  CHECK(PumpUntil([] { return !watch_events.empty(); }));
+  CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_PROGRESS, 0, 0}}));
+  watch_events.clear();
+  if (moved.size() == 1) wheels.Send(host_ack(moved[0].token));
+  CHECK(PumpUntil([] { return !watch_events.empty(); }));
+  CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_SETTLED, 0, 0}}));
+  watch_events.clear();
+  // A wheel the host never acks (it stopped) waits until the host goes.
+  CHECK(cmux_shim_browser_send_wheel(7, 10, 20, 0, -3, 1, 0, 0, 0) == 1);
+  CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_OUTSTANDING, 0, 0}}));
+  watch_events.clear();
+  PumpUntil([] { return false; }, std::chrono::milliseconds(50));
+  CHECK(watch_events.empty());
+  cmux_remote_shim_detach();
+  ::close(wheels.fd);
+  CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_SETTLED, 0, 0}}));
+  watch_events.clear();
+
+  // A host that does not ack its dispatch: nothing is counted (no busy banner for it), and its
+  // wheels carry no token.
   Host plain;
   CHECK(AttachNew(&plain) == 1);
   SayHello(&plain, {});
+  Drain(&plain);
   CHECK(cmux_remote_shim_order_input(&ctl) != 0);
+  CHECK(cmux_shim_browser_send_wheel(7, 10, 20, 0, -3, 1, 0, 0, 0) == 1);
+  {
+    const std::vector<Message> got = plain.Read(1);
+    CHECK(got.size() == 1 && got[0].op == cmux_remote::kOpBrowserSendWheel && got[0].token == 0);
+  }
   CHECK(watch_events.empty());
   cmux_remote_shim_detach();
   ::close(plain.fd);
