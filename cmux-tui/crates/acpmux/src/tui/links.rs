@@ -192,3 +192,24 @@ pub fn open(target: &str, cwd: &str) -> String {
     let _ = std::process::Command::new(opener).arg(&abs).spawn();
     format!("opened {}", abs.display())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::split_line;
+
+    #[test]
+    fn split_line_reads_path_line_and_col() {
+        assert_eq!(split_line("src/main.rs:12"), ("src/main.rs", Some(12)));
+        assert_eq!(split_line("src/main.rs:12:5"), ("src/main.rs", Some(12)));
+        assert_eq!(split_line("src/main.rs"), ("src/main.rs", None));
+        assert_eq!(split_line("https://x.dev:8080"), ("https://x.dev:8080", None));
+    }
+
+    /// A bare number in a transcript (`42`) is a token with no `:`: it is no
+    /// path and line, never a slice before the start of the text.
+    #[test]
+    fn split_line_takes_a_bare_number_as_no_line() {
+        assert_eq!(split_line("42"), ("42", None));
+        assert_eq!(split_line(":7"), ("", Some(7)));
+    }
+}
