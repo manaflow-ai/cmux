@@ -10,7 +10,8 @@ performance.
 Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents can't mess this up"):
 
 - **Gate.** `scripts/cmux-next/prepush-gate.py` "Sidebar look owner", on every push and per commit in CI: a commit
-  that changes `CmuxNextSidebar/Views/` needs a `Sidebar-Look:` trailer. `Sidebar-Look: no visual change` for
+  that changes the sidebar package's code (`CmuxNextSidebar/`, not its strings, resources or mock; widened from `Views/`
+  after a702's pinned-rows change in `Sections/` went unasked) needs a `Sidebar-Look:` trailer. `Sidebar-Look: no visual change` for
   behavior or performance work; otherwise the user's words, and the same commit must edit this note.
   `CMUX_NEXT_CHECKS_SKIP_REASON` does not skip it.
 - **Contract tests.** `SidebarLookContractTests` (text at the inset, members flush with ungrouped rows, one indent

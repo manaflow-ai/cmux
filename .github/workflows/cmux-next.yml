@@ -1946,7 +1946,8 @@ jobs:
         run: |
           # Sidebar look owner sweep (plans/cmux-next/sidebar-owner.md): every commit since the check landed,
           # not only this push's, so a commit from an old hook copy or a cancelled run is still named.
-          sidebar_from=a1af264c7a7235c5863ade4f3448e2669265d6d0
+          # From where the check widened to the whole sidebar package (Views/ only before; that range swept clean).
+          sidebar_from=342462ca6ee97db1d23f013ad0d58dc942673c82
           sweep=0
           git fetch --no-tags --quiet --deepen=2000 origin "$GITHUB_SHA" || true
           if git merge-base --is-ancestor "$sidebar_from" HEAD 2>/dev/null; then
