@@ -236,13 +236,20 @@ let daemonSwiftSettings: [SwiftSetting] = [
 ///   `presented_userdata`. CmuxNextTerminal reads, hides and purges frames through the first two
 ///   (`GhosttyFrameSource`), reads no layer contents, and takes each presented frame as its contents mark
 ///   (`ghosttySurfacePresented`, p03-rendering-081).
+/// - GHOSTTY_EXTERNAL_VSYNC: external vsync (ghostty-next cp/p03-rendering-082 7436f3b9a, not in 723c4ab93): the
+///   surface config's `bool vsync_external`, `ghostty_surface_vsync_wanted_cb vsync_wanted_cb` and
+///   `void *vsync_userdata`, and `void ghostty_surface_vsync(ghostty_surface_t)`. With a `VSyncHub` (feature
+///   `vsyncHub`) each surface makes no display link and ticks from its display's hub thread while it draws and
+///   wants frames (`TerminalVSync`, p03-rendering-083).
 let ghosttyNextKitHasGPUResident = false
 let ghosttyNextKitHasEnergySaver = false
 let ghosttyNextKitHasRendererFrames = false
+let ghosttyNextKitHasExternalVSync = false
 let ghosttyNextKitCapabilities: [SwiftSetting] =
     (ghosttyNextKitHasGPUResident ? [.define("GHOSTTY_GPU_RESIDENT")] : [])
     + (ghosttyNextKitHasEnergySaver ? [.define("GHOSTTY_ENERGY_SAVER")] : [])
     + (ghosttyNextKitHasRendererFrames ? [.define("GHOSTTY_RENDERER_FRAMES")] : [])
+    + (ghosttyNextKitHasExternalVSync ? [.define("GHOSTTY_EXTERNAL_VSYNC")] : [])
 
 /// The app's ONE Rust static library, CCmuxAppFFI (cmux-tui/crates/cmux-app-ffi):
 /// the remote desktop core C ABI (module CCmuxRdFFI), the sidebar layout

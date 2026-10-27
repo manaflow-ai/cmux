@@ -193,3 +193,15 @@ nonisolated func ghosttyCloseSurface(_ userdata: UnsafeMutableRawPointer?, _ pro
     // Never inline, even on main: closing frees the surface, which must not happen inside its own callback.
     MainRunLoopBlock.perform { bridge.requestClose() }
 }
+
+/// `ghostty_surface_vsync_wanted_cb` (ghostty-next p03-rendering-082), set in a surface's config when it runs on
+/// external vsync (``TerminalVSync/setExternal(in:)``): on the surface's renderer thread, on each edge of whether it
+/// wants ticks. `userdata` is the surface's ``TerminalVSync``, which its view releases only after
+/// ghostty_surface_free returns. It takes the pacer's lock briefly and arms its hub subscription; it never waits for
+/// main or calls into Ghostty.
+nonisolated func ghosttySurfaceVSyncWanted(_ userdata: UnsafeMutableRawPointer?, _ wanted: Bool) {
+    // SAFETY: a surface's `vsync_userdata`, its TerminalVSync (above); borrowed for this call only.
+    guard let raw = unsafe userdata else { return }
+    // SAFETY: as above.
+    unsafe Unmanaged<TerminalVSync>.fromOpaque(raw)._withUnsafeGuaranteedRef { $0.wantedChanged(wanted) }
+}

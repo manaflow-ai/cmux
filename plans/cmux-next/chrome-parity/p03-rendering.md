@@ -1389,6 +1389,16 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: fake hub: hidden 0 subscriptions, idle visible disarms after one empty tick; DC1 holds.
 - Test phase: DC1, DC6, DC7r; bench-typing.py not worse.
 - Size M. Depends: 014, 082.
+- As built (cp/p03-rendering-083): `TerminalVSync` (one per `TerminalSurfaceView`, the `vsync_userdata` of
+  082's `vsync_wanted_cb`, released with the view after `ghostty_surface_free`) holds one disarmed hub subscription
+  while the surface draws (`pause == nil`), on `appliedDisplayID` (the main display when that display has no screen),
+  and none while it is hidden, parked, suspended, occluded or out of a window. The wanted edge (renderer thread)
+  arms it, so wanted edges never reach main; each armed tick calls `ghostty_surface_vsync`, and the first tick after
+  wanted false returns `.done`. `close()` runs before the free, and a tick holds the pacer's `Mutex` across
+  `ghostty_surface_vsync` (a notify), so no tick reaches a freed surface. Compiled in only with
+  `GHOSTTY_EXTERNAL_VSYNC` (Package.swift, off until the GhosttyNextKit pin carries 082) and used only with a
+  `VSyncHub` (feature `vsyncHub`, default off); otherwise each surface keeps Ghostty's own link. Tests:
+  `TerminalVSyncTests`.
 
 #### p03-rendering-084 Pre-commit present never waits; frame sequence
 - Files: `ghostty-next/src/renderer/Metal.zig` (presentHostSized), `.../CmuxNextTerminal/TerminalHostFramePresenter.swift`.
