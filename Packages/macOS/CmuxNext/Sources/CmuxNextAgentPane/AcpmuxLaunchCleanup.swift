@@ -4,7 +4,7 @@ import Foundation
 nonisolated struct AcpmuxLaunchCleanup {
     let environment: AcpmuxEnvironment
 
-    @concurrent func end(_ sessions: [String]) async -> Set<String> {
+    @concurrent func end(_ sessions: [String], waitForShutdown: Bool = false) async -> Set<String> {
         guard !environment.isAttached else { return Set(sessions) }
         do {
             return try await withAgentPaneDeadline(.seconds(10), label: "end restored chats") {
@@ -13,6 +13,9 @@ nonisolated struct AcpmuxLaunchCleanup {
         } catch {
             // A daemon that already exited can be proven ended without a socket. An unreachable
             // running daemon is unresolved, so Quit offers Retry instead of claiming success.
+            if waitForShutdown {
+                _ = await AcpmuxQuitProof.waitForDaemonExit(home: environment.home, within: .seconds(10))
+            }
             let facts = AcpmuxQuitProof.read(home: environment.home)
             guard facts.daemon == .free else { return [] }
             return Set(sessions).subtracting(facts.liveHostSessions + facts.unknownHostSessions)
@@ -32,7 +35,7 @@ nonisolated struct AcpmuxLaunchCleanup {
                 group.addTask {
                     do {
                         try Task.checkCancellation()
-                        if known.contains(session) { try await environment.stopSession(id: session) }
+                        if known.contains(session) { try await environment.warmStopSession(id: session) }
                         return session
                     } catch { return nil }
                 }

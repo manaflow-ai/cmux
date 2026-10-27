@@ -223,7 +223,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// Ends only sessions this host attempted to restore; shared daemon processes remain running.
     public func endLaunchSessions(waitForShutdown: Bool) async -> AcpmuxQuit.EndResult {
         guard startsDaemons, let environment, !environment.isAttached else { return .noDaemon }
-        return await launchWarm.end(environment: environment)
+        return await launchWarm.end(environment: environment, waitForShutdown: waitForShutdown)
     }
 
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? {

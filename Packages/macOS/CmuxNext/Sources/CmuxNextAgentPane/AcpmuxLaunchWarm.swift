@@ -52,7 +52,9 @@ actor AcpmuxLaunchWarm {
                 try Task.checkCancellation()
                 // A lost reply may have started the agent. Without a prior fence, retrying could
                 // undo a person's subsequent Stop. Endpoint/startup failures are retried upstream.
-                if fences[session] != nil { failed.append(session) }
+                if case .unsupportedFeature = error as? AcpmuxStatusClient.Failure {
+                    requested.remove(session)
+                } else if fences[session] != nil { failed.append(session) }
                 else {
                     Logger(subsystem: "com.cmuxterm.app.next", category: "agent.launch")
                         .error("launch warm reply unavailable; restoration unknown, no unfenced retry: \(String(describing: error), privacy: .public)")
@@ -63,8 +65,8 @@ actor AcpmuxLaunchWarm {
     }
 
     /// Quit retries only unresolved targets; other sessions on a shared daemon are never ended.
-    func end(environment: AcpmuxEnvironment) async -> AcpmuxQuit.EndResult {
-        await end { await AcpmuxLaunchCleanup(environment: environment).end($0) }
+    func end(environment: AcpmuxEnvironment, waitForShutdown: Bool = false) async -> AcpmuxQuit.EndResult {
+        await end { await AcpmuxLaunchCleanup(environment: environment).end($0, waitForShutdown: waitForShutdown) }
     }
 
     func end(ending: @Sendable ([String]) async -> Set<String>) async -> AcpmuxQuit.EndResult {

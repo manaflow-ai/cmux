@@ -10,10 +10,16 @@ extension AcpmuxEnvironment {
         return try? JSONSerialization.data(withJSONObject: verdict)
     }
 
-    /// Stops a session's agent process and keeps the session to resume
+    /// Stops a session's agent process and fences its stop generation
     /// (`_acpmux/kill` without purge, `acpmux session stop`).
     public nonisolated func stopSession(id: String, deadline: Duration = .seconds(5)) async throws {
-        _ = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/warm_stop",
+        _ = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/kill",
                                               params: ["sessionId": id, "purge": false], deadline: deadline)
+    }
+
+    /// Stops a launch-restored agent while preserving its resumable Idle session.
+    public nonisolated func warmStopSession(id: String, deadline: Duration = .seconds(5)) async throws {
+        _ = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/warm_stop",
+                                              params: ["sessionId": id], deadline: deadline)
     }
 }
