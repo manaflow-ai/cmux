@@ -59,7 +59,7 @@ KIND = {"daemon_line": "daemon", "daemon_contains": "daemon", "daemon_prompt": "
         "process_present": "process", "process_gone": "process", "frame_text": "frame",
         # Negative reads, scrollback rows and the clipboard ("Scroll, paste, select" below).
         "daemon_lacks": "daemon", "daemon_history": "daemon", "app_text_lacks": "app", "app_rows": "app",
-        "frame_screen": "frame", "clipboard": "clipboard",
+        "frame_screen": "frame", "clipboard": "clipboard", "quit_leftovers": "process",
         # App life (journeys/p0/app-life-*.json): layout, working directories, restore and settings.
         "daemon_cwd": "daemon", "daemon_grid": "daemon", "daemon_pane_ready": "daemon",
         "app_cwd": "app", "app_layout": "app", "app_tab_pane": "app", "app_tab_gone": "app", "app_rpc": "app",
@@ -242,6 +242,23 @@ class App:
             table[pid] = {"pid": pid, "ppid": ppid, "pgid": pgid, "tpgid": tpgid, "tty": parts[4], "stat": parts[5],
                           "command": parts[6] if len(parts) > 6 else ""}
         return table
+
+    def bundle_processes(self, app_pid=None):
+        """[{pid, ppid, rss_kb, command}] of every process this app's bundle started or owns: its command is
+        in the bundle (helpers, daemons, Chromium) or names the bundle id as its `--owner` (terminal hosts)."""
+        out = subprocess.run(["ps", "-axo", "pid=,ppid=,rss=,command="], capture_output=True, text=True).stdout
+        bundle_id = str(self.identity.get("bundle_id") or "")
+        rows = []
+        for line in out.splitlines():
+            parts = line.split(None, 3)
+            if len(parts) < 4 or not parts[0].isdigit():
+                continue
+            command = parts[3]
+            owned = bool(bundle_id) and re.search(r"--owner " + re.escape(bundle_id) + r"(?::|\s|$)", command)
+            if (command.startswith(self.bundle + "/") or owned) and int(parts[0]) != app_pid:
+                rows.append({"pid": int(parts[0]), "ppid": int(parts[1]), "rss_kb": int(parts[2]) if parts[2].isdigit() else None,
+                             "command": command[:400]})
+        return rows
 
     def roots(self, table, host_pid):
         """The terminal's host when the app named it, else every process run from the app's bundle."""
@@ -747,6 +764,20 @@ class Journey:
         detail = {"image": image.name, "text": lines[-12:], "lines": len(lines), "missing": missing, "present": present}
         return bool(want.get("shows")) and not missing and not present, detail
 
+    def cond_quit_leftovers(self, want, cache):
+        """The processes a `relaunch` with `leftovers_after` found after the quit: each must match one of
+        `allow` ({"match": RE on the command, "why": the reason it may stay}); the rest are offenders."""
+        kept = getattr(self, "leftovers", None)
+        if kept is None:
+            return False, {"error": "no relaunch step with leftovers_after ran before this check"}
+        allow = want.get("allow", [])
+        offenders = [r for r in kept["rows"] if not any(re.search(a["match"], r["command"]) for a in allow)]
+        allowed = [dict(r, why=next(a.get("why") for a in allow if re.search(a["match"], r["command"])))
+                   for r in kept["rows"] if r not in offenders]
+        rss = sum(r["rss_kb"] or 0 for r in offenders)
+        return not offenders, {"after_s": kept["after_s"], "offenders": offenders, "offender_rss_mb": round(rss / 1024, 1),
+                               "allowed": allowed[:6], "allowed_count": len(allowed)}
+
     def cond_clipboard(self, want, cache):
         """The Mac's general pasteboard (what Cmd+V pastes, `pbpaste`) is exactly `want`."""
         env = {"LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "PATH": "/usr/bin:/bin"}
@@ -947,6 +978,12 @@ class Journey:
         if app.alive(old):
             raise StepError(f"relaunch ({how}): app pid {old} still runs {QUIT_SECONDS} s later: {json.dumps(record)[:300]}")
         record["ended_after_s"] = round(now() - started, 2)
+        if step.get("leftovers_after") is not None:
+            # What a person's Mac still runs after the quit: every process run from this bundle (its
+            # path) or owned by it (`--owner BUNDLE_ID`, the terminal hosts), `leftovers_after` seconds on.
+            time.sleep(float(step["leftovers_after"]))
+            self.leftovers = {"after_s": float(step["leftovers_after"]), "rows": app.bundle_processes(old)}
+            record["leftovers"] = self.leftovers
         if step.get("mark"):
             self.marks[step["mark"]] = now()
         argv = ["/usr/bin/open", "-g", "-n", "-a", app.bundle]
@@ -1183,8 +1220,16 @@ class Journey:
             return self.need_term(), spec
 
         def compare(got, rules):
-            """`rules`: {"equals"|"contains"|"gte"|"lte"|"gt"|"lt"|"len"|"len_gte": value}; all must hold."""
+            """`rules`: {"equals"|"not_equals"|"in"|"not_in"|"contains"|"gte"|"lte"|"gt"|"lt"|"len"|"len_gte": value};
+            all must hold. `not_equals`, `not_in`: a missing value (None) does not hold either, so a wrong
+            path cannot pass a negative rule."""
             for rule, value in rules.items():
+                if rule == "not_equals" and (got is None or got == value):
+                    return False
+                if rule == "in" and got not in value:
+                    return False
+                if rule == "not_in" and (got is None or got in value):
+                    return False
                 if rule == "equals" and got != value:
                     # A remembered ${number} arrives as text: numbers compare as numbers.
                     try:
@@ -1259,8 +1304,12 @@ class Journey:
         if name == "app_rpc":
             reply = self.app.rpc(want["method"], want.get("params") or {})
             got = dig(reply, want.get("path", ""))
-            rules = {k: v for k, v in want.items() if k not in ("method", "params", "path")}
-            return compare(got, rules), {"got": got if len(json.dumps(got, default=str)) < 600 else json.dumps(got, default=str)[:600]}
+            rules = {k: v for k, v in want.items() if k not in ("method", "params", "path", "bind")}
+            ok = compare(got, rules)
+            if ok and want.get("bind"):
+                # `bind`: the value as ${NAME} for later steps (a pane id read before a quit, checked after it).
+                self.vars[want["bind"]] = got
+            return ok, {"got": got if len(json.dumps(got, default=str)) < 600 else json.dumps(got, default=str)[:600]}
         if name == "app_grid":
             view = self.view_of_pane(self.pane) or {}
             grid = view.get("grid") or {}
