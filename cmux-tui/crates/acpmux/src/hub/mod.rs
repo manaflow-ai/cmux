@@ -731,6 +731,11 @@ impl Hub {
             Ok(m) => m,
             Err(e) => {
                 tracing::warn!("store list failed: {e}");
+                // Adoption still reaches every host this list hid: an off push waits for it
+                // (`full_access_turned_off`).
+                if deferred {
+                    self.adoption_ready.send_replace(false);
+                }
                 return;
             }
         };
