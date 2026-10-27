@@ -55,11 +55,15 @@ struct WorkspaceAutoNameWiring {
                                                       expectedNameRevision: target.nameRevision)
                 }
             })
-        // task-owner: the namer follows the stores for the app's lifetime; the task itself only awaits (off main),
-        // the namer's own steps run on its actor.
-        Task { @concurrent [weak settings] in
+        // task-owner: the namer follows the stores for the app's lifetime; the task itself only awaits the
+        // settings load (off main), then posts the one main step, the follow's start, as a classed visible task.
+        let mainWork = services.mainWork
+        Task { @concurrent [weak settings, weak services] in
             await settings?.waitForLoad(atLeast: 1)
-            services.lifetimeFollowers.append(namer.follow(on: services.mainWork))
+            mainWork.postFromAnyThread(.visible, owner: "WorkspaceAutoNameWiring.follow") { [weak services] in
+                guard let services else { return }
+                services.lifetimeFollowers.append(namer.follow(on: services.mainWork))
+            }
         }
     }
 }
