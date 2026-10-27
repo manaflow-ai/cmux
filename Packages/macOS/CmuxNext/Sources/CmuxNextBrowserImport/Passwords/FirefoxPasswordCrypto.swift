@@ -135,7 +135,7 @@ public struct FirefoxPasswordCrypto: Sendable {
                 }
                 let scheme = try parameters.child(1, tag: NSSDER.sequence)
                 guard try scheme.child(0, tag: NSSDER.objectIdentifier).oid() == aes256CBC, keyLength == kCCKeySizeAES256,
-                      (1...10_000_000).contains(iterations) else { throw Failure.unsupportedScheme }
+                      (1...10_000_000).contains(iterations), let rounds = UInt32(exactly: iterations) else { throw Failure.unsupportedScheme }
                 var iv = try scheme.child(1, tag: NSSDER.octetString).content
                 // NSS stores a 14-byte IV; the cipher IV is it with its own DER header in front.
                 if iv.count == 14 { iv = [NSSDER.octetString, 14] + iv }
@@ -148,7 +148,7 @@ public struct FirefoxPasswordCrypto: Sendable {
                         // UInt8 views of bytes may alias.
                         unsafe CCKeyDerivationPBKDF(CCPBKDFAlgorithm(kCCPBKDF2), password.baseAddress?.assumingMemoryBound(to: Int8.self),
                                                     password.count, salt, salt.count, CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256),
-                                                    UInt32(iterations), out.baseAddress?.assumingMemoryBound(to: UInt8.self), keyLength)
+                                                    rounds, out.baseAddress?.assumingMemoryBound(to: UInt8.self), keyLength)
                     }
                     return status == kCCSuccess ? keyLength : 0
                 }
@@ -176,20 +176,20 @@ public struct FirefoxPasswordCrypto: Sendable {
         let k1 = hmacSHA1(key: chp, padded + entrySalt)
         let tk = hmacSHA1(key: chp, padded)
         let k2 = hmacSHA1(key: chp, prefix: tk, entrySalt)
-        let digest = Int(CC_SHA1_DIGEST_LENGTH)
+        let digest = CC_SHA1_DIGEST_LENGTH.widened
         let key = SecretBytes(capacity: 2 * digest) { out in
             k1.withUnsafeBytes { a in k2.withUnsafeBytes { b in
                 // SAFETY: `a` and `b` are HMAC-SHA1 outputs of exactly `digest` (20) bytes each and `out`
                 // holds 2 * digest; the two copies fill out[0..<20] and out[20..<40], all inside, from
                 // views valid while these closures run.
-                unsafe UnsafeMutableRawBufferPointer(rebasing: out[0..<digest]).copyMemory(from: a)
-                unsafe UnsafeMutableRawBufferPointer(rebasing: out[digest..<(2 * digest)]).copyMemory(from: b)
+                unsafe UnsafeMutableRawBufferPointer(rebasing: out.prefix(digest)).copyMemory(from: a)
+                unsafe UnsafeMutableRawBufferPointer(rebasing: out.dropFirst(digest).prefix(digest)).copyMemory(from: b)
             } }
             return 2 * digest
         }
         let iv = key.withUnsafeBytes { bytes in
             // SAFETY: `bytes` holds the 40 key bytes written above, so 32..<40 is inside; Array copies them.
-            unsafe Array(bytes[32..<40])
+            unsafe Array(bytes.dropFirst(32).prefix(8))
         }
         return (key, iv)
     }
@@ -197,7 +197,7 @@ public struct FirefoxPasswordCrypto: Sendable {
     // MARK: Primitives (outputs in SecretBytes)
 
     static func sha1(_ parts: [[UInt8]], secret: SecretBytes) -> SecretBytes {
-        SecretBytes(capacity: Int(CC_SHA1_DIGEST_LENGTH)) { out in
+        SecretBytes(capacity: CC_SHA1_DIGEST_LENGTH.widened) { out in
             var context = CC_SHA1_CTX()
             // SAFETY: each call below gets the local `context`, live for the call, and reads part.count
             // bytes of each array, lent for the call; sha1Final writes the digest into `out`.
@@ -212,7 +212,7 @@ public struct FirefoxPasswordCrypto: Sendable {
     }
 
     static func sha1(_ parts: [[UInt8]], prefix: SecretBytes) -> SecretBytes {
-        SecretBytes(capacity: Int(CC_SHA1_DIGEST_LENGTH)) { out in
+        SecretBytes(capacity: CC_SHA1_DIGEST_LENGTH.widened) { out in
             var context = CC_SHA1_CTX()
             // SAFETY: each call below gets the local `context`, live for the call, and reads part.count
             // bytes of each array, lent for the call; sha1Final writes the digest into `out`.
@@ -228,7 +228,7 @@ public struct FirefoxPasswordCrypto: Sendable {
 
     /// Writes the digest to `out` (at least CC_SHA1_DIGEST_LENGTH bytes) and zeroes `context`.
     @unsafe private static func sha1Final(_ context: inout CC_SHA1_CTX, into out: UnsafeMutableRawBufferPointer) -> Int {
-        let digest = Int(CC_SHA1_DIGEST_LENGTH)
+        let digest = CC_SHA1_DIGEST_LENGTH.widened
         // SAFETY: reads the lent buffer's count, not its bytes.
         guard unsafe out.count >= digest else { return 0 }
         // SAFETY: CC_SHA1_Final writes `digest` bytes, inside `out` (checked above), and reads `context`;
@@ -244,7 +244,7 @@ public struct FirefoxPasswordCrypto: Sendable {
 
     /// HMAC-SHA1 of `prefix` (a secret, never copied out of its buffer) followed by `message`.
     static func hmacSHA1(key: SecretBytes, prefix: SecretBytes?, _ message: [UInt8]) -> SecretBytes {
-        SecretBytes(capacity: Int(CC_SHA1_DIGEST_LENGTH)) { out in
+        SecretBytes(capacity: CC_SHA1_DIGEST_LENGTH.widened) { out in
             var context = CCHmacContext()
             key.withUnsafeBytes { keyBytes in
                 // SAFETY: reads keyBytes.count bytes of the key's view, valid while this closure runs, into
@@ -261,7 +261,7 @@ public struct FirefoxPasswordCrypto: Sendable {
             unsafe CCHmacUpdate(&context, message, message.count)
             unsafe CCHmacFinal(&context, out.baseAddress)
             _ = unsafe memset_s(&context, MemoryLayout<CCHmacContext>.size, 0, MemoryLayout<CCHmacContext>.size)
-            return Int(CC_SHA1_DIGEST_LENGTH)
+            return CC_SHA1_DIGEST_LENGTH.widened
         }
     }
 

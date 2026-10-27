@@ -1,0 +1,24 @@
+{
+  "id": "frame_pacing.fling",
+  "tier": "T1",
+  "description": "Frame-pacing fling (bench.sh --mode fling): the agent pane scrolls a 5000-row transcript at the capped and the full render rate, every frame interval of the measured flings, and per fling its dropped frames, their share and its blank frames, light session.",
+  "command": ["scripts/ci/frame-pacing/bench.sh", "--mode", "fling"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "fling\\.capped\\.frame_interval", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/ci/frame-pacing/summarize.py", "key": "P50_LIMIT_MS/0"}},
+    {"name": "fling\\.full\\.frame_interval", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/ci/frame-pacing/summarize.py", "key": "P50_LIMIT_MS/1"}},
+    {"name": "fling\\.(capped|full)\\.dropped_fraction", "unit": "ratio", "better": "lower",
+     "target_ref": {"path": "scripts/ci/frame-pacing/summarize.py", "key": "DROPPED_LIMIT"}},
+    {"name": "fling\\.(capped|full)\\.dropped", "unit": "count", "better": "lower"},
+    {"name": "fling\\.(capped|full)\\.blank_frames", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 120,
+  "needs": ["debug:debug.agent_pane"],
+  "owner": "Performance Lead",
+  "component": "Agents>Chat"
+}
