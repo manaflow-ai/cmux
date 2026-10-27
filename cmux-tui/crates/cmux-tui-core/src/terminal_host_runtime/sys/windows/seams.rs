@@ -319,10 +319,6 @@ pub(crate) struct AcceptWaker {
     event: std::os::windows::io::OwnedHandle,
 }
 
-// SAFETY: an event handle; Set/Reset/Wait are thread-safe.
-unsafe impl Send for AcceptWaker {}
-unsafe impl Sync for AcceptWaker {}
-
 impl AcceptWaker {
     pub(crate) fn new() -> io::Result<Self> {
         // SAFETY: an unnamed manual-reset event, initially unset.
