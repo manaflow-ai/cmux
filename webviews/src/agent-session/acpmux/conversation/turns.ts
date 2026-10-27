@@ -836,7 +836,7 @@ function liveTurn(
   const answering = last.kind === "assistant";
   if (answering && rows.length === 1) return rows;
   const status: AcpmuxRow = { id: `${WORKING}-${user.id}`, version: 1, at, kind: WORKING };
-  if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - user.at) });
+  if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - start) });
   // While a call runs the line names it, as Claude desktop's does (WorkingFor.tsx), unless the
   // call's own row, right under it, already does: one running call reads once. The Codex-style
   // runs draw no call in flight (codexRuns), so there the line always names it.

@@ -198,14 +198,20 @@ test("a newer summary start replaces a previous live turn before its start event
     daemon.change({ title: "next", turn: { turnId: "t2", startedAt: START + 30_000 } });
     await until(() => snapshot.summary?.title === "next", "the newer summary");
     expect(snapshot.turnStartedAtMs).toBe(START + 30_000);
+    expect(client.turnRunning()).toBe(true);
     // A late summary of the earlier turn must not move the clock backwards either.
     daemon.push(record([["mux", "turn_started", { turnId: "t2" }]], 31));
     daemon.change({ title: "earlier", turn: { turnId: "t1", startedAt: START + 1_000 } });
     await until(() => snapshot.summary?.title === "earlier", "the older summary");
     expect(snapshot.turnStartedAtMs).toBe(START + 31_000);
-    daemon.push(record([["mux", "turn_result", { turnId: "t2", status: "completed" }]], 32));
+    // Replaying a terminal event for the old turn must not stop the newer live turn.
+    daemon.push(record([["mux", "turn_result", { turnId: "t1", status: "completed" }]], 32));
+    expect(snapshot.turnStartedAtMs).toBe(START + 31_000);
+    expect(client.turnRunning()).toBe(true);
+    daemon.push(record([["mux", "turn_result", { turnId: "t2", status: "completed" }]], 33));
     await until(() => snapshot.isWorking === false, "the turn result");
     expect(snapshot.turnStartedAtMs).toBeUndefined();
+    expect(client.turnRunning()).toBe(false);
   } finally {
     client.close();
   }

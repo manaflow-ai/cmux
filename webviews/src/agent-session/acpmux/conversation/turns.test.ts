@@ -32,3 +32,16 @@ test("a completed turn has no live timer row", () => {
   );
   expect(shown.some((row) => row.kind === THINKING || row.kind === WORKING)).toBe(false);
 });
+
+test("the line above a completed answer keeps the live turn start", () => {
+  const shown = turnView(
+    [
+      user(1_000),
+      { id: "tool", version: 1, at: 103_000, kind: "activity", items: [] },
+      { id: "answer", version: 1, at: 105_000, kind: "assistant", text: "done" },
+    ],
+    new Set(),
+    { now: 110_000, working: true, turnStartedAtMs: 100_000, lineBelow: false },
+  );
+  expect(shown.find((row) => row.kind === WORKING)?.durationMs).toBe(5_000);
+});
