@@ -5,8 +5,14 @@ use super::*;
 use crate::panic_free::RecoverPoison;
 
 impl Mux {
+    /// An in-memory mux. Startup can fail: adopting terminal hosts reads
+    /// their records from disk, and the journal and output-store workers
+    /// must start. The daemon calls this and reports the error.
     #[track_caller]
-    pub fn new(session: impl Into<String>, surface_options: SurfaceOptions) -> Arc<Self> {
+    pub fn try_new(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+    ) -> anyhow::Result<Arc<Self>> {
         Self::new_with_test_surface_runtime(
             session,
             surface_options,
@@ -15,15 +21,27 @@ impl Mux {
         )
     }
 
+    /// Test fixture form of [`Self::try_new`]; production code calls
+    /// `try_new` and handles the error.
+    #[track_caller]
+    pub fn new(session: impl Into<String>, surface_options: SurfaceOptions) -> Arc<Self> {
+        #[allow(
+            clippy::expect_used,
+            reason = "test fixture constructor: no production caller; the daemon uses try_new"
+        )]
+        let mux = Self::try_new(session, surface_options).expect("test mux must start");
+        mux
+    }
+
     /// Builds a mux whose workspace lifecycle is provider-owned from its
     /// first control connection. The authority must be provisioned by the
     /// provider that owns this mux generation.
     #[track_caller]
-    pub fn new_provider_managed(
+    pub fn try_new_provider_managed(
         session: impl Into<String>,
         surface_options: SurfaceOptions,
         authority: ProviderWorkspaceAuthority,
-    ) -> Arc<Self> {
+    ) -> anyhow::Result<Arc<Self>> {
         Self::new_with_test_surface_runtime(
             session,
             surface_options,
@@ -37,6 +55,23 @@ impl Mux {
         )
     }
 
+    /// Test fixture form of [`Self::try_new_provider_managed`]; production
+    /// code calls `try_new_provider_managed` and handles the error.
+    #[track_caller]
+    pub fn new_provider_managed(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        authority: ProviderWorkspaceAuthority,
+    ) -> Arc<Self> {
+        #[allow(
+            clippy::expect_used,
+            reason = "test fixture constructor: no production caller; the daemon uses try_new_provider_managed"
+        )]
+        let mux = Self::try_new_provider_managed(session, surface_options, authority)
+            .expect("test provider-managed mux must start");
+        mux
+    }
+
     /// Builds a provider-owned mux whose authority will be installed through
     /// the root-only management socket before lifecycle mutations are allowed.
     #[track_caller]
@@ -47,7 +82,7 @@ impl Mux {
     ) -> anyhow::Result<Arc<Self>> {
         let mux_generation = mux_generation.into();
         validate_mux_generation(&mux_generation)?;
-        Ok(Self::new_with_test_surface_runtime(
+        Self::new_with_test_surface_runtime(
             session,
             surface_options,
             ProviderWorkspaceState {
@@ -57,23 +92,18 @@ impl Mux {
                 authority: None,
             },
             false,
-        ))
+        )
     }
 
-    #[allow(
-        clippy::expect_used,
-        reason = "INVARIANT: an in-memory registry does no file I/O; only the OS RNG or allocation can fail it"
-    )]
     #[track_caller]
     pub(super) fn new_with_test_surface_runtime(
         session: impl Into<String>,
         surface_options: SurfaceOptions,
         provider_workspace: ProviderWorkspaceState,
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
-    ) -> Arc<Self> {
+    ) -> anyhow::Result<Arc<Self>> {
         let session = session.into();
-        let registry = WorkspaceRegistry::in_memory(&session)
-            .expect("in-memory workspace registry must initialize");
+        let registry = WorkspaceRegistry::in_memory(&session)?;
         Self::from_workspace_registry(
             session,
             surface_options,
@@ -81,7 +111,6 @@ impl Mux {
             provider_workspace,
             test_surface_runtime,
         )
-        .expect("in-memory workspace registry must load")
     }
 
     #[track_caller]
@@ -609,6 +638,7 @@ impl Mux {
             ProviderWorkspaceState::default(),
             true,
         )
+        .expect("test mux must start")
     }
 
     #[cfg(test)]
@@ -629,6 +659,7 @@ impl Mux {
             },
             true,
         )
+        .expect("test provider-managed mux must start")
     }
 
     #[cfg(test)]
@@ -648,7 +679,8 @@ impl Mux {
                 authority: None,
             },
             true,
-        );
+        )
+        .expect("test pending provider-managed mux must start");
         validate_mux_generation(mux_generation).unwrap();
         mux
     }

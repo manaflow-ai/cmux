@@ -2423,14 +2423,14 @@ fn run_server(
                 Mux::open_persistent(args.session.clone(), surface_options, root)
             }
             (None, Some(authority), false) => {
-                Ok(Mux::new_provider_managed(args.session.clone(), surface_options, authority))
+                Mux::try_new_provider_managed(args.session.clone(), surface_options, authority)
             }
             (None, None, true) => Mux::new_provider_managed_pending(
                 args.session.clone(),
                 surface_options,
                 new_mux_generation()?,
             ),
-            (None, None, false) => Ok(Mux::new(args.session.clone(), surface_options)),
+            (None, None, false) => Mux::try_new(args.session.clone(), surface_options),
             (_, Some(_), true) => {
                 unreachable!("conflicting provider authority inputs rejected above")
             }
@@ -3236,7 +3236,7 @@ fn run_provider_machine_client(
         Err(error) => runtime.placeholder(initial_provider_connection_notice(
             &localization::catalog().sidebar,
             &error,
-        )),
+        ))?,
     };
     runtime.sync_connections();
     let controller: Box<dyn MachineController> = Box::new(runtime);
