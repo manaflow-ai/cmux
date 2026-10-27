@@ -2343,7 +2343,7 @@ def test_cmux_next_daemon_tests_take_blacksmith_linux_and_the_mac_shadow_never_t
     # 2026-10-26 (Leo: "I THOUGHT THESE COULD JUST GO ON LINUX"): the
     # promotion gate runs on Blacksmith Linux on every event and attempt; the
     # macOS-only tests run in a shadow that gates nothing and never takes the
-    # promote pool or the nightly label (tests/test_cmux_tui_daemon_tests_linux.py).
+    # promote pool or the nightly label (tests/test_cmux_tui_daemon_tests_gate.py).
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     jobs = document["jobs"]
     daemon = jobs["cmux-next-daemon-tests"]["runs-on"]
@@ -2393,8 +2393,12 @@ def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> Non
     assert "publish-tree-tested" in promote["needs"]
     assert "needs.publish-tree.result" not in promote["if"]
     assert "needs.publish-tree-tested.result == 'success'" in promote["if"]
+    # request-nightly-next.sh checks the marker through tree-commit-marker.sh
+    # daemon-tested, the same check the tree-commit marker writer uses.
     script = (ROOT / "scripts/cmux-next/request-nightly-next.sh").read_text()
-    assert "daemon-tests.json" in script and '"separate"' in script
+    assert "tree-commit-marker.sh\" daemon-tested" in script
+    checker = (ROOT / "scripts/cmux-next/tree-commit-marker.sh").read_text()
+    assert "daemon-tests.json" in checker and '"separate"' in checker
 
 
 
