@@ -130,7 +130,7 @@ declare namespace Cmux {
   type GitBaseCandidate = { name: string; ref: string; reason: "recorded_base" | "default_branch" | "upstream" }
   type GitBranch = { name: string; ref: string; kind: "local" | "remote"; commit: string; current: boolean; upstream?: string; upstream_gone?: boolean; ahead?: number; behind?: number; committed_at?: number }
   type GitBranchesResult = { root: string; current?: string; detached: boolean; branches: Array<Cmux.GitBranch>; truncated: boolean; suggested_bases: Array<Cmux.GitBaseCandidate> }
-  type GitChangedFile = { path: string; previous_path?: string; status: Cmux.GitChangeStatus; additions: number; deletions: number; binary?: boolean; patch?: string; patch_truncated?: boolean }
+  type GitChangedFile = { path: string; previous_path?: string; status: Cmux.GitChangeStatus; additions: number; deletions: number; binary?: boolean; patch?: string; blob_fingerprint?: string; patch_truncated?: boolean }
   type GitChangeStatus = "added" | "modified" | "deleted" | "renamed" | "untracked"
   type GitCheckpoint = { checkpoint_id: string; repository_id: string; worktree_id: string; ref: string; object_id: string; revision: string; complete: boolean; skipped: Array<Cmux.GitCheckpointSkip>; skipped_total: number; created_at: string; expires_at: string | null; base: Cmux.GitCheckpointBase; coverage: Cmux.GitCheckpointCoverage; included: Cmux.GitCheckpointIncluded; bytes: Cmux.GitCheckpointBytes; limits: Cmux.GitCheckpointLimits; pins: Array<Cmux.GitCheckpointPin> }
   type GitCheckpointBase = { head: string | null; branch: string | null; detached: boolean }
