@@ -145,7 +145,8 @@ struct AgentPaneSendPickedFolderPromptTests {
         try await startAfterDeferredTrust(pane)
     }
 
-    @Test(.timeLimit(.minutes(1))) func journalReplayWaitsForDeferredTrustAcknowledgement() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func journalReplayWaitsForDeferredTrustAcknowledgement(refuseFirst: Bool) async throws {
         let pane = try await pane(connected: false)
         defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
         let transport = pane.model.transport
@@ -161,12 +162,30 @@ struct AgentPaneSendPickedFolderPromptTests {
         transport.webModes = { _, _, _ in nil }
         #expect(await transport.pick(pane.folder) == pane.folder)
         pane.server.hold("acp.trust.set")
-        let id = try await transport.open(AcpmuxConnection(url: pane.server.url, dashboardToken: "t", localAppToken: nil, socketPath: daemon))
+        let connection = AcpmuxConnection(url: pane.server.url, dashboardToken: "t", localAppToken: nil, socketPath: daemon)
+        var id = try await transport.open(connection)
         defer { pane.server.releaseHeld(); transport.close(connection: id) }
         #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
         #expect(await pane.server.wait { $0.last?.frames.contains { $0.contains("acp.trust.set") } == true })
         #expect(pane.server.peers.last?.frames.contains { $0.contains("session/prompt") } == false)
         #expect(journal.entries().count == 1)
+        if refuseFirst {
+            let socket = try #require(transport.socket)
+            let trust = try #require(pane.server.peers.last?.frames.first { $0.contains("acp.trust.set") })
+            let object = try #require(try JSONSerialization.jsonObject(with: Data(trust.utf8)) as? [String: Any])
+            let requestID = try #require(object["id"] as? Int)
+            pane.server.push(#"{"jsonrpc":"2.0","id":\#(requestID),"error":{"code":-32000,"message":"Trust unavailable"}}"#, to: 0)
+            #expect(await pane.server.wait { _ in socket.isClosed })
+            #expect(journal.entries().count == 1, "a refused trust write must not discard the saved prompt")
+            #expect(pane.server.peers.last?.frames.contains { $0.contains("session/prompt") } == false)
+            pane.server.releaseHeld()
+            pane.server.hold("acp.trust.set")
+            id = try await transport.open(connection)
+            #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
+            #expect(await pane.server.wait { $0.last?.frames.contains { $0.contains("acp.trust.set") } == true })
+            #expect(pane.server.peers.last?.frames.contains { $0.contains("session/prompt") } == false)
+            #expect(journal.entries().count == 1)
+        }
         pane.server.releaseHeld()
         #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":1,"method":"_acpmux/status","params":{}}"#]) == nil)
         #expect(await pane.server.wait { $0.last?.frames.contains { $0.contains("session/prompt") && $0.contains("replay-1") } == true })
