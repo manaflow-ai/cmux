@@ -69,8 +69,8 @@ struct AppMemoryModel: MemorySnapshotModel {
         if let view = services.newTabSpares.spareView {
             spares.append(.init(pool: "new_tab", processKind: .webkitWebContent, pid: Self.webContentProcess(of: view.page)))
         }
-        if let host = services.pageHostPool.spareHost {
-            spares.append(.init(pool: "page_host", processKind: .webkitWebContent, pid: Self.webContentProcess(of: host)))
+        if let page = services.pagePreloads.heldPage, !page.showsChromium {
+            spares.append(.init(pool: "page_preload", processKind: .webkitWebContent, pid: Self.webContentProcess(of: page)))
         }
         // Chromium's spare windows; their placeholder's renderer, when it has one, gives the pid (p07-memory-113).
         // A read never builds the engine: none built, no spare window.
@@ -96,7 +96,7 @@ struct AppMemoryModel: MemorySnapshotModel {
             for view in agentTabs.views.values { add(webContentProcess(of: view.page)) }
         }
         if let view = services.newTabSpares.spareView { add(webContentProcess(of: view.page)) }
-        if let host = services.pageHostPool.spareHost { add(webContentProcess(of: host)) }
+        if let page = services.pagePreloads.heldPage { add(webContentProcess(of: page)) }
         return pids
     }
 

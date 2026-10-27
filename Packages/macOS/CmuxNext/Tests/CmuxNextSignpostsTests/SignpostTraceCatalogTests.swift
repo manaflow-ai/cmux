@@ -34,6 +34,7 @@ struct SignpostTraceCatalogTests {
             (.inputLatency, 85),
             (.cefMemoryPressureVote, 86),
             (.ghosttyLockWait, 87),
+            (.launchActionCatalogFirstMainAccess, 88),
         ]
         for (name, id) in pinned { #expect(name.rawValue == id, "\(name)") }
         #expect(SignpostName.allCases.count == pinned.count)
