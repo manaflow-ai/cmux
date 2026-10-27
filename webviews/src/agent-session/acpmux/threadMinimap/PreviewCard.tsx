@@ -84,13 +84,15 @@ export const PreviewCard = React.forwardRef<
     prompt?: string;
     reply: readonly ReplyBlock[];
     metadata?: MinimapTurnMetadata;
+    /// The rail's unshifted left edge, for the same pane-edge clamp in both CSS translations.
+    railLeft?: number;
     bookmark?: PreviewBookmark;
     onPointerLeave(event: React.PointerEvent<HTMLDivElement>): void;
     onFocus?(): void;
     onBlur?(event: React.FocusEvent<HTMLDivElement>): void;
   }
 >(function PreviewCard(
-  { id, x, y, scroller, prompt, reply, metadata, bookmark, onPointerLeave, onFocus, onBlur },
+  { id, x, y, scroller, prompt, reply, metadata, railLeft = 0, bookmark, onPointerLeave, onFocus, onBlur },
   ref,
 ) {
   const t = useT();
@@ -107,8 +109,11 @@ export const PreviewCard = React.forwardRef<
     const base = node.offsetParent instanceof HTMLElement ? node.offsetParent : layer;
     const mark = from.getBoundingClientRect();
     const frame = base.getBoundingClientRect();
+    // The portal shares the rail's CSS translate, including its transition. Store the unshifted
+    // origin so renders during a transition never bake an intermediate shift into the card.
+    const shiftX = Number.parseFloat(getComputedStyle(from.parentElement!).translate) || 0;
     const next = {
-      x: mark.left - frame.left - base.clientLeft + base.scrollLeft,
+      x: mark.left - shiftX - frame.left - base.clientLeft + base.scrollLeft,
       y: mark.top - frame.top - base.clientTop + base.scrollTop,
     };
     if (next.x !== origin.x || next.y !== origin.y) setOrigin(next);
@@ -128,7 +133,12 @@ export const PreviewCard = React.forwardRef<
       ref={own}
       id={id}
       className="acpmux-minimap__card"
-      style={{ transform: `translate3d(${at.x + x}px, ${at.y + y}px, 0)` }}
+      style={
+        {
+          "--acpmux-rail-left": `${railLeft}px`,
+          transform: `translate3d(${at.x + x}px, ${at.y + y}px, 0)`,
+        } as React.CSSProperties
+      }
       onPointerLeave={onPointerLeave}
       onWheel={layer ? (event) => forwardWheel(scroller!, event.nativeEvent) : undefined}
       onFocus={onFocus}
