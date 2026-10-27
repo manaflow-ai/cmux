@@ -1407,6 +1407,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_github_release_publication.py
 
+      - name: Validate every release publisher call passes an immutable asset
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_publish_release_assets_callers.py
+
       - name: Validate the Homebrew cask update gate
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_release_homebrew_gate.py
