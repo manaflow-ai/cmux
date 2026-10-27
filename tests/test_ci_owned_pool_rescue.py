@@ -3271,6 +3271,18 @@ class NightlySigningStall(unittest.TestCase):
         api = rescue.GitHub("token", "manaflow-ai/cmux")
         order: list[str] = []
         api._fresh_token = lambda stale=None: order.append("mint")
+        lock = api._lock
+
+        class Recorded:
+            # The shared lock another thread may hold through a slow mint: the guard runs after it is released.
+            def __enter__(self):
+                order.append("lock")
+                return lock.__enter__()
+
+            def __exit__(self, *exc):
+                order.append("unlock")
+                return lock.__exit__(*exc)
+        api._lock = Recorded()
 
         def opened(request, timeout):
             order.append(f"send:{request.get_method()}")
@@ -3280,8 +3292,13 @@ class NightlySigningStall(unittest.TestCase):
         with unittest.mock.patch("urllib.request.urlopen", opened):
             with self.assertRaises(urllib.error.HTTPError):
                 api.cancel(RUN_ID, before_send=lambda: order.append("guard"))
-        # Mint, guard, send; after the rate-limit wait: mint, guard, send again.
-        self.assertEqual(order, ["mint", "guard", "send:POST", "mint", "guard", "send:POST"])
+        # Mint, lock, guard, send; after the rate-limit wait the same again.
+        attempt = ["mint", "lock", "unlock", "guard", "send:POST"]
+        self.assertEqual([step for step in order if step in attempt][:5], attempt)
+        self.assertEqual(order.count("guard"), 2)
+        for at, step in enumerate(order):
+            if step == "send:POST":
+                self.assertEqual(order[at - 1], "guard")
         # A guard that raises drops the request before it is sent.
         order.clear()
 
@@ -3290,7 +3307,7 @@ class NightlySigningStall(unittest.TestCase):
         with unittest.mock.patch("urllib.request.urlopen", opened):
             with self.assertRaises(rescue.SignStallChanged):
                 api.cancel(RUN_ID, before_send=stop)
-        self.assertEqual(order, ["mint"])
+        self.assertNotIn("send:POST", order)
 
     def test_a_signing_job_first_seen_at_the_last_look_is_not_stalled_yet(self):
         clock = Clock()

@@ -1436,10 +1436,6 @@ class GitHub:
                 before_retry: Callable[[], None] | None = None, refreshed: bool = False,
                 before_send: Callable[[], None] | None = None) -> Any:
         self._fresh_token()
-        if before_send is not None:
-            # After any token mint, right before the request goes out (and again before any retry of it):
-            # raises to drop the request (GitHub.cancel()).
-            before_send()
         headers = self.read_headers if method == "GET" and not own_token else self.headers
         with self._lock:
             # One token for the whole request, read under the lock _fresh_token() swaps it under.
@@ -1453,6 +1449,11 @@ class GitHub:
         if cached is not None:
             # Always asked again (never served from memory): a 304 says the answer is still current.
             request.add_header("If-None-Match", cached[0])
+        if before_send is not None:
+            # Last, after any token mint and outside the lock another thread may hold through one, right
+            # before the request goes out (and again before any retry of it): raises to drop the request
+            # (GitHub.cancel()).
+            before_send()
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
                 body = response.read()
