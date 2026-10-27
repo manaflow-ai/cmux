@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCredentialVault
 import CmuxNextOnboarding
 import CmuxNextApps
 import CmuxNextAgentPane

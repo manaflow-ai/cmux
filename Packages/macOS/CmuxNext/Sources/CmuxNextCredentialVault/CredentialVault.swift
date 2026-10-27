@@ -1,5 +1,5 @@
 import CmuxNextCompat
-import Foundation
+public import Foundation
 
 /// The Chief vault (cmux issue 26412): credentials the person hands cmux (API keys, tokens) that
 /// agents use by name without seeing them. One owner: this store. A value lives only in the login
@@ -8,24 +8,24 @@ import Foundation
 ///
 /// Every call blocks on the Keychain or the disk: callers run them off the main actor
 /// (`CredentialVaultControl` runs them on the async lane).
-nonisolated final class CredentialVault: Sendable {
+public nonisolated final class CredentialVault: Sendable {
     /// Who may resolve a secret: the person's own terminals and CLI, and agents (agent sessions
     /// and Chief turns). A caller names itself (`caller`, as for `action.run`); the vault's
     /// boundary against other programs is the Keychain item, which only this app reads.
-    enum Consumer: String, CaseIterable, Codable, Sendable {
+    public enum Consumer: String, CaseIterable, Codable, Sendable {
         case user
         case agents
     }
 
     /// One secret's record (no value).
-    struct Entry: Codable, Equatable, Sendable {
-        var scope: [Consumer]
-        var note: String?
-        var createdMs: Int64
-        var updatedMs: Int64
-        var lastUsedMs: Int64?
-        var lastUsedBy: String?
-        var uses: Int
+    public struct Entry: Codable, Equatable, Sendable {
+        public var scope: [Consumer]
+        public var note: String?
+        public var createdMs: Int64
+        public var updatedMs: Int64
+        public var lastUsedMs: Int64?
+        public var lastUsedBy: String?
+        public var uses: Int
 
         enum CodingKeys: String, CodingKey {
             case scope, note, uses
@@ -94,7 +94,7 @@ nonisolated final class CredentialVault: Sendable {
 
     /// The app's vault: `<Application Support>/<bundle id>/CredentialVault`, Keychain service `<bundle id>.credential-vault`
     /// (a tagged build has its own, as its accounts keys do).
-    static func forApplication(bundleID: String?) -> CredentialVault {
+    public static func forApplication(bundleID: String?) -> CredentialVault {
         let bundle = bundleID.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(filePath: NSTemporaryDirectory())
@@ -108,7 +108,7 @@ nonisolated final class CredentialVault: Sendable {
     // MARK: Reads
 
     /// Every secret's record by name.
-    func list() throws -> [String: Entry] {
+    public func list() throws -> [String: Entry] {
         try lock.withLock { _ in try readIndex() }
     }
 

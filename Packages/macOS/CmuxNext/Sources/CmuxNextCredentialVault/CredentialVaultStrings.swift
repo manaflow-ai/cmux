@@ -17,7 +17,6 @@ nonisolated enum CredentialVaultStrings {
 
     // MARK: Refusals
 
-    static var unavailable: String { text("credentialVault.error.unavailable", "The vault is not available in this app.") }
     static func missingParam(_ method: String, _ key: String) -> String {
         String(format: text("credentialVault.error.missingParam", "%1$@ requires params.%2$@"), method, key)
     }

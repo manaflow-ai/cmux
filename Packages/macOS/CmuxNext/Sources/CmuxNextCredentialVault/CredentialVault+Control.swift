@@ -1,5 +1,5 @@
-import CmuxNextControl
-import CmuxNextSettings
+public import CmuxNextControl
+public import CmuxNextSettings
 import Foundation
 
 /// The vault over the control socket (`cmux vault …`, cmux issue 26412). No method is in the
@@ -13,54 +13,78 @@ import Foundation
 /// - `vault.request {name, reason?}`: asks the person on a native sheet to enter the value (the
 ///   Chief's secure entry); the answer says whether it was stored, never the value.
 /// - `vault.audit {limit?}`: the newest audit lines.
-enum CredentialVaultControl {
+extension CredentialVault {
     /// A person types the value; the sheet waits for them, this only ends a lost one.
     static let requestDeadline: Duration = .seconds(600)
 
     /// What `vault.request` asks the person.
-    struct EntryRequest: Equatable, Sendable {
-        var name: String
-        var reason: String?
+    public struct EntryRequest: Equatable, Sendable {
+        public var name: String
+        public var reason: String?
         /// Who asks, in the person's words ("the Chief", "agent session X").
-        var requester: String
-        var replaces: Bool
+        public var requester: String
+        public var replaces: Bool
+
+        public init(name: String, reason: String?, requester: String, replaces: Bool) {
+            self.name = name
+            self.reason = reason
+            self.requester = requester
+            self.replaces = replaces
+        }
     }
 
     /// The person's answer: the value and who may use it.
-    struct EntryAnswer: Equatable, Sendable {
-        var value: String
-        var scope: [CredentialVault.Consumer]
+    public struct EntryAnswer: Equatable, Sendable {
+        public var value: String
+        public var scope: [Consumer]
+
+        public init(value: String, scope: [Consumer]) {
+            self.value = value
+            self.scope = scope
+        }
     }
 
-    typealias Ask = @MainActor @Sendable (EntryRequest) async -> EntryAnswer?
+    /// Shows the secure entry sheet and answers what the person saved (nil: cancelled or closed).
+    public typealias Ask = @MainActor @Sendable (EntryRequest) async -> EntryAnswer?
 
-    static func methods(vault: @escaping @Sendable () -> CredentialVault?, ask: @escaping Ask) -> [ControlMethod] {
+    /// The `vault.*` methods over this vault, with `ask` as the person's sheet.
+    public func controlMethods(ask: @escaping Ask) -> [ControlMethod] {
+        VaultControl.methods(vault: self, ask: ask)
+    }
+}
+
+/// The method bodies and their params (internal: the public surface is ``CredentialVault/controlMethods(ask:)``).
+enum VaultControl {
+    typealias EntryRequest = CredentialVault.EntryRequest
+    typealias EntryAnswer = CredentialVault.EntryAnswer
+    typealias Ask = CredentialVault.Ask
+
+    static func methods(vault: CredentialVault, ask: @escaping Ask) -> [ControlMethod] {
         [
             .async("vault.list") { _ in
-                let vault = try available(vault)
                 return ["secrets": .array(try run { try vault.list() }.sorted { $0.key < $1.key }.map { json(name: $0.key, $0.value) })]
             },
             .async("vault.audit") { call in
                 let limit = min(max(call.params["limit"]?.intValue ?? 50, 1), CredentialVault.auditKeep)
-                return ["records": .array(try run { try available(vault).audit(limit: limit) }.map(json))]
+                return ["records": .array(try run { try vault.audit(limit: limit) }.map(json))]
             },
             .async("vault.set") { call in
                 let name = try text(call.params, "name")
                 guard let value = call.params["value"]?.stringValue else { throw missingParam("vault.set", "value") }
                 let scope = try scope(call.params)
                 let note = try optionalText(call.params, "note")
-                let replaced = try run { try available(vault).set(name, value: value, scope: scope, note: note, by: caller(call.params)) }
+                let replaced = try run { try vault.set(name, value: value, scope: scope, note: note, by: caller(call.params)) }
                 return ["stored": .string(name), "replaced": .bool(replaced)]
             },
             .async("vault.scope") { call in
                 let name = try text(call.params, "name")
                 guard let scope = try scope(call.params) else { throw missingParam("vault.scope", "scope") }
-                try run { try available(vault).setScope(name, scope: scope, by: caller(call.params)) }
+                try run { try vault.setScope(name, scope: scope, by: caller(call.params)) }
                 return ["name": .string(name), "scope": .array(scope.map { .string($0.rawValue) })]
             },
             .async("vault.remove") { call in
                 let name = try text(call.params, "name")
-                let existed = try run { try available(vault).remove(name, by: caller(call.params)) }
+                let existed = try run { try vault.remove(name, by: caller(call.params)) }
                 return ["removed": .string(name), "existed": .bool(existed)]
             },
             .async("vault.resolve") { call in
@@ -70,14 +94,14 @@ enum CredentialVaultControl {
                     return name
                 }
                 let command = try optionalText(call.params, "command")
-                let values = try run { try available(vault).resolve(names, for: caller(call.params), command: command) }
+                let values = try run { try vault.resolve(names, for: caller(call.params), command: command) }
                 return ["values": .object(values.mapValues(JSONValue.string))]
             },
             .async("vault.request") { call in
                 let name = try text(call.params, "name")
                 guard CredentialVault.isValidName(name) else { throw error(.invalidName(name)) }
                 let reason = try optionalText(call.params, "reason").map { String($0.prefix(CredentialVault.maxNoteCharacters)) }
-                let store = try available(vault)
+                let store = vault
                 let asker = try caller(call.params)
                 let replaces = try run { try store.list()[name] != nil }
                 let request = EntryRequest(name: name, reason: reason, requester: asker.label, replaces: replaces)
@@ -91,7 +115,7 @@ enum CredentialVaultControl {
                                   by: person, event: "request")
                 }
                 return ["stored": .string(name), "replaced": .bool(replaces), "scope": .array(answer.scope.map { .string($0.rawValue) })]
-            }.withDeadline(.fixed(requestDeadline)),
+            }.withDeadline(.fixed(CredentialVault.requestDeadline)),
         ]
     }
 
@@ -158,10 +182,6 @@ enum CredentialVaultControl {
         ControlError.invalidParams(CredentialVaultStrings.missingParam(method, key))
     }
 
-    private static func available(_ vault: () -> CredentialVault?) throws -> CredentialVault {
-        guard let vault = vault() else { throw ControlError(code: "unavailable", message: CredentialVaultStrings.unavailable) }
-        return vault
-    }
 
     /// `body` with a vault failure as its control error.
     private static func run<T>(_ body: () throws -> T) throws -> T {

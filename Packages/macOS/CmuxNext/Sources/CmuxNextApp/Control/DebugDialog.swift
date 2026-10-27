@@ -1,6 +1,7 @@
 import CmuxNextCloudUI
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextCredentialVault
 import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextOnboarding
@@ -28,7 +29,7 @@ enum DebugDialog {
     /// link's new tab (any page or app can open the link).
     static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudPresenter.credentialRecoveryIdentifier, CloudPresenter.codexDeviceCodeIdentifier,
                                         CloudWorkspaceSetupWizard.credentialDialogIdentifier, DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
-                                        SessionLinkGate.dialogIdentifier, CredentialVaultEntrySheet.identifier]
+                                        SessionLinkGate.dialogIdentifier, CredentialVault.entrySheetIdentifier]
 
     /// Text fields whose value a report never shows (a password, a vault secret): their ids per dialog.
     static func secureFields(_ spec: CmuxDialogSpec) -> Set<String> {

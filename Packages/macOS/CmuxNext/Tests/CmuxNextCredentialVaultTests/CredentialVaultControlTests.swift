@@ -1,9 +1,8 @@
-@testable import CmuxNextApp
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextControl
+@testable import CmuxNextCredentialVault
 import CmuxNextDesign
-import CmuxNextDesignTokens
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -22,9 +21,9 @@ import Testing
 
     /// The person at the sheet: answers each request with `answer` and records what it was asked.
     final class Person: Sendable {
-        let answer: CredentialVaultControl.EntryAnswer?
-        let asked = Mutex([CredentialVaultControl.EntryRequest]())
-        init(answer: CredentialVaultControl.EntryAnswer?) { self.answer = answer }
+        let answer: CredentialVault.EntryAnswer?
+        let asked = Mutex([CredentialVault.EntryRequest]())
+        init(answer: CredentialVault.EntryAnswer?) { self.answer = answer }
     }
 
     static let secret = "sk-live-0123456789abcdef"
@@ -40,7 +39,7 @@ import Testing
         let folder: URL
     }
 
-    private func fixture(answer: CredentialVaultControl.EntryAnswer? = nil) throws -> Fixture {
+    private func fixture(answer: CredentialVault.EntryAnswer? = nil) throws -> Fixture {
         let folder = FileManager.default.temporaryDirectory.appending(path: "vault-\(UUID().uuidString)", directoryHint: .isDirectory)
         let secrets = MemorySecrets()
         let vault = CredentialVault(secrets: secrets, folder: folder)
@@ -49,7 +48,7 @@ import Testing
                                                              processID: getpid()),
                                    executor: RegistryControlBridge(registry: ActionRegistry(catalog: [])), settings: nil,
                                    configuration: ControlRouter.Configuration(requestDeadline: .seconds(30)))
-        router.register(CredentialVaultControl.methods(vault: { vault }, ask: { request in
+        router.register(vault.controlMethods(ask: { request in
             person.asked.withLock { $0.append(request) }
             return person.answer
         }))
@@ -151,12 +150,12 @@ import Testing
     }
 
     @Test func theChiefAsksThePersonOnTheSheetAndNeverHearsTheValue() async throws {
-        let f = try fixture(answer: CredentialVaultControl.EntryAnswer(value: Self.secret, scope: [.user, .agents]))
+        let f = try fixture(answer: CredentialVault.EntryAnswer(value: Self.secret, scope: [.user, .agents]))
         let answer = try await call(f, "vault.request", ["name": "OPENAI_API_KEY", "reason": "run the eval", "caller": Self.chief]).get()
         #expect(answer.objectValue?["stored"] == "OPENAI_API_KEY")
         #expect(!"\(answer)".contains(Self.secret))
         let asked = f.person.asked.withLock { $0 }
-        #expect(asked == [CredentialVaultControl.EntryRequest(name: "OPENAI_API_KEY", reason: "run the eval", requester: "the Chief", replaces: false)])
+        #expect(asked == [CredentialVault.EntryRequest(name: "OPENAI_API_KEY", reason: "run the eval", requester: "the Chief", replaces: false)])
         #expect(try f.secrets.value(for: "OPENAI_API_KEY") == Self.secret)
         let row = try await call(f, "vault.list", [:]).get().objectValue?["secrets"]?.arrayValue?.first?.objectValue
         #expect(row?["note"] == "run the eval")
@@ -176,16 +175,20 @@ import Testing
         #expect(f.person.asked.withLock { $0.count } == 1, "an invalid name never reaches the person")
     }
 
-    @Test func theSheetIsSecureAndItsAnswerCarriesTheScope() {
-        let spec = CredentialVaultEntrySheet.spec(.init(name: "GH_TOKEN", reason: "open the PR", requester: "the Chief", replaces: false))
-        #expect(DebugDialog.secureFields(spec) == [CredentialVaultEntrySheet.valueField])
-        #expect(DebugDialog.userOnly.contains(CredentialVaultEntrySheet.identifier))
-        let saved = CmuxDialogAnswer(button: CredentialVaultEntrySheet.saveButton, role: .default,
-                                     values: [CredentialVaultEntrySheet.valueField: .text("ghp_x1234"), CredentialVaultEntrySheet.agentsField: .bool(false)])
-        #expect(CredentialVaultEntrySheet.answer(saved) == .init(value: "ghp_x1234", scope: [.user]))
-        let empty = CmuxDialogAnswer(button: CredentialVaultEntrySheet.saveButton, role: .default, values: [CredentialVaultEntrySheet.valueField: .text("")])
-        #expect(CredentialVaultEntrySheet.answer(empty) == nil)
-        let cancelled = CmuxDialogAnswer(button: "cancel", role: .cancel, values: [CredentialVaultEntrySheet.valueField: .text("ghp_x1234")])
-        #expect(CredentialVaultEntrySheet.answer(cancelled) == nil)
+    @Test func theSheetHidesTheValueAndItsAnswerCarriesTheScope() {
+        let spec = CredentialVault.entrySheet(.init(name: "GH_TOKEN", reason: "open the PR", requester: "the Chief", replaces: false))
+        #expect(spec.identifier == CredentialVault.entrySheetIdentifier)
+        #expect(spec.fields.contains(.text(id: CredentialVault.entryValueField, label: CredentialVaultStrings.entryValueLabel, initial: "", placeholder: nil, secure: true)))
+        let field = CredentialVault.entryValueField, agents = CredentialVault.entryAgentsField, save = CredentialVault.entrySaveButton
+        let saved = CmuxDialogAnswer(button: save, role: .default, values: [field: .text("ghp_x1234"), agents: .bool(false)])
+        #expect(CredentialVault.entryAnswer(saved) == .init(value: "ghp_x1234", scope: [.user]))
+        let both = CmuxDialogAnswer(button: save, role: .default, values: [field: .text("ghp_x1234"), agents: .bool(true)])
+        #expect(CredentialVault.entryAnswer(both) == .init(value: "ghp_x1234", scope: [.user, .agents]))
+        let empty = CmuxDialogAnswer(button: save, role: .default, values: [field: .text("")])
+        #expect(CredentialVault.entryAnswer(empty) == nil)
+        let cancelled = CmuxDialogAnswer(button: "cancel", role: .cancel, values: [field: .text("ghp_x1234")])
+        #expect(CredentialVault.entryAnswer(cancelled) == nil)
+        let closed = CmuxDialogAnswer(button: save, role: .default, values: [field: .text("ghp_x1234")], isDismissal: true)
+        #expect(CredentialVault.entryAnswer(closed) == nil)
     }
 }
