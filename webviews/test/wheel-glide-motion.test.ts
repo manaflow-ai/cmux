@@ -207,14 +207,20 @@ test("notches honor the host motion speed and a zero duration remains native", (
   }
 });
 
-test("a subpixel non-bottom tail cannot become an extra WebKit pixel", () => {
+test.each(
+  [
+    [20, 20, 20, 20, 20, 20, 20, 20, 20],
+    [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 4],
+    [176.57, 3.43],
+  ].map((frames) => ({ frames })),
+)("subpixel travel is monotonic at every frame cadence (%j)", ({ frames }) => {
   const f = fixture();
   try {
     f.floorOffsets();
     f.wheel(-100.006103515625, { deltaMode: 0, wheelDeltaY: 300 });
     const offsets = [f.node.scrollTop];
-    for (let frame = 0; frame < 10; frame++) {
-      f.tick(20);
+    for (const duration of frames) {
+      f.tick(duration);
       offsets.push(f.node.scrollTop);
     }
     expect(offsets.slice(1).every((top, index) => top <= offsets[index]!)).toBe(true);
