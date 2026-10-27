@@ -19,13 +19,14 @@ import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
 import { DeliveryMark } from "./PromptDelivery";
-import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Spinner } from "./icons";
+import { ImageIcon, Spinner } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
 import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
-import { ForkButton, forkWithFeedback, MessageCopy, MessageTime, PromptRetry, ROW_ICON } from "./MessageActions";
+import { ForkButton, forkWithFeedback, MessageCopy, MessageTime, PromptRetry } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
+import { MessageActionIcon, MessageActionRow } from "./MessageActionRow";
 
 /// A waiting steer replaces the hover actions with queue controls until delivery is accepted.
 export function UserBubble({
@@ -122,11 +123,14 @@ export function UserBubble({
                 disabled={branch.index === 0}
                 onClick={() => branches.open(branch.sessions[branch.index - 1]!)}
               >
-                <ChevronLeft size={12} />
+                <MessageActionIcon name="previous" />
               </button>
               <span
                 className="cv-user__version-count"
-                aria-label={t("message.versionCount", { index: branch.index + 1, total: branch.sessions.length })}
+                aria-label={t("message.versionCount", {
+                  index: branch.index + 1,
+                  total: branch.sessions.length,
+                })}
               >
                 {branches.running?.has(branch.sessions[branch.index] ?? "") && <Spinner size={12} loading />}
                 {branch.index + 1}/{branch.sessions.length}
@@ -139,7 +143,7 @@ export function UserBubble({
                 disabled={branch.index === branch.sessions.length - 1}
                 onClick={() => branches.open(branch.sessions[branch.index + 1]!)}
               >
-                <ChevronRight size={12} />
+                <MessageActionIcon name="next" />
               </button>
             </span>
           )}
@@ -153,7 +157,7 @@ export function UserBubble({
               title={t("message.edit")}
               onClick={() => setEditing(true)}
             >
-              <Pencil size={ROW_ICON} />
+              <MessageActionIcon name="edit" />
             </button>
           )}
           {/* Not while it is still on its way: a second send would duplicate it. */}
@@ -176,7 +180,11 @@ function UserFooter({
   pending?: (actions: ReactNode) => ReactNode;
   children: ReactNode;
 }) {
-  return <div className={className}>{pending ? pending(children) : children}</div>;
+  return (
+    <MessageActionRow as="div" className={className}>
+      {pending ? pending(children) : children}
+    </MessageActionRow>
+  );
 }
 
 /// A prompt's images, each opening the image viewer; IncomingMessageCard shows another agent's.

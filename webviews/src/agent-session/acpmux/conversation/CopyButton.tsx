@@ -1,7 +1,7 @@
 // The copy button in a code card's or tool output's corner, and under a prompt or a turn. It says
 // "Copied", with a check, only when the clipboard took the text, and goes back to Copy after a
 // moment. Its name is also its tooltip: a bare copy glyph does not say what it copies.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { rovingTabStopProps } from "../../../ui/listRowKeyboard";
 import { useT } from "../i18n";
 import { copyTextResult } from "./clipboard";
@@ -16,6 +16,8 @@ export function CopyButton({
   className = "cv-codeblock__action",
   copy = copyTextResult,
   size,
+  icon,
+  copiedIcon,
   ...tabStop
 }: {
   text: string;
@@ -25,6 +27,9 @@ export function CopyButton({
   copy?: (text: string) => Promise<boolean>;
   /** The glyph's size; the icons' default when unset. */
   size?: number;
+  /** A shared message row can use the host's native symbol images. */
+  icon?: ReactNode;
+  copiedIcon?: ReactNode;
 } & Partial<ReturnType<typeof rovingTabStopProps>>) {
   const t = useT();
   const [copied, setCopied] = useState(false);
@@ -46,7 +51,7 @@ export function CopyButton({
         if (done) timer.current = window.setTimeout(() => setCopied(false), COPIED_MS);
       }}
     >
-      {copied ? <Check size={size} /> : <Copy size={size} />}
+      {copied ? (copiedIcon ?? <Check size={size} />) : (icon ?? <Copy size={size} />)}
     </button>
   );
 }

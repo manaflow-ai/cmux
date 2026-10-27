@@ -5,7 +5,7 @@
 // images too), Open in side chat (a message without images), Move up/down, queueing, Delete.
 import { useContext, useState } from "react";
 import { useT } from "../i18n";
-import { Icon } from "../icons/Icon";
+import { MessageActionIcon, MessageActionRow } from "./MessageActionRow";
 import type { AcpmuxRow, QueuedPromptImage } from "../model";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { setQueueing, useQueueing } from "../queueing";
@@ -60,7 +60,7 @@ export function QueuedMessageCard({
     </MenuItem>
   );
   const menu = (
-    <span className="cv-received-actions cv-received__queued-actions">
+    <MessageActionRow className="cv-received-actions cv-received__queued-actions">
       <MessageCopy text={message.text} />
       <Menu onOpenChange={(open) => open && setOpened((count) => count + 1)}>
         <MenuButton
@@ -70,7 +70,7 @@ export function QueuedMessageCard({
           title={t("composer.queueActions")}
           aria-haspopup="menu"
         >
-          <Icon name="action.more" size={14} />
+          <MessageActionIcon name="more" />
         </MenuButton>
         <MenuPopup
           side="bottom"
@@ -101,7 +101,7 @@ export function QueuedMessageCard({
           {act && item("composer.queueDelete", () => void act.remove(promptId).catch(fail))}
         </MenuPopup>
       </Menu>
-    </span>
+    </MessageActionRow>
   );
   return (
     <div className="cv-incoming" data-queued-message={promptId}>
@@ -128,7 +128,7 @@ export function SteerWaitingActions({ promptId, send }: { promptId?: string; sen
   return (
     <>
       {promptId && (
-        <span className="cv-received-actions cv-received__queued-actions">
+        <MessageActionRow className="cv-received-actions cv-received__queued-actions">
           <Menu>
             <MenuButton
               className="cv-iconbtn cv-iconbtn--compact"
@@ -137,7 +137,7 @@ export function SteerWaitingActions({ promptId, send }: { promptId?: string; sen
               title={t("composer.queueActions")}
               aria-haspopup="menu"
             >
-              <Icon name="action.more" size={14} />
+              <MessageActionIcon name="more" />
             </MenuButton>
             <MenuPopup
               side="bottom"
@@ -150,7 +150,7 @@ export function SteerWaitingActions({ promptId, send }: { promptId?: string; sen
               </MenuItem>
             </MenuPopup>
           </Menu>
-        </span>
+        </MessageActionRow>
       )}
     </>
   );

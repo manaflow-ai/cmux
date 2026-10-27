@@ -8,10 +8,10 @@ import { PullRequestDock } from "../summary/PullRequestDock";
 import { useContext, useRef, useState, type ReactNode } from "react";
 import { useMinuteClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
-import { Icon } from "../icons/Icon";
+import { MessageActionIcon, MessageActionRow, MESSAGE_ACTION_ICON } from "./MessageActionRow";
 import type { AcpmuxRow } from "../model";
 import { useRowMark } from "../threadMinimap/promptMarks";
-import { AlertCircle, Check, DoubleCheck, Pin, Retry, Speaker, Spinner, TurnFork } from "./icons";
+import { AlertCircle, Check, DoubleCheck, Spinner } from "./icons";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
 import { exactTime, relativeTime } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
@@ -20,7 +20,7 @@ import { RetryModelMenu } from "./RetryModelMenu";
 import { TurnActionsContext } from "./turnActions";
 
 /// A hover row's glyph size: Claude's 16 px icons, each in a 24 px (--cv-meta-row) button.
-export const ROW_ICON = 16;
+export const ROW_ICON = MESSAGE_ACTION_ICON;
 
 /// The message's age, relative and live; the exact date and time above it on hover, as Claude's.
 export function MessageTime({ at, className }: { at: number; className: string }) {
@@ -54,7 +54,16 @@ export function MessageDot() {
 /// row's compact size.
 export function MessageCopy({ text }: { text: string }) {
   const t = useT();
-  return <CopyButton text={text} label={t("turn.copy")} className="cv-iconbtn cv-iconbtn--compact" size={ROW_ICON} />;
+  return (
+    <CopyButton
+      text={text}
+      label={t("turn.copy")}
+      className="cv-iconbtn cv-iconbtn--compact"
+      size={ROW_ICON}
+      icon={<MessageActionIcon name="copy" />}
+      copiedIcon={<MessageActionIcon name="copied" />}
+    />
+  );
 }
 
 /// Use the live host action when the page has one: unlike the turn context's legacy callback, it
@@ -129,11 +138,11 @@ export function ForkButton({ onFork }: { onFork(): unknown }) {
       {state === "pending" ? (
         <Spinner size={ROW_ICON} loading />
       ) : state === "done" ? (
-        <Check size={ROW_ICON} />
+        <MessageActionIcon name="copied" />
       ) : state === "failed" ? (
         <AlertCircle size={ROW_ICON} />
       ) : (
-        <TurnFork size={ROW_ICON} />
+        <MessageActionIcon name="fork" />
       )}
     </button>
   );
@@ -155,7 +164,7 @@ export function PinButton({ rowId }: { rowId: string }) {
       title={label}
       onClick={mark.toggle}
     >
-      <Pin size={ROW_ICON} filled={mark.marked} />
+      <MessageActionIcon name={mark.marked ? "pinned" : "pin"} />
     </button>
   );
 }
@@ -177,7 +186,7 @@ export function MessageMore({ rowId }: { rowId: string }) {
       title={label}
       onClick={(event) => openMessageMenu(rowId, event.currentTarget)}
     >
-      <Icon name="action.more" size={ROW_ICON} />
+      <MessageActionIcon name="more" />
     </button>
   );
 }
@@ -198,7 +207,7 @@ export function ReadAloudButton({ id, text }: { id: string; text: string }) {
       title={label}
       onClick={() => readAloud(id, text, language)}
     >
-      <Speaker size={ROW_ICON} />
+      <MessageActionIcon name="speaker" />
     </button>
   );
 }
@@ -252,7 +261,7 @@ export function PromptRetry({ rowId, prompt }: { rowId: string; prompt: string }
         data-tooltip-detail={t("turn.retryLabel")}
         onClick={() => retry(rowId, prompt)}
       >
-        <Retry size={ROW_ICON} />
+        <MessageActionIcon name="retry" />
       </button>
       {retryWith && retryWith.models.length > 1 && (
         <RetryModelMenu retryWith={retryWith} onPick={(model) => retryWith.retry(rowId, prompt, model)} />
@@ -278,16 +287,20 @@ export function PromptActions({
       <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
     </>
   );
-  return <div className="cv-user__actions">{pending ? pending(actions) : actions}</div>;
+  return (
+    <MessageActionRow as="div" className="cv-user__actions">
+      {pending ? pending(actions) : actions}
+    </MessageActionRow>
+  );
 }
 
 /// The hover row at the end of a message this agent sent another one (MessageCard.tsx): Copy,
 /// kept clear of the line's words.
 export function SentActions({ text }: { text: string }) {
   return (
-    <span className="cv-sent-actions">
+    <MessageActionRow className="cv-sent-actions">
       <MessageCopy text={text} />
-    </span>
+    </MessageActionRow>
   );
 }
 
@@ -296,12 +309,12 @@ export function SentActions({ text }: { text: string }) {
 export function ReceivedActions({ row, text }: { row: AcpmuxRow; text: string }) {
   return (
     <>
-      <span className="cv-received-actions">
+      <MessageActionRow className="cv-received-actions">
         <MessageTime at={row.at} className="cv-user__time" />
         <MessageCopy text={text} />
         <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
         <PinButton rowId={row.id} />
-      </span>
+      </MessageActionRow>
       <PullRequestDock />
     </>
   );
