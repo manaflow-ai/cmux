@@ -43,6 +43,17 @@ hits). The CI-read baseline stays the Linux run's, the one CI repeats, so a
 merged run never writes it (--update-baseline and --init-baseline take one
 run).
 
+--classify (Q21, p10-stability-205) prints every merged hit with its trap
+class, `input` (outside input can reach the operand: validate it and return
+a typed error to the request or frame boundary) or `invariant` (an
+`#[expect(..., reason = "INVARIANT: <why>")]` or a restructure), and the
+rule that gave it, as JSON {classes, kinds, hits, errors}; it compares
+nothing. The rules are crash_ratchet.py's TrapClassifier.classify (one
+definition for Swift and Rust): a `// trap-class: <class> <why>` mark, an
+`INVARIANT:` reason in the hit's window, a trap-classes.json path entry,
+the Q14 reachability proxy (a decode entry point, a byte read, or a
+same-file callee of one), else invariant. Exit 1 when a mark is bad.
+
 Report-only lints (REPORT_LINTS, lab only; plans/cmux-next/chrome-parity/p10-stability.md
 task 114): CI uses --flags and never sees them. The lab run adds them with --report-flags and
 the lab clippy.toml (await-holding-invalid-types, future-size-threshold):
@@ -56,6 +67,7 @@ CI compare mode never reads that baseline, and REPORT_LINTS hits never count in 
 import argparse
 import collections
 import fnmatch
+import importlib.util
 import itertools
 import json
 import os
@@ -396,6 +408,48 @@ def report(checked, counts, files, fmt, only=None):
         for crate in sorted(by_crate):
             for loc, lint in sorted(by_crate[crate]):
                 print(f"| {crate} | {SHORT[lint]} | {loc} |")
+
+
+def load_crash_ratchet():
+    """crash_ratchet.py beside this file: its TrapClassifier is the one definition of the trap classes."""
+    spec = importlib.util.spec_from_file_location("cmux_next_crash_ratchet", os.path.join(HERE, "crash_ratchet.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def repo_path(repo, file_name):
+    """A clippy span's file relative to REPO: workspace members are named relative to cmux-tui/, an absolute path
+    inside REPO keeps its part under it, and one outside (another checkout) is named by workspace_path()."""
+    path = file_name.replace("\\", "/")
+    if path.startswith("/"):
+        rel = os.path.relpath(path, repo).replace(os.sep, "/")
+        if not rel.startswith("../"):
+            return rel
+        path = workspace_path(path)
+    return "cmux-tui/" + path
+
+
+def classify(repo, runs, classifier=None):
+    """The --classify document of the merged RUNS (crash_ratchet.classified's shape): one row per hit at
+    file:line:column, with its crate, lint, class and rule."""
+    ratchet = load_crash_ratchet()
+    classifier = classifier or ratchet.TrapClassifier(repo)
+    merged = {}
+    for run in runs:
+        for key, crate in run.hits.items():
+            merged.setdefault(key, crate)
+    sites = []
+    for (file_name, line, column, lint), crate in merged.items():
+        rel = repo_path(repo, file_name)
+        sites.append((ratchet.Site("clippy", "rust", lint, crate, rel, int(line or 0), 1), column))
+    document = ratchet.classified(classifier, [site for site, _ in sites])
+    columns = {(site.path, site.line, site.kind): [] for site, _ in sites}
+    for site, column in sites:
+        columns[(site.path, site.line, site.kind)].append(column)
+    for row in document["hits"]:
+        row["column"] = columns[(row["path"], row["line"], row["kind"])].pop(0)
+    return document
 
 
 def load_report_baseline():
@@ -809,6 +863,8 @@ def main():
     parser.add_argument("--update-baseline", action="store_true", help="lower the baseline to the counts seen")
     parser.add_argument("--init-baseline", action="store_true", help="write the baseline from scratch (first run only)")
     parser.add_argument("--report", choices=["md", "json"])
+    parser.add_argument("--classify", action="store_true",
+                        help="print every hit with its trap class (input or invariant) and rule as JSON; compares nothing")
     parser.add_argument("--report-flags", action="store_true",
                         help="print the lab clippy flags (--flags plus the report-only lints) and exit")
     parser.add_argument("--tracked-report", choices=["md", "json"],
@@ -849,6 +905,15 @@ def main():
             print(f"rust-panic-ratchet: the {run.label} clippy run did not finish successfully (no build-finished"
                   " success line); counts from a partial build prove nothing", file=sys.stderr)
             return 2
+    if args.classify:
+        if args.update_baseline or args.init_baseline or args.report or args.queue:
+            parser.error("--classify only reports: it does not go with --update-baseline, --init-baseline, --report"
+                         " or --queue")
+        document = classify(args.repo, runs)
+        print(json.dumps(document, indent=1, sort_keys=True))
+        for error in document["errors"]:
+            print("rust-panic-ratchet: classify: " + error, file=sys.stderr)
+        return 1 if document["errors"] else 0
     if args.queue:
         queue = build_queue(runs, QueueSource(args.repo))
         print(queue_markdown(queue) if args.queue == "md" else json.dumps(queue, indent=1))

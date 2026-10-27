@@ -695,10 +695,12 @@ mod tests {
         let digest = format!("{:x}", Sha256::digest(b"linux build"));
         let manifest = serde_json::json!({ "commit": "build", "binaries": { name: digest } });
         std::fs::write(artifacts.join("manifest.json"), manifest.to_string()).unwrap();
-        let runtime =
-            cmux_blocking::runtime::current_thread("test", cmux_threads::ThreadQos::Utility)
-                .build()
-                .unwrap();
+        let runtime = cmux_blocking::runtime::current_thread(
+            "cmux-remote-test",
+            cmux_threads::ThreadQos::Utility,
+        )
+        .build()
+        .unwrap();
         let stalled = cmux_blocking::counts().stalled;
 
         let resolved = cmux_blocking::runtime::block_on(
