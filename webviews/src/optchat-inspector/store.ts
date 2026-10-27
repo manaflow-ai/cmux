@@ -1,14 +1,21 @@
 // A small read cache over the inspector API for useSyncExternalStore: one entry per URL, fetched
-// on first read, optionally refreshed on an interval while something is subscribed. No effects:
-// the subscription itself starts and stops the refresh timer.
+// on first read, optionally refreshed while something is subscribed. No effects: the subscription
+// itself starts and stops the refresh.
+//
+// The inspector's API has no push, so a refresh rides the page's one clock (ui/pageClock.ts): it
+// wakes on the clock's aligned second or minute only while the page shows, and reads once on show
+// when a refresh fell due while hidden. A hidden inspector runs no timer (p14-energy-062a), as
+// Chrome stops a hidden page's timers (third_party/blink/renderer/platform/scheduler/main_thread/page_scheduler_impl.cc).
+
+import { type PageClock, clockPeriodMs, pageClockFor } from "../ui/pageClock";
 
 export type Entry<T> = { data?: T; error?: string; loading: boolean };
 
 type Slot = {
   entry: Entry<unknown>;
   listeners: Set<() => void>;
-  timer?: ReturnType<typeof setInterval>;
-  every?: number;
+  /** Stops the refresh; set while a subscriber asked for one. */
+  stopRefresh?: () => void;
   /** When the last listener left (0 while subscribed): idle slots are evicted oldest first. */
   idleSince: number;
 };
@@ -57,7 +64,14 @@ export const defaultFetcher: Fetcher = httpFetcher;
 
 export class ApiStore {
   private slots = new Map<string, Slot>();
-  constructor(private fetcher: Fetcher = defaultFetcher) {}
+  /**
+   * @param clock The page's clock; the current document's by default, made on the first refresh.
+   *   A test passes one on a fake lifecycle and fake timers.
+   */
+  constructor(
+    private fetcher: Fetcher = defaultFetcher,
+    private clock?: PageClock,
+  ) {}
 
   private slot(url: string): Slot {
     let s = this.slots.get(url);
@@ -88,26 +102,42 @@ export class ApiStore {
     for (const l of s.listeners) l();
   }
 
-  /** Subscribes to `url`; `every` ms refreshes it while subscribed. Returns the unsubscribe. */
+  /**
+   * Subscribes to `url`; `every` ms refreshes it while subscribed and the page shows. Returns the
+   * unsubscribe.
+   */
   subscribe(url: string, listener: () => void, every?: number): () => void {
     const s = this.slot(url);
     s.listeners.add(listener);
     s.idleSince = 0;
-    if (every && !s.timer) {
-      s.every = every;
-      s.timer = setInterval(() => {
-        if (typeof document === "undefined" || document.visibilityState !== "hidden") void this.load(url);
-      }, every);
-    }
+    if (every && !s.stopRefresh) s.stopRefresh = this.refreshEvery(url, every);
     return () => {
       s.listeners.delete(listener);
       if (s.listeners.size === 0) {
-        if (s.timer) clearInterval(s.timer);
-        s.timer = undefined;
+        s.stopRefresh?.();
+        s.stopRefresh = undefined;
         s.idleSince = Date.now();
         this.evict();
       }
     };
+  }
+
+  /**
+   * Reads `url` again on the first tick of the page's clock at least `every` ms after the last read
+   * it started: on the second clock below a minute, on the minute clock from a minute up. The clock
+   * ticks only while the page shows, and once on show when a tick was missed, which reads what fell
+   * due while hidden.
+   */
+  private refreshEvery(url: string, every: number): () => void {
+    this.clock ??= pageClockFor();
+    const clock = this.clock;
+    let due = clock.now() + every;
+    return clock.subscribe(every < clockPeriodMs("minute") ? "second" : "minute", () => {
+      const now = clock.now();
+      if (now < due) return;
+      due = now + every;
+      void this.load(url);
+    });
   }
 
   /** Drops the oldest idle answers beyond `KEEP_IDLE`. */
