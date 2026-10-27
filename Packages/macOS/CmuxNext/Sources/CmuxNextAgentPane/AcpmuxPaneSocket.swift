@@ -397,7 +397,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             self?.cancelHostReply(id, lateReply: lateReply)
         }
         defer { timeout.cancel() }
-        return try await withTaskCancellationHandler {
+        let data: Data = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 let callback: @Sendable ([String: Any]) -> Void = { object in
                     if object["_cmuxCancelled"] as? Bool == true {
@@ -405,7 +405,9 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     } else if let error = object["error"] as? [String: Any] {
                         continuation.resume(throwing: AgentPaneUploadError.rpc(error["message"] as? String ?? "upload refused"))
                     } else {
-                        continuation.resume(returning: object["result"] as? [String: Any] ?? [:])
+                        do {
+                            continuation.resume(returning: try JSONSerialization.data(withJSONObject: object["result"] as? [String: Any] ?? [:]))
+                        } catch { continuation.resume(throwing: error) }
                     }
                 }
                 let registered = state.withLock { state in
@@ -426,6 +428,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                 else if send(text) != nil { failed() }
             }
         } onCancel: { self.cancelHostReply(id, lateReply: lateReply) }
+        return try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
     }
 
     private func cancelHostReply(_ id: Int, lateReply: (@Sendable ([String: Any]) -> Void)? = nil) {
