@@ -297,8 +297,8 @@ you would not hand to that person.
 
 Codex's own rules on the host still apply in every mode. A command that a rule
 in `~/.codex/rules` explicitly allows, such as a prefix someone once approved
-with "always allow", runs outside the sandbox without asking, in `read-only`
-as in `ask`.
+with "always allow", runs without asking. In `ask` it runs outside the sandbox;
+in `read-only` it stays inside the read-only sandbox.
 
 ## Use cmux Cloud
 

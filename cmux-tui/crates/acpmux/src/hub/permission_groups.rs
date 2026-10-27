@@ -331,8 +331,10 @@ impl Hub {
         params: Value,
         control: Control,
     ) -> Result<Value, RpcError> {
-        // Checked again here, at the answer, not only in the remote guard.
-        self.web_control_check(session, control)?;
+        // The Web's asking rule, at the answer: a deny only narrows
+        // (`Hub::web_answer_check`). A group allow carries no proof.
+        let narrows = params["decision"].as_str() == Some("deny");
+        self.web_answer_check(session, control, narrows, false)?;
         let text = |key: &str| -> Result<String, RpcError> {
             params[key]
                 .as_str()

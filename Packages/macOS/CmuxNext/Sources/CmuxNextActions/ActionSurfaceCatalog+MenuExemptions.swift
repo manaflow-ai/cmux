@@ -37,6 +37,7 @@ nonisolated extension ActionSurfaceCatalog {
             "switchRightSidebarToDock", "switchRightSidebarToMachines", "palette.toggleMatchTerminalBackground",
             "showNotifications", "feed.show", "markAllNotificationsRead",
             "clearAllNotifications", "notifications.toggleBanners", "notifications.dismissal.keystroke",
+            "notifications.setAgentSound", "notifications.setEventSound", "notifications.importSound",
             "notifications.dismissal.focus", "notifications.dismissal.click", "notifications.dismissal.explicit",
             "notifications.dismissal.timeout", "notifications.dismissal.never", "palette.openTerminalChatView",
             "palette.quickAgentChat",
