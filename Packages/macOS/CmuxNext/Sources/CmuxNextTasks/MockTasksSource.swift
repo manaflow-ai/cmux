@@ -36,6 +36,7 @@ public final class MockTasksSource: TasksSource {
         guard connected else { return }
         sentKeys.append(intent.key)
         if echoImmediately {
+            // main-hop-allow: demo and test source: the echo stands for the owner's reply on a later turn
             Task { @MainActor [weak self] in self?.commit(intent) }
         } else {
             held.append(intent)

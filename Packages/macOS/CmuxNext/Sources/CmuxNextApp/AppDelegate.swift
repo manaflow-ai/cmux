@@ -211,7 +211,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let ghosttyConfigLiveReload = GhosttyConfigLiveReload(deadlines: services.mainDeadlines)
         self.ghosttyConfigLiveReload = ghosttyConfigLiveReload
         ghosttyConfigLiveReload.startAfterStartup(on: order.startup)
-        // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
+        // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface. Inline before the restore: a
+        // pane can mount before the first frame, and its key-equivalent path reads these hooks on every key.
         TerminalHooks(services: services).install()
         // The terminal key path's input-source switch keys, read off main now and on each activation.
         GhosttyRuntime.shared.inputSources.start(runner: services.work)
@@ -225,11 +226,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MainMenu.install(registry: services.registry, blocking: services.blocking, decidedKey: services.decidedKey, on: order.startup)  // critical `MainMenu.make`
         DebugTimings.markLaunch("dfl.menu")
         HandlerCoverage.verifyAtLaunch(services.registry)  // every handler is bound by now; Debug builds only
-        WindowActivation.activateApp()
+        order.startup.post(.critical, "WindowActivation.activateApp", on: .main) { WindowActivation.activateApp() }
         launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup, on: services.mainWork)
         launchSettle.dropLaunchReads(frames: services.terminalLaunchFrames, pages: services.launchImages, features: services.features, images: launchImageHold)  // p07-memory-083
-        daemonPrompts = DaemonPrompts.start(services)
-        services.startLocalDaemon(prestart: daemonPrestart)  // the painted terminal colors first (OSC 10/11/12)
+        // The painted terminal colors first (OSC 10/11/12), and the prompts' side-event subscriptions before the connect.
+        daemonPrompts = services.startLocalDaemon(prestart: daemonPrestart)
         services.lifetimeFollowers.append(FeaturePolicyEnforcer(services: services).start())
         services.postCloudStart(on: order.startup)  // no Cloud restore or connect before the first frame (p08-startup 020)
         services.postNonPaintServices(on: order.startup)
@@ -275,8 +276,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.browserProfiles.load(directory: profilesDirectory, importStore: services.onboarding.importStore)
         DebugTimings.markLaunch("dfl.first_window_hooks")
         services.home.startWorkspace()  // the restore's first workspace waits for ensure_home; the Chief owner is a feed post
-        mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
-        services.keybindingsFile.start()
+        order.startup.post(.afterFirstFrame, "MouseSideButtons.start", on: .main) { [weak self, weak services] in
+            self?.mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
+        }
+        order.startup.post(.afterFirstFrame, "KeybindingsFile.start", on: .main) { [weak services] in services?.keybindingsFile.start() }
         services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore)
         services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
         // cmux-page:// first-party pages for Chromium, before any window can start it.
@@ -335,7 +338,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         order.startup.post(.afterStartup, "WebUpdates.startChecks", on: .main) { WebUpdates.shared.startChecks() }
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
+        // Managed-settings status for MDM tooling (osquery, Fleet, Jamf), plans/cmux-next/enterprise.md: written on the files lane after startup.
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        // One sequence: each write replaces the file, so a later status must never land before an earlier one.
+        let statusWrites = services.work.sequence("settings.managed-status")
+        settings.writeManagedStatus(to: ManagedStatusReport.defaultURL(bundleID: bundleID),
+                                    context: ManagedStatusReport.Context(appVersion: version, bundleID: bundleID)) { [startup = order.startup] write in
+            startup.post(.afterStartup, "Settings.writeManagedStatus", on: .sequence(statusWrites, .bestEffort), write)
+        }
         settings.applyManagedFeaturesNow()
+        settings.adoptLaunchRead()  // the first load from the launch read, no file call: the first frame is in the file's look
         services.lifetimeFollowers += ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloudAuth, mainWork: services.mainWork, appEvents: services.appEvents).start()
         self.settings = settings
         services.settings = settings
@@ -347,26 +360,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         order.startup.post(.afterFirstFrame, "Settings.followActivation", on: .main) { [weak settings, events = services.appEvents] in
             settings?.followActivation(on: events)
         }
-        // Every palette-exposed schema setting in the palette (R93).
-        services.palettes.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
-            services?.windows.active.map { SettingsPaletteSource.themeColors($0.themeScope.tokens) } ?? []
+        // Every palette-exposed schema setting in the palette (R93), and the recorder's writes; neither builds the palette.
+        order.startup.post(.afterFirstFrame, "Palette.settingsSource", on: .main) { [weak services, weak settings] in
+            guard let services, let settings else { return }
+            services.palettes.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
+                services?.windows.active.map { SettingsPaletteSource.themeColors($0.themeScope.tokens) } ?? []
+            }
+            services.paletteShortcutEditor = PaletteShortcutEditor(services: services, settings: settings)
         }
         // Neither the first frame nor a page engine reads these (p08-startup-028).
         LaunchServicePosts.browserFollows(historyDaemonSync: { [weak services] in services?.history.startDaemonSync(settings: settings) },
                                           locationTrailScope: { [weak services] in services?.locationTrail.watchScope(settings: settings) }).post(on: order.startup)
-        let shortcutEditor = PaletteShortcutEditor(services: services, settings: settings)
-        services.paletteShortcutEditor = shortcutEditor  // the palette's recorder writes through it once built
-        // Managed-settings status for MDM tooling (osquery, Fleet, Jamf), plans/cmux-next/enterprise.md: written on the files lane after startup.
-        let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
-        // One sequence: each write replaces the file, so a later status must never land before an earlier one.
-        let statusWrites = services.work.sequence("settings.managed-status")
-        settings.writeManagedStatus(to: ManagedStatusReport.defaultURL(bundleID: bundleID),
-                                    context: ManagedStatusReport.Context(appVersion: version, bundleID: bundleID)) { [startup = order.startup] write in
-            startup.post(.afterStartup, "Settings.writeManagedStatus", on: .sequence(statusWrites, .bestEffort), write)
+        // The file watches and the diagnostic toasts; the launch read is applied above, and the start reloads once.
+        order.startup.post(.afterFirstFrame, "Settings.start", on: .main) { [weak settings] in settings?.start(announcingDiagnostics: true) }
+        AppProcessRoot.shared.hangReports?.recordUserWrites(of: settings)  // the person's own consent, from the first write on
+        order.startup.post(.afterStartup, "HangReports.start", on: .main) { [weak settings, asks = services.machineAsks, startup = order.startup] in
+            if let settings { AppProcessRoot.shared.hangReports?.start(settings: settings, asks: asks, firstWindow: { await startup.afterFirstFrame() }) }
         }
-        settings.start(announcingDiagnostics: true)
-        AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [startup = order.startup] in await startup.afterFirstFrame() })
         // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
         let acpmux = QuitAgents.environment(services)
         services.lifetimeFollowers += ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath, on: services.mainWork)
@@ -385,22 +395,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second
         // inbox store.
-        Task { [weak services, weak settings] in
-            guard let settings else { return }
-            await settings.waitForLoad(atLeast: 1)
-            for await github in ObservationStream({ settings.snapshot.feedGitHub }) {
+        order.startup.post(.afterStartup, "FeedGitHub.follow", on: .main) { [weak services, weak settings] in
+            guard let services, let settings else { return }
+            services.lifetimeFollowers.append(ServiceObservation(.background, owner: "FeedGitHub.setting", on: services.mainWork) {
+                settings.snapshot.feedGitHub
+            } apply: { [weak services] github in
                 services?.configureFeedGitHub(enabled: github.enabled, pollIntervalSeconds: github.pollIntervalSeconds)  // builds no feed
-            }
+            })
         }
-        services.configActions.start(settings: settings)
+        order.startup.post(.afterFirstFrame, "ConfigActions.start", on: .main) { [weak services, weak settings] in
+            if let settings { services?.configActions.start(settings: settings) }  // cmux.json's custom actions for the palette and menus
+        }
         // What an engine reads when it makes a page or starts, before any does (managed policy included).
         services.cache.browserTabs.preference.follow(settings, on: services.mainWork)
         services.lifetimeFollowers += BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, chromium: services.cache.chromium, on: services.mainWork)
-        WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
+        order.startup.post(.afterFirstFrame, "WorkspaceAutoName.start", on: .main) { [weak services, weak settings] in
+            if let services, let settings { WorkspaceAutoNameWiring(services: services).start(settings: settings) }  // `workspaces.autoName.variant` persist (hq#1957)
+        }
         services.lifetimeFollowers += BrowserOmnibarPreference.follow(settings, cache: services.cache, on: services.mainWork)
-        services.terminalTheme.follow(settings)
-        services.themes.start()
-        services.themes.followChromeTheme(settings)
+        // The look of the first frame: the loaded theme, background and backdrop art, then each workspace's theme and the app accent.
+        order.startup.post(.critical, "TerminalTheme.follow", on: .main) { services.terminalTheme.follow(settings) }
+        order.startup.post(.critical, "Themes.start", on: .main) { services.themes.start(); services.themes.followChromeTheme(settings) }
         services.bookmarks.follow(settings)
         // controlSocketEarlyBind: the control posts, after the first frame (p08-startup-019).
         control.postLaunch(socket: controlSocket, order: order, services: services, settings: settings, launch: environment.launch, logger: logger)
