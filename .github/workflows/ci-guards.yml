@@ -206,6 +206,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_bash32_linux_job.py
 
+      - name: Validate the macOS keychain real-import runs only for keychain changes
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_signing_keychain_real_import_gate.py
+
       - name: Validate v0.64.25 rpath repair workflow contract
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: bash tests/test_repair_v06425_workflow.sh
@@ -777,6 +781,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_next_macos_cascade.py
 
+      - name: Validate that no job runs on a GitHub-hosted Mac
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_no_github_hosted_macos.py
+
       - name: Validate agent pane frame pacing summary
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_frame_pacing_summary.py
@@ -828,6 +836,10 @@ jobs:
       - name: Validate side-lane placement onto idle owned runners
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_side_lane_placement.py
+
+      - name: Validate the rescue's re-runs route alike for both bot identities
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rescue_actors.py
 
       - name: Validate session jobs keep the gui label until runners carry the session label
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1411,6 +1423,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_github_release_publication.py
 
+      - name: Validate every release publisher call passes an immutable asset
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_publish_release_assets_callers.py
+
       - name: Validate the Homebrew cask update gate
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_release_homebrew_gate.py
@@ -1572,6 +1588,10 @@ jobs:
       - name: Validate the nightly signing jobs take a Blacksmith label with a moving queue
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_sign_runner.py
+
+      - name: Validate the nightly-next build takes an idle owned Mac or a moving Blacksmith label
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_build_runner.py
 
       - name: Validate test compilation cache seeding
         if: ${{ !cancelled() && matrix.group == 'quality-sharding' }}

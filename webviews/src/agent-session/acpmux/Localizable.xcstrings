@@ -111300,6 +111300,7 @@
         }
       }
     },
+    "composer.addMachine": {"comment":"Agent pane: the environment picker's last row; opens Add Device (a computer on the tailnet or in ~/.ssh/config, or a new Cloud VM)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Add Machine…"}},"ar":{"stringUnit":{"state":"needs_review","value":"إضافة جهاز…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Dodaj mašinu…"}},"da":{"stringUnit":{"state":"needs_review","value":"Tilføj maskine…"}},"de":{"stringUnit":{"state":"needs_review","value":"Rechner hinzufügen…"}},"es":{"stringUnit":{"state":"needs_review","value":"Añadir máquina…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ajouter une machine…"}},"it":{"stringUnit":{"state":"needs_review","value":"Aggiungi macchina…"}},"ja":{"stringUnit":{"state":"needs_review","value":"マシンを追加…"}},"km":{"stringUnit":{"state":"needs_review","value":"បន្ថែមម៉ាស៊ីន…"}},"ko":{"stringUnit":{"state":"needs_review","value":"머신 추가…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Legg til maskin…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Dodaj maszynę…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Adicionar máquina…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Добавить машину…"}},"th":{"stringUnit":{"state":"needs_review","value":"เพิ่มเครื่อง…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Makine ekle…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Додати машину…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Thêm máy…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"添加机器…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"新增機器…"}}}},
     "composer.connectSSH": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -111830,6 +111831,9 @@
     },
     "composer.envMine": {"comment":"Agent pane: environment picker and Computer menu section of the person's own SSH machines that acpmux lists","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أجهزتي"}},"bs":{"stringUnit":{"state":"needs_review","value":"Moje mašine"}},"da":{"stringUnit":{"state":"needs_review","value":"Mine maskiner"}},"de":{"stringUnit":{"state":"needs_review","value":"Meine Rechner"}},"en":{"stringUnit":{"state":"translated","value":"My machines"}},"es":{"stringUnit":{"state":"needs_review","value":"Mis máquinas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Mes machines"}},"it":{"stringUnit":{"state":"needs_review","value":"Le mie macchine"}},"ja":{"stringUnit":{"state":"needs_review","value":"自分のマシン"}},"km":{"stringUnit":{"state":"needs_review","value":"ម៉ាស៊ីនរបស់ខ្ញុំ"}},"ko":{"stringUnit":{"state":"needs_review","value":"내 머신"}},"nb":{"stringUnit":{"state":"needs_review","value":"Mine maskiner"}},"pl":{"stringUnit":{"state":"needs_review","value":"Moje maszyny"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Minhas máquinas"}},"ru":{"stringUnit":{"state":"needs_review","value":"Мои машины"}},"th":{"stringUnit":{"state":"needs_review","value":"เครื่องของฉัน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Makinelerim"}},"uk":{"stringUnit":{"state":"needs_review","value":"Мої машини"}},"vi":{"stringUnit":{"state":"needs_review","value":"Máy của tôi"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"我的机器"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"我的機器"}}}},
     "composer.envFleet": {"comment":"Agent pane: environment picker and Computer menu section of Cloud machines and pools of numbered VMs (lane-1, lane-2) that acpmux lists","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"السحابة والأجهزة الافتراضية"}},"bs":{"stringUnit":{"state":"needs_review","value":"Cloud i VM-ovi"}},"da":{"stringUnit":{"state":"needs_review","value":"Cloud og VM'er"}},"de":{"stringUnit":{"state":"needs_review","value":"Cloud und VMs"}},"en":{"stringUnit":{"state":"translated","value":"Cloud and VMs"}},"es":{"stringUnit":{"state":"needs_review","value":"Nube y VM"}},"fr":{"stringUnit":{"state":"needs_review","value":"Cloud et VM"}},"it":{"stringUnit":{"state":"needs_review","value":"Cloud e VM"}},"ja":{"stringUnit":{"state":"needs_review","value":"クラウドとVM"}},"km":{"stringUnit":{"state":"needs_review","value":"ពពក និង VM"}},"ko":{"stringUnit":{"state":"needs_review","value":"클라우드 및 VM"}},"nb":{"stringUnit":{"state":"needs_review","value":"Sky og VM-er"}},"pl":{"stringUnit":{"state":"needs_review","value":"Chmura i maszyny wirtualne"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Nuvem e VMs"}},"ru":{"stringUnit":{"state":"needs_review","value":"Облако и ВМ"}},"th":{"stringUnit":{"state":"needs_review","value":"คลาวด์และ VM"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bulut ve VM'ler"}},"uk":{"stringUnit":{"state":"needs_review","value":"Хмара та ВМ"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đám mây và VM"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"云端和虚拟机"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"雲端和虛擬機"}}}},
+    "composer.envOpenMachine": {"comment":"Agent pane: environment picker and Computer menu, after a Cloud machine of the person's account that acpmux does not list: a pick opens the machine","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"فتح"}},"bs":{"stringUnit":{"state":"needs_review","value":"Otvori"}},"da":{"stringUnit":{"state":"needs_review","value":"Åbn"}},"de":{"stringUnit":{"state":"needs_review","value":"Öffnen"}},"en":{"stringUnit":{"state":"translated","value":"Open"}},"es":{"stringUnit":{"state":"needs_review","value":"Abrir"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ouvrir"}},"it":{"stringUnit":{"state":"needs_review","value":"Apri"}},"ja":{"stringUnit":{"state":"needs_review","value":"開く"}},"km":{"stringUnit":{"state":"needs_review","value":"បើក"}},"ko":{"stringUnit":{"state":"needs_review","value":"열기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Åpne"}},"pl":{"stringUnit":{"state":"needs_review","value":"Otwórz"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Abrir"}},"ru":{"stringUnit":{"state":"needs_review","value":"Открыть"}},"th":{"stringUnit":{"state":"needs_review","value":"เปิด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Aç"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкрити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mở"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"打开"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"開啟"}}}},
+    "composer.envPausedResume": {"comment":"Agent pane: environment picker and Computer menu, after a paused Cloud machine of the person's account: it is paused, and a pick resumes it","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"متوقف مؤقتًا · استئناف"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pauzirano · Nastavi"}},"da":{"stringUnit":{"state":"needs_review","value":"Sat på pause · Genoptag"}},"de":{"stringUnit":{"state":"needs_review","value":"Pausiert · Fortsetzen"}},"en":{"stringUnit":{"state":"translated","value":"Paused · Resume"}},"es":{"stringUnit":{"state":"needs_review","value":"En pausa · Reanudar"}},"fr":{"stringUnit":{"state":"needs_review","value":"En pause · Reprendre"}},"it":{"stringUnit":{"state":"needs_review","value":"In pausa · Riprendi"}},"ja":{"stringUnit":{"state":"needs_review","value":"一時停止中 · 再開"}},"km":{"stringUnit":{"state":"needs_review","value":"បានផ្អាក · បន្ត"}},"ko":{"stringUnit":{"state":"needs_review","value":"일시 중지됨 · 재개"}},"nb":{"stringUnit":{"state":"needs_review","value":"Satt på pause · Gjenoppta"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wstrzymano · Wznów"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Pausado · Retomar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Приостановлено · Возобновить"}},"th":{"stringUnit":{"state":"needs_review","value":"หยุดชั่วคราว · ดำเนินการต่อ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Duraklatıldı · Sürdür"}},"uk":{"stringUnit":{"state":"needs_review","value":"Призупинено · Відновити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã tạm dừng · Tiếp tục"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已暂停 · 恢复"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已暫停 · 繼續"}}}},
+    "composer.envStarting": {"comment":"Agent pane: environment picker and Computer menu, after a Cloud machine of the person's account that is being created or is booting","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ البدء…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokretanje…"}},"da":{"stringUnit":{"state":"needs_review","value":"Starter…"}},"de":{"stringUnit":{"state":"needs_review","value":"Wird gestartet…"}},"en":{"stringUnit":{"state":"translated","value":"Starting…"}},"es":{"stringUnit":{"state":"needs_review","value":"Iniciando…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Démarrage…"}},"it":{"stringUnit":{"state":"needs_review","value":"Avvio in corso…"}},"ja":{"stringUnit":{"state":"needs_review","value":"起動中…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងចាប់ផ្ដើម…"}},"ko":{"stringUnit":{"state":"needs_review","value":"시작하는 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Starter…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Uruchamianie…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Iniciando…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Запуск…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังเริ่ม…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Başlatılıyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Запуск…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang khởi động…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在启动…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在啟動…"}}}},
     "composer.envLocal": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -204660,6 +204664,930 @@
           "stringUnit": {
             "state": "translated",
             "value": "開啟 {url}"
+          }
+        }
+      }
+    },
+    "chatInspector.subagents.limit.running" : {
+      "comment" : "Agent pane Inspector, Subagents: how many of the chats this chat's agent started run a turn now ({running}) of the most that may run at once ({max})",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "قيد التشغيل {running} / {max} كحد أقصى"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokrenuto {running} / najviše {max}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kører {running} / maks. {max}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktiv {running} / max. {max}"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Running {running} / {max} max"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En ejecución {running} / máx. {max}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En cours {running} / {max} max"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In esecuzione {running} / max {max}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "実行中 {running} / 上限 {max}"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កំពុងដំណើរការ {running} / អតិបរមា {max}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "실행 중 {running} / 최대 {max}"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kjører {running} / maks. {max}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uruchomione {running} / maks. {max}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Em execução {running} / máx. {max}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запущено {running} / макс. {max}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "กำลังทำงาน {running} / สูงสุด {max}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Çalışan {running} / en fazla {max}"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запущено {running} / макс. {max}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đang chạy {running} / tối đa {max}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "运行中 {running} / 上限 {max}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "執行中 {running} / 上限 {max}"
+          }
+        }
+      }
+    },
+    "chatInspector.subagents.limit.queued" : {
+      "comment" : "Agent pane Inspector, Subagents: how many of the chats this chat's agent started wait for a free slot under the running limit. {n} is the count.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{n} في الانتظار"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Na čekanju: {n}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{n} i kø"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{n} in Warteschlange"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{n} queued"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{n} en cola"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{n} en attente"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{n} in coda"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{n} 件待機中"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{n} កំពុងរង់ចាំ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{n}개 대기 중"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{n} i kø"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "W kolejce: {n}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{n} na fila"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В очереди: {n}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "รอคิว {n}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{n} sırada"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "У черзі: {n}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{n} đang chờ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{n} 个排队中"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{n} 個排隊中"
+          }
+        }
+      }
+    },
+    "chatInspector.subagents.limit.lower" : {
+      "comment" : "Agent pane Inspector, Subagents: the minus button's label, which lowers how many of the chats this chat's agent started may run at once to {n}",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "خفض حد التشغيل إلى {n}"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Smanji ograničenje na {n}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sænk grænsen til {n}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Limit auf {n} senken"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lower the running limit to {n}"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bajar el límite a {n}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abaisser la limite à {n}"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abbassa il limite a {n}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上限を {n} に下げる"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បន្ថយដែនកំណត់ទៅ {n}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "한도를 {n}(으)로 낮추기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Senk grensen til {n}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Obniż limit do {n}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diminuir o limite para {n}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Снизить лимит до {n}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ลดขีดจำกัดเป็น {n}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sınırı {n} değerine düşür"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Знизити ліміт до {n}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Giảm giới hạn xuống {n}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将上限降至 {n}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "將上限降至 {n}"
+          }
+        }
+      }
+    },
+    "chatInspector.subagents.limit.raise" : {
+      "comment" : "Agent pane Inspector, Subagents: the plus button's label, which raises how many of the chats this chat's agent started may run at once to {n}",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "رفع حد التشغيل إلى {n}"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Povećaj ograničenje na {n}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hæv grænsen til {n}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Limit auf {n} erhöhen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Raise the running limit to {n}"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subir el límite a {n}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relever la limite à {n}"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alza il limite a {n}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上限を {n} に上げる"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បង្កើនដែនកំណត់ទៅ {n}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "한도를 {n}(으)로 높이기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hev grensen til {n}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Podnieś limit do {n}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aumentar o limite para {n}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Повысить лимит до {n}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เพิ่มขีดจำกัดเป็น {n}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sınırı {n} değerine yükselt"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Підвищити ліміт до {n}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tăng giới hạn lên {n}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将上限提高到 {n}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "將上限提高到 {n}"
+          }
+        }
+      }
+    },
+    "chatInspector.subagents.limit.refused" : {
+      "comment" : "Agent pane Inspector, Subagents: shown for a few seconds beside the running limit when acpmux refused to change it",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تعذّر تغيير الحد"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ograničenje nije promijenjeno"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grænsen blev ikke ændret"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Limit nicht geändert"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't change the limit"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo cambiar el límite"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossible de changer la limite"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossibile cambiare il limite"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上限を変更できませんでした"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "មិនអាចប្ដូរដែនកំណត់បានទេ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "한도를 변경하지 못했습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kunne ikke endre grensen"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nie udało się zmienić limitu"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Não foi possível alterar o limite"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось изменить лимит"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เปลี่ยนขีดจำกัดไม่ได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sınır değiştirilemedi"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не вдалося змінити ліміт"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Không thể đổi giới hạn"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法更改上限"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法變更上限"
+          }
+        }
+      }
+    },
+    "chatInspector.subagents.limit.reset" : {
+      "comment" : "Agent pane Inspector, Subagents: a short button beside the running limit that drops this chat's own limit for the one it inherits",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "إعادة تعيين"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Poništi"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nulstil"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zurücksetzen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restablecer"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réinitialiser"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ripristina"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "リセット"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កំណត់ឡើងវិញ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "재설정"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tilbakestill"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resetuj"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Redefinir"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сбросить"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "รีเซ็ต"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sıfırla"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скинути"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đặt lại"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重設"
+          }
+        }
+      }
+    },
+    "chatInspector.subagents.limit.resetLabel" : {
+      "comment" : "Agent pane Inspector, Subagents: the Reset button's label: this chat goes back to the running limit it inherits (its parent's, the workspace's or the settings')",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "استخدام حد التشغيل الموروث"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koristi naslijeđeno ograničenje"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Brug den nedarvede grænse"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geerbtes Limit verwenden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use the inherited running limit"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usar el límite heredado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utiliser la limite héritée"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usa il limite ereditato"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "継承した上限を使う"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ប្រើដែនកំណត់ដែលទទួលបន្ត"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "상속된 한도 사용"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bruk den arvede grensen"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Użyj odziedziczonego limitu"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usar o limite herdado"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Использовать унаследованный лимит"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ใช้ขีดจำกัดที่สืบทอดมา"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Devralınan sınırı kullan"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Використати успадкований ліміт"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dùng giới hạn kế thừa"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用继承的上限"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用繼承的上限"
           }
         }
       }
