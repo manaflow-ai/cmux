@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextDesign
+@testable import CmuxNextTabs
 @testable import CmuxNextTerminal
 import CmuxNextWakeups
 import Foundation
@@ -9,8 +11,9 @@ import Testing
 /// Task p04-input-086 of plans/cmux-next/chrome-parity/p04-input.md: a chord the key router decided
 /// reaches a focused terminal or page as a key equivalent with no walk over the window's other views,
 /// as Chrome's `CommandDispatcher` gives it to a `CommandDispatcherTarget` first responder
-/// (ui/base/cocoa/command_dispatcher.mm). Any other key or responder keeps AppKit's walk. The menu
-/// search of a decided chord refuses its registry items before any availability check.
+/// (ui/base/cocoa/command_dispatcher.mm); a field editor's chord walks its own pane only. Any other key
+/// or responder keeps AppKit's walk. The main menu (`ActionMenuBar`) is not searched for a decided chord
+/// whose only items the menu gate refuses, in the terminal's menu-first pass or `NSApplication`'s.
 @MainActor @Suite(.serialized) struct KeyEquivalentWalkTests {
     /// A pane's view that counts the key equivalents the window offers it.
     final class PaneProbe: NSView {
@@ -19,6 +22,26 @@ import Testing
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
             offered += 1
             return false
+        }
+    }
+
+    /// A find bar: takes Cmd-G while its field edits, as `TerminalFindBarView` does.
+    final class FindBarProbe: NSView {
+        let field = NSTextField(frame: NSRect(x: 8, y: 8, width: 200, height: 24))
+        var took = 0
+
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            addSubview(field)
+        }
+
+        required init?(coder: NSCoder) { nil }
+
+        override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            guard event.charactersIgnoringModifiers == "g", let editor = window?.firstResponder as? NSView,
+                  editor.isDescendant(of: self) else { return super.performKeyEquivalent(with: event) }
+            took += 1
+            return true
         }
     }
 
@@ -43,7 +66,9 @@ import Testing
         var offers: Int { panes.reduce(0) { $0 + $1.offered } }
     }
 
-    static func shown(_ focused: NSView, responder: NSView, registry: ActionRegistry = .standard()) throws -> Shown {
+    /// `install` runs once `focused` is in the window, before `responder` takes the keyboard.
+    static func shown(_ focused: NSView, responder: NSView, registry: ActionRegistry = .standard(),
+                      install: () -> Void = {}) throws -> Shown {
         _ = NSApplication.shared
         let router = KeyRouter(registry: registry)
         let window = ShellWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 960), styleMask: [.titled, .resizable],
@@ -58,6 +83,7 @@ import Testing
         focused.frame = NSRect(x: 0, y: 800, width: 480, height: 160)
         root.addSubview(focused)
         window.contentView = root
+        install()
         root.layoutSubtreeIfNeeded()
         // On screen, as AppKit offers key equivalents to a window the person sees.
         window.orderFrontRegardless()
@@ -77,15 +103,26 @@ import Testing
     private static var timestamp: TimeInterval = 8600
 
     static func key(_ characters: String, ignoringModifiers: String, _ modifiers: NSEvent.ModifierFlags, keyCode: UInt16,
-                    in window: NSWindow) throws -> NSEvent {
+                    in window: NSWindow?) throws -> NSEvent {
         timestamp += 1
         return try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: timestamp,
-                                             windowNumber: window.windowNumber, context: nil, characters: characters,
+                                             windowNumber: window?.windowNumber ?? 0, context: nil, characters: characters,
                                              charactersIgnoringModifiers: ignoringModifiers, isARepeat: false, keyCode: keyCode))
     }
 
     static func controlC(in window: NSWindow) throws -> NSEvent {
         try key("\u{3}", ignoringModifiers: "c", [.control], keyCode: 8, in: window)
+    }
+
+    /// A main menu bar holding `items` in one submenu; `decided` is the router's set of decided keys.
+    static func bar(_ registry: ActionRegistry, _ items: [NSMenuItem], decided: DecidedKeyEvents) -> ActionMenuBar {
+        let bar = ActionMenuBar(registry: registry, decidedKey: { decided.contains($0) })
+        let holder = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
+        let file = NSMenu(title: "File")
+        for item in items { file.addItem(item) }
+        holder.submenu = file
+        bar.addItem(holder)
+        return bar
     }
 
     /// Ctrl-C the dispatcher decided for the focused terminal of a 30-pane window: only the terminal
@@ -97,10 +134,14 @@ import Testing
         let event = try Self.controlC(in: shown.window)
         shown.router.decided.add(event)
         #expect(shown.router.directKeyEquivalentTarget(for: event, firstResponder: shown.window.firstResponder) === session.surfaceView)
+        let before = shown.router.decided.offers
 
         #expect(!shown.window.performKeyEquivalent(with: event), "the terminal took Ctrl-C as a key equivalent")
         #expect(shown.offers == 0, "the window walked \(shown.offers) pane views for a chord its terminal has")
         #expect(session.surfaceView.lastPerformKeyEventTimestamp == event.timestamp, "the terminal was never offered Ctrl-C")
+        let offers = shown.router.decided.offers
+        #expect(offers.focusedSurface - before.focusedSurface == 1, "the debug counter missed the terminal's one offer")
+        #expect(offers.windowWalks == before.windowWalks, "the debug counter saw a window walk")
     }
 
     /// A chord the dispatcher never saw (a synthetic event) keeps AppKit's walk: every pane is offered it.
@@ -115,17 +156,39 @@ import Testing
         #expect(shown.offers == 30, "an undecided chord was offered to \(shown.offers) of 30 pane views")
     }
 
-    /// A text view's chord can belong to a view around it (a find bar's Cmd-G): it keeps the walk.
+    /// A text view outside every pane (not a field editor) keeps the walk, and the counter names it.
     @Test func aDecidedChordInATextViewKeepsTheWalk() throws {
         let text = NSTextView(frame: .zero)
         let shown = try Self.shown(text, responder: text)
         defer { shown.window.close() }
         let event = try Self.key("g", ignoringModifiers: "g", [.command], keyCode: 5, in: shown.window)
         shown.router.decided.add(event)
-        #expect(shown.router.directKeyEquivalentTarget(for: event, firstResponder: shown.window.firstResponder) == nil)
 
         _ = shown.window.performKeyEquivalent(with: event)
         #expect(shown.offers == 30, "a text view's chord was offered to \(shown.offers) of 30 pane views")
+        #expect(shown.router.decided.offers.windowWalks == 1)
+    }
+
+    /// Cmd-G the dispatcher decided while a find bar's field edits in one of 31 panes: the window walks
+    /// that pane alone, so the find bar takes it and none of the 30 sibling panes is offered it.
+    @Test func aDecidedCmdGInAFindFieldReachesItsPaneAlone() throws {
+        let pane = PaneContentView.testing(stripModel: TabStripModel(tabs: [TabItem(id: TabID("find"), title: "Find")]),
+                                           reveal: LaunchReveal(deadline: .zero))
+        let findBar = FindBarProbe(frame: NSRect(x: 0, y: 0, width: 400, height: 40))
+        let shown = try Self.shown(pane, responder: findBar.field) { pane.show(findBar) }
+        defer { shown.window.close() }
+        try #require(findBar.isDescendant(of: pane), "the pane never showed the find bar")
+        let editor = try #require(shown.window.firstResponder as? NSTextView)
+        try #require(editor.isFieldEditor, "the find field has no field editor")
+        let event = try Self.key("g", ignoringModifiers: "g", [.command], keyCode: 5, in: shown.window)
+        shown.router.decided.add(event)
+        #expect(shown.router.directKeyEquivalentTarget(for: event, firstResponder: editor) === pane)
+
+        #expect(shown.window.performKeyEquivalent(with: event), "nothing took the find field's Cmd-G")
+        #expect(findBar.took == 1, "the find bar was asked \(findBar.took) times for one Cmd-G")
+        #expect(shown.offers == 0, "the window walked \(shown.offers) sibling pane views for the find field's Cmd-G")
+        #expect(shown.router.decided.offers.fieldPane == 2, "one explicit lookup and the window's own")
+        #expect(shown.router.decided.offers.windowWalks == 0)
     }
 
     /// During a key-down a registry menu item asks the menu gate first: a refusal (a chord the router
@@ -151,6 +214,7 @@ import Testing
         #expect(validation.validateMenuItem(item))
         #expect(counts.gate == 2)
         #expect(counts.availability == 1)
+        #expect(registry.menuKeyEquivalentCounters.validations == 2, "the debug counter missed a key-down validation")
 
         // An open menu (no key-down): the gate is not asked, and the item shows enabled.
         counts.dispatching = false
@@ -158,30 +222,85 @@ import Testing
         #expect(validation.validateMenuItem(item), "New Tab shows disabled in the open menu")
         #expect(counts.gate == 2)
         #expect(counts.availability == 2)
+        #expect(registry.menuKeyEquivalentCounters.validations == 2, "an open menu's validation counted as a key-down's")
     }
 
-    /// Cmd-T the dispatcher decided and gave the focused terminal (it ran nothing for it): the window
-    /// asks the terminal alone, the menu validates New Tab at most once, checks no availability, and
-    /// never runs it.
+    /// The menu bar skips its search only for a decided key whose chord's items are all registry items
+    /// the gate refuses: a responder item (Copy), a system item the gate allows (Quit), a chord with no
+    /// item and an undecided key keep AppKit's search; a refused event's second pass asks the gate nothing.
+    @Test func theMenuBarSearchesEveryChordItMayNotRefuse() throws {
+        let registry = ActionRegistry.standard()
+        let counts = Counts()
+        registry.bind("newTab.default", isEnabled: { counts.availability += 1; return true }) { counts.ran += 1 }
+        registry.bind("quit", isEnabled: { counts.availability += 1; return false }) { counts.ran += 1 }
+        registry.isDispatchingKeyDown = { true }
+        registry.menuKeyEquivalentGate = { id in
+            counts.gate += 1
+            return id == "quit"
+        }
+        let copy = NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        let decided = DecidedKeyEvents()
+        let bar = Self.bar(registry, [
+            try #require(registry.makeMenuItem(for: "newTab.default")), try #require(registry.makeMenuItem(for: "quit")), copy,
+        ], decided: decided)
+        func decidedKey(_ key: String, keyCode: UInt16) throws -> NSEvent {
+            let event = try Self.key(key, ignoringModifiers: key, [.command], keyCode: keyCode, in: nil)
+            decided.add(event)
+            return event
+        }
+
+        let newTab = try decidedKey("t", keyCode: 17)
+        #expect(!bar.performKeyEquivalent(with: newTab))
+        #expect(!bar.performKeyEquivalent(with: newTab), "the second pass of a refused Cmd-T took it")
+        #expect(counts.gate == 1, "the gate was asked \(counts.gate) times for one refused Cmd-T")
+        #expect(registry.menuKeyEquivalentCounters == MenuKeyEquivalentCounters(searches: 0, skipped: 1, validations: 0))
+
+        _ = bar.performKeyEquivalent(with: try decidedKey("q", keyCode: 12))
+        _ = bar.performKeyEquivalent(with: try decidedKey("c", keyCode: 8))
+        _ = bar.performKeyEquivalent(with: try decidedKey("j", keyCode: 38))
+        _ = bar.performKeyEquivalent(with: try Self.key("t", ignoringModifiers: "t", [.command], keyCode: 17, in: nil))
+        #expect(registry.menuKeyEquivalentCounters.searches == 4,
+                "Quit, Copy, an unbound chord or an undecided Cmd-T lost the menu search")
+        #expect(registry.menuKeyEquivalentCounters.skipped == 1)
+        #expect(counts.ran == 0, "the menu ran a refused or unavailable action")
+    }
+
+    /// Cmd-T the dispatcher decided and gave the focused terminal (it ran nothing for it), in
+    /// `NSApplication`'s order (the window, then the main menu when the window declines): the window
+    /// asks the terminal alone, the menu gate refuses New Tab once, AppKit validates no item and
+    /// checks no availability, and New Tab never runs.
     @Test func aDecidedCmdTValidatesTheMenuAtMostOnce() throws {
+        try Self.decidedChordInATerminal(key: "t", keyCode: 17, action: "newTab.default")
+    }
+
+    /// The same for Cmd-B (Toggle Left Sidebar), which no Ghostty keybind has: the terminal's menu-first
+    /// pass refuses it, the terminal leaves it to its key-down pass, and `NSApplication`'s menu pass
+    /// after the window declines asks the gate nothing again.
+    @Test func aDecidedCommandChordNoGhosttyKeybindHasSkipsBothMenuPasses() throws {
+        let unbound = try Self.decidedChordInATerminal(key: "b", keyCode: 11, action: "toggleSidebar")
+        #expect(!unbound.windowTookIt, "the terminal took Cmd-B as a key equivalent")
+        #expect(unbound.terminalLeftItToKeyDown, "Cmd-B did not take the terminal's unbound-chord path")
+    }
+
+    @discardableResult
+    static func decidedChordInATerminal(key: String, keyCode: UInt16, action: ActionID) throws
+        -> (windowTookIt: Bool, terminalLeftItToKeyDown: Bool) {
         let (session, io) = try Self.terminal()
         let registry = ActionRegistry.standard()
         let shown = try Self.shown(session.view, responder: session.surfaceView, registry: registry)
         let counts = Counts()
-        registry.bind("newTab.default", isEnabled: { counts.availability += 1; return true }) { counts.ran += 1 }
+        registry.bind(action, isEnabled: { counts.availability += 1; return true }) { counts.ran += 1 }
         let router = shown.router
         registry.isDispatchingKeyDown = { router.inputDispatch.isKeyDown }
         registry.menuKeyEquivalentGate = { id in
             counts.gate += 1
             return router.allowsMenuKeyEquivalent(id)
         }
-        let bar = NSMenu(), holder = NSMenuItem(title: "File", action: nil, keyEquivalent: ""), file = NSMenu(title: "File")
-        let newTab = try #require(registry.makeMenuItem(for: "newTab.default"))
-        file.addItem(newTab)
-        holder.submenu = file
-        bar.addItem(holder)
+        let item = try #require(registry.makeMenuItem(for: action))
+        try #require(item.keyEquivalent == key && item.keyEquivalentModifierMask == [.command],
+                     "\(action) is not on Cmd-\(key): \(item.keyEquivalent.debugDescription)")
         let previousMenu = NSApp.mainMenu, previousClaim = TerminalKeyEquivalent.menuMayClaim
-        NSApp.mainMenu = bar
+        NSApp.mainMenu = Self.bar(registry, [item], decided: router.decided)
         TerminalKeyEquivalent.menuMayClaim = { [weak router] in router?.menuMayClaim($0) ?? true }
         defer {
             NSApp.mainMenu = previousMenu
@@ -189,13 +308,18 @@ import Testing
             io.finish()
             shown.window.close()
         }
-        let event = try Self.key("t", ignoringModifiers: "t", [.command], keyCode: 17, in: shown.window)
+        let event = try Self.key(key, ignoringModifiers: key, [.command], keyCode: keyCode, in: shown.window)
         router.decided.add(event)
 
-        _ = router.dispatchingSynthetic(event) { shown.window.performKeyEquivalent(with: event) }
-        #expect(shown.offers == 0, "the window walked \(shown.offers) pane views for the terminal's Cmd-T")
-        #expect(counts.gate <= 1, "the menu validated New Tab \(counts.gate) times for one Cmd-T")
-        #expect(counts.availability == 0, "a refused Cmd-T checked New Tab's availability")
-        #expect(counts.ran == 0, "the menu ran New Tab for a Cmd-T the router gave the terminal")
+        let windowTookIt = router.dispatchingSynthetic(event) { shown.window.performKeyEquivalent(with: event) }
+        if !windowTookIt { _ = router.dispatchingSynthetic(event) { NSApp.mainMenu?.performKeyEquivalent(with: event) } }
+        #expect(shown.offers == 0, "the window walked \(shown.offers) pane views for the terminal's Cmd-\(key)")
+        #expect(counts.gate == 1, "the menu gate was asked \(counts.gate) times for one Cmd-\(key)")
+        #expect(registry.menuKeyEquivalentCounters == MenuKeyEquivalentCounters(searches: 0, skipped: 1, validations: 0),
+                "the main menu searched or validated a chord the router decided")
+        #expect(counts.availability == 0, "a refused Cmd-\(key) checked \(action)'s availability")
+        #expect(counts.ran == 0, "the menu ran \(action) for a Cmd-\(key) the router gave the terminal")
+        #expect(router.decided.offers.focusedSurface == 1)
+        return (windowTookIt, session.surfaceView.lastPerformKeyEventTimestamp == event.timestamp)
     }
 }

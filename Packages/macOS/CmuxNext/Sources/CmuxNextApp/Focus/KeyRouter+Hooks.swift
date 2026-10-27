@@ -26,19 +26,41 @@ extension KeyRouter {
         return runExtensionShortcut(event, focus: focus)
     }
 
-    /// The one view a chord the dispatcher decided goes to as a key equivalent, instead of AppKit's
-    /// depth-first walk over every view of the window: the first responder, when it is a surface that
-    /// takes its own key equivalents (a terminal, a page host). Chrome's `CommandDispatcher` gives a key
-    /// to a first responder that is a `CommandDispatcherTarget` the same way, with no walk
-    /// (ui/base/cocoa/command_dispatcher.mm, `performKeyEquivalent:`). Every other view that takes a
-    /// chord in a pane (a find bar, a dialog, a Mac Screen button) takes it only while it holds the
-    /// keyboard. Nil for any other key or responder: a field editor's chord can belong to the view that
-    /// holds it (a find bar's Cmd-G), so it keeps the walk.
+    /// The view a chord the dispatcher decided goes to as a key equivalent, instead of AppKit's
+    /// depth-first walk over every view of the window. Chrome's `CommandDispatcher` gives a key to a
+    /// first responder that is a `CommandDispatcherTarget` the same way, with no walk
+    /// (ui/base/cocoa/command_dispatcher.mm, `performKeyEquivalent:`).
+    /// - A surface that takes its own key equivalents (a terminal, a page host): that view alone. Every
+    ///   other view that takes a chord in a pane (a find bar, a dialog, a Mac Screen button) takes it
+    ///   only while it holds the keyboard.
+    /// - A field editor in a pane: that pane, whose walk reaches the field's own ancestors (a find bar's
+    ///   Cmd-G, the browser chrome's keys), never a sibling pane.
+    ///
+    /// Nil for any other key or responder (a field outside every pane): AppKit's walk.
     func directKeyEquivalentTarget(for event: NSEvent, firstResponder: NSResponder?) -> NSView? { // perf-hot: 0.5ms key-dispatch (every chord a window gets)
-        guard let view = firstResponder as? NSView, Self.takesOwnKeyEquivalents(view), Self.isChord(event.modifierFlags),
-              decided.contains(event) else { return nil }
-        trace?("window: key equivalent to the focused surface only")
-        return view
+        guard Self.isChord(event.modifierFlags), let view = firstResponder as? NSView, decided.contains(event) else { return nil }
+        if Self.takesOwnKeyEquivalents(view) {
+            decided.offers.focusedSurface += 1
+            trace?("window: key equivalent to the focused surface only")
+            return view
+        }
+        if (view as? NSTextView)?.isFieldEditor == true, let pane = Self.enclosingPane(of: view) {
+            decided.offers.fieldPane += 1
+            trace?("window: key equivalent to the field's pane only")
+            return pane
+        }
+        decided.offers.windowWalks += 1
+        return nil
+    }
+
+    /// The pane that holds `view`, nil outside every pane.
+    static func enclosingPane(of view: NSView) -> PaneContentView? {
+        var ancestor = view.superview
+        while let current = ancestor {
+            if let pane = current as? PaneContentView { return pane }
+            ancestor = current.superview
+        }
+        return nil
     }
 
     /// A surface whose key equivalents are its own while it is first responder: the terminal (its
