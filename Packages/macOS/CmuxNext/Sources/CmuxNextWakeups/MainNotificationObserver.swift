@@ -36,8 +36,8 @@ public final class MainNotificationObserver {
     ///   - line: The observing line (leave the default).
     ///   - handler: Main-actor work for each notification (read what you need from the poster's
     ///     state, or use ``init(_:object:center:class:owner:on:file:line:read:_:)``).
-    public convenience init(_ name: Notification.Name, object: AnyObject? = nil, center: NotificationCenter = .default,
-                            class workClass: MainWorkClass, owner: String, on work: MainWorkScheduler,
+    public convenience init(_ name: Notification.Name, object: AnyObject? = nil,
+                            center: NotificationCenter = .default, class workClass: MainWorkClass, owner: String, on work: MainWorkScheduler,
                             file: StaticString = #fileID, line: UInt = #line, _ handler: @escaping @MainActor () -> Void) {
         self.init(name, object: object, center: center, class: workClass, owner: owner, on: work, file: file, line: line,
                   read: { _ in () }) { _ in handler() }
@@ -57,8 +57,8 @@ public final class MainNotificationObserver {
     ///   - line: The observing line (leave the default).
     ///   - read: Reads what the handler needs from the notification, in its delivery.
     ///   - handler: Main-actor work with the value `read` returned.
-    public init<Value>(_ name: Notification.Name, object: AnyObject? = nil, center: NotificationCenter = .default,
-                       class workClass: MainWorkClass, owner: String, on work: MainWorkScheduler,
+    public init<Value>(_ name: Notification.Name, object: AnyObject? = nil,
+                       center: NotificationCenter = .default, class workClass: MainWorkClass, owner: String, on work: MainWorkScheduler,
                        file: StaticString = #fileID, line: UInt = #line,
                        read: @escaping @MainActor (Notification) -> Value, _ handler: @escaping @MainActor (Value) -> Void) {
         observation = MainActorObservation(name, object: object, center: center,

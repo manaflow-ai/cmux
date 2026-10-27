@@ -39,8 +39,7 @@ public final class MainActorObservation {
     public init(
         _ name: Notification.Name,
         object: AnyObject? = nil,
-        center: NotificationCenter = .default,
-        class workClass: MainCallbackClass = .immediate,
+        center: NotificationCenter = .default, class workClass: MainCallbackClass = .immediate,
         _ work: @escaping @MainActor () -> Void
     ) {
         self.center = center
@@ -75,8 +74,7 @@ public final class MainActorObservation {
     public init<Value>(
         _ name: Notification.Name,
         object: AnyObject? = nil,
-        center: NotificationCenter = .default,
-        class workClass: MainCallbackClass = .immediate,
+        center: NotificationCenter = .default, class workClass: MainCallbackClass = .immediate,
         read: @escaping @MainActor (Notification) -> Value,
         _ work: @escaping @MainActor (Value) -> Void
     ) {
