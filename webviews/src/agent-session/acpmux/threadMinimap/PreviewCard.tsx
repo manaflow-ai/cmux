@@ -13,7 +13,21 @@ import { createPortal } from "react-dom";
 import { useT } from "../i18n";
 import { forwardWheel } from "../wheelPassThrough";
 import { BookmarkIcon } from "./BookmarkIcon";
-import type { ReplyBlock } from "./model";
+import type { MinimapTurnMetadata, ReplyBlock } from "./model";
+
+const middleEllipsis = (value: string, max = 36) => {
+  if (value.length <= max) return value;
+  const side = Math.max(4, Math.floor((max - 1) / 2));
+  return `${value.slice(0, side)}…${value.slice(-side)}`;
+};
+
+const linkLabel = (href: string) => {
+  const match = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/.exec(href);
+  return match ? `${match[1]}/${match[2]}#${match[3]}` : href;
+};
+
+const timeLabel = (at: number) =>
+  new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(at));
 
 /// How far a key scrolls the transcript while focus is in it: a line, most of a page, or to an end.
 function keyScroll(key: string, scroller: HTMLElement): number | undefined {
@@ -54,12 +68,16 @@ export const PreviewCard = React.forwardRef<
     /// The prompt's line; a reply's card has none.
     prompt?: string;
     reply: readonly ReplyBlock[];
+    metadata?: MinimapTurnMetadata;
     bookmark?: PreviewBookmark;
     onPointerLeave(event: React.PointerEvent<HTMLDivElement>): void;
     onFocus?(): void;
     onBlur?(event: React.FocusEvent<HTMLDivElement>): void;
   }
->(function PreviewCard({ id, x, y, scroller, prompt, reply, bookmark, onPointerLeave, onFocus, onBlur }, ref) {
+>(function PreviewCard(
+  { id, x, y, scroller, prompt, reply, metadata, bookmark, onPointerLeave, onFocus, onBlur },
+  ref,
+) {
   const t = useT();
   const layer = scroller?.parentElement;
   const anchor = useRef<HTMLSpanElement>(null);
@@ -116,6 +134,49 @@ export const PreviewCard = React.forwardRef<
               <BookmarkIcon filled={bookmark.marked} />
             </button>
           )}
+        </div>
+      )}
+      {metadata && (
+        <div className="acpmux-minimap__metadata" aria-label="Turn details">
+          <span className="acpmux-minimap__meta-token" data-meta="time">
+            {timeLabel(metadata.at)}
+          </span>
+          {metadata.durationMs !== undefined && (
+            <span className="acpmux-minimap__meta-token" data-meta="duration">
+              {Math.max(0, Math.round(metadata.durationMs / 1000))}s
+            </span>
+          )}
+          {metadata.toolCount !== undefined && (
+            <span className="acpmux-minimap__meta-token" data-meta="tools">
+              {metadata.toolCount} {metadata.toolCount === 1 ? "tool" : "tools"}
+            </span>
+          )}
+          {metadata.fileCount !== undefined && (
+            <span className="acpmux-minimap__meta-token" data-meta="files">
+              {metadata.fileCount} {metadata.fileCount === 1 ? "file" : "files"}
+            </span>
+          )}
+          {metadata.links.map((href) => (
+            <a
+              key={href}
+              className="acpmux-minimap__meta-link"
+              data-meta="pr"
+              href={href}
+              rel="noreferrer"
+              target="_blank"
+              title={href}
+            >
+              {middleEllipsis(linkLabel(href))}
+            </a>
+          ))}
+        </div>
+      )}
+      {metadata?.failure && (
+        <div className="acpmux-minimap__failure" data-failure="true">
+          <span className="acpmux-minimap__failure-icon" aria-hidden="true">
+            !
+          </span>
+          <span>{metadata.failure}</span>
         </div>
       )}
       {reply.length > 0 && (

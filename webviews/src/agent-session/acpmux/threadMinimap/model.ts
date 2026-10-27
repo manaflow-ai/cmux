@@ -6,6 +6,14 @@ import { MOTION_MS } from "../../../motion/scale.generated";
 
 export type ReplySpan = { text: string; bold: boolean };
 export type ReplyBlock = { kind: "paragraph" | "item"; spans: ReplySpan[] };
+export type MinimapTurnMetadata = {
+  at: number;
+  durationMs?: number;
+  toolCount?: number;
+  fileCount?: number;
+  links: string[];
+  failure?: string;
+};
 export type MinimapTurn = {
   /// The user row's index in the transcript rows (and in the layout's tops).
   index: number;
@@ -18,6 +26,7 @@ export type MinimapTurn = {
   prompt: string;
   /// The start of the first reply after the prompt.
   reply: ReplyBlock[];
+  metadata?: MinimapTurnMetadata;
 };
 
 /// The rail's geometry and timing, measured from 60 Hz recordings of the Codex desktop app's prompt
@@ -282,15 +291,55 @@ export function minimapTurns(
   let user: AcpmuxRow | undefined;
   let userIndex = 0;
   let reply: AcpmuxRow | undefined;
+  let activity: AcpmuxRow[] = [];
+  let summary: AcpmuxRow | undefined;
+  const resetTurn = () => {
+    activity = [];
+    summary = undefined;
+  };
+  const metadata = (): MinimapTurnMetadata | undefined => {
+    if (!user) return undefined;
+    const paths = new Set<string>();
+    for (const row of activity) {
+      for (const item of row.items ?? []) {
+        for (const diff of item.tool?.diffs ?? []) paths.add(diff.canonical ?? diff.path);
+        for (const location of item.tool?.locations ?? []) paths.add(location.canonical ?? location.path);
+        if (item.tool?.inputPath) paths.add(item.tool.inputPath.canonical || item.tool.inputPath.path);
+      }
+    }
+    const links = [...`${user.text ?? ""}\n${reply?.text ?? ""}`.matchAll(
+      /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+(?:#[\w.-]+)?/g,
+    )].map((match) => match[0]);
+    const failure =
+      summary?.error ||
+      user.error ||
+      user.delivery?.error ||
+      user.delivery?.reason ||
+      (summary?.status === "failed" || summary?.status === "error" ? "Turn failed" : undefined);
+    if (!summary && !paths.size && !links.length && !failure) return undefined;
+    return {
+      at: user.at,
+      ...(summary?.durationMs !== undefined && { durationMs: summary.durationMs }),
+      ...(summary?.toolCount !== undefined && { toolCount: summary.toolCount }),
+      ...(paths.size > 0 && { fileCount: paths.size }),
+      links: [...new Set(links)],
+      ...(failure && { failure }),
+    };
+  };
   const close = () => {
     if (!user) return;
     const kept = turnsByPrompt.get(user);
     const same = kept && kept.sessionId === sessionId && kept.turn.index === userIndex;
-    if (same && kept.reply === reply) tail.push(kept.turn);
+    const nextMetadata = metadata();
+    if (same && kept.reply === reply) {
+      kept.turn.metadata = nextMetadata;
+      tail.push(kept.turn);
+    }
     else if (same && reply?.text && kept.reply?.text && samePreview(kept.turn.reply, replyPreview(reply.text))) {
       // A reply streamed on past its preview (replyPreview stops once the preview is full): the
       // turn is the same, so the list of turns can be too.
       kept.reply = reply;
+      kept.turn.metadata = nextMetadata;
       tail.push(kept.turn);
     } else {
       const turn: MinimapTurn = {
@@ -299,12 +348,14 @@ export function minimapTurns(
         key: turnKey(sessionId, user),
         prompt: (user.text ?? "").replace(/\s+/g, " ").trim(),
         reply: reply?.text ? replyPreview(reply.text) : [],
+        metadata: nextMetadata,
       };
       turnsByPrompt.set(user, { turn, sessionId, reply });
       tail.push(turn);
     }
     user = undefined;
     reply = undefined;
+    resetTurn();
   };
   const start = keep < (reuse?.turns.length ?? 0) ? reuse!.turns[keep]!.index : 0;
   for (let index = reuse && keep > 0 ? start : 0; index < rows.length; index += 1) {
@@ -314,7 +365,12 @@ export function minimapTurns(
       close();
       user = row;
       userIndex = index;
-    } else if (user && !reply && row.kind === "assistant" && row.text) reply = row;
+      resetTurn();
+    } else if (user) {
+      if (!reply && row.kind === "assistant" && row.text) reply = row;
+      if (row.kind === "activity") activity.push(row);
+      if (row.kind === "turnSummary") summary = row;
+    }
   }
   close();
   const old = reuse?.turns;

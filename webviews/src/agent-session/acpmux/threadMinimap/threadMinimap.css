@@ -284,8 +284,9 @@
   top: 0;
   left: 0;
   z-index: var(--layer-tooltip);
-  width: 320px;
-  max-width: calc(100vw - 16px);
+  width: fit-content;
+  min-width: 240px;
+  max-width: min(360px, calc(100vw - 16px));
   box-sizing: border-box;
   /* The edge is an inset shadow one device pixel wide (--cmux-hairline, #20713); appearance.borders
      none clears it through --acpmux-minimap-rim. Glass, as the chat's other hover cards (the link
@@ -316,8 +317,11 @@
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .acpmux-minimap__bookmark {
   flex: none;
@@ -348,10 +352,61 @@
 .acpmux-minimap__reply {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 4;
   overflow: hidden;
   margin-top: 4px;
   color: var(--agent-muted);
+}
+.acpmux-minimap__metadata {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  margin-top: 5px;
+  color: var(--agent-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+.acpmux-minimap__meta-token + .acpmux-minimap__meta-token::before,
+.acpmux-minimap__meta-link + .acpmux-minimap__meta-token::before,
+.acpmux-minimap__meta-token + .acpmux-minimap__meta-link::before {
+  content: "·";
+  margin-right: 8px;
+  color: color-mix(in srgb, var(--agent-muted) 60%, transparent);
+}
+.acpmux-minimap__meta-link {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--agent-link, var(--agent-text));
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-minimap__meta-link:hover {
+  text-decoration: underline;
+}
+.acpmux-minimap__failure {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  margin-top: 5px;
+  color: var(--agent-status-failure, var(--agent-muted));
+  overflow-wrap: anywhere;
+}
+.acpmux-minimap__failure-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-right: 5px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: -1px;
 }
 .acpmux-minimap__reply p {
   margin: 0;
