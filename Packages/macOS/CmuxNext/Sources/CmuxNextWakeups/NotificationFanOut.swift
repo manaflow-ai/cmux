@@ -28,6 +28,10 @@ import CmuxNextCompat
         let observation: MainActorObservation
         private(set) var slots: [Entry?] = []
         private var index: [UInt64: Int] = [:]
+        #if DEBUG || CMUX_BENCH_HOOKS
+        /// The observer's record in the arm census, on a fan-out made with an observer ledger.
+        var census = ArmCensusEntry()
+        #endif
 
         init(observation: MainActorObservation) {
             self.observation = observation
@@ -97,25 +101,35 @@ import CmuxNextCompat
     private var nextID: UInt64 = 0
     private var deliveryCounts: [Notification.Name: Int] = [:]
     private var deferrals = 0
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Whose arm census records each observer this fan-out makes (p08-startup-085); nil records none.
+    private let observerLedger: WakeupLedger?
+    #endif
 
     /// - Parameters:
     ///   - object: The only sender observed, held weakly; nil observes every sender.
     ///   - center: Where the notifications are posted.
-    init(object: AnyObject?, center: NotificationCenter) {
+    ///   - observerLedger: In Debug and bench builds, the ledger whose arm census records each observer (one per
+    ///     name, under its first subscriber's owner and line) and its first post; nil records none.
+    init(object: AnyObject?, center: NotificationCenter, observerLedger: WakeupLedger? = nil) {
         self.object = object
         self.scoped = object != nil
         self.center = center
+        #if DEBUG || CMUX_BENCH_HOOKS
+        self.observerLedger = observerLedger
+        #endif
     }
 
     private var missedKey: MissedKey { MissedKey(fanOut: ObjectIdentifier(self)) }
 
     func subscribe(_ name: Notification.Name, node: VisibilityNode?, delivery: EventDelivery, owner: String,
+                   file: StaticString = #fileID, line: UInt = #line,
                    _ handler: @escaping @MainActor (EventCall) -> Void) -> EventSubscription {
         // A closed window posts nothing more; observing nil would hear every window.
         guard let center, !scoped || object != nil else { return EventSubscription(owner: owner, fanOut: nil, name: name, id: 0) }
         nextID &+= 1
         let id = nextID
-        let channel = channels[name] ?? open(name, on: center)
+        let channel = channels[name] ?? open(name, on: center, owner: owner, file: file, line: line)
         channel.append(Entry(id: id, delivery: delivery, node: node, handler: handler))
         return EventSubscription(owner: owner, fanOut: self, name: name, id: id)
     }
@@ -141,11 +155,18 @@ import CmuxNextCompat
     /// missed subscriber to one, however many posts and subscribers.
     var deferredWork: Int { deferrals }
 
-    private func open(_ name: Notification.Name, on center: NotificationCenter) -> Channel {
+    private func open(_ name: Notification.Name, on center: NotificationCenter, owner: String, file: StaticString,
+                      line: UInt) -> Channel {
         let observation = MainActorObservation(name, object: object, center: center) { [weak self] in
             self?.deliver(name)
         }
         let channel = Channel(observation: observation)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let observerLedger {
+            channel.census.armed(in: observerLedger.armCensus, .observer, owner: "\(name.rawValue) (\(owner))",
+                                 site: ArmCensus.Site(file: file, line: line))
+        }
+        #endif
         channels[name] = channel
         return channel
     }
@@ -153,6 +174,9 @@ import CmuxNextCompat
     private func deliver(_ name: Notification.Name) { // perf-hot: 0.1ms cmd-tab (one call per post, O(subscribers to the name), no allocation for a missed one)
         deliveryCounts[name, default: 0] += 1
         guard let channel = channels[name] else { return }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let observerLedger { channel.census.fired(in: observerLedger.armCensus) }
+        #endif
         // A handler may subscribe or cancel: walk the slots as they were and skip the ones that left.
         // A subscriber added during the walk is not called for this post.
         for case let entry? in channel.slots {
