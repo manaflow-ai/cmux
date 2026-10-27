@@ -12,11 +12,12 @@ import Testing
                                && SameTreeDaemonBinary.url != nil,
                            "set CMUX_CLASSIC_UPGRADE_PERF=1 on a fleet run"))
 struct ClassicUpgradeSimulationPerfTests {
-    @Test(arguments: ClassicUpgradeProfile.matrix.map(\.name))
+    @Test(arguments: ["fresh", "small", "manyGroups", "nestedSplits", "browsersAndViewers", "multiWindow", "oldSchema", "messy"])
     func matrixReportsLaunchTimings(_ name: String) async throws {
         let profile = try #require(ClassicUpgradeProfile.matrix.first { $0.name == name })
         let mac = try ClassicUpgradeSimulator.Mac()
         try mac.save(profile)
+        let before = try mac.classicDigest()
         let sim = try ClassicUpgradeSimulator(mac: mac)
         let launch = await sim.launch()
         print(String(format: "CLASSIC-SIM-PERF %@ workspaces=%d first_window=%.2fs migration=%.2fs per_workspace=%.0fms",
@@ -24,6 +25,10 @@ struct ClassicUpgradeSimulationPerfTests {
                      profile.expectedCount == 0 ? 0 : launch.migration.simSeconds * 1000 / Double(profile.expectedCount)))
         #expect(launch.failure == nil, "\(String(describing: launch.failure))")
         #expect(launch.outcome?.decision == .firstRun, "\(String(describing: launch.outcome))")
+        #expect(launch.outcome?.failures.isEmpty == true, "\(String(describing: launch.outcome))")
+        #expect(launch.outcome?.opened.count == profile.expectedCount, "\(String(describing: launch.outcome))")
+        await sim.settle()
+        try sim.verify(profile, classicBefore: before)
         await sim.shutdown()
     }
 }
