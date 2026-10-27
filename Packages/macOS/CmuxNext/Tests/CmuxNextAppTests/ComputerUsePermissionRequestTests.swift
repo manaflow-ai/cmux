@@ -56,6 +56,16 @@ import Testing
         #expect(opened == [ComputerUseSetup.settingsURL(pane)].compactMap { $0 })
     }
 
+    /// The card hides after Continue only when the Computer Use window took over: under the
+    /// upstream driver no window opens, so the card must keep guiding the grant.
+    @Test func theCardStepsAsideOnlyWhenTheWindowGuides() {
+        for kind in [PermissionKind.accessibility, .screenRecording, .computerUse] {
+            #expect(SystemPermissionOpener.guidesInWindow(kind, driver: .legacy))
+            #expect(!SystemPermissionOpener.guidesInWindow(kind, driver: .upstream))
+        }
+        #expect(!SystemPermissionOpener.guidesInWindow(.fullDiskAccess, driver: .legacy))
+    }
+
     @Test func launchAndStatusNeverRequestGrantsButSetupRequestsOnlyTheClickedGrant() {
         var requested: [ComputerUsePermissionPane] = []
         var opened: [URL] = []

@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import CmuxNextAgentPermissions
 import CmuxNextCompat
+import CmuxNextSettings
 
 /// Takes the person to a grant after they pressed Continue on the card:
 /// the Computer Use window for the grants the helper holds, the System
@@ -22,6 +23,13 @@ final class SystemPermissionOpener: PermissionSettingsOpening {
         self.openURL = openURL
     }
 
+    /// Whether Continue on `kind` hands the person to the Computer Use window
+    /// (the legacy helper's grants). Under `.upstream` the card itself guides
+    /// the grant, so it must stay up; the presenter reads this same rule.
+    nonisolated static func guidesInWindow(_ kind: PermissionKind, driver: ComputerUseDriver) -> Bool {
+        kind.heldByComputerUseHelper && driver != .upstream
+    }
+
     func open(_ kind: PermissionKind, target: String?) {
         if kind.heldByComputerUseHelper, setup.phase == .off { setup.enable() }
         switch kind {
@@ -35,7 +43,7 @@ final class SystemPermissionOpener: PermissionSettingsOpening {
         // The window guides both helper grants in order, with the drag panel docked to System Settings.
         // It reads the legacy helper's grants: under the helper v2 the card asks for its grant directly.
         case .accessibility, .screenRecording, .computerUse:
-            guard setup.driver == .upstream else { return showComputerUse() }
+            guard !Self.guidesInWindow(kind, driver: setup.driver) else { return showComputerUse() }
             setup.open(kind == .screenRecording ? .screenRecording : .accessibility)
         case .fullDiskAccess:
             guard let url = kind.settingsURL else { return }

@@ -24,10 +24,13 @@ final class AgentPermissionsService {
         })
         let requests = AgentPermissionRequests(probe: probe, opener: opener)
         self.requests = requests
-        // The Computer Use window guides the helper's grants, so the card steps aside after Continue.
+        // The Computer Use window guides the helper's grants, so the card steps aside after Continue;
+        // under the upstream driver no window opens and the card keeps guiding.
         presenter = PermissionRequestPresenter(requests: requests, appURL: { [weak setup] kind in
             kind.heldByComputerUseHelper ? setup?.helperAppURL : Bundle.main.bundleURL
-        }, guidedElsewhere: { $0.heldByComputerUseHelper })
+        }, guidedElsewhere: { [weak setup] kind in
+            SystemPermissionOpener.guidesInWindow(kind, driver: setup?.driver ?? .legacy)
+        })
         presenter.start()
     }
 
