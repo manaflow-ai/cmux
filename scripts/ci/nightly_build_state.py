@@ -125,6 +125,23 @@ def structure_changed(workspace: Path, since: str) -> str | None:
     return ''
 
 
+def since_clean(state: dict) -> int | None:
+    """The state's count of incremental builds since a clean one, or None when it is not a count."""
+    value = state.get('since_clean', 0)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def read_state(state_file: Path) -> dict:
+    """The kept build state, or {} when it is missing, unreadable or not a JSON object (a clean build)."""
+    try:
+        state = json.loads(state_file.read_text())
+    except (OSError, ValueError):
+        return {}
+    return state if isinstance(state, dict) else {}
+
+
 def clean_reason(state: dict, key: str, workspace: Path) -> str:
     """Why this build must start clean, or '' to build incrementally."""
     if not state:
@@ -138,7 +155,10 @@ def clean_reason(state: dict, key: str, workspace: Path) -> str:
         return 'the last built commit cannot be compared'
     if changed:
         return f'{changed} changed (module or link structure)'
-    if int(state.get('since_clean') or 0) >= CLEAN_EVERY:
+    count = since_clean(state)
+    if count is None:
+        return 'the kept build state is malformed'
+    if count >= CLEAN_EVERY:
         return f'{CLEAN_EVERY} incremental builds since the last clean one'
     return ''
 
@@ -147,10 +167,7 @@ def prepare_incremental(workspace: Path, runner_state: Path, identity: str, key:
     """Link build-universal to the kept DerivedData; returns (mode, reason)."""
     kept = runner_state / identity
     state_file = kept / INCREMENTAL_STATE
-    try:
-        state = json.loads(state_file.read_text())
-    except (OSError, ValueError):
-        state = {}
+    state = read_state(state_file)
     reason = clean_reason(state, key, workspace)
     # Another identity's DerivedData (an older toolchain or path) is never linked back.
     for retained in sorted(runner_state.glob('*/DerivedData*')):
@@ -168,7 +185,7 @@ def prepare_incremental(workspace: Path, runner_state: Path, identity: str, key:
     derived_data.mkdir(parents=True, exist_ok=True)
     head = git(workspace, 'rev-parse', 'HEAD').strip()
     state = {'key': key, 'sha': head, 'built': False,
-             'since_clean': 0 if reason else int(state.get('since_clean') or 0) + 1}
+             'since_clean': 0 if reason else (since_clean(state) or 0) + 1}
     kept.mkdir(parents=True, exist_ok=True)
     temporary = state_file.with_suffix('.tmp')
     temporary.write_text(json.dumps(state, sort_keys=True))
@@ -185,7 +202,9 @@ def mark_built(workspace: Path, home: Path, runner: str) -> bool:
     state_file = derived.resolve().parent / INCREMENTAL_STATE
     if (home / STATE_ROOT / runner).resolve() not in state_file.parents:
         return False
-    state = json.loads(state_file.read_text())
+    state = read_state(state_file)
+    if not state:
+        return False
     state['built'] = True
     temporary = state_file.with_suffix('.tmp')
     temporary.write_text(json.dumps(state, sort_keys=True))

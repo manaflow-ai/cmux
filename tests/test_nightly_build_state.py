@@ -172,6 +172,27 @@ class DedicatedBuilder(unittest.TestCase):
         self.commit({'Sources/a.swift': 'let a = 3\n'})
         self.assertEqual(self.build()[0], 'mode=incremental')
 
+    def test_a_malformed_kept_state_falls_back_to_a_clean_build(self):
+        state_file = self.home / state.STATE_ROOT / self.RUNNER
+        for text in ('null', '[]', '"x"', '{"built": true, "since_clean": "many"}',
+                     '{"built": true, "since_clean": -1}', '{"built": true, "since_clean": true}', '{'):
+            with self.subTest(text=text):
+                self.build()
+                files = list(state_file.glob(f'*/{state.INCREMENTAL_STATE}'))
+                self.assertEqual(len(files), 1)
+                files[0].write_text(text)
+                self.assertEqual(self.build()[:2], ('mode=clean', False))
+        self.assertEqual(self.build()[0], 'mode=incremental')
+
+    def test_mark_built_never_crashes_on_a_malformed_state(self):
+        self.build(finish=False)
+        (self.workspace / 'build-universal').symlink_to(
+            next((self.home / state.STATE_ROOT / self.RUNNER).glob('*/DerivedData')), target_is_directory=True)
+        for text in ('null', '[]', '{'):
+            with self.subTest(text=text):
+                next((self.home / state.STATE_ROOT / self.RUNNER).glob(f'*/{state.INCREMENTAL_STATE}')).write_text(text)
+                self.assertFalse(state.mark_built(self.workspace, self.home, self.RUNNER))
+
     def test_a_cef_or_ghosttykit_download_pin_change_makes_it_clean(self):
         self.build()
         self.commit({'scripts/cmux-next/cef-manifest.json': '{"v": 2}\n'})
