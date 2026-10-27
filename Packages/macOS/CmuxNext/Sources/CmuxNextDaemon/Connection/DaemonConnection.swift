@@ -298,7 +298,10 @@ public actor DaemonConnection {
             resumeReadyWaits(serial: serial)
             wake.watch(file: endpoint.socketPath, companions: [endpoint.socketPath + ".websocket.json"])
             healthy.schedule(after: configuration.healthyAfter) { [weak self] in await self?.stayedHealthy(serial: serial) }
-            if endpoint.bridge != nil || configuration.localHeartbeat { heartbeat.start(transport, every: configuration.heartbeat, misses: configuration.heartbeatMisses) }
+            if endpoint.bridge != nil || configuration.localHeartbeat {
+                heartbeat.start(transport, every: configuration.heartbeat,
+                                hidden: endpoint.bridge != nil ? configuration.hiddenHeartbeat : nil, misses: configuration.heartbeatMisses)
+            }
             let connected = DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: 0),
                                                 event: .connected(identity, generationChanged: generationChanged), sourceID: eventSourceID)
             gate.open(first: connected) { route.emit($0) }

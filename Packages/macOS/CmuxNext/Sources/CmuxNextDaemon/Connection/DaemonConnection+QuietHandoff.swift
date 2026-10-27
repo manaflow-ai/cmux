@@ -70,10 +70,14 @@ extension DaemonConnection {
         handoffHold?.removeValue(forKey: key)?.resume(returning: ())
     }
 
-    func requestStarted() { inFlight += 1 }
+    func requestStarted() {
+        inFlight += 1
+        if inFlight == 1 { heartbeat.requestsWaiting(true) }
+    }
 
     func requestEnded() {
         inFlight -= 1
+        if inFlight == 0 { heartbeat.requestsWaiting(false) }
         guard inFlight == 0, !quietWaiters.isEmpty else { return }
         let waiters = quietWaiters
         quietWaiters.removeAll()

@@ -76,6 +76,8 @@ final class LineTransport: Sendable {
     private let deadlineTimer: DemandTimer
     /// Time since the connection opened, on the clock ``deadlineTimer`` sleeps on.
     private let elapsed: @Sendable () -> Duration
+    /// ``elapsed`` in nanoseconds when the reader last read bytes: the heartbeat's silence (``inboundSilence``).
+    private let lastInbound = Atomic<Int64>(0)
     /// Where each request's `daemon.request` slice goes (LineTransport+RequestTrace.swift), the top bits of its
     /// async id (``traceConnectionBits(scope:)``) and its flow's seed (``requestFlowSeed(pid:)``).
     let trace: TraceRuntime, traceConnection: UInt64, traceFlowSeed: UInt64
@@ -171,6 +173,8 @@ final class LineTransport: Sendable {
     var isClosed: Bool { state.withLock { $0.closed != nil } }
     /// The writer queue's class (``DaemonWireStats/Role/writerQoS``; tests).
     var writerQoS: DispatchQoS { writer.queueQoS }
+    /// How long since the daemon last sent anything (a reply, an event, a stream line); from the open until its first.
+    var inboundSilence: Duration { elapsed() - .nanoseconds(lastInbound.load(ordering: .relaxed)) }
     func setStreamHandler(_ handler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?) { state.withLock { $0.streamHandler = handler } }
 
     /// Counts `streamID`'s lines as stream-0 events until its `stream_end`;
@@ -374,6 +378,8 @@ final class LineTransport: Sendable {
                 break
             }
             recorder?.bytesRead(count)
+            let (seconds, attoseconds) = elapsed().components
+            lastInbound.store(seconds &* 1_000_000_000 &+ attoseconds / 1_000_000_000, ordering: .relaxed)
             outputStream?.outputCopied(count)  // into the reader's buffer
             // SAFETY: push copies the first `count` bytes of the array's own storage, the ones read(2) just
             // wrote (count <= its size); the closure lends the storage for the call only.

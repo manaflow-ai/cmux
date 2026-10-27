@@ -6,6 +6,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextInput
@@ -222,6 +223,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup, on: services.mainWork)
         daemonPrompts = DaemonPrompts.start(services)
+        if services.features.isEnabled(.hiddenPollPause) {  // before the local daemon's first connect (p14-energy-064)
+            let presence = DaemonPresenceFeed(windows: services.appVisibility.shownWindows)
+            services.lifetimeFollowers.append(presence)
+            services.machines.connectionPresence = presence.presence
+        }
         services.startLocalDaemon(prestart: daemonPrestart)  // the painted terminal colors first (OSC 10/11/12)
         services.lifetimeFollowers.append(FeaturePolicyEnforcer(services: services).start())
         services.postCloudStart(on: order.startup)  // no Cloud restore or connect before the first frame (p08-startup 020)
