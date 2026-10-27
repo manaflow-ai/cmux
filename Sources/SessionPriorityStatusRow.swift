@@ -69,9 +69,17 @@ enum SessionPriorityStatusRow {
         let name = difficultyName(difficulty)
         switch source {
         case .override:
-            return String(localized: "sidebar.sessionPriority.difficulty.manual", defaultValue: "\(name) (manual)")
+            return String(
+                format: String(localized: "sidebar.sessionPriority.difficulty.manual", defaultValue: "%@ (manual)"),
+                locale: .current,
+                name
+            )
         case .auto:
-            return String(localized: "sidebar.sessionPriority.difficulty.auto", defaultValue: "\(name) (auto)")
+            return String(
+                format: String(localized: "sidebar.sessionPriority.difficulty.auto", defaultValue: "%@ (auto)"),
+                locale: .current,
+                name
+            )
         case .default:
             return name
         }

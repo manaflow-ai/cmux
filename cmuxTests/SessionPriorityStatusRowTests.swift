@@ -57,8 +57,14 @@ struct SessionPriorityStatusRowTests {
 
     @Test
     func manualDifficultyIsMarked() {
-        let manualText = String(localized: "sidebar.sessionPriority.difficulty.manual", defaultValue: "\(hard) (manual)")
-        let autoText = String(localized: "sidebar.sessionPriority.difficulty.auto", defaultValue: "\(hard) (auto)")
+        let manualText = String(
+            format: String(localized: "sidebar.sessionPriority.difficulty.manual", defaultValue: "%@ (manual)"),
+            locale: .current, hard
+        )
+        let autoText = String(
+            format: String(localized: "sidebar.sessionPriority.difficulty.auto", defaultValue: "%@ (auto)"),
+            locale: .current, hard
+        )
         #expect(row(source: .override, target: .init(effort: .low)).value.contains(manualText))
         #expect(row(source: .auto, target: .init(effort: .low)).value.contains(autoText))
         #expect(manualText != hard)
