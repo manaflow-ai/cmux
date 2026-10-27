@@ -149,6 +149,9 @@ struct LaunchSnapshotWindow {
             LaunchSnapshotWindow(manager: manager).build(window, in: shell, phase: phase, input: input)
         }
         phase.whenRemoved { input.finish() }
+        // `launch_picture_shown`: the opens from another app waiting for a window now wait for its focused pane, which
+        // raises the window's build (p08-startup-096).
+        services.externalOpen.flush()
     }
 
     /// Builds the launch window behind its picture (p08-startup-060): this slice makes its controller with its
@@ -179,6 +182,7 @@ struct LaunchSnapshotWindow {
         input.build = build
         phase.whenRemoved { build.stop() }
         build.start()
+        services.externalOpen.launchBuildStarted(build)  // an open held for the window raises its build (p08-startup-096)
     }
 
     /// No picture shows (none in time, another window's, a mismatch): the window opens as today.

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextLaunch
 import CmuxNextOnboarding
 
 /// Opens what macOS hands cmux as the default browser, the `ssh:` and
@@ -7,7 +8,9 @@ import CmuxNextOnboarding
 /// the current window's focused pane, per `ExternalOpenRouter`. A link in
 /// this build's scheme (`cmux://tab/…`) runs `link.open`, the one path every
 /// link takes. Requests that arrive before a window has content (a cold
-/// launch by a link) wait and run when the first window shows its workspace.
+/// launch by a link) wait and run when the first window shows its workspace;
+/// under the launch picture they wait for the pane they land in, which the
+/// window's build makes first (`LaunchPictureOpens`, p08-startup-096).
 @MainActor
 final class ExternalOpenController {
     unowned let services: AppServices
@@ -73,6 +76,9 @@ final class ExternalOpenController {
 
     func perform(_ route: ExternalOpenRoute) {
         let windows = services.windows
+        // The launch window shows its picture and the pane the open lands in is not built yet: the open waits for
+        // that pane, never building the window in this turn (p08-startup-096).
+        if holdsForLaunchPicture() { return pending.append(route) }
         guard let controller = windows.active else {
             pending.append(route)
             if windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
@@ -102,6 +108,7 @@ final class ExternalOpenController {
             if isAgent { return }
         } else {
             deliver(route, to: pane)
+            launchOpens?.opened(in: pane)  // the picture over the pane shows what it showed before the open
             windows.bringToFront(controller)
         }
         if !services.environment.noActivate { NSApp.activate() }
@@ -127,12 +134,35 @@ final class ExternalOpenController {
         }
     }
 
-    /// A window installed its content: run what waited for one.
+    /// A window installed its content, the launch window's picture shows (`launch_picture_shown`), or the pane the
+    /// launch picture held an open for is built: run what waited for one.
     func flush() {
-        guard !pending.isEmpty, services.windows.active?.focusedPane != nil else { return }
+        guard !pending.isEmpty, !holdsForLaunchPicture(), services.windows.active?.focusedPane != nil else { return }
         let routes = pending
         pending = []
         routes.forEach(perform)
+    }
+
+    /// Whether what opens now waits for the launch window's focused pane (`LaunchPictureOpens.holds`): the queue
+    /// runs again once that pane shows, in the build's raised slice.
+    private func holdsForLaunchPicture() -> Bool {
+        launchOpens?.holds { [weak self] in self?.flush() } == true
+    }
+
+    /// The launch window's build behind its picture started (`LaunchSnapshotWindow`): an open held for it raises it.
+    func launchBuildStarted(_ build: LaunchWindowBuild) {
+        launchOpens?.buildStarted(build)
+    }
+
+    private var launchPictureOpens: LaunchPictureOpens?
+
+    /// The hold of the launch picture the window manager shows (`WindowManager.launchPicture`); nil with none.
+    private var launchOpens: LaunchPictureOpens? {
+        guard let phase = services.windows.launchPicture else { return nil }
+        if let opens = launchPictureOpens, opens.phase === phase { return opens }
+        let opens = LaunchPictureOpens(phase: phase)
+        launchPictureOpens = opens
+        return opens
     }
 
     private func deliver(_ route: ExternalOpenRoute, to pane: PaneController) {

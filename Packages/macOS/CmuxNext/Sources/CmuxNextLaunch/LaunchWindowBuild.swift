@@ -72,9 +72,15 @@ public final class LaunchWindowBuild {
     private var parts: [LaunchPictureRegions.Part] = []
     /// The panes' first-content waits still running.
     private var waits: [@MainActor () -> Void] = []
+    /// Opens from another app waiting for the focused pane (``whenOpenReady(_:)``).
+    private var openWaiters: [@MainActor () -> Void] = []
 
     /// Every slice ran (or the window went first).
     public private(set) var isDone = false
+
+    /// Whether something opened from another app may go to the window now (p08-startup-096): the focused pane, where
+    /// it lands, is shown (or the window shows no pane), or the build is over.
+    public var isOpenReady: Bool { isDone || (stripsMounted && (panes.isEmpty || shown.contains(0))) }
 
     /// - Parameters:
     ///   - window: The window, its controller built in the picture's window.
@@ -110,6 +116,15 @@ public final class LaunchWindowBuild {
         }
     }
 
+    /// Something opened from another app waits for the window (p08-startup-096): `ready` runs once ``isOpenReady``,
+    /// at once when it is. The build raises as for a key (``raise()``), so the focused pane, where the open lands, is
+    /// built in the next urgent post, ahead of the frame-budgeted slices, and `ready` runs right after it shows.
+    public func whenOpenReady(_ ready: @escaping @MainActor () -> Void) {
+        guard !isOpenReady else { return ready() }
+        openWaiters.append(ready)
+        raise()
+    }
+
     /// The picture left (the bound, its window closed or resized): the panes' waits end. Slices still posted run.
     public func stop() {
         let waiting = waits
@@ -129,6 +144,7 @@ public final class LaunchWindowBuild {
             post(index == 0 ? Self.focusedPane : Self.visiblePane) { [self] in show(index) }
         }
         post(Self.live) { [self] in goLive() }
+        openIfReady()
     }
 
     private func show(_ index: Int) {
@@ -140,6 +156,15 @@ public final class LaunchWindowBuild {
             reveal.whenReady(.tabs) { reveal.whenReady(.pane) { regions?.leave(part) } }
         }
         if let cancel { waits.append(cancel) }
+        openIfReady()
+    }
+
+    /// The opens waiting for the focused pane go once it shows (``whenOpenReady(_:)``), each once.
+    private func openIfReady() {
+        guard isOpenReady, !openWaiters.isEmpty else { return }
+        let waiting = openWaiters
+        openWaiters = []
+        for ready in waiting { ready() }
     }
 
     private func goLive() {
@@ -148,6 +173,7 @@ public final class LaunchWindowBuild {
         (panes, parts) = ([], [])
         regions?.seal()
         window?.goLive()
+        openIfReady()
         let done = done
         self.done = nil
         done?()

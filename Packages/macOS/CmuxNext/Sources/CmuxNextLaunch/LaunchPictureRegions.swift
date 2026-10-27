@@ -94,10 +94,24 @@ public final class LaunchPictureRegions {
 
     /// `part`'s region shows its first meaningful content: the part fades out. Later calls do nothing.
     public func leave(_ part: Part) {
-        guard !isFinished, regions.indices.contains(part.index), !regions[part.index].isLeaving else { return }
-        regions[part.index].isLeaving = true
-        fade(regions[part.index].layer)
-        partLeft?(Self.partName(part.index), true)
+        leave(part.index, drawn: true)
+    }
+
+    /// Something opened in the region at `point` (the picture's coordinates) before its content drew (p08-startup-096):
+    /// the part over it fades out now, since it shows what was there before the open, and the clicks held on it are
+    /// dropped. False when no part of its own covers `point` (the rest of the picture, or outside it).
+    @discardableResult
+    public func drop(at point: CGPoint) -> Bool {
+        guard layout(), let index = regions.firstIndex(where: { $0.layer.frame.contains(point) }) else { return false }
+        leave(index, drawn: false)
+        return true
+    }
+
+    private func leave(_ index: Int, drawn: Bool) {
+        guard !isFinished, regions.indices.contains(index), !regions[index].isLeaving else { return }
+        regions[index].isLeaving = true
+        fade(regions[index].layer)
+        partLeft?(Self.partName(index), drawn)
         finishIfLast()
     }
 
