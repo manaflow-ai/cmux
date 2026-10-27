@@ -1,4 +1,3 @@
-import CmuxNextCompat
 public import CmuxNextWakeups
 
 /// The sidebar's rows and selection passes, each observed and also run on
@@ -12,16 +11,18 @@ public import CmuxNextWakeups
 /// model's setters, the selection hold, the view's render). The app's
 /// SidebarBridge owns one.
 ///
-/// Each pass is a ``ServiceObservation`` (its apply writes the sidebar's model, so it runs while the window is hidden
-/// too): a person's change applies in the input-response pass, before the commit of their input, and any other in one
-/// posted `visible` task per burst (Chrome's posted UI-thread task with a TaskPriority, base/task/task_traits.h).
+/// Each pass is an ``ObservationLoop`` with no node (its apply writes the sidebar's model, so it runs while the window
+/// is hidden too). Only `compute` is tracked, and it runs once per apply, never in a model's will-set: the rows pass
+/// walks every workspace. A person's change in a clean period applies in the input-response pass, before the commit
+/// of their input; any other change, or a burst of them, in one posted `visible` task (Chrome's posted UI-thread task
+/// with a TaskPriority, base/task/task_traits.h).
 @MainActor
 public final class SidebarSameTurn {
     private let view: SidebarView
     private let mainWork: MainWorkScheduler
     private var passes: [(listsRows: Bool, run: @MainActor () -> Void)] = []
-    /// Each pass's observation, held by its cancel.
-    private var stops: [@MainActor () -> Void] = []
+    /// Each pass's observation.
+    private var loops: [ObservationLoop] = []
 
     /// - Parameters:
     ///   - view: The sidebar `syncNow` draws.
@@ -36,12 +37,10 @@ public final class SidebarSameTurn {
     public func observe<Value: Sendable>(listsRows: Bool = false, _ compute: @escaping @MainActor @Sendable () -> Value,
                                   apply: @escaping @MainActor @Sendable (Value) -> Void) {
         passes.append((listsRows, { apply(compute()) }))
-        // A trigger: `syncNow` applies outside the observation too, and `apply` compares with what it applied.
-        let owner = listsRows ? "Sidebar.rowsPass" : "Sidebar.selectionPass"
-        let observation = ServiceObservation(.visible, owner: owner, on: mainWork) { ObservationTrigger(compute()) } apply: { trigger in
-            apply(trigger.value)
-        }
-        stops.append { observation.cancel() }
+        // Every computed value applies: `syncNow` applies outside the loop too, and `apply` compares with what it applied.
+        // node-free: the apply writes the sidebar's model, which a hidden window keeps current for the turn it shows.
+        loops.append(ObservationLoop(owner: listsRows ? "Sidebar.rowsPass" : "Sidebar.selectionPass", delivery: .visible(nil),
+                                     on: mainWork, read: compute, apply: apply))
     }
 
     /// Runs the passes in order (rows, then selection) and draws the sidebar now. `rows` false
@@ -53,7 +52,7 @@ public final class SidebarSameTurn {
     }
 
     public func cancel() {
-        for stop in stops { stop() }
-        stops = []
+        for loop in loops { loop.cancel() }
+        loops = []
     }
 }
