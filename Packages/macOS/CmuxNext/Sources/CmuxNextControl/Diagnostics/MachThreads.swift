@@ -3,9 +3,12 @@ package import Darwin
 /// This task's threads as the kernel lists them: the one owner of the `task_threads` port list's lifetime and of
 /// `thread_info` reads, shared by the hang sampler (`ThreadStackSampler`) and `debug.threads`.
 package struct MachThreads {
+    /// A reader of this task's threads; it holds no state, so any copy reads the same kernel list.
+    package init() {}
+
     /// Runs `body` over this task's thread ports, then releases each port and the list; `body` sees an empty
     /// list when the kernel does not answer. A port is valid only inside `body`.
-    package static func withTaskThreads<Result>(_ body: (UnsafeBufferPointer<thread_act_t>) -> Result) -> Result {
+    package func withTaskThreads<Result>(_ body: (UnsafeBufferPointer<thread_act_t>) -> Result) -> Result {
         var list: thread_act_array_t?
         var count: mach_msg_type_number_t = 0
         guard task_threads(mach_task_self_, &list, &count) == KERN_SUCCESS, let list else {
@@ -26,7 +29,7 @@ package struct MachThreads {
     ///   - thread: The thread's port.
     ///   - flavor: `THREAD_IDENTIFIER_INFO`, `THREAD_EXTENDED_INFO`, ...
     ///   - empty: A zero value of the flavor's struct.
-    package static func info<Info>(_ thread: thread_act_t, _ flavor: Int32, _ empty: Info) -> Info? {
+    package func info<Info>(_ thread: thread_act_t, _ flavor: Int32, _ empty: Info) -> Info? {
         var info = empty
         var count = mach_msg_type_number_t(MemoryLayout<Info>.stride / MemoryLayout<natural_t>.stride)
         let result = withUnsafeMutablePointer(to: &info) {
@@ -38,12 +41,12 @@ package struct MachThreads {
     }
 
     /// The kernel's copy of the thread's name (`THREAD_EXTENDED_INFO` `pth_name`, read with no pthread lock).
-    package static func name(of extended: thread_extended_info_data_t) -> String {
+    package func name(of extended: thread_extended_info_data_t) -> String {
         withUnsafeBytes(of: extended.pth_name) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
     }
 
     /// The thread's name; empty when unnamed or unreadable.
-    package static func name(_ thread: thread_act_t) -> String {
+    package func name(_ thread: thread_act_t) -> String {
         info(thread, THREAD_EXTENDED_INFO, thread_extended_info_data_t()).map(name(of:)) ?? ""
     }
 }

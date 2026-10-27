@@ -233,7 +233,7 @@ extension LiveThread {
     /// Every thread of this process; a thread that exits while it is read is left out.
     static func all() -> [LiveThread] {
         let labels = DispatchLabelReader()
-        return MachThreads.withTaskThreads { threads in threads.compactMap { read($0, labels: labels) } }
+        return MachThreads().withTaskThreads { threads in threads.compactMap { read($0, labels: labels) } }
     }
 
     /// The process's Mach task role (`TASK_CATEGORY_POLICY`, mach/task_policy.h): `foreground` for the
@@ -262,9 +262,10 @@ extension LiveThread {
     }
 
     private static func read(_ thread: thread_act_t, labels: DispatchLabelReader) -> LiveThread? {
-        guard let identity = MachThreads.info(thread, THREAD_IDENTIFIER_INFO, thread_identifier_info_data_t()),
-              let extended = MachThreads.info(thread, THREAD_EXTENDED_INFO, thread_extended_info_data_t()) else { return nil }
-        return LiveThread(id: identity.thread_id, name: MachThreads.name(of: extended), label: labels.label(slot: identity.dispatch_qaddr),
+        let mach = MachThreads()
+        guard let identity = mach.info(thread, THREAD_IDENTIFIER_INFO, thread_identifier_info_data_t()),
+              let extended = mach.info(thread, THREAD_EXTENDED_INFO, thread_extended_info_data_t()) else { return nil }
+        return LiveThread(id: identity.thread_id, name: mach.name(of: extended), label: labels.label(slot: identity.dispatch_qaddr),
                           requestedQoS: requestedQoS(thread), effectivePriority: extended.pth_curpri,
                           cpuNanos: extended.pth_user_time &+ extended.pth_system_time)
     }

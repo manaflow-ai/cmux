@@ -24,12 +24,13 @@ extension ThreadStackSampler {
     static func sampleOtherThreads(excluding excluded: thread_act_t, maxFrames: Int = 48) -> [ThreadSample] {
         // SAFETY: pthread_self is the calling thread's own pthread, live while it runs; only its port is read.
         let current = unsafe pthread_mach_thread_np(pthread_self())
+        let mach = MachThreads()
         // SAFETY: the ports are read only inside the closure, while withTaskThreads holds the list it releases after.
-        return unsafe MachThreads.withTaskThreads { threads in
+        return unsafe mach.withTaskThreads { threads in
             var samples: [ThreadSample] = []
             for thread in threads where samples.count < otherThreadLimit {
                 guard thread != excluded, thread != current else { continue }
-                let name = MachThreads.name(thread)
+                let name = mach.name(thread)
                 let addresses = ThreadStackSampler(thread: thread, maxFrames: maxFrames).sample()
                 guard !addresses.isEmpty else { continue }
                 samples.append(ThreadSample(name: name, addresses: addresses))

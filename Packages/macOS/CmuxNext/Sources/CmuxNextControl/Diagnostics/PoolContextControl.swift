@@ -57,8 +57,8 @@ public struct PoolContextControl: Sendable {
 
         /// The calling thread's reading.
         static func calling() -> ThreadReading {
-            let info = MachThreads.info(pthread_mach_thread_np(pthread_self()), THREAD_EXTENDED_INFO,
-                                        thread_extended_info_data_t())
+            let info = MachThreads().info(pthread_mach_thread_np(pthread_self()), THREAD_EXTENDED_INFO,
+                                          thread_extended_info_data_t())
             return ThreadReading(qos: DispatchQoS.QoSClass(rawValue: qos_class_self()).map { ThreadQoS($0) } ?? .unspecified,
                                  priority: info?.pth_curpri)
         }

@@ -58,7 +58,8 @@ public struct LaunchThreadCensus: Sendable, Equatable {
     ///
     /// - Parameter registry: Which library owns each thread name (the app's by default).
     public static func now(registry: ThreadRegistry = .app) -> LaunchThreadCensus {
-        LaunchThreadCensus(names: MachThreads.withTaskThreads { threads in threads.map { MachThreads.name($0) } }, registry: registry)
+        let mach = MachThreads()
+        return LaunchThreadCensus(names: mach.withTaskThreads { threads in threads.map { mach.name($0) } }, registry: registry)
     }
 
     /// The census of threads with `names` (an unnamed thread's name is empty).

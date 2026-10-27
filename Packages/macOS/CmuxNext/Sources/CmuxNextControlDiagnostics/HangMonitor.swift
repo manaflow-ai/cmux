@@ -141,12 +141,13 @@ struct HangMonitor {
 
     private mutating func report(_ overdue: HangWatch.Overdue, now: UInt64) {
         guard overdue.port != 0 else { return }
+        let mach = MachThreads()
         let overrunNanos = now > overdue.deadlineNanos ? now - overdue.deadlineNanos : 0
         let overrun = Duration.nanoseconds(Int64(clamping: overrunNanos))
         var details: [String: JSONValue] = ["scope": .string(overdue.name),
                                             "thread_kind": .string(overdue.kind.map { "\($0)" } ?? "")]
         guard overdue.tier == .hang else {
-            details["thread"] = .string(MachThreads.name(overdue.port))
+            details["thread"] = .string(mach.name(overdue.port))
             janks.append(startUptimeNanos: overdue.deadlineNanos, duration: overrun, addresses: [], kind: .jank, details: details)
             return
         }
@@ -157,14 +158,14 @@ struct HangMonitor {
         if let crashKeys, crashKeys.noteHung(CrashKeySlots.HungThread(port: overdue.port, kind: overdue.kind?.rawValue ?? 0)) {
             named.append(overdue)
         }
-        let threadName = MachThreads.name(overdue.port)
+        let threadName = mach.name(overdue.port)
         details["thread"] = .string(threadName)
         if let tags = crashKeys?.snapshot().tags, !tags.isEmpty { details["crash_keys"] = .object(tags.mapValues(JSONValue.string)) }
         let record = log.append(startUptimeNanos: overdue.deadlineNanos, duration: overrun, addresses: addresses, kind: .hang, details: details)
         logger?.error("hang: \(overdue.name, privacy: .public) on thread \(threadName, privacy: .public) past its budget by \(overrun.fractionalMilliseconds, format: .fixed(precision: 1)) ms (thread hang \(record.sequence), \(addresses.count) frames; see debug.hangs thread_hangs)")
         // arg0: the hung thread's id, the key of the ring's thread table (which names it); the record itself is the watchdog thread's.
         if let trace {
-            let tid = MachThreads.info(overdue.port, THREAD_IDENTIFIER_INFO, thread_identifier_info_data_t())?.thread_id ?? 0
+            let tid = mach.info(overdue.port, THREAD_IDENTIFIER_INFO, thread_identifier_info_data_t())?.thread_id ?? 0
             trace.event(.hangThreadHung, arg0: tid, arg1: overrunNanos / 1_000_000)
         }
         if isDue(overdue.name, now: now) {
