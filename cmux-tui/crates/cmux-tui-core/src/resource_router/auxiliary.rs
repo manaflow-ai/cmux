@@ -7,12 +7,12 @@ use serde_json::{Value, json};
 
 use super::effects::{self, EffectPreparation, PreparedEffect};
 use super::{
-    ParsedResourceRequest, expected_revision, mutation_result, operation_name, required_string,
-    required_u64, resource_operation_error, validation_error,
+    ParsedResourceRequest, expected_revision, mutation_result, operation_name, required_field,
+    required_string, required_u64, resource_operation_error, validation_error,
 };
 use crate::resource::{
     FrontendProjectionPublicId, PairingRequestPublicId, ResourceError, ResourceOperation, Selector,
-    SessionPublicId, SidebarViewPublicId, TerminalPublicId, WireDecimal,
+    SessionPublicId, SidebarViewPublicId, TerminalPublicId,
 };
 use crate::sidebar_resource::{resolve_sidebar_view, sidebar_snapshot, sidebar_view_id};
 use crate::{AgentSource, AgentState, Mux, ResourceSelectors, ResourceTarget, WorkspaceMutation};
@@ -90,14 +90,8 @@ fn list_agents(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value,
 }
 
 fn report_agent(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Value, ResourceError> {
-    let terminal_id = request
-        .fields
-        .get("terminal_id")
-        .map(parse_terminal_id)
-        .transpose()?
-        .expect("catalog requires terminal_id");
-    let state =
-        parse_agent_state(request.fields.get("state").expect("catalog requires agent state"))?;
+    let terminal_id = parse_terminal_id(required_field(&request.fields, "terminal_id")?)?;
+    let state = parse_agent_state(required_field(&request.fields, "state")?)?;
     let source = parse_agent_source(required_string(&request.fields, "source")?)?;
     let source_session =
         request.fields.get("source_session").and_then(Value::as_str).map(str::to_string);
@@ -158,19 +152,18 @@ fn put_frontend_projection(
 ) -> Result<Value, ResourceError> {
     let projection_id = resolve_projection_id(&request.selectors)?;
     let mutation = mutation(&request)?;
-    let projection = request.fields.get("projection").expect("catalog requires projection");
+    let frontend_id = required_field(&request.fields, "frontend_id")?;
+    let window_id = required_field(&request.fields, "window_id")?;
+    let generation = required_field(&request.fields, "generation")?;
+    let projection = required_field(&request.fields, "projection")?;
     let stored_projection = json!({
-        "frontend_id":request.fields["frontend_id"],
-        "window_id":request.fields["window_id"],
-        "generation":request.fields["generation"],
+        "frontend_id":frontend_id,
+        "window_id":window_id,
+        "generation":generation,
         "projection":projection,
     });
     let expected_projection_revision =
-        request.fields.get("expected_projection_revision").map(|value| {
-            serde_json::from_value::<WireDecimal>(value.clone())
-                .expect("catalog validates projection revisions")
-                .get()
-        });
+        super::content::optional_decimal(&request.fields, "expected_projection_revision")?;
     let commit = mux
         .resource_put_frontend_projection_selected(
             request.selectors,
@@ -342,7 +335,7 @@ fn execute_sidebar_ensure(
         decode_intent("sidebar_view.ensure", &prepared.intent, "session_id", "sidebar session")?;
     let cols = intent_u16("sidebar_view.ensure", &prepared.intent, "cols")?;
     let rows = intent_u16("sidebar_view.ensure", &prepared.intent, "rows")?;
-    let relaunch = prepared.intent["relaunch"].as_bool().ok_or_else(|| {
+    let relaunch = prepared.intent.get("relaunch").and_then(Value::as_bool).ok_or_else(|| {
         stored_intent_error(
             "sidebar_view.ensure",
             "sidebar ensure intent has an invalid relaunch flag",
@@ -387,7 +380,7 @@ fn execute_sidebar_input(mux: &Arc<Mux>, prepared: PreparedEffect) -> Result<Val
         decode_intent("sidebar_view.input", &prepared.intent, "sidebar_id", "sidebar view")?;
     let session_id: SessionPublicId =
         decode_intent("sidebar_view.input", &prepared.intent, "session_id", "sidebar session")?;
-    let data = prepared.intent["data_base64"].as_str().ok_or_else(|| {
+    let data = prepared.intent.get("data_base64").and_then(Value::as_str).ok_or_else(|| {
         stored_intent_error("sidebar_view.input", "sidebar input intent has invalid base64")
     })?;
     let data = base64::engine::general_purpose::STANDARD.decode(data).map_err(|error| {
