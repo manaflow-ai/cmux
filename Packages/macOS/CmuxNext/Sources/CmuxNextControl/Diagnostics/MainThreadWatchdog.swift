@@ -168,12 +168,16 @@ public final class MainThreadWatchdog: Sendable {
     /// - Parameters:
     ///   - configuration: Thresholds, ring size and sampling.
     ///   - startupTasks: The launch's tag (``startupTasks``); nil: stalls carry no startup fields.
-    public convenience init(configuration: Configuration = Configuration(), startupTasks: StartupTaskTag? = nil) {
-        self.init(configuration: configuration, startupTasks: startupTasks, uptime: { MainThreadWatchdog.now() })
+    ///   - wakeUps: The main thread's deadline queue (`MainWorkScheduler.wakeUps`), which ends each
+    ///     busy window (``BusyWatchdog``). `main()` makes it before this watchdog and gives the same queue
+    ///     to the scheduler (`LaunchOrder`).
+    public convenience init(configuration: Configuration = Configuration(), startupTasks: StartupTaskTag? = nil,
+                            wakeUps: MainWakeUpQueue? = nil) {
+        self.init(configuration: configuration, startupTasks: startupTasks, uptime: { MainThreadWatchdog.now() }, wakeUps: wakeUps)
     }
 
     init(configuration: Configuration, startupTasks: StartupTaskTag? = nil, uptime: @escaping @Sendable () -> UInt64,
-         fieldMetrics: MainThreadFieldMetrics = MainThreadFieldMetrics()) {
+         fieldMetrics: MainThreadFieldMetrics = MainThreadFieldMetrics(), wakeUps: MainWakeUpQueue? = nil) {
         self.configuration = configuration
         self.fieldMetrics = fieldMetrics
         self.uptime = uptime
@@ -181,7 +185,7 @@ public final class MainThreadWatchdog: Sendable {
         createdNanos = uptime()
         createdCPUNanos = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
         self.log = HangLog(capacity: configuration.capacity)
-        self.busy = BusyWatchdog(log: log)
+        self.busy = BusyWatchdog(log: log, wakeUps: wakeUps)
         self.thresholdNanos = UInt64(clamping: max(configuration.threshold.wholeMilliseconds, 1)).saturatingMultiplication(1_000_000)
         self.sampleAfterNanos = thresholdNanos / 5 * 3 + thresholdNanos % 5 * 3 / 5
         self.hangNanos = Self.nanos(configuration.hangThreshold)

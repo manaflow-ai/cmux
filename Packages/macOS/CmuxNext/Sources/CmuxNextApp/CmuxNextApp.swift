@@ -32,7 +32,10 @@ public struct CmuxNextApp {
         let startupTag = StartupTaskTag()
         // The one-thread steps up to the watchdog's start: one step, since a stall in them is listed only at the start.
         startupTag.step("main.one_thread")
-        let watchdog = MainThreadWatchdog(startupTasks: startupTag)
+        // The main thread's one deadline queue (its run-loop timer stays parked until the first deadline; no thread):
+        // the watchdog's busy windows end on it, and the scheduler LaunchOrder makes below shares it (p14-energy-065).
+        let mainWakeUps = MainWakeUpQueue(energy: EnergyPolicySource())
+        let watchdog = MainThreadWatchdog(startupTasks: startupTag, wakeUps: mainWakeUps)
         // CMUX_TRACE_STARTUP: the startup trace's ring, before the first mark (unset: one getenv, no ring).
         let startupTrace = DebugTimings.makeStartupTrace()
         DebugTimings.markLaunch("main_start")
@@ -227,7 +230,7 @@ public struct CmuxNextApp {
         WindowOverlayHost.appInputTap = inputTap
         TooltipPresenter.shared.inputTap = inputTap
         watchdog.startupStep("main.launch_order")
-        let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap, startupTag: startupTag) { DebugTimings.markLaunch($0) }
+        let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap, startupTag: startupTag, wakeUps: mainWakeUps) { DebugTimings.markLaunch($0) }
         // Main-actor jobs wait behind pending input (p04-input-076); installed as `debug.mainJobGate` says (AppServices.settings).
         // Classed main work (post(class:), MainNotificationObserver) waits behind the same input (p04-input-080).
         if features.isEnabled(.mainJobGate), let pending = order.mainWork.budget.pendingInput as? SessionInputPending {

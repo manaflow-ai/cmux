@@ -30,7 +30,8 @@ import func CmuxSafeConcurrency.withOnceContinuation
 /// App-only debug methods.
 @MainActor
 final class AppControl {
-    /// The launch's watchdog, running since `main()` (p08-startup-088).
+    /// The launch's watchdog, running since `main()` (p08-startup-088); its busy windows end on the main deadline
+    /// queue `main()` gave it and the scheduler (p14-energy-065).
     let watchdog: MainThreadWatchdog
     /// The app's crash keys (p10-stability-207: the action timing names the running action, the hang monitor the hung threads).
     let crashKeys = CrashKeySlots()
@@ -77,7 +78,8 @@ final class AppControl {
     ///   - mainWork: The app's one main-thread scheduler: control requests are its automation tasks, and
     ///     the watchdog reads its board.
     ///   - input: The app's input tap.
-    ///   - watchdog: The launch's main-thread watchdog, made and started first in `main()`.
+    ///   - watchdog: The launch's main-thread watchdog, made and started first in `main()` on `mainWork`'s
+    ///     deadline queue (``MainWorkScheduler/wakeUps``).
     init(mainWork: MainWorkScheduler, input: any InputObserving, watchdog: MainThreadWatchdog) {
         (self.mainWork, self.input, self.watchdog) = (mainWork, input, watchdog)
         frames = FrameBatcher(owner: "Control.frames", budgeted: .automation, on: mainWork)

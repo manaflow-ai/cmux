@@ -1,8 +1,20 @@
 //! Terminal host records: terminating discovered hosts, acknowledging exits, and scheduled host record cleanup.
+//!
+//! Every removal of a host's records here takes the owner's panic log
+//! (`SurfaceOptions::host_panic_log`): the host's crash sidecar goes there
+//! as one line before it is removed, whichever path removes it.
 
 use super::mux_work::{self, Retry};
 use super::*;
+use crate::terminal_host_runtime::HostPanicLog;
 use cmux_threads::work::{Lane, Priority};
+
+impl Mux {
+    /// The owner's panic log for its terminal hosts' crash sidecars.
+    pub(super) fn host_panic_log(&self) -> Option<HostPanicLog> {
+        self.surface_options.lock().unwrap_or_else(PoisonError::into_inner).host_panic_log.clone()
+    }
+}
 
 /// Terminate every host record under `root` for one terminal and
 /// acknowledge its exit sidecar. A host that does not accept termination
@@ -13,6 +25,7 @@ pub(super) fn terminate_discovered_terminal_host_in(
     root: &Path,
     terminal_id: &str,
     incarnation: Option<&str>,
+    panic_log: Option<&HostPanicLog>,
 ) {
     let Ok(records) = crate::terminal_host_runtime::load_terminal_host_records(root) else {
         return;
@@ -20,20 +33,21 @@ pub(super) fn terminate_discovered_terminal_host_in(
     for (path, record) in records {
         if record.terminal_id == terminal_id
             && incarnation.is_none_or(|expected| record.incarnation == expected)
-            && !terminate_host_record(record.clone(), path.clone())
+            && !terminate_host_record(record.clone(), path.clone(), panic_log)
         {
-            schedule_terminal_host_record_cleanup(owner, record, path);
+            schedule_terminal_host_record_cleanup(owner, record, path, panic_log.cloned());
         }
     }
     pending_terminals::terminate_unadoptable_hosts_in(root, terminal_id);
     let record_path = root.join(format!("{terminal_id}.json"));
-    let _ = acknowledge_terminal_exit_sidecar(&record_path, terminal_id, incarnation);
+    let _ = acknowledge_terminal_exit_sidecar(&record_path, terminal_id, incarnation, panic_log);
 }
 
 #[cfg(any(unix, windows))]
 pub(super) fn terminate_host_record(
     record: crate::terminal_host_runtime::TerminalHostRecord,
     record_path: std::path::PathBuf,
+    panic_log: Option<&HostPanicLog>,
 ) -> bool {
     let Some(mut host) = pending_terminals::adopt_host_to_terminate(record, record_path) else {
         return false;
@@ -42,15 +56,18 @@ pub(super) fn terminate_host_record(
     let exit = host.terminate_and_wait_for_exit();
     host.disconnect();
     let Ok(exit) = exit else { return false };
-    acknowledge_exact_terminal_host_exit(&exit_path, &exit)
+    acknowledge_exact_terminal_host_exit(&exit_path, &exit, panic_log)
 }
 
 #[cfg(any(unix, windows))]
 pub(super) fn acknowledge_exact_terminal_host_exit(
     exit_path: &Path,
     exit: &crate::terminal_host_runtime::TerminalHostExitRecord,
+    panic_log: Option<&HostPanicLog>,
 ) -> bool {
-    match crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(exit_path, exit) {
+    match crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(
+        exit_path, exit, panic_log,
+    ) {
         Ok(true) => true,
         Ok(false) => !exit_path.exists(),
         Err(_) => false,
@@ -62,6 +79,7 @@ pub(super) fn acknowledge_terminal_exit_sidecar(
     record_path: &Path,
     terminal_id: &str,
     incarnation: Option<&str>,
+    panic_log: Option<&HostPanicLog>,
 ) -> bool {
     let exit_path = record_path.with_extension("exit");
     let exit = match crate::terminal_host_runtime::terminal_host_exit_record(record_path) {
@@ -74,11 +92,7 @@ pub(super) fn acknowledge_terminal_exit_sidecar(
     {
         return false;
     }
-    match crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(&exit_path, &exit) {
-        Ok(true) => true,
-        Ok(false) => !exit_path.exists(),
-        Err(_) => false,
-    }
+    acknowledge_exact_terminal_host_exit(&exit_path, &exit, panic_log)
 }
 
 /// Retries the cleanup of a host record that did not accept termination,
@@ -91,6 +105,7 @@ pub(super) fn schedule_terminal_host_record_cleanup(
     owner: &Weak<Mux>,
     record: crate::terminal_host_runtime::TerminalHostRecord,
     record_path: std::path::PathBuf,
+    panic_log: Option<HostPanicLog>,
 ) {
     let terminal_id = record.terminal_id.clone();
     let mut delay = Duration::from_millis(25);
@@ -101,7 +116,7 @@ pub(super) fn schedule_terminal_host_record_cleanup(
         Lane::System,
         move |_| {
             if cmux_threads::work::will_block(|| {
-                cleanup_terminal_host_record(&record, &record_path)
+                cleanup_terminal_host_record(&record, &record_path, panic_log.as_ref())
             }) {
                 return Retry::Done;
             }
@@ -133,12 +148,14 @@ pub(super) fn terminal_host_record_liveness(
 pub(super) fn cleanup_terminal_host_record(
     record: &crate::terminal_host_runtime::TerminalHostRecord,
     record_path: &Path,
+    panic_log: Option<&HostPanicLog>,
 ) -> bool {
     match terminal_host_record_liveness(record_path, record) {
         TerminalHostLiveness::Dead => {
             match crate::terminal_host_runtime::remove_stale_terminal_host_record(
                 record_path,
                 record,
+                panic_log,
             ) {
                 Ok(removed) => removed,
                 // Positive nonce/PID death proof remains authoritative when
@@ -149,7 +166,7 @@ pub(super) fn cleanup_terminal_host_record(
             }
         }
         TerminalHostLiveness::Live | TerminalHostLiveness::Indeterminate => {
-            terminate_host_record(record.clone(), record_path.to_path_buf())
+            terminate_host_record(record.clone(), record_path.to_path_buf(), panic_log)
         }
     }
 }

@@ -1,13 +1,19 @@
 import AppKit
 import CmuxNextCompat
-import CmuxNextSettings
+import CmuxNextDesign
+import CmuxNextInputCoreTestSupport
 @testable import CmuxNextPages
+import CmuxNextPagesTestSupport
+import CmuxNextSettings
 import CmuxNextTestSupport
+import CmuxNextWakeups
 import Foundation
 import Testing
 import WebKit
 
-/// Claim-to-ready of a Settings page from the parked spare (`CMUX_PAGE_CLAIM_BENCH=<runs>`).
+/// Claim-to-ready of a Settings page from the preload slot (`CMUX_PAGE_CLAIM_BENCH=<runs>`), the app's
+/// path since p13-webui-045 retired PageHostPool: the open names Settings, ``PagePreloads`` loads it
+/// parked in a shown window, and the next open claims it with its routes (``PagePreloads/claim(_:routes:route:documentAttributes:surface:dynamicResources:)``).
 ///
 /// Ready: the claimed document shows settings rows with enabled controls (a row enables its controls
 /// only after the owner's values arrive through the claim's routes) and no read-only banner. The page records the moment on
@@ -17,7 +23,7 @@ import WebKit
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(10)),
        .enabled(if: ProcessInfo.processInfo.environment["CMUX_PAGE_CLAIM_BENCH"] != nil))
-struct PageHostPoolClaimReadyBenchmark {
+struct PagePreloadClaimReadyBenchmark {
     static let readyProbe = """
     (() => {
       const root = document.documentElement;
@@ -51,37 +57,40 @@ struct PageHostPoolClaimReadyBenchmark {
     }
 
     private static func oneClaim(claims: inout [String]) async throws -> Double? {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
-                              styleMask: [.borderless], backing: .buffered, defer: true)
-        window.isReleasedWhenClosed = false
+        let window = PagePreloadPageTests.shownWindow()
         defer { window.close() }
-        var policy = PageHostPool.Policy()
-        policy.idleInput = .milliseconds(5)
-        let memory = PageTestMemory()
-        let pool = PageHostPool(memory: memory.coordinator, policy: policy, activity: { 0 }, isTrackingMenu: { false })
-        defer { pool.dropSpare(); pool.claimedHosts.forEach(pool.release) }
-        pool.follow(window)
-        pool.noteLikely()
-        if !pool.isSpareReady {
-            _ = await PageTestWait.value("spare ready") { (done: @escaping (Bool) -> Void) in
-                pool.onSpareReady = { _ in done(true) }
-            }
+        let content = try #require(window.contentView)
+        // The app's deadlines, which fire on their own: the slot's cover and park run as in the app.
+        let deadlines = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()))
+        let host = WebUIHost(chromium: nil, openPanel: nil, memory: QuietMemoryRegistry(), deadlines: deadlines)
+        let slot = PagePreloadSlot(parkState: .renderedParked, deadlines: deadlines)
+        host.preload = slot
+        let preloads = PagePreloads(webUI: host, slot: slot, deadlines: deadlines, input: FakeInputTap(),
+                                    isEnabled: { true }, target: { (content, content.bounds.size) })
+        defer { preloads.drop() }
+        // The first open names Settings (the slot is empty, so it opens cold elsewhere); then it preloads.
+        #expect(preloads.claim(.settings, routes: []) == nil)
+        preloads.preloadNow()
+        for _ in 0..<400 where slot.phase != .parked {
+            try await Task.sleep(for: .milliseconds(25))
         }
-        // A parked spare waits seconds or more in the app: let its document settle first.
+        guard slot.phase == .parked else {
+            Issue.record("the Settings preload never parked (phase \(slot.phase?.rawValue ?? "none"))")
+            return nil
+        }
+        // A parked page waits seconds or more in the app: let its document settle first.
         try await Task.sleep(for: .seconds(1))
         let provider = RecordingPageProvider()
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider)]
         let start = Date().timeIntervalSince1970 * 1_000
-        let page = try #require(pool.claim(.settings, routes: routes, route: "#/settings/general",
-                                           window: window, focus: false))
+        let page = try #require(preloads.claim(.settings, routes: routes, route: "#/settings/general", surface: .settings))
+        defer { host.close(page) }
         // The probe covers the current document and any document the claim loads next.
         page.webView.configuration.userContentController.addUserScript(
             WKUserScript(source: readyProbe, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         page.webView.evaluateJavaScript(readyProbe, completionHandler: nil)
-        if let content = window.contentView {
-            page.frame = content.bounds
-            content.addSubview(page)
-        }
+        page.frame = content.bounds
+        content.addSubview(page)
         for _ in 0..<400 {
             let ready = try? await page.webView.callAsyncJavaScript(
                 "return document.documentElement.dataset.benchReady || null;", contentWorld: .page) as? String
