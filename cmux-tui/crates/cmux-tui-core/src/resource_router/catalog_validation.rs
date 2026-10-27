@@ -124,19 +124,28 @@ pub(super) fn validate_catalog_params(
     Ok((selectors, fields))
 }
 
+/// The refusal of an operation's own result or error as outside its catalog
+/// contract. An error refusal names the code the operation emitted
+/// (`emitted_code`), as the undeclared-code refusals do, so a reader knows
+/// which declared error broke its details or retryability.
 pub(super) fn contract_failure(
     operation_name: &str,
     contract: &str,
+    emitted_code: Option<&str>,
     violation: &ResourceError,
 ) -> ResourceError {
+    let mut extra = json!({
+        "contract":contract,
+        "violation_code":violation.code,
+        "violation":violation.details,
+    });
+    if let Some(code) = emitted_code {
+        extra["emitted_code"] = json!(code);
+    }
     ResourceError::operation_failed(
         operation_name,
         format!("operation {contract} violates the embedded catalog"),
-        json!({
-            "contract":contract,
-            "violation_code":violation.code,
-            "violation":violation.details,
-        }),
+        extra,
     )
 }
 
@@ -151,7 +160,7 @@ pub(super) fn validate_operation_result(
         &format!("{operation_name}.result"),
         &HashMap::new(),
     )
-    .map_err(|violation| contract_failure(&operation_name, "result", &violation))
+    .map_err(|violation| contract_failure(&operation_name, "result", None, &violation))
 }
 
 pub(crate) fn validate_operation_error(
@@ -160,7 +169,9 @@ pub(crate) fn validate_operation_error(
 ) -> ResourceError {
     let (operation_name, descriptor) = match operation_descriptor(operation) {
         Ok(descriptor) => descriptor,
-        Err(violation) => return contract_failure("catalog.validate", "error", &violation),
+        Err(violation) => {
+            return contract_failure("catalog.validate", "error", Some(&error.code), &violation);
+        }
     };
     let declared = descriptor["errors"]
         .as_array()
@@ -195,7 +206,7 @@ pub(crate) fn validate_operation_error(
                 "error retryability differs from the catalog",
             )
         });
-        contract_failure(&operation_name, "error", &violation)
+        contract_failure(&operation_name, "error", Some(&error.code), &violation)
     }
 }
 

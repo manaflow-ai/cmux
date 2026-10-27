@@ -40,7 +40,9 @@ Each case gets:
   file's CLI takes `--isolation` (netns by default, which refuses a host without unprivileged user
   namespaces; auto; none). Each case result carries the environment it ran with (`environment`).
   Terminals use the default per-terminal `cmux-tui __terminal-host` model (CMUX_TUI_TERMINAL_HOST_MODEL
-  is unset).
+  is unset). `daemon_blocking` in the session context (`--daemon-blocking record|panic`) sets the daemon's
+  CMUX_DAEMON_BLOCKING, as mock_chief.py's live check does: a debug daemon panics at a blocking call on a thread
+  that disallows blocking unless it is `record`, which records the site as Release does (I11 reads them).
 - every request through the SDK: resource operations on `cmux._protocol.ProtocolConnection` (the SDK's
   wire layer; the oracle compares wire replies, so it does not decode them into dataclasses), and the
   daemon-control commands (`identify`, `shutdown-daemon`, `oracle-state`, `oracle-advance-clock`) on
@@ -76,7 +78,7 @@ Chrome reference (chromium/src):
 
 Usage:
   driver_daemon.py run-case --binary CMUX_TUI CASE.json [--state-base DIR] [--snapshot-schema S]
-                            [--isolation netns|auto|none] [--trace TRACE.json]
+                            [--isolation netns|auto|none] [--trace TRACE.json] [--daemon-blocking record|panic]
                                                      one case, its result JSON; --trace also takes a journal
                                                      checkpoint at setup and writes the case's trace with an
                                                      oracle-restore-preview at every capture (invariant I9:
@@ -271,11 +273,26 @@ def restore_preview_at(facet: Any, command: Callable[..., Mapping[str, Any]],
     return reply
 
 
+MUTATION_RESULT_KEYS = frozenset({"value", "generation", "revision", "replayed"})
+
+
+def trace_reply(outcome: Tuple[str, Any]) -> Dict[str, Any]:
+    """One reply of a resource.call as the trace carries it (invariants.py): `{"error": code}`, or the result
+    as a `mutation_result` receipt when it is a MutationResult and as a `result` receipt otherwise."""
+    kind, detail = outcome
+    if kind == "error":
+        return {"error": detail}
+    receipt = "mutation_result" if isinstance(detail, dict) and MUTATION_RESULT_KEYS <= set(detail) else "result"
+    return {"receipt": receipt, "result": detail}
+
+
 def case_trace(case_id: str, steps: Sequence[Mapping[str, Any]],
-               captures: Sequence["Capture"]) -> Optional[Dict[str, Any]]:
+               captures: Sequence["Capture"],
+               calls: Optional[Mapping[str, Mapping[str, Any]]] = None) -> Optional[Dict[str, Any]]:
     """The `cmux.oracle.trace/v1` document (invariants.py) of the case's steps that captured: their raw
-    checkpoints and restore previews, for `invariants.py check`. Replies, layout counters and the teardown
-    are not in it yet. None when no step captured."""
+    checkpoints and restore previews, and for a resource.call its target with the `$step:` references resolved
+    and its replies (`calls`), for `invariants.py check`. Layout counters and the teardown are not in it yet.
+    None when no step captured."""
     by_step: Dict[str, Dict[str, Any]] = {}
     for capture in captures:
         record = by_step.setdefault(capture.step, {"checkpoints": {}, "restorePreviews": {}})
@@ -289,7 +306,7 @@ def case_trace(case_id: str, steps: Sequence[Mapping[str, Any]],
             continue
         if not record["restorePreviews"]:
             del record["restorePreviews"]
-        records.append({"id": step["id"], "op": step["op"], **record})
+        records.append({"id": step["id"], "op": step["op"], **(calls or {}).get(step["id"], {}), **record})
     if not records:
         return None
     return {"schema": TRACE_SCHEMA, "case": case_id, "steps": records}
@@ -419,10 +436,18 @@ def host_platform() -> str:
     return "linux" if sys.platform.startswith("linux") else "mac"
 
 
-def case_environment(paths: CasePaths, seed: str, isolation: hermetic_env.Isolation) -> hermetic_env.CaseEnv:
-    """The case daemon's whole environment, from hermetic_env.py, with this driver's process marker."""
-    return hermetic_env.daemon_case(paths.root, isolation, platform=host_platform(), seed=seed,
-                                    extra={MARKER_ENV: str(paths.root)})
+BLOCKING_ENV = "CMUX_DAEMON_BLOCKING"
+BLOCKING_MODES = ("record", "panic")
+
+
+def case_environment(paths: CasePaths, seed: str, isolation: hermetic_env.Isolation,
+                     blocking: Optional[str] = None) -> hermetic_env.CaseEnv:
+    """The case daemon's whole environment, from hermetic_env.py, with this driver's process marker and, when the
+    session names one, the daemon's blocking-check mode."""
+    extra = {MARKER_ENV: str(paths.root)}
+    if blocking is not None:
+        extra[BLOCKING_ENV] = blocking
+    return hermetic_env.daemon_case(paths.root, isolation, platform=host_platform(), seed=seed, extra=extra)
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -1036,6 +1061,8 @@ class Capture:
 class CaseState:
     replies: Dict[str, Any] = field(default_factory=dict)
     captures: List[Capture] = field(default_factory=list)
+    # A traced case's resource.call steps: {"target": resolved target, "replies": [trace_reply]}.
+    calls: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     exits: List[DaemonExit] = field(default_factory=list)
     killed_by: Optional[str] = None
 
@@ -1055,7 +1082,7 @@ class CaseRun:
                                         str(ctx.get("key") or self.case_id))
         fixture = case.get("fixture") or {}
         seed = str(fixture.get("seed") or case.get("id") or "oracle")
-        self.case_env = case_environment(self.paths, seed, isolation)
+        self.case_env = case_environment(self.paths, seed, isolation, session_ctx.get("daemon_blocking"))
         self.daemon = Daemon(binary, self.paths, self.case_env, self.scale)
         self.sha = sha
         # v0 facets (facets_v0.py, p15-oracle-006): only the push-base methods and a wall clock, so a capture
@@ -1112,7 +1139,8 @@ class CaseRun:
         except normalize.OracleError as error:
             result.update(status="Crash", message="; ".join(filter(None, [message, f"snapshot refused: {error}"])))
         if self.trace:
-            result["trace"] = case_trace(self.case_id, self.case.get("steps") or (), self.state.captures)
+            result["trace"] = case_trace(self.case_id, self.case.get("steps") or (), self.state.captures,
+                                         self.state.calls)
         return result
 
     def fixture_checkpoint(self) -> None:
@@ -1199,6 +1227,8 @@ class CaseRun:
         except CmuxError as error:
             raise self.sdk_failure(error, step_id, method) from None
         self.state.replies[step_id] = reply
+        if self.trace:
+            self.state.calls[step_id] = {"target": target, "replies": [trace_reply(outcome)]}
         if before is not None:
             self.check_read_only(index, step_id, before)
         if step.get("ends") and outcome[0] == "ok":
@@ -1597,6 +1627,8 @@ class DaemonSession:
             raise ValueError("switch arms reach the daemon in p15-oracle-049; this driver runs the default arms")
         if session_ctx.get("facets") not in (None, "v0", "v1"):
             raise ValueError(f"facets {session_ctx.get('facets')!r} is v0 or v1")
+        if session_ctx.get("daemon_blocking") not in (None, *BLOCKING_MODES):
+            raise ValueError(f"daemon_blocking {session_ctx.get('daemon_blocking')!r} is one of {BLOCKING_MODES}")
         default_schema = normalize.DEFAULT_SCHEMA
         if session_ctx.get("facets") == "v0" and not session_ctx.get("snapshot_schema"):
             import facets_v0  # sibling (p15-oracle-006): the v1 schema cut to the push-base methods
@@ -1951,6 +1983,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         cmd.add_argument("--snapshot-schema", help="the snapshot schema (default: normalize.py's)")
         cmd.add_argument("--state-base", type=Path, default=DEFAULT_STATE_BASE)
         cmd.add_argument("--run-id")
+        cmd.add_argument("--daemon-blocking", choices=BLOCKING_MODES,
+                         help=f"the daemon's {BLOCKING_ENV} (default: unset, a debug daemon panics)")
         cmd.add_argument("--isolation", choices=hermetic_env.ISOLATION_MODES, default="netns",
                          help="netns: unshare -rn, refuse a host without it (default); auto: netns when the host "
                               "allows it; none: no namespace (each result's environment says so)")
@@ -1985,6 +2019,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         parser.print_usage(sys.stderr)
         return 2
     args.session_extra = {"isolation": args.isolation}
+    if args.daemon_blocking:
+        args.session_extra["daemon_blocking"] = args.daemon_blocking
     if args.snapshot_schema:
         args.session_extra["snapshot_schema"] = args.snapshot_schema
     if getattr(args, "trace", None):

@@ -1,14 +1,25 @@
 //! Resource-op sequence fuzzer (plans/cmux-next/chrome-parity/p15-oracle.md,
 //! task 186): `arbitrary` decodes the input into a sequence of typed
 //! `cmux.protocol/2` requests (workspace, screen, pane, tab and terminal
-//! mutations, reads and same-key retries) whose ids are picked from the live
-//! session, a closed object or a well-formed id that never existed. Each
-//! request goes through the daemon's own dispatch in process
-//! (`cmux_tui_core::fuzz_entry::ResourceSession`); after each one the target
-//! reads `session.snapshot` and checks I1, I2 and the facet's consistency
-//! (support/resource_walk.rs). A broken one, like a daemon panic, is a crash.
-//! The process runs in an oracle case's hermetic environment
+//! mutations, reads and same-key retries) whose ids name a live object, a
+//! closed one or a well-formed id that never existed. Each request goes
+//! through the daemon's own dispatch in process
+//! (`cmux_tui_core::fuzz_entry::ResourceSession`), on the daemon's own
+//! owner model: a registry on disk and one `__terminal-host` process per
+//! terminal (this binary, which serves a host when asked to before libFuzzer
+//! starts). Around each request the target reads `session.snapshot`, the
+//! step's before and settled checkpoints, and checks I1, I2 and I19 as
+//! invariants.py checks them on the converted case (support/
+//! resource_walk.rs). A broken one, like a daemon panic, is a crash. The
+//! process runs in an oracle case's hermetic environment
 //! (`hermetic_environment`), set once before the first input.
+//!
+//! An input picks objects among those an earlier reply named, in the order
+//! the replies first named them, never by a snapshot row: rows are ordered by
+//! random public ids, so the same input would pick other objects in another
+//! run, and a converted case's reference would name another object in the
+//! oracle's daemon. A case names each object through the reply that named it
+//! (`$step:<step>#<pointer>`).
 //!
 //! Chrome reference (chromium/src): mojo/docs/mojolpm.md, a structured
 //! fuzzer that drives a real interface implementation in process with a
@@ -17,19 +28,21 @@
 //!
 //! A crash becomes an oracle walk case: `fuzz_to_case.py` replays the crash
 //! with `CMUX_RESOURCE_OPS_WALK` set, and this target then writes every
-//! step as a case-v1 step (ids as `$step:` references into the session
-//! snapshot taken before the step) and the reply's outcome.
+//! step as a case-v1 step, each checkpoint before its snapshot is read, the
+//! reply's outcome and the broken invariant (resource_walk.rs `Recorder`).
 #![no_main]
 
 #[path = "support/resource_walk.rs"]
 mod resource_walk;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use arbitrary::Arbitrary;
-use cmux_tui_core::fuzz_entry::ResourceSession;
+use cmux_tui_core::fuzz_entry::{ResourceSession, serve_terminal_host};
 use libfuzzer_sys::fuzz_target;
-use resource_walk::{PROTOCOL, Recorder, Scope, Violation};
+use resource_walk::{Node, Owner, PROTOCOL, Recorder, Violation};
 use serde_json::{Map, Value, json};
 
 /// Steps of one input: enough to build, split, move and close a few
@@ -38,6 +51,10 @@ const MAX_OPS: usize = 24;
 /// Each terminal runs this instead of a login shell: it starts at once,
 /// writes nothing and exits when its PTY closes.
 const TERMINAL_ARGV: &str = "/bin/cat";
+/// A terminal host that loses this process (a crash) ends its terminal after
+/// this many seconds, so a crashed input leaves no `/bin/cat` behind for the
+/// debug build's ten-minute grace.
+const HOST_ORPHAN_GRACE_SECS: &str = "5";
 
 #[derive(Arbitrary, Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -49,17 +66,7 @@ enum Kind {
 }
 
 impl Kind {
-    fn table(self) -> &'static str {
-        match self {
-            Self::Workspace => "workspaces",
-            Self::Screen => "screens",
-            Self::Pane => "panes",
-            Self::Tab => "tabs",
-            Self::Terminal => "terminals",
-        }
-    }
-
-    /// The selector name, which is also the object kind of the walk.
+    /// The selector name, which is also the object kind of the facet.
     fn selector(self) -> &'static str {
         match self {
             Self::Workspace => "workspace",
@@ -71,7 +78,7 @@ impl Kind {
     }
 
     /// A well-formed id of this kind that no session ever gives out.
-    fn unknown_id(self) -> String {
+    fn unknown(self) -> Picked {
         let prefix = match self {
             Self::Workspace => "ws",
             Self::Screen => "screen",
@@ -79,16 +86,18 @@ impl Kind {
             Self::Tab => "tab",
             Self::Terminal => "term",
         };
-        format!("{prefix}_{}", "0".repeat(32))
+        let id = format!("{prefix}_{}", "0".repeat(32));
+        Picked { case: id.clone(), id }
     }
 }
 
 /// Which object an id names.
 #[derive(Arbitrary, Debug, Clone, Copy)]
 enum Pick {
-    /// The n-th (modulo) live object of its kind.
+    /// The n-th (modulo) live object of its kind, in the order replies
+    /// first named them.
     Live(u8),
-    /// The n-th (modulo) object of its kind an earlier step closed.
+    /// The n-th (modulo) closed object of its kind, in the same order.
     Gone(u8),
     /// An id that never existed.
     Unknown,
@@ -193,25 +202,12 @@ enum Op {
 }
 
 /// An id for a request and the case-v1 value that names the same object in
-/// the walk: a `$step:` reference into a session snapshot step, or the id.
+/// the walk: a `$step:` reference to the reply that named it, or the id
+/// itself for one that never existed.
 #[derive(Debug, Clone)]
 struct Picked {
     id: String,
     case: String,
-}
-
-impl Picked {
-    fn literal(id: String) -> Self {
-        Self { case: id.clone(), id }
-    }
-}
-
-/// Where an object was seen: the snapshot step and its row.
-#[derive(Debug, Clone)]
-struct Seen {
-    kind: &'static str,
-    step: String,
-    index: usize,
 }
 
 /// One request: the operation, its selectors and fields, and the same
@@ -223,20 +219,11 @@ struct Call {
     selectors: Vec<(&'static str, Picked)>,
     fields: Map<String, Value>,
     case_fields: Map<String, Value>,
-    /// The ids of selector-typed fields (a move's destination).
-    field_ids: Vec<String>,
 }
 
 impl Call {
     fn new(method: &'static str, read: bool) -> Self {
-        Self {
-            method,
-            read,
-            selectors: Vec::new(),
-            fields: Map::new(),
-            case_fields: Map::new(),
-            field_ids: Vec::new(),
-        }
+        Self { method, read, selectors: Vec::new(), fields: Map::new(), case_fields: Map::new() }
     }
 
     fn select(mut self, selector: &'static str, picked: Picked) -> Self {
@@ -250,10 +237,11 @@ impl Call {
         self
     }
 
+    /// A selector-typed field (a move's destination): a param, not a
+    /// target, as the case carries it.
     fn id_field(mut self, key: &str, picked: Picked) -> Self {
         self.fields.insert(key.into(), json!(picked.id));
         self.case_fields.insert(key.into(), json!(picked.case));
-        self.field_ids.push(picked.id);
         self
     }
 
@@ -302,107 +290,78 @@ impl Call {
         step
     }
 
-    fn targets(&self, session: Option<&str>) -> BTreeSet<String> {
-        let mut out: BTreeSet<String> =
-            self.selectors.iter().map(|(_, picked)| picked.id.clone()).collect();
-        out.extend(self.field_ids.iter().cloned());
-        out.extend(session.map(str::to_owned));
-        out
+    /// The ids of the step's `target` (invariants.py `target_ids`): its
+    /// selectors. `machine` and `session` stay `current` in the case, which
+    /// names no object.
+    fn targets(&self) -> BTreeSet<String> {
+        self.selectors.iter().map(|(_, picked)| picked.id.clone()).collect()
     }
 }
 
-/// The session as the last snapshot saw it, and every object seen so far.
+/// An object an ok mutation reply named: its kind and where the reply names
+/// it.
+struct Named {
+    id: String,
+    kind: &'static str,
+    case: String,
+}
+
+/// The session at the last checkpoint, and every object replies named so
+/// far, in the order they first named it.
+#[derive(Default)]
 struct World {
-    snapshot: Value,
-    head: u64,
-    step: String,
-    seen: BTreeMap<String, Seen>,
-    /// Each id an ok reply named: the `$step:` reference to it there.
-    origins: BTreeMap<String, String>,
+    nodes: BTreeMap<String, Node>,
+    named: Vec<Named>,
+    known: BTreeSet<String>,
 }
 
 impl World {
-    fn observe(&mut self, snapshot: Value, head: u64, step: String) {
-        for (table, kind, _) in resource_walk::TABLES {
-            for (index, row) in resource_walk::rows(&snapshot, table).iter().enumerate() {
-                if let Some(id) = row["id"].as_str() {
-                    self.seen.entry(id.to_owned()).or_insert_with(|| Seen {
-                        kind,
-                        step: step.clone(),
-                        index,
-                    });
-                }
-            }
-        }
-        self.snapshot = snapshot;
-        self.head = head;
-        self.step = step;
-    }
-
-    fn live(&self, kind: Kind) -> &[Value] {
-        resource_walk::rows(&self.snapshot, kind.table())
-    }
-
     fn pick(&self, kind: Kind, pick: Pick) -> Picked {
+        let among = |live: bool, n: u8| {
+            let found: Vec<&Named> = self
+                .named
+                .iter()
+                .filter(|named| {
+                    named.kind == kind.selector() && self.nodes.contains_key(&named.id) == live
+                })
+                .collect();
+            match found.len() {
+                0 => kind.unknown(),
+                len => {
+                    let named = found[usize::from(n) % len];
+                    Picked { id: named.id.clone(), case: named.case.clone() }
+                }
+            }
+        };
         match pick {
-            Pick::Live(n) => {
-                let rows = self.live(kind);
-                match rows.len() {
-                    0 => Picked::literal(kind.unknown_id()),
-                    len => {
-                        let index = usize::from(n) % len;
-                        self.reference(&self.step, kind.table(), index, "id", &rows[index])
-                    }
-                }
-            }
-            Pick::Gone(n) => {
-                let live: BTreeSet<_> =
-                    self.live(kind).iter().filter_map(|row| row["id"].as_str()).collect();
-                let gone: Vec<_> = self
-                    .seen
-                    .iter()
-                    .filter(|(id, seen)| {
-                        seen.kind == kind.selector() && !live.contains(id.as_str())
-                    })
-                    .collect();
-                match gone.len() {
-                    0 => Picked::literal(kind.unknown_id()),
-                    len => {
-                        let (id, seen) = gone[usize::from(n) % len];
-                        let row =
-                            format!("$step:{}#/{}/{}/id", seen.step, kind.table(), seen.index);
-                        self.named(id, row)
-                    }
-                }
-            }
-            Pick::Unknown => Picked::literal(kind.unknown_id()),
+            Pick::Live(n) => among(true, n),
+            Pick::Gone(n) => among(false, n),
+            Pick::Unknown => kind.unknown(),
         }
     }
 
-    fn reference(&self, step: &str, table: &str, index: usize, key: &str, row: &Value) -> Picked {
-        let id = row[key].as_str().unwrap_or_default();
-        self.named(id, format!("$step:{step}#/{table}/{index}/{key}"))
+    /// `id` as the reply that named it gives it, else an id that never
+    /// existed: the walk sends nothing the case could not send.
+    fn named(&self, kind: Kind, id: Option<&str>) -> Picked {
+        id.and_then(|id| self.named.iter().find(|named| named.id == id)).map_or_else(
+            || kind.unknown(),
+            |named| Picked { id: named.id.clone(), case: named.case.clone() },
+        )
     }
 
-    /// `id` named by the earliest reply that gave it, else by `row`, a
-    /// snapshot row: a reply names its object whatever else the session
-    /// that replays the walk holds.
-    fn named(&self, id: &str, row: String) -> Picked {
-        Picked { id: id.to_owned(), case: self.origins.get(id).cloned().unwrap_or(row) }
-    }
-
-    /// The ids a step's result names, where it names them first.
-    fn note_reply(
-        &mut self,
-        step: &str,
-        result: &Value,
-        known: &BTreeMap<String, resource_walk::Node>,
-    ) {
+    /// The ids a mutation's result names that are live after it, where it
+    /// names them first.
+    fn note_reply(&mut self, step: &str, result: &Value, after: &BTreeMap<String, Node>) {
         let mut found = Vec::new();
-        resource_walk::pointed_strings(result, "", &mut found);
+        resource_walk::singular_strings(result, "", &mut found);
         for (pointer, id) in found {
-            if known.contains_key(&id) {
-                self.origins.entry(id).or_insert_with(|| format!("$step:{step}#{pointer}"));
+            let Some(node) = after.get(&id) else { continue };
+            if node.kind != "session" && self.known.insert(id.clone()) {
+                self.named.push(Named {
+                    id,
+                    kind: node.kind,
+                    case: format!("$step:{step}#{pointer}"),
+                });
             }
         }
     }
@@ -412,22 +371,14 @@ impl World {
     /// gets unknown containers.
     fn pane_path(&self, pick: Pick) -> (Picked, Picked, Picked) {
         let pane = self.pick(Kind::Pane, pick);
-        let row = self.live(Kind::Pane).iter().position(|row| row["id"] == pane.id.as_str());
-        let Some(index) = row else {
-            return (
-                Picked::literal(Kind::Workspace.unknown_id()),
-                Picked::literal(Kind::Screen.unknown_id()),
-                pane,
-            );
-        };
-        let pane_row = &self.live(Kind::Pane)[index];
-        let screen = self.reference(&self.step, "panes", index, "screen_id", pane_row);
-        let screens = self.live(Kind::Screen);
-        let workspace = match screens.iter().position(|row| row["id"] == screen.id.as_str()) {
-            Some(at) => self.reference(&self.step, "screens", at, "workspace_id", &screens[at]),
-            None => Picked::literal(Kind::Workspace.unknown_id()),
-        };
-        (workspace, screen, pane)
+        let parent = |id: &str| self.nodes.get(id).and_then(|node| node.parent.clone());
+        let screen = parent(&pane.id);
+        let workspace = screen.as_deref().and_then(parent);
+        (
+            self.named(Kind::Workspace, workspace.as_deref()),
+            self.named(Kind::Screen, screen.as_deref()),
+            pane,
+        )
     }
 
     fn call(&self, op: &Op) -> Option<Call> {
@@ -561,55 +512,77 @@ impl World {
     }
 }
 
-fn snapshot(session: &ResourceSession) -> (Value, u64) {
-    session.snapshot().unwrap_or_else(|error| panic!("session.snapshot refused: {error:#}"))
+/// One checkpoint: the walk line first, so a panic in the read leaves it.
+fn checkpoint(
+    session: &ResourceSession,
+    recorder: &mut Recorder,
+    step: &str,
+    name: &str,
+) -> (Value, BTreeMap<String, Node>, u64) {
+    recorder.checkpoint(step, name);
+    let (snapshot, head) =
+        session.snapshot().unwrap_or_else(|error| panic!("session.snapshot refused: {error:#}"));
+    let nodes = resource_walk::nodes(&snapshot);
+    (snapshot, nodes, head)
 }
 
 /// Stops the input at a broken invariant: the walk names it, the panic
 /// makes libFuzzer keep the input.
-fn fail(recorder: &mut Recorder, step: &str, violation: Violation) -> ! {
-    recorder.violation(step, &violation);
-    panic!("{} at step {step}: {} ({})", violation.invariant, violation.message, violation.pointer);
+fn fail(recorder: &mut Recorder, step: &str, checkpoint: Option<&str>, violation: Violation) -> ! {
+    recorder.violation(step, checkpoint, &violation);
+    let at = checkpoint.unwrap_or("reply");
+    panic!(
+        "{} at step {step} ({at}): {} ({})",
+        violation.invariant, violation.message, violation.pointer
+    );
 }
 
-fn run(ops: &[Op]) {
-    let mut recorder = Recorder::from_env();
-    let session = ResourceSession::new("fuzz-resource-ops", vec![TERMINAL_ARGV.into()]);
-    let mut world = World {
-        snapshot: Value::Null,
-        head: 0,
-        step: String::new(),
-        seen: BTreeMap::new(),
-        origins: BTreeMap::new(),
-    };
-    // Mutations sent so far with their keys, for Retry; the last step and
-    // the facet after its reply, which the next step's snapshot must keep.
+/// The step that owns the changes up to the next checkpoint, kept past it:
+/// a before checkpoint's changes are the previous step's late effects
+/// (invariants.py `Checker.owner`).
+struct Last {
+    step: String,
+    mutating: bool,
+    targets: BTreeSet<String>,
+    replies: BTreeSet<String>,
+    nodes: BTreeMap<String, Node>,
+    head: u64,
+}
+
+impl Last {
+    fn owner(&self) -> Owner<'_> {
+        Owner {
+            step: &self.step,
+            mutating: self.mutating,
+            targets: &self.targets,
+            replies: &self.replies,
+        }
+    }
+}
+
+fn run(ops: &[Op], session: &ResourceSession, recorder: &mut Recorder) {
+    let mut world = World::default();
+    // Mutations sent so far with their keys, for Retry.
     let mut sent: Vec<(Call, String)> = Vec::new();
-    let mut last: Option<(String, Value)> = None;
+    let mut last: Option<Last> = None;
     for (index, op) in ops.iter().take(MAX_OPS).enumerate() {
         if matches!(op, Op::Retry(_)) && sent.is_empty() {
             continue;
         }
-        let snapshot_step = format!("s{index}");
         let step = format!("op{index}");
-        let (current, head) = snapshot(&session);
-        if let Err(violation) = resource_walk::consistency(&current) {
-            fail(&mut recorder, last.as_ref().map_or("setup", |(step, _)| step), violation);
-        }
-        if let Some((previous, after)) = &last {
-            // Nothing lands after a step's reply: the oracle reads a step's
-            // effects right after it (driver_daemon.py `settle`).
-            let none = BTreeSet::new();
-            let unchanged = Scope { targets: &none, named: &none, changed: false };
-            let after = resource_walk::nodes(after);
-            if let Err(mut violation) =
-                resource_walk::i2(&after, &resource_walk::nodes(&current), &unchanged)
-            {
-                violation.message = format!("after its reply: {}", violation.message);
-                fail(&mut recorder, previous, violation);
+        let (before, before_nodes, before_head) = checkpoint(session, recorder, &step, "before");
+        if let Some(last) = &last {
+            if let Err(violation) = resource_walk::i2(&last.nodes, &before_nodes, &last.owner()) {
+                fail(recorder, &step, Some("before"), violation);
+            }
+            if let Err(violation) = resource_walk::i19_journal(last.head, before_head) {
+                fail(recorder, &step, Some("before"), violation);
             }
         }
-        world.observe(current, head, snapshot_step.clone());
+        if let Err(violation) = resource_walk::i19(&before) {
+            fail(recorder, &step, Some("before"), violation);
+        }
+        world.nodes = before_nodes;
         let (call, key) = match op {
             Op::Retry(n) => {
                 let (call, key) = &sent[usize::from(*n) % sent.len()];
@@ -624,18 +597,14 @@ fn run(ops: &[Op]) {
                 (call, key)
             }
         };
-        let mut read_snapshot = Call::new("session.snapshot", true).step(&snapshot_step, None);
-        if let Some(fields) = read_snapshot.as_object_mut() {
-            fields.remove("checkpoint");
-        }
-        recorder.line(json!({"walk": "step", "step": read_snapshot}));
         recorder.line(json!({"walk": "step", "step": call.step(&step, key.as_deref())}));
         let request = format!("request-{step}");
         let Some(reply) = session.call(&call.line(&request, key.as_deref())) else {
             panic!("{} is not a router operation: the target must not pick it", call.method);
         };
-        let outcome = if reply["ok"] == true { "ok" } else { "error" };
+        let ok = reply["ok"] == true;
         if recorder.enabled() {
+            let outcome = if ok { "ok" } else { "error" };
             recorder.line(json!({
                 "walk": "reply",
                 "step": step,
@@ -645,46 +614,59 @@ fn run(ops: &[Op]) {
             }));
         }
         if let Err(violation) = resource_walk::i1(&reply, &request, !call.read) {
-            fail(&mut recorder, &step, violation);
+            fail(recorder, &step, None, violation);
         }
-        let (after, after_head) = snapshot(&session);
-        if after_head < world.head {
-            let message = format!("the journal head fell from {} to {after_head}", world.head);
-            fail(
-                &mut recorder,
-                &step,
-                Violation { invariant: "consistency", pointer: "/journalHead".into(), message },
-            );
+        let (after, after_nodes, after_head) = checkpoint(session, recorder, &step, "settled");
+        if let Err(violation) = resource_walk::i19_journal(before_head, after_head) {
+            fail(recorder, &step, Some("settled"), violation);
         }
-        if let Err(violation) = resource_walk::consistency(&after) {
-            fail(&mut recorder, &step, violation);
+        if let Err(violation) = resource_walk::i19(&after) {
+            fail(recorder, &step, Some("settled"), violation);
         }
-        let mut named = BTreeSet::new();
-        resource_walk::strings(&reply["result"], &mut named);
-        let targets = call.targets(resource_walk::session_id(&world.snapshot));
-        let scope =
-            Scope { targets: &targets, named: &named, changed: !call.read && outcome == "ok" };
-        let before_nodes = resource_walk::nodes(&world.snapshot);
-        let after_nodes = resource_walk::nodes(&after);
-        if let Err(violation) = resource_walk::i2(&before_nodes, &after_nodes, &scope) {
-            fail(&mut recorder, &step, violation);
+        // The trace's replies: {receipt, result} for a result, {error} for
+        // an error, whose code names no object.
+        let mut replies = BTreeSet::new();
+        if ok {
+            resource_walk::strings(&reply["result"], &mut replies);
         }
-        // A mutation's result names its own objects; a list read's names
-        // them by row order, which a snapshot reference already does.
-        if scope.changed {
-            world.note_reply(&step, &reply["result"], &after_nodes);
+        let current = Last {
+            step: step.clone(),
+            mutating: !call.read,
+            targets: call.targets(),
+            replies,
+            nodes: after_nodes,
+            head: after_head,
+        };
+        if let Err(violation) = resource_walk::i2(&world.nodes, &current.nodes, &current.owner()) {
+            fail(recorder, &step, Some("settled"), violation);
         }
-        world.head = after_head;
-        last = Some((step, after));
+        if ok && !call.read {
+            world.note_reply(&step, &reply["result"], &current.nodes);
+        }
+        last = Some(current);
     }
+}
+
+/// Each input's own state root under the process's hermetic TMPDIR.
+fn fresh_state_root() -> PathBuf {
+    static INPUTS: AtomicU64 = AtomicU64::new(0);
+    let root = std::env::temp_dir().join(format!("in-{}", INPUTS.fetch_add(1, Ordering::Relaxed)));
+    std::fs::create_dir_all(&root)
+        .unwrap_or_else(|error| panic!("create {}: {error}", root.display()));
+    root
 }
 
 /// The environment of an oracle daemon case (scripts/cmux-next/oracle/
 /// hermetic_env.py `daemon_case`), set once before the first input as
 /// Chromium's fuzzers set theirs in `LLVMFuzzerInitialize`: a private HOME,
-/// XDG and state root, offline, git without the person's config, and no
-/// editor project sources (state/project_watch.rs reads HOME's editor data
-/// and its watch thread outlives a session until the next file event).
+/// XDG and state root, offline, git without the person's config, hosts bound
+/// in their install's own directory, and no editor project sources
+/// (state/project_watch.rs reads HOME's editor data and its watch thread
+/// outlives a session until the next file event). Blocking checks record
+/// (`CMUX_DAEMON_BLOCKING=record`, driver_daemon.py `--daemon-blocking
+/// record`, which `fuzz_to_case.py` runs each case with): a blocking call on
+/// a thread that disallows it is I11's finding, which the oracle reads from
+/// the recorded sites, not a crash of this target.
 fn hermetic_environment() {
     let root = std::env::temp_dir().join(format!("cmux-resource-ops-{}", std::process::id()));
     let home = root.join("home");
@@ -701,6 +683,9 @@ fn hermetic_environment() {
     let values = [
         ("CMUX_TUI_OFFLINE", "1"),
         ("CMUX_PROJECT_SOURCES", "off"),
+        ("CMUX_TUI_TEST_HOST_INSTALL_ENDPOINT", "1"),
+        ("CMUX_TUI_HOST_ORPHAN_GRACE_SECS", HOST_ORPHAN_GRACE_SECS),
+        ("CMUX_DAEMON_BLOCKING", "record"),
         ("GIT_CONFIG_GLOBAL", "/dev/null"),
         ("GIT_CONFIG_NOSYSTEM", "1"),
     ];
@@ -717,6 +702,33 @@ fn hermetic_environment() {
     }
 }
 
-fuzz_target!(init: hermetic_environment(), |ops: Vec<Op>| {
-    run(&ops);
+/// libFuzzer's initialization: a terminal host this process's sessions
+/// started (`__terminal-host ...`) serves its terminal and exits here, before
+/// libFuzzer reads its arguments; the fuzzer itself sets its environment.
+fn initialize() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(served) = serve_terminal_host(&args) {
+        let code = match served {
+            Ok(()) => 0,
+            Err(error) => {
+                eprintln!("resource_ops terminal host: {error:#}");
+                1
+            }
+        };
+        std::process::exit(code);
+    }
+    hermetic_environment();
+}
+
+fuzz_target!(init: initialize(), |ops: Vec<Op>| {
+    let mut recorder = Recorder::from_env();
+    let root = fresh_state_root();
+    let session_name = format!("fuzz-resource-ops-{}", std::process::id());
+    let session = ResourceSession::open(&session_name, &root, vec![TERMINAL_ARGV.into()])
+        .unwrap_or_else(|error| panic!("open the session: {error:#}"));
+    run(&ops, &session, &mut recorder);
+    recorder.line(json!({"walk": "teardown"}));
+    session.end().unwrap_or_else(|error| panic!("end the session's terminals: {error:#}"));
+    // Best effort: a root left behind is in the process's own hermetic tree.
+    let _ = std::fs::remove_dir_all(&root);
 });

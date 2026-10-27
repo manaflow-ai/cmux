@@ -296,21 +296,40 @@ pub fn page_request_head(
 pub const PAGE_REQUEST_HEAD_MAX_BYTES: usize = crate::server::page_files::REQUEST_HEAD_MAX_BYTES;
 
 /// One daemon session the resource-op sequence fuzzer drives
-/// (cmux-tui/fuzz `resource_ops`, p15-oracle-186): an in-memory mux whose
-/// `cmux.protocol/2` lines go through the parse, envelope validation and
-/// router that the control connection runs once the origin gate admits a
-/// line (server/resource_connection.rs, its transport-independent arm).
-/// Dropping it shuts the mux down, which ends its terminals.
+/// (cmux-tui/fuzz `resource_ops`, p15-oracle-186), built as the daemon
+/// builds its owner (main.rs `Mux::open_persistent`): a workspace registry
+/// on disk under its own state root, and the daemon's default terminal
+/// model, one `__terminal-host` process per terminal under the root's
+/// terminal-host directory. Its `cmux.protocol/2` lines go through the
+/// parse, envelope validation and router that the control connection runs
+/// once the origin gate admits a line (server/resource_connection.rs, its
+/// transport-independent arm).
+///
+/// A host is this executable (`host_exe::terminal_host_executable`:
+/// `/proc/self/exe` on Linux), so a binary that opens a session answers
+/// `__terminal-host` first ([`serve_terminal_host`]), as cmux-tui's main
+/// does.
 pub struct ResourceSession {
     mux: std::sync::Arc<crate::Mux>,
+    ended: bool,
 }
 
 impl ResourceSession {
-    /// A fresh session named `session` whose terminals run `argv` in place
-    /// of a login shell.
-    pub fn new(session: &str, argv: Vec<String>) -> Self {
-        let options = crate::SurfaceOptions { command: Some(argv), ..Default::default() };
-        Self { mux: crate::Mux::new(session, options) }
+    /// A fresh session named `session` with its state under `state_root`
+    /// (an empty directory), whose terminals run `argv` in place of a login
+    /// shell.
+    pub fn open(
+        session: &str,
+        state_root: &std::path::Path,
+        argv: Vec<String>,
+    ) -> anyhow::Result<Self> {
+        let options = crate::SurfaceOptions {
+            command: Some(argv),
+            terminal_host_root: Some(host::terminal_host_root(state_root, session)),
+            ..Default::default()
+        };
+        let mux = crate::Mux::open_persistent(session, options, state_root)?;
+        Ok(Self { mux, ended: false })
     }
 
     /// The response envelope the daemon sends for `line` from the local
@@ -347,10 +366,35 @@ impl ResourceSession {
         crate::resource_api::public_session_snapshot_with_journal_head(&self.mux)
             .map_err(|error| anyhow::anyhow!("session.snapshot: {}: {}", error.code, error.message))
     }
+
+    /// The oracle's teardown (`shutdown-daemon end_terminals`,
+    /// server/cmd_server.rs): end every terminal and its host, then shut the
+    /// mux down.
+    pub fn end(mut self) -> anyhow::Result<()> {
+        self.ended = true;
+        let ended = self.mux.end_all_terminals().map(drop);
+        self.mux.shutdown();
+        ended
+    }
 }
 
 impl Drop for ResourceSession {
+    /// A session dropped without [`Self::end`] (an unwinding input) still
+    /// shuts its mux down; its hosts end after their orphan grace.
     fn drop(&mut self) {
-        self.mux.shutdown();
+        if !self.ended {
+            self.mux.shutdown();
+        }
     }
+}
+
+/// Serves this process as a terminal host when its arguments ask for one
+/// (`__terminal-host ...` after the program name), as cmux-tui's main does;
+/// `None` for any other arguments.
+pub fn serve_terminal_host(args: &[String]) -> Option<anyhow::Result<()>> {
+    let (first, rest) = args.split_first()?;
+    (first == "__terminal-host").then(|| {
+        host::enter_terminal_host_process()?;
+        host::serve_terminal_host_process(rest)
+    })
 }

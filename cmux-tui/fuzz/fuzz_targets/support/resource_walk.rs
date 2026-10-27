@@ -1,10 +1,16 @@
 //! The crash conditions and the walk record of the `resource_ops` target
-//! (p15-oracle-186): the oracle's I1 (one receipt or one typed error) and I2
-//! (ids stay stable unless the step created or closed them) over one step,
-//! and the daemon facet's own consistency (every row's container exists, a
-//! screen's layout holds exactly its panes, the journal head never falls).
-//! The rules are scripts/cmux-next/oracle/invariants.py's, read on the
-//! in-process `session.snapshot` instead of a recorded trace.
+//! (p15-oracle-186), each the rule of scripts/cmux-next/oracle/invariants.py
+//! that the converted case is checked with, read on the in-process
+//! `session.snapshot` (the daemon facet's `session`) instead of a trace:
+//!
+//! - I1: one protocol response, a MutationResult for a mutation or one typed
+//!   error. A catalog-contract refusal is neither: the oracle's case fails
+//!   it through the step's expectation (`fuzz_to_case.py`).
+//! - I2 (`Checker.i2`): between two checkpoints, an id closes or appears only
+//!   under the step that owns the change. A before checkpoint's changes are
+//!   the previous step's late effects (`Checker.owner`).
+//! - I19 (`Checker.i19`): the daemon facet is one consistent cut, and its
+//!   journal head never falls.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
@@ -56,7 +62,8 @@ pub fn session_id(snapshot: &Value) -> Option<&str> {
     snapshot["session"]["id"].as_str()
 }
 
-/// Every structural id of `snapshot` with its container and pointer.
+/// Every structural id of `snapshot` with its container and pointer
+/// (invariants.py `daemon_ids`).
 pub fn nodes(snapshot: &Value) -> BTreeMap<String, Node> {
     let mut out = BTreeMap::new();
     if let Some(id) = session_id(snapshot) {
@@ -79,18 +86,6 @@ pub fn rows<'a>(snapshot: &'a Value, table: &str) -> &'a [Value] {
     snapshot[table].as_array().map_or(&[], Vec::as_slice)
 }
 
-fn ancestors(graph: &BTreeMap<String, Node>, start: &str) -> BTreeSet<String> {
-    let mut out = BTreeSet::new();
-    let mut at = graph.get(start).and_then(|node| node.parent.clone());
-    while let Some(parent) = at {
-        if !out.insert(parent.clone()) {
-            break;
-        }
-        at = graph.get(&parent).and_then(|node| node.parent.clone());
-    }
-    out
-}
-
 /// Every string in `value`, for the ids a reply names.
 pub fn strings(value: &Value, out: &mut BTreeSet<String>) {
     match value {
@@ -103,19 +98,19 @@ pub fn strings(value: &Value, out: &mut BTreeSet<String>) {
     }
 }
 
-/// Every string in `value` with its JSON pointer (RFC 6901) under `at`.
-pub fn pointed_strings(value: &Value, at: &str, out: &mut Vec<(String, String)>) {
+/// Every string in `value` with its JSON pointer (RFC 6901) under `at`,
+/// except inside an array of more than one item: an index there is the
+/// position of an id among others, which another run may order otherwise.
+pub fn singular_strings(value: &Value, at: &str, out: &mut Vec<(String, String)>) {
     match value {
         Value::String(text) => out.push((at.to_owned(), text.clone())),
-        Value::Array(items) => {
-            for (index, item) in items.iter().enumerate() {
-                pointed_strings(item, &format!("{at}/{index}"), out);
-            }
+        Value::Array(items) if items.len() == 1 => {
+            singular_strings(&items[0], &format!("{at}/0"), out)
         }
         Value::Object(members) => {
             for (key, item) in members {
                 let token = key.replace('~', "~0").replace('/', "~1");
-                pointed_strings(item, &format!("{at}/{token}"), out);
+                singular_strings(item, &format!("{at}/{token}"), out);
             }
         }
         _ => {}
@@ -125,7 +120,8 @@ pub fn pointed_strings(value: &Value, at: &str, out: &mut Vec<(String, String)>)
 /// I1 on one response to the request `id`: one protocol response, either a
 /// result (a MutationResult for a mutation) or one typed error. A
 /// catalog-contract refusal (the daemon refused its own reply as outside the
-/// operation's contract, resource_router/catalog_validation.rs) is neither.
+/// operation's contract: resource_router/catalog_validation.rs
+/// `contract_failure`, `details.extra.contract`) is neither.
 pub fn i1(reply: &Value, id: &str, mutation: bool) -> Result<(), Violation> {
     let bad = |pointer: &str, message: String| Err(Violation::new("I1", pointer, message));
     if reply["protocol"] != PROTOCOL || reply["type"] != "response" {
@@ -137,12 +133,8 @@ pub fn i1(reply: &Value, id: &str, mutation: bool) -> Result<(), Violation> {
     let has = |key: &str| reply.get(key).is_some_and(|value| !value.is_null());
     match (reply["ok"].as_bool(), has("result"), has("error")) {
         (Some(true), true, false) => {
-            let result = &reply["result"];
-            let receipt = result.get("value").is_some()
-                && result["generation"].as_str().is_some_and(|text| !text.is_empty())
-                && result.get("revision").is_some_and(|value| !value.is_null())
-                && result["replayed"].is_boolean();
-            if mutation && !receipt {
+            if mutation && !mutation_result(&reply["result"]) {
+                let result = &reply["result"];
                 return bad(
                     "/result",
                     format!("a mutation's result is no MutationResult: {result:.300}"),
@@ -159,12 +151,12 @@ pub fn i1(reply: &Value, id: &str, mutation: bool) -> Result<(), Violation> {
                     format!("{:?} is not a typed error code", error["code"]),
                 );
             }
-            if let Some(contract) = error["details"]["contract"].as_str() {
-                let detail = &error["details"];
+            let extra = &error["details"]["extra"];
+            if let Some(contract) = extra["contract"].as_str() {
                 return bad(
-                    "/error/details/contract",
+                    "/error/details/extra/contract",
                     format!(
-                        "the daemon refused its own {contract} as outside the catalog: {detail:.300}"
+                        "the daemon refused its own {contract} as outside the catalog: {extra:.300}"
                     ),
                 );
             }
@@ -172,6 +164,15 @@ pub fn i1(reply: &Value, id: &str, mutation: bool) -> Result<(), Violation> {
         }
         _ => bad("/ok", format!("not one result or one error: {reply:.300}")),
     }
+}
+
+/// resource_router.rs `mutation_result`: {value, generation, revision,
+/// replayed}, the keys driver_daemon.py's `mutation_result` receipt checks.
+pub fn mutation_result(result: &Value) -> bool {
+    result.get("value").is_some()
+        && result["generation"].as_str().is_some_and(|text| !text.is_empty())
+        && result.get("revision").is_some_and(|value| !value.is_null())
+        && result["replayed"].is_boolean()
 }
 
 /// case-v1 `$defs.expect.error`: `^[a-z][a-z_]*(\.[a-z][a-z_]*)+$`.
@@ -187,79 +188,101 @@ fn typed_error_code(code: &str) -> bool {
     }
 }
 
-/// What one step acted on: its selector and selector-typed param ids, and
-/// the ids its reply names.
-pub struct Scope<'a> {
+/// The step that owns a change, as invariants.py's I2 sees it in the trace:
+/// whether it mutates (a resource.call without readOnly, refused or not),
+/// the ids of its `target`, and every string of its replies.
+pub struct Owner<'a> {
+    pub step: &'a str,
+    pub mutating: bool,
     pub targets: &'a BTreeSet<String>,
-    pub named: &'a BTreeSet<String>,
-    /// The reply is a result (not a refusal) of a mutation.
-    pub changed: bool,
+    pub replies: &'a BTreeSet<String>,
 }
 
-/// I2 over one step. A read or a refused request creates and closes
-/// nothing. A mutation closes only its targets, their containers (closing
-/// the last tab closes its pane), what is inside a target, and what its
-/// reply names; it creates only what its reply names, what is inside a new
-/// object, and objects inside a target or a target's container below the
-/// session (invariants.py `Checker.i2`, with the reply's ids as roots).
+type Graph<'a> = BTreeMap<&'a str, BTreeSet<&'a str>>;
+
+fn ancestors<'a>(graph: &Graph<'a>, start: &str) -> BTreeSet<&'a str> {
+    let mut out = BTreeSet::new();
+    let mut todo: Vec<&str> = graph.get(start).into_iter().flatten().copied().collect();
+    while let Some(parent) = todo.pop() {
+        if out.insert(parent) {
+            todo.extend(graph.get(parent).into_iter().flatten().copied());
+        }
+    }
+    out
+}
+
+/// invariants.py `Checker.i2` from checkpoint `a` to checkpoint `b`, the
+/// change of one owner: an id closed or appeared only as a target, a
+/// container of one, a child of one, a sibling of a target (the direct
+/// containers of the targets, `beside`), what its replies name, or inside
+/// what closed or appeared with it.
 pub fn i2(
-    before: &BTreeMap<String, Node>,
-    after: &BTreeMap<String, Node>,
-    scope: &Scope<'_>,
+    a: &BTreeMap<String, Node>,
+    b: &BTreeMap<String, Node>,
+    owner: &Owner<'_>,
 ) -> Result<(), Violation> {
-    let closed: Vec<_> = before.keys().filter(|id| !after.contains_key(*id)).collect();
-    let created: Vec<_> = after.keys().filter(|id| !before.contains_key(*id)).collect();
-    if !scope.changed {
-        if let Some(id) = closed.first() {
-            let node = &before[*id];
-            let message = format!("{} {id} disappeared in a step that changed nothing", node.kind);
-            return Err(Violation::new("I2", node.pointer.clone(), message));
+    let mut graph: Graph<'_> = BTreeMap::new();
+    for nodes in [a, b] {
+        for (key, node) in nodes {
+            let parents = graph.entry(key.as_str()).or_default();
+            parents.extend(node.parent.as_deref());
         }
-        if let Some(id) = created.first() {
-            let node = &after[*id];
-            let message = format!("{} {id} appeared in a step that changed nothing", node.kind);
-            return Err(Violation::new("I2", node.pointer.clone(), message));
+    }
+    let mut roots: BTreeSet<&str> = BTreeSet::new();
+    let mut may: BTreeSet<&str> = BTreeSet::new();
+    let mut beside: BTreeSet<&str> = BTreeSet::new();
+    if owner.mutating {
+        roots.extend(owner.targets.iter().map(String::as_str));
+        roots.extend(owner.replies.iter().map(String::as_str).filter(|s| graph.contains_key(s)));
+        may.extend(owner.targets.iter().map(String::as_str));
+        for target in owner.targets {
+            beside.extend(graph.get(target.as_str()).into_iter().flatten().copied());
         }
-        return Ok(());
     }
-    let mut reach = BTreeSet::new();
-    for target in scope.targets {
-        reach.insert(target.clone());
-        reach.extend(ancestors(before, target));
+    may.extend(roots.iter().copied());
+    for root in &roots {
+        may.extend(ancestors(&graph, root));
     }
-    for id in closed {
-        let node = &before[id];
-        let with_container = node.parent.as_ref().is_some_and(|parent| !after.contains_key(parent));
-        let inside_target = ancestors(before, id).iter().any(|up| scope.targets.contains(up));
-        if with_container || reach.contains(id) || inside_target || scope.named.contains(id) {
+    let by = if owner.mutating {
+        format!("step {} (resource.call)", owner.step)
+    } else {
+        format!("step {} (a read)", owner.step)
+    };
+    let parents = |key: &str| graph.get(key).cloned().unwrap_or_default();
+    for (key, node) in a.iter().filter(|(key, _)| !b.contains_key(*key)) {
+        if node.parent.as_ref().is_some_and(|up| a.contains_key(up) && !b.contains_key(up)) {
+            continue; // closed with its container
+        }
+        if may.contains(key.as_str())
+            || !ancestors(&graph, key).is_disjoint(&roots)
+            || !parents(key).is_disjoint(&beside)
+        {
             continue;
         }
-        let message = format!("{} {id} disappeared, but the step did not close it", node.kind);
+        let message = format!("{} {key} disappeared, but {by} did not close it", node.kind);
         return Err(Violation::new("I2", node.pointer.clone(), message));
     }
-    for id in created {
-        let node = &after[id];
-        let parent = node.parent.as_deref();
-        let with_container = parent.is_some_and(|parent| !before.contains_key(parent));
-        let in_reach = parent.is_some_and(|parent| {
-            reach.contains(parent) && before.get(parent).is_some_and(|up| up.kind != "session")
-        });
-        if with_container || in_reach || scope.named.contains(id) {
+    for (key, node) in b.iter().filter(|(key, _)| !a.contains_key(*key)) {
+        if node.parent.as_ref().is_some_and(|up| b.contains_key(up) && !a.contains_key(up)) {
+            continue; // created with its container
+        }
+        if may.contains(key.as_str()) || !parents(key).is_disjoint(&may) {
             continue;
         }
-        let message = format!("{} {id} appeared, but the step did not create it", node.kind);
+        let message = format!("{} {key} appeared, but {by} did not create it", node.kind);
         return Err(Violation::new("I2", node.pointer.clone(), message));
     }
     Ok(())
 }
 
-/// The facet's consistency: ids are unique, every row's container is in the
-/// same cut, a terminal tab's terminal exists, and each screen's layout
-/// leaves are exactly the panes of that screen, its active and zoomed panes
-/// among them.
-pub fn consistency(snapshot: &Value) -> Result<(), Violation> {
-    let bad =
-        |pointer: String, message: String| Err(Violation::new("consistency", pointer, message));
+/// invariants.py `facet_inconsistencies` (I19) on one daemon facet: ids are
+/// unique, every workspace is in the snapshot's session, every screen, pane
+/// and tab names a container of the snapshot, a terminal's or browser's tab
+/// is one of its tabs, a terminal tab's content is a terminal, and each
+/// screen's layout leaves are exactly that screen's panes, its active and
+/// zoomed panes among them.
+pub fn i19(snapshot: &Value) -> Result<(), Violation> {
+    let bad = |pointer: String, message: String| Err(Violation::new("I19", pointer, message));
     let Some(session) = session_id(snapshot) else {
         return bad("/session/id".into(), "the snapshot names no session".into());
     };
@@ -278,19 +301,19 @@ pub fn consistency(snapshot: &Value) -> Result<(), Violation> {
     let is = |id: &Value, kind: &str| {
         id.as_str().and_then(|id| ids.get(id)).is_some_and(|(found, _)| *found == kind)
     };
+    for (index, row) in rows(snapshot, "workspaces").iter().enumerate() {
+        if row["session_id"] != session {
+            return bad(
+                format!("/workspaces/{index}/session_id"),
+                format!("{} is not session {session}", row["session_id"]),
+            );
+        }
+    }
     let containers = [
         ("screens", "workspace_id", "workspace"),
         ("panes", "screen_id", "screen"),
         ("tabs", "pane_id", "pane"),
     ];
-    for (index, row) in rows(snapshot, "workspaces").iter().enumerate() {
-        if row["session_id"] != session {
-            return bad(
-                format!("/workspaces/{index}/session_id"),
-                format!("not session {session}"),
-            );
-        }
-    }
     for (table, key, kind) in containers {
         for (index, row) in rows(snapshot, table).iter().enumerate() {
             if !is(&row[key], kind) {
@@ -338,6 +361,15 @@ pub fn consistency(snapshot: &Value) -> Result<(), Violation> {
     Ok(())
 }
 
+/// I19 across two checkpoints: the journal head never falls.
+pub fn i19_journal(previous: u64, head: u64) -> Result<(), Violation> {
+    if head < previous {
+        let message = format!("the journal head fell from {previous} to {head}");
+        return Err(Violation::new("I19", "/journalHead", message));
+    }
+    Ok(())
+}
+
 fn layout_leaves<'a>(node: &'a Value, out: &mut Vec<&'a str>) {
     match node["kind"].as_str() {
         Some("leaf") => out.extend(node["pane_id"].as_str()),
@@ -350,9 +382,17 @@ fn layout_leaves<'a>(node: &'a Value, out: &mut Vec<&'a str>) {
 }
 
 /// The walk of one input as JSON lines, written only when the environment
-/// names a file (`fuzz_to_case.py` sets it when it replays a crash): each
-/// line is flushed before the request it describes runs, so a daemon
-/// abort still leaves every step up to it.
+/// names a file (`fuzz_to_case.py` sets it when it replays a crash). Each
+/// line is flushed before what it announces runs (a checkpoint's
+/// `session.snapshot`, a request, the teardown), so a daemon abort still
+/// leaves every line up to the work it died in:
+///
+/// - `{"walk": "checkpoint", "step", "checkpoint": "before"|"settled"}`
+/// - `{"walk": "step", "step": <case-v1 step>}`
+/// - `{"walk": "reply", "step", "outcome", "error", "details"}`
+/// - `{"walk": "violation", "step", "checkpoint": "before"|"settled"|null,
+///   "invariant", "pointer", "message"}` (null: the reply itself)
+/// - `{"walk": "teardown"}`
 pub struct Recorder(Option<std::fs::File>);
 
 /// The file `fuzz_to_case.py` reads the walk from.
@@ -378,10 +418,15 @@ impl Recorder {
         }
     }
 
-    pub fn violation(&mut self, step: &str, violation: &Violation) {
+    pub fn checkpoint(&mut self, step: &str, checkpoint: &str) {
+        self.line(json!({"walk": "checkpoint", "step": step, "checkpoint": checkpoint}));
+    }
+
+    pub fn violation(&mut self, step: &str, checkpoint: Option<&str>, violation: &Violation) {
         self.line(json!({
             "walk": "violation",
             "step": step,
+            "checkpoint": checkpoint,
             "invariant": violation.invariant,
             "pointer": violation.pointer,
             "message": violation.message,

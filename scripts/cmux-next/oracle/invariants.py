@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Oracle invariants I1-I7 (p15-oracle-110), I9 (p15-oracle-205), I10 (p15-oracle-206) and I17-I18
-(p15-oracle-188) over one case trace.
+"""Oracle invariants I1-I7 (p15-oracle-110), I9 (p15-oracle-205), I10 (p15-oracle-206), I17-I18
+(p15-oracle-188) and I19 (p15-oracle-186) over one case trace.
 
 Spec: plans/cmux-next/chrome-parity/p15-oracle.md section 3F ("Invariants at every checkpoint") and
 plans/cmux-next/oracle-DESIGN.md. Stdlib only, Python 3.9+, safe under `python3 -I`. Later tasks add
@@ -18,6 +18,7 @@ I8 (204), I11-I15 (217) and I16 (236) to INVARIANTS and Checker.run.
 | I10| a same-key retry: same result, replayed, same journal head and facets | replies + retry before/settled |
 | I17| 0 unexpected child exits unless `allow_crashes` covers the kind       | crashes facet + case            |
 | I18| live-object counts return to the fixture baseline after teardown      | liveObjects + daemon.oracle    |
+| I19| the daemon facet is one consistent cut; its journal head never falls  | daemon facet                   |
 
 Chrome reference (chromium/src): content/public/test/browser_test_base.h checks invariants after every
 browser test (NoRendererCrashesAssertion, the leak checks of content/public/test/test_launcher.h) the
@@ -60,6 +61,13 @@ Chromium's session restore
 check (chrome/browser/sessions/session_restore_browsertest.cc restores the commands SessionService wrote and
 compares the restored windows and tabs with the ones that wrote them), run on every checkpoint instead of
 once per test. A preview at another sequence, or with no journal checkpoint yet, is not checked.
+I19 reads each daemon facet on its own: its ids are unique, every workspace is in the snapshot's session, every
+screen, pane and tab names a container of the same snapshot, a terminal's or browser's tab is a tab of it, a
+terminal tab's content is one of its terminals, and each screen's layout leaves are exactly that screen's panes,
+its active and zoomed panes among them. Across checkpoints the facet's `journalHead` never falls; a kill or a
+restart between two readings starts the comparison again (another owner). These are the crash conditions of the
+resource-op fuzzer (cmux-tui/fuzz `resource_ops`, support/resource_walk.rs `i19`), so a converted fuzz crash
+fails here as it failed there.
 I18 compares the owned-object counts of `liveObjects` and `daemon.oracle.liveObjects` at the teardown
 checkpoint with those at the case's first checkpoint, the fixture baseline. `subscriptions` and `tasks`
 are timing state (armed observations, pending deadlines), not owned objects: a difference there is
@@ -92,8 +100,9 @@ Step fields missing from the trace come from the case (`--case`), matched by ste
 
 Not run by oracle.py yet: its driver protocol (017) returns canonical checkpoints only. `driver_daemon.py
 run-case --trace TRACE.json` writes a partial trace (each step's id, op, raw checkpoints and I9's
-restorePreviews, through the facet's journalHead after a journal checkpoint at setup), so I9 runs on daemon
-cases. Replies, layoutCounters and teardown are in no driver trace yet. A follow-up of 017, 023 and 047
+restorePreviews, through the facet's journalHead after a journal checkpoint at setup, and each resource.call's
+resolved target and replies), so I1, I2, I9 and I19 run on daemon cases. layoutCounters and teardown are in no
+driver trace yet. A follow-up of 017, 023 and 047
 carries them in the driver result and makes `perform_run` turn a violation into a case Failure; until then
 `invariants.py check` runs on a trace file and `--selftest` on synthetic traces.
 
@@ -211,6 +220,10 @@ INVARIANTS: Tuple[Invariant, ...] = (
     Invariant("I18", "live-object counts return to the fixture baseline after teardown",
               "snapshot: /liveObjects/<kind> or /daemon/oracle/liveObjects/<kind> of the teardown checkpoint",
               "p15-oracle-188"),
+    Invariant("I19", "the daemon facet is one consistent cut (unique ids, containers and terminal tabs in the same "
+              "cut, layout leaves == the screen's panes) and its journal head never falls",
+              "snapshot: /daemon/session/<table>/<n>/... (the value that breaks the cut) or /daemon/journalHead",
+              "p15-oracle-186"),
 )
 BY_ID = {inv.id: inv for inv in INVARIANTS}
 
@@ -545,6 +558,75 @@ def daemon_ids(daemon: Mapping[str, Any]) -> Dict[str, Node]:
         for i, row in enumerate(session.get(table) or []):
             nodes[row["id"]] = Node(kind, row.get(parent_key), pointer("daemon", "session", table, i))
     return nodes
+
+
+def layout_leaves(node: Any, out: List[Any]) -> None:
+    if not isinstance(node, Mapping):
+        return
+    if node.get("kind") == "leaf":
+        if isinstance(node.get("pane_id"), str):
+            out.append(node["pane_id"])
+    elif node.get("kind") == "split":
+        layout_leaves(node.get("first"), out)
+        layout_leaves(node.get("second"), out)
+
+
+def facet_inconsistencies(session: Mapping[str, Any]) -> List[Tuple[str, str]]:
+    """I19 on one daemon facet's `session.snapshot`: (pointer under the session, message) of each value that breaks
+    the cut, in the order support/resource_walk.rs `i19` finds the first one."""
+    out: List[Tuple[str, str]] = []
+    own = (session.get("session") or {}).get("id")
+    if not isinstance(own, str):
+        return [(pointer("session", "id"), "the snapshot names no session")]
+
+    def rows(table: str) -> List[Mapping[str, Any]]:
+        return [row for row in session.get(table) or [] if isinstance(row, Mapping)]
+
+    ids: Dict[str, Tuple[str, str]] = {}
+    for table, kind, _ in DAEMON_TABLES:
+        for i, row in enumerate(rows(table)):
+            at = pointer(table, i, "id")
+            key = row.get("id")
+            if not isinstance(key, str):
+                out.append((at, f"a {kind} row has no id"))
+            elif key in ids:
+                out.append((at, f"{key} is also at {ids[key][1]}"))
+            else:
+                ids[key] = (kind, at)
+
+    def is_kind(value: Any, kind: str) -> bool:
+        return isinstance(value, str) and value in ids and ids[value][0] == kind
+
+    for i, row in enumerate(rows("workspaces")):
+        if row.get("session_id") != own:
+            out.append((pointer("workspaces", i, "session_id"), f"{row.get('session_id')!r} is not session {own}"))
+    for table, key, kind in (("screens", "workspace_id", "workspace"), ("panes", "screen_id", "screen"),
+                             ("tabs", "pane_id", "pane")):
+        for i, row in enumerate(rows(table)):
+            if not is_kind(row.get(key), kind):
+                out.append((pointer(table, i, key), f"{row.get(key)!r} names no {kind} of this snapshot"))
+    for table in ("terminals", "browsers"):
+        for i, row in enumerate(rows(table)):
+            if row.get("tab_id") is not None and not is_kind(row.get("tab_id"), "tab"):
+                out.append((pointer(table, i, "tab_id"), f"{row.get('tab_id')!r} names no tab of this snapshot"))
+    for i, tab in enumerate(rows("tabs")):
+        if tab.get("content_kind") == "terminal" and not is_kind(tab.get("content_id"), "terminal"):
+            out.append((pointer("tabs", i, "content_id"), f"terminal tab content {tab.get('content_id')!r} is no terminal"))
+    for i, screen in enumerate(rows("screens")):
+        panes = {pane.get("id") for pane in rows("panes")
+                 if pane.get("screen_id") == screen.get("id") and isinstance(pane.get("id"), str)}
+        layout = screen.get("layout") if isinstance(screen.get("layout"), Mapping) else {}
+        leaves: List[Any] = []
+        layout_leaves(layout.get("root"), leaves)
+        if len(set(leaves)) != len(leaves) or set(leaves) != panes:
+            out.append((pointer("screens", i, "layout", "root"),
+                        f"layout leaves {leaves}, the screen's panes {sorted(panes)}"))
+            continue
+        for key in ("active_pane_id", "zoomed_pane_id"):
+            pane = layout.get(key)
+            if pane is not None and pane not in panes:
+                out.append((pointer("screens", i, "layout", key), f"{pane!r} is no pane of this screen"))
+    return out
 
 
 def id_sources(snapshot: Mapping[str, Any]) -> Dict[str, Dict[str, Node]]:
@@ -1189,9 +1271,33 @@ class Checker:
                     continue
                 self.violate("I18", None, "teardown", pointer(*path, kind), message)
 
+    # I19 ----------------------------------------------------------------------------------------------
+    def i19(self) -> None:
+        last: Optional[Tuple[State, int]] = None
+        for state in self.states:
+            daemon = facet(state.snapshot, "daemon")
+            if daemon is None:
+                continue
+            self.checked("I19")
+            for at, message in facet_inconsistencies(daemon.get("session") or {}):
+                self.violate("I19", state.step, state.checkpoint, pointer("daemon", "session") + at, message)
+            head = daemon.get("journalHead")
+            if not isinstance(head, int) or isinstance(head, bool):
+                continue
+            if last is not None:
+                previous, previous_head = last
+                between = self.trace.steps[previous.step.index:state.step.index + 1]
+                restarted = any(step.op in LIFECYCLE_OPS for step in between if step.index > previous.step.index
+                                or (step.index == previous.step.index and previous.checkpoint == "before"))
+                if head < previous_head and not restarted:
+                    self.violate("I19", state.step, state.checkpoint, pointer("daemon", "journalHead"),
+                                 f"the journal head fell from {previous_head} at {previous.step.id}/"
+                                 f"{previous.checkpoint} to {head}")
+            last = (state, head)
+
     def run(self) -> Report:
         for check in (self.i1, self.i2, self.i3, self.i4, self.i5, self.i6, self.i7, self.i9, self.i10, self.i17,
-                      self.i18):
+                      self.i18, self.i19):
             check()
         return self.report
 
@@ -1331,7 +1437,7 @@ def load_schema(path: Path = SNAPSHOT_SCHEMA) -> Dict[str, Any]:
 
 def check_trace(document: Any, case: Optional[Mapping[str, Any]] = None,
                 schema: Optional[Mapping[str, Any]] = None) -> Report:
-    """I1-I7, I9, I10 and I17-I18 over one cmux.oracle.trace/v1 document. Raises TraceError on a malformed trace."""
+    """I1-I7, I9, I10 and I17-I19 over one cmux.oracle.trace/v1 document. Raises TraceError on a malformed trace."""
     trace = load_trace(document, case)
     return Checker(trace, Projector(schema if schema is not None else load_schema())).run()
 
@@ -1388,6 +1494,9 @@ def _add_pane(snapshot: Dict[str, Any], pane_id: str, tab_id: str, terminal: str
     screen["panes"].append({**copy.deepcopy(screen["panes"][0]), "id": pane_id, "selected_tab": tab_id, "tabs": []})
     session = snap["facets"]["daemon"]["session"]
     session["panes"].append({**session["panes"][0], "id": pane_id, "focused": False})
+    layout = session["screens"][0]["layout"]
+    layout["root"] = {"kind": "split", "id": "split_000000000000000000000000000000" + pane_id[-2:], "axis": "vertical",
+                      "ratio": 0.5, "first": layout["root"], "second": {"kind": "leaf", "pane_id": pane_id}}
     return _add_tab(snap, pane_id, tab_id, terminal)
 
 
@@ -1408,12 +1517,17 @@ def _with_hidden_workspace(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     session["workspaces"].append({**session["workspaces"][0], "id": HIDDEN_WS, "index": 1, "focused": False})
     session["screens"].append({**copy.deepcopy(session["screens"][0]), "id": "screen_000000000000000000000000000000c9",
                                "workspace_id": HIDDEN_WS})
-    session["screens"][-1]["layout"]["zoomed_pane_id"] = None
+    session["screens"][-1]["layout"].update(
+        screen_id="screen_000000000000000000000000000000c9", active_pane_id="pane_000000000000000000000000000000d9",
+        zoomed_pane_id=None, root={"kind": "leaf", "pane_id": "pane_000000000000000000000000000000d9"})
     session["panes"].append({**session["panes"][0], "id": "pane_000000000000000000000000000000d9",
                              "screen_id": "screen_000000000000000000000000000000c9"})
     session["tabs"].append({**copy.deepcopy(session["tabs"][0]), "id": "tab_000000000000000000000000000000e9",
                             "pane_id": "pane_000000000000000000000000000000d9",
                             "content_id": "term_000000000000000000000000000000f9"})
+    session["terminals"].append({**copy.deepcopy(session["terminals"][0]), "id": "term_000000000000000000000000000000f9",
+                                 "tab_id": "tab_000000000000000000000000000000e9",
+                                 "tab_ids": ["tab_000000000000000000000000000000e9"]})
     return snap
 
 
@@ -1465,6 +1579,8 @@ def _close_tab2(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     session["panes"] = [p for p in session["panes"] if p["id"] != PANE2]
     session["tabs"] = [t for t in session["tabs"] if t["id"] != TAB2]
     session["browsers"] = []
+    layout = session["screens"][0]["layout"]
+    layout.update(root={"kind": "leaf", "pane_id": PANE1}, active_pane_id=PANE1, zoomed_pane_id=None)
     snap["facets"]["topology"]["tab_count"] = 1
     return snap
 
@@ -1496,7 +1612,8 @@ class InvariantsSelfTest(unittest.TestCase):
         return [n for n in report.not_checked if BY_ID[n.invariant].task == "p15-oracle-110"]
 
     def test_every_invariant_has_an_id_a_rule_and_a_pointer(self) -> None:
-        self.assertEqual([inv.id for inv in INVARIANTS], [*(f"I{n}" for n in range(1, 8)), "I9", "I10", "I17", "I18"])
+        self.assertEqual([inv.id for inv in INVARIANTS],
+                         [*(f"I{n}" for n in range(1, 8)), "I9", "I10", "I17", "I18", "I19"])
         for inv in INVARIANTS:
             self.assertTrue(inv.rule and inv.pointer.split(":")[0] in {"step", "snapshot", "teardown"}, inv)
 
@@ -1761,7 +1878,9 @@ class InvariantsSelfTest(unittest.TestCase):
         drift = copy.deepcopy(self.base)
         drift["facets"]["daemon"]["session"]["tabs"][0]["content_id"] = "term_000000000000000000000000000000ff"
         report = self.check(_trace({"id": "s", "op": "settle", "checkpoints": {"settled": drift}}))
-        self.assertEqual(self.ids(report), [("I4", "/topology/topology/workspaces/0/screens/0/panes/0/tabs/0/terminal")])
+        # The daemon's own cut breaks too: its terminal tab names no terminal (I19).
+        self.assertEqual(self.ids(report), [("I4", "/topology/topology/workspaces/0/screens/0/panes/0/tabs/0/terminal"),
+                                            ("I19", "/daemon/session/tabs/0/content_id")])
         lag = copy.deepcopy(self.base)
         lag["facets"]["daemon"]["journalHead"] = 43
         report = self.check(_trace({"id": "s", "op": "settle", "checkpoints": {"settled": lag}}))
@@ -1772,6 +1891,39 @@ class InvariantsSelfTest(unittest.TestCase):
         self.assertEqual([p for i, p in self.ids(report) if i == "I4"],
                          ["/topology/topology/workspaces/0/screens/0/panes/0/tabs",
                           "/topology/topology/workspaces/0/screens/0/panes/1/tabs"])
+
+    # I19
+    def test_i19_a_broken_cut_names_each_value_that_breaks_it(self) -> None:
+        self.assertEqual(facet_inconsistencies(self.base["facets"]["daemon"]["session"]), [])
+        broken = copy.deepcopy(self.base)
+        session = broken["facets"]["daemon"]["session"]
+        session["tabs"].append({**copy.deepcopy(session["tabs"][0])})
+        session["panes"][1]["screen_id"] = "screen_000000000000000000000000000000cf"
+        session["screens"][0]["layout"]["zoomed_pane_id"] = "pane_000000000000000000000000000000df"
+        report = self.check(_trace({"id": "s", "op": "settle", "checkpoints": {"settled": broken}}))
+        self.assertEqual([(i, p) for i, p in self.ids(report) if i == "I19"],
+                         [("I19", "/daemon/session/tabs/2/id"), ("I19", "/daemon/session/panes/1/screen_id"),
+                          ("I19", "/daemon/session/screens/0/layout/root")])
+        zoomed = copy.deepcopy(self.base)
+        zoomed["facets"]["daemon"]["session"]["screens"][0]["layout"]["zoomed_pane_id"] = "pane_000000000000000000000000000000df"
+        report = self.check(_trace({"id": "s", "op": "settle", "checkpoints": {"settled": zoomed}}))
+        self.assertEqual([(i, p) for i, p in self.ids(report) if i == "I19"],
+                         [("I19", "/daemon/session/screens/0/layout/zoomed_pane_id")])
+
+    def test_i19_the_journal_head_never_falls_but_restarts_compare_again(self) -> None:
+        later = _bump_sequences(self.base, 2)
+        report = self.check(_trace(
+            {"id": "a", "op": "settle", "checkpoints": {"settled": later}},
+            {"id": "b", "op": "settle", "checkpoints": {"before": later, "settled": self.base}},
+        ))
+        self.assertEqual([(v.invariant, v.step, v.checkpoint, v.pointer) for v in report.violations if v.invariant == "I19"],
+                         [("I19", "b", "settled", "/daemon/journalHead")])
+        report = self.check(_trace(
+            {"id": "a", "op": "settle", "checkpoints": {"settled": later}},
+            {"id": "again", "op": "restart", "target": {"process": "daemon"}, "replies": [{"receipt": "identify"}],
+             "checkpoints": {"settled": self.base}},
+        ))
+        self.assertEqual([v for v in report.violations if v.invariant == "I19"], [])
 
     def test_i4_without_a_journal_head_is_not_checked(self) -> None:
         v0 = copy.deepcopy(self.base)

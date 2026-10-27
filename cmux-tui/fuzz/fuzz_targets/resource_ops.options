@@ -1,0 +1,13 @@
+# Read by scripts/cmux-next/rust-fuzz.sh (Chromium's <target>.options format).
+#
+# Each input runs on the daemon's own terminal model: one `__terminal-host`
+# process per terminal, ended at the input's teardown as `shutdown-daemon
+# end_terminals` ends them. The host is this ASan- and coverage-instrumented
+# binary, and its terminate sequence walks /proc for its terminal's process
+# group: on a VM running hundreds of fuzz workers that walk can outlast the
+# close deadline (TERMINAL_HOST_CLOSE_WAIT, about 10 s), and the session then
+# kills the host (end_all_terminals' survivor kill). The 2-second default
+# per-input timeout would report every input that opened a terminal as a
+# timeout; a hang past this bound is a finding.
+[libfuzzer]
+timeout = 60

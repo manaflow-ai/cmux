@@ -474,6 +474,29 @@ class RestorePreviewTraceTests(unittest.TestCase):
         self.assertEqual([(v.invariant, v.pointer) for v in report.violations if v.invariant == "I9"],
                          [("I9", "/daemon/session/workspaces/0/name")])
 
+    def test_a_trace_carries_each_calls_resolved_target_and_replies(self):
+        """I1 and I2 read a resource.call's replies and resolved target from the trace (p15-oracle-186): a
+        traced close of a tab may close it, and a close the step did not target is an I2 violation."""
+        self.assertEqual(d.trace_reply(("error", "selector.not_found")), {"error": "selector.not_found"})
+        receipt = {"value": {}, "generation": "g", "revision": "1", "replayed": False}
+        self.assertEqual(d.trace_reply(("ok", receipt)), {"receipt": "mutation_result", "result": receipt})
+        self.assertEqual(d.trace_reply(("ok", [])), {"receipt": "result", "result": []})
+        session = self.snapshot["facets"]["daemon"]["session"]
+        tab = session["tabs"][0]
+        closed = copy.deepcopy(self.snapshot)
+        closed["facets"]["daemon"]["session"]["tabs"] = [t for t in session["tabs"] if t["id"] != tab["id"]]
+        closed["facets"]["daemon"]["session"]["terminals"] = [
+            t for t in session["terminals"] if t["id"] != tab["content_id"]]
+        steps = [{"id": "close", "op": "resource.call", "args": {"method": "tab.close", "params": {}}}]
+        captures = [d.Capture("close", "before", self.snapshot), d.Capture("close", "settled", closed)]
+        for target, broken in ((tab["id"], []), (session["tabs"][1]["id"], ["I2"])):
+            calls = {"close": {"target": {"machine": "current", "session": "current", "tab": target},
+                               "replies": [d.trace_reply(("ok", receipt))]}}
+            trace = d.case_trace("t/i2", steps, captures, calls)
+            self.assertEqual(trace["steps"][0]["target"]["tab"], target)
+            report = self.inv.check_trace(json.loads(json.dumps(trace)), schema=self.schema)
+            self.assertEqual(sorted({v.invariant for v in report.violations if v.invariant in ("I1", "I2")}), broken)
+
 
 def example_case() -> dict:
     """The schema's daemon example with the expectations of a headless daemon: it starts with no

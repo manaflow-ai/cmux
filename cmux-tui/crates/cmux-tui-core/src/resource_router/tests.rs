@@ -138,6 +138,7 @@ fn operation_contract_validation_rejects_nested_results_and_undeclared_errors() 
     .unwrap_err();
     assert_eq!(malformed_declared_error.code, "operation.failed");
     assert_eq!(malformed_declared_error.details["extra"]["contract"], "error");
+    assert_eq!(malformed_declared_error.details["extra"]["emitted_code"], "validation.invalid");
 }
 
 fn request(id: &str, operation: &str, params: Value, idempotency_key: Option<&str>) -> String {
