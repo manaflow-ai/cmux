@@ -30,16 +30,20 @@ import func CmuxSafeConcurrency.withOnceContinuation
 /// App-only debug methods.
 @MainActor
 final class AppControl {
-    /// The watchdog, and the app's crash keys (p10-stability-207: the action timing names the running action, the hang monitor the hung threads).
-    let watchdog = MainThreadWatchdog(), crashKeys = CrashKeySlots()
+    /// The watchdog (its busy windows end on the main deadline queue, p14-energy-065), and the app's crash keys (p10-stability-207: the action timing names the running action, the hang monitor the hung threads).
+    let watchdog: MainThreadWatchdog, crashKeys = CrashKeySlots()
     /// The app's main-thread scheduler (built by `AppDelegate`, the composition root).
     let mainWork: MainWorkScheduler
     private let frames: FrameBatcher
     /// `debug.frames` and `debug.damage` share the app's one RenderStats (its hooks are process-wide;
     /// the probes' methods are in AppControl+DebugProbes.swift).
+    #if DEBUG || CMUX_BENCH_HOOKS
     let frameProbe: DebugFrameProbe
-    let damageWindow: RenderDamageWindow
     let mainCPUProbe = DebugMainCPUProbe()
+    #endif
+    let damageWindow: RenderDamageWindow
+    /// The app's one RenderStats; terminal renderers count their presented frames in it (AppDelegate).
+    let renderStats: RenderStats
     let terminalDisplayProbe: DebugTerminalDisplayProbe
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     let motionCommitProbe = MotionCommitProbe()
@@ -56,6 +60,8 @@ final class AppControl {
     private(set) var errorJournal: ErrorJournalService?
     /// Over-budget action runs: the Release report's counters, and the Debug log line per run.
     private(set) var actionBudget: ActionBudgetReporter?
+    /// The frames after the person's actions on the key window (`action.missed_frames.cmd_t/n/w`).
+    private var commitWindows: ActionCommitWindows?
     /// The task diagnostics mode (`CMUX_NEXT_MAIN_TASK_DIAGNOSTICS=1`): the watchdog records over-budget
     /// tasks with a stack, and the action budget's Debug line names that it sampled them. Read once.
     private let recordsTaskBudgets = MainThreadWatchdog.recordsTaskBudgets(environment: ProcessInfo.processInfo.environment)
@@ -70,12 +76,15 @@ final class AppControl {
     /// - Parameter mainWork: The app's one main-thread scheduler: control requests are its
     ///   automation tasks, and the watchdog reads its board. `input` is the app's input tap.
     init(mainWork: MainWorkScheduler, input: any InputObserving) {
-        (self.mainWork, self.input) = (mainWork, input)
+        (self.mainWork, self.input, watchdog) = (mainWork, input, MainThreadWatchdog(wakeUps: mainWork.wakeUps))
         frames = FrameBatcher(owner: "Control.frames", budgeted: .automation, on: mainWork)
         let renderStats = RenderStats(layoutGuard: .shared)
+        self.renderStats = renderStats
         let terminalDisplay = DebugTerminalDisplayProbe()
         terminalDisplayProbe = terminalDisplay
+        #if DEBUG || CMUX_BENCH_HOOKS
         frameProbe = DebugFrameProbe(render: RenderFrameLog(stats: renderStats))
+        #endif
         damageWindow = RenderDamageWindow(stats: renderStats, displayPasses: terminalDisplay,
                                           ghosttyOwners: [String(describing: TerminalSurfaceView.self), "IOSurfaceLayer"])
     }
@@ -114,7 +123,8 @@ final class AppControl {
         AppMemoryConsumers(services: services).registerControlCaches(service)
         actionBudget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                             overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,
-                                            logsRuns: ControlService.isDebugBuild, work: services.work)
+                                            logsRuns: ControlService.isDebugBuild, work: services.work, mainWork: mainWork)
+        commitWindows = ActionCommitWindows(monitor: services.actionBudget) { NSApp.keyWindow.map { FrameScheduler.forWindow($0) } }
         services.restartControlListener = { [weak service] in try service?.restartListener() }
         // A busy renderer's record names the Chromium tabs it serves (p14-energy-124), from the snapshot
         // the cache publishes: the watchdog reads it off the main thread.
@@ -146,7 +156,8 @@ final class AppControl {
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
             // Every feature's value and source (`cmux settings feature-flags`), read-only.
-            FeatureFlagsPage.report(services.features, tunables: TunableStore.shared).method,
+            FeatureFlagsPage.report(services.features, tunables: TunableStore.shared,
+                                    daemon: services.environment.daemonFeatureHello).method,
             // Energy Saver's policy and inputs (`cmux energy status`, MCP `energy_status`).
             EnergyReport.statusMethod(services: services),
             // The field histograms since launch (`cmux metrics`), read-only; `unavailable` until the metricsView feature is on.
@@ -170,7 +181,9 @@ final class AppControl {
         // The local daemon's wire traffic, decodes, output copies and connections by role.
         if let wireStats = services.wireStats { router.register([DaemonWireControl(stats: wireStats).method]) }
         router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap), DebugCEF.pumpInputSource(services.cache.chromium),
+                                               DebugCEF.histogramSource(services.cache.chromium),
                                                IntentPrewarmDebugSource { [weak services] in services?.cache.hibernation?.intentPrewarm?.service },
+                                               MainJobGateDebugSource { (NSApp as? CmuxApplication)?.jobGate?.gate },
                                                ScrollViewAuditSource { [mainWork = services.mainWork] in
                                                    // A job the scheduler dropped audits nothing.
                                                    (try? await withOnceContinuation { (continuation: OnceContinuation<DebugInputScrollViews, OnceContinuationError>) in
@@ -178,7 +191,11 @@ final class AppControl {
                                                            continuation.resume(returning: DebugInputScrollViews(auditing: NSApp.windows))
                                                        }
                                                    }) ?? DebugInputScrollViews(rows: [])
-                                               }], recorders: [hops.start(input: input)]).method])
+                                               }],
+                                     recorders: [hops.start(input: input),
+                                                 InputDirtyRecorder(tap: services.inputTap) { [mainWork = services.mainWork] copy in
+                                                     await mainWork.apply(.automation, owner: "debug.input.dirty") { copy() }
+                                                 }]).method])
         router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugDrainCostMethod])
     }
     #endif

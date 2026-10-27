@@ -1,6 +1,6 @@
 //! The process's thread registry: one row per cmux thread, with its name,
-//! declared QoS, desired-QoS slot, effective QoS, scheduler priority and
-//! native ids.
+//! declared QoS, desired-QoS slot, effective QoS, scheduler priority, native
+//! ids and the object it works for now.
 //!
 //! A row's desired QoS is a [`DesiredQos`] that another thread sets and the
 //! row's thread applies itself with [`crate::apply_pending_qos`] at the top
@@ -16,13 +16,14 @@
 //! [`snapshot`] sound.
 //!
 //! Lock carve-out: the row list is one std `Mutex`, held only to push or
-//! remove a row and for [`snapshot`]'s per-row reads (no I/O, no waits), as
+//! remove a row, for [`snapshot`]'s per-row reads and to start one QoS
+//! override on a row's thread ([`with_live_row`]; no I/O, no waits), as
 //! Chromium's `ThreadIdNameManager` (base/threading/thread_id_name_manager.cc)
 //! holds its lock. The per-thread fields are atomics: no QoS change or
 //! request takes the lock.
 
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::qos::{self, LiveQos, QosChange, ThreadQos};
@@ -78,6 +79,8 @@ pub(crate) fn current_tid() -> Option<u64> {
 
 /// `Row::effective` before the thread's first QoS change succeeds.
 const NOT_APPLIED: u8 = u8::MAX;
+/// `Row::owner` while the thread works for no object.
+const NO_OWNER: u64 = u64::MAX;
 
 /// A QoS that one or more threads are asked to run at. The owner of the
 /// threads requests a class; each thread that follows it applies the class
@@ -106,6 +109,8 @@ impl DesiredQos {
 /// One registered thread.
 #[derive(Debug)]
 pub(crate) struct Row {
+    /// Unique in the process, never 0 (see [`current_id`]).
+    id: u64,
     name: String,
     declared: ThreadQos,
     desired: DesiredQos,
@@ -114,6 +119,9 @@ pub(crate) struct Row {
     acted: AtomicU8,
     effective: AtomicU8,
     refused: AtomicU32,
+    /// The object the thread works for now ([`QosSlot::work_for`]), or
+    /// [`NO_OWNER`].
+    owner: AtomicU64,
     native: NativeThread,
 }
 
@@ -146,7 +154,13 @@ impl Row {
         let desired = self.desired.get();
         (self.acted.swap(desired as u8, Ordering::Relaxed) != desired as u8).then_some(desired)
     }
+
+    pub(crate) fn native(&self) -> &NativeThread {
+        &self.native
+    }
 }
+
+static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
 /// A handle to a registered thread's desired-QoS slot. Another thread stores
 /// the QoS it wants the owner to run at; the owner reads it at a point of its
@@ -176,6 +190,14 @@ impl QosSlot {
     pub fn name(&self) -> &str {
         &self.0.name
     }
+
+    /// Records that the owning thread works for the object `owner` (an id
+    /// its caller chooses: a daemon connection's client id), so a snapshot
+    /// can say whose work its QoS is for, as Chromium's trace metadata
+    /// names the frame or process a thread serves. Diagnostics only.
+    pub fn work_for(&self, owner: u64) {
+        self.0.owner.store(owner, Ordering::Relaxed);
+    }
 }
 
 /// One row of [`snapshot`].
@@ -198,6 +220,9 @@ pub struct ThreadInfo {
     pub refused_changes: u32,
     /// The kernel thread id (Linux tid, macOS pthread_threadid_np).
     pub tid: Option<u64>,
+    /// The object the thread works for ([`QosSlot::work_for`]), `None` when
+    /// it was never set.
+    pub owner: Option<u64>,
 }
 
 static ROWS: Mutex<Vec<Arc<Row>>> = Mutex::new(Vec::new());
@@ -227,6 +252,21 @@ pub(crate) fn with_current<R>(f: impl FnOnce(&Row) -> R) -> Option<R> {
         .try_with(|current| current.borrow().as_ref().map(|registered| f(&registered.0)))
         .ok()
         .flatten()
+}
+
+/// The calling thread's row id, 0 when it is not registered (ids start at
+/// 1, so 0 stands for "no registered thread").
+pub(crate) fn current_id() -> u64 {
+    with_current(|row| row.id).unwrap_or(0)
+}
+
+/// Runs `f` on the row of the registered thread `id` with the row lock held:
+/// the thread removes its row under this lock before it exits, so it is alive
+/// while `f` runs. `f` must not wait or take another lock. `None` when no
+/// registered thread has that id (it exited or deregistered).
+pub(crate) fn with_live_row<R>(id: u64, f: impl FnOnce(&Row) -> R) -> Option<R> {
+    let rows = rows();
+    rows.iter().find(|row| row.id == id).map(|row| f(row))
 }
 
 /// The QoS the calling thread runs at: the class it last applied, else the
@@ -263,6 +303,7 @@ fn register(name: String, qos: ThreadQos, desired: DesiredQos) -> bool {
             return false;
         }
         let row = Arc::new(Row {
+            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
             name,
             declared: qos,
             desired,
@@ -271,6 +312,7 @@ fn register(name: String, qos: ThreadQos, desired: DesiredQos) -> bool {
             acted: AtomicU8::new(qos as u8),
             effective: AtomicU8::new(NOT_APPLIED),
             refused: AtomicU32::new(0),
+            owner: AtomicU64::new(NO_OWNER),
             native: NativeThread::current(),
         });
         rows().push(Arc::clone(&row));
@@ -334,6 +376,10 @@ pub fn snapshot() -> Vec<ThreadInfo> {
             priority: qos::priority_of(&row.native),
             refused_changes: row.refused.load(Ordering::Relaxed),
             tid: row.native.tid(),
+            owner: match row.owner.load(Ordering::Relaxed) {
+                NO_OWNER => None,
+                owner => Some(owner),
+            },
         })
         .collect()
 }

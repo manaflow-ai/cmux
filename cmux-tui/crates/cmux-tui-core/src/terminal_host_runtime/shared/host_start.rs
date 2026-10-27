@@ -27,7 +27,7 @@ use super::clipboard_read::{ClipboardReads, SystemClock};
 use super::codec::HostLaunch;
 use super::exited_drain;
 use super::host_parser::{self, ParserSignals, run_guarded_host_parser, run_host_parser};
-use super::host_shared::HostShared;
+use super::host_shared::{HostLoop, HostShared};
 use super::host_state::*;
 
 /// The host's authoritative terminal for `launch`, configured to answer
@@ -165,7 +165,7 @@ pub(crate) fn start_host_runtime(
     // (utility while no view shows the terminal).
     let parser_host = shared.clone();
     crate::echo_thread::spawn_following(
-        "terminal-host-parser",
+        HostLoop::Parser.thread_name(),
         shared.thread_qos.clone(),
         move || {
             let guarded = parser_host.clone();
@@ -181,9 +181,10 @@ pub(crate) fn start_host_runtime(
 
     let reader_host = shared.clone();
     crate::echo_thread::spawn_following(
-        "terminal-host-pty",
+        HostLoop::Pty.thread_name(),
         shared.thread_qos.clone(),
         move || {
+            let hang_watch = HostLoop::Pty.register();
             reader_host.wait_for_launch_owner_stream_ready();
             let mut buffer = [0u8; PTY_READ_BYTES];
             // File-medium Kitty images are read here, next to the program, so
@@ -198,6 +199,8 @@ pub(crate) fn start_host_runtime(
                 &reader_host.force_pty_drain,
                 &mut forced_at,
             ) {
+                // The read and its publication, not the readiness wait.
+                let _item = HostLoop::Pty.watch(&hang_watch);
                 cmux_threads::apply_pending_qos();
                 let read = read_pty_once(
                     &reader_host,

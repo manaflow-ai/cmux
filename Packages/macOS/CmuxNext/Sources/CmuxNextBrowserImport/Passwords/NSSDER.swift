@@ -21,9 +21,9 @@ struct NSSDER: Sendable {
 
     /// One whole TLV; trailing bytes are refused.
     init(_ bytes: [UInt8]) throws(Malformed) {
-        var index = 0
-        self = try Self.next(bytes, &index)
-        guard index == bytes.count else { throw Malformed() }
+        var rest = ArraySlice(bytes)
+        self = try Self.next(&rest)
+        guard rest.isEmpty else { throw Malformed() }
     }
 
     private init(tag: UInt8, content: [UInt8]) {
@@ -31,23 +31,21 @@ struct NSSDER: Sendable {
         self.content = content
     }
 
-    private static func next(_ bytes: [UInt8], _ index: inout Int) throws(Malformed) -> NSSDER {
-        guard index + 2 <= bytes.count else { throw Malformed() }
-        let tag = bytes[index]
-        var length = Int(bytes[index + 1])
-        index += 2
-        if length & 0x80 != 0 {
-            let octets = length & 0x7F
-            guard (1...4).contains(octets), index + octets <= bytes.count else { throw Malformed() }
-            length = 0
-            for _ in 0..<octets {
-                length = length << 8 | Int(bytes[index])
-                index += 1
-            }
+    /// The TLV at the front of `rest`, which then holds what follows it. Read from the front, so a length the
+    /// blob lies about is `Malformed`, never an index past the end (BoringSSL's CBS_get_asn1 reads the same way).
+    private static func next(_ rest: inout ArraySlice<UInt8>) throws(Malformed) -> NSSDER {
+        guard let tag = rest.popFirst(), let first = rest.popFirst() else { throw Malformed() }
+        var length = first.widened
+        if first & 0x80 != 0 {
+            let count = (first & 0x7F).widened
+            let octets = rest.prefix(count)
+            guard (1...4).contains(count), octets.count == count else { throw Malformed() }
+            length = octets.bigEndian(as: UInt32.self).widened
+            rest = rest.dropFirst(count)
         }
-        guard length >= 0, index + length <= bytes.count else { throw Malformed() }
-        let content = Array(bytes[index..<index + length])
-        index += length
+        guard length <= rest.count else { throw Malformed() }
+        let content = Array(rest.prefix(length))
+        rest = rest.dropFirst(length)
         return NSSDER(tag: tag, content: content)
     }
 
@@ -55,24 +53,23 @@ struct NSSDER: Sendable {
     func children() throws(Malformed) -> [NSSDER] {
         guard tag == Self.sequence else { throw Malformed() }
         var result: [NSSDER] = []
-        var index = 0
-        while index < content.count { result.append(try Self.next(content, &index)) } // wakeup-allow: each step consumes at least two bytes
+        var rest = ArraySlice(content)
+        while !rest.isEmpty { result.append(try Self.next(&rest)) } // wakeup-allow: bounded each step consumes at least two bytes
         return result
     }
 
     func child(_ position: Int, tag expected: UInt8) throws(Malformed) -> NSSDER {
-        let all = try children()
-        guard position < all.count, all[position].tag == expected else { throw Malformed() }
-        return all[position]
+        guard let element = try children()[checked: position], element.tag == expected else { throw Malformed() }
+        return element
     }
 
     /// An OBJECT IDENTIFIER in dotted form ("1.2.840.113549.1.5.13").
     func oid() throws(Malformed) -> String {
         guard tag == Self.objectIdentifier, let first = content.first else { throw Malformed() }
-        var parts = [Int(first) / 40, Int(first) % 40]
+        var parts = [first.widened / 40, first.widened % 40]
         var value = 0
         for byte in content.dropFirst() {
-            value = value << 7 | Int(byte & 0x7F)
+            value = value << 7 | (byte & 0x7F).widened
             guard value < 1 << 28 else { throw Malformed() }
             if byte & 0x80 == 0 {
                 parts.append(value)
@@ -84,8 +81,8 @@ struct NSSDER: Sendable {
 
     /// A small non-negative INTEGER (iteration counts and key lengths).
     func smallInteger() throws(Malformed) -> Int {
-        guard tag == Self.integer, !content.isEmpty, content.count <= 4, content[0] & 0x80 == 0 else { throw Malformed() }
-        return content.reduce(0) { $0 << 8 | Int($1) }
+        guard tag == Self.integer, let sign = content.first, content.count <= 4, sign & 0x80 == 0 else { throw Malformed() }
+        return content.bigEndian(as: UInt32.self).widened
     }
 }
 #endif

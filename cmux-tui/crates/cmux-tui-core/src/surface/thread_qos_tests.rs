@@ -1,8 +1,8 @@
-//! A hidden terminal's reader thread (it reads and parses) runs at utility
-//! after its next byte and at the echo class after a byte once shown, with
-//! no wake of its own for either change. A hosted terminal's mirror threads
-//! do the same after their next frame, and every new host connection tells
-//! the host the current class.
+//! A hidden terminal's own threads run at utility after their next wake
+//! and at the echo class after one once shown, with no wake of their own for
+//! either change: a hosted terminal's mirror threads after their next frame,
+//! and every new host connection tells the host the current class. A direct
+//! PTY reads on the owner's shared read loop, which no one terminal demotes.
 
 use std::time::{Duration, Instant};
 
@@ -95,9 +95,14 @@ fn assert_shown(row: &ThreadInfo) {
     }
 }
 
+/// A direct PTY reads on its owner's shared read loop (local_reader.rs),
+/// which serves every terminal: hiding one records its class but demotes no
+/// shared thread, and the terminal starts no reader thread of its own.
 #[cfg(unix)]
 #[test]
-fn a_hidden_terminals_reader_applies_utility_after_one_byte_and_returns_when_shown() {
+fn a_hidden_direct_pty_demotes_no_shared_read_loop_thread() {
+    use crate::mux::terminal_work::read_loop::{READ_LOOP_THREAD, READ_WORKER_THREAD};
+
     // The reader's progress publication writes sqlite (surface/directory.rs,
     // a known MQ-13 site): record it, as store_lock_blocking_tests does.
     cmux_threads::blocking::set_mode(cmux_threads::BlockingMode::Record);
@@ -106,30 +111,29 @@ fn a_hidden_terminals_reader_applies_utility_after_one_byte_and_returns_when_sho
     let options = SurfaceOptions { command: Some(vec!["cat".into()]), ..SurfaceOptions::default() };
     let mux = Mux::new(format!("thread-qos-{}-{nanos}", std::process::id()), options);
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
-    let name = format!("surface-{}-reader", surface.id);
     surface.write_bytes(b"a").unwrap();
-    // The reader parsed the echo and waits again: from here only a byte wakes it.
     wait_for_text(&surface, "a");
-    let start = wait_started(&name);
-    assert_eq!(start.desired, ThreadQos::UserInteractive);
 
     surface.set_threads_shown(false);
-    assert_eq!(surface.thread_qos(), Some(ThreadQos::Utility));
-    // The request alone wakes nothing: the idle reader has not acted on it.
-    let idle = reader_row(&name);
-    assert_eq!(idle.desired, ThreadQos::Utility);
-    assert_eq!((idle.effective, idle.refused_changes), (start.effective, start.refused_changes));
-
+    assert_eq!(surface.thread_qos(), Some(HIDDEN_TERMINAL_QOS));
     surface.write_bytes(b"b").unwrap();
-    let hidden = wait_acted(&name, ThreadQos::Utility, &start);
-    assert_hidden(&hidden, &start);
+    // The loop parsed the hidden terminal's byte on a shared thread.
+    wait_for_text(&surface, "ab");
 
-    surface.set_threads_shown(true);
-    surface.write_bytes(b"c").unwrap();
-    if demotion() == QosChange::Applied {
-        assert_shown(&wait_acted(&name, ThreadQos::UserInteractive, &hidden));
+    assert!(
+        find_row(&format!("surface-{}-reader", surface.id)).is_none(),
+        "a direct PTY started a reader thread of its own"
+    );
+    let shared: Vec<_> = cmux_threads::snapshot()
+        .into_iter()
+        .filter(|row| row.name == READ_LOOP_THREAD || row.name == READ_WORKER_THREAD)
+        .collect();
+    assert!(!shared.is_empty(), "the read loop has threads");
+    for row in shared {
+        assert_eq!(row.desired, row.declared, "a hidden terminal moved a shared thread: {row:?}");
     }
-    assert_eq!(reader_row(&name).desired, ThreadQos::UserInteractive);
+    surface.set_threads_shown(true);
+    assert_eq!(surface.thread_qos(), Some(ThreadQos::UserInteractive));
     mux.shutdown();
 }
 

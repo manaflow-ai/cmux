@@ -231,6 +231,20 @@ mod tests {
     }
 
     #[test]
+    fn a_row_names_the_object_its_thread_works_for() {
+        let (before, after) = spawn("cmux-threads-test-owner", ThreadQos::Utility, || {
+            let before = own_row().owner;
+            current_slot().expect("spawned threads are registered").work_for(42);
+            (before, own_row().owner)
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+        assert_eq!(before, None, "a new row works for no object");
+        assert_eq!(after, Some(42));
+    }
+
+    #[test]
     fn spawn_with_stack_registers_the_thread_at_its_qos() {
         const NAME: &str = "cmux-threads-test-stack";
         let own = spawn_with_stack(NAME, ThreadQos::Utility, 256 * 1024, || {
@@ -423,8 +437,9 @@ mod tests {
         assert_eq!(row(NAME), None);
     }
 
-    /// libc is the one dependency every user builds; crossbeam-channel is
-    /// optional, only for crates that enable the `crossbeam` feature.
+    /// libc is the one dependency every user builds; crossbeam-channel and
+    /// tokio are optional, only for crates that enable the `crossbeam` or
+    /// `tokio` feature.
     #[test]
     fn crate_depends_on_libc_only() {
         let manifest = include_str!("../Cargo.toml");
@@ -439,7 +454,11 @@ mod tests {
             .collect();
         assert_eq!(
             dependency_lines,
-            ["libc.workspace = true", "crossbeam-channel = { workspace = true, optional = true }"]
+            [
+                "libc.workspace = true",
+                "crossbeam-channel = { workspace = true, optional = true }",
+                "tokio = { workspace = true, optional = true }",
+            ]
         );
     }
 }

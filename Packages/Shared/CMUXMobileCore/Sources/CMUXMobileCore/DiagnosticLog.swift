@@ -629,7 +629,7 @@ public final class DiagnosticLog: Sendable {
         }
 
         func clear(anchorWallNanos: UInt64, anchorMonotonicNanos: UInt64) {
-            slots = Array(repeating: nil, count: capacity)
+            slots = Array(repeating: nil, count: slots.count)
             head = 0
             filled = 0
             totalProcessed = 0
