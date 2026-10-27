@@ -1,0 +1,243 @@
+// ESLint-compatible rule, shared by vp lint and the blocking effect-cleanup check.
+const functions = new Set(["ArrowFunctionExpression", "FunctionExpression", "FunctionDeclaration"]);
+const hooks = new Set(["useEffect", "useLayoutEffect", "useInsertionEffect"]);
+const globals = new Set(["window", "globalThis", "self"]);
+
+export const intervalCleanup = {
+  meta: {
+    type: "problem",
+    schema: [],
+    messages: {
+      cleanup: "Return an effect cleanup that clears this interval's handle on every exit after it starts.",
+    },
+  },
+  create(context) {
+    const source = context.sourceCode;
+    const intervals = [];
+    const effects = [];
+    const variable = (node) => {
+      if (node?.type !== "Identifier") return undefined;
+      for (let scope = source.getScope(node); scope; scope = scope.upper) {
+        const found = scope.set.get(node.name);
+        if (found) return found;
+      }
+    };
+    const isGlobal = (node) => !variable(node)?.defs.length;
+    const isTimer = (node, name) =>
+      (node?.type === "Identifier" && node.name === name && isGlobal(node)) ||
+      (node?.type === "MemberExpression" &&
+        !node.computed &&
+        node.property.name === name &&
+        globals.has(node.object.name) &&
+        isGlobal(node.object));
+    const imported = (node, names) =>
+      variable(node)?.defs.some(
+        (def) =>
+          def.type === "ImportBinding" &&
+          def.parent.source.value === "react" &&
+          def.node.type === "ImportSpecifier" &&
+          names.has(def.node.imported.name),
+      );
+    const isEffect = (node) =>
+      imported(node, hooks) ||
+      (node?.type === "MemberExpression" &&
+        !node.computed &&
+        hooks.has(node.property.name) &&
+        variable(node.object)?.defs.some(
+          (def) =>
+            def.type === "ImportBinding" &&
+            def.parent.source.value === "react" &&
+            ["ImportNamespaceSpecifier", "ImportDefaultSpecifier"].includes(def.node.type),
+        ));
+    const resolveFunction = (node) => {
+      if (functions.has(node?.type)) return node;
+      const def = variable(node)?.defs[0];
+      if (def?.type === "FunctionName") return def.node;
+      if (functions.has(def?.node?.init?.type)) return def.node.init;
+    };
+    // Use the parser's visitor keys so TS annotations and parent links cannot
+    // accidentally be treated as executable expressions.
+    function walk(node, visit, descendFunctions = true) {
+      if (!node) return;
+      visit(node);
+      if (!descendFunctions && functions.has(node.type)) return;
+      for (const key of source.visitorKeys[node.type] ?? []) {
+        const value = node[key];
+        for (const child of Array.isArray(value) ? value : [value]) {
+          if (child?.type) walk(child, visit, descendFunctions);
+        }
+      }
+    }
+    function sameHandle(node, handle) {
+      return node?.type === "Identifier" && variable(node) === handle;
+    }
+    function clears(node, handle, seen = new Set()) {
+      if (!node || seen.has(node)) return false;
+      seen = new Set([...seen, node]);
+      if (node.type === "CallExpression") {
+        if (isTimer(node.callee, "clearInterval") && sameHandle(node.arguments[0], handle)) return true;
+        const called = resolveFunction(node.callee);
+        return called && !called.async ? clears(called.body, handle, seen) : false;
+      }
+      if (node.type === "ExpressionStatement") return clears(node.expression, handle, seen);
+      if (node.type === "ReturnStatement") return clears(node.argument, handle, seen);
+      if (node.type === "BlockStatement") {
+        for (const statement of node.body) {
+          if (clears(statement, handle, seen)) return true;
+          // A return before clearInterval makes the latter unreachable.
+          if (["ReturnStatement", "ThrowStatement"].includes(statement.type)) return false;
+          let suspends = false;
+          walk(
+            statement,
+            (child) => {
+              if (child.type === "AwaitExpression") suspends = true;
+            },
+            false,
+          );
+          if (suspends) return false;
+          if (statement.type === "IfStatement" && exits(statement)) return false;
+        }
+        return false;
+      }
+      if (node.type === "IfStatement") {
+        // Guarding an optional handle is safe; a random condition isn't cleanup.
+        if (sameHandle(node.test, handle)) return clears(node.consequent, handle, seen);
+        if (
+          node.test.type === "BinaryExpression" &&
+          ["!=", "!=="].includes(node.test.operator) &&
+          sameHandle(node.test.left, handle) &&
+          ((node.test.right.type === "Literal" && node.test.right.value === null) ||
+            (node.test.right.type === "Identifier" &&
+              node.test.right.name === "undefined" &&
+              isGlobal(node.test.right)))
+        ) {
+          return clears(node.consequent, handle, seen);
+        }
+        return clears(node.consequent, handle, seen) && clears(node.alternate, handle, seen);
+      }
+      if (node.type === "LogicalExpression" && node.operator === "&&" && sameHandle(node.left, handle)) {
+        return clears(node.right, handle, seen);
+      }
+      if (node.type === "TryStatement") return clears(node.finalizer, handle, seen);
+      // Do not count an uncalled nested function or asynchronous callback.
+      return false;
+    }
+    function exits(node) {
+      if (!node) return false;
+      if (["ReturnStatement", "ThrowStatement"].includes(node.type)) return true;
+      if (node.type === "BlockStatement") return node.body.some(exits);
+      if (node.type === "IfStatement") return exits(node.consequent) || exits(node.alternate);
+      return false;
+    }
+    function returnsOnEveryPath(node) {
+      if (!node) return false;
+      if (node.type === "ReturnStatement") return true;
+      if (node.type === "BlockStatement") return node.body.some(returnsOnEveryPath);
+      if (node.type === "IfStatement") {
+        return returnsOnEveryPath(node.consequent) && returnsOnEveryPath(node.alternate);
+      }
+      return false;
+    }
+    function overwritten(effect, interval, handle) {
+      const writes = [];
+      walk(effect.body, (node) => {
+        if (node.type === "AssignmentExpression" && sameHandle(node.left, handle)) writes.push(node);
+        if (node.type === "UpdateExpression" && sameHandle(node.argument, handle)) writes.push(node);
+      });
+      return writes.some((write) => {
+        // A later assignment must release the old handle first. Also inspect
+        // assignments inside callbacks that may run again after the first start.
+        if (
+          write.range[0] < interval.range[0] &&
+          write.parent.type === "ExpressionStatement" &&
+          write.parent.parent === effect.body
+        )
+          return false;
+        if (
+          write === interval.parent &&
+          writes.length === 1 &&
+          write.parent.type === "ExpressionStatement" &&
+          write.parent.parent === effect.body
+        )
+          return false;
+        let statement = write;
+        while (statement.parent && statement.parent.type !== "BlockStatement") statement = statement.parent;
+        const block = statement.parent;
+        if (!block || block.type !== "BlockStatement") return true;
+        // The closest prior lifetime operation must be a synchronous clear.
+        for (const previous of block.body.slice(0, block.body.indexOf(statement)).reverse()) {
+          if (clears(previous, handle)) return false;
+          let starts = false;
+          walk(
+            previous,
+            (child) => {
+              if (child.type === "CallExpression" && isTimer(child.callee, "setInterval")) starts = true;
+            },
+            false,
+          );
+          if (starts) return true;
+        }
+        return true;
+      });
+    }
+    function check(effect, interval) {
+      let assignment = interval.parent;
+      while (["ConditionalExpression", "LogicalExpression", "TSAsExpression"].includes(assignment?.type)) {
+        assignment = assignment.parent;
+      }
+      const target =
+        assignment?.type === "VariableDeclarator"
+          ? assignment.id
+          : assignment?.type === "AssignmentExpression"
+            ? assignment.left
+            : undefined;
+      const handle = variable(target);
+      // A local binding has stable identity at teardown. Mutable ref.current
+      // handles must first be captured locally, so a later write cannot leak it.
+      if (!handle || !returnsOnEveryPath(effect.body) || overwritten(effect, interval, handle)) return false;
+      const returns = [];
+      walk(
+        effect.body,
+        (node) => {
+          if (node.type === "ReturnStatement" && node.range[0] > interval.range[0]) returns.push(node);
+        },
+        false,
+      );
+      return (
+        returns.length > 0 &&
+        returns.every((node) => {
+          const cleanup = resolveFunction(node.argument);
+          return cleanup && !cleanup.async && clears(cleanup.body, handle);
+        })
+      );
+    }
+    return {
+      CallExpression(node) {
+        if (isTimer(node.callee, "setInterval")) intervals.push(node);
+        if (isEffect(node.callee)) {
+          const callback = resolveFunction(node.arguments[0]);
+          if (callback) effects.push(callback);
+        }
+      },
+      "Program:exit"() {
+        for (const interval of intervals) {
+          // The nearest effect owns it, including intervals started by its local
+          // event callbacks. A different effect's cleanup cannot satisfy it.
+          let owner;
+          for (let parent = interval.parent; parent; parent = parent.parent) {
+            if (effects.includes(parent)) {
+              owner = parent;
+              break;
+            }
+          }
+          if (owner && !check(owner, interval)) context.report({ node: interval, messageId: "cleanup" });
+        }
+      },
+    };
+  },
+};
+
+export default {
+  meta: { name: "cmux-lifecycle" },
+  rules: { "effect-interval-cleanup": intervalCleanup },
+};

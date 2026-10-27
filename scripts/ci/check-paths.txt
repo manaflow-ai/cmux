@@ -25,6 +25,7 @@ web/scripts/check-*
 # their baselines and lint configuration: a lowered ratchet or a new rule fails a pull request that passed the old one
 scripts/cmux-next/*baseline*
 webviews/scripts/*baseline*
+webviews/scripts/lint/*
 scripts/lint-*baseline*
 web/oxlint-complexity-baseline.txt
 web/.oxlintrc.json
