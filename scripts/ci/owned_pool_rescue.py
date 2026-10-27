@@ -1273,7 +1273,9 @@ class GitHub:
                 # The installation lacks this read's permission, or its budget is spent: this one
                 # read goes on GITHUB_TOKEN (which waits through a rate limit).
                 return self.request(method, path, own_token=True, refreshed=refreshed)
-            self.read_headers = self.headers
+            with self._lock:
+                self.read_headers = self.headers
+                self._budget = (-1e9, None, None)  # another token's pool: read it afresh
             return self.request(method, path, refreshed=refreshed)
         return json.loads(body) if body else None
 
@@ -1720,7 +1722,10 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 # makes ci-main-full-suite.yml open the red-CI issue before
                 # the re-run starts, and a cancelled one does not.
                 log(f"look {looks}: {look.reason}; waiting for the rest of the run to finish")
-                sleep(IDLE_POLL_SECONDS)
+                wait = IDLE_POLL_SECONDS
+                if getattr(api, "pace", None) is not None:
+                    wait = min(api.pace(wait), max(wait, (deadline - now()).total_seconds() + 1))
+                sleep(wait)
                 continue
             log(f"look {looks}: {look.reason}")
             if look.action in ("rescue", "refused"):

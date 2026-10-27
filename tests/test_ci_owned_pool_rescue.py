@@ -3414,6 +3414,33 @@ class Budget(unittest.TestCase):
         self.assertEqual(checks, [1])
         self.assertEqual(len(seen), 2)
 
+    def test_falling_back_to_github_token_forgets_the_apps_budget(self):
+        def answers(request):
+            if request.get_header("Authorization") == "Bearer app":
+                return 401, {}, b""
+            return 200, {"X-RateLimit-Remaining": "900", "X-RateLimit-Reset": "100"}, b"{}"
+        seen, patch = self.serve(answers)
+        with patch:
+            api = rescue.GitHub("repo", "o/r", read_token="app")
+            api._note_budget({"X-RateLimit-Remaining": "50", "X-RateLimit-Reset": "900"})
+            api.run(1)
+        self.assertEqual(api._budget[1:], (900, 100.0))
+
+    def test_waiting_for_a_refused_shards_siblings_is_paced_too(self):
+        def jobs(seconds):
+            sibling = job("macos / app-host unit tests (1/7)", labels=[MINI], created=40, runner="mini-2",
+                          status="in_progress")
+            sibling["started_at"] = stamp(41)
+            return [changes()(seconds), refused_job("macos / app-host unit tests (2/7)"), sibling]
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True)
+        paced = []
+        api.pace = lambda interval: paced.append(interval) or 3600.0
+        rescue.watch(api, rescue.target_from_event(event(), "manaflow-ai/cmux"), budget_seconds=90, now=clock.now,
+                     sleep=clock.sleep, log=lambda text: None, deadline=START + dt.timedelta(seconds=900))
+        self.assertTrue(paced)
+        self.assertLessEqual(api.calls.count("jobs"), 4)
+
     def test_concurrent_401s_mint_one_token(self):
         def answers(request):
             return (401, {}, b"") if request.get_header("Authorization") == "Bearer old" else (200, {}, b"{}")
