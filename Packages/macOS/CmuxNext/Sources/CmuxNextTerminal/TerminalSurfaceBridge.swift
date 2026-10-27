@@ -2,16 +2,17 @@ import Foundation
 import CmuxNextWakeups
 import GhosttyNextKit
 
-/// Per-surface userdata handed to Ghostty as `userdata`, `io_write_userdata`
-/// and, with renderer-owned frames, `presented_userdata` (ghostty.h).
+/// Per-surface userdata handed to Ghostty as `userdata`, `io_write_userdata`,
+/// with renderer-owned frames `presented_userdata`, and with an external cursor
+/// `cursor_userdata` (ghostty.h).
 ///
 /// Retained for the surface's lifetime and released only after
 /// `ghostty_surface_free` returns, because free joins the IO thread that may
 /// still be inside `io_write_cb` and waits for a running `presented_cb`.
 ///
 /// Checked Sendable: Ghostty's IO and Core Animation threads read only the
-/// immutable `input`, `linkFilter`, `frames` and `frameMarks`; everything
-/// mutable is main-actor isolated.
+/// immutable `input`, `linkFilter`, `frames`, `frameMarks` and `cursor`;
+/// everything mutable is main-actor isolated.
 nonisolated final class SurfaceBridge: Sendable {
     let input: TerminalInputSink
     /// What the surface's callbacks reach: its view in the app, a test's recorder. Main-actor only.
@@ -35,10 +36,15 @@ nonisolated final class SurfaceBridge: Sendable {
     let frames: GhosttyTraceHook.Surface
     /// Where this surface's presented frames are marked (``ghosttySurfacePresented(_:_:_:_:)``); nil: nowhere.
     let frameMarks: GhosttyTraceHook.Recorder?
+    /// Where Ghostty's present puts the surface's cursor cell (``ghosttySurfaceCursor(_:_:)``); nil: Ghostty draws
+    /// the cursor.
+    let cursor: TerminalCursorPresenter?
 
-    init(input: TerminalInputSink, echoStage: TerminalEchoStage? = nil, frameMarks: GhosttyTraceHook.Recorder? = nil) {
+    init(input: TerminalInputSink, echoStage: TerminalEchoStage? = nil, frameMarks: GhosttyTraceHook.Recorder? = nil,
+         cursor: TerminalCursorPresenter? = nil) {
         self.input = input
         self.frameMarks = frameMarks
+        self.cursor = cursor
         frames = GhosttyTraceHook.Surface(key: input.typingSurface, echoStage: echoStage)
         // An answer that changed shows at once: the pointer goes to Ghostty again.
         linkFilter.onChange { [weak self] in

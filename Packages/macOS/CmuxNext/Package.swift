@@ -236,16 +236,21 @@ let daemonSwiftSettings: [SwiftSetting] = [
 ///   `presented_userdata`. CmuxNextTerminal reads, hides and purges frames through the first two
 ///   (`GhosttyFrameSource`), reads no layer contents, and takes each presented frame as its contents mark
 ///   (`ghosttySurfacePresented`, p03-rendering-081).
-/// - GHOSTTY_EXTERNAL_CURSOR: the external cursor (ghostty-next cp/p03-rendering-090, not in 723c4ab93): the surface
-///   config's `bool cursor_external` (the renderer neither draws nor blinks the cursor), `ghostty_surface_cursor_cb
-///   cursor_cb` and `void *cursor_userdata`. The callback, `void (*)(void *userdata, const ghostty_surface_cursor_s *)`,
-///   runs on the renderer thread once per move or change of the cursor cell, never per blink, and never blocks.
-///   `ghostty_surface_cursor_s` has `double x, y, width, height` (the cell in points, top-left origin, as
-///   `ghostty_surface_grid_metrics`), `ghostty_cursor_style_e style` (`GHOSTTY_CURSOR_STYLE_BLOCK`, `_BLOCK_HOLLOW`,
-///   `_BAR`, `_UNDERLINE`, `_LOCK`), `bool visible`, `bool blinking`, `uint32_t blink_interval_ms` and
-///   `void *surface` (an IOSurfaceRef of the cell as Ghostty draws it, glyph in the cursor-text color; +0, valid for
-///   the call; Ghostty draws no later cursor into a surface someone still holds). `TerminalCursorLayer` shows it
-///   behind feature `terminalCursorLayer` (p03-rendering-091).
+/// - GHOSTTY_EXTERNAL_CURSOR: the external cursor (ghostty-next cp/p03-rendering-090 1d35a0460, not in 723c4ab93):
+///   the surface config's `bool cursor_external` (the renderer neither draws nor blinks the cursor),
+///   `ghostty_surface_cursor_cb cursor_cb` and `void *cursor_userdata`. The callback,
+///   `void (*)(void *userdata, const ghostty_cursor_cell_s *)`, comes once per move or change of the cursor cell,
+///   never per blink, and never blocks. `ghostty_cursor_cell_s` has `uint64_t serial`, `void *surface` (an
+///   IOSurfaceRef of the cell as Ghostty draws it; +0, valid for the call; NULL when not visible; a new surface per
+///   cell), `uint32_t x, y, width, height` (the cell in the surface's pixels from the frames' top-left corner),
+///   `uint16_t column, row`, `ghostty_cursor_cell_style_e style` (`GHOSTTY_CURSOR_CELL_BLOCK`, `_BLOCK_HOLLOW`,
+///   `_BAR`, `_UNDERLINE`, `_LOCK`), `bool visible`, `bool blinking` and `uint32_t blink_interval_ms`. The pin
+///   bump that turns this on also needs 090 to call `cursor_cb` inside the Core Animation transaction that
+///   presents the cell's frame, on the presenting thread, after the frame's contents are set
+///   (`IOSurfaceLayer.setSurfaceCallback` on main, `setSurfaceOffMain` on the GPU completion thread; a cell whose
+///   frame is dropped goes with the next frame presented): 1d35a0460 calls it after the present, from
+///   `frameCompleted`, so the cursor would not move with its text. `TerminalCursorLayer` shows it behind feature
+///   `terminalCursorLayer` (p03-rendering-091).
 let ghosttyNextKitHasGPUResident = false
 let ghosttyNextKitHasEnergySaver = false
 let ghosttyNextKitHasRendererFrames = false

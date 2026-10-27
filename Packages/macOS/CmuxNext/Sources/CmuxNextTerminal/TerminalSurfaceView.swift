@@ -169,7 +169,9 @@ public final class TerminalSurfaceView: NSView {
          modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
          gpuResidency: (any TerminalGPUResidency)? = nil, externalCursor: Bool = false) {
         let echoStage = echoStages.makeStage() // before the surface: the trace hook may see its first frame
-        let bridge = SurfaceBridge(input: input, echoStage: echoStage, frameMarks: echoStages.frameMarks)
+        let cursorLayer = externalCursor && TerminalCursorLayer.isAvailable ? TerminalCursorLayer() : nil
+        let bridge = SurfaceBridge(input: input, echoStage: echoStage, frameMarks: echoStages.frameMarks,
+                                   cursor: cursorLayer?.presenter)
         // SAFETY: balanced by the one release in `deinit` (`bridge`'s note).
         self.bridge = unsafe Unmanaged.passRetained(bridge)
         self.session = session
@@ -178,7 +180,7 @@ public final class TerminalSurfaceView: NSView {
         modifierWatch = modifiers
         frameCoalescers = pointerFrames
         gpu = TerminalGPUResidencyGate(seam: gpuResidency)
-        cursorLayer = externalCursor && TerminalCursorLayer.isAvailable ? TerminalCursorLayer() : nil
+        self.cursorLayer = cursorLayer
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         bridge.target = self
         createSurface(mode: mode, echoStage: echoStage, contentsGate: echoStages.contentsGate)
@@ -232,7 +234,7 @@ public final class TerminalSurfaceView: NSView {
         unsafe SurfaceBridge.setCallbacks(in: &config, userdata: userdata)
         #if GHOSTTY_EXTERNAL_CURSOR
         if cursorLayer != nil {
-            // Ghostty neither draws nor blinks the cursor; it publishes each cursor cell to the view's cursor layer.
+            // Ghostty neither draws nor blinks the cursor; it presents each cursor cell with its frame on the cursor layer.
             config.cursor_external = true
             // SAFETY: the callback has ghostty_surface_cursor_cb's signature; `userdata` as above.
             unsafe config.cursor_cb = ghosttySurfaceCursor
@@ -300,9 +302,9 @@ public final class TerminalSurfaceView: NSView {
         if cursorLayer != nil { subview.layer?.zPosition = TerminalCursorLayer.subviewZPosition }
     }
 
-    /// Ghostty published the cursor (``ghosttySurfaceCursor(_:_:)``): the cursor layer shows its cell.
-    func cursorDidChange(_ state: TerminalCursorState) {
-        cursorLayer?.show(state, viewHeight: bounds.height)
+    /// Ghostty presented cursor cells (``ghosttySurfaceCursor(_:_:)``): the blink follows the newest.
+    func cursorCellsDidChange() {
+        cursorLayer?.cellsDidChange()
     }
 
     public override func viewDidHide() {
@@ -408,7 +410,7 @@ public final class TerminalSurfaceView: NSView {
         let resized = newSize != frame.size
         super.setFrameSize(newSize)
         if resized, isShown { updateSurfaceSize() }
-        cursorLayer?.layout(viewHeight: newSize.height)
+        cursorLayer?.layout(size: newSize)
         copyMode.syncCursor()
     }
 
@@ -428,7 +430,7 @@ public final class TerminalSurfaceView: NSView {
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
                 layer?.contentsScale = window.backingScaleFactor
-                cursorLayer?.layer.contentsScale = window.backingScaleFactor
+                cursorLayer?.setScale(window.backingScaleFactor)
                 CATransaction.commit()
             }
             if let screenNumber = window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
