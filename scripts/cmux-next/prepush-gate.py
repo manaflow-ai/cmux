@@ -504,13 +504,19 @@ def ast_grep(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
     return "\n".join(sorted(lines))
 
 
+# A SwiftFormat --lint finding line (0.64): `/abs/path/A.swift:3:1: error: (consecutiveBlankLines) Remove ...`.
+SWIFTFORMAT_FINDING = re.compile(r"^\S.*\.swift:\d+:\d+: (?:error|warning): \([A-Za-z]+\) ")
+
+
 def swiftformat(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
     present = [p for p in swift if (tree / p).is_file()]
     if not present:
         return ""
     cache = tools_dir() / "swiftformat.cache"
-    _, out = run([str(binary), "--lint", "--config", str(config), "--cache", str(cache), "--quiet", *present], tree)
-    return "\n".join(l for l in out.splitlines() if LOCATION.search(l))
+    # No --quiet: with it SwiftFormat 0.64 prints only "Source input did not pass lint check." and no finding, so this
+    # layer never refused anything. Its findings are `<path>:<line>:<col>: error: (<rule>) <message>` lines.
+    _, out = run([str(binary), "--lint", "--config", str(config), "--cache", str(cache), *present], tree)
+    return "\n".join(l for l in out.splitlines() if SWIFTFORMAT_FINDING.match(l))
 
 
 def swiftlint(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
