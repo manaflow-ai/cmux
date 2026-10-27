@@ -26,7 +26,7 @@ export const PairingActions = {
 export type PairingState = "signedOut" | "accessOff" | "preparing" | "ready" | "failed";
 
 export interface PairingQR {
-  /** This Mac's pairing link (`cmux-next://pair?mac=&team=&name=&t=&k=`), which cmux on iPhone opens
+  /** This Mac's pairing link (`cmux-next://pair?mac=&team=&name=&t=&k=&e=`), which cmux on iPhone opens
    * from the camera or its own scanner. Sent only while the host is online. */
   url: string;
   /** A PNG data URL of the QR code for `url`. */
