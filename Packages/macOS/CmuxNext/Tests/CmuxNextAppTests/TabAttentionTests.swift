@@ -133,7 +133,7 @@ import Testing
                                                                  frame: CGRect(x: 200, y: 200, width: 1200, height: 760)))
         let window = try #require(controller.window)
         defer { controller.teardown(); window.close() }
-        try await PinnedPageTests.until { controller.content?.panes.isEmpty == false }
+        try await PinnedPageTests.until({ controller.content?.panes.isEmpty == false })
         let content = try #require(controller.content)
         try #require(content.workspace === remoteWorkspace)
         let strip = try #require(content.panes.values.first?.view.stripView)
