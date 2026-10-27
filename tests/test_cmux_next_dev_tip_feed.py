@@ -114,8 +114,8 @@ steps = [tip_dmg_build.find(marker) for marker in (
 check(-1 not in steps and steps == sorted(steps), "tip-dmg-build: build the DMG from the signed app, then hand it off")
 steps = [tip_dmg.find(marker) for marker in (
     "name: Download the unsigned tip DMG", 'sha256sum -c "$APP_ARCHIVE_NAME.sha256"', 'cmp -s tip-unsigned/built-from.sha256',
-    '"$UNSIGNED_SHA256  tip-unsigned/$TIP_DMG_NAME" | sha256sum -c -', "name: Download the DMG signer",
-    '"$DMG_SIGNER_SHA256  $signer" | sha256sum -c -', 'echo "RCODESIGN=$signer" >> "$GITHUB_ENV"',
+    '"$UNSIGNED_SHA256  tip-unsigned/$TIP_DMG_NAME" | sha256sum -c -', "name: Download the signer",
+    '"$SIGNER_SHA256  $signer" | sha256sum -c -', 'echo "RCODESIGN=$signer" >> "$GITHUB_ENV"',
     "./scripts/ci/rcodesign-notarize-dmg-dev.sh", "python3 scripts/ci/tip_appcast_linux.py")]
 check(-1 not in steps and steps == sorted(steps),
       "tip-dmg: require the DMG tip-dmg-build made from the signed archive, then sign, notarize, staple and write the appcast")
@@ -204,8 +204,8 @@ check(fresh and removed and fresh[0] < removed[-1] and removed[-1] == len(build_
 check(build_job["steps"][next(i for i, step in enumerate(build_steps) if step.get("name") == "Upload the unsigned tip DMG")]
       ["with"]["path"] == "${{ env.TIP_WORK_DIR }}/tip-unsigned/*",
       "the unsigned DMG hand-off to tip-dmg has the same files")
-check(dmg_job["needs"] == ["sign", "tip-dmg-build", "rcodesign-dmg"] and "verify" not in dmg_job["if"]
-      and "needs.rcodesign-dmg.result == 'success'" in dmg_job["if"]
+check(dmg_job["needs"] == ["sign", "tip-dmg-build", "rcodesign"] and "verify" not in dmg_job["if"]
+      and "needs.rcodesign.result == 'success'" in dmg_job["if"]
       and "needs.tip-dmg-build.outputs.fresh == 'true'" in dmg_job["if"],
       "tip-dmg signs only a DMG tip-dmg-build uploaded for a fresh build, alongside verify")
 check("macos" in build_job["runs-on"] and "ubuntu" in dmg_job["runs-on"] and "macos" not in dmg_job["runs-on"],
@@ -758,39 +758,54 @@ with tempfile.TemporaryDirectory() as tmp:
     rc, _ = run_appcast(write_archive("102", base64.b64encode(os.urandom(32)).decode()))
     check(rc != 0, "an app that trusts another key gets no appcast")
 
-# The DMG signer is built without secrets alongside sign; tip-dmg runs only the binary whose
-# sha256 that job reported.
-signer_job = jobs["rcodesign-dmg"]
+# Our signer is built without secrets alongside sign; sign and tip-dmg run only the binary whose
+# sha256 that job reported. The binary is cached under the hash of the build script and the patch.
+signer_job = jobs["rcodesign"]
+cache_step = next(step for step in signer_job["steps"] if "actions/cache@" in str(step.get("uses", "")))
 check("environment" not in signer_job and "secrets." not in json.dumps(signer_job)
       and signer_job["permissions"] == {"contents": "read"} and "concurrency" not in signer_job
-      and "ubuntu" in signer_job["runs-on"] and "macos" not in signer_job["runs-on"]
-      and not any("actions/cache" in str(step.get("uses", "")) for step in signer_job["steps"]),
-      "the DMG signer is built on Linux with no environment, secret, cache or concurrency group")
+      and "ubuntu" in signer_job["runs-on"] and "macos" not in signer_job["runs-on"],
+      "the signer is built on Linux with no environment, secret or concurrency group")
+check("hashFiles('scripts/ci/build-rcodesign.sh', 'scripts/ci/rcodesign-0.29.0-dmg.patch')" in cache_step["with"]["key"]
+      and cache_step["with"]["path"] == "${{ runner.temp }}/rcodesign",
+      "the cached signer is keyed by the build script and the patch")
 check(signer_job["steps"][0]["with"]["ref"] == "${{ github.sha }}"
       and not any("setup-cmux-tui-rust" in str(step.get("uses", "")) or "sh.rustup.rs" in step.get("run", "")
                   for step in signer_job["steps"]),
-      "the DMG signer builds from the dispatched commit with the image's rustup, never a fetched installer")
-check(any(step.get("run", "").startswith("./scripts/ci/build-rcodesign-dmg.sh") for step in signer_job["steps"])
-      and signer_job["outputs"]["sha256"] == "${{ steps.build.outputs.sha256 }}"
-      and dmg_job["env"]["DMG_SIGNER_SHA256"] == "${{ needs.rcodesign-dmg.outputs.sha256 }}",
+      "the signer builds from the dispatched commit with the image's rustup, never a fetched installer")
+check(any(step.get("run", "").startswith("./scripts/ci/build-rcodesign.sh") for step in signer_job["steps"])
+      and signer_job["outputs"]["sha256"] == "${{ steps.digest.outputs.sha256 }}"
+      and dmg_job["env"]["SIGNER_SHA256"] == "${{ needs.rcodesign.outputs.sha256 }}",
       "tip-dmg checks the signer against the digest its build reported")
 # rcodesign reads every RCODESIGN_* variable as configuration; one in tip-dmg broke run 40454509260.
-check(not [key for env in [dmg_job.get("env", {})] + [step.get("env", {}) for step in dmg_job["steps"]]
-           for key in env if key.startswith("RCODESIGN_")]
-      and 'compgen -e | grep "^RCODESIGN_"' in (ROOT / "scripts/ci/rcodesign-notarize-dmg-dev.sh").read_text(),
-      "no RCODESIGN_* variable reaches the DMG signer")
-download = next(step for step in dmg_job["steps"] if step.get("name") == "Download the DMG signer")
+for consumer in (dmg_job, jobs["sign"]):
+    check(not [key for env in [consumer.get("env", {})] + [step.get("env", {}) for step in consumer["steps"]]
+               for key in env if key.startswith("RCODESIGN_")],
+          "no RCODESIGN_* variable reaches a signing job")
+check('compgen -e | grep "^RCODESIGN_"' in (ROOT / "scripts/ci/rcodesign-notarize-dmg-dev.sh").read_text(),
+      "the DMG signer drops RCODESIGN_* variables")
 upload = next(step for step in signer_job["steps"] if "upload-artifact" in str(step.get("uses", "")))
-check(download["with"]["name"] == "${{ needs.rcodesign-dmg.outputs.artifact }}"
-      and signer_job["outputs"]["artifact"] == upload["with"]["name"],
-      "a tip-dmg rerun downloads the signer from the attempt that built it")
-build_script = (ROOT / "scripts/ci/build-rcodesign-dmg.sh").read_text()
+for consumer in (dmg_job, jobs["sign"]):
+    download = next(step for step in consumer["steps"] if step.get("name") == "Download the signer")
+    install = next(step for step in consumer["steps"] if step.get("name") == "Install the signer")
+    check(download["with"]["name"] == "${{ needs.rcodesign.outputs.artifact }}"
+          and signer_job["outputs"]["artifact"] == upload["with"]["name"]
+          and '"$SIGNER_SHA256  $signer" | sha256sum -c -' in install["run"],
+          "a signing job runs only the signer its attempt's build reported, by digest")
+check("rcodesign" in jobs["sign"]["needs"] and not any("install-rcodesign" in step.get("run", "") for step in jobs["sign"]["steps"]),
+      "the bundle is signed with our signer, not the stock release")
+build_script = (ROOT / "scripts/ci/build-rcodesign.sh").read_text()
 check("CRATE_SHA256=f24e9ebdb70a2aee3ca1cea217009fb50776955f0d7678c31d22e48c1524667f" in build_script
       and "--locked" in build_script and "rcodesign-$CRATE_VERSION-dmg.patch" in build_script,
       "the signer builds the pinned crate with its own lock file and our patch")
 patch_text = (ROOT / "scripts/ci/rcodesign-0.29.0-dmg.patch").read_text()
 check("+++ b/src/dmg.rs" in patch_text and "team_name" in patch_text and "derive_designated_requirements" in patch_text
-      and "0x20200" in patch_text, "the DMG signer patch is the one the build applies")
+      and "0x20200" in patch_text, "the signer patch carries the DMG signature")
+check(all(f"+++ b/src/{name}.rs" in patch_text for name in ("macho_signing", "signing_settings", "code_requirement", "bundle_signing"))
+      and "CODESIGN_CMS_RESERVATION: usize = 18000" in patch_text and "Ok(16384)" in patch_text
+      and "entitlements_xml_raw" in patch_text and "apple_text::format" in patch_text,
+      "the signer patch carries signing parity: page size, reservation, entitlements and requirement text")
+
 dmg_signer = (ROOT / "scripts/ci/rcodesign-notarize-dmg-dev.sh").read_text()
 dmg_signer_code = "\n".join(line for line in dmg_signer.splitlines() if not line.lstrip().startswith("#"))
 check('[[ "$team" == 7WLXT3NR37 ]]' in dmg_signer_code and "--for-notarization" not in dmg_signer_code and "--timestamp-url http://timestamp.apple.com/ts01" in dmg_signer_code,

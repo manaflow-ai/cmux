@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Developer ID sign a cmux NEXT DEV .app on Linux with stock rcodesign.
+# Developer ID sign a cmux NEXT DEV .app on Linux with our rcodesign.
 #
 #   scripts/ci/rcodesign-sign-bundle-dev.sh <app-path> <app-entitlements>
 #
 # The DEV app is a feat-cmux-next build, so this follows feat-cmux-next's
-# scripts/sign-cmux-bundle.sh step by step, with rcodesign (0.29.0, pinned by
-# scripts/ci/install-rcodesign.sh) in place of /usr/bin/codesign. The job checks
+# scripts/sign-cmux-bundle.sh step by step, with rcodesign (0.29.0 and our
+# patch, scripts/ci/build-rcodesign.sh) in place of /usr/bin/codesign. The job checks
 # out main, where the feat-cmux-next helpers it calls do not exist, so the rules
 # they own are written out here, each naming the feat-cmux-next file it mirrors.
 #
@@ -33,11 +33,9 @@
 # the result. The workflow's Mac verify job runs those on this output. The
 # entitlement checks are made on the files that go into the signature instead.
 #
-# The output differs from codesign only in bytes codesign --verify --deep
-# --strict accepts: 4 KiB page hashes, the LC_CODE_SIGNATURE reservation and
-# __LINKEDIT size, DER instead of BER CMS, re-serialized entitlements XML (same
-# DER), nested requirement text in CodeResources, and the signing time, time
-# stamp and RSA value, which differ between any two runs.
+# The output matches codesign's except inside each CMS blob (the signing time,
+# time stamp and signature, which differ between any two runs), and so in the
+# hashes of signed files sealed as plain files (Contents/Resources/bin).
 set -euo pipefail
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 

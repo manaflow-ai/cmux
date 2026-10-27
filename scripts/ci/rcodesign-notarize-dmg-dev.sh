@@ -5,7 +5,7 @@
 #
 # Signs, notarizes and staples the DEV tip DMG on Linux (cmux-next-dev-daily.yml,
 # job tip-dmg). A Mac builds the unsigned DMG; this signs it with the DMG
-# signer from scripts/ci/build-rcodesign-dmg.sh, has Apple's notary service
+# signer from scripts/ci/build-rcodesign.sh, has Apple's notary service
 # accept it, and staples the ticket. It refuses to go on if the signature is
 # not the expected Developer ID signature.
 #
