@@ -38,7 +38,7 @@ await requireBrowserLane("chat-inspector-placement.test.ts", async () => {
   let current: Browser | undefined;
   let pane: Awaited<ReturnType<typeof papercutPane>> | undefined;
   beforeAll(async () => {
-    pane = await papercutPane(() => current!, { turns: 4, running: false });
+    pane = await papercutPane(() => current!, { turns: 4, running: true, ready: ".cv-worked" });
     // The first load can run Vite's dependency optimizer and reload mid-compile.
     current = browsers.values().next().value;
     await (await pane.open()).close();
@@ -194,6 +194,71 @@ await requireBrowserLane("chat-inspector-placement.test.ts", async () => {
         }
       });
     }
+
+    test(`${name}: a running line and the composer share one native resize frame`, async () => {
+      current = browsers.get(name)!;
+      const page = await pane!.open({ width: 1200, height: 700 });
+      try {
+        await openInspector(page);
+        const baseline = await page.evaluate(() => {
+          const running =
+            document.querySelector<HTMLElement>(".cv-worked.is-below") ??
+            document.querySelector<HTMLElement>(".cv-worked");
+          const composer = document.querySelector<HTMLElement>(".acpmux-composer-box");
+          if (!running || !composer) throw new Error("running line and composer must be present");
+          return { running: running.getBoundingClientRect().left, composer: composer.getBoundingClientRect().left };
+        });
+        await page.evaluate(
+          (base) => {
+            const shell = document.querySelector<HTMLElement>(".acpmux-shell")!;
+            const frames: { resizing: boolean; runningDelta: number; composerDelta: number; transition: string }[] = [];
+            const read = () => {
+              const running =
+                document.querySelector<HTMLElement>(".cv-worked.is-below") ??
+                document.querySelector<HTMLElement>(".cv-worked");
+              const composer = document.querySelector<HTMLElement>(".acpmux-composer-box");
+              if (!running || !composer) return;
+              frames.push({
+                resizing: shell.hasAttribute("data-inspector-chat-resizing"),
+                runningDelta: Number((running.getBoundingClientRect().left - base[0]!).toFixed(2)),
+                composerDelta: Number((composer.getBoundingClientRect().left - base[1]!).toFixed(2)),
+                transition: getComputedStyle(document.querySelector<HTMLElement>(".acpmux-scroll")!).transitionDuration,
+              });
+            };
+            (window as unknown as { __runningResizeFrames?: typeof frames }).__runningResizeFrames = frames;
+            const observer = new ResizeObserver(read);
+            observer.observe(shell);
+            (window as unknown as { __runningResizeObserver?: ResizeObserver }).__runningResizeObserver = observer;
+          },
+          [baseline.running, baseline.composer],
+        );
+        // Force the viewport through the native pane-width path; its observer flushes the final
+        // Session Info shift before this frame paints, so neither live line nor composer may run a
+        // second transition of its own.
+        await page.setViewportSize({ width: 900, height: 700 });
+        await page.waitForFunction(
+          () => ((window as unknown as { __runningResizeFrames?: unknown[] }).__runningResizeFrames?.length ?? 0) > 0,
+        );
+        const frames = await page.evaluate(
+          () => (window as unknown as { __runningResizeFrames: unknown[] }).__runningResizeFrames,
+        );
+        await page.evaluate(() =>
+          (window as unknown as { __runningResizeObserver?: ResizeObserver }).__runningResizeObserver?.disconnect(),
+        );
+        const first = frames[0] as {
+          resizing: boolean;
+          runningDelta: number;
+          composerDelta: number;
+          transition: string;
+        };
+        expect(first.resizing).toBe(true);
+        expect(first.transition).toBe("0s");
+        expect(Math.abs(first.runningDelta - first.composerDelta)).toBeLessThanOrEqual(1);
+        expect(frames.every((frame) => (frame as { runningDelta: number }).runningDelta !== undefined)).toBe(true);
+      } finally {
+        await page.close();
+      }
+    });
 
     // A pane that narrows or widens past the gutter's room (a split opening beside it, a window drag)
     // draws the panel in its new place in the frame that draws the new width (Leo 2026-10-21: "WHY
