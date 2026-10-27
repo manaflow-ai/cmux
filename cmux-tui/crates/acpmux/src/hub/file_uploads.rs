@@ -359,8 +359,14 @@ fn declared(session: &str, upload: &str) -> Result<(String, u64), RpcError> {
 }
 
 /// Appends `bytes` at `offset`, which must be the upload's current end, and answers the new end
-/// once the bytes are on disk. Blocking: run it off the runtime.
-fn append(session: &str, upload: &str, offset: u64, bytes: &[u8]) -> Result<Value, RpcError> {
+/// once the bytes are on disk: a base64 chunk's and a binary data frame's write
+/// (`server/upload_frames.rs`). Blocking: run it off the runtime.
+pub(crate) fn append(
+    session: &str,
+    upload: &str,
+    offset: u64,
+    bytes: &[u8],
+) -> Result<Value, RpcError> {
     let _held = hold(upload);
     let (_, size) = declared(session, upload)?;
     let path = part_path(session, upload).ok_or_else(|| unknown(upload))?;
@@ -672,6 +678,21 @@ pub async fn handle_status(hub: &super::Hub, params: Value) -> Result<Value, Rpc
     tokio::task::spawn_blocking(move || status(&id, &params))
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?
+}
+
+/// One binary data frame's bytes for this daemon's chat `session` (`server/upload_frames.rs`).
+pub async fn handle_data(
+    session: Arc<super::Session>,
+    upload: String,
+    offset: u64,
+    bytes: impl AsRef<[u8]> + Send + 'static,
+) -> Result<Value, RpcError> {
+    let id = session.id.clone();
+    let answer = tokio::task::spawn_blocking(move || append(&id, &upload, offset, bytes.as_ref()))
+        .await
+        .map_err(|e| RpcError::internal(e.to_string()))?;
+    reject_purged(&session).await?;
+    answer
 }
 
 /// A purge can race any blocking upload operation. Remove files created after the purge and
