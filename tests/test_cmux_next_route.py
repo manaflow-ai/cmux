@@ -235,7 +235,8 @@ class MacReleaseInputs(unittest.TestCase):
         for changed in ([f"{PACKAGE}/Package.swift"], [f"{PACKAGE}/Package.resolved"],
                         ["Packages/Shared/CmuxTheme/Package.swift"], [f"{PACKAGE}/Sources/CmuxNextApp/Info.plist"],
                         [f"{PACKAGE}/Sources/CmuxNextApp/Resources/Media.xcassets/Contents.json"],
-                        ["scripts/ci/xcode-pins.txt"], ["scripts/cmux-next/check-release-compile.sh"]):
+                        ["scripts/ci/xcode-pins.txt"], ["scripts/cmux-next/check-release-compile.sh"],
+                        ["scripts/cmux-next/lib/fleet-only.sh"], ["scripts/cmux-next/stale-pcm-retry-needed.sh"]):
             with self.subTest(changed=changed):
                 self.assertEqual(outputs(route(ROOT, "pull_request", changed, set()))["mac_release"], "true")
 

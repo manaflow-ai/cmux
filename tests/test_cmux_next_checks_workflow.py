@@ -2679,6 +2679,8 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
             "github.run_attempt": attempt, "github.triggering_actor": "someone",
             "vars.CI_COMPILE_CHECK_GATEWAY": self.LIGHT, "vars.CI_PR_POOL_OWNED": "1",
             "needs.path_route.outputs.native": "true", "needs.path_route.outputs.swift_canary": "true",
+            # A change the Mac Release compile sees (path_route's mac_release): its fallback.
+            "needs.path_route.outputs.mac_release": "true",
             "needs.path_route.outputs.macos": "true", "needs.push-head-preflight.outputs.current": "true",
             "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
             "github.event.pull_request.labels.*.name": [],
@@ -2739,6 +2741,7 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
             "github.event_name": event, "github.repository": "manaflow-ai/cmux",
             "github.repository_owner": "manaflow-ai", "vars.CI_COMPILE_CHECK_GATEWAY": gateway,
             "needs.path_route.outputs.native": native, "needs.push-head-preflight.outputs.current": "true",
+            "needs.path_route.outputs.mac_release": "true",
             "github.run_attempt": 1,
         }
         if event == "pull_request":

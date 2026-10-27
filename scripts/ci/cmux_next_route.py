@@ -150,9 +150,12 @@ GENERATED_INPUTS = (
 MAC_RELEASE_INPUTS = (
     "Packages/*/Package.swift", "Packages/*/Package.resolved", "Packages/*.xcassets/*",
     "Packages/*.plist", "Packages/*.xcconfig", "Packages/*.entitlements",
+    # check-release-compile.sh and what it sources or runs. (scripts/ci/ files are CI-only: the
+    # router sends them to the Linux CI tests, never to a Mac tier, before and after this.)
     "scripts/cmux-next/check-release-compile.sh", "scripts/cmux-next/release-derived-data-path.sh",
-    "scripts/ci/run-xcodebuild-with-diagnostics.sh", "scripts/ci/swiftpm-binary-module-guard.sh",
-    "scripts/select-ci-xcode.sh", "scripts/ci/xcode-pins.txt", ".xcode-version",
+    "scripts/cmux-next/lib/*", "scripts/cmux-next/stale-pcm-retry-needed.sh",
+    "scripts/cmux-next/clear-stale-scheme-build-state.sh",
+    "scripts/select-ci-xcode.sh", ".xcode-version",
 )
 
 
