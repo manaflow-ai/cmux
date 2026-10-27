@@ -26,10 +26,11 @@ struct DaemonHandshake {
             throw DaemonError.missingCapabilities(missing)
         }
         _ = try (replies[1].get(), replies[2].get())
-        let grants = handshake.grants
-        transport.adopt(grants, table: configuration.wireUpgrades.methodTable)
+        let granted = handshake.granted
+        transport.adopt(granted)
         if configuration.wireUpgrades.asksAny {
-            logger.info("daemon wire grants: frames \(grants.frames, privacy: .public), streams \(grants.streams, privacy: .public)")
+            let grants = granted.grants, framed = granted.framing?.served.count ?? 0
+            logger.info("daemon wire grants: frames \(grants.frames, privacy: .public) (\(framed, privacy: .public) methods), streams \(grants.streams, privacy: .public)")
         }
         return (identity, handshake.userOriginAllowed)
     }

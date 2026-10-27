@@ -10,9 +10,9 @@ enum HandshakeLines {
     struct Replies {
         var lines: [Result<LineTransport.Response, any Error>]
         var userOriginAllowed: Bool
-        /// The framed IPC grants (``WireNegotiation``): lines only unless the connection asked for an
+        /// The framed IPC grants and framing (``WireNegotiation``): lines only unless the connection asked for an
         /// upgrade the daemon offered.
-        var grants = DaemonWireGrants.linesOnly
+        var granted = WireNegotiation.Granted.linesOnly
     }
 
     /// Sends the handshake. Without `clientHello` the three lines go out in
@@ -24,7 +24,7 @@ enum HandshakeLines {
     /// Framed IPC (p05-ipc-092) adds no round trip: the connection echoes what the first `identify` offered
     /// in the `set-client-info` of the second round trip (with `clientHello`), or in a second
     /// `set-client-info` beside the owner metadata (without), and an `identify {revisions}` right after it
-    /// tells whether frames were granted (``WireNegotiation``).
+    /// tells whether frames were granted, from which schema, and for which methods (``WireNegotiation``).
     static func send(_ transport: LineTransport, configuration: DaemonConnectionConfiguration,
                      logger: Logger) async -> Replies {
         let negotiation = WireNegotiation(upgrades: configuration.wireUpgrades, bridged: transport.bridged)
@@ -39,8 +39,8 @@ enum HandshakeLines {
             guard !(metadata + upgrade).isEmpty else { return Replies(lines: lines, userOriginAllowed: false) }
             let second = await transport.pipeline(metadata + upgrade, timeout: configuration.requestTimeout)
             if !metadata.isEmpty { lines[0] = fencedMetadata(second[0], original: lines[0]) }
-            let grants = echo.map { granted($0, clientInfo: second.dropFirst(metadata.count).first, revisions: second.last) }
-            return Replies(lines: lines, userOriginAllowed: false, grants: grants ?? .linesOnly)
+            let got = echo.map { granted($0, clientInfo: second.dropFirst(metadata.count).first, revisions: second.last) }
+            return Replies(lines: lines, userOriginAllowed: false, granted: got ?? .linesOnly)
         }
         let first = await transport.pipeline([
             PipelinedLine(IdentifyRequest()),
@@ -50,7 +50,7 @@ enum HandshakeLines {
         let proof = helloProof(hello, start: first[1])
         let metadata = servesMachineMetadata(first[0]) ? [PipelinedLine(IdentifyRequest(machineMetadata: true))] : []
         let echo = offer(negotiation, in: first[0])
-        if echo?.frames == true { transport.acceptFrames() }
+        if echo?.asksFrames == true { transport.acceptFrames() }
         let setup = [PipelinedLine(clientInfo(configuration, echo: echo)), subscribe]
         let revisions = echo == nil ? [] : [PipelinedLine(IdentifyRequest(revisions: true))]
         let leading = proof.map { [PipelinedLine($0)] } ?? []
@@ -70,8 +70,8 @@ enum HandshakeLines {
             identity = .failure(DaemonError.malformedResponse("missing owner metadata reply"))
         }
         let setupReplies = Array(rest.dropFirst(leading.count + metadata.count).prefix(setup.count))
-        let grants = echo.map { granted($0, clientInfo: setupReplies.first, revisions: rest.last) }
-        return Replies(lines: [identity] + setupReplies, userOriginAllowed: userOriginAllowed, grants: grants ?? .linesOnly)
+        let got = echo.map { granted($0, clientInfo: setupReplies.first, revisions: rest.last) }
+        return Replies(lines: [identity] + setupReplies, userOriginAllowed: userOriginAllowed, granted: got ?? .linesOnly)
     }
 
     /// The connection's `set-client-info`: its own capabilities, plus the framed IPC ones of `echo` and, when
@@ -80,7 +80,7 @@ enum HandshakeLines {
                                    echo: WireNegotiation.Echo?) -> SetClientInfoRequest {
         SetClientInfoRequest(name: configuration.clientName, kind: "frontend",
                              capabilities: configuration.handshakeCapabilities + (echo?.capabilities ?? []),
-                             apiRevision: echo.flatMap { $0.frames ? $0.apiRevision : nil })
+                             apiRevision: echo.flatMap { $0.asksFrames ? $0.apiRevision : nil })
     }
 
     /// What to echo for `negotiation`, read from the first `identify` reply; nil when nothing is asked or
@@ -97,15 +97,15 @@ enum HandshakeLines {
     /// `set-client-info` went out before the offer was known. The reader takes frames before they are asked for.
     private static func upgradeLines(_ configuration: DaemonConnectionConfiguration, echo: WireNegotiation.Echo,
                                      on transport: LineTransport) -> [PipelinedLine] {
-        if echo.frames { transport.acceptFrames() }
+        if echo.asksFrames { transport.acceptFrames() }
         return [PipelinedLine(clientInfo(configuration, echo: echo)), PipelinedLine(IdentifyRequest(revisions: true))]
     }
 
-    /// The grants of `echo`, from its `set-client-info` reply and the `identify {revisions}` reply after it.
+    /// What `echo` got, from its `set-client-info` reply and the `identify {revisions}` reply after it.
     private static func granted(_ echo: WireNegotiation.Echo, clientInfo: Result<LineTransport.Response, any Error>?,
-                                revisions: Result<LineTransport.Response, any Error>?) -> DaemonWireGrants {
+                                revisions: Result<LineTransport.Response, any Error>?) -> WireNegotiation.Granted {
         let identity = (try? revisions?.get()).flatMap { try? WireCoding.decodeResponse(DaemonIdentity.self, from: $0) }
-        return echo.grants(accepted: (try? clientInfo?.get()) != nil, after: identity)
+        return echo.granted(accepted: (try? clientInfo?.get()) != nil, after: identity)
     }
 
     private static func servesMachineMetadata(_ reply: Result<LineTransport.Response, any Error>) -> Bool {

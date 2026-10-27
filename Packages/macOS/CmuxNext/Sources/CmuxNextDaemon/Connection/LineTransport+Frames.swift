@@ -17,12 +17,12 @@ extension LineTransport {
     /// Whether the reader cuts frames (read by the reader thread once per read until it does).
     var acceptsFrames: Bool { state.withLock { $0.acceptsFrames } }
 
-    /// Records the handshake's grants. With frames granted, typed requests go as REQUEST frames with the ids
-    /// and priorities of `table`.
-    func adopt(_ grants: DaemonWireGrants, table: MethodTable?) {
+    /// Records what the handshake got. With frames granted, typed requests of the daemon's framed methods go
+    /// as REQUEST frames (``FramedRequests``).
+    func adopt(_ granted: WireNegotiation.Granted) {
         state.withLock { state in
-            state.grants = grants
-            state.framing = grants.frames ? table.map { FramedRequests(table: $0) } : nil
+            state.grants = granted.grants
+            state.framing = granted.framing
         }
     }
 
@@ -69,13 +69,9 @@ extension LineTransport {
         }
         let call = FramedRequests.call(of: header)
         let line = Data(frame.payload)
-        // An ERROR's body is decoded once, here: its fields fail the waiter, and `method_not_framed` sends the
-        // method as a line from now on, before the waiter retries it.
+        // An ERROR's body is decoded once, here: its fields fail the waiter.
         let failure = ok ? nil : try? decoder.decode(Envelope.self, from: line)
-        let id = state.withLock { state -> UInt64 in
-            if failure?.errorCode == FramedRequests.methodNotFramed { state.framing?.markUnframed(call.methodID) }
-            return FramedRequests.requestID(low: call.requestID, next: state.nextID)
-        }
+        let id = state.withLock { FramedRequests.requestID(low: call.requestID, next: $0.nextID) }
         var envelope = failure ?? Envelope(id: nil, ok: nil, event: nil, type: nil, streamID: nil, cause: nil)
         (envelope.id, envelope.ok) = (id, ok)
         resolveReply(envelope, line: line, parsed: failure != nil, decoder: decoder)

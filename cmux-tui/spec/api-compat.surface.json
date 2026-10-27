@@ -19973,6 +19973,13 @@
           "1"
         ]
       },
+      "/data/framed_methods": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/data/framed_methods/*": {
+        "ty": "uint16"
+      },
       "/data/generation": {
         "ty": "string",
         "required": true
@@ -20030,6 +20037,10 @@
       "/data/registry_id": {
         "ty": "string",
         "required": true
+      },
+      "/data/sdk_schema_digest": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/session": {
         "ty": "string",

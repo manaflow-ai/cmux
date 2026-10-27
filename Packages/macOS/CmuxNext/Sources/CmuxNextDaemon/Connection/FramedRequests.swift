@@ -11,37 +11,32 @@ import Foundation
 /// ordinal and request id in front of the serialized params, the reply matched by that id
 /// (mojo/public/cpp/bindings/lib/message_internal.h, `MessageHeaderV1`).
 ///
-/// A method the daemon does not serve on frames yet answers ERROR `method_not_framed` before it runs; the
-/// connection then sends that method as a line from then on (``markUnframed(_:)``).
+/// Only methods the daemon listed in `identify {revisions}` `framed_methods` go as frames, from a table of the
+/// same schema digest (``WireNegotiation``); every other command stays a line. A method is never tried on a
+/// frame to see whether the daemon serves it: its refusal would come back after the requests written behind
+/// it had run, and the retry would run it out of order.
 struct FramedRequests: Sendable {
-    /// The `error_code` of the daemon's ERROR to a method it answers only as a line (frame_dispatch.rs
-    /// `METHOD_NOT_FRAMED`).
-    static let methodNotFramed = "method_not_framed"
     /// REQUEST, REPLY and ERROR (cmux-ipc `FrameKind`).
     static let requestKind: UInt8 = 16
     static let replyKind: UInt8 = 17
     static let errorKind: UInt8 = 18
 
     let table: MethodTable
-    /// Methods the daemon answered `method_not_framed` on this connection.
-    private var unframed: Set<MethodID> = []
+    /// The methods the daemon answers on frames (`framed_methods`).
+    let served: Set<MethodID>
 
-    init(table: MethodTable) {
+    init(table: MethodTable, served: Set<MethodID>) {
         self.table = table
+        self.served = served
     }
 
-    /// The method to frame `cmd` as, or nil to send it as a line: a JSON v12 command of the table that runs on
-    /// the connection's control sequence, whose body fits its bound, and that the daemon has not refused.
+    /// The method to frame `cmd` as, or nil to send it as a line: a JSON v12 command of the table that the
+    /// daemon answers on frames, runs on the connection's control sequence, and whose body fits its bound.
     func method(for cmd: String, bodyBytes: Int) -> MethodAttributes? {
-        guard let id = table.v12ID(named: cmd), !unframed.contains(id), let method = table.v12(id),
+        guard let id = table.v12ID(named: cmd), served.contains(id), let method = table.v12(id),
               method.payload == .json, !method.streamScoped else { return nil }
         let bound = min(method.maxBytes ?? FrameHeader.maxPayloadCap, FrameHeader.maxPayloadCap)
         return bodyBytes <= Int(truncatingIfNeeded: bound) ? method : nil
-    }
-
-    /// Sends `id` as a line from now on.
-    mutating func markUnframed(_ id: MethodID) {
-        unframed.insert(id)
     }
 
     /// One REQUEST frame on stream 0: the 16-byte header (cmux-ipc frame.rs `Aux::Call`: request id u32,

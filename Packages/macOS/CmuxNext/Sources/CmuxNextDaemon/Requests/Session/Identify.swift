@@ -34,6 +34,11 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
     /// The API revision the daemon speaks (`api_revision`), only in the reply to
     /// `identify {revisions: true}`; nil otherwise and from an older daemon.
     public var apiRevision: UInt32?
+    /// The digest of the schema the daemon's method tables came from (`sdk_schema_digest`, 16 hex digits), and
+    /// the method ids it answers on REQUEST frames (`framed_methods`): only in the reply to
+    /// `identify {revisions: true}` on a connection offered `ipc-frames-v2`; nil otherwise.
+    public var sdkSchemaDigest: String?
+    public var framedMethods: [UInt16]?
 
     public func supports(_ capability: String) -> Bool { capabilitySet.contains(capability) }
 
@@ -102,6 +107,8 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         case lifecycleReady = "lifecycle_ready"
         case launchSnapshotPath = "launch_snapshot_path"
         case apiRevision = "api_revision"
+        case sdkSchemaDigest = "sdk_schema_digest"
+        case framedMethods = "framed_methods"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -128,6 +135,8 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         lifecycleReady = try c.decodeIfPresent(Bool.self, forKey: .lifecycleReady) ?? true
         launchSnapshotPath = try? c.decodeIfPresent(String.self, forKey: .launchSnapshotPath)
         apiRevision = try? c.decodeIfPresent(UInt32.self, forKey: .apiRevision)
+        sdkSchemaDigest = try? c.decodeIfPresent(String.self, forKey: .sdkSchemaDigest)
+        framedMethods = try? c.decodeIfPresent([UInt16].self, forKey: .framedMethods)
     }
 }
 

@@ -514,6 +514,20 @@ capability again in a later `set-client-info`. A later page-relay
 `client-hello` also ends every grant. The daemon checks a grant again each
 time the grant is used.
 
+An equal `api_revision` does not prove that the two method tables are
+equal: a new command is additive and needs no new revision. A REQUEST frame
+with a method id or priority hint that the daemon's table does not have
+closes the connection. A method that the daemon serves only as a line gets
+the ERROR `method_not_framed` before it runs, so a retry would run it after
+the requests written behind it. So, on a connection that is offered
+`ipc-frames-v2`, `identify {revisions: true}` also returns
+`sdk_schema_digest` (FNV-1a 64 of the `sdk-schema.json` bytes that the
+daemon's method tables come from, as 16 lowercase hex digits) and
+`framed_methods` (the method ids that the daemon answers on frames, in id
+order). A client sends REQUEST frames only when its own table has the same
+digest, and only for the methods in `framed_methods`. It sends every other
+command as a line.
+
 ### Attach frames
 
 Status: encoder only (p05-ipc-076). `attach-frames-v1` stays unbound until
