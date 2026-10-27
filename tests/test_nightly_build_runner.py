@@ -187,6 +187,31 @@ class Main(unittest.TestCase):
                             read_snapshot=lambda t, r: snapshot({}))
         self.assertEqual(out["runner"], LARGE)
 
+    def test_the_blacksmith_pick_reads_queue_ages_after_the_wait(self) -> None:
+        # LARGE had waited 8 min when the snapshot was read; after a 5 min wait it is past the
+        # 10 min stall bound, so the moving SMALL is picked.
+        fleet = [runner(*BUILDER, busy=True)]
+        seen = {}
+
+        def read_snapshot(token: str, repo: str):
+            return snapshot({LARGE: 8})
+
+        import nightly_sign_runner
+        original = nightly_sign_runner.pick
+
+        def pick(variable, snap, now):
+            seen["now"] = now
+            return original(variable, snap, now)
+
+        nightly_sign_runner.pick = pick
+        try:
+            out = self.run_main({"DEDICATED_LABEL": DEDICATED}, read_runners=lambda t, r: fleet,
+                                read_snapshot=read_snapshot)
+        finally:
+            nightly_sign_runner.pick = original
+        self.assertGreaterEqual(seen["now"] - NOW, dt.timedelta(seconds=picker.DEDICATED_WAIT_SECONDS - 30))
+        self.assertEqual(out["dedicated"], "")
+
     def test_the_dedicated_mode_never_waits(self) -> None:
         out = self.run_main({"DEDICATED_LABEL": DEDICATED}, argv=("dedicated",),
                             read_runners=lambda t, r: [runner(*BUILDER, busy=True)])

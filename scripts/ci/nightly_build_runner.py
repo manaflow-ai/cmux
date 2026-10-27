@@ -178,8 +178,11 @@ def main(env: Mapping[str, str] = os.environ,
             print(f"::warning title=nightly build runner::could not list owned runners ({str(error)[:200]})")
             return None
 
+    waited_from = clock()
     dedicated, dedicated_why = dedicated_route(dedicated_label, read, attempt, sleep=sleep, clock=clock,
                                                wait_seconds=0 if only_dedicated else DEDICATED_WAIT_SECONDS)
+    # The Blacksmith pick below reads queue ages against `now`: move it past the wait.
+    now += dt.timedelta(seconds=max(0.0, clock() - waited_from))
     if only_dedicated:
         write_output(env, {"dedicated": dedicated}, [f"dedicated: {dedicated or 'none'} ({dedicated_why})"])
         return 0
