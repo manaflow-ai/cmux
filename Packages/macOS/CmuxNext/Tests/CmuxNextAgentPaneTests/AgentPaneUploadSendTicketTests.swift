@@ -59,6 +59,15 @@ struct AgentPaneUploadSendTicketTests {
         #expect(AgentPaneGestureIntent(gestureParams: number) == nil)
     }
 
+    @Test func nativeUploadRequestRequiresTheSendTicket() {
+        let params: [String: Any] = ["token": "t", "name": "a.bin", "type": "application/octet-stream",
+                                     "size": 3, "sessionId": "s-1", "promptId": "p-1", "ticket": "k"]
+        #expect(AgentPaneView.nativeUploadTicket(params) == AgentPaneUploadSendTicket(sessionId: "s-1", promptId: "p-1", ticket: "k"))
+        var missing = params
+        missing.removeValue(forKey: "ticket")
+        #expect(AgentPaneView.nativeUploadTicket(missing) == nil)
+    }
+
     @Test func theBeginParamsCarryTheTicketPromptAndChat() {
         let params: [String: Any] = ["token": "t", "name": "a.bin", "size": 3, "sessionId": "s-1", "promptId": "p-1", "ticket": "k"]
         #expect(AgentPaneUploadSendTicket(beginParams: params) == AgentPaneUploadSendTicket(sessionId: "s-1", promptId: "p-1", ticket: "k"))
