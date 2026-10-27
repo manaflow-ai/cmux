@@ -260,23 +260,16 @@ public actor TerminalAttachment: TerminalByteChannel {
         enqueueInput(data)
     }
 
-    /// Synchronous, ordered input path for Ghostty's `io_write_cb` thread.
-    /// Writes from one thread reach the PTY in call order.
+    /// Synchronous, ordered input path for Ghostty's `io_write_cb` thread. Writes from one thread reach the PTY
+    /// in call order: as INPUT frames on a framed stream (TerminalAttachment+InputFrames.swift), else `send` lines.
     public nonisolated func enqueueInput(_ data: Data) {
         guard !data.isEmpty else { return }
-        let surface = surface
-        let logger = logger
         let flow = TypingLatencyProbe.shared.openFlow
-        do {
-            try transport.sendNoReply(cmd: SendInputRequest.command, onError: { error in
-                logger.error("send failed: \(error.description, privacy: .public)")
-            }) { id in
-                try WireCoding.encodeRequest(SendInputRequest(surface: surface, bytes: data, flow: flow), id: id)
-            }
-            if let flow { TypingLatencyProbe.shared.mark(.socketSubmit, flow: flow) }
-        } catch {
-            logger.debug("input dropped after close: \(String(describing: error), privacy: .public)")
-        }
+        guard let stream = inputFrameStream else { return sendInputLine(data, flow: flow) }
+        // Once detached, the stream may be gone on the daemon, where INPUT on it is refused: the key is
+        // dropped, as a closed connection drops it.
+        guard !control.value.withLock({ $0.detached }) else { return }
+        sendInputFrames(data, stream: stream, flow: flow)
     }
 
     public func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {

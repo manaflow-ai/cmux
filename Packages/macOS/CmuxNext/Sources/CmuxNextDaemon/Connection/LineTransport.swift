@@ -55,8 +55,8 @@ final class LineTransport: Sendable {
     /// (LineTransport+Route.swift).
     let state = Mutex(State())
     private let socket: Mutex<Socket>
-    /// Nonblocking, ordered writes (never parks the calling actor's thread).
-    private let writer: SocketWriter
+    /// Nonblocking, ordered writes (never parks the calling actor's thread); frames go out by ``sendFrame(_:priority:)``.
+    let writer: SocketWriter
     let path: String
 
     /// The bridge child of this connection (``DaemonBridge``), killed and
