@@ -27,6 +27,9 @@ final class CloudStartSessionAsks {
 
     /// The ask that owns each chat's card, by tab.
     private var open: [String: Open] = [:]
+    /// Chats whose card links to a started session (``started(tab:token:text:gone:reveal:)``),
+    /// removed by ``endAll()`` with the account they were started in.
+    private var linked: Set<String> = []
     /// Where cards show: the app's tool cards (set by ``CloudService``), or a test's ``present``.
     weak var toolCards: AgentToolCards?
     /// Shows `cards` in chat tab `tab` (none removes them), each click going to the answer; false
@@ -51,6 +54,7 @@ final class CloudStartSessionAsks {
             throw ActionFailure(message: CloudStartSessionStrings.noPage(asked))
         }
         open[tab] = Open(token: token, asked: asked, answer: continuation)
+        linked.remove(tab)
         // task-owner: the card's one-shot deadline; cancelled below once the person answers.
         let deadline = Task {
             // wakeup-allow: one-shot deadline for the person's answer on the card
@@ -116,10 +120,37 @@ final class CloudStartSessionAsks {
         }
     }
 
+    /// The run ended with the session started: the card says where, with Open Chat and Dismiss, so
+    /// the asking chat links to the new chat on the machine; the chat may ask again. Open Chat calls
+    /// `reveal`, which shows the new chat and answers false when no connected machine lists it any
+    /// more: the card then says `gone`, with Dismiss.
+    func started(tab: String, token: UUID, text: String, gone: String, reveal: @escaping @MainActor () -> Bool) {
+        guard open[tab]?.token == token else { return }
+        open[tab] = nil
+        linked.insert(tab)
+        let actions = [AgentPaneToolCard.Action(id: "open", title: CloudStartSessionStrings.openChat),
+                       AgentPaneToolCard.Action(id: "dismiss", title: CloudMoveAskStrings.dismiss)]
+        _ = set([card(tab, .done, text, actions)], tab: tab) { [weak self] _, action, _ in
+            // A later ask in this chat owns the card from then on; its buttons are its own.
+            guard let self, open[tab] == nil else { return }
+            linked.remove(tab)
+            guard action == "open" else { return _ = set([], tab: tab) { _, _, _ in } }
+            if reveal() { return _ = set([], tab: tab) { _, _, _ in } }
+            let dismiss = AgentPaneToolCard.Action(id: "dismiss", title: CloudMoveAskStrings.dismiss)
+            _ = set([card(tab, .failed, gone, [dismiss])], tab: tab) { [weak self] _, _, _ in
+                guard let self, open[tab] == nil else { return }
+                _ = set([], tab: tab) { _, _, _ in }
+            }
+        }
+    }
+
     /// The account the asks were made in ended: a card still asking ends its ask (which removes
-    /// it), and one whose run goes on says the run stopped. Called by ``CloudService`` on a
+    /// it), one whose run goes on says the run stopped, and a done card goes. Called by ``CloudService`` on a
     /// sign-out or team switch, beside ``CloudStartSessionRuns/forgetAll()``.
     func endAll() {
+        // A done card's Open Chat would show a chat of the account that ended.
+        for tab in linked where open[tab] == nil { _ = set([], tab: tab) { _, _, _ in } }
+        linked = []
         // A snapshot: ``finish`` removes entries as it goes.
         for (tab, ask) in Array(open) {
             if let answer = ask.answer {

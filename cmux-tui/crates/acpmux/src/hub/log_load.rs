@@ -158,6 +158,8 @@ impl Hub {
             self.mark_lost_wait(session);
         }
         let continued = if hosted { None } else { self.mark_unknown_outcome(session) };
+        // A subagent retry the restart dropped, hosted or not (`subagent_retry.rs`).
+        self.settle_subagent_retries(session);
         self.restore_queue(session);
         // A cut turn goes on before what waited behind it (`restart_resume.rs`).
         if let Some(prompt_id) = continued {

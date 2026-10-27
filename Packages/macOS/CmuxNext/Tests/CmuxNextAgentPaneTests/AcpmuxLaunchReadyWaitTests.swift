@@ -42,6 +42,21 @@ struct AcpmuxLaunchReadyWaitTests {
         #expect(ContinuousClock.now - started < .seconds(10))
     }
 
+    /// acpmux refuses the shared home's daemon from a runner `_work` or temp folder and says why
+    /// on the ready line (cmux#25761): the launcher throws that text, not "exited".
+    @Test func aDaemonThatRefusesSaysWhy() async throws {
+        let why = "acpmux: this daemon's executable /tmp/a/acpmux is in a temporary folder"
+        let environment = try Self.environment("""
+        echo '{"ready":false,"refused":"\(why)"}' >&3
+        """)
+        await #expect(throws: AcpmuxDaemonLauncher.Failure.refused(why)) {
+            _ = try await AcpmuxDaemonLauncher.launch(environment, deadline: .seconds(20))
+        }
+        #expect(AcpmuxFailureCause.refused(why).userText == why)
+        #expect(AcpmuxReadyLine.refusal(Self.readyLine) == nil)
+        #expect(AcpmuxReadyLine.refusal(#"{"ready":false,"lockHeld":true}"#) == nil)
+    }
+
     @Test func aDaemonThatExitsFailsAtOnce() async throws {
         let environment = try Self.environment("echo bye; exit 3")
         await #expect(throws: AcpmuxDaemonLauncher.Failure.self) {
