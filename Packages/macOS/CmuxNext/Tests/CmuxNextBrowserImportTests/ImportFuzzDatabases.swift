@@ -1,6 +1,5 @@
 import CmuxFuzzSupport
 @testable import CmuxNextBrowserImport
-import CommonCrypto
 import Foundation
 import SQLite3
 
@@ -502,19 +501,13 @@ struct FirefoxKeyFixture {
         let entrySalt = [UInt8](repeating: 0x22, count: 32)
         let iv = [UInt8](repeating: 0x33, count: 14)
         let hashed = FirefoxPasswordCrypto.sha1([globalSalt], secret: SecretBytes(capacity: 0) { _ in 0 })
-        let key = SecretBytes(capacity: kCCKeySizeAES256) { out in
-            let status = hashed.withUnsafeBytes { password in
-                CCKeyDerivationPBKDF(CCPBKDFAlgorithm(kCCPBKDF2), password.baseAddress?.assumingMemoryBound(to: Int8.self), password.count,
-                                     entrySalt, entrySalt.count, CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256), 1,
-                                     out.baseAddress?.assumingMemoryBound(to: UInt8.self), kCCKeySizeAES256)
-            }
-            return status == kCCSuccess ? kCCKeySizeAES256 : 0
-        }
-        let sealed = try FirefoxPasswordCrypto.crypt(CCAlgorithm(kCCAlgorithmAES), key: key, keyLength: kCCKeySizeAES256,
-                                                    iv: [NSSDER.octetString, 14] + iv, plain, operation: CCOperation(kCCEncrypt))
+        guard let key = ImportCrypto.pbkdf2(.sha256, password: hashed, salt: entrySalt, rounds: 1, keyLength: ImportCrypto.aes256KeySize)
+        else { throw FirefoxPasswordCrypto.Failure.undecryptable }
+        let sealed = try FirefoxPasswordCrypto.crypt(.aes, key: key, keyLength: ImportCrypto.aes256KeySize,
+                                                    iv: [NSSDER.octetString, 14] + iv, plain, operation: .encrypt)
         let pbkdf2 = NSSFixture.sequence(
             NSSFixture.oid(FirefoxPasswordCrypto.pbkdf2),
-            NSSFixture.sequence(NSSFixture.octets(entrySalt), NSSFixture.integer(1), NSSFixture.integer(kCCKeySizeAES256),
+            NSSFixture.sequence(NSSFixture.octets(entrySalt), NSSFixture.integer(1), NSSFixture.integer(ImportCrypto.aes256KeySize),
                                 NSSFixture.sequence(NSSFixture.oid(FirefoxPasswordCrypto.hmacSHA256))))
         let cipher = NSSFixture.sequence(NSSFixture.oid(FirefoxPasswordCrypto.aes256CBC), NSSFixture.octets(iv))
         return NSSFixture.sequence(
@@ -536,9 +529,9 @@ struct FirefoxKeyFixture {
 
     /// A logins.json value: base64 DER {key id, {AES-256-CBC, IV}, ciphertext} under the master key.
     static func seal(_ plain: [UInt8]) throws -> String {
-        let iv = [UInt8](repeating: 0x44, count: kCCBlockSizeAES128)
-        let sealed = try FirefoxPasswordCrypto.crypt(CCAlgorithm(kCCAlgorithmAES), key: SecretBytes(copying: master), keyLength: kCCKeySizeAES256,
-                                                    iv: iv, plain, operation: CCOperation(kCCEncrypt))
+        let iv = [UInt8](repeating: 0x44, count: ImportCrypto.Cipher.aes.blockSize)
+        let sealed = try FirefoxPasswordCrypto.crypt(.aes, key: SecretBytes(copying: master), keyLength: ImportCrypto.aes256KeySize,
+                                                    iv: iv, plain, operation: .encrypt)
         let der = NSSFixture.sequence(
             NSSFixture.octets(keyID),
             NSSFixture.sequence(NSSFixture.oid(FirefoxPasswordCrypto.aes256CBC), NSSFixture.octets(iv)),

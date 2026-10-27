@@ -6,7 +6,7 @@ public import Foundation
 /// The bytes live in their own page-aligned allocation of whole pages (so
 /// locking and unlocking one never touches another secret's pages), locked
 /// out of swap where the system allows it, and are zeroed with `memset_s`
-/// (which the compiler may not drop) before the allocation is freed. They are never a `String` or a
+/// (glibc's `explicit_bzero` on Linux; the compiler may drop neither) before the allocation is freed. They are never a `String` or a
 /// `Data`, never print (descriptions and mirrors are redacted), and are not
 /// `Codable`, so they cannot reach a log, a crash report, telemetry or a file
 /// by accident. Hand them on only through `withUnsafeBytes`, or check them in
@@ -68,7 +68,7 @@ public final class SecretBytes: @unchecked Sendable {
         guard let base = unsafe buffer.baseAddress else { return }
         let size = unsafe buffer.count
         // SAFETY: zeroes exactly the live allocation's `size` bytes.
-        _ = unsafe memset_s(base, size, 0, size)
+        unsafe Self.clear(base, size)
         count = 0
     }
 
@@ -78,13 +78,24 @@ public final class SecretBytes: @unchecked Sendable {
         guard let base = unsafe buffer.baseAddress else { return }
         let size = unsafe buffer.count
         // SAFETY: zeroes and unlocks exactly the live allocation's `size` bytes.
-        _ = unsafe memset_s(base, size, 0, size)
+        unsafe Self.clear(base, size)
         if locked { _ = unsafe munlock(base, size) }
         // SAFETY: frees the allocation once and empties `buffer`, so a second wipe returns above and no
         // later read finds the freed address.
         unsafe buffer.deallocate()
         unsafe buffer = UnsafeMutableRawBufferPointer(start: nil, count: 0)
         count = 0
+    }
+
+    /// Zeroes `size` bytes at `base` with a call the compiler may not drop.
+    @unsafe private static func clear(_ base: UnsafeMutableRawPointer, _ size: Int) {
+        #if canImport(Darwin)
+        // SAFETY: the caller's `size` bytes at `base` are writable for the call.
+        _ = unsafe memset_s(base, size, 0, size)
+        #else
+        // SAFETY: as above.
+        unsafe explicit_bzero(base, size)
+        #endif
     }
 
     @safe public func withUnsafeBytes<R, E: Error>(_ body: (UnsafeRawBufferPointer) throws(E) -> R) throws(E) -> R {

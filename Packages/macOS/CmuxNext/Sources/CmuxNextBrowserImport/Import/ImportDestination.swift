@@ -1,6 +1,4 @@
 public import Foundation
-import ImageIO
-import UniformTypeIdentifiers
 
 /// Creates cmux browser profiles (data-model.md 5). The caller picks the id
 /// so a retry finds the same record; returns the profile id to import into.
@@ -24,20 +22,6 @@ public struct SourceProfileLook: Sendable, Equatable {
 
     public init(_ profile: BrowserSourceProfile) {
         self.init(color: profile.color, avatar: profile.avatar)
-    }
-
-    /// The picture as a PNG at most `side` pixels on its longest side and
-    /// `maxBytes` long (an image icon); nil when there is none or it is not an image.
-    public func avatarPNG(side: Int = 256, maxBytes: Int = 256 * 1024) -> Data? {
-        guard let avatar, let source = CGImageSourceCreateWithURL(avatar as CFURL, nil) else { return nil }
-        let options = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
-                       kCGImageSourceThumbnailMaxPixelSize: side] as CFDictionary
-        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
-        let png = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(png, UTType.png.identifier as CFString, 1, nil) else { return nil }
-        CGImageDestinationAddImage(destination, image, nil)
-        guard CGImageDestinationFinalize(destination), png.length <= maxBytes else { return nil }
-        return png as Data
     }
 }
 

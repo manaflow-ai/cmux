@@ -1,5 +1,7 @@
 public import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 /// Supplies a Chromium browser's "<Name> Safe Storage" password.
 public protocol SafeStorageKeyProviding: Sendable {
@@ -8,6 +10,7 @@ public protocol SafeStorageKeyProviding: Sendable {
     func password(service: String) throws(CookieImportError) -> SecretBytes
 }
 
+#if canImport(Security)
 /// The login Keychain. Reading another app's item makes macOS ask the user
 /// ("cmux wants to use your confidential information stored in "Chrome
 /// Safe Storage" in your keychain"); nothing here bypasses or pre-answers
@@ -40,6 +43,19 @@ public struct KeychainSafeStorage: SafeStorageKeyProviding {
         case errSecItemNotFound: throw .keyNotFound(service: service)
         default: throw .keychainDenied(service: service)
         }
+        #endif
+    }
+}
+#endif
+
+/// The Safe Storage keys of the system this runs on: the login Keychain on macOS, none on Linux, where Chromium
+/// keeps its "v11" key in the Secret Service, which this import does not read (every read is `keyNotFound`).
+struct SystemSafeStorage: SafeStorageKeyProviding {
+    func password(service: String) throws(CookieImportError) -> SecretBytes {
+        #if canImport(Security)
+        try KeychainSafeStorage().password(service: service)
+        #else
+        throw .keyNotFound(service: service)
         #endif
     }
 }

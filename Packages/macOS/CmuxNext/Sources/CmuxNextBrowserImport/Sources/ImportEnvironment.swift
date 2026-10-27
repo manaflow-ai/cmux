@@ -1,5 +1,4 @@
 public import Foundation
-public import CmuxNextCompat
 
 /// What detection needs from the system: a home directory (a fixture folder
 /// in tests and test launches) and a way to find installed apps.
@@ -44,14 +43,13 @@ public struct ImportEnvironment: Sendable {
 
     /// The real home, or the fixture home from the environment (DEBUG
     /// builds). With a fixture home, apps are not looked up, so the result
-    /// does not depend on what this Mac has installed. By default apps are
-    /// found through Launch Services' checked seam
-    /// (`WorkspaceQuerying.application(withBundleIdentifier:)`): detection
-    /// runs off the main thread.
+    /// does not depend on what this Mac has installed. `locateApp` finds an
+    /// app by bundle id; on macOS the overload without it uses Launch Services
+    /// (ImportEnvironment+LaunchServices.swift).
     public static func live(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         allowsFixtures: Bool = fixturesAllowed,
-        locateApp: @escaping @Sendable (String) -> URL? = { SystemWorkspaceQuerying().application(withBundleIdentifier: $0) }
+        locateApp: @escaping @Sendable (String) -> URL?
     ) -> ImportEnvironment {
         if allowsFixtures, let fixture = environment[fixtureHomeKey], !fixture.isEmpty {
             return ImportEnvironment(homeDirectory: URL(fileURLWithPath: fixture, isDirectory: true), locateApp: { _ in nil })

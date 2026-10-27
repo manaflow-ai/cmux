@@ -1,5 +1,4 @@
 public import Foundation
-import Compression
 
 /// Reads the open tabs of Firefox's session store. The file is "mozLz4":
 /// the magic `mozLz40\0`, a little-endian uint32 decompressed size, then one
@@ -30,11 +29,7 @@ public struct FirefoxSessionReader {
         // One LZ4 block byte yields at most 255 bytes (a match-length byte), so a larger size is a lie
         // that would only allocate.
         guard size > 0, size <= maximumSize, size / 255 <= block.count else { return nil }
-        var output = [UInt8](repeating: 0, count: size)
-        // SAFETY: the decoder reads at most block.count bytes of `block` and writes at most `size`
-        // (output.count) bytes into `output`, the counts passed; Swift lends both arrays for the call.
-        let written = unsafe compression_decode_buffer(&output, size, block, block.count, nil, COMPRESSION_LZ4_RAW)
-        return written == size ? Data(output) : nil
+        return LZ4Block.decode(block, size: size).map { Data($0) }
     }
 
     /// The open tabs; a tab with no history entry or an address that is not importable is counted.

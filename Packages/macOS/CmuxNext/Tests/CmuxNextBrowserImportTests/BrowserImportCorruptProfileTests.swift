@@ -88,9 +88,21 @@ struct BrowserImportCorruptProfileTests {
         #expect(read.skipped.repeatedFolder == 2 && read.skipped.total == 2)
     }
 
+    /// Whether PropertyListSerialization hands back a binary plist's shared objects as one object each
+    /// (CFBinaryPlist on Apple platforms). corelibs Foundation bridges them into copies, so on Linux the
+    /// doubling file below is 2^30 nodes before the parser sees it; Safari exists only on macOS.
+    static let plistKeepsSharedObjects: Bool = {
+        #if canImport(Darwin)
+        true
+        #else
+        false
+        #endif
+    }()
+
     /// Before: a 1 KB binary plist that names each folder twice from its parent was walked 2^31 times
     /// (later capped at 2^20 entries, still ~500K duplicate bookmarks). Each folder is read once now.
-    @Test func safariBookmarksThatShareFoldersAreReadOnce() throws {
+    @Test(.enabled(if: plistKeepsSharedObjects, "corelibs Foundation copies shared plist objects (p15-oracle-139)"))
+    func safariBookmarksThatShareFoldersAreReadOnce() throws {
         let read = try SafariBookmarksParser().parse(BinaryPlistFixture.doublingBookmarks(levels: 30))
         // One chain of 31 folders down to the two leaves; the second mention at each of 30 levels is counted.
         #expect(read.items.count == 2)

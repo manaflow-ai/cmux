@@ -300,7 +300,9 @@ let packageProducts: [Product] = [
     .library(name: "CmuxNextAppCore", targets: ["CmuxNextAppCore"]),
 ] + uiLayerPreviewProducts
 
-let packageTargets: [Target] = uiLayerPreviewTargets + [
+// The targets in four literals: one literal of all of them is past what the type checker solves on Linux
+// ("unable to type-check this expression in reasonable time", Swift 6.2.4), which stops every Linux-mode build.
+let packageTargets1: [Target] = [
         .target(
             name: "CmuxNextAppCore",
             dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextBridge", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextSidebar"],
@@ -598,7 +600,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // the resumable import jobs. Pure model, no UI.
         .target(
             name: "CmuxNextImportSuggestions",
-            dependencies: ["CmuxNextBrowserImport"],
+            // Linux: corelibs Foundation has no String(localized:defaultValue:table:bundle:); CMUXMobileCore's
+            // portable one reads the tables compile-xcstrings.py writes (p15-oracle-139).
+            dependencies: ["CmuxNextBrowserImport",
+                           .product(name: "CMUXMobileCore", package: "CMUXMobileCore", condition: .when(platforms: [.linux]))],
             resources: [
                 .process("Resources"),
             ],
@@ -993,6 +998,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                            "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
+]
+let packageTargets2: [Target] = [
         // VS Code (Inline): the one `serve-web` server on 127.0.0.1 behind Open Folder in VS Code
         // (Inline) and Stop/Restart VS Code Inline Server. The App opens its URL in a browser tab.
         .target(
@@ -1564,6 +1571,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextCompat"],
             swiftSettings: daemonSwiftSettings
         ),
+]
+let packageTargets3: [Target] = [
         // Opt-in hang reports from NIGHTLY (plans/cmux-next/hang-reports-DESIGN.md):
         // MetricKit and watchdog inputs, redaction by allow-list, leak scan, upload.
         .target(
@@ -2283,6 +2292,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: daemonSwiftSettings
         ),
+]
+let packageTargets4: [Target] = [
         // The cmux iPhone host (Settings > Mobile): follows the account and
         // mobile.allowIPhoneConnections, runs the bundled cmux-mobile-host through
         // CmuxNextMobile's MobileHostSupervisor, lists and removes the account's
@@ -2326,7 +2337,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextActions", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
-    ] + [appFFI]
+]
+let packageTargets: [Target] = uiLayerPreviewTargets + packageTargets1 + packageTargets2 + packageTargets3 + packageTargets4 + [appFFI]
 
 /// Linux SwiftPM copies an `.xcstrings` catalog into the bundle as JSON that Foundation cannot read.
 /// In the Linux mode (`CMUX_SWIFTPM_TARGET_LINUX=1`, plans/cmux-next/chrome-parity/p15-oracle.md H),
@@ -2441,6 +2453,8 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
         let generated: Generated
 
         var zlibTarget: String { "CZlib" }
+        /// The system SQLite in place of the SDK's SQLite3 module, under the same module name.
+        var sqliteTarget: String { "SQLite3" }
         var cryptoPackage: String { "swift-crypto" }
 
         /// SwiftPM's identity of a package location: its last path component without `.git`, lowercased.
@@ -2449,7 +2463,7 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
             return (last.hasSuffix(".git") ? String(last.dropLast(4)) : last).lowercased()
         }
 
-        /// The Linux-only targets the tier lists: the FFI module map in place of the xcframework, and zlib.
+        /// The Linux-only targets the tier lists: the FFI module map in place of the xcframework, zlib and SQLite.
         func linuxTargets(packageDirectory: String) -> [Target] {
             var targets: [Target] = []
             if generated.targets.contains(ffi.target) {
@@ -2465,6 +2479,10 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
             }
             if generated.targets.contains(zlibTarget) {
                 targets.append(Target.systemLibrary(name: zlibTarget, path: "Sources/" + zlibTarget))
+            }
+            if generated.targets.contains(sqliteTarget) {
+                targets.append(Target.systemLibrary(name: sqliteTarget, path: "Sources/" + sqliteTarget, pkgConfig: "sqlite3",
+                                                    providers: [.apt(["libsqlite3-dev"])]))
             }
             return targets
         }
@@ -2488,7 +2506,7 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
         /// The stand-ins a target's imports need on Linux (linux-tier.py reads them from its sources).
         func standIns(of target: String) -> [Target.Dependency] {
             (generated.linuxDependencies[target] ?? []).map { name in
-                name == zlibTarget ? .target(name: name) : .product(name: name, package: cryptoPackage)
+                [zlibTarget, sqliteTarget].contains(name) ? .target(name: name) : .product(name: name, package: cryptoPackage)
             }
         }
 
@@ -2568,26 +2586,27 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
                 "CmuxNextRemoteLocalhost",
                 "CmuxNextServerHelper",
                 "CmuxNextCLIInstall",
+                "CmuxNextOracle",
                 "CZlib",
+                "SQLite3",
             ],
             testTargets: [
                 "CmuxNextActionsTests",
+                "CmuxNextBrowserImportTests",
                 "CmuxNextChromiumRuntimeTests",
                 "CmuxNextCodeRouterTests",
                 "CmuxNextCompatTests",
-                "CmuxNextControlTests",
-                "CmuxNextDaemonTests",
                 "CmuxNextDevicesTests",
                 "CmuxNextErrorJournalTests",
                 "CmuxNextFeaturesTests",
                 "CmuxNextFilesTests",
-                "CmuxNextHangReportsTests",
+                "CmuxNextHibernationTests",
                 "CmuxNextHostPressureTests",
                 "CmuxNextImportSuggestionsTests",
                 "CmuxNextKeepAwakeTests",
                 "CmuxNextMetricsTests",
                 "CmuxNextMobileTests",
-                "CmuxNextSignpostsTests",
+                "CmuxNextOracleTests",
                 "CmuxNextTraceTests",
                 "CmuxNextVSCodeServerTests",
                 "CmuxNextWakeupsTests",
@@ -2599,6 +2618,7 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
                 "Packages/Shared/CMUXMobileCore",
                 "Packages/Shared/CmuxAgentBrands",
                 "Packages/Shared/CmuxAuthRuntime",
+                "Packages/Shared/CmuxFuzzSupport",
                 "Packages/Shared/CmuxInstallAuthCore",
                 "Packages/Shared/CmuxIrxTransport",
                 "Packages/Shared/CmuxSafeConcurrency",
@@ -2610,17 +2630,27 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
             remoteDependencies: ["swift-atomics", "swift-crypto"],
             linuxDependencies: [
                 "CmuxNextBrowserCore": ["Crypto"],
-                "CmuxNextBrowserImport": ["CZlib"],
+                "CmuxNextBrowserImport": [
+                    "CZlib",
+                    "Crypto",
+                    "SQLite3",
+                    "_CryptoExtras",
+                ],
+                "CmuxNextBrowserImportTests": ["CZlib", "SQLite3"],
                 "CmuxNextChromiumRuntime": ["Crypto"],
                 "CmuxNextChromiumRuntimeTests": ["Crypto"],
                 "CmuxNextCloud": ["Crypto"],
                 "CmuxNextCodeRouter": ["Crypto"],
+                "CmuxNextCompat": ["SQLite3"],
+                "CmuxNextCompatTests": ["SQLite3"],
                 "CmuxNextDaemon": ["CZlib", "Crypto"],
-                "CmuxNextDaemonTests": ["Crypto"],
                 "CmuxNextDesignTokens": ["Crypto"],
                 "CmuxNextDevices": ["Crypto"],
                 "CmuxNextDevicesTests": ["Crypto"],
+                "CmuxNextFeaturesTests": ["Crypto"],
+                "CmuxNextHangReports": ["Crypto"],
                 "CmuxNextMobile": ["Crypto"],
+                "CmuxNextOracle": ["Crypto"],
                 "CmuxNextRemote": ["Crypto"],
                 "CmuxNextRemoteFetch": ["CZlib"],
                 "CmuxNextRemoteLocalhost": ["Crypto"],

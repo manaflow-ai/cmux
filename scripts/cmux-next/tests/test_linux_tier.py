@@ -83,6 +83,8 @@ DUMP = {
 SOURCES = {
     "Core/Hash.swift": "internal import CryptoKit\n",
     "Uses/Zip.swift": "@preconcurrency import Compression\n",
+    "Uses/Store.swift": "import SQLite3\n",
+    "Uses/Cipher.swift": "#if !canImport(CommonCrypto)\nimport _CryptoExtras\n#endif\n",
     "Blocked/B.swift": "import Foundation\n",
     "AppUI/V.swift": "import SwiftUI\n",
     "App/A.swift": "import AppUI\n",
@@ -103,6 +105,7 @@ class LinuxTierTests(unittest.TestCase):
         (package / "Tests/CoreTests").mkdir(parents=True)
         (package / "Tests/AppUITests").mkdir(parents=True)
         (package / "Sources/CZlib").mkdir(parents=True)
+        (package / "Sources/SQLite3").mkdir(parents=True)
         self.saved = (lt.ROOT, lt.PACKAGE, lt.TIER, lt.MANIFEST)
         lt.ROOT, lt.PACKAGE, lt.TIER, lt.MANIFEST = (Path(self.temp.name), package, package / "linux-tier.json",
                                                      package / "Package.swift")
@@ -121,8 +124,8 @@ class LinuxTierTests(unittest.TestCase):
     def generated(self, tier=TIER, dump=DUMP):
         return lt.build(json.loads(json.dumps(tier)), dump, graph)
 
-    def test_keeps_tier_targets_in_wave_order_with_ffi_and_zlib(self):
-        self.assertEqual(self.generated()["targets"], ["Core", "CCmuxAppFFILinux", "Uses", "Blocked", "CZlib"])
+    def test_keeps_tier_targets_in_wave_order_with_ffi_and_the_system_libraries(self):
+        self.assertEqual(self.generated()["targets"], ["Core", "CCmuxAppFFILinux", "Uses", "Blocked", "CZlib", "SQLite3"])
 
     def test_test_target_kept_only_when_all_its_targets_are_in_the_tier(self):
         self.assertEqual(self.generated()["testTargets"], ["CoreTests"])
@@ -136,7 +139,21 @@ class LinuxTierTests(unittest.TestCase):
         self.assertEqual(generated["remoteDependencies"], ["swift-atomics", "swift-crypto"])
 
     def test_stand_ins_follow_imports(self):
-        self.assertEqual(self.generated()["linuxDependencies"], {"Core": ["Crypto"], "Uses": ["CZlib"]})
+        self.assertEqual(self.generated()["linuxDependencies"],
+                         {"Core": ["Crypto"], "Uses": ["CZlib", "SQLite3", "_CryptoExtras"]})
+
+    def test_crypto_extras_alone_brings_swift_crypto(self):
+        os.remove(lt.PACKAGE / "Sources/Core/Hash.swift")
+        self.assertEqual(self.generated()["remoteDependencies"], ["swift-atomics", "swift-crypto"])
+
+    def test_without_an_sqlite_import_there_is_no_sqlite_target(self):
+        os.remove(lt.PACKAGE / "Sources/Uses/Store.swift")
+        self.assertNotIn("SQLite3", self.generated()["targets"])
+
+    def test_an_sqlite_import_without_the_module_map_is_refused(self):
+        os.rmdir(lt.PACKAGE / "Sources/SQLite3")
+        with self.assertRaises(SystemExit):
+            self.generated()
 
     def test_dropped_edges_are_listed_and_ffi_is_not_one(self):
         self.assertEqual(self.generated()["blockedEdges"], {"Blocked": ["AppUI", "Sparkle (Sparkle)"]})

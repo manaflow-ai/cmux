@@ -1,5 +1,8 @@
 public import CmuxNextBrowserImport
 import Foundation
+#if !canImport(Darwin)
+import CMUXMobileCore // String(localized:defaultValue:table:bundle:), which corelibs Foundation does not have
+#endif
 
 /// The cards' words (table `ImportSuggestions`).
 public nonisolated struct ImportSuggestionStrings: Sendable {
@@ -185,6 +188,7 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
 
     /// "history, cookies and bookmarks" in the person's language.
     static func list(_ items: [String]) -> String {
-        ListFormatter.localizedString(byJoining: items.filter { !$0.isEmpty })
+        // ListFormatStyle, not ListFormatter: the same ICU list on every platform, and Linux has no ListFormatter.
+        items.filter { !$0.isEmpty }.formatted(.list(type: .and))
     }
 }

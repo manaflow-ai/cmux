@@ -1,6 +1,8 @@
 import CmuxNextCompat
 public import Foundation
+#if canImport(os)
 import os
+#endif
 
 /// The one browser source registry (decision BOOKMARKS-IMPORT-EVERY-BROWSER
 /// I1): a checked-in JSON catalog that bookmarks, passwords, cookies and

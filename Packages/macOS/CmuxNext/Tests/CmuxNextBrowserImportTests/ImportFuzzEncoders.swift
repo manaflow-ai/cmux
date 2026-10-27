@@ -1,4 +1,6 @@
+#if canImport(Compression)
 import Compression
+#endif
 import Foundation
 import SQLite3
 
@@ -178,13 +180,36 @@ struct ChromiumSessionFixture {
 struct MozLz4Fixture {
     static func file(_ payload: Data) -> Data {
         let input = [UInt8](payload)
-        var block = [UInt8](repeating: 0, count: input.count + 1024)
-        let written = compression_encode_buffer(&block, block.count, input, input.count, nil, COMPRESSION_LZ4_RAW)
         var file = ImportFuzzBytes()
         file.append(Array("mozLz40\0".utf8))
         file.le32(input.count)
-        file.append(block.prefix(written))
+        file.append(block(input))
         return file.data
+    }
+
+    /// One LZ4 block of `input`: Compression's encoder (with matches) where there is one, else one sequence of
+    /// literals only (the Linux tier), which every LZ4 decoder reads.
+    static func block(_ input: [UInt8]) -> [UInt8] {
+        #if canImport(Compression)
+        var block = [UInt8](repeating: 0, count: input.count + 1024)
+        let written = compression_encode_buffer(&block, block.count, input, input.count, nil, COMPRESSION_LZ4_RAW)
+        return Array(block.prefix(written))
+        #else
+        return literalsOnly(input)
+        #endif
+    }
+
+    /// The last-sequence form: a token whose high nibble is the literal count (15, then bytes of 255 and one
+    /// smaller), then the literals.
+    static func literalsOnly(_ input: [UInt8]) -> [UInt8] {
+        guard input.count >= 15 else { return [UInt8(input.count) << 4] + input }
+        var block: [UInt8] = [0xF0]
+        var rest = input.count - 15
+        while rest >= 255 {
+            block.append(255)
+            rest -= 255
+        }
+        return block + [UInt8(rest)] + input
     }
 
     static let sessionFile = file(session)

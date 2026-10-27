@@ -24,11 +24,18 @@ public struct SafariBookmarksParser {
     /// object per reference (CFBinaryPlist), so a damaged file that lists one folder from many
     /// parents, or one `Children` array from many folders, gives the same `NSArray` each time: it is
     /// read once and every other mention is counted. Real files never share one (CFBinaryPlistWrite
-    /// writes each array and dictionary out on its own).
+    /// writes each array and dictionary out on its own). The opened arrays are held, not only their
+    /// identities: where the reader hands back bridged copies (corelibs Foundation on Linux), a copy freed
+    /// after its walk could give its address to the next folder's, which would then read as repeated.
     private struct Walk {
         var read = ImportRead<ImportedBookmark>()
-        var opened: Set<ObjectIdentifier> = []
+        var opened: [ObjectIdentifier: NSArray] = [:]
         var remaining: Int
+
+        /// Whether `contents` is opened for the first time (and now held).
+        mutating func open(_ contents: NSArray) -> Bool {
+            opened.updateValue(contents, forKey: ObjectIdentifier(contents)) == nil
+        }
     }
 
     public func parse(_ data: Data) throws -> ImportRead<ImportedBookmark> {
@@ -37,7 +44,7 @@ public struct SafariBookmarksParser {
         }
         var state = Walk(remaining: maximumNodes)
         let children = root["Children"] as? NSArray ?? NSArray()
-        state.opened.insert(ObjectIdentifier(children))
+        _ = state.open(children)
         walk(children, path: [], depth: 0, state: &state)
         return state.read
     }
@@ -69,7 +76,7 @@ public struct SafariBookmarksParser {
                 }
                 // An empty folder has nothing to read again (and CF may share one empty array).
                 let contents = child["Children"] as? NSArray ?? NSArray()
-                guard contents.count == 0 || state.opened.insert(ObjectIdentifier(contents)).inserted else {
+                guard contents.count == 0 || state.open(contents) else {
                     state.read.skipped.repeatedFolder += 1
                     continue
                 }

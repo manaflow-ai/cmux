@@ -26,7 +26,7 @@ public struct FixtureSafeStorage: SafeStorageKeyProviding {
 }
 
 /// The key provider for this process: the fixture file in a fixture-home
-/// test launch, else the login Keychain.
+/// test launch, else the system's (the login Keychain on macOS).
 public struct SafeStorageKeys {
     private let environment: [String: String]
     private let fileManager: FileManager
@@ -50,6 +50,6 @@ public struct SafeStorageKeys {
             // A fixture home never falls back to the real Keychain.
             return FixtureSafeStorage(environment: environment, fileManager: fileManager) ?? FixtureSafeStorage(passwords: [:])
         }
-        return KeychainSafeStorage()
+        return SystemSafeStorage()
     }
 }

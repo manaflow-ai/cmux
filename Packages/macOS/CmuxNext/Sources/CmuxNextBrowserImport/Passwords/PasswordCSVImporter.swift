@@ -66,7 +66,11 @@ public struct PasswordCSVImporter: Sendable {
             for _ in 0...size where done < size && !failed {
                 // SAFETY: `out` holds max(size, 1) bytes (the capacity asked for) and 0 <= done < size,
                 // so read writes at most size - done bytes from base + done, inside the buffer.
+                #if canImport(Darwin)
                 let count = unsafe Darwin.read(descriptor, base + done, size - done) // concurrency-allow: called only from Task.detached (run(file:intoProfile:), BrowserFileImport)
+                #else
+                let count = unsafe Glibc.read(descriptor, base + done, size - done) // concurrency-allow: called only from Task.detached (run(file:intoProfile:), BrowserFileImport)
+                #endif
                 if count > 0 { done += count } else if count == 0 || errno != EINTR { failed = count < 0; break }
             }
             return done

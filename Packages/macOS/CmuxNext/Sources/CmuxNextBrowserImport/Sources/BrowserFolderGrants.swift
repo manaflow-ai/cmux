@@ -35,7 +35,7 @@ public final class MemoryBrowserFolderGrantStore: BrowserFolderGrantStore {
 
 /// Import from Browser reads a browser's profiles only after the person
 /// picked that browser's data folder in the open panel (Zen's flow). The pick
-/// is kept as a security-scoped bookmark per browser, so the next import asks
+/// is kept as a security-scoped bookmark per browser (the path on Linux: ``FolderBookmark``), so the next import asks
 /// nothing. Before a grant, the browser is only listed (its folder exists);
 /// nothing inside it is opened. Safari keeps the Full Disk Access path: its
 /// data sits in a protected container, not one profile folder.
@@ -72,11 +72,7 @@ public struct BrowserFolderGrants: Sendable {
     /// Keeps the person's pick of `browser`'s folder.
     public func grant(_ picked: URL, for browser: ImportBrowser) throws {
         guard accepts(picked, for: browser) else { throw GrantError.wrongFolder(expected: folder(browser)) }
-        // A security-scoped bookmark where the process can make one; a plain one otherwise
-        // (an unsandboxed process may not hold the scope, and needs none to read).
-        let data = (try? picked.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil))
-            ?? (try? picked.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil))
-        guard let data else { throw GrantError.bookmarkFailed }
+        guard let data = FolderBookmark.make(picked) else { throw GrantError.bookmarkFailed }
         store.setBookmark(data, for: browser.rawValue)
     }
 
@@ -87,11 +83,8 @@ public struct BrowserFolderGrants: Sendable {
 
     /// The granted folder, when the kept bookmark still resolves to `browser`'s data folder.
     public func grantedFolder(_ browser: ImportBrowser) -> URL? {
-        guard let data = store.bookmark(for: browser.rawValue) else { return nil }
-        var stale = false
-        let url = (try? URL(resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &stale))
-            ?? (try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale))
-        guard let url, accepts(url, for: browser) else { return nil }
+        guard let data = store.bookmark(for: browser.rawValue), let url = FolderBookmark.resolve(data),
+              accepts(url, for: browser) else { return nil }
         return url
     }
 
@@ -118,9 +111,7 @@ public struct BrowserFolderGrants: Sendable {
 
     /// Runs `body` with every granted folder of `browsers` in scope.
     public func accessing<T>(_ browsers: [ImportBrowser], _ body: () throws -> T) rethrows -> T {
-        let scoped = browsers.compactMap(grantedFolder).filter { $0.startAccessingSecurityScopedResource() }
-        defer { scoped.forEach { $0.stopAccessingSecurityScopedResource() } }
-        return try body()
+        try FolderBookmark.accessing(browsers.compactMap(grantedFolder), body)
     }
 
     static func canonicalPath(_ url: URL) -> String {

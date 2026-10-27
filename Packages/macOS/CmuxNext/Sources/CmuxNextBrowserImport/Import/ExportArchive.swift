@@ -1,5 +1,4 @@
 public import Foundation
-import Compression
 
 /// The parts cmux imports from a browser's export archive (Safari: File >
 /// Export Browsing Data to File…, a zip of Bookmarks.html, History.json,
@@ -146,12 +145,10 @@ public struct ExportArchive: Sendable {
             case 8:
                 // SAFETY: reads the start of the entry's bytes, lent for this closure.
                 guard let from = unsafe input.baseAddress else { return nil }
-                // COMPRESSION_ZLIB is raw DEFLATE, what a zip entry holds.
-                // SAFETY: the decoder reads at most input.count bytes from `from` and writes at most `size`
+                // SAFETY: the inflate reads at most input.count bytes from `from` and writes at most `size`
                 // to `destination`, the counts passed, both inside their lent buffers (checked above).
-                let written = unsafe compression_decode_buffer(destination.assumingMemoryBound(to: UInt8.self), size,
-                                                               from.assumingMemoryBound(to: UInt8.self), input.count, nil,
-                                                               COMPRESSION_ZLIB)
+                let written = unsafe RawDeflate.inflate(from.assumingMemoryBound(to: UInt8.self), count: input.count,
+                                                        into: destination.assumingMemoryBound(to: UInt8.self), capacity: size)
                 return written == size ? size : nil
             default:
                 return nil

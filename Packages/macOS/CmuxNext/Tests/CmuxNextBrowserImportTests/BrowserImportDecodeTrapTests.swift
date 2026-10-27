@@ -21,7 +21,7 @@ struct BrowserImportDecodeTrapTests {
 
     @Test func aPickleReadsItsFieldsAndRefusesALengthPastTheEnd() {
         // size, int32 7, string "ab" (padded to 4), string16 "hi".
-        let good = le32(20) + le32(7) + le32(2) + Array("ab".utf8) + [0, 0] + le32(2) + [0x68, 0, 0x69, 0]
+        let good: [UInt8] = [le32(20), le32(7), le32(2), Array("ab".utf8), [0, 0], le32(2), [0x68, 0, 0x69, 0]].flatMap { $0 }
         var pickle = PickleReader(Data(good))
         #expect(pickle?.int32() == 7)
         #expect(pickle?.string() == "ab")
@@ -62,11 +62,12 @@ struct BrowserImportDecodeTrapTests {
 
     @Test func safariCookiesWithCountsAndOffsetsPastTheFileAreMalformed() {
         let header = Array("cook".utf8)
+        // Each file is its parts joined (one long `+` chain is past what the Linux type checker solves).
         let files: [[UInt8]] = [
-            header + [0xFF, 0xFF, 0xFF, 0xFF],                              // 4 billion pages, no sizes
-            header + [0, 0, 0, 1] + [0xFF, 0xFF, 0xFF, 0xFF],               // one page of 4 GiB
-            header + [0, 0, 0, 1] + [0, 0, 0, 16] + [0, 0, 1, 0] + le32(0xFFFF_FFFF) + le32(0xFFFF_FFF0) + [0, 0, 0, 0],
-        ]
+            [header, [0xFF, 0xFF, 0xFF, 0xFF]],                             // 4 billion pages, no sizes
+            [header, [0, 0, 0, 1], [0xFF, 0xFF, 0xFF, 0xFF]],               // one page of 4 GiB
+            [header, [0, 0, 0, 1], [0, 0, 0, 16], [0, 0, 1, 0], le32(0xFFFF_FFFF), le32(0xFFFF_FFF0), [0, 0, 0, 0]],
+        ].map { $0.flatMap { $0 } }
         for file in files {
             #expect(throws: CookieImportError.self, "\(file)") { try SafariBinaryCookies().parse(Data(file)) }
         }
