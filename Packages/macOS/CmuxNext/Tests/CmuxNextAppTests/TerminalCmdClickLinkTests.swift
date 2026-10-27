@@ -216,7 +216,10 @@ import Testing
         services.inputDispatch.dispatching(click) {
             #expect(services.terminalDelegate.terminalSession(session, open: url))
         }
-        try await Task.sleep(for: .milliseconds(100))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while opened != [url], ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
         #expect(opened == [url])
 
         let router = LinkRouter()
