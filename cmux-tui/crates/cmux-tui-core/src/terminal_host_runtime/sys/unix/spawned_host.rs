@@ -23,6 +23,7 @@ impl SpawnedHostProcess {
 
     /// False once the process has exited (killed, or crashed before use).
     pub(crate) fn is_alive(&mut self) -> bool {
+        // wakeup-allow: bounded one non-blocking exit check when a standby host is handed out; it never waits
         self.child.as_mut().is_some_and(|child| matches!(child.try_wait(), Ok(None)))
     }
 

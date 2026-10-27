@@ -33,7 +33,9 @@ use super::renderer_grant::ControlRequestUnanswered;
 mod connect;
 pub(crate) mod launch;
 mod pending_control;
+mod read_deadline;
 pub(crate) use pending_control::PendingControlResponse;
+use read_deadline::{bound_next_read, restore_read_timeout};
 mod terminate;
 // Only the Unix host calls these until the Windows host lands.
 #[cfg_attr(not(unix), allow(unused_imports))]
@@ -519,14 +521,11 @@ impl HostAttachment {
                 .context("read terminal-host timeout before Kitty quota adoption")?;
             let response = (|| -> anyhow::Result<()> {
                 loop {
-                    let remaining = deadline.saturating_duration_since(Instant::now());
                     anyhow::ensure!(
-                        !remaining.is_zero(),
+                        bound_next_read(reader, deadline)
+                            .context("set terminal-host Kitty quota adoption timeout")?,
                         "terminal host did not apply Kitty graphics limits before adoption"
                     );
-                    reader
-                        .set_read_timeout(Some(remaining.max(Duration::from_millis(1))))
-                        .context("set terminal-host Kitty quota adoption timeout")?;
                     let frame = read_frame(reader, MAX_FRAME_PAYLOAD)
                         .map_err(protocol_io_error)?
                         .ok_or_else(|| {
@@ -558,8 +557,7 @@ impl HostAttachment {
                     return Ok(());
                 }
             })();
-            let restored = reader
-                .set_read_timeout(previous_timeout)
+            let restored = restore_read_timeout(reader, previous_timeout)
                 .context("restore terminal-host timeout after Kitty quota adoption");
             response.and(restored)
         })();
@@ -749,6 +747,7 @@ impl Drop for HostAttachment {
         // a wedged host that exceeds that bound is SIGKILLed by the
         // SpawnedHostProcess fallback below.
         let _ = self.terminate();
+        // wakeup-allow: deadline the failed launch's one rollback bound; the host's exit ends the wait first
         if !process.wait_timeout(HOST_LAUNCH_ROLLBACK_WAIT) {
             drop(process);
         }

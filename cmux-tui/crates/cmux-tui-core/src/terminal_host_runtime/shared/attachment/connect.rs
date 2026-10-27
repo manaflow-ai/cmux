@@ -148,6 +148,8 @@ pub(crate) fn connect_record_at_version(
     let terminal_id = TerminalId::from_bytes(decode_hex_array(&record.terminal_id)?);
     let incarnation = HostIncarnation::from_bytes(decode_hex_array(&record.incarnation)?);
     let owner_token = CapabilityToken::from_bytes(decode_hex_array(&record.owner_token)?);
+    // wakeup-allow: deadline the owner handshake's one bound; the host's reply ends each read first, and
+    // the attachment clears it before its first frame read (set_read_timeout(None) below)
     stream.set_read_timeout(Some(handshake_timeout))?;
     stream.set_write_timeout(Some(handshake_timeout))?;
     let hello = ClientHello {

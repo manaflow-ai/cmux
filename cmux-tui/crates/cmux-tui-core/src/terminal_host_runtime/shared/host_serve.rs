@@ -173,6 +173,15 @@ pub(crate) fn send_snapshot_resync(
     let _ = write_frame(stream, &resync);
 }
 
+/// The snapshot's geometry try-lock lost to a resize or cell-metric writer:
+/// step aside for it before trying again (the parser guard is already
+/// dropped, so that writer can finish).
+fn yield_to_geometry_writer(remaining: Duration) {
+    // wakeup-allow: bounded retries only while a writer holds the geometry during a client's attach,
+    // never past the snapshot deadline; an idle host never reaches this
+    thread::park_timeout(remaining.min(Duration::from_millis(1)));
+}
+
 pub(crate) fn serve_client(host: Arc<HostShared>, stream: HostStream) -> anyhow::Result<()> {
     serve_client_with_snapshot_timeout(host, stream, HOST_SNAPSHOT_BOUNDARY_TIMEOUT)
 }
@@ -304,7 +313,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                 Ok(guard) => guard,
                 Err(TryLockError::WouldBlock) => {
                     drop(term);
-                    thread::park_timeout(remaining.min(Duration::from_millis(1)));
+                    yield_to_geometry_writer(remaining);
                     continue;
                 }
                 Err(TryLockError::Poisoned(_)) => {
@@ -318,7 +327,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                 Err(TryLockError::WouldBlock) => {
                     drop(viewer_sizes);
                     drop(term);
-                    thread::park_timeout(remaining.min(Duration::from_millis(1)));
+                    yield_to_geometry_writer(remaining);
                     continue;
                 }
                 Err(TryLockError::Poisoned(_)) => {
@@ -334,7 +343,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                     drop(size);
                     drop(viewer_sizes);
                     drop(term);
-                    thread::park_timeout(remaining.min(Duration::from_millis(1)));
+                    yield_to_geometry_writer(remaining);
                     continue;
                 }
                 Err(TryLockError::Poisoned(_)) => {
@@ -549,6 +558,8 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                         && let Ok(delay) = delay.parse::<u64>()
                         && delay > 0
                     {
+                        // wakeup-allow: fixture an integration test's injected receipt delay, only with
+                        // CMUX_TUI_TEST_TERMINATE_ACK_DELAY_MS set; once per Terminate, at most 5 s
                         thread::sleep(Duration::from_millis(delay.min(5_000)));
                     }
                     if launch_owner_claimed {
