@@ -67,4 +67,33 @@ struct InputLatencyDebugSourceTests {
         reporter.finish()
         await reader.value
     }
+
+    @Test func theSlotsActionListsEachKeyNewestFirstAndResetStartsItOver() async throws {
+        let harness = InputLatencyTrackerTests.Harness()
+        let debugInput = DebugInput(sources: [], recorders: [InputLatencySlotsRecorder(tracker: harness.tracker,
+                                                                                       mainWork: DebugInputTests.mainWork())])
+        let firstEvent = harness.now - 2_000_000
+        try closeKeys(3, in: harness)
+
+        let reply = try await debugInput.reply(to: DebugInput.Request(params: ["action": .string("slots")]))
+        let object = try DebugInputTests.object(reply)
+        #expect(object["closed"] as? Int == 3)
+        let slots = try #require(object["slots"] as? [[String: Any]])
+        #expect(slots.count == 3)
+        #expect(slots.allSatisfy { $0["kind"] as? String == "keyPress" && $0["target"] as? String == "textView" })
+        let generated = slots.compactMap { ($0["generated_ns"] as? NSNumber)?.uint64Value }
+        #expect(generated == generated.sorted(by: >), "newest first")
+        #expect(generated.last.map { max($0, firstEvent) - min($0, firstEvent) < 1_000 } == true, "the oldest is the first key's event")
+        // FakePresentation answers commit + 1 ms; each key's event is 2 ms old at its begin and commits 1 ms later.
+        #expect(slots.allSatisfy { ($0["total_ms"] as? Double).map { abs($0 - 4) < 0.001 } == true })
+        #expect(slots.allSatisfy { ($0["stages_ms"] as? [String: Double])?["presented"] != nil })
+
+        _ = try await debugInput.reply(to: .reset)
+        try closeKeys(1, in: harness)
+        let after = try DebugInputTests.object(try await debugInput.reply(to: DebugInput.Request(params: ["action": .string("slots")])))
+        #expect((after["slots"] as? [[String: Any]])?.count == 1, "only the key closed since the reset")
+        let all = try DebugInputTests.object(try await debugInput.reply(
+            to: DebugInput.Request(params: ["action": .string("slots"), "since_launch": .bool(true)])))
+        #expect((all["slots"] as? [[String: Any]])?.count == 4)
+    }
 }
