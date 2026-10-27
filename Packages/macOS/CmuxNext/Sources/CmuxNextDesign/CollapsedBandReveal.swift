@@ -54,7 +54,7 @@ public final class CollapsedBandReveal {
     public private(set) var isOpen = false
     /// Whether the last open or close moved (false under Reduce Motion,
     /// speed off, or a window with no screen).
-    public private(set) var lastChangeAnimated = false
+    public internal(set) var lastChangeAnimated = false
     /// The open share the window root lays out: 0 closed, 1 open, in between
     /// only while a stepped change animates ``driver``.
     public var presence: CGFloat { stepped ? steppedPresence : restShare }
