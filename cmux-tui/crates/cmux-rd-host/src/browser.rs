@@ -115,9 +115,17 @@ impl BrowserSupervisor {
         let first = spawn(&cmd, &shared)?;
         let s = Arc::clone(&shared);
         // A supervisor waits on the browser's exit and restarts it: Utility.
+        // supervise-allow: the browser's restarter, Fatal by hand: its handle stays with BrowserSupervisor, and a panic ends the host (EX_SOFTWARE), never a host that would not restart its browser.
         let thread =
             cmux_threads::spawn("cmux-rd-browser", cmux_threads::ThreadQos::Utility, move || {
-                supervise(cmd, backoff, first, &s)
+                let supervised = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    supervise(cmd, backoff, first, &s)
+                }));
+                if supervised.is_err() {
+                    eprintln!("cmux-rd host: the browser supervisor failed; exiting");
+                    // crash-allow: without its restarter the host would serve no browser after the next crash.
+                    std::process::exit(70);
+                }
             })?;
         Ok(Self { shared, thread: Some(thread) })
     }

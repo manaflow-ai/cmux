@@ -294,6 +294,7 @@ pub fn init_process(config: TracerConfig) -> Option<BlackboxOpen> {
     if !fresh {
         return None;
     }
+    // supervise-allow: a one-shot ring-file open whose handle is BlackboxOpen; a panic keeps the black box on the heap, and BlackboxOpen::wait reports it.
     let handle =
         std::thread::Builder::new().name("cmux-trace-open".into()).spawn(|| tracer.adopt_file());
     Some(BlackboxOpen(handle.ok()))

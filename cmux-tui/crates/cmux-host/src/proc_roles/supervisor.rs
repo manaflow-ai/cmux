@@ -73,10 +73,18 @@ impl Supervisor {
     pub fn start(paths: RolePaths) -> std::io::Result<Supervisor> {
         let (tx, rx) = mpsc::channel();
         let loop_tx = tx.clone();
+        // supervise-allow: the role loop, Fatal by hand: its handle stays with Supervisor for stop_all, and a panic ends the process (EX_SOFTWARE) so whoever started cmux-host starts it again, never a host whose roles nobody manages.
         let thread =
             std::thread::Builder::new().name("cmux-host-roles".to_owned()).spawn(move || {
-                Loop { paths, entries: BTreeMap::new(), invalid: Vec::new(), published: None }
-                    .run(&rx, &loop_tx);
+                let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    Loop { paths, entries: BTreeMap::new(), invalid: Vec::new(), published: None }
+                        .run(&rx, &loop_tx);
+                }));
+                if run.is_err() {
+                    eprintln!("cmux-host: the role loop failed; exiting");
+                    // crash-allow: a dead role loop leaves roles unmanaged; the process supervisor restarts cmux-host and its roles.
+                    std::process::exit(cmux_panic_log::SUPERVISED_FATAL_EXIT_CODE);
+                }
             })?;
         Ok(Supervisor { tx, thread: Some(thread) })
     }

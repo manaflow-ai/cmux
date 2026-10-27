@@ -89,6 +89,7 @@ impl VmSession {
     pub fn spawn(config: VmConfig, host: Arc<dyn VmHost>) -> io::Result<VmSession> {
         let (tx, rx) = mpsc::channel();
         let loop_tx = tx.clone();
+        // supervise-allow: this REPL session's VM; its state is the session's own, and a panic drops its receiver and each pending reply, so the session's evals answer "stopped" at once.
         std::thread::Builder::new()
             .name(format!("cmux-browser-host-vm-{}", config.session_id))
             .spawn(move || run(config, host, rx, loop_tx))?;
@@ -358,6 +359,7 @@ fn run(
                 // engine calls run off the VM thread.
                 if timed_out {
                     let host = host.clone();
+                    // supervise-allow: one cancel of a timed-out cell's fetches; a panic leaves those fetches to end at their own deadlines.
                     let _ = std::thread::Builder::new()
                         .name("cmux-browser-host-fetch-cancel".into())
                         .spawn(move || host.cancel_fetches(cell));
@@ -562,6 +564,7 @@ fn install(
                 if let Some(object) = request.as_object_mut() {
                     object.insert("cell".into(), json!(fetch_shared.borrow().cell));
                 }
+                // supervise-allow: one net.fetch for the VM; a panic drops `sender` with no result, so that call ends at the cell's deadline and the VM goes on.
                 let spawned = std::thread::Builder::new()
                     .name("cmux-browser-host-fetch".into())
                     .spawn(move || {
@@ -624,6 +627,7 @@ fn install(
                 let results = results.clone();
                 let sender = results.clone();
                 let params: Value = serde_json::from_str(&params).unwrap_or(json!({}));
+                // supervise-allow: one driver call for the VM; a panic drops `sender` with no result, so that call ends at the cell's deadline and the VM goes on.
                 let spawned = std::thread::Builder::new()
                     .name("cmux-browser-host-driver-call".into())
                     .spawn(move || {

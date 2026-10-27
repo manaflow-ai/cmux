@@ -343,6 +343,7 @@ fn probe(
     sock.write_all(&hello(token)).map_err(|e| e.to_string())?;
     let (tx, rx) = mpsc::channel::<Vec<u8>>();
     let mut reader = sock.try_clone().map_err(|e| e.to_string())?;
+    // supervise-allow: the probe CLI's socket reader; a panic drops `tx`, so the probe's receive loop sees the stream end and reports it.
     std::thread::spawn(move || {
         let mut buf = vec![0u8; 64 * 1024];
         while let Ok(n) = reader.read(&mut buf) {

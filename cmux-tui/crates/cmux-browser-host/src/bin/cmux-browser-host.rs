@@ -229,13 +229,19 @@ mod unix {
     ) -> Result<(), String> {
         let slot = engines.provider_slot();
         let bundle: Arc<str> = agent_bundle().into();
+        // supervise-allow: the provider listener, Fatal by hand: its loop never ends while it serves, so an end or a panic exits the host and the daemon starts it again, never a host that takes no providers.
         std::thread::Builder::new()
             .name("cmux-browser-host-providers".into())
             .spawn(move || {
                 let secret = cmux_browser_host::provider::ProviderSecret::new(secret);
-                let _ = cmux_browser_host::server::serve_providers_notifying(
-                    listener, secret, slot, bundle, on_change,
-                );
+                let served = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    cmux_browser_host::server::serve_providers_notifying(
+                        listener, secret, slot, bundle, on_change,
+                    )
+                }));
+                eprintln!("cmux-browser-host: the provider listener ended ({served:?}); exiting");
+                // crash-allow: a host without its provider listener serves no app tabs; the daemon starts it again.
+                std::process::exit(1);
             })
             .map_err(|e| e.to_string())?;
         Ok(())
@@ -340,6 +346,7 @@ mod unix {
             supervise_from_stdin();
         }
         if let Some(idle) = idle {
+            // supervise-allow: the idle stop; a panic ends the idle stop only, and the host keeps serving until its daemon stops it, as when this thread cannot start.
             let spawned =
                 std::thread::Builder::new().name("supervisor-idle".into()).spawn(move || {
                     if idle.wait() {
@@ -371,11 +378,14 @@ mod unix {
             std::process::exit(0);
         }
         drop(stdout);
+        // supervise-allow: the stdin watch, Fatal by hand: the host exits at the end of stdin or at a panic in the watch, so it never outlives its daemon.
         let spawned = std::thread::Builder::new().name("supervisor-stdin".into()).spawn(|| {
-            let mut sink = [0_u8; 256];
-            let mut stdin = std::io::stdin().lock();
-            // Bytes from the daemon mean nothing; only the end does.
-            while matches!(stdin.read(&mut sink), Ok(n) if n > 0) {}
+            let _ = std::panic::catch_unwind(|| {
+                let mut sink = [0_u8; 256];
+                let mut stdin = std::io::stdin().lock();
+                // Bytes from the daemon mean nothing; only the end does.
+                while matches!(stdin.read(&mut sink), Ok(n) if n > 0) {}
+            });
             // crash-allow: the end of stdin means the daemon stopped or died; the host stops with it.
             std::process::exit(0);
         });

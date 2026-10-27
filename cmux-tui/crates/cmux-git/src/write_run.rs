@@ -64,10 +64,13 @@ impl WriteGit<'_> {
             return Err(GitFailure::Unavailable("git pipes are missing".to_string()));
         };
         let bytes = stdin.to_vec();
+        // supervise-allow: joined below in this function on every path; a panic ends the input write only.
         let writer = thread::spawn(move || {
             let _ = input.write_all(&bytes);
         });
+        // supervise-allow: joined below in this function on every path; a panic reads as empty output.
         let stdout = thread::spawn(move || drain(stdout, max_stdout));
+        // supervise-allow: joined below in this function on every path; a panic reads as empty output.
         let stderr = thread::spawn(move || drain(stderr, MAX_STDERR_BYTES));
         let waited = match bound {
             Bound::Deadline(deadline) => child.wait_timeout(deadline),

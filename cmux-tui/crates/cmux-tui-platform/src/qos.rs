@@ -196,6 +196,7 @@ where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
+    // supervise-allow: a spawn primitive: it returns the JoinHandle, so each caller keeps it and owns its thread's failure policy.
     cmux_threads::spawn(name, outside_request_class(), f)
 }
 

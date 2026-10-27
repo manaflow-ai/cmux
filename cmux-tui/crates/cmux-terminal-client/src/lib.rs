@@ -1733,6 +1733,7 @@ pub unsafe extern "C" fn cmux_terminal_client_disconnect(client: *mut CmuxTermin
     client.raw_output.set_callback(None, std::ptr::null_mut());
     // Connection teardown may wait on the carrier. Transfer ownership to a
     // background thread so the C call is nonblocking for AppKit.
+    // supervise-allow: one client's teardown after the caller gave it up; a panic ends that teardown only, and the client's sockets close when the process exits.
     let _ = cmux_threads::spawn("cmux-terminal-disconnect", TEARDOWN_QOS, move || {
         let terminal = client.terminal.lock().unwrap().take();
         client.runtime.block_on(async {
@@ -2109,6 +2110,7 @@ fn spawn_diagnostics(
     let state = state.clone();
     let updates = updates.clone();
     let mut generation = connection.subscribe_generation();
+    // supervise-allow: the diagnostics mirror, ending with the connection's generation channel when the client's runtime shuts down; a panic freezes the transport readout only, and the terminal keeps working.
     runtime.spawn(async move {
         while generation.changed().await.is_ok() {
             let snapshot = connection.snapshot().await;
@@ -2643,6 +2645,7 @@ pub unsafe extern "C" fn cmux_wireguard_net_free(net: *mut CmuxWireGuardNet) {
     let net = unsafe { Box::from_raw(net) };
     // The driver task lives on this runtime; drop it off the caller's thread so
     // an AppKit or UIKit caller never blocks on socket teardown.
+    // supervise-allow: one handle's drop after the caller gave it up; a panic ends that drop only.
     let _ = cmux_threads::spawn("cmux-wireguard-free", TEARDOWN_QOS, move || drop(net));
 }
 
