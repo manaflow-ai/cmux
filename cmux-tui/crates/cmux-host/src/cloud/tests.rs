@@ -9,7 +9,9 @@ use std::rc::Rc;
 use cmux_server_core::install_key::{SystemRandom, verify};
 use serde_json::{Value, json};
 
-use super::client::{BindResult, Http, MemoryStore, Store, bind_machine, ensure_install_key};
+use super::client::{
+    BindResult, Http, MemoryStore, Store, bind_machine, ensure_install_key, record_owner_kind,
+};
 use super::wire::*;
 
 const DEV: &str = "https://cmux-api-development.debussy.workers.dev";
@@ -147,4 +149,27 @@ fn bind_posts_the_vector_fields_writes_bound_then_removes_bind() {
     assert_eq!(bound["env"], "dev");
     assert_eq!(store.read(BIND_FILE), None);
     assert_eq!(store.mode_of(BOUND_FILE), Some(0o600));
+}
+
+#[test]
+fn owner_kind_is_written_once_and_never_replaces_a_record() {
+    use crate::team_ssh::enroll::TEAM_ENROLL_FILE;
+    // Nothing recorded: the bind records `owner`, 0644.
+    let mut store = MemoryStore::default();
+    record_owner_kind(&mut store).unwrap();
+    assert_eq!(store.read(VM_KIND_FILE).as_deref(), Some("owner\n"));
+    assert_eq!(store.mode_of(VM_KIND_FILE), Some(0o644));
+    // A record the create (or anything else) wrote first is kept, whatever it says.
+    for existing in ["team\n", "owner\n", "", "something-else\n"] {
+        let mut store = MemoryStore::default();
+        store.write(VM_KIND_FILE, existing, 0o600).unwrap();
+        record_owner_kind(&mut store).unwrap();
+        assert_eq!(store.read(VM_KIND_FILE).as_deref(), Some(existing));
+        assert_eq!(store.mode_of(VM_KIND_FILE), Some(0o600));
+    }
+    // A team enroll on disk with no record: nothing is written.
+    let mut store = MemoryStore::default();
+    store.write(TEAM_ENROLL_FILE, "{}", 0o600).unwrap();
+    record_owner_kind(&mut store).unwrap();
+    assert_eq!(store.read(VM_KIND_FILE), None);
 }

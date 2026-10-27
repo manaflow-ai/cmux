@@ -187,19 +187,21 @@ pub fn bind_machine(
         return BindResult::Retry(format!("bound.json write: {e}"));
     }
     // Best effort: the token is spent, so a retry would be refused and lose
-    // bind.json. The agent writes the kind again (and logs a failure) once
-    // bound and at every restart (role.rs).
+    // bind.json. The agent tries again (and logs a failure) once bound and at
+    // every restart (role.rs); each try keeps a record that is already there.
     let _ = record_owner_kind(store);
     store.remove(BIND_FILE);
     BindResult::Bound(Box::new(bound))
 }
 
-/// Records this machine as an owner VM ([`VM_KIND_FILE`]) unless it is a
-/// team VM: a team record, or a team enroll or binding on disk (so a failed
-/// read or an older team enroll never turns `team` into `owner`).
+/// Records this machine as an owner VM ([`VM_KIND_FILE`]) when nothing has
+/// recorded its kind yet and it is not a team VM (a team enroll or binding on
+/// disk). An existing record, whatever it says, is kept: the Cloud backend
+/// writes the kind it assigned at create (web services/vms/guestVmKind.ts),
+/// and a restart here never replaces it.
 pub fn record_owner_kind(store: &mut dyn Store) -> Result<(), String> {
     use crate::team_ssh::enroll::{TEAM_BOUND_FILE, TEAM_ENROLL_FILE};
-    if store.read(VM_KIND_FILE).is_some_and(|kind| kind.trim() == "team")
+    if store.read(VM_KIND_FILE).is_some()
         || store.read(TEAM_ENROLL_FILE).is_some()
         || store.read(TEAM_BOUND_FILE).is_some()
     {

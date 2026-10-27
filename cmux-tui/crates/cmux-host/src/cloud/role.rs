@@ -613,7 +613,8 @@ impl Worker {
             Ok(bound) => bound,
             Err(e) => return log(&format!("bound.json unreadable: {e}")),
         };
-        // A machine bound by an older build has no kind record yet.
+        // A machine bound by an older build may have no kind record yet; one
+        // that has a record keeps it.
         if let Err(e) = super::client::record_owner_kind(&mut self.store) {
             log(&format!("vm-kind write: {e}"));
         }
