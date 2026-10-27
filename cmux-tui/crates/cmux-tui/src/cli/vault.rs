@@ -20,7 +20,7 @@
 //! Chief host, outside cmux or unknown), not from the `caller` this command sends, which can only
 //! narrow it.
 
-use std::io::{IsTerminal as _, Read, Write};
+use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::time::Duration;
 

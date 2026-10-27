@@ -14,7 +14,7 @@ import Foundation
 /// - `vault.request {name, reason?}`: asks the person on a native sheet to enter the value (the
 ///   Chief's secure entry); the answer says whether it was stored, never the value.
 /// - `vault.audit {limit?}`: the newest audit lines.
-extension CredentialVault {
+nonisolated extension CredentialVault {
     /// A person types the value; the sheet waits for them, this only ends a lost one.
     static let requestDeadline: Duration = .seconds(600)
 
@@ -112,7 +112,7 @@ extension CredentialVault {
 }
 
 /// The method bodies and their params (internal: the public surface is ``CredentialVault/controlMethods(ask:lineage:)``).
-enum VaultControl {
+nonisolated enum VaultControl {
     typealias EntryRequest = CredentialVault.EntryRequest
     typealias EntryAnswer = CredentialVault.EntryAnswer
     typealias Ask = CredentialVault.Ask
