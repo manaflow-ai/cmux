@@ -26,6 +26,7 @@ struct PinCommands {
     /// Sends the pin through the strip that shows the tab (its store
     /// intent), else straight to the daemon. False when the tab is gone.
     private func apply(_ id: String, pinned: Bool) -> Bool {
+        // view-observation-allow: locateTab is one MachineTabIndex lookup (R-index's target), not an observation
         guard let (tab, pane) = context.services.locateTab(id) ?? context.refuseQuietly(RefusalStrings.noTab(id)) else { return false }
         if let controller = context.services.paneController(for: pane) {
             controller.setPinned(StripTabID(id), pinned: pinned)

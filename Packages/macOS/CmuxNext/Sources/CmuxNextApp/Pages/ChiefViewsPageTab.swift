@@ -1,11 +1,15 @@
 import CmuxNextActions
 import CmuxNextChiefViews
+import CmuxNextHibernation
 
 /// The Chief view gallery (``ChiefViewsPage``, CmuxNextChiefViews) as a page tab: in the home
 /// workspace it lands in Home's right column beside the Chief dock. The app passes its machines
 /// and its navigation; the target serves the page.
 enum ChiefViewsPageTab {
     static let page = InternalPageID(rawValue: "chief-views")
+    /// Ten minutes hidden (`memoryDiscardInternalPages`): the gallery holds no edit, and a new page
+    /// reads the machines and their workspaces again through the host.
+    static let discardPolicy = ContentDiscardPolicy.standard
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
@@ -16,7 +20,8 @@ enum ChiefViewsPageTab {
             revealTab: { [weak services] in services?.revealTab($0) ?? false },
             openURL: { [weak services] in services?.home.dock.openLink($0, on: services?.daemon.connection) },
             mainWork: services.mainWork)
-        services.pages.register(WebPageTab(page, symbol: ChiefViewsPage.symbol, title: ChiefViewsPage.title) { [weak services] in
+        services.pages.register(WebPageTab(page, symbol: ChiefViewsPage.symbol, title: ChiefViewsPage.title,
+                                           discardPolicy: discardPolicy) { [weak services] in
             services.flatMap { ChiefViewsPage(host: host, webUI: $0.webUI).makeView() }
         })
         registry.bind(ChiefViewsPage.actionID, unavailable: { ChiefViewsPage.unavailableReason }, invoke: { [weak services] invocation in

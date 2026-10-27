@@ -4,6 +4,7 @@ import CmuxNextBrowser
 @testable import CmuxNextApp
 import CmuxNextFiles
 import CmuxNextFilesUI
+import CmuxNextWakeups
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -116,7 +117,7 @@ struct FileOpenAsTextTests {
     @Test func theFileMenuOffersOpenAsTextRightAfterOpenForARenderedPage() throws {
         _ = NSApplication.shared
         var opened: [URL] = []
-        let menu = FileActionsMenu(apps: NoApps(), actions: .init(openInCmux: { _ in }, revealInFiles: { _ in },
+        let menu = FileActionsMenu(apps: NoApps(), mainWork: MainWorkScheduler(budget: MainFrameBudget()), actions: .init(openInCmux: { _ in }, revealInFiles: { _ in },
                                                                   openAsText: { opened.append($0) }))
         let file = Self.url("index.html")
         let rows = menu.items(forFileNamed: "index.html") { file }
@@ -132,7 +133,7 @@ struct FileOpenAsTextTests {
     @Test func choosingOpenAsTextRunsTheHostsOpenWithTheFile() async throws {
         _ = NSApplication.shared
         var opened: [URL] = []
-        let menu = FileActionsMenu(apps: NoApps(), actions: .init(openInCmux: { _ in Issue.record("Open in Right Pane ran") },
+        let menu = FileActionsMenu(apps: NoApps(), mainWork: MainWorkScheduler(budget: MainFrameBudget()), actions: .init(openInCmux: { _ in Issue.record("Open in Right Pane ran") },
                                                                   revealInFiles: { _ in }, openAsText: { opened.append($0) }))
         let file = Self.url("logo.svg")
         let row = try #require(menu.openAsTextItem(forFileNamed: "logo.svg") { file })
@@ -143,7 +144,7 @@ struct FileOpenAsTextTests {
     }
 
     @Test func withoutAHostOpenThereIsNoOpenAsText() {
-        let menu = FileActionsMenu(apps: NoApps(), actions: .init(openInCmux: { _ in }, revealInFiles: { _ in }))
+        let menu = FileActionsMenu(apps: NoApps(), mainWork: MainWorkScheduler(budget: MainFrameBudget()), actions: .init(openInCmux: { _ in }, revealInFiles: { _ in }))
         #expect(menu.openAsTextItem(forFileNamed: "index.html") { nil } == nil)
     }
 

@@ -88,7 +88,8 @@ func withAuthPhaseTimeout<T: Sendable>(
                     if let deadline {
                         try await deadline.wait()
                     } else {
-                        try await clock.sleep(for: duration, tolerance: nil)
+                        // wakeup-allow: deadline the phase's one timeout; cancelled when the operation finishes first
+                        try await clock.sleep(for: duration, tolerance: duration.authWakeLeeway)
                     }
                     try Task.checkCancellation()
                 } catch {
