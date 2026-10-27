@@ -9,7 +9,7 @@ extension HomeNativeTranscriptView {
     }
 
     func updateStarterAvailability() {
-        firstRun.starters.isEnabled = isSendEnabled && !stopped && !starterSent && starterIntakes == 0 && transcript.draftText.isEmpty
+        firstRun.starters.isEnabled = isSendEnabled && !stopped && !starterSent && starterIntakes == 0 && !transcript.isRestoringDraftAttachments && transcript.draftText.isEmpty
             && transcript.draftAttachments.isEmpty && drop.pending == 0
     }
 

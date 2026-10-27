@@ -579,6 +579,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         (controller.store?.state.ui.draft.attachments ?? []).compactMap { drafts[$0.id] }
     }
 
+    var isRestoringDraftAttachments: Bool { restoringDraftAttachments }
+
     func removeDraft(_ hash: String) {
         drafts[hash] = nil
         controller.dispatch(.removeDraftAttachment(hash))
