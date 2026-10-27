@@ -449,6 +449,7 @@ public final class HomeSidebarView: NSView {
         window?.makeFirstResponder(list.searchField)
     }
 
+    // visibility-walk-allow: color stores and the two header glyphs in the theme scope (applyColors), no layout or text measure; cheaper than a deferral
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

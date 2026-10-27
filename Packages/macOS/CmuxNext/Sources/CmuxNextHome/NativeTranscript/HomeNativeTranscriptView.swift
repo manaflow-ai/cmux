@@ -121,15 +121,20 @@ public final class HomeNativeTranscriptView: NSView {
     public var onHeaderPanel: (String) -> Void = { _ in }
     /// The header's top-right panel toggles (HomeNativeTranscriptView+HeaderPanels.swift).
     let headerPanels = HomeHeaderPanelBar()
-    /// The window's key and occlusion observers; each token removes itself when released (on any thread).
-    private var observers: [MainActorObservation] = []
+    /// The window's key and occlusion notices, through its one WindowEvents fan-out; releasing a
+    /// subscription ends it.
+    private var windowEvents: [EventSubscription] = []
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
     private var cursorHold: HomeCursorRectHold?
     /// Debug Settings > Home > Avatar and name over the chat, when this conversation opened (off: no header).
     let showsHeader = HomeTunables.chatHeader.value
-    /// Visible while the view is in a window, not hidden there (a parked tab, an unselected
-    /// conversation) and not stopped: the live settings apply only then (``updateVisibility()``).
-    let visibility = VisibilityNode(root: "home.transcript", own: .hidden)
+    /// Visible while the view is in a window and not stopped (``updateVisibility()``): the parent of
+    /// ``visibility``.
+    let windowed: VisibilityNode
+    /// Visible while ``windowed`` is and neither the view nor an ancestor is hidden (a parked tab, an
+    /// unselected conversation): AppKit's `viewDidHide`/`viewDidUnhide` set its own state. The live
+    /// settings apply, the theme repaints and the engine wakes run unaligned only then.
+    let visibility: VisibilityNode
     /// The live settings (HomeNativeTranscriptView+Settings.swift).
     var settingsWatch: FrameObservation<HomeTranscriptSettings>?
     /// The settings last applied; nil before the first apply.
@@ -137,15 +142,21 @@ public final class HomeNativeTranscriptView: NSView {
 
     /// - Parameter diagrams: draws Mermaid fences as diagrams (the app's ``OndineMermaidRenderer``); nil keeps them as text.
     /// - Parameter openPanel: the app's made-ahead file picker (`AppServices.openPanel`) for the "+"; nil (tests) opens none.
-    /// - Parameter mainWork: the app's main-thread scheduler; the live settings apply on its frames.
+    /// - Parameter deadlines: the app's one deadline placer (`AppServices.mainDeadlines`): the engine's
+    ///   wakes are its deadlines, and the live settings apply on its scheduler's frames.
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil,
-                openPanel: MadeAheadOpenPanel? = nil, mainWork: MainWorkScheduler) {
+                openPanel: MadeAheadOpenPanel? = nil, deadlines: MainDeadlineScheduler) {
         attachmentPanel = openPanel.map { HomeAttachmentPanel(openPanel: $0) }
+        let windowed = VisibilityNode(root: "home.transcript.window", own: .hidden)
+        let visibility = VisibilityNode("home.transcript", parent: windowed)
+        self.windowed = windowed
+        self.visibility = visibility
         HomeReduceMotion.install()
         self.me = me
         // Debug Settings > Home > Rich tables, before the transcript maps its first messages.
         MessagesLabHomeView.richTables = HomeTunables.richTables.value
-        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
+        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(node: visibility, deadlines: deadlines),
+                                         diagrams: diagrams)
         // Reduce Motion changes still or restart the loops already running (the transcript observes nothing itself).
         HomeReduceMotion.follow(transcript)
         // The running indicator's look (Debug Settings > Home), read at each of its ticks.
@@ -184,7 +195,7 @@ public final class HomeNativeTranscriptView: NSView {
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
         // A long draft grows the field with no size change: refit the panel and the notice above it.
         transcript.onFieldTopChange = { [weak self] in self?.needsLayout = true } // invalidate: told only when the field's height changed
-        settingsWatch = followSettings(on: mainWork)
+        settingsWatch = followSettings(on: deadlines.work)
         applyTheme()
         updateFirstRun()
     }
@@ -211,7 +222,7 @@ public final class HomeNativeTranscriptView: NSView {
         guard !stopped else { return }
         stopped = true
         settingsWatch?.cancel()
-        visibility.set(.hidden)
+        windowed.set(.hidden)
         if let linkPreviews { linkPreviews.coordinator.unregister(linkPreviews) }
         intake?.cancel()
         voice.close()
@@ -224,7 +235,7 @@ public final class HomeNativeTranscriptView: NSView {
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// The first-run panel is on screen (capture scenes settle on it).
-    public var debugFirstRunShown: Bool { !firstRun.isHiddenOrHasHiddenAncestor && firstRun.window != nil }
+    public var debugFirstRunShown: Bool { !firstRun.isHidden && visibility.isVisible }
     /// The first-run panel's listed agents, most urgent first.
     public var debugFirstRunAgents: [HomeDebugAgentRow] { firstRun.debugAgents }
     /// Clicks the panel's agent row `index` (`HomeFirstRunView.debugClickAgent`).
@@ -310,7 +321,7 @@ public final class HomeNativeTranscriptView: NSView {
     /// - Parameter responder: The window's first responder now.
     /// - Returns: True when the host should focus ``primaryInput``.
     public func primaryInputShouldTakeKeyboard(from responder: NSResponder?) -> Bool {
-        if let view = responder as? NSView, view.isDescendant(of: firstRun), !firstRun.isHiddenOrHasHiddenAncestor {
+        if let view = responder as? NSView, view.isDescendant(of: firstRun), !firstRun.isHidden, visibility.isVisible {
             return false
         }
         return transcript.primaryInputShouldTakeKeyboard(from: responder)
@@ -323,7 +334,7 @@ public final class HomeNativeTranscriptView: NSView {
     /// - Parameter responder: The window's first responder now.
     /// - Returns: True when the host should call ``recallPrimaryInputHistory(older:)``.
     public func primaryInputHistoryTakesArrowKeys(from responder: NSResponder?) -> Bool {
-        if let view = responder as? NSView, view.isDescendant(of: firstRun), !firstRun.isHiddenOrHasHiddenAncestor {
+        if let view = responder as? NSView, view.isDescendant(of: firstRun), !firstRun.isHidden, visibility.isVisible {
             return false
         }
         return transcript.primaryInputHistoryTakesArrowKeys(from: responder)
@@ -433,7 +444,8 @@ public final class HomeNativeTranscriptView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         updateVisibility()
-        observers = []
+        for subscription in windowEvents { subscription.cancel() }
+        windowEvents = []
         cursorHold = window.flatMap(HomeCursorRectHold.hold(for:))
         cursorHold?.add(self)
         if let linkPreviews {
@@ -441,10 +453,15 @@ public final class HomeNativeTranscriptView: NSView {
         }
         guard let window else { return }
         if attachmentPreparer != nil { attachmentPanel?.warmWhenIdle() }  // the "+" opens without making a panel
-        observers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
-                     NSWindow.didChangeOcclusionStateNotification].map { name in
-            MainActorObservation(name, object: window) { [weak self] in self?.windowStateChanged() }
-        }
+        // Always delivered, hidden or not: whether the person can read this conversation decides its
+        // read receipts, a model change (p06 rule 3). Chromium observes an NSWindow's key and occlusion
+        // once, in its delegate (components/remote_cocoa/app_shim/views_nswindow_delegate.mm).
+        let events = WindowEvents.of(window), owner = "HomeTranscript.windowState"
+        windowEvents = [
+            events.subscribe(NSWindow.didBecomeKeyNotification, owner: owner) { [weak self] in self?.windowStateChanged() },
+            events.subscribe(NSWindow.didResignKeyNotification, owner: owner) { [weak self] in self?.windowStateChanged() },
+            events.subscribe(NSWindow.didChangeOcclusionStateNotification, owner: owner) { [weak self] in self?.windowStateChanged() },
+        ]
         windowStateChanged()
         // A theme change while the tab was hidden (equal palettes return early).
         applyTheme()
@@ -452,7 +469,8 @@ public final class HomeNativeTranscriptView: NSView {
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        applyTheme()
+        // A hidden transcript repaints once, when it shows (R-appear): the palette re-themes every row.
+        visibility.deferUntilVisible(key: "HomeTranscript.appearance") { [weak self] in self?.applyTheme() }
     }
 
     /// The theme's palette (the key window's, for every window) for the MessagesLab

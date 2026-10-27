@@ -60,7 +60,7 @@ import Testing
         let scope = try Self.purpleRoom()
         let invite = HomeInviteSheet(pending: ["ada@example.com"])
         // New Message is a page now: its To: field's label and its suggestions' note.
-        let to = HomeRecipientField(frame: NSRect(x: 0, y: 0, width: 480, height: 44))
+        let to = HomeRecipientField(pictures: .testing(), frame: NSRect(x: 0, y: 0, width: 480, height: 44))
         to.suggestions.show([], empty: "No teammates yet.")
         for root in [invite.view, to, to.suggestions] {
             scope.root(root)

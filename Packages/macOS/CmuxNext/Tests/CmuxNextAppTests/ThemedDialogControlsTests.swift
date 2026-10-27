@@ -10,7 +10,7 @@ import Testing
 @MainActor
 struct ThemedDialogControlsTests {
     @Test func newMessageDrawsTheThemeNotTheAccent() throws {
-        let list = HomeRecipientSuggestionsView(frame: NSRect(x: 0, y: 0, width: 380, height: 120))
+        let list = HomeRecipientSuggestionsView(pictures: .testing(), frame: NSRect(x: 0, y: 0, width: 380, height: 120))
         list.show([.contact(HomeContact(id: ParticipantID("ada"), name: "Ada", source: .team))])
         #expect(list.table.numberOfRows == 1)
         #expect(list.highlighted == 0)

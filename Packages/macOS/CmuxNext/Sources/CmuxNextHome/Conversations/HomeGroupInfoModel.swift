@@ -110,6 +110,7 @@ public final class HomeGroupInfoModel {
         isRunning = true
         status = nil
         offersInvite = false
+        // main-hop-allow: the person's sheet action: each HomeGroupInfoActions closure is the app's main-actor async call (its daemon or Cloud request runs off main); this task only starts it and shows the outcome in its one resume
         work = Task { [weak self] in
             let outcome = await action()
             guard let self, !Task.isCancelled else { return }

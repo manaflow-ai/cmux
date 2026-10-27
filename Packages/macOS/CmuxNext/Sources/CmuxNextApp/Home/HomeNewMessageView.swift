@@ -18,7 +18,7 @@ import CmuxNextWakeups
 /// person looks at another conversation: the page keeps its state.
 @MainActor
 final class HomeNewMessageView: NSView {
-    let field = HomeRecipientField()
+    let field: HomeRecipientField
     /// Clips the conversation below the field (its header slides under the field).
     let content = HomeNewMessageClip()
     let notice = ThemedLabel(wrappingLabelWithString: "")
@@ -43,6 +43,7 @@ final class HomeNewMessageView: NSView {
     init(services: AppServices) {
         self.services = services
         mainWork = services.mainWork
+        field = HomeRecipientField(pictures: HomeRecipientPictures(work: services.work, mainWork: services.mainWork))
         super.init(frame: .zero)
         setAccessibilityIdentifier("cmux.home.newMessage")
         content.wantsLayer = true
@@ -210,7 +211,7 @@ final class HomeNewMessageView: NSView {
         store.start()
         if !text.isEmpty { store.setDraft(text, for: HomeNewMessageComposerSource.conversation) }
         let view = HomeNativeTranscriptView(store: store, conversation: HomeNewMessageComposerSource.conversation, me: me.id,
-                                            openPanel: services.openPanel, mainWork: services.mainWork)
+                                            openPanel: services.openPanel, deadlines: services.mainDeadlines)
         view.composerSpellCheckingEnabled = services.settings?.snapshot.agentPaneComposer.spellChecking ?? false
         // The first message is text: attachments go once the conversation exists (they upload to it).
         view.attachmentPreparer = nil

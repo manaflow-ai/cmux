@@ -161,6 +161,7 @@ open class HomeDockSwitchView: NSView {
     public func switchTo(_ target: HomeDockMode?, selection given: HomeDockSelection? = nil) {
         let previous = switching
         // task-owner: one switch; a page answer is bounded by the subclass's selection deadline.
+        // main-hop-allow: the person's switch runs in order behind the one before it; `selection(in:)` is the shown view's main-actor async page answer, and the switch shows in its resume
         switching = Task { [weak self] in
             await previous?.value
             guard let self else { return }

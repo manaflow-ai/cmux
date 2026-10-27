@@ -102,6 +102,7 @@ public class HomeSheetController: NSViewController {
         isRunning = true
         show(nil)
         refreshPrimary()
+        // main-hop-allow: the person's sheet action: `action` is the subclass's main-actor async open or invite (its request runs off main); this task only starts it and closes or explains in its one resume
         work = Task { [weak self] in
             let outcome = await action()
             guard let self, !Task.isCancelled else { return }

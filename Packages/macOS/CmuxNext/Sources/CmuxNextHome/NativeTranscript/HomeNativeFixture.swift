@@ -31,18 +31,19 @@ public final class HomeNativeFixture {
     private let attachments: Bool
     /// The app's made-ahead file picker for the fixture's "+"; nil opens none.
     private let openPanel: MadeAheadOpenPanel?
-    /// The app's main-thread scheduler, for the transcript's live settings.
-    private let mainWork: MainWorkScheduler
+    /// The app's one deadline placer, for the transcript's live settings and engine wakes.
+    private let deadlines: MainDeadlineScheduler
     /// The app's lanes: the attachment files are written on its files lane.
     private let work: BackgroundWork
 
-    public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil, mainWork: MainWorkScheduler, work: BackgroundWork) {
+    public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil, deadlines: MainDeadlineScheduler, work: BackgroundWork) {
         self.attachments = attachments
         self.openPanel = openPanel
-        self.mainWork = mainWork
+        self.deadlines = deadlines
         self.work = work
         store = HomeStore(source: source)
         store.start()
+        // main-hop-allow: DEBUG fixture: the load builds the view on main between the main-actor HomeStore's opened and send awaits; this task only starts it
         loading = Task { [weak self] in await self?.load() }
     }
 
@@ -59,7 +60,7 @@ public final class HomeNativeFixture {
               let id = (inbox.conversations.first { $0.participants.contains { $0.id == chief } && $0.participants.count == 2 }
                   ?? inbox.conversations.first)?.id else { return }
         let me = inbox.me.id
-        let view = HomeNativeTranscriptView(store: store, conversation: id, me: me, openPanel: openPanel, mainWork: mainWork)
+        let view = HomeNativeTranscriptView(store: store, conversation: id, me: me, openPanel: openPanel, deadlines: deadlines)
         view.frame = container.bounds
         view.autoresizingMask = [.width, .height]
         container.addSubview(view)
@@ -82,8 +83,8 @@ public final class HomeNativeFixture {
         let update = HomeDraftUpdate(conversation: shown.conversation, participant: shown.chief, turn: turn, segment: 0,
                                      seq: streamSeq, isTalk: true, text: text, fresh: true, done: done)
         let source = self.source
-        // task-owner: one owner event, ends when the mock source has published it
-        Task {
+        // task-owner: one owner event, ends when the mock source has published it; off main, the source is an actor
+        Task { @concurrent in
             await source.streamDraft(update)
             if done { await source.receive(text, from: shown.chief, in: shown.conversation) }
         }
