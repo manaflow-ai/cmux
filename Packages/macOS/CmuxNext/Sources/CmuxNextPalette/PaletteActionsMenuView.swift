@@ -152,6 +152,7 @@ final class PaletteActionsMenuView: NSView {
                                                    width: bounds.width - 2 * padding, height: filterHeight))
     }
 
+    // visibility-walk-allow: colors only (the glass's theme, the separator's fill), no layout; a deferral costs more than the stores
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
@@ -180,6 +181,7 @@ final class PaletteActionsMenuView: NSView {
     }
 
     // input-coalesce: native (a press highlight: a row hit test per event; it selects only when the row changes)
+    // local-monitor-allow: a held press's drag (PalettePress) is per event and keeps order; no hover work runs here
     override func mouseDragged(with event: NSEvent) {
         guard press.isPressed else { return super.mouseDragged(with: event) }
         press.dragged(event)
@@ -242,6 +244,7 @@ final class PaletteMenuRow: NSView {
         onCross?(event)
     }
 
+    // local-monitor-allow: forwards the move to the menu's PointerFrameHover (onMove), which coalesces moves to the window's frame
     override func mouseMoved(with event: NSEvent) {
         onMove?(event) // the menu's PointerFrameHover coalesces it
     }
@@ -259,6 +262,7 @@ final class PaletteMenuRow: NSView {
         applyColors()
     }
 
+    // visibility-walk-allow: one icon tint, no layout
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

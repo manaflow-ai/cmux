@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c1086155af4d796904f6490f45a796ba9c185e1674946064938c507c88cc9754. */
+/* cmux-tui mux protocol 12, IR 8a9866283a47ec9e7be97f2560dca821030bc2dbfa05a573677c94e172d2b72d. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "c1086155af4d796904f6490f45a796ba9c185e1674946064938c507c88cc9754" as const;
+export const SDK_IR_SHA256 = "8a9866283a47ec9e7be97f2560dca821030bc2dbfa05a573677c94e172d2b72d" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -4928,6 +4928,14 @@ export const EVENT_METADATA = {
     "capability": "history-v1",
     "streams": [
       "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "input-failed": {
+    "since": 12,
+    "capability": "ipc-frames-v2",
+    "streams": [
+      "attach-byte"
     ],
     "emission": "emitted"
   },
@@ -38087,6 +38095,55 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "input-failed": {
+    "additional_properties": false,
+    "constraints": [
+      "Sent on the attach stream an INPUT frame named, when its bytes did not reach the terminal; INPUT frames have no reply. After terminal_ended or not_a_terminal, later INPUT that fails the same way sends no second event until a write reaches a terminal again or the stream id is opened again."
+    ],
+    "fields": {
+      "bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "input-failed"
+        }
+      },
+      "reason": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "terminal_ended",
+            "not_a_terminal",
+            "write_failed",
+            "daemon_handoff",
+            "overflow",
+            "attach_failed"
+          ]
+        }
+      },
+      "stream": {
+        "description": "The attach stream the INPUT frame named; the stream's tag, as on every item of an attach stream.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
         }
       }
     },

@@ -1,6 +1,7 @@
 // Cases of RENDER_TERMINATED's request (CEFShim/src/renderer_end.h):
 // scripts/cmux-next/test-shim-renderer-end-cpp.sh. The first browser of a renderer's end reports it,
-// the others it hosted say it is shared, and after the end's task the next end is new.
+// the others it hosted say it is shared, and after the end's task the next end is new. RENDER_TERMINATED's b
+// carries the error code and the renderer's client id.
 #include "../src/renderer_end.h"
 
 #include <cstdio>
@@ -17,6 +18,7 @@ void Expect(bool ok, const char* what) {
 
 int main() {
   using cmux_shim::RendererClientIdOf;
+  using cmux_shim::RendererEndCode;
   using cmux_shim::RendererEnds;
 
   Expect(RendererClientIdOf("12-ABCDEF0123456789") == 12, "the host id before the dash");
@@ -38,6 +40,12 @@ int main() {
   ends.Forget(12);
   Expect(ends.Report(12) == cmux_shim::kRendererEndFirst, "the relaunched host's next end is new");
   Expect(ends.Report(13) == cmux_shim::kRendererEndShared, "forgetting one renderer keeps the other");
+
+  Expect(RendererEndCode(11, 12) == ((int64_t{12} << 32) | 11), "the client id above the error code");
+  Expect(RendererEndCode(11, 0) == 11, "no client id: the error code alone");
+  Expect(RendererEndCode(11, -3) == 11, "a negative client id names no process");
+  Expect(static_cast<int32_t>(RendererEndCode(-1, 12)) == -1, "a negative error code keeps its low 32 bits");
+  Expect((RendererEndCode(-1, 12) >> 32) == 12, "and does not reach the client id");
 
   if (failures == 0) std::printf("renderer end: all cases passed\n");
   return failures == 0 ? 0 : 1;
