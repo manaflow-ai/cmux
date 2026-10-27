@@ -109,8 +109,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Design mode files a crash left (BrowserDesignModeTempFiles): nobody waits, so behind the best-effort fence.
-        order.startup.post(.afterStartup, "BrowserDesignMode.tempFiles", on: .lane(.files, .bestEffort)) { BrowserDesignModeController.tempFiles.removeAll() }
+        // Design mode files an earlier launch's crash left (BrowserDesignModeTempFiles): nobody waits, so behind the
+        // best-effort fence. This launch's cards are in their own folder, which the cleanup keeps.
+        order.startup.post(.afterStartup, "BrowserDesignMode.tempFiles", on: .lane(.files, .bestEffort)) { BrowserDesignModeController.tempFiles.removeEarlierRuns() }
         // SIGTERM, SIGINT and SIGHUP (dev tooling, `kill`, Ctrl-C) are
         // "Quit, keep sessions" with no alert.
         QuitSignal.install(quit: { [weak self] in
@@ -207,10 +208,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let ghosttyConfigLiveReload = GhosttyConfigLiveReload(deadlines: services.mainDeadlines)
         self.ghosttyConfigLiveReload = ghosttyConfigLiveReload
         ghosttyConfigLiveReload.start()
-        // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface; the input-source switch keys of
-        // the terminal key path are read off main, then on each activation. No terminal takes a key before the first frame.
-        order.startup.post(.afterFirstFrame, "TerminalHooks.install", on: .main) { [weak services] in if let services { TerminalHooks(services: services).install() } }
-        order.startup.post(.afterFirstFrame, "GhosttyInputSources.start", on: .main) { [work = services.work] in GhosttyRuntime.shared.inputSources.start(runner: work) }
+        // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface. Inline before the restore: a
+        // pane can mount before the first frame, and its key-equivalent path reads these hooks on every key.
+        TerminalHooks(services: services).install()
+        // The terminal key path's input-source switch keys, read off main now and on each activation.
+        GhosttyRuntime.shared.inputSources.start(runner: services.work)
         GhosttyRuntime.shared.traceHook.deliverGPUCompletions(on: services.mainWork, to: FrameScheduler.appDisplays.presents)
         GhosttyRuntime.shared.followEnergySaver(on: services.mainWork)
         DebugTimings.markLaunch("dfl.bind")
@@ -221,10 +223,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HandlerCoverage.verifyAtLaunch(services.registry)  // every handler is bound by now; Debug builds only
         order.startup.post(.critical, "WindowActivation.activateApp", on: .main) { WindowActivation.activateApp() }
         launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup, on: services.mainWork)
-        order.startup.post(.afterFirstFrame, "DaemonPrompts.start", on: .main) { [weak self, weak services] in
-            if let services { self?.daemonPrompts = DaemonPrompts.start(services) }  // OSC 52 reads and pairings come from live terminals
-        }
-        services.startLocalDaemon(prestart: daemonPrestart)  // the painted terminal colors first (OSC 10/11/12)
+        // The painted terminal colors first (OSC 10/11/12), and the prompts' side-event subscriptions before the connect.
+        daemonPrompts = services.startLocalDaemon(prestart: daemonPrestart)
         services.lifetimeFollowers.append(FeaturePolicyEnforcer(services: services).start())
         services.postCloudStart(on: order.startup)  // no Cloud restore or connect before the first frame (p08-startup 020)
         services.postNonPaintServices(on: order.startup)

@@ -59,12 +59,16 @@ extension AppServices {
     /// Starts the local daemon (AppDelegate, once per launch). `terminalColors` is built here, its first reader,
     /// so every daemon holds the colors terminals are painted with before it connects: its first answers to
     /// OSC 10/11/12 queries match the screen, and each connect sends them again.
-    func startLocalDaemon(prestart: DaemonPrestart?) {
+    /// The prompts subscribe to the store's side events first: side events keep no backlog, and the first events
+    /// of a trusted subscribe are the daemon's pending pairings, so a prompt started after the connect misses them.
+    func startLocalDaemon(prestart: DaemonPrestart?) -> DaemonPrompts {
+        let prompts = DaemonPrompts.start(self)
         terminalColors.apply()
         daemon.start(work: work, launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                      resolvedTerminalEnvironment: environment.resolvedTerminalEnvironment(),
                      terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                      resolvesShellIntegration: environment.resolvesShellIntegration, prestart: prestart)
+        return prompts
     }
 }
 
