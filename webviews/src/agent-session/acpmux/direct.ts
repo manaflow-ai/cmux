@@ -968,6 +968,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       const old = previous.get(id);
       if (!old || old === row || old.kind !== row.kind || old.version !== row.version || !plainSame(old, row)) continue;
       super.set(id, old);
+      this.artifactUpdates.forget(id);
       const at = this.orderedIndex.get(id);
       if (this.ordered && at !== undefined) this.ordered[at] = old;
       changed = true;
@@ -975,7 +976,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     if (changed) this.snapshot = undefined;
   }
 
-  override set(id: string, row: AcpmuxRow): this {
+  override set(id: string, row: AcpmuxRow, changedItem?: number, removedToolId?: string): this {
     const known = this.order.has(id);
     const previous = this.get(id);
     const unchanged = known && previous === row;
@@ -993,7 +994,14 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     } else if (this.current !== undefined) this.latest = Math.max(this.latest, this.current);
     if (this.ordered && !unchanged) this.keepOrdered(id, row, known);
     const result = super.set(id, row);
-    if (!unchanged) this.artifactUpdates.note(row, this.current ?? this.order.get(id) ?? row.at);
+    if (!unchanged)
+      this.artifactUpdates.note(
+        row,
+        this.current ?? this.order.get(id) ?? row.at,
+        previous,
+        changedItem,
+        removedToolId,
+      );
     return result;
   }
 
@@ -1044,6 +1052,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.pullRequestActivityVersion = Symbol();
     this.ordered = undefined;
     this.snapshot = undefined;
+    this.artifactUpdates.forget(id);
     this.order.delete(id);
     this.local.delete(id);
     return super.delete(id);
@@ -1053,6 +1062,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.pullRequestActivityVersion = Symbol();
     this.ordered = undefined;
     this.snapshot = undefined;
+    this.artifactUpdates.clear();
     this.order.clear();
     this.local.clear();
     this.latest = 0;
@@ -1846,7 +1856,9 @@ export class AcpmuxDirectClient {
     this.rowsPeer = undefined;
     // A page still in flight belongs to the session before; it is dropped when it lands.
     this.loadingOlder = undefined;
-    this.rows.clear();
+    // A recreated session can restart sequence numbers. Give it a fresh producer; old snapshot
+    // metadata stays bound to the older instance and cannot take a live preview back to it.
+    this.rows = new OrderedRows();
     this.queueAuthors.clear();
     this.forkedAtSeq = undefined;
     this.failedPrompts.clear();
@@ -3760,17 +3772,24 @@ export class AcpmuxDirectClient {
     this.toolRows.delete(callId);
     const row = this.rows.get(id);
     if (!row?.items) return;
+    const removedIndex = row.items.findIndex((item) => item.tool?.id === callId);
+    if (removedIndex < 0) return;
     const items = row.items.filter((item) => item.tool?.id !== callId);
     if (items.length === 0) {
       this.rows.delete(id);
       if (this.streamingActivity === id) this.streamingActivity = undefined;
     } else
-      this.rows.set(id, {
-        ...row,
-        version: row.version + 1,
-        items,
-        toolCount: items.filter((entry) => entry.kind === "tool").length,
-      });
+      this.rows.set(
+        id,
+        {
+          ...row,
+          version: row.version + 1,
+          items,
+          toolCount: items.filter((entry) => entry.kind === "tool").length,
+        },
+        removedIndex,
+        callId,
+      );
   }
 
   /// The subagent group rows that changed, into the transcript.
@@ -4221,14 +4240,19 @@ export class AcpmuxDirectClient {
       this.endAssistantSegment();
       const id = this.streamingActivity ?? `activity-${event.seq}`;
       const existing = this.rows.get(id);
-      this.rows.set(id, {
+      const items = appendThought(existing?.items ?? [], text, event.at);
+      this.rows.set(
         id,
-        version: (existing?.version ?? 0) + 1,
-        at: existing?.at ?? event.at,
-        kind: "activity",
-        toolCount: existing?.toolCount ?? 0,
-        items: appendThought(existing?.items ?? [], text, event.at),
-      });
+        {
+          id,
+          version: (existing?.version ?? 0) + 1,
+          at: existing?.at ?? event.at,
+          kind: "activity",
+          toolCount: existing?.toolCount ?? 0,
+          items,
+        },
+        items.length - 1,
+      );
       this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
       const callId = String(update.toolCallId ?? `tool-${event.seq}`);
@@ -4253,14 +4277,18 @@ export class AcpmuxDirectClient {
       );
       if (itemIndex >= 0) items[itemIndex] = item;
       else items.push(item);
-      this.rows.set(id, {
+      this.rows.set(
         id,
-        version: (existing?.version ?? 0) + 1,
-        at: existing?.at ?? event.at,
-        kind: "activity",
-        toolCount: items.filter((entry) => entry.kind === "tool").length,
-        items,
-      });
+        {
+          id,
+          version: (existing?.version ?? 0) + 1,
+          at: existing?.at ?? event.at,
+          kind: "activity",
+          toolCount: items.filter((entry) => entry.kind === "tool").length,
+          items,
+        },
+        itemIndex < 0 ? items.length - 1 : itemIndex,
+      );
       this.toolRows.set(callId, id);
       if (!knownRow) this.streamingActivity = id;
     } else if (event.kind === "background_task_update") {

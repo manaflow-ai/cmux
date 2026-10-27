@@ -4491,7 +4491,8 @@ function AcpmuxPane() {
   }
   useEffect(() => () => artifactLive.current?.dispose(), []);
   const liveDocument = useMemo(
-    () => (artifact?.identity && artifactRows ? artifactLive.current?.read(artifactRows) : undefined),
+    () =>
+      (artifact?.identity || artifact?.path) && artifactRows ? artifactLive.current?.read(artifactRows) : undefined,
     [artifact, artifactRows],
   );
   const liveArtifact = liveDocument?.artifact ?? artifact;
@@ -4514,7 +4515,8 @@ function AcpmuxPane() {
   const openArtifact = useCallback(
     (next: Artifact) => {
       artifactLive.current?.dispose();
-      artifactLive.current = next.identity ? new ArtifactLiveSource(next, artifactRowsRef.current) : undefined;
+      artifactLive.current =
+        next.identity || next.path ? new ArtifactLiveSource(next, artifactRowsRef.current) : undefined;
       setArtifact((current) => ({ ...next, sessionId: artifactSession, opened: (current?.opened ?? 0) + 1 }));
     },
     [artifactSession],

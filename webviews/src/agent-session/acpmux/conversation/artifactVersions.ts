@@ -3,6 +3,7 @@
 // the transcript's own block parser (Markdown.tsx), so a version is a fence the chat drew with Open.
 import { artifactKind, documentName, type Artifact } from "./artifactPreview";
 import { parseMarkdown, type MdBlock } from "./Markdown";
+import type { AcpmuxActivity } from "../model";
 
 export type ArtifactSourceRow = {
   id: string;
@@ -10,6 +11,7 @@ export type ArtifactSourceRow = {
   kind: string;
   text?: string;
   at?: number;
+  items?: AcpmuxActivity[];
 };
 
 /// The row and parser block key identify one fence across streamed snapshots.

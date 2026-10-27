@@ -3,6 +3,7 @@
 import { type Artifact } from "./artifactPreview";
 import { rowUpdates, type RowUpdates } from "../rowUpdates";
 import type { AcpmuxRow } from "../model";
+import { ArtifactWrittenLive } from "./artifactWrittenLive";
 import { artifactForIdentity, artifactVersions, type ArtifactSourceRow } from "./artifactVersions";
 
 const VERSION_LIMIT = 64;
@@ -14,12 +15,17 @@ export class ArtifactLiveSource {
   private versions: Artifact[] = [];
   private liveIndex = 0;
   private rowId = "";
+  private written?: ArtifactWrittenLive;
   private producer?: RowUpdates;
   private sourceRevision = -Infinity;
   private disposed = false;
 
   constructor(opened: Artifact, rows: readonly ArtifactSourceRow[]) {
     this.accepted = opened;
+    if (opened.path) {
+      this.written = new ArtifactWrittenLive(opened, rows);
+      return;
+    }
     this.rowId = opened.identity?.split("\u0000")[0] ?? "";
     this.index = rows.findIndex((row) => row.id === this.rowId);
     this.length = rows.length;
@@ -37,6 +43,7 @@ export class ArtifactLiveSource {
   }
 
   read(rows: readonly ArtifactSourceRow[]) {
+    if (this.written) return this.written.read(rows);
     if (this.disposed) return { artifact: this.accepted, versions: this.versions };
     const producer = rowUpdates(rows);
     if (producer && producer !== this.producer) {
@@ -73,5 +80,6 @@ export class ArtifactLiveSource {
   }
   dispose() {
     this.disposed = true;
+    this.written?.dispose();
   }
 }
