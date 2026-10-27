@@ -961,6 +961,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_rust_cache_keeps_runner_bin.py
 
+      - name: Validate every job that can start acpmux gives it a home of the job's own
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_acpmux_job_home.py
+
       - name: Validate signing secrets are read only in protected environments
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_signing_secrets_need_release_environment.py

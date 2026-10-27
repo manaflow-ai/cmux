@@ -117,6 +117,7 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         uid: UInt32 = getuid(),
         isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
         launchEnvironment: [String: String] = [:],
+        personsHome: URL? = AcpmuxEnvironment.testProcessPersonsHome,
         executableOverride: URL?,
         teamIdentifier: String? = AcpmuxServerPeer.ownTeam,
         isTrustedExecutable: (URL, String) -> Bool = { AcpmuxServerPeer.executableSignedByAppTeam($0, team: $1) }
@@ -133,6 +134,11 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
             home = URL(fileURLWithPath: customHome, isDirectory: true)
         } else {
             home = ownHome
+        }
+        // A test process never reaches the person's own daemons (AcpmuxEnvironment+TestGuard.swift).
+        if let personsHome, Self.isPersonsAcpmuxHome(home, personsHome: personsHome) {
+            Self.refuseInTest()
+            return nil
         }
         let configured = customHome == nil ? nil : environment["ACPMUX_SOCKET"].flatMap { $0.isEmpty ? nil : $0 }
         let socket = socketPath(configured: configured, home: home, uid: uid)

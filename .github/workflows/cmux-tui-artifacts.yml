@@ -1220,6 +1220,15 @@ jobs:
       legacy_key: ${{ steps.key.outputs.legacy_key }}
       superseded: ${{ steps.current.outputs.stale }}
     steps:
+      # This job's tests can start acpmux daemons: they get a home of the job's
+      # own, never the runner's ~/.acpmux, the mini's own daemon
+      # (tests/test_ci_acpmux_job_home.py).
+      - name: Give this job its own acpmux home
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          rm -rf "$home" && mkdir -m 700 "$home"
+          echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -1420,6 +1429,19 @@ jobs:
             echo "::error::cmux_next_ daemon tests failed after 3 attempts" >&2
             exit "$status"
           fi
+
+      # Also after a failure or a cancel: end the daemon of this job's home and
+      # its agents (shutdown never starts one), then delete the home.
+      - name: Stop this job's acpmux daemons and remove its home
+        if: ${{ always() }}
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          [[ -d "$home" ]] || exit 0
+          acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
+          [[ -z "$acpmux" ]] || ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
+          rm -rf "$home"
 
   # Failed feat-cmux-next and cmux-tui-pin-* push runs are retried by main's
   # cmux-tui-artifacts-retry.yml after they complete (workflow_run fires only

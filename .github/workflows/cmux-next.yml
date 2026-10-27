@@ -2546,6 +2546,15 @@ jobs:
     # A cold build on hosted macos-26 (about 3 vCPU, no R2 seed for its workspace path) gets more time.
     timeout-minutes: ${{ contains(needs.macos-placement.outputs.hosted_jobs, ' fast-tier ') && 45 || 20 }}
     steps:
+      # This job's tests can start acpmux daemons: they get a home of the job's
+      # own, never the runner's ~/.acpmux, the mini's own daemon
+      # (tests/test_ci_acpmux_job_home.py).
+      - name: Give this job its own acpmux home
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          rm -rf "$home" && mkdir -m 700 "$home"
+          echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"
+
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -2694,6 +2703,19 @@ jobs:
           CMUX_FAST_SWIFT_CACHE_HIT: ${{ steps.fast-cache-restore.outputs.cache-hit }}
           CMUX_FAST_CACHE_MATCHED_KEY: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
         run: python3 -I scripts/cmux-next/fast-tier.py --kind swift --kind script --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
+
+      # Also after a failure or a cancel: end the daemon of this job's home and
+      # its agents (shutdown never starts one), then delete the home.
+      - name: Stop this job's acpmux daemons and remove its home
+        if: ${{ always() }}
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          [[ -d "$home" ]] || exit 0
+          acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
+          [[ -z "$acpmux" ]] || ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
+          rm -rf "$home"
 
       - name: Upload fast-tier timing receipt
         if: ${{ (always()) && steps.reuse.outputs.hit != 'true' }}
@@ -2896,6 +2918,15 @@ jobs:
       SWIFT_PRIORITY_FILTER: ${{ needs.path_route.outputs.swift_priority_filter }}
       SWIFT_TARGETS: ${{ needs.path_route.outputs.swift_targets }}
     steps:
+      # This job's tests can start acpmux daemons: they get a home of the job's
+      # own, never the runner's ~/.acpmux, the mini's own daemon
+      # (tests/test_ci_acpmux_job_home.py).
+      - name: Give this job its own acpmux home
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          rm -rf "$home" && mkdir -m 700 "$home"
+          echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"
+
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -3240,6 +3271,19 @@ jobs:
           CMUX_NEXT_TEST_HANG_SECONDS: "480"
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter BranchStateResourcesTests
 
+      # Also after a failure or a cancel: end the daemon of this job's home and
+      # its agents (shutdown never starts one), then delete the home.
+      - name: Stop this job's acpmux daemons and remove its home
+        if: ${{ always() }}
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          [[ -d "$home" ]] || exit 0
+          acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
+          [[ -z "$acpmux" ]] || ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
+          rm -rf "$home"
+
       # A test helper that died on a signal leaves its crash report here
       # (scripts/cmux-next/swift-test-with-hang-sampler.sh): the crashed
       # thread names the test that trapped.
@@ -3310,6 +3354,15 @@ jobs:
       # generated-files job.
       CMUX_NEXT_FOLD_GENERATED: ${{ github.event_name == 'push' && inputs.same_tree_sha == '' && needs.path_route.outputs.generated == 'true' }}
     steps:
+      # This job's tests can start acpmux daemons: they get a home of the job's
+      # own, never the runner's ~/.acpmux, the mini's own daemon
+      # (tests/test_ci_acpmux_job_home.py).
+      - name: Give this job its own acpmux home
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          rm -rf "$home" && mkdir -m 700 "$home"
+          echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"
+
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -3583,6 +3636,19 @@ jobs:
           echo "::error::Generated cmux-next files are stale. Regenerate them as the step summary says."
           exit 1
 
+      # Also after a failure or a cancel: end the daemon of this job's home and
+      # its agents (shutdown never starts one), then delete the home.
+      - name: Stop this job's acpmux daemons and remove its home
+        if: ${{ always() }}
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          [[ -d "$home" ]] || exit 0
+          acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
+          [[ -z "$acpmux" ]] || ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
+          rm -rf "$home"
+
       - name: Upload the test helper's crash reports
         if: ${{ failure() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -3648,6 +3714,15 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
+      # This job's tests can start acpmux daemons: they get a home of the job's
+      # own, never the runner's ~/.acpmux, the mini's own daemon
+      # (tests/test_ci_acpmux_job_home.py).
+      - name: Give this job its own acpmux home
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          rm -rf "$home" && mkdir -m 700 "$home"
+          echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"
+
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -3923,6 +3998,19 @@ jobs:
           } | tee -a "$GITHUB_STEP_SUMMARY"
           echo "::error::Generated cmux-next files are stale. Regenerate them as the step summary says."
           exit 1
+
+      # Also after a failure or a cancel: end the daemon of this job's home and
+      # its agents (shutdown never starts one), then delete the home.
+      - name: Stop this job's acpmux daemons and remove its home
+        if: ${{ always() }}
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          [[ -d "$home" ]] || exit 0
+          acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
+          [[ -z "$acpmux" ]] || ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
+          rm -rf "$home"
 
       # A pass records itself for the next run on the same inputs: an artifact named after
       # the key, which every pull request and the base can list (scripts/ci/job_reuse.py
