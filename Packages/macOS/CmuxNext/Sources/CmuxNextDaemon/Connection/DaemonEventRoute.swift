@@ -239,8 +239,8 @@ struct DaemonEventBacklog {
 
     /// Drops the oldest size; nothing when none is held.
     mutating func removeFirst() {
-        guard head < sizes.count else { return }
-        bytes -= sizes[head]
+        guard let size = sizes[checked: head] else { return }
+        bytes -= size
         head += 1
         if head == sizes.count {
             sizes.removeAll(keepingCapacity: sizes.count <= 1024)
