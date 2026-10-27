@@ -223,8 +223,8 @@ import CmuxNextWakeupsTestSupport
                                          minimumSystemVersion: nil, infoFeedURL: Self.legacyFeed, hasPublicKey: true)
         #expect(legacy.track == .nightly)
         #expect(ReleasePushListener.feedID(forFeedURL: legacy.feed(architecture: .arm64).url) == "nightly-next-legacy")
-        // The old feed has no Intel appcast the Worker serves.
-        #expect(ReleasePushListener.feedID(forFeedURL: legacy.feed(architecture: .x86_64).url) == nil)
+        // The old feed's Intel appcast is not one the Worker serves.
+        #expect(ReleasePushListener.feedID(forFeedURL: "https://files-next.cmux.com/nightly-next/appcast-x86_64.xml") == nil)
 
         let h = Harness()
         defer { h.listener.stop() }
