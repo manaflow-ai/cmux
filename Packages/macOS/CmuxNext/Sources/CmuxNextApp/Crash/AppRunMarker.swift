@@ -106,6 +106,9 @@ final class AppRunMarker {
     /// How the previous run ended when it did not quit as asked (stability.unclean_exit, task 109); nil after a
     /// normal or requested quit, or on a first launch.
     let previousExit: HistogramID.UncleanExit?
+    /// The previous run as its marker left it, whatever its end; nil on a first launch. Its crash event, sent at
+    /// this launch, gets its crash keys and black box (`AppCrashReporting`, p09-observability-079).
+    let previousRun: PreviousRun?
     /// The previous run when it ended with no handler of its own (killed, or the Mac shut down), so no crash report
     /// covers it; its fatal-hang record, if any, is reported (p09-observability-110). Nil after a quit, a crash or none.
     let previousUnreported: PreviousRun?
@@ -153,9 +156,17 @@ final class AppRunMarker {
         directory = launch.directory
         file = RunMarkerFile(url: launch.directory.appending(path: "run.json"), signalURL: launch.directory.appending(path: "run.signal"))
         (previousExit, recovery, previousCrashKeys) = (launch.previousExit, launch.recovery, launch.previousCrashKeys)
+        previousRun = launch.previous
         previousUnreported = launch.previousUnreported
         marker = launch.marker
         start(launch)
+    }
+
+    /// This process's kernel start in Unix microseconds (one `proc_pidinfo`), the value its black box and
+    /// crash-key page headers carry; nil when the kernel does not give it.
+    nonisolated static func currentProcessStart() -> UInt64? {
+        let start = TraceRingCleanup.processStartUnixMicros(pid: getpid())
+        return start == 0 ? nil : start
     }
 
     /// This boot's id, `kern.bootsessionuuid` as 32 hex digits; nil when the kernel does not give it.
@@ -348,14 +359,16 @@ extension AppRunMarker {
     }
 
     /// The launch read's body: blocking, on the files lane. It reads the previous run's files and leaves them as they
-    /// are; the only files it writes are this run's spare ones.
-    nonisolated static func prepareLaunch(directory: URL, now: Date, bootSession: String?) -> Launch {
+    /// are; the only files it writes are this run's spare ones. `processStart` is this process's kernel start, stored
+    /// in its marker so the next launch takes only this process's black box and crash-key page (p09-observability-079).
+    nonisolated static func prepareLaunch(directory: URL, now: Date, bootSession: String?,
+                                          processStart: UInt64? = AppRunMarker.currentProcessStart()) -> Launch {
         let markerURL = directory.appending(path: "run.json"), signalURL = directory.appending(path: "run.signal")
         let previous = readPrevious(marker: markerURL, signal: signalURL, exception: directory.appending(path: "run.exception"))
         let previousKeys = readCrashKeys(directory.appending(path: "run.crashkeys"))
         let marker = PreviousRun(pid: getpid(), launched: now,
                                  recovery: LaunchRecovery.watchesForLoop(previous: previous?.forRecovery(bootSession: bootSession)),
-                                 survived: false, signal: nil, bootSession: bootSession)
+                                 survived: false, signal: nil, bootSession: bootSession, processStart: processStart)
         func launch(failure: String?, signal: Int32 = -1, keys: Int32 = -1) -> Launch {
             Launch(directory: directory, bootSession: bootSession, previous: previous, previousCrashKeys: previousKeys,
                    marker: marker, failure: failure, signalDescriptor: signal, keysDescriptor: keys)

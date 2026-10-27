@@ -1,5 +1,6 @@
 public import CmuxNextTrace
 public import CmuxSentryReporting
+public import CmuxSentryScrubbing
 public import Darwin
 public import Foundation
 public import Sentry
@@ -79,11 +80,16 @@ public final class CrashReporter: Sendable {
 
     public let policy: CrashReportingPolicy
     public let hangTracking: HangTracking
+    /// The previous run's crash keys and black box, put on its crash event at this launch (task 079).
+    public let previousRun: PreviousRunCrashEvidence?
     private let sentryHandlers = Mutex<SignalActions?>(nil)
 
-    public init(policy: CrashReportingPolicy, hangTracking: HangTracking = .sentry) {
+    /// - Parameter previousRun: The previous run's files, read when its crash event is sent; nil after a clean
+    ///   exit or outside the app process.
+    public init(policy: CrashReportingPolicy, hangTracking: HangTracking = .sentry, previousRun: PreviousRunCrashEvidence? = nil) {
         self.policy = policy
         self.hangTracking = hangTracking
+        self.previousRun = previousRun
     }
 
     /// Whether Sentry runs in this process.
@@ -121,7 +127,11 @@ public final class CrashReporter: Sendable {
         options.enableLogs = false
         let scrubber = SentryEventScrubber()
         let labels = CrashEventLabels(policy: policy)
-        options.beforeSend = { event in
+        let previousRun = previousRun
+        // The hint form of beforeSend: only its hint can add an attachment to one event (the previous run's
+        // crash). The previous run's tags go on before the scrub, so they are scrubbed with the rest.
+        options.beforeSendWithHint = { event, hint in
+            previousRun?.decorate(event, hint: hint)
             let scrubbed = scrubber.scrub(event)
             labels.apply(to: scrubbed)
             return scrubbed
@@ -304,15 +314,19 @@ public final class CrashReporter: Sendable {
         SentrySDK.capture(event: event)
     }
 
-    /// The previous run's black box as the crash event's `blackbox.txt` (p09-observability-128): nil without
-    /// the hang-reports opt-in, and never a key-timing, per-key PTY or flow record (``TraceBlackBoxUpload``).
-    /// The caller passes it through the scrubber like every other attachment.
-    public func blackboxAttachment(_ records: [TraceBlackBoxUpload.Record], hangReportsOptIn: Bool) -> Attachment? {
+    /// The previous run's black box as the crash event's `blackbox.txt` (p09-observability-128, 079): nil without
+    /// the hang-reports opt-in, never a key-timing, per-key PTY or flow record (``TraceBlackBoxUpload``), and
+    /// passed through `scrubber` like every other text that leaves the Mac.
+    public static func blackboxAttachment(_ records: [TraceBlackBoxUpload.Record], hangReportsOptIn: Bool,
+                                          scrubber: SentryScrubber = SentryScrubber()) -> Attachment? {
         guard let text = TraceBlackBoxUpload().crashAttachmentText(records, hangReportsOptIn: hangReportsOptIn) else {
             return nil
         }
-        return Attachment(data: Data(text.utf8), filename: "blackbox.txt", contentType: "text/plain")
+        return Attachment(data: Data(scrubber.scrub(text).utf8), filename: blackboxFileName, contentType: "text/plain")
     }
+
+    /// The black box attachment's file name.
+    public static let blackboxFileName = "blackbox.txt"
 
     /// Tags the current scope so a crash this process causes on purpose
     /// (`debug.crash.app`, `debug.crash.exception`) can be filtered out.

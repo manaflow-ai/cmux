@@ -13,6 +13,8 @@ extension CrashReporter {
     /// version, the user's `sendAnonymousTelemetry` choice in the app's own
     /// defaults (shared with the main app's same-channel bundle), and a
     /// forced `DisableTelemetry` from the managed domains, all read once.
+    /// `previousRun`: the previous run's crash keys and black box for its
+    /// crash event (``previousRunEvidence(marker:bundleID:)``).
     /// `hangTracking` follows feature `fatalHangReports` (p09-observability-076).
     static func forThisLaunch(
         bundleID: String?,
@@ -20,7 +22,8 @@ extension CrashReporter {
         info: [String: Any] = Bundle.main.infoDictionary ?? [:],
         defaults: UserDefaults = .standard,
         managed: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader(),
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        previousRun: PreviousRunCrashEvidence? = nil
     ) -> CrashReporter {
         let forced = managed.read().forced[CrashReportingPolicy.disableTelemetryPolicyKey]?.boolValue == true
         return CrashReporter(policy: CrashReportingPolicy(
@@ -30,7 +33,43 @@ extension CrashReporter {
             isDebugBuild: DevTools.isDebugBuild,
             telemetryOptIn: CrashReportingPolicy.telemetryOptIn(in: defaults),
             managedDisablesTelemetry: forced,
-            processEnvironment: environment), hangTracking: hangTracking)
+            processEnvironment: environment), hangTracking: hangTracking, previousRun: previousRun)
+    }
+
+    /// The previous run's files for its crash event (p09-observability-079): its black box and crash-key page in
+    /// the app's trace folder (`TraceBlackBoxFileSteps.appDirectory`), named by its pid and checked against its
+    /// process start, and its crash path's `run.crashkeys` record, which the marker's launch read took
+    /// (`AppRunMarker.previousCrashKeys`). `blackbox.txt` goes only while this Mac has the hang-reports consent
+    /// record (`HangReportsController.consentKey`), read when the event is sent. Nil on a first launch or without a
+    /// marker; no trace file is read until a crash event asks.
+    ///
+    /// After an unclean exit, the event also gets the `FATAL` line Chromium wrote before it aborted the app
+    /// (tag `cef.fatal`, p09-observability-084): read from the app's Chromium log only when that run ran
+    /// `CefInitialize` in process and wrote it (``ChromiumFatalLog/app(previous:endedUncleanly:launched:storage:)``,
+    /// with `now` this launch), then scrubbed with the event's other tags.
+    static func previousRunEvidence(marker: AppRunMarker?, bundleID: String?,
+                                    home: URL = FileManager.default.homeDirectoryForCurrentUser,
+                                    now: Date = Date()) -> PreviousRunCrashEvidence? {
+        guard let marker, let run = marker.previousRun else { return nil }
+        let consentKey = HangReportsController.consentKey
+        let files = PreviousRunCrashEvidence.Run(
+            pid: UInt32(bitPattern: run.pid), processStartUnixMicros: run.processStart,
+            traceDirectory: TraceBlackBoxFileSteps.appDirectory(bundleID: bundleID, home: home).path,
+            crashPathKeys: marker.previousCrashKeys)
+        let cefLog = ChromiumFatalLog.app(previous: run, endedUncleanly: marker.previousExit != nil, launched: now)
+        return PreviousRunCrashEvidence(
+            processStartUnixMicros: run.processStart,
+            read: { blackBox in Self.previousRunFiles(files, cefLog: cefLog, blackBox: blackBox) },
+            hangReportsOptIn: { UserDefaults.standard.object(forKey: consentKey) is Date })
+    }
+
+    /// The previous run's files (``PreviousRunCrashEvidence/read(_:blackBox:)``) and, from `cefLog`, its
+    /// `cef.fatal` tag. Blocking file work, on the queue Sentry sends from.
+    nonisolated static func previousRunFiles(_ run: PreviousRunCrashEvidence.Run, cefLog: ChromiumFatalLog?,
+                                             blackBox: Bool) -> PreviousRunCrashEvidence.Files {
+        var files = PreviousRunCrashEvidence.read(run, blackBox: blackBox)
+        if let line = cefLog?.read() { files.tags[CEFFatalLine.tag] = line.tagValue }
+        return files
     }
 }
 
@@ -65,10 +104,14 @@ struct AppCrashReporting: Sendable {
     ///     app-hang tracker runs (``WatchdogHangSinks/hangTracking``). Nil (tests, no watchdog) keeps the tracker.
     ///   - forwardersAfterStartup: The launch's scheduler with feature `crashForwardersAfterStartup`: the
     ///     forwarders run in its afterStartup lane post (``CrashForwarders/post(on:)``). Nil: they start now.
+    ///   - runMarker: The app's run marker: the previous run's crash event, sent after the start, gets that run's
+    ///     crash keys and black box (p09-observability-079).
     init(environment: AppEnvironment, features: CrashFeatureScope? = nil,
          afterStartup: AfterStartup = AfterStartup(handlersFirst: false, startup: nil),
-         hangSinks: WatchdogHangSinks? = nil, forwardersAfterStartup: StartupScheduler? = nil) {
-        reporter = CrashReporter.forThisLaunch(bundleID: environment.launch.bundleID, hangTracking: hangSinks?.hangTracking ?? .sentry)
+         hangSinks: WatchdogHangSinks? = nil, forwardersAfterStartup: StartupScheduler? = nil, runMarker: AppRunMarker? = nil) {
+        let previousRun = CrashReporter.previousRunEvidence(marker: runMarker, bundleID: environment.launch.bundleID)
+        reporter = CrashReporter.forThisLaunch(bundleID: environment.launch.bundleID, hangTracking: hangSinks?.hangTracking ?? .sentry,
+                                               previousRun: previousRun)
         let bundleVersion = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
         guard environment.marksRun else {
             // No Sentry in this process: the running build still decides when a notFatalUntil site traps.
