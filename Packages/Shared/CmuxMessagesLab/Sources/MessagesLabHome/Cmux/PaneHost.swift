@@ -475,6 +475,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         self.frameSource = frames
         super.init()
         host.controller = self
+        // The scroller's fade-in, widen and hide on the host's timer (CmuxNext: DemandTimer).
+        (host.scrollView.verticalScroller as? SequenceScroller)?.useDeadlines(from: wake)
         host.fieldChrome.onEmoji = { [weak self] in self?.roundButtonClicked() }
         host.voiceControls.onMic = { [weak self] in self?.voice.toggle() }
         host.voiceControls.onFinish = { [weak self] in self?.voice.finish() }
