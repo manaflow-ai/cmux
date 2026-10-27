@@ -97,7 +97,7 @@ import Testing
         let hash = Data(SHA256.hash(data: key)).base64EncodedString().replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
         #expect(items["k"] == hash)
-        #expect(items["e"] == String(Int(Self.now.timeIntervalSince1970)))
+        #expect(items["e"] == "1800000000")
     }
 
     @Test func hostdForwardsTheTokenWithTheRequest() throws {

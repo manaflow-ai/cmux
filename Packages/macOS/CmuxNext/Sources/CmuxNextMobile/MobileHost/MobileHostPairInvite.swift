@@ -110,7 +110,7 @@ public struct MobileHostPairInvite: Sendable, Equatable {
             URLQueryItem(name: "mac", value: macDeviceID), URLQueryItem(name: "team", value: teamID),
             URLQueryItem(name: "name", value: String(macName.prefix(64))), URLQueryItem(name: "t", value: token),
             URLQueryItem(name: "k", value: macKeyHash),
-            URLQueryItem(name: "e", value: String(Int(expiresAt.timeIntervalSince1970))),
+            URLQueryItem(name: "e", value: String(format: "%.0f", expiresAt.timeIntervalSince1970.rounded(.down))),
         ]
         return components.string ?? ""
     }
