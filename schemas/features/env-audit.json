@@ -911,6 +911,14 @@
         {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyRuntime.swift:190", "kind": "constant", "cond": "", "release": true}
       ]
     },
+    "CMUX_NEXT_GLOBAL_JOB_CENSUS": {
+      "class": "benchOnly",
+      "auto": true,
+      "sites": [
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunch/GlobalJobCensus.swift:49", "kind": "constant", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false},
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunch/GlobalJobCensus.swift:143", "kind": "via environmentKey", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
+      ]
+    },
     "CMUX_NEXT_HANG_REPORTS_URL": {
       "class": "devGated",
       "note": "Hang report endpoint; read only with the dev-channel opt-in.",

@@ -17,8 +17,8 @@
 //! finish of such a receive stays refused. An in-memory session keeps them
 //! in memory only.
 
+use cmux_threads::sync::Mutex;
 use std::path::Path;
-use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 

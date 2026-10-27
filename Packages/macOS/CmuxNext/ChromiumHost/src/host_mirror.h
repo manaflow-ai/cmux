@@ -105,6 +105,8 @@ class HostMirrors {
   size_t open_tabs() const { return tabs_.size(); }
   // The tab's Chromium window, 0 when unknown or not open.
   int64_t WindowOf(int32_t browser) const;
+  // Whether an open tab is in Chromium window `window`.
+  bool HasTabs(int64_t window) const { return tabs_of_window_.count(window) > 0; }
   // The tab's profile cache path, nullopt when unknown or not open.
   std::optional<std::string> ProfileOf(int32_t browser) const;
 

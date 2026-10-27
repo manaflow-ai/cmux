@@ -23,20 +23,39 @@ impl Mux {
         // engine itself lives while another placement still shows it.
         let runtimes = sizing.terminal_sizing.keys().copied().collect::<Vec<_>>();
         for runtime in runtimes {
-            let Some(entry) = sizing.terminal_sizing.get_mut(&runtime) else { continue };
-            if !entry.placements.remove(&surface) {
+            let Some(entry) = sizing.terminal_sizing.get(&runtime) else { continue };
+            if !entry.placements.contains(&surface) {
                 continue;
             }
+            // A participant whose other views remain stays, on its next
+            // geometry view's report.
             let departed = entry
                 .members
                 .iter()
-                .filter(|(_, member)| member.placement == surface)
-                .map(|(id, _)| id.clone())
+                .filter(|(_, member)| member.views.contains(&surface))
+                .map(|(id, member)| {
+                    let mut member = member.clone();
+                    let client = member.client;
+                    let alive = member.view.is_none()
+                        && member.leave_view(surface, |view| sizing.has_report(view, client));
+                    let viewport = sizing.view_report(member.placement, member.client);
+                    (id.clone(), alive.then_some((member, viewport)))
+                })
                 .collect::<Vec<_>>();
+            let Some(entry) = sizing.terminal_sizing.get_mut(&runtime) else { continue };
+            entry.placements.remove(&surface);
             let mut changed = false;
-            for id in departed {
-                entry.members.remove(&id);
-                changed |= entry.engine.detach(&id);
+            for (id, remaining) in departed {
+                match remaining {
+                    Some((member, viewport)) => {
+                        entry.members.insert(id.clone(), member);
+                        changed |= Self::report_view_viewport(entry, &id, viewport);
+                    }
+                    None => {
+                        entry.members.remove(&id);
+                        changed |= entry.engine.detach(&id);
+                    }
+                }
             }
             if entry.placements.is_empty() {
                 sizing.terminal_sizing.remove(&runtime);
