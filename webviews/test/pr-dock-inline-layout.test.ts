@@ -75,7 +75,17 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
         await page.close();
       }
     });
-  for (const variant of ["no-footer", "received", "one-first", "tight"])
+  for (const variant of [
+    "no-footer",
+    "received",
+    "one-first",
+    "tight",
+    "code-tail",
+    "table-tail",
+    "math-tail",
+    "rule-tail",
+    "diagram-tail",
+  ])
     for (const width of [760, 320])
       test(`${variant} at ${width}px keeps content and pills within the message`, async () => {
         const page = await browser.newPage({ viewport: { width, height: 660 } });
@@ -84,6 +94,7 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
           await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.pr-dock", { variant, width })}`);
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           await page.locator(".acpmux-pr-dock").waitFor();
+          expect(await page.locator(".acpmux-pr-dock").count()).toBe(1);
           if (process.env.CMUX_PR_DOCK_CAPTURE)
             await page.screenshot({
               type: "jpeg",

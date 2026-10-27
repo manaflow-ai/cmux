@@ -53,6 +53,32 @@ export default agentPaneEntry({
         ),
       ]),
     },
+    "code-tail": {
+      note: "Footerless final code keeps PR links visible.",
+      snapshot: chat([
+        activity(four, 5),
+        assistant("```ts\nconst response = await uploadWithRetry(payload);\n```", 2, { streaming: true }),
+      ]),
+    },
+    "table-tail": {
+      note: "Footerless final table keeps PR links visible.",
+      snapshot: chat([
+        activity(four, 5),
+        assistant("| Result | State |\n| --- | --- |\n| Build | Passed |", 2, { streaming: true }),
+      ]),
+    },
+    "math-tail": {
+      note: "Footerless final math keeps PR links visible.",
+      snapshot: chat([activity(four, 5), assistant("$$x^2 + y^2 = z^2$$", 2, { streaming: true })]),
+    },
+    "rule-tail": {
+      note: "Footerless final rule keeps PR links visible.",
+      snapshot: chat([activity(four, 5), assistant("The checks passed.\n\n---", 2, { streaming: true })]),
+    },
+    "diagram-tail": {
+      note: "Footerless final diagram keeps PR links visible.",
+      snapshot: chat([activity(four, 5), assistant("```mermaid\nflowchart LR\nA --> B\n```", 2, { streaming: true })]),
+    },
     one: {
       note: "One PR is a single link with no disclosure or remove button.",
       snapshot: chat([

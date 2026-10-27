@@ -23,3 +23,15 @@ export function InlineTail({ children, trailing }: { children: ReactNode; traili
     </>
   );
 }
+
+// Non-text final blocks (media, math, rules) share their bottom edge with the links.
+// Only this final block participates; earlier message content retains its full width.
+export function BlockTail({ children, trailing }: { children: ReactNode; trailing?: ReactNode }) {
+  if (!trailing) return children;
+  return (
+    <div className="cv-block-tail">
+      <div>{children}</div>
+      {trailing}
+    </div>
+  );
+}
