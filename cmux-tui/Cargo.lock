@@ -1567,6 +1567,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tailnet"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "libc",
+ "reqwest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-tui"
 version = "1.0.0"
 dependencies = [
