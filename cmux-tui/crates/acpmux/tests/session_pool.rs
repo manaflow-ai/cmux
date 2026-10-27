@@ -989,3 +989,75 @@ async fn opencode_policy_a_pooled_agent_is_never_taken_by_a_chat_it_would_not_as
     let seen = rpc.prompt_text(&wide, "env: OPENCODE_CONFIG_CONTENT").await;
     assert_eq!(config(seen), Value::Null);
 }
+
+/// Test polling: wait until the pool holds exactly `n` entries.
+async fn wait_pool_len(rpc: &mut Rpc, n: usize) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let status = rpc.call("_acpmux/status", json!({})).await;
+        if status["pool"]["entries"].as_array().map(Vec::len) == Some(n) {
+            return status;
+        }
+        assert!(Instant::now() < deadline, "the pool never held {n} entries: {status}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// The agent pid of the pool's only record.
+fn only_pooled_pid(daemon: &Daemon) -> i64 {
+    let records = daemon.pool_records();
+    assert_eq!(records.len(), 1, "{records:?}");
+    records[0]["harness_pid"].as_i64().expect("harness pid")
+}
+
+/// Typing in a new chat hints its harness in that chat's folder. A person who types in a new
+/// chat in another folder keeps one warm agent of that harness, not one per folder: the older
+/// folder's entry ends (`pool.hintedPerHarness`, default 1).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_typing_hint_in_another_folder_keeps_one_pooled_session_per_harness() {
+    let daemon = Daemon::new("cap", 0);
+    let mut rpc = daemon.rpc().await;
+    let (a, b) = (daemon.home.join("a"), daemon.home.join("b"));
+    std::fs::create_dir_all(&a).unwrap();
+    std::fs::create_dir_all(&b).unwrap();
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fake", "cwd": a, "wait": true})).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    wait_pool_ready(&mut rpc, "fake").await;
+    let first = only_pooled_pid(&daemon);
+
+    rpc.call("_acpmux/prewarm", json!({"harness": "fake", "cwd": b, "wait": true})).await;
+    let status = wait_pool_len(&mut rpc, 1).await;
+    let entry = &status["pool"]["entries"][0];
+    assert_eq!(entry["cwd"], json!(b), "{status}");
+    assert_eq!(entry["state"], "ready", "{status}");
+    assert!(
+        gone_within(first, Duration::from_secs(10)),
+        "the first folder's warm agent still runs"
+    );
+
+    // Another harness keeps its own warm agent beside it.
+    rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": a, "wait": true})).await;
+    wait_pool_len(&mut rpc, 2).await;
+}
+
+/// The person cleared a new chat's prompt or closed its tab: the pane releases its hint and the
+/// warm agent ends at once instead of idling until `pool.idleMinutes`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_released_hint_ends_its_pooled_session() {
+    let daemon = Daemon::new("rel", 0);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    rpc.call("_acpmux/prewarm", json!({"harness": "fake", "cwd": home, "wait": true})).await;
+    wait_pool_ready(&mut rpc, "fake").await;
+    let pid = only_pooled_pid(&daemon);
+
+    let released =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fake", "cwd": home, "release": true})).await;
+    assert_eq!(released["released"], 1, "{released}");
+    wait_pool_len(&mut rpc, 0).await;
+    assert!(gone_within(pid, Duration::from_secs(10)), "the released warm agent still runs");
+    // The next chat there starts cold: nothing was left to take.
+    let (id, _) = new_session(&mut rpc, &home, "fake").await;
+    assert!(!taken(&daemon, &id));
+}
