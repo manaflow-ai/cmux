@@ -745,9 +745,19 @@ export function ComposerPickers({
   const local = fresh && snapshot.origin !== "remote" && snapshot.origin !== "peer";
   const asksStart = awaiting && local && modes.length === 0;
   const startAnswer = useStartMode(chipHarness, folder ?? summary?.cwd, asksStart);
-  // A chat this Mac's acpmux runs: not a peer's, a remote host's or the cloud's.
+  // A chat this Mac's acpmux runs: not a peer's, a remote host's or the cloud's. A peer's chat comes
+  // over this Mac's own connection; its summary or its listed row names the peer (the attach's
+  // detail names none: server/peer_forward.rs adds `peer` to the reply, not to the session).
+  const listedPeer = summary?.sessionId
+    ? snapshot.sessions.find((session) => session.sessionId === summary.sessionId)?.peer
+    : undefined;
   const onThisMac =
-    snapshot.origin !== "remote" && snapshot.origin !== "peer" && !summary?.host && summary?.hostKind !== "cloud";
+    snapshot.origin !== "remote" &&
+    snapshot.origin !== "peer" &&
+    !summary?.peer &&
+    !listedPeer &&
+    !summary?.host &&
+    summary?.hostKind !== "cloud";
   // A local chat whose menu has a full-access row learns whether full access is managed off, and
   // again on `_acpmux/start_mode_changed` (#23322).
   // The Options chip's choices count too: a harness can offer full access only as a config option
