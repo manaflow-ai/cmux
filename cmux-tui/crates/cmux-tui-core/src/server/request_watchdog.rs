@@ -369,6 +369,9 @@ impl Shared {
         let word = busy_word(start);
         slot.busy.store(word, Ordering::SeqCst);
         self.arm();
+        // Debug builds: a `debug-hang-inject` armed for this lane blocks here, inside the run.
+        #[cfg(debug_assertions)]
+        cmux_threads::hang_inject::hold_if_armed(kind.name());
         Some((index, word))
     }
 

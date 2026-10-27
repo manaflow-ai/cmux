@@ -35,6 +35,8 @@ extension AppControl {
             }.withDeadline(.fixed(RenderFrameLog.armDeadline)),
             // Main-thread blocking call sites since launch (threading-model.md); {"reset": true} zeroes the counts.
             BlockingControl(detector: services.blocking).method,
+            // Hangs one watched lane, or the main thread, on purpose (hang-matrix.py, done check 7 of p09-observability).
+            HangInjectControl(watch: TraceRuntime.shared.hangWatch).method,
             // Observations per owner: armed, evaluated, applied, show re-reads, hosting bodies; {"reset": true} zeroes them.
             ObservationsControl(ledger: services.observations).method,
             // Lane queue wait and run time per lane and priority (RUN-13); {"reset": true} zeroes them.

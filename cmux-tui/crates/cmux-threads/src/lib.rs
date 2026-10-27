@@ -17,7 +17,8 @@
 //! std primitives.
 //!
 //! [`hang`] watches scopes with a deadline on threads of the processes
-//! that have no daemon request watchdog (Chrome's HangWatcher).
+//! that have no daemon request watchdog (Chrome's HangWatcher); in debug
+//! builds `hang_inject` hangs a named lane on purpose for hang-matrix.py.
 //!
 //! [`lock_boost`] raises a lock's owner to the QoS of its highest waiter
 //! until it unlocks (priority inheritance for locks that do not donate).
@@ -41,6 +42,9 @@
 pub mod blocking;
 pub mod checked;
 pub mod hang;
+/// Debug builds only: a hang injected on a named lane (`debug-hang-inject`).
+#[cfg(debug_assertions)]
+pub mod hang_inject;
 pub mod lock_boost;
 pub mod lock_wait;
 pub mod process;

@@ -366,12 +366,18 @@ impl Slot {
     }
 
     fn read_name(&self) -> String {
+        let (bytes, end) = self.name_bytes();
+        String::from_utf8_lossy(&bytes[..end]).into_owned()
+    }
+
+    /// The name's bytes and its length, with no allocation.
+    fn name_bytes(&self) -> ([u8; NAME_BYTES], usize) {
         let mut bytes = [0u8; NAME_BYTES];
         for (word, chunk) in self.name.iter().zip(bytes.chunks_exact_mut(8)) {
             chunk.copy_from_slice(&word.load(Ordering::Relaxed).to_le_bytes());
         }
         let end = bytes.iter().position(|byte| *byte == 0).unwrap_or(NAME_BYTES);
-        String::from_utf8_lossy(&bytes[..end]).into_owned()
+        (bytes, end)
     }
 
     /// Opens a scope: returns the word it wrote and the enclosing word. The swap keeps a `REPORTED`
@@ -940,6 +946,14 @@ impl<'a> Scope<'a> {
     fn open(shared: &'a Shared, slot: &'a Slot, deadline: Duration) -> Scope<'a> {
         let generation = slot.generation.load(Ordering::Relaxed);
         let (opened, previous) = slot.open(shared, deadline);
+        // Debug builds: a `debug-hang-inject` armed for this lane blocks here, inside the scope.
+        #[cfg(debug_assertions)]
+        if cmux_threads::hang_inject::any_armed() {
+            let (bytes, end) = slot.name_bytes();
+            if let Ok(name) = std::str::from_utf8(&bytes[..end]) {
+                cmux_threads::hang_inject::hold_if_armed(name);
+            }
+        }
         Scope {
             open: Some(Open { shared, slot, generation, opened, previous }),
             _thread_bound: PhantomData,

@@ -12,4 +12,6 @@ workspace = true
 
 [dependencies]
 cmux-trace.workspace = true
+# Debug builds: the hang injection a scope takes (cmux_threads::hang_inject, std and libc only).
+cmux-threads.workspace = true
 libc.workspace = true

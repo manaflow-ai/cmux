@@ -519,6 +519,8 @@ impl HangWatcher {
             shared.touched.store(true, Ordering::Relaxed);
         }
         shared.arm();
+        #[cfg(debug_assertions)]
+        crate::hang_inject::hold_if_armed(site.name);
         HangScope {
             open: Some(OpenScope { shared, index, previous_word, previous_site }),
             _thread: PhantomData,

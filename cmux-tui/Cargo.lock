@@ -1193,6 +1193,7 @@ dependencies = [
 name = "cmux-hang-watch"
 version = "0.1.0"
 dependencies = [
+ "cmux-threads",
  "cmux-trace",
  "libc",
 ]

@@ -84,6 +84,8 @@ pub(super) struct Route {
 pub(super) const MODULE_ROUTES: &[&[Route]] = &[
     #[cfg(any(debug_assertions, feature = "oracle"))]
     super::oracle_state_command::ROUTES,
+    #[cfg(debug_assertions)]
+    super::debug_hang_inject::ROUTES,
     super::loopback_forward::ROUTES,
     super::energy_op::ROUTES,
     #[cfg(unix)]

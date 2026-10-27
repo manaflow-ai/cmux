@@ -49,6 +49,10 @@ public final class HangWatch: Sendable {
     let wakeBox = Atomic<UInt64>(0)
     private let wakes = Atomic<UInt64>(0)
     private let overflows = Atomic<UInt64>(0)
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The lane `debug.hang_inject` armed (HangWatch+Inject.swift).
+    let injection = HangInjection()
+    #endif
 
     /// An empty slot table whose monitor scans every `minimumDeadline` while scopes open and close.
     ///
@@ -132,6 +136,9 @@ public final class HangWatch: Sendable {
         // enclosing scope with every flag the monitor set on it, up to this instant.
         let previous = Self.word(slot, Self.deadlineWord).exchange(due, ordering: .sequentiallyConsistent)
         requestScan(by: due)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        injection.holdIfArmed(name: Self.word(slot, Self.nameWord).load(ordering: .relaxed), clock: clock)
+        #endif
         return HangWatchScope(registration: registration, previousDeadline: previous, slotAddress: UInt(bitPattern: slot),
                               owner: self)
     }

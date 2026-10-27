@@ -122,6 +122,10 @@ pub use browser_runtime::BROWSER_RUNTIME_CAPABILITY;
 mod window_title;
 use window_title::sanitize_window_title;
 pub use window_title::window_title_osc;
+/// `debug-hang-inject` (p09-observability-088): debug builds only.
+#[cfg(debug_assertions)]
+#[path = "server/debug_hang_inject.rs"]
+mod debug_hang_inject;
 #[path = "server/loopback_forward.rs"]
 mod loopback_forward;
 /// `oracle-state` (p15-oracle task 021): debug and `--features oracle` builds only.
