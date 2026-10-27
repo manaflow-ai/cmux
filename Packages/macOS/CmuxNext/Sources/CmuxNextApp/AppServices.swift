@@ -9,6 +9,7 @@ import CmuxNextBrowserHistory
 import CmuxNextChiefPetWiring
 import CmuxNextChromiumWarmup
 import CmuxNextCompat
+import CmuxNextComputerUse
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
@@ -209,6 +210,8 @@ final class AppServices {
     }()
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
+    /// The live preview card of computer use in agent chats (`computerUse.livePreview`).
+    private(set) lazy var computerUsePreview = ComputerUseLivePreview(host: self)
     /// `cmux://screenshots`: the Screenshots pane (its detection, thumbnail cache and pages).
     private(set) lazy var screenshotsPage = ScreenshotsPageService(services: self)
     private(set) lazy var remoteViewPages = RemoteViewPageService()

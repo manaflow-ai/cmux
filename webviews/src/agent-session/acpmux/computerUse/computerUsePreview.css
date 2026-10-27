@@ -1,0 +1,154 @@
+/* The live preview card of computer use (ComputerUsePreviewCard.tsx): a 180px glass card at the
+   chat's top right, under the header, over the transcript. The liquid glass (.ui-glass,
+   ui/glass/glass.css) with the floating elevation; the app's name on top, the frame under it. Done,
+   the frame dims under the app's icon and a green check. It fades in with the pane's motion tokens,
+   and not at all when motion is off or reduced. */
+.acpmux-cu-preview {
+  position: absolute;
+  top: calc(var(--acpmux-header-height, 44px) + 8px);
+  right: 12px;
+  z-index: var(--layer-sticky);
+  width: 180px;
+  border-radius: 12px;
+  overflow: hidden;
+  --glass-edge: var(--acpmux-cu-preview-rim, color-mix(in srgb, var(--agent-text) 14%, transparent));
+  --glass-elevation: var(--elevation-2);
+  color: var(--agent-text);
+}
+:root[data-borders="none"] .acpmux-cu-preview {
+  --acpmux-cu-preview-rim: transparent;
+}
+:root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-cu-preview {
+  --glass-tint: color-mix(in srgb, var(--agent-page-bg) 72%, transparent);
+}
+
+.acpmux-cu-preview__open {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0 0 8px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.acpmux-cu-preview__open:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -2px;
+  border-radius: 12px;
+}
+
+.acpmux-cu-preview__title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 24px 0 12px;
+  box-sizing: border-box;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  white-space: nowrap;
+}
+.acpmux-cu-preview__app {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A running session: a small dot in the status green, still (no pulse). */
+.acpmux-cu-preview__live {
+  flex: none;
+  width: 6px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--agent-status-success);
+}
+
+.acpmux-cu-preview__frame {
+  position: relative;
+  display: grid;
+  place-items: center;
+  margin: 0 8px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.acpmux-cu-preview__frame > img {
+  display: block;
+  width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+}
+.acpmux-cu-preview[data-done] .acpmux-cu-preview__frame > img {
+  opacity: 0.4;
+}
+
+/* Done: the app's icon over the dimmed frame, a green check at its lower right. */
+.acpmux-cu-preview__badge {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+.acpmux-cu-preview__badge > img {
+  width: 48px;
+  aspect-ratio: 1;
+}
+.acpmux-cu-preview__check {
+  position: absolute;
+  left: calc(50% + 12px);
+  top: calc(50% + 12px);
+  display: grid;
+  place-items: center;
+  width: 16px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--agent-status-success);
+  color: #fff;
+}
+
+/* Close: at the title row's end, shown on hover and keyboard focus. */
+.acpmux-cu-preview__close {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--agent-muted);
+  cursor: default;
+  opacity: 0;
+}
+.acpmux-cu-preview:hover .acpmux-cu-preview__close,
+.acpmux-cu-preview__close:focus-visible {
+  opacity: 1;
+}
+.acpmux-cu-preview__close:hover {
+  color: var(--agent-text);
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+}
+.acpmux-cu-preview__close:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview {
+    transition:
+      opacity var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out),
+      transform var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out);
+    @starting-style {
+      opacity: 0;
+      transform: translate3d(0, -4px, 0) scale(0.98);
+    }
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__frame > img,
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__close {
+    transition: opacity var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out);
+  }
+}

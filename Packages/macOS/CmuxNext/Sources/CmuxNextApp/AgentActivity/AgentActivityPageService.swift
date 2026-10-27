@@ -18,6 +18,10 @@ final class AgentActivityPageService {
     private var paneWait: Task<Void, Never>?
     /// Counts jumps, so a workspace that mounts after a newer jump opens nothing.
     private var jumps = 0
+    /// The pages made, weakly held, so a live preview card's click selects its session in them.
+    private let pages = NSHashTable<AgentActivityPageTab>.weakObjects()
+    /// The session the next page made selects (``open(session:)`` opened a new tab).
+    private var pendingSelection: String?
 
     init(services: AppServices) {
         self.services = services
@@ -37,8 +41,22 @@ final class AgentActivityPageService {
         pane.newBrowserTab(url: AgentActivityPageAddress.url)
     }
 
+    /// Opens Agent Activity (``open()``) on Computer Use session `session`: the live preview card's
+    /// click. An open page selects it now; a page this opens selects it as it is made.
+    func open(session: String) {
+        pendingSelection = session
+        for page in pages.allObjects { page.model.select(session: session) }
+        open()
+    }
+
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> AgentActivityPageTab {
-        AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource())
+        let page = AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource())
+        pages.add(page)
+        if let session = pendingSelection {
+            pendingSelection = nil
+            page.model.select(session: session)
+        }
+        return page
     }
 
     /// Shows a lane's chat where ``AgentChatJump`` says it lives. Back returns

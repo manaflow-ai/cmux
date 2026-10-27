@@ -23,7 +23,10 @@ nonisolated enum AgentActivityWire {
             startedAt: date(json["started_at_ms"]), lastActionAt: date(json["last_action_at_ms"]),
             endedAt: (json["ended_at_ms"] as? NSNumber).map { date($0) },
             acts: int(counters["acts"]), observes: int(counters["observes"]), errors: int(counters["errors"]),
-            foregroundOnly: json["delivery"] as? String == "foreground_only")
+            foregroundOnly: json["delivery"] as? String == "foreground_only",
+            acpSession: nonEmpty(agent["acp_session"]), harnessSessionID: nonEmpty(agent["harness_session_id"]),
+            workspaceID: nonEmpty(agent["workspace_id"]), targetApp: targets.last.flatMap { nonEmpty($0["app_name"]) },
+            targetBundleID: targets.last.flatMap { nonEmpty($0["app_bundle_id"]) })
     }
 
     static func status(_ json: [String: Any]) -> AgentActivityStatus {
@@ -125,6 +128,8 @@ nonisolated enum AgentActivityWire {
     }
 
     private static func int(_ value: Any?) -> Int { (value as? NSNumber)?.intValue ?? 0 }
+
+    private static func nonEmpty(_ value: Any?) -> String? { (value as? String).flatMap { $0.isEmpty ? nil : $0 } }
 }
 
 private extension String {

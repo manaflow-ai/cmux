@@ -28,13 +28,23 @@ public nonisolated struct AgentActivitySession: Sendable, Hashable, Identifiable
     public var errors: Int
     /// Input goes to a foreground window only (a user's Wayland desktop).
     public var foregroundOnly: Bool
+    /// What ties the session to an agent chat, when the host attributed it
+    /// (`agent.acp_session`, `agent.harness_session_id`, `agent.workspace_id`):
+    /// the live preview card shows in that chat.
+    public var acpSession: String?
+    public var harnessSessionID: String?
+    public var workspaceID: String?
+    /// Name and bundle id of the app the session last acted on (its newest target).
+    public var targetApp: String?
+    public var targetBundleID: String?
 
     public init(
         id: String, machine: String, machineName: String, label: String, agentKind: String, agentName: String,
         attribution: AgentActivityAttribution, workspaceTitle: String? = nil, terminalTitle: String? = nil,
         colorHex: String, targetApps: [String] = [], status: AgentActivityStatus, startedAt: Date,
         lastActionAt: Date, endedAt: Date? = nil, acts: Int = 0, observes: Int = 0, errors: Int = 0,
-        foregroundOnly: Bool = false
+        foregroundOnly: Bool = false, acpSession: String? = nil, harnessSessionID: String? = nil,
+        workspaceID: String? = nil, targetApp: String? = nil, targetBundleID: String? = nil
     ) {
         self.id = id
         self.machine = machine
@@ -55,5 +65,10 @@ public nonisolated struct AgentActivitySession: Sendable, Hashable, Identifiable
         self.observes = observes
         self.errors = errors
         self.foregroundOnly = foregroundOnly
+        self.acpSession = acpSession
+        self.harnessSessionID = harnessSessionID
+        self.workspaceID = workspaceID
+        self.targetApp = targetApp
+        self.targetBundleID = targetBundleID
     }
 }

@@ -1,0 +1,214 @@
+import AppKit
+import CmuxNextAgentActivity
+import CmuxNextCompat
+public import CmuxNextSettings
+import Foundation
+
+/// What the live preview needs from the App: its agent chats, the focused one, a way to show a
+/// card in a chat's page, and Agent Activity.
+@MainActor
+public protocol ComputerUseLivePreviewHost: AnyObject {
+    /// Every agent chat that has a page.
+    func computerUsePreviewChats() -> [ComputerUsePreviewChat]
+    /// The agent chat the active window's focused pane shows, if any.
+    func computerUsePreviewFocusedChat() -> String?
+    /// Shows `card` (nil: none) in chat tab `chat`; a click on it comes back to `respond`.
+    func computerUsePreviewShow(_ card: ComputerUsePreviewCard?, in chat: String,
+                                respond: @escaping @MainActor (_ session: String, _ click: ComputerUsePreviewClick) -> Void)
+    /// Opens Agent Activity on Computer Use session `session`.
+    func computerUsePreviewOpenActivity(session: String)
+}
+
+/// The live preview card of computer use (B6): while an agent drives an app, its chat shows a small
+/// live view of that app at the top right; when the session ends the card keeps the last frame,
+/// dimmed, with the app's icon and a check. A click opens Agent Activity on the session; the close
+/// button hides the card for that session; `computerUse.livePreview` off shows none.
+///
+/// Its data comes from a ``ComputerUseLivePreviewSource`` (v1: the legacy helper's activity
+/// socket, pushed, never polled); the state is ``ComputerUsePreviewBoard``'s; one frame loads at a
+/// time off the main thread, the newest first. Each chat gets its card only when it changes.
+@MainActor
+public final class ComputerUseLivePreview {
+    private weak var host: (any ComputerUseLivePreviewHost)?
+    /// Makes the source when the setting turns on (tests pass a fake).
+    private let makeSource: @MainActor () -> any ComputerUseLivePreviewSource
+    private var board = ComputerUsePreviewBoard()
+    private var source: (any ComputerUseLivePreviewSource)?
+    private var observation: Task<Void, Never>?
+    /// The one frame load in flight, and its session and frame.
+    private var loading: (session: String, frame: String, task: Task<Void, Never>)?
+    /// App icons by bundle id (`nil`: the app has none); a few apps per launch.
+    private var icons: [String: String?] = [:]
+    private var iconLoads: Set<String> = []
+    /// Chats that were given a card, so a card that goes is taken off.
+    private var shown: Set<String> = []
+    /// Follows the turn state of the acpmux sessions whose chats have a card (``AgentLaneStore``'s
+    /// per-session links: a new step does not wake it), so a card turns done when its turn ends.
+    private var turnObservation: Task<Void, Never>?
+    private var turnSessions: [String] = []
+
+    /// The most app icons kept.
+    private static let maximumIcons = 32
+
+    /// - Parameters:
+    ///   - host: The App's chats and Agent Activity.
+    ///   - makeSource: The data source, made when the setting turns on; by default the legacy
+    ///     helper's activity socket while the helper runs.
+    public init(host: any ComputerUseLivePreviewHost, makeSource: (@MainActor () -> any ComputerUseLivePreviewSource)? = nil) {
+        self.host = host
+        self.makeSource = makeSource ?? {
+            ComputerUseActivityPreviewSource(configuration: { ComputerUseHelperDaemon.shared.configuration })
+        }
+    }
+
+    /// Follows `computerUse.livePreview` for the app's life: on, it reads the source; off, it stops
+    /// and every card goes.
+    public func follow(_ settings: SettingsController) {
+        observation?.cancel()
+        // task-owner: lives as long as the app; event-driven (Observation)
+        observation = Task { [weak self, weak settings] in
+            guard let settings else { return }
+            await settings.waitForLoad(atLeast: 1)
+            for await on in ObservationStream({ settings.snapshot.computerUse.livePreview }) {
+                guard let self, !Task.isCancelled else { return }
+                set(enabled: on)
+            }
+        }
+    }
+
+    func set(enabled: Bool) {
+        guard enabled != (source != nil) else { return }
+        board.enabled = enabled
+        if enabled {
+            let source = makeSource()
+            self.source = source
+            source.start { [weak self] update in self?.apply(update) }
+        } else {
+            source?.stop()
+            source = nil
+            loading?.task.cancel()
+            loading = nil
+            followTurns()
+            push()
+        }
+    }
+
+    /// Routes again when a carded chat's turn starts or ends; re-armed when those chats change.
+    private func followTurns() {
+        let routed = board.routedChats
+        let sessions = (host?.computerUsePreviewChats() ?? []).filter { routed.contains($0.key) }.compactMap(\.session).sorted()
+        guard sessions != turnSessions else { return }
+        turnSessions = sessions
+        turnObservation?.cancel()
+        turnObservation = nil
+        guard !sessions.isEmpty else { return }
+        // task-owner: lives while a card's chat is followed; event-driven (Observation), re-armed on change
+        turnObservation = Task { [weak self] in
+            for await _ in ObservationStream({ sessions.map { AgentLaneStore.shared.links($0)?.state } }) {
+                guard let self, !Task.isCancelled else { return }
+                board.route(chats: host?.computerUsePreviewChats() ?? [], focused: host?.computerUsePreviewFocusedChat())
+                push()
+            }
+        }
+    }
+
+    // MARK: Source updates
+
+    func apply(_ update: ComputerUseLivePreviewUpdate) {
+        switch update {
+        case .sessions(let sessions):
+            let before = board.followed
+            let read = board.apply(sessions: sessions)
+            // A new session, one that acted and one that just ended: ask for their newest frame again
+            // (the legacy source reads only the new events); ended or closed ones are not followed after.
+            for id in read { source?.follow(session: id, true) }
+            for id in before.union(read).subtracting(board.followed) { source?.follow(session: id, false) }
+            board.route(chats: host?.computerUsePreviewChats() ?? [], focused: host?.computerUsePreviewFocusedChat())
+            followTurns()
+        case .newestFrame(let session, let frame):
+            board.apply(newestFrame: frame, session: session)
+        }
+        loadNext()
+        push()
+    }
+
+    // MARK: Frames and icons
+
+    /// Starts the next frame load when none runs; a newer frame waits for the one in flight.
+    private func loadNext() {
+        guard loading == nil, let next = board.nextLoad(), let source else { return }
+        let frame = next.frame
+        // task-owner: one frame load at a time; ends with the source's answer (the socket's deadline).
+        let task = Task { [weak self] in
+            let url = await source.frame(frame)
+            guard let self, !Task.isCancelled else { return }
+            loading = nil
+            if let url { board.loaded(.init(id: frame, url: url), session: next.session) } else { board.failed(frame, session: next.session) }
+            loadNext()
+            push()
+        }
+        loading = (next.session, frame, task)
+    }
+
+    /// Renders the icons of apps a card names, off the main thread, once per app.
+    private func loadIcons() {
+        let wanted = board.bundleIDs.subtracting(icons.keys).subtracting(iconLoads)
+        guard !wanted.isEmpty else { return }
+        iconLoads.formUnion(wanted)
+        // task-owner: one render per app, at most once per launch; results land on the main actor.
+        Task { [weak self] in
+            for bundleID in wanted.sorted() {
+                let url = await Self.iconURL(bundleID)
+                guard let self else { return }
+                iconLoads.remove(bundleID)
+                if icons.count >= Self.maximumIcons { icons.removeAll() }
+                icons[bundleID] = .some(url)
+            }
+            self?.push()
+        }
+    }
+
+    /// Launch Services' icon of the app, drawn into a bitmap of its own (no shared graphics state), as PNG.
+    @concurrent nonisolated private static func iconURL(_ bundleID: String) async -> String? {
+        guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return nil }
+        let image = NSWorkspace.shared.icon(forFile: app.path)
+        let pixels = 96
+        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8,
+                                            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                            bytesPerRow: 0, bitsPerPixel: 0),
+              let context = NSGraphicsContext(bitmapImageRep: bitmap) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = context
+        image.draw(in: NSRect(x: 0, y: 0, width: pixels, height: pixels), from: .zero, operation: .copy, fraction: 1)
+        context.flushGraphics()
+        return bitmap.representation(using: .png, properties: [:]).map { "data:image/png;base64," + $0.base64EncodedString() }
+    }
+
+    // MARK: Chats
+
+    /// Gives each chat its card and takes a gone card off. The host passes on changes only, and a
+    /// chat whose page was made again gets its card back.
+    private func push() {
+        guard let host else { return }
+        loadIcons()
+        let icons = icons.compactMapValues { $0 }
+        for chat in Set(host.computerUsePreviewChats().map(\.key)).union(shown) {
+            let card = board.card(for: chat, icons: icons)
+            guard card != nil || shown.contains(chat) else { continue }
+            if card == nil { shown.remove(chat) } else { shown.insert(chat) }
+            host.computerUsePreviewShow(card, in: chat) { [weak self] session, click in self?.respond(session: session, click: click) }
+        }
+    }
+
+    private func respond(session: String, click: ComputerUsePreviewClick) {
+        switch click {
+        case .open:
+            host?.computerUsePreviewOpenActivity(session: session)
+        case .close:
+            board.dismiss(session: session)
+            source?.follow(session: session, false)
+            push()
+        }
+    }
+}

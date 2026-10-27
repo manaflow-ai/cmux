@@ -147,6 +147,8 @@ import { ToolCards } from "./toolCards/ToolCards";
 import { uploadToMachine } from "./cloudUploads";
 import { droppedPaths } from "./composer/intakeFiles";
 import { useToolCards } from "./toolCards/toolCardStore";
+import { useComputerUsePreview } from "./computerUse/computerUsePreview";
+import { ComputerUsePreviewCard } from "./computerUse/ComputerUsePreviewCard";
 import { PermissionCard } from "./PermissionCard";
 import { cardTakesShortcuts } from "./permissionKeys";
 import { QuestionCard } from "./question/QuestionCard";
@@ -8383,6 +8385,7 @@ function AcpmuxPane() {
     [replaying],
   );
   const toolCards = useToolCards();
+  const computerUsePreview = useComputerUsePreview();
   // What the chat waits on the person for: the running turn's line says it, never "Thinking".
   const waiting = chatWaitsOn({
     trust: trustAsk.ask,
@@ -9645,6 +9648,14 @@ function AcpmuxPane() {
                   <LiveChatChoice
                     {...snapshot.liveChat}
                     onChoose={(choice) => void callNative("chat.adoptLive", { choice }).catch(() => undefined)}
+                  />
+                )}
+                {/* Computer use's live preview: the app this chat's agent drives, at the top right. */}
+                {!quick && !diffView && !inspectorOpen && (
+                  <ComputerUsePreviewCard
+                    preview={computerUsePreview}
+                    onOpen={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "open" }))}
+                    onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
                   />
                 )}
                 {snapshot.summary?.watching && !snapshot.liveTakeOver && (
