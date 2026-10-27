@@ -201,6 +201,9 @@ final class QuitCoordinator {
                 // before the engines stop: nothing the user asked for comes after that (QuitSteps).
                 // Nothing is written when nothing changed.
                 await services.home.flushCacheForQuit()
+                // Saves posted to the blocking-work lanes as blockShutdown (a new chat's unsent drafts, chats'
+                // scroll places) reach disk; nothing not yet started that may be skipped runs after this.
+                await services.work.shutdown()
                 // CefShutdown runs on the main thread and can block it for
                 // good: from here the quit ends by a deadline whatever it
                 // does, and a debug build reports that hang, never asserts it.

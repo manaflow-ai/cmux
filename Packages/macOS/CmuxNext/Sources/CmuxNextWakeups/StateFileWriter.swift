@@ -55,10 +55,15 @@ public nonisolated final class StateFileWriter: Sendable {
 
     /// Queues `contents` as the file's next state, replacing a save that has not started; returns at once.
     public func save(_ contents: @escaping Contents) {
-        // Red step (#25852): still encoded and written on the caller's thread, as the owners did before.
-        let data: Data?
-        do { data = try contents() } catch { return }
-        write(file, data)
+        let start = state.withLock { state -> Bool in
+            state.pending = contents
+            defer { state.running = true }
+            return !state.running
+        }
+        guard start else { return }
+        work.post(.bestEffort, mayBlock: .files, shutdown: .blockShutdown, dropped: { [self] in finish(dropped: true) }) { [self] in
+            drain()
+        }
     }
 
     /// Returns once every save queued before the call is on disk (or was dropped by shutdown). The caller

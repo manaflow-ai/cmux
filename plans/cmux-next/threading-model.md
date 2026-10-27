@@ -87,7 +87,10 @@ MetalYUVRenderer. No BackgroundWork lane runs at it.
 Blocking work never runs on the cooperative pool: a process wait uses AsyncProcess (no thread waits); file I/O uses lane
 .files (serial per priority); a sync system call (getaddrinfo, Security, Launch Services, AX) uses lane .system (6 at
 once, Chrome kDefaultMaxSystemTasks); long CPU work uses lane .cpu (P-cores minus 1). ShutdownBehavior: skipOnShutdown
-(default), continueOnShutdown, blockShutdown (quit awaits BackgroundWork.shutdown()).
+(default), continueOnShutdown, blockShutdown (quit awaits BackgroundWork.shutdown() in its engine-stop step, after
+Home's last cache flush and before CefShutdown). A small state file a main-actor owner saves on every change (a new
+chat's unsent drafts, chats' scroll places) goes through StateFileWriter (CmuxNextWakeups): encoded and written on lane
+.files at bestEffort, blockShutdown, latest save wins (at most one write runs and one waits).
 
 Donating waits (allowed for a short main-thread wait): os_unfair_lock, OSAllocatedUnfairLock, CmuxNextCompat.Mutex,
 dispatch_sync onto a serial queue (GCD sync QoS override), awaiting a Task value (Swift escalation), BackgroundWork.run
