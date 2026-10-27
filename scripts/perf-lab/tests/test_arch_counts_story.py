@@ -219,5 +219,40 @@ class ThisCheckoutTests(unittest.TestCase):
         self.assertEqual(got, {f"arch.{row}": n for row, n in totals.items()})
 
 
+class SubscriptionTests(unittest.TestCase):
+    """subscriptions.json makes the arch.* series alert, so the lab replaces the cron report's issue."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.alerts = _load("perf_lab_alerts", os.path.join(LAB, "alerts.py"))
+        cls.subscriptions = cls.alerts.Subscriptions.load(os.path.join(LAB, "subscriptions.json"))
+        with open(os.path.join(ROOT, report.RATCHET_PATH)) as f:
+            cls.rows = json.load(f)["rows"]
+
+    def owner(self, row):
+        series = self.alerts.SeriesInfo(id=1, key=f"k-{row}", story=story.STORY, metric=story.METRIC_PREFIX + row,
+                                        engine=story.ENGINE, host_class=story.HOST_CLASS, macos_major=0,
+                                        build_config=story.CONFIG, unit=story.UNIT, better=story.BETTER)
+        return self.subscriptions.match(series)
+
+    def test_every_row_is_monitored_and_only_ratcheted_rows_alert_on_a_step_of_one(self):
+        self.assertTrue(self.rows)
+        for row, spec in self.rows.items():
+            subscription = self.owner(row)
+            self.assertIsNotNone(subscription, row)
+            self.assertEqual(subscription.owner, "PL-arch", row)
+            self.assertEqual(subscription.name == "arch-ratcheted", bool(spec.get("ratchet")), row)
+
+    def test_a_ratcheted_row_alerts_on_one_more_and_an_unratcheted_row_does_not(self):
+        detector = self.alerts.CatapultDetector()
+        ratcheted = next(row for row, spec in self.rows.items() if spec.get("ratchet"))
+        changes = detector.change_points([33.0] * 8 + [34.0] * 8, self.owner(ratcheted).anomaly_config)
+        self.assertEqual([(c.median_before, c.median_after) for c in changes], [(33.0, 34.0)])
+        self.assertEqual(detector.change_points([33.0] * 16, self.owner(ratcheted).anomaly_config), [])
+        unratcheted = next(row for row, spec in self.rows.items() if not spec.get("ratchet"))
+        self.assertEqual(detector.change_points([159296.0] * 8 + [159297.0] * 8,
+                                                self.owner(unratcheted).anomaly_config), [])
+
+
 if __name__ == "__main__":
     unittest.main()
