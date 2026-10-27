@@ -1,7 +1,7 @@
 import { randomUUID, randomBytes, createHash } from "node:crypto";
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
-import { cloudRuntimes, runArtifacts, runAttempts, runEvents, runs } from "../../db/schema";
+import { cloudRuntimes, cloudVms, runArtifacts, runAttempts, runEvents, runs } from "../../db/schema";
 import {
   DEFAULT_LEASE_TTL_MS,
   DEFAULT_ATTACH_TICKET_TTL_MS,
@@ -10,11 +10,22 @@ import {
   MAX_EVENT_PAYLOAD_BYTES,
   TERMINAL_CLEANUP_LEASE_MS,
   assertArtifactDigest,
+  isArtifactDigest,
   jsonByteLength,
+  SANDBOX_ABANDONED_GRACE_MS,
+  SANDBOX_HANDOFF_GRACE_MS,
+  SANDBOX_QUEUED_ABANDON_MS,
+  SANDBOX_VM_IDEMPOTENCY_PREFIX,
+  SANDBOX_VM_DESTROY_CONFIRMED_KEY,
+  SANDBOX_VM_MARKER_KEY,
+  sandboxVmIdempotencyKey,
   type AttemptStatus,
+  type RunEnvironment,
   type RunEventKind,
   type RunStatus,
+  type SandboxRunOutcome,
 } from "./model";
+import { redactReceiptText, redactReceiptValue, SANDBOX_HANDLE_KEYS, SANDBOX_SCRUBBED_FROM_KEY, sandboxPayloadDigest, sandboxReply } from "./sandbox";
 
 export class RunIdempotencyConflictError extends Error {}
 export class RunNotFoundError extends Error {}
@@ -33,7 +44,22 @@ export type RunSnapshot = {
   readonly run: typeof runs.$inferSelect;
   readonly attempts: (typeof runAttempts.$inferSelect)[];
   readonly artifacts: (typeof runArtifacts.$inferSelect)[];
+  /** Sandboxed Runs only: a VM created under the sandbox's key (or still being created) is not gone yet. */
+  readonly sandboxVmLive?: boolean;
+  /** Sandboxed Runs only: each VM row created under its key, for the receipt's VM time. */
+  readonly sandboxVms?: readonly { readonly createdAt: Date; readonly destroyedAt: Date | null; readonly live: boolean }[];
+  /** Sandboxed Runs only: a create the VM reaper abandoned may have made a machine nobody recorded. */
+  readonly sandboxVmUnknown?: boolean;
+  /** Sandboxed Runs only: the provider ids of its VM rows, redacted wherever its text is shown. */
+  readonly sandboxVmHandles?: readonly string[];
 };
+
+/**
+ * Failure codes of a create that may have reached the provider (services/vms/workflows.ts): the
+ * VM reaper's abandoned create, a row update that failed after the provider made the machine
+ * (its rollback destroy is best-effort), and a create whose provider cleanup is still pending.
+ */
+const VM_CREATE_MAYBE_ALLOCATED_CODES = new Set(["create_abandoned", "database_finalize_failed", "provider_create_cleanup_pending"]);
 
 export type CreateRunInput = {
   readonly userId: string;
@@ -44,6 +70,10 @@ export type CreateRunInput = {
   readonly recipe: string;
   readonly provider?: string;
   readonly desiredAttempts: number;
+  readonly environment?: RunEnvironment;
+  /** Required for a sandboxed Run: the manifest image it boots. */
+  readonly imageId?: string | null;
+  readonly imageVersion?: string | null;
 };
 
 export type RunAttachTarget = {
@@ -66,6 +96,14 @@ function now(): Date {
   return new Date();
 }
 
+/** Run event ids that start with this are the server's own; ingestion refuses them from workers. */
+const SERVER_EVENT_ID_PREFIX = "cmux:";
+
+/** A sandboxed attempt keeps nothing to attach: its VM is due for destroy the moment it ends. */
+function terminalRetentionMs(environment: string | null | undefined): number {
+  return environment === "sandboxed" ? 0 : DEFAULT_TERMINAL_RETENTION_MS;
+}
+
 export function requestDigest(value: unknown): string {
   return `sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
 }
@@ -73,6 +111,10 @@ export function requestDigest(value: unknown): string {
 export async function createRun(input: CreateRunInput): Promise<RunSnapshot> {
   if (!Number.isSafeInteger(input.desiredAttempts) || input.desiredAttempts < 1 || input.desiredAttempts > 32) {
     throw new Error("desiredAttempts must be between 1 and 32");
+  }
+  // The billing team scopes the sandbox's VM; orphan adoption finds a VM by it and its create key.
+  if (input.environment === "sandboxed" && (input.desiredAttempts !== 1 || !input.imageId || !input.billingTeamId)) {
+    throw new Error("a sandboxed run has exactly one attempt, a pinned image and a billing team");
   }
   const db = cloudDb();
   return db.transaction(async (tx) => {
@@ -85,6 +127,9 @@ export async function createRun(input: CreateRunInput): Promise<RunSnapshot> {
       recipe: input.recipe,
       provider: input.provider ?? "cloud-vm",
       desiredAttempts: input.desiredAttempts,
+      environment: input.environment ?? "persistent",
+      imageId: input.environment === "sandboxed" ? input.imageId ?? null : null,
+      imageVersion: input.environment === "sandboxed" ? input.imageVersion ?? null : null,
     };
     let run: typeof runs.$inferSelect | undefined;
     let inserted = false;
@@ -110,7 +155,7 @@ export async function createRun(input: CreateRunInput): Promise<RunSnapshot> {
         sequence: 1,
         externalId: "run-created",
         kind: "run.created",
-        payload: { recipe: run.recipe, desiredAttempts: run.desiredAttempts },
+        payload: { recipe: run.recipe, desiredAttempts: run.desiredAttempts, environment: run.environment },
       });
     }
     return readSnapshot(tx, run.id, input.userId);
@@ -122,7 +167,54 @@ async function readSnapshot(db: RunQueryDb, runId: string, userId: string): Prom
   if (!run) throw new RunNotFoundError("run not found");
   const attempts = await db.select().from(runAttempts).where(eq(runAttempts.runId, runId)).orderBy(asc(runAttempts.ordinal));
   const artifacts = await db.select().from(runArtifacts).where(eq(runArtifacts.runId, runId)).orderBy(desc(runArtifacts.createdAt));
-  return { run, attempts, artifacts };
+  if (run.environment !== "sandboxed" || !run.billingTeamId) return { run, attempts, artifacts };
+  // The VM row, not the attempt's handle, says whether a sandbox's machine is gone: a launcher
+  // that died between create and journal leaves a VM the attempt never names.
+  const keys = attempts.map((attempt) => sandboxVmIdempotencyKey(run.id, attempt.id));
+  // The create request carries the marker, so a row still being created (no provider id yet)
+  // counts too: until it is destroyed or failed with nothing to clean up, cleanup is pending.
+  const rows = keys.length === 0 ? [] : await db.select({
+    createdAt: cloudVms.createdAt,
+    destroyedAt: cloudVms.destroyedAt,
+    status: cloudVms.status,
+    providerVmId: cloudVms.providerVmId,
+    failureCode: cloudVms.failureCode,
+    destroyConfirmed: sql<string | null>`${cloudVms.providerMetadata}->>${SANDBOX_VM_DESTROY_CONFIRMED_KEY}`,
+  }).from(cloudVms).where(and(
+    eq(cloudVms.billingTeamId, run.billingTeamId),
+    eq(cloudVms.userId, run.userId),
+    inArray(cloudVms.idempotencyKey, keys),
+    // Only the launcher's own rows (marked from their first insert); an unmarked row is not this Run's.
+    sql`${cloudVms.providerMetadata}->>${SANDBOX_VM_MARKER_KEY} = ${cloudVms.idempotencyKey}`,
+  )).limit(keys.length * 4);
+  // A create that failed with no provider id never ran: no VM time, nothing to clean. Except one
+  // that failed after the provider call (the VM reaper abandoned it at its deadline, or the row
+  // update after a create failed and its rollback destroy is unconfirmed): the machine may exist
+  // unrecorded, so the receipt says cleanup is pending and VM time is unknown rather than claim either.
+  // A row with no provider id that is still being created (or whose provider cleanup is pending)
+  // is unresolved the same way: its machine's lifetime is not the row's.
+  const allocationUnknown = rows.some((row) => !row.providerVmId && (row.status !== "failed" || (!!row.failureCode && VM_CREATE_MAYBE_ALLOCATED_CODES.has(row.failureCode))));
+  // VM time is measured only on rows the provider gave an id: their lifetime is the machine's.
+  const sandboxVms = rows.filter((row) => !!row.providerVmId).map((row) => {
+    const confirmedAt = row.destroyConfirmed ? new Date(row.destroyConfirmed) : null;
+    const confirmed = !!confirmedAt && !Number.isNaN(confirmedAt.getTime());
+    // A destroyed status alone is not proof: a machine the provider made is gone once a strict
+    // destroy confirmed it, and its VM time runs until then (to now while unconfirmed).
+    const live = row.status !== "destroyed" || (!!row.providerVmId && !confirmed);
+    return {
+      createdAt: row.createdAt,
+      destroyedAt: live ? null : (confirmed && row.providerVmId ? confirmedAt : row.destroyedAt ?? row.createdAt),
+      live,
+    };
+  });
+  // The VM rows' provider ids are handles too, journaled on the attempt or not: redacted alike.
+  const sandboxVmHandles = rows.flatMap((row) => (row.providerVmId ? [row.providerVmId] : []));
+  return { run, attempts, artifacts, sandboxVmLive: allocationUnknown || sandboxVms.some((vm) => vm.live), sandboxVms, sandboxVmUnknown: allocationUnknown, sandboxVmHandles };
+}
+
+/** The caller's Run created under `idempotencyKey`, if any (a create retry reads it before resolving its image). */
+export async function findRunByIdempotencyKey(userId: string, idempotencyKey: string): Promise<typeof runs.$inferSelect | null> {
+  return (await cloudDb().select().from(runs).where(and(eq(runs.userId, userId), eq(runs.idempotencyKey, idempotencyKey))).limit(1))[0] ?? null;
 }
 
 export async function getRun(runId: string, userId: string): Promise<RunSnapshot> {
@@ -151,9 +243,11 @@ export async function mintRunAttachTicket(input: {
   return cloudDb().transaction(async (tx) => {
     await lockRun(tx, input.runId);
     await lockAttempt(tx, input.runId, input.attemptId);
-    const run = (await tx.select({ id: runs.id, provider: runs.provider }).from(runs).where(and(eq(runs.id, input.runId), eq(runs.userId, input.userId))).limit(1))[0];
+    const run = (await tx.select({ id: runs.id, provider: runs.provider, environment: runs.environment }).from(runs).where(and(eq(runs.id, input.runId), eq(runs.userId, input.userId))).limit(1))[0];
     const attempt = (await tx.select().from(runAttempts).where(and(eq(runAttempts.id, input.attemptId), eq(runAttempts.runId, input.runId))).limit(1))[0];
     if (!run || !attempt) throw new RunNotFoundError("run not found");
+    // A sandboxed Run is never attachable: its retained handle only waits for the reaper's destroy.
+    if (run.environment === "sandboxed") throw new RunAttachTargetUnavailableError("a sandboxed run has no attachable terminal");
     if (!attempt.terminalRetainUntil || attempt.terminalRetainUntil.getTime() <= nowAt.getTime()) {
       throw new RunAttachTicketExpiredError("the terminal attach window has expired");
     }
@@ -194,8 +288,9 @@ export async function consumeRunAttachTicket(input: {
   return cloudDb().transaction(async (tx) => {
     await lockRun(tx, input.runId);
     await lockAttempt(tx, input.runId, input.attemptId);
-    const run = (await tx.select({ id: runs.id, provider: runs.provider }).from(runs).where(and(eq(runs.id, input.runId), eq(runs.userId, input.userId))).limit(1))[0];
+    const run = (await tx.select({ id: runs.id, provider: runs.provider, environment: runs.environment }).from(runs).where(and(eq(runs.id, input.runId), eq(runs.userId, input.userId))).limit(1))[0];
     const attempt = (await tx.select().from(runAttempts).where(and(eq(runAttempts.id, input.attemptId), eq(runAttempts.runId, input.runId))).limit(1))[0];
+    if (run?.environment === "sandboxed") throw new RunAttachTargetUnavailableError("a sandboxed run has no attachable terminal");
     // Deliberately collapse ownership and token mismatches into not-found so a
     // caller cannot probe another tenant's retained VM handles.
     if (!run || !attempt || attempt.attachTicketHash !== hash) throw new RunAttachTicketNotFoundError("attach ticket not found");
@@ -227,17 +322,33 @@ export async function listRunEvents(input: {
   readonly userId: string;
   readonly afterSequence?: number;
   readonly limit?: number;
-}): Promise<{ readonly events: (typeof runEvents.$inferSelect)[]; readonly nextSequence: number | null }> {
-  const db = cloudDb();
-  const run = (await db.select({ id: runs.id }).from(runs).where(and(eq(runs.id, input.runId), eq(runs.userId, input.userId))).limit(1))[0];
-  if (!run) throw new RunNotFoundError("run not found");
-  const limit = Math.max(1, Math.min(input.limit ?? 100, 500));
-  const rows = await db.select().from(runEvents).where(and(
-    eq(runEvents.runId, input.runId),
-    gt(runEvents.sequence, input.afterSequence ?? 0),
-  )).orderBy(asc(runEvents.sequence)).limit(limit + 1);
-  const events = rows.slice(0, limit);
-  return { events, nextSequence: rows.length > limit ? events.at(-1)?.sequence ?? null : null };
+}): Promise<{
+  readonly events: (typeof runEvents.$inferSelect)[];
+  readonly nextSequence: number | null;
+  readonly environment: RunEnvironment;
+  /** A sandboxed Run's provider handles, for redacting them out of event text as served. */
+  readonly handles: readonly string[];
+}> {
+  // One snapshot: a handle is recorded before any event can name it, and cleanup clears handles in
+  // the transaction that scrubs them out of events, so every handle a served event names is listed.
+  return cloudDb().transaction(async (db) => {
+    const run = (await db.select({ id: runs.id, userId: runs.userId, billingTeamId: runs.billingTeamId, environment: runs.environment })
+      .from(runs).where(and(eq(runs.id, input.runId), eq(runs.userId, input.userId))).limit(1))[0];
+    if (!run) throw new RunNotFoundError("run not found");
+    const limit = Math.max(1, Math.min(input.limit ?? 100, 500));
+    const rows = await db.select().from(runEvents).where(and(
+      eq(runEvents.runId, input.runId),
+      gt(runEvents.sequence, input.afterSequence ?? 0),
+    )).orderBy(asc(runEvents.sequence)).limit(limit + 1);
+    const events = rows.slice(0, limit);
+    const handles: string[] = [];
+    if (run.environment === "sandboxed") {
+      const attempts = await db.select({ id: runAttempts.id, providerVmId: runAttempts.providerVmId, providerWorkspaceId: runAttempts.providerWorkspaceId, providerTerminalId: runAttempts.providerTerminalId })
+        .from(runAttempts).where(eq(runAttempts.runId, run.id));
+      for (const attempt of attempts) handles.push(...await sandboxAttemptHandles(db, run, attempt));
+    }
+    return { events, nextSequence: rows.length > limit ? events.at(-1)?.sequence ?? null : null, environment: (run.environment ?? "persistent") as RunEnvironment, handles };
+  }, { isolationLevel: "repeatable read", accessMode: "read only" });
 }
 
 export type AttemptLease = {
@@ -350,7 +461,7 @@ export async function scheduleAttemptRetention(input: {
   readonly providerVmId?: string;
   readonly retentionMs?: number;
 }): Promise<typeof runAttempts.$inferSelect> {
-  const retentionMs = Math.max(1_000, Math.min(input.retentionMs ?? DEFAULT_TERMINAL_RETENTION_MS, 60 * 60_000));
+  const retentionMs = Math.max(0, Math.min(input.retentionMs ?? DEFAULT_TERMINAL_RETENTION_MS, 60 * 60_000));
   const attempt = (await cloudDb().update(runAttempts).set({
     ...(input.providerVmId ? { providerVmId: input.providerVmId } : {}),
     terminalRetainUntil: new Date(Date.now() + retentionMs),
@@ -511,6 +622,9 @@ export async function ingestRunEvent(input: {
 }): Promise<RunEventRow> {
   const payload = input.payload ?? {};
   if (!input.externalId || input.externalId.length > 160) throw new RunPayloadTooLargeError("eventId is required and must be 160 characters or fewer");
+  // The server's own bookkeeping events (the sandbox sweep and adoption) use ids no worker may take.
+  if (input.externalId.startsWith(SERVER_EVENT_ID_PREFIX)) throw new RunEventConflictError("eventId may not start with the server's reserved prefix");
+  if (Object.hasOwn(payload, SANDBOX_SCRUBBED_FROM_KEY)) throw new RunEventConflictError(`payload key ${SANDBOX_SCRUBBED_FROM_KEY} is reserved for the server`);
   if (input.attemptSequence !== undefined && (!Number.isSafeInteger(input.attemptSequence) || input.attemptSequence < 0)) throw new RunPayloadTooLargeError("attempt sequence must be a non-negative integer");
   if (jsonByteLength(payload) > MAX_EVENT_PAYLOAD_BYTES) throw new RunPayloadTooLargeError("event payload exceeds 256 KiB");
   const db = cloudDb();
@@ -531,7 +645,10 @@ export async function ingestRunEvent(input: {
         eq(runEvents.externalId, input.externalId),
       )).limit(1))[0];
       if (stored) {
-        const identical = stored.samePayload === true
+        // Cleanup scrubs a sandbox's handles out of its stored events and records what the worker
+        // sent, so the worker's retry of an event it sent before cleanup still matches.
+        const samePayload = stored.samePayload === true || stored.event.payload[SANDBOX_SCRUBBED_FROM_KEY] === sandboxPayloadDigest(payload);
+        const identical = samePayload
           && stored.event.kind === input.kind
           && stored.event.attemptSequence === (input.attemptSequence ?? null);
         await assertStoredRetry(tx, stored.event, input, identical, () => new RunEventConflictError("event id already exists with a different event"));
@@ -557,7 +674,7 @@ export async function ingestRunEvent(input: {
       ...leaseWriter(input),
     }).returning())[0];
     if (!event) throw new Error("event insert returned no row");
-    const currentRun = (await tx.select({ status: runs.status }).from(runs).where(eq(runs.id, input.runId)).limit(1))[0];
+    const currentRun = (await tx.select({ status: runs.status, environment: runs.environment }).from(runs).where(eq(runs.id, input.runId)).limit(1))[0];
     const requestedStatus: AttemptStatus | undefined = input.kind === "attempt.started" ? "running"
       : input.kind === "attempt.succeeded" ? "succeeded"
         : input.kind === "attempt.failed" ? "failed" : undefined;
@@ -578,7 +695,9 @@ export async function ingestRunEvent(input: {
       // retaining the token lets the worker fence its finally-block update
       // against a replacement lease.
       ...(terminal ? { leaseExpiresAt: null } : {}),
-      ...(terminal ? { terminalRetainUntil: new Date(Date.now() + DEFAULT_TERMINAL_RETENTION_MS) } : {}),
+      // A sandbox's own terminal event leaves its launcher a short window to record the outcome
+      // and hand the VM over (which makes it due at once); past it the reaper takes it anyway.
+      ...(terminal ? { terminalRetainUntil: new Date(Date.now() + (currentRun?.environment === "sandboxed" ? SANDBOX_HANDOFF_GRACE_MS : terminalRetentionMs(currentRun?.environment))) } : {}),
       updatedAt: now(),
     }).where(and(eq(runAttempts.id, input.attemptId), eq(runAttempts.leaseToken, input.leaseToken), eq(runAttempts.leaseGeneration, input.leaseGeneration)));
     if (terminal) {
@@ -636,6 +755,7 @@ export async function recordRunArtifact(input: {
       return withoutWriter(duplicate);
     }
     await checkLease(tx, input);
+    const eventName = await artifactEventName(tx, input);
     const artifact = (await tx.insert(runArtifacts).values({
       runId: input.runId,
       attemptId: input.attemptId,
@@ -655,7 +775,7 @@ export async function recordRunArtifact(input: {
       externalId: `artifact-${artifact.id}`,
       attemptSequence: null,
       kind: "attempt.artifact",
-      payload: { artifactId: artifact.id, name: artifact.name, digest: artifact.digest, sizeBytes: artifact.sizeBytes },
+      payload: { artifactId: artifact.id, name: eventName, digest: artifact.digest, sizeBytes: artifact.sizeBytes },
       ...leaseWriter(input),
     });
     return withoutWriter(artifact);
@@ -717,6 +837,7 @@ export async function finalizeAttemptCancellation(input: {
     await lockAttempt(tx, input.runId, input.attemptId);
     const current = (await tx.select().from(runAttempts).where(and(eq(runAttempts.id, input.attemptId), eq(runAttempts.runId, input.runId))).limit(1))[0];
     if (!current) throw new RunAttemptNotFoundError("attempt not found");
+    const environment = (await tx.select({ environment: runs.environment }).from(runs).where(eq(runs.id, input.runId)).limit(1))[0]?.environment;
     const isActive = ["queued", "leased", "running"].includes(current.status);
     let attempt = current;
     if (isActive) {
@@ -729,7 +850,7 @@ export async function finalizeAttemptCancellation(input: {
         leaseExpiresAt: null,
         leaseGeneration: sql`${runAttempts.leaseGeneration} + 1`,
         finishedAt: now(),
-        terminalRetainUntil: current.providerVmId ? new Date(Date.now() + DEFAULT_TERMINAL_RETENTION_MS) : null,
+        terminalRetainUntil: current.providerVmId ? new Date(Date.now() + terminalRetentionMs(environment)) : null,
         updatedAt: now(),
       }).where(and(...conditions)).returning())[0] ?? current;
     }
@@ -757,16 +878,17 @@ export async function finalizeAttemptCancellation(input: {
 export async function forceFinalizeRunCancellation(runId: string, userId: string): Promise<void> {
   await cloudDb().transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${runId}, 0))`);
-    const run = (await tx.select({ status: runs.status }).from(runs).where(and(eq(runs.id, runId), eq(runs.userId, userId))).for("update").limit(1))[0];
+    const run = (await tx.select({ status: runs.status, environment: runs.environment }).from(runs).where(and(eq(runs.id, runId), eq(runs.userId, userId))).for("update").limit(1))[0];
     if (!run) throw new RunNotFoundError("run not found");
     if (run.status !== "cancelling") return;
+    const retention = run.environment === "sandboxed" ? sql`now()` : sql`now() + interval '10 minutes'`;
     await tx.update(runAttempts).set({
       status: "cancelled",
       leaseToken: null,
       leaseExpiresAt: null,
       leaseGeneration: sql`${runAttempts.leaseGeneration} + 1`,
       finishedAt: now(),
-      terminalRetainUntil: sql`case when ${runAttempts.providerVmId} is null then null else coalesce(${runAttempts.terminalRetainUntil}, now() + interval '10 minutes') end`,
+      terminalRetainUntil: sql`case when ${runAttempts.providerVmId} is null then null else coalesce(${runAttempts.terminalRetainUntil}, ${retention}) end`,
       updatedAt: now(),
     }).where(and(eq(runAttempts.runId, runId), inArray(runAttempts.status, ["queued", "leased", "running"])));
     const completed = (await tx.update(runs).set({ status: "cancelled", completedAt: now(), updatedAt: now() }).where(and(eq(runs.id, runId), eq(runs.status, "cancelling"))).returning())[0];
@@ -786,11 +908,12 @@ export type ExpiredAttemptCleanup = {
   readonly attempt: typeof runAttempts.$inferSelect;
   readonly userId: string;
   readonly billingTeamId: string | null;
+  readonly environment: string;
   readonly cleanupLeaseToken: string;
 };
 
 /** Claim expired VM rows for a bounded provider reaper. Claims are recoverable. */
-export async function claimExpiredAttemptCleanups(input: { readonly limit?: number; readonly now?: Date } = {}): Promise<ExpiredAttemptCleanup[]> {
+export async function claimExpiredAttemptCleanups(input: { readonly limit?: number; readonly now?: Date; readonly runId?: string } = {}): Promise<ExpiredAttemptCleanup[]> {
   const nowAt = input.now ?? now();
   const limit = Math.max(1, Math.min(input.limit ?? 20, 100));
   return cloudDb().transaction(async (tx) => {
@@ -798,10 +921,12 @@ export async function claimExpiredAttemptCleanups(input: { readonly limit?: numb
       attempt: runAttempts,
       userId: runs.userId,
       billingTeamId: runs.billingTeamId,
+      environment: runs.environment,
     }).from(runAttempts).innerJoin(runs, eq(runs.id, runAttempts.runId))
       .leftJoin(cloudRuntimes, eq(cloudRuntimes.id, runAttempts.runtimeId)).where(and(
       inArray(runAttempts.status, ["succeeded", "failed", "cancelled"]),
       isNotNull(runAttempts.providerVmId),
+      ...(input.runId ? [eq(runAttempts.runId, input.runId)] : []),
       // Every launched attempt has its own ephemeral runtime (dogfood.ts); a promoted attempt's VM
       // belongs to a persistent runtime now, so only that one is never reaped.
       or(isNull(runAttempts.runtimeId), eq(cloudRuntimes.runtimeKind, "ephemeral")),
@@ -815,14 +940,128 @@ export async function claimExpiredAttemptCleanups(input: { readonly limit?: numb
       const attempt = (await tx.update(runAttempts).set({
         cleanupLeaseToken: token,
         cleanupLeaseExpiresAt: new Date(nowAt.getTime() + TERMINAL_CLEANUP_LEASE_MS),
+        // Once the reaper owns a sandbox's VM its receipt is final, whatever the destroy does.
+        ...(candidate.environment === "sandboxed" ? { leaseToken: null } : {}),
         updatedAt: nowAt,
       }).where(and(
         eq(runAttempts.id, candidate.attempt.id),
         or(isNull(runAttempts.cleanupLeaseExpiresAt), lt(runAttempts.cleanupLeaseExpiresAt, nowAt)),
       )).returning())[0];
-      if (attempt) claimed.push({ attempt, userId: candidate.userId, billingTeamId: candidate.billingTeamId, cleanupLeaseToken: token });
+      if (attempt) claimed.push({ attempt, userId: candidate.userId, billingTeamId: candidate.billingTeamId, environment: candidate.environment, cleanupLeaseToken: token });
     }
     return claimed;
+  });
+}
+
+/**
+ * The name an artifact's event shows: as given for a persistent Run; for a sandboxed Run, redacted
+ * like its receipt (token shapes and the attempt's own handles), since events are served as stored.
+ */
+async function artifactEventName(tx: RunQueryDb, input: { readonly runId: string; readonly attemptId: string; readonly name: string; readonly digest: string }): Promise<string> {
+  const row = (await tx.select({ attempt: runAttempts, run: runs })
+    .from(runAttempts).innerJoin(runs, eq(runs.id, runAttempts.runId)).where(eq(runAttempts.id, input.attemptId)).limit(1))[0];
+  if (row?.run.environment !== "sandboxed") return input.name;
+  // A sandbox's receipt serves the digest as is, so it must be one.
+  if (!isArtifactDigest(input.digest)) throw new RunArtifactConflictError("artifact digest is invalid");
+  return redactReceiptText(input.name, await sandboxAttemptHandles(tx, row.run, row.attempt));
+}
+
+/**
+ * Every handle a sandbox attempt's text could name: the ones journaled on the attempt and the
+ * provider id of any VM row under its key (a launcher that died before journaling it still
+ * made one).
+ */
+async function sandboxAttemptHandles(
+  db: RunQueryDb,
+  run: Pick<typeof runs.$inferSelect, "id" | "userId" | "billingTeamId">,
+  attempt: Pick<typeof runAttempts.$inferSelect, "id" | "providerVmId" | "providerWorkspaceId" | "providerTerminalId">,
+): Promise<string[]> {
+  const journaled = [attempt.providerVmId, attempt.providerWorkspaceId, attempt.providerTerminalId].filter((handle): handle is string => !!handle);
+  if (!run.billingTeamId) return journaled;
+  const key = sandboxVmIdempotencyKey(run.id, attempt.id);
+  const vms = await db.select({ providerVmId: cloudVms.providerVmId }).from(cloudVms).where(and(
+    eq(cloudVms.billingTeamId, run.billingTeamId),
+    eq(cloudVms.userId, run.userId),
+    eq(cloudVms.idempotencyKey, key),
+    sql`${cloudVms.providerMetadata}->>${SANDBOX_VM_MARKER_KEY} = ${key}`,
+    isNotNull(cloudVms.providerVmId),
+  )).limit(4);
+  return [...journaled, ...vms.flatMap((vm) => (vm.providerVmId ? [vm.providerVmId] : []))];
+}
+
+/**
+ * Before cleanup clears a sandbox attempt's provider handles, take them out of every stored text
+ * that could name them (the receipt's reply, the attempt's error, artifact names), so nothing
+ * stored needs the handles again and the handles themselves are kept nowhere.
+ */
+
+/** An event payload with every handle-named value and every handle in its text replaced. */
+function scrubEventPayload(value: unknown, handles: readonly string[]): Record<string, unknown> {
+  const scrub = (item: unknown, key?: string): unknown => {
+    if (key && SANDBOX_HANDLE_KEYS.has(key) && item != null) return "[redacted]";
+    if (typeof item === "string") return handles.reduce((text, handle) => text.split(handle).join("[redacted]"), item);
+    if (Array.isArray(item)) return item.map((child) => scrub(child));
+    if (item && typeof item === "object") return Object.fromEntries(Object.entries(item).map(([childKey, child]) => [childKey, scrub(child, childKey)]));
+    return item;
+  };
+  return (scrub(value ?? {}) ?? {}) as Record<string, unknown>;
+}
+
+async function scrubSandboxHandles(attemptId: string, cleanupLeaseToken: string): Promise<void> {
+  const runId = (await cloudDb().select({ runId: runAttempts.runId }).from(runAttempts).where(eq(runAttempts.id, attemptId)).limit(1))[0]?.runId;
+  if (!runId) return;
+  await cloudDb().transaction(async (tx) => {
+    // The same lock order as event ingestion and the outcome write: advisory, run, attempt.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${runId}, 0))`);
+    await lockRun(tx, runId);
+    await lockAttempt(tx, runId, attemptId);
+    const row = (await tx.select({ attempt: runAttempts, run: runs }).from(runAttempts).innerJoin(runs, eq(runs.id, runAttempts.runId)).where(and(
+      eq(runAttempts.id, attemptId),
+      eq(runAttempts.cleanupLeaseToken, cleanupLeaseToken),
+      eq(runs.environment, "sandboxed"),
+    )).limit(1))[0];
+    if (!row) return;
+    const handles = await sandboxAttemptHandles(tx, row.run, row.attempt);
+    if (handles.length === 0) return;
+    const receipt = row.run.receipt;
+    if (receipt) {
+      const scrub = (value: unknown) => (typeof value === "string" ? redactReceiptText(value, handles) : value ?? null);
+      await tx.update(runs).set({ receipt: { ...receipt, reply: scrub(receipt.reply), error: scrub(receipt.error) } }).where(eq(runs.id, row.run.id));
+    }
+    if (row.attempt.error) {
+      await tx.update(runAttempts).set({ error: redactReceiptText(row.attempt.error, handles) }).where(eq(runAttempts.id, attemptId));
+    }
+    // The Run journal names handles too (a started event's providerVmId, an adoption's). Their
+    // values become `[redacted]`: the keys stay, so "this attempt had a VM" still reads the same.
+    for (const event of await tx.select({ id: runEvents.id, payload: runEvents.payload }).from(runEvents).where(eq(runEvents.attemptId, attemptId))) {
+      const payload = scrubEventPayload(event.payload, handles);
+      if (JSON.stringify(payload) !== JSON.stringify(event.payload)) {
+        // The first scrub records the payload as sent, so the worker's retry of it still matches.
+        const scrubbedFrom = event.payload?.[SANDBOX_SCRUBBED_FROM_KEY] ?? sandboxPayloadDigest(event.payload);
+        await tx.update(runEvents).set({ payload: { ...payload, [SANDBOX_SCRUBBED_FROM_KEY]: scrubbedFrom } }).where(eq(runEvents.id, event.id));
+      }
+    }
+    if (row.run.error) {
+      await tx.update(runs).set({ error: redactReceiptText(row.run.error, handles) }).where(eq(runs.id, row.run.id));
+    }
+    for (const artifact of await tx.select({ id: runArtifacts.id, name: runArtifacts.name, mediaType: runArtifacts.mediaType, uri: runArtifacts.uri, metadata: runArtifacts.metadata }).from(runArtifacts).where(eq(runArtifacts.attemptId, attemptId))) {
+      const scrubbed = redactReceiptText(artifact.name, handles);
+      // Names are unique per attempt: a scrubbed name that collides keeps a suffix from the id.
+      const name = scrubbed === artifact.name ? scrubbed : `${scrubbed}~${artifact.id.slice(0, 8)}`;
+      const mediaType = redactReceiptText(artifact.mediaType, handles) === artifact.mediaType ? artifact.mediaType : "application/octet-stream";
+      const uri = redactReceiptText(artifact.uri, handles);
+      const metadata = redactReceiptValue(artifact.metadata, handles) as Record<string, unknown>;
+      const metadataChanged = JSON.stringify(metadata) !== JSON.stringify(artifact.metadata);
+      if (name !== artifact.name || mediaType !== artifact.mediaType || uri !== artifact.uri || metadataChanged) {
+        await tx.update(runArtifacts).set({ name, mediaType, uri, metadata }).where(eq(runArtifacts.id, artifact.id));
+      }
+      // The artifact's event carries a copy of its name: it ends up the same as the row's.
+      await tx.update(runEvents).set({ payload: sql`jsonb_set(${runEvents.payload}, '{name}', ${JSON.stringify(name)}::jsonb)` }).where(and(
+        eq(runEvents.attemptId, attemptId),
+        eq(runEvents.externalId, `artifact-${artifact.id}`),
+        sql`${runEvents.payload}->>'name' is distinct from ${name}`,
+      ));
+    }
   });
 }
 
@@ -831,15 +1070,282 @@ export async function finishAttemptCleanup(input: {
   readonly cleanupLeaseToken: string;
   readonly succeeded: boolean;
 }): Promise<void> {
+  if (input.succeeded) await scrubSandboxHandles(input.attemptId, input.cleanupLeaseToken);
   await cloudDb().update(runAttempts).set(input.succeeded ? {
     providerVmId: null,
     providerWorkspaceId: null,
     providerTerminalId: null,
+    // Nothing writes for this attempt after its VM is gone (a late sandbox outcome is fenced on it).
+    leaseToken: null,
     terminalRetainUntil: null,
     cleanupLeaseToken: null,
     cleanupLeaseExpiresAt: null,
     updatedAt: now(),
   } : {
+    cleanupLeaseToken: null,
+    cleanupLeaseExpiresAt: null,
+    updatedAt: now(),
+  }).where(and(eq(runAttempts.id, input.attemptId), eq(runAttempts.cleanupLeaseToken, input.cleanupLeaseToken)));
+}
+
+/**
+ * The launcher's view of a sandboxed Run (reply, exit code, boot time), written under the Run and
+ * attempt locks and fenced on the lease the launcher still holds (token and generation, and a
+ * live expiry unless the attempt is already terminal). A replacement lease, a cancel or the
+ * abandoned sweep each change the token or generation, so a stale launcher writes nothing; the
+ * current holder may correct its own earlier write. The reply is redacted here, while the
+ * attempt still names its provider handles, so the stored text never holds them.
+ */
+export async function recordSandboxOutcome(input: {
+  readonly runId: string;
+  readonly attemptId: string;
+  readonly leaseToken: string;
+  readonly leaseGeneration: number;
+  readonly outcome: SandboxRunOutcome;
+}): Promise<boolean> {
+  return cloudDb().transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.runId}, 0))`);
+    await lockRun(tx, input.runId);
+    await lockAttempt(tx, input.runId, input.attemptId);
+    const nowAt = now();
+    const attempt = (await tx.select().from(runAttempts).innerJoin(runs, eq(runs.id, runAttempts.runId)).where(and(
+      eq(runAttempts.id, input.attemptId),
+      eq(runAttempts.runId, input.runId),
+      eq(runs.environment, "sandboxed"),
+      eq(runAttempts.leaseToken, input.leaseToken),
+      eq(runAttempts.leaseGeneration, input.leaseGeneration),
+      // Once the reaper claimed the VM, the receipt is final.
+      isNull(runAttempts.cleanupLeaseToken),
+      or(
+        inArray(runAttempts.status, ["succeeded", "failed", "cancelled"]),
+        gt(runAttempts.leaseExpiresAt, nowAt),
+      ),
+    )).limit(1))[0]?.run_attempts;
+    if (!attempt) return false;
+    const { exitCode, signal, timedOut, bootMs } = input.outcome;
+    const run = (await tx.select().from(runs).where(eq(runs.id, input.runId)).limit(1))[0];
+    const handles = run ? await sandboxAttemptHandles(tx, run, attempt) : [attempt.providerVmId, attempt.providerWorkspaceId, attempt.providerTerminalId];
+    const reply = input.outcome.reply === null ? null : sandboxReply(input.outcome.reply, handles);
+    const error = input.outcome.error ? redactReceiptText(input.outcome.error, handles).slice(0, 500) : null;
+    await tx.update(runs).set({ receipt: { reply, exitCode, signal, timedOut, bootMs, error }, updatedAt: nowAt }).where(eq(runs.id, input.runId));
+    return true;
+  });
+}
+
+type AbandonCutoffs = { readonly nowAt: Date; readonly leaseCutoff: Date; readonly queuedCutoff: Date };
+
+/**
+ * The reaper's backstop for a sandboxed Run whose launcher died (a deploy, a crash, the create
+ * route's time budget). An attempt whose lease lapsed past the grace, or one never leased, is
+ * failed with its VM due for destroy now, and the Run completes. A VM the launcher created but
+ * never journaled is found by its create idempotency key, also after a cancel finished the
+ * attempt first. Returns how many attempts it failed or VMs it adopted.
+ */
+export async function failAbandonedSandboxAttempts(input: { readonly now?: Date; readonly limit?: number; readonly runId?: string } = {}): Promise<number> {
+  const nowAt = input.now ?? now();
+  // Scoped to one Run (a cancel): only that Run's orphan VM; the live-attempt sweep stays the cron's.
+  if (input.runId) return adoptOrphanSandboxVms(nowAt, input.limit, input.runId);
+  const cutoffs: AbandonCutoffs = {
+    nowAt,
+    leaseCutoff: new Date(nowAt.getTime() - SANDBOX_ABANDONED_GRACE_MS),
+    queuedCutoff: new Date(nowAt.getTime() - SANDBOX_QUEUED_ABANDON_MS),
+  };
+  const candidates = await cloudDb().select({ runId: runAttempts.runId, attemptId: runAttempts.id })
+    .from(runAttempts).innerJoin(runs, eq(runs.id, runAttempts.runId)).where(and(
+      eq(runs.environment, "sandboxed"),
+      or(
+        and(inArray(runAttempts.status, ["leased", "running"]), or(isNull(runAttempts.leaseExpiresAt), lt(runAttempts.leaseExpiresAt, cutoffs.leaseCutoff))),
+        and(eq(runAttempts.status, "queued"), lt(runs.createdAt, cutoffs.queuedCutoff)),
+      ),
+    )).limit(Math.max(1, Math.min(input.limit ?? 20, 100)));
+  let failed = 0;
+  for (const candidate of candidates) {
+    if (await failAbandonedSandboxAttempt(candidate.runId, candidate.attemptId, cutoffs)) failed += 1;
+  }
+  return failed + await adoptOrphanSandboxVms(nowAt, input.limit);
+}
+
+/** One adoption per attempt: a sandbox attempt only ever owns the one VM its create key names. */
+const SANDBOX_VM_ADOPTED_EVENT = `${SERVER_EVENT_ID_PREFIX}sandbox-vm-adopted`;
+
+/**
+ * A finished sandbox attempt that names no VM while one created under its key is still up: the
+ * launcher died between create and journal, and a cancel (or the sweep) finished the attempt
+ * first. Record the VM for destroy now, journaled once per attempt (an opaque event id; the VM id
+ * stays in the private payload), so a VM the reaper already cleared is never adopted again and
+ * adopted rows never fill the batch ahead of a live orphan. No age cutoff: the obligation stays
+ * until it is met; the batch limit and the partial sandbox index bound each pass.
+ */
+async function adoptOrphanSandboxVms(nowAt: Date, limit = 20, runId?: string): Promise<number> {
+  const orphans = await cloudDb().select({ runId: runAttempts.runId, attemptId: runAttempts.id, providerVmId: cloudVms.providerVmId })
+    .from(runAttempts)
+    .innerJoin(runs, eq(runs.id, runAttempts.runId))
+    .innerJoin(cloudVms, and(
+      eq(cloudVms.billingTeamId, runs.billingTeamId),
+      eq(cloudVms.userId, runs.userId),
+      eq(cloudVms.idempotencyKey, sql`${SANDBOX_VM_IDEMPOTENCY_PREFIX} || ${runs.id}::text || ':attempt:' || ${runAttempts.id}::text`),
+      // Only a VM the sandbox launcher marked: an unmarked row is an ordinary machine.
+      sql`${cloudVms.providerMetadata}->>${SANDBOX_VM_MARKER_KEY} = ${cloudVms.idempotencyKey}`,
+    ))
+    .where(and(
+      eq(runs.environment, "sandboxed"),
+      ...(runId ? [eq(runs.id, runId)] : []),
+      inArray(runs.status, ["succeeded", "failed", "cancelled"]),
+      inArray(runAttempts.status, ["succeeded", "failed", "cancelled"]),
+      isNull(runAttempts.providerVmId),
+      isNotNull(cloudVms.providerVmId),
+      // Any status: only a strict destroy's confirmation proves the machine is gone.
+      sandboxVmUnconfirmed(),
+      sql`not exists (select 1 from run_events where run_events.attempt_id = ${runAttempts.id} and run_events.external_id = ${SANDBOX_VM_ADOPTED_EVENT})`,
+    )).orderBy(asc(runs.updatedAt)).limit(Math.max(1, Math.min(limit, 100)));
+  let adopted = 0;
+  for (const orphan of orphans) {
+    if (!orphan.providerVmId) continue;
+    const providerVmId = orphan.providerVmId;
+    const done = await cloudDb().transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${orphan.runId}, 0))`);
+      await lockRun(tx, orphan.runId);
+      await lockAttempt(tx, orphan.runId, orphan.attemptId);
+      const externalId = SANDBOX_VM_ADOPTED_EVENT;
+      const seen = await tx.select({ id: runEvents.id }).from(runEvents).where(and(eq(runEvents.attemptId, orphan.attemptId), eq(runEvents.externalId, externalId))).limit(1);
+      if (seen.length > 0) return false;
+      const updated = await tx.update(runAttempts).set({ providerVmId, terminalRetainUntil: nowAt, updatedAt: nowAt }).where(and(
+        eq(runAttempts.id, orphan.attemptId),
+        isNull(runAttempts.providerVmId),
+        isNull(runAttempts.cleanupLeaseToken),
+        inArray(runAttempts.status, ["succeeded", "failed", "cancelled"]),
+      )).returning({ id: runAttempts.id });
+      if (updated.length === 0) return false;
+      await tx.insert(runEvents).values({
+        runId: orphan.runId,
+        attemptId: orphan.attemptId,
+        sequence: await nextSequence(tx, orphan.runId),
+        externalId,
+        kind: "attempt.heartbeat",
+        payload: { providerVmId, reason: "sandbox_vm_adopted" },
+      });
+      return true;
+    });
+    if (done) adopted += 1;
+  }
+  return adopted;
+}
+
+function sandboxAttemptAbandoned(attempt: typeof runAttempts.$inferSelect, runCreatedAt: Date, cutoffs: AbandonCutoffs): boolean {
+  if (attempt.status === "queued") return runCreatedAt.getTime() < cutoffs.queuedCutoff.getTime();
+  if (attempt.status !== "leased" && attempt.status !== "running") return false;
+  return !attempt.leaseExpiresAt || attempt.leaseExpiresAt.getTime() < cutoffs.leaseCutoff.getTime();
+}
+
+async function failAbandonedSandboxAttempt(runId: string, attemptId: string, cutoffs: AbandonCutoffs): Promise<boolean> {
+  return cloudDb().transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${runId}, 0))`);
+    await lockRun(tx, runId);
+    await lockAttempt(tx, runId, attemptId);
+    const row = (await tx.select({ attempt: runAttempts, run: runs }).from(runAttempts)
+      .innerJoin(runs, eq(runs.id, runAttempts.runId))
+      .where(and(eq(runAttempts.id, attemptId), eq(runs.environment, "sandboxed"))).limit(1))[0];
+    if (!row || !sandboxAttemptAbandoned(row.attempt, row.run.createdAt, cutoffs)) return false;
+    const nowAt = cutoffs.nowAt;
+    const orphanVmId = row.attempt.providerVmId || !row.run.billingTeamId ? null : (await tx.select({ providerVmId: cloudVms.providerVmId }).from(cloudVms).where(and(
+      eq(cloudVms.billingTeamId, row.run.billingTeamId),
+      eq(cloudVms.idempotencyKey, sandboxVmIdempotencyKey(runId, attemptId)),
+      sql`${cloudVms.providerMetadata}->>${SANDBOX_VM_MARKER_KEY} = ${sandboxVmIdempotencyKey(runId, attemptId)}`,
+      isNotNull(cloudVms.providerVmId),
+      sandboxVmUnconfirmed(),
+    )).limit(1))[0]?.providerVmId ?? null;
+    const providerVmId = row.attempt.providerVmId ?? orphanVmId;
+    const cancelling = row.run.status === "cancelling";
+    const error = "the sandbox controller stopped before the run finished";
+    await tx.update(runAttempts).set({
+      status: cancelling ? "cancelled" : "failed",
+      error,
+      providerVmId,
+      leaseToken: null,
+      leaseExpiresAt: null,
+      leaseGeneration: sql`${runAttempts.leaseGeneration} + 1`,
+      finishedAt: nowAt,
+      terminalRetainUntil: providerVmId ? nowAt : null,
+      updatedAt: nowAt,
+    }).where(eq(runAttempts.id, attemptId));
+    await tx.insert(runEvents).values({
+      runId,
+      attemptId,
+      sequence: await nextSequence(tx, runId),
+      externalId: `${SERVER_EVENT_ID_PREFIX}sandbox-abandoned:${row.attempt.leaseGeneration}`,
+      kind: "attempt.failed",
+      payload: { reason: "controller_lost", ...(providerVmId ? { providerVmId } : {}) },
+    }).onConflictDoNothing();
+    const active = await tx.select({ id: runAttempts.id }).from(runAttempts).where(and(
+      eq(runAttempts.runId, runId),
+      inArray(runAttempts.status, ["queued", "leased", "running"]),
+    )).limit(1);
+    if (active.length === 0) {
+      const finalStatus: RunStatus = cancelling ? "cancelled" : "failed";
+      const completed = (await tx.update(runs).set({ status: finalStatus, error: cancelling ? null : error, completedAt: nowAt, updatedAt: nowAt }).where(and(
+        eq(runs.id, runId),
+        inArray(runs.status, ["queued", "running", "cancelling"]),
+      )).returning())[0];
+      if (completed) {
+        await tx.insert(runEvents).values({
+          runId,
+          sequence: await nextSequence(tx, runId),
+          externalId: "run-completed",
+          kind: "run.completed",
+          payload: { status: finalStatus },
+        });
+      }
+    }
+    return true;
+  });
+}
+
+/** Whether any Cloud VM row still holds this provider VM (unscoped: the reaper's own scope may not reach it). */
+export async function cloudVmRowLive(providerVmId: string): Promise<boolean> {
+  const rows = await cloudDb().select({ id: cloudVms.id }).from(cloudVms).where(and(
+    eq(cloudVms.providerVmId, providerVmId),
+    ne(cloudVms.status, "destroyed"),
+  )).limit(1);
+  return rows.length > 0;
+}
+
+/**
+ * Whether this provider VM is the sandbox VM the launcher created for this attempt: a row with
+ * the attempt's own create key, its server-set marker and the Run's user. A provider VM id that
+ * only came from a worker's event matches no such row, so the reaper never destroys it unscoped.
+ */
+export async function sandboxVmOwnedByAttempt(input: { readonly providerVmId: string; readonly runId: string; readonly attemptId: string; readonly userId: string }): Promise<boolean> {
+  const key = sandboxVmIdempotencyKey(input.runId, input.attemptId);
+  const rows = await cloudDb().select({ id: cloudVms.id }).from(cloudVms).where(and(
+    eq(cloudVms.providerVmId, input.providerVmId),
+    eq(cloudVms.userId, input.userId),
+    eq(cloudVms.idempotencyKey, key),
+    sql`${cloudVms.providerMetadata}->>${SANDBOX_VM_MARKER_KEY} = ${key}`,
+  )).limit(1);
+  return rows.length > 0;
+}
+
+function sandboxVmUnconfirmed() {
+  return sql`${cloudVms.providerMetadata}->>${SANDBOX_VM_DESTROY_CONFIRMED_KEY} is null`;
+}
+
+/** Record that a strict destroy confirmed the sandbox VM is gone, so the orphan sweep stops looking for it. */
+export async function confirmSandboxVmDestroyed(providerVmId: string, nowAt = new Date()): Promise<void> {
+  await cloudDb().update(cloudVms).set({
+    // The first confirmation stands: a retried cleanup never moves the end of the VM's time.
+    providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || jsonb_build_object(${SANDBOX_VM_DESTROY_CONFIRMED_KEY}::text, coalesce(${cloudVms.providerMetadata}->>${SANDBOX_VM_DESTROY_CONFIRMED_KEY}, ${nowAt.toISOString()}::text))`,
+  }).where(and(
+    eq(cloudVms.providerVmId, providerVmId),
+    sql`${cloudVms.providerMetadata}->>${SANDBOX_VM_MARKER_KEY} = ${cloudVms.idempotencyKey}`,
+  ));
+}
+
+/** Keep a cleanup obligation but retry it later, so one row that can't be destroyed now doesn't head every batch. */
+export async function deferAttemptCleanup(input: { readonly attemptId: string; readonly cleanupLeaseToken: string; readonly delayMs: number }): Promise<void> {
+  await cloudDb().update(runAttempts).set({
+    // The reaper owned the VM: the launcher's lease writes nothing more, deferred or not.
+    leaseToken: null,
+    terminalRetainUntil: new Date(Date.now() + input.delayMs),
     cleanupLeaseToken: null,
     cleanupLeaseExpiresAt: null,
     updatedAt: now(),

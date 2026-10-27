@@ -28,7 +28,7 @@ FAILURES = []
 # jobs run in the `artifacts` environment (policy: main, feat-cmux-next,
 # cmux-tui-pin-*), which holds only the R2 upload credentials.
 ARTIFACT_JOBS = {
-    "cmux-tui-artifacts.yml": ["publish", "publish-windows", "publish-tree", "publish-tree-tested", "point-feat-channel"],
+    "cmux-tui-artifacts.yml": ["publish", "publish-windows", "publish-tree", "publish-tree-tested", "point-feat-channel", "mark-tree-commits"],
     "dogfood-artifact-publish.yml": ["publish"],
 }
 ARTIFACT_SECRETS = {

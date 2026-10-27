@@ -214,6 +214,10 @@ path = "tests/test_bash32_linux_job.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_signing_keychain_real_import_gate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_shim_cpp_linux.py"
 lane = "linux-guard"
 
@@ -322,6 +326,10 @@ path = "tests/test_ci_next_macos_cascade.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_no_github_hosted_macos.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pull_request_caches_are_read_only.py"
 lane = "linux-guard"
 
@@ -335,6 +343,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_queue_janitor.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_rescue_actors.py"
 lane = "linux-guard"
 
 [[test]]
@@ -447,6 +459,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_github_release_publication.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_publish_release_assets_callers.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1051,6 +1067,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_r2_cache_prune.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_git_mirror_bundle.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1702,6 +1722,10 @@ path = "tests/test_gh_budget_wait.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_cancelled_tip.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_gh_app_token.py"
 lane = "linux-guard"
 
@@ -1719,6 +1743,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_sign_runner.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_build_runner.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1787,6 +1815,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_ring.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_dev_ring.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_live_feed_check.py"
 lane = "linux-guard"
 
 [[test]]

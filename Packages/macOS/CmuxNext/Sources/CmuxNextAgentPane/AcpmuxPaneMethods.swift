@@ -25,6 +25,12 @@ nonisolated enum AcpmuxPaneMethods {
         // The session list's later pages (sessionPages.ts, cx-2lv1k): the same summaries watch answers,
         // read by cursor after watch's first page.
         "_acpmux/sessions",
+        // A peer chat drawn from this Mac's copy while its machine is down (direct.ts drawPeerCopy,
+        // peerCopy.ts; acpmux hub/peer_snapshot/read.rs). A read like `_acpmux/events`, before the
+        // attach that brings the chat into scope, so not session-scoped; acpmux answers it to this
+        // Mac's app and unix socket only. Only `sessionId` (``knownParams``): never `host`, which
+        // would name any peer's session by its own id.
+        "_acpmux/peer_snapshot",
         "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
         // Take Over a View Only chat (direct.ts takeOver): the chat runs the conversation from then on.
         "_acpmux/watch_take_over",
@@ -100,6 +106,12 @@ nonisolated enum AcpmuxPaneMethods {
         // The composer's Account menu (direct.ts routes, setChatRoute): read the routes, and pick
         // one for a chat in the pane's scope. Adding or changing a route stays the unix socket's.
         "_acpmux/route/list", "_acpmux/chat/route.set",
+        // The Inspector's running-limit stepper (direct.ts setRunningLimit): how many of a chat's
+        // sub-sessions in the pane's scope run a turn at once, or back to the inherited limit
+        // (`null`). Only `maxRunning`: it starts nothing new and widens no permission (each child already
+        // runs under its parent's policy), so no gesture; acpmux takes it only from a connection that
+        // proved the person key (hub/subsessions.rs, `set_subsession_limits`).
+        "_acpmux/subsession/limits",
         // Reconnect a failed MCP server of a chat in the pane's scope (direct.ts reconnectMcp, the
         // Inspector's Connectors): acpmux sends Claude Code's mcp_reconnect for a server the chat
         // already lists, on its running process; it starts nothing and refuses other harnesses.
@@ -210,7 +222,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
-        "_acpmux/mcp/reconnect",
+        "_acpmux/mcp/reconnect", "_acpmux/subsession/limits",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New

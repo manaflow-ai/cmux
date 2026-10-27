@@ -87,7 +87,9 @@ extension SidebarBridge {
             for (daemon, key) in keys(ids) {
                 let update: FieldUpdate<String> = color.map { .set($0.rawValue) } ?? .clear
                 let resource = daemon.store.stateResourceID(workspace: key)
-                command("set-workspace-metadata", on: daemon) { c in try await c.state.setWorkspaceIdentity(key, resource: resource, color: update) }
+                // A store intent (#25657): the color stays through every live recompute until the reply settles it,
+                // and a refusal takes it back; without it the next recompute showed the old color until the echo.
+                command("set-workspace-metadata", on: daemon, intent: .setWorkspaceColor(key: key, color: color?.rawValue)) { c in try await c.state.setWorkspaceIdentity(key, resource: resource, color: update) }
             }
         case .toggleCollapse, .createGroup, .move, .renameGroup, .setGroupColor, .ungroup, .reorderGroup:
             // Workspace groups are personal (the home session's
@@ -188,8 +190,10 @@ extension SidebarBridge {
     /// it has an `intent`; a failure re-syncs the sidebar.
     private func command(_ label: String, on daemon: DaemonService, intent: Intent? = nil,
                          _ body: @escaping DaemonCommandBody) {
+        // The intent goes in the store in this turn, with the row's own update, so no recompute between shows the old value.
+        let send = intent.map { daemon.intendNow(label, $0, transaction: .generate(), body) }
         Task { [weak self, services] in
-            let ok = if let intent { await daemon.intend(label, intent, body) } else { await daemon.request(label, body) != nil }
+            let ok = if let send { await send() != nil } else { await daemon.request(label, body) != nil }
             if !ok { withExtendedLifetime(services) { self?.resync() } }
         }
     }
