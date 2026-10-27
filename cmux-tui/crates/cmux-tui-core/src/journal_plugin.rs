@@ -334,6 +334,14 @@ impl Default for JournalPluginRuntime {
 }
 
 impl JournalPluginRuntime {
+    /// The running plugin process's pid, None while none runs. The daemon's
+    /// exit watchers do not count this process's own connection as a client
+    /// that needs the daemon (server/orphan_shutdown.rs).
+    pub(crate) fn child_pid(&self) -> Option<u32> {
+        let (lock, _) = &*self.state;
+        lock.lock().recover_poison().child.as_ref().map(|child| child.child.id())
+    }
+
     /// Replace the configured plugin. A running child is stopped before the
     /// new command is started, which prevents two plugins writing the same
     /// producer namespace during a config reload.
