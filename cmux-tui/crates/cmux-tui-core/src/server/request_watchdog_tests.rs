@@ -264,6 +264,18 @@ fn request_watchdog_counts_runs_past_its_slots_as_unwatched() {
 }
 
 #[test]
+fn request_watchdog_claims_wrap_from_the_last_slot_to_the_first() {
+    let watchdog = RequestWatchdog::default();
+    let last = SLOT_COUNT as u64 - 1;
+    // Every run hints the last slot: the second one on finds it taken and
+    // wraps to the start, until every slot is held.
+    let scopes: Vec<_> = (0..SLOT_COUNT).map(|_| watchdog.begin(last, CREATE)).collect();
+    assert!(scopes.iter().all(Option::is_some), "every slot is reached from the last one");
+    assert!(watchdog.begin(last, CREATE).is_none());
+    assert_eq!(watchdog.snapshot().unwatched, 1);
+}
+
+#[test]
 fn request_watchdog_ring_keeps_the_newest_128() {
     let watchdog = RequestWatchdog::default();
     for client in 0..(SLOW_REQUEST_RING as u64 + 5) {

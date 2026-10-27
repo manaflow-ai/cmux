@@ -10,6 +10,7 @@
 //! kept them) drops out with its split. A stack comes back as one pane
 //! with all its tabs. Records without a layout reopen as before.
 
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use anyhow::Context;
@@ -46,9 +47,11 @@ impl Shape {
         let count = screen["tabs"].as_array()?.len();
         let mut shape = Self::node(&screen["layout"], panes, count)?;
         // A tab of a pane the tree does not name joins the first pane.
-        let mut placed = vec![false; count];
-        shape.each_tab(&mut |tab| placed[tab] = true);
-        let mut rest = (0..count).filter(|tab| !placed[*tab]).peekable();
+        let mut placed = HashSet::new();
+        shape.each_tab(&mut |tab| {
+            placed.insert(tab);
+        });
+        let mut rest = (0..count).filter(|tab| !placed.contains(tab)).peekable();
         if rest.peek().is_some()
             && let Self::Leaf { tabs, .. } = shape.first_leaf_mut()
         {
@@ -144,10 +147,10 @@ impl Shape {
         }
     }
 
-    /// The first tab of the first pane.
-    fn first_tab(&self) -> usize {
+    /// The first tab of the first pane (`node` never makes a leaf without one).
+    fn first_tab(&self) -> anyhow::Result<usize> {
         match self {
-            Self::Leaf { tabs, .. } => tabs[0],
+            Self::Leaf { tabs, .. } => tabs.first().copied().context("a closed pane has no tab"),
             Self::Split { first, .. } => first.first_tab(),
         }
     }
@@ -162,7 +165,8 @@ type Rebuilt = (Vec<(usize, SurfaceId)>, Option<PaneId>);
 struct Build<'a> {
     actor: &'a Actor,
     tabs: &'a [Value],
-    made: Vec<Option<SurfaceId>>,
+    /// Each record index's tab, once made.
+    made: BTreeMap<usize, SurfaceId>,
     /// Each rebuilt pane: (pane, its tabs in order, selected index, the
     /// closed pane ids it stands for).
     leaves: Vec<(PaneId, Vec<usize>, usize, Vec<String>)>,
@@ -203,16 +207,16 @@ impl Mux {
         let pane =
             self.with_state(|state| state.pane_of(first)).context("new screen has no pane")?;
         let tabs = screen["tabs"].as_array().map(Vec::as_slice).unwrap_or_default();
-        let mut build = Build { actor, tabs, made: vec![None; tabs.len()], leaves: Vec::new() };
+        let mut build = Build { actor, tabs, made: BTreeMap::new(), leaves: Vec::new() };
         if let Some(reused) = reused {
-            build.made[reused] = Some(first);
+            build.made.insert(reused, first);
         }
         self.build_shape(&mut build, shape, pane)?;
         build.join_shared_panes();
         // Every tab in its strip place, then each pane's selected tab.
         for (pane, order, active, _) in &build.leaves {
             for (index, tab) in order.iter().enumerate() {
-                let Some(surface) = build.made[*tab] else { continue };
+                let Some(&surface) = build.made.get(tab) else { continue };
                 let placed = self.with_state(|state| {
                     state.panes.get(pane).and_then(|pane| pane.tabs.get(index).copied())
                 });
@@ -220,7 +224,7 @@ impl Mux {
                     self.move_tab_as(actor, surface, *pane, index);
                 }
             }
-            if let Some(surface) = order.get(*active).and_then(|tab| build.made[*tab]) {
+            if let Some(&surface) = order.get(*active).and_then(|tab| build.made.get(tab)) {
                 let index = self.with_state(|state| {
                     state.panes.get(pane)?.tabs.iter().position(|tab| *tab == surface)
                 });
@@ -246,12 +250,7 @@ impl Mux {
         if let Some(focus) = focus {
             self.focus_pane_as(actor, focus);
         }
-        let made = build
-            .made
-            .into_iter()
-            .enumerate()
-            .filter_map(|(tab, surface)| Some((tab, surface?)))
-            .collect();
+        let made = build.made.into_iter().collect();
         Ok((made, focus))
     }
 
@@ -264,15 +263,16 @@ impl Mux {
         tab: usize,
         pane: PaneId,
     ) -> anyhow::Result<SurfaceId> {
-        if let Some(surface) = build.made[tab] {
+        if let Some(&surface) = build.made.get(&tab) {
             if self.with_state(|state| state.pane_of(surface)) != Some(pane) {
                 let end = self.with_state(|state| state.panes.get(&pane).map(|p| p.tabs.len()));
                 self.move_tab_as(build.actor, surface, pane, end.unwrap_or(0));
             }
             return Ok(surface);
         }
-        let surface = self.reopen_tab_record(build.actor, pane, &build.tabs[tab], false)?;
-        build.made[tab] = Some(surface);
+        let record = build.tabs.get(tab).context("a layout tab is not in its screen record")?;
+        let surface = self.reopen_tab_record(build.actor, pane, record, false)?;
+        build.made.insert(tab, surface);
         Ok(surface)
     }
 
@@ -293,16 +293,16 @@ impl Mux {
                 Ok(())
             }
             Shape::Split { edge, share, first, second } => {
-                let moved = second.first_tab();
+                let moved = second.first_tab()?;
                 // A split moves a tab out, so the pane must keep another:
                 // when its only tab is the reused one that moves, the first
                 // side's first tab is made before.
                 let alone = self.with_state(|state| {
                     let tabs = &state.panes.get(&pane)?.tabs;
-                    Some(tabs.len() == 1 && Some(tabs[0]) == build.made[moved])
+                    Some(matches!(tabs.as_slice(), [only] if build.made.get(&moved) == Some(only)))
                 });
                 if alone == Some(true) {
-                    self.make_tab(build, first.first_tab(), pane)?;
+                    self.make_tab(build, first.first_tab()?, pane)?;
                 }
                 let surface = self.make_tab(build, moved, pane)?;
                 match self.move_tab_to_split_as(

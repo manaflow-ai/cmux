@@ -10,6 +10,7 @@
 
 use std::collections::HashSet;
 
+use crate::panic_free::JsonFields;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
@@ -48,14 +49,14 @@ fn public_tab(tab: &Value, evicted: &HashSet<String>) -> Value {
         "browser_profile_id": tab["browser_profile_id"],
         "pinned": tab["pinned"].as_bool().unwrap_or(false),
     });
-    if let Some(page) = tab["conversation"]["page"].as_str() {
-        public["page"] = json!(page);
+    if let Some(page) = tab.field("conversation").field("page").as_str() {
+        public.insert("page", json!(page));
     }
     if reopens_empty(tab) {
-        public["empty"] = json!(true);
+        public.insert("empty", json!(true));
     }
     if tab["terminal_id"].as_str().is_some_and(|id| evicted.contains(id)) {
-        public["scrollback_not_kept"] = json!(true);
+        public.insert("scrollback_not_kept", json!(true));
     }
     public
 }
@@ -118,23 +119,23 @@ fn public_item_in(record: &Value, evicted: &HashSet<String>) -> Value {
     let first =
         members.first().map(|member| public_member(member, evicted)).unwrap_or_else(|| json!({}));
     // A deleted space is named by the space, not its first workspace (cx-ncc.44).
-    let room = &record["room"]["profile"][0]["name"];
+    let room = record.pointer("/room/profile/0/name").unwrap_or(&Value::Null);
     let mut item = json!({
         "id": record["id"],
         "kind": record["kind"],
         // A window group has no member: its name is the window's workspace.
         "name": if room.is_string() {
             room.clone()
-        } else if first["name"].is_null() {
-            record["name"].clone()
+        } else if first.field("name").is_null() {
+            record.field("name").clone()
         } else {
-            first["name"].clone()
+            first.field("name").clone()
         },
-        "workspace_id": first["workspace_id"],
-        "pane_id": first["pane_id"],
-        "index": first["index"].as_u64().unwrap_or(0),
+        "workspace_id": first.field("workspace_id"),
+        "pane_id": first.field("pane_id"),
+        "index": first.field("index").as_u64().unwrap_or(0),
         "closed_at_ms": record["closed_at_ms"],
-        "screens": first["screens"].as_array().cloned().unwrap_or_default(),
+        "screens": first.field("screens").as_array().cloned().unwrap_or_default(),
         "window": record["window"],
         "member_count": members.len(),
         "members": members.iter().map(|member| public_member(member, evicted)).collect::<Vec<_>>(),
@@ -145,12 +146,14 @@ fn public_item_in(record: &Value, evicted: &HashSet<String>) -> Value {
         .into_iter()
         .find_map(|field| record.get(field).filter(|group| group.is_object()));
     if let Some(group) = ungrouped {
-        item["workspace_id"] = group["workspace_id"].clone();
+        item.insert("workspace_id", group.field("workspace_id").clone());
     }
     // A deleted personal workspace group names the group it forms again.
     if let Some(group) = record.get("group").filter(|group| group.is_object()) {
-        item["group"] =
-            crate::workspace_registry::personal_mutations::group_archive::public_group(group);
+        item.insert(
+            "group",
+            crate::workspace_registry::personal_mutations::group_archive::public_group(group),
+        );
     }
     item
 }
@@ -354,8 +357,8 @@ pub(crate) fn keep_members(
     members: Vec<Value>,
 ) -> anyhow::Result<Value> {
     let kind = super::closed_history_store::group_kind(&members);
-    record["kind"] = json!(kind);
-    record["members"] = Value::Array(members);
+    record.insert("kind", json!(kind));
+    record.insert("members", Value::Array(members));
     transaction.execute(
         "UPDATE closed_groups SET kind = ?2, record_json = ?3 WHERE closed_id = ?1",
         params![closed_id, kind, serde_json::to_string(&record)?],
@@ -374,7 +377,8 @@ pub(crate) fn group_member_holding_tab(
     tab: &str,
 ) -> anyhow::Result<Option<(String, usize)>> {
     // A `tab_` id is lowercase hex after its prefix: no LIKE wildcard in it.
-    if !tab.starts_with("tab_") || !tab[4..].bytes().all(|byte| byte.is_ascii_hexdigit()) {
+    if tab.strip_prefix("tab_").is_none_or(|hex| !hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
+    {
         return Ok(None);
     }
     let mut statement = connection.prepare(
@@ -386,7 +390,7 @@ pub(crate) fn group_member_holding_tab(
     for row in rows {
         let (closed_id, record) = row?;
         let record: Value = serde_json::from_str(&record)?;
-        let members = record["members"].as_array().cloned().unwrap_or_default();
+        let members = record.field("members").as_array().cloned().unwrap_or_default();
         let holds = |member: &Value| {
             member["tab_id"].as_str() == Some(tab)
                 || closed_tabs(&serde_json::json!({"members": [member]}))

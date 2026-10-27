@@ -69,7 +69,7 @@ use cmux_tui_platform::thread_backtrace::{self, Backtrace, BacktraceError, Threa
 use super::Command;
 use super::command_names::COMMANDS;
 use crate::diagnostics::{SlowRequest, SlowRequestFrame, SlowRequestsSnapshot};
-use crate::panic_free::RecoverPoison;
+use crate::panic_free::{JsonFields, RecoverPoison};
 use crate::resource::ResourceOperation;
 
 /// How long a request runs before the watchdog records it.
@@ -344,19 +344,25 @@ impl Shared {
     /// Claim a slot for one run of `method` of `kind` and publish its start.
     /// `None` when every slot is taken (counted as unwatched).
     // perf-hot: <100ns daemon-request
-    fn claim(self: &Arc<Self>, kind: WatchKind, client: u64, method: u32) -> Option<(usize, u64)> {
+    fn claim(
+        self: &Arc<Self>,
+        kind: WatchKind,
+        client: u64,
+        method: u32,
+    ) -> Option<(usize, &Slot, u64)> {
         let hint = (client as usize) % SLOT_COUNT;
-        let index = (0..SLOT_COUNT).map(|offset| (hint + offset) % SLOT_COUNT).find(|index| {
-            self.slots[*index]
-                .busy
+        let claimed = (0..SLOT_COUNT).find_map(|offset| {
+            let index = (hint + offset) % SLOT_COUNT;
+            let slot = self.slots.get(index)?;
+            slot.busy
                 .compare_exchange(0, CLAIMING, Ordering::Acquire, Ordering::Relaxed)
                 .is_ok()
+                .then_some((index, slot))
         });
-        let Some(index) = index else {
+        let Some((index, slot)) = claimed else {
             self.unwatched.fetch_add(1, Ordering::Relaxed);
             return None;
         };
-        let slot = &self.slots[index];
         // Seqlock write: the kind, client, method and thread are published
         // with the busy word below.
         fence(Ordering::Release);
@@ -369,7 +375,7 @@ impl Shared {
         let word = busy_word(start);
         slot.busy.store(word, Ordering::SeqCst);
         self.arm();
-        Some((index, word))
+        Some((index, slot, word))
     }
 
     /// End the run `word` in `slot`. A run under its first tier frees its
@@ -572,7 +578,7 @@ impl Shared {
             "stack_error": stack.error,
         });
         if run.kind.records_slow() {
-            record["client"] = run.client.into();
+            record.insert("client", run.client.into());
         }
         (self.hang_sink)(record);
     }
@@ -796,8 +802,8 @@ impl RequestWatchdog {
     }
 
     fn watch_run(&self, kind: WatchKind, client: u64, method: u32) -> Option<RequestScope<'_>> {
-        let (index, word) = self.shared.claim(kind, client, method)?;
-        Some(RequestScope::new(&self.shared, index, word))
+        let (_, slot, word) = self.shared.claim(kind, client, method)?;
+        Some(RequestScope::new(&self.shared, slot, word))
     }
 
     /// The echo threads' handle on this watchdog ([`EchoWatch::item`]).
@@ -864,8 +870,8 @@ pub(crate) struct RequestScope<'a> {
 }
 
 impl<'a> RequestScope<'a> {
-    fn new(shared: &'a Arc<Shared>, index: usize, word: u64) -> Self {
-        Self { shared, slot: &shared.slots[index], word, ended: Cell::new(false) }
+    fn new(shared: &'a Arc<Shared>, slot: &'a Slot, word: u64) -> Self {
+        Self { shared, slot, word, ended: Cell::new(false) }
     }
 
     /// The run is now doing `method` (a frame reaching its handler).

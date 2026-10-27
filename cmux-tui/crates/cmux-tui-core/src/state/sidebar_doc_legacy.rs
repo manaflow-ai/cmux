@@ -57,7 +57,8 @@ struct LegacyState {
 
 fn read_state(connection: &Connection) -> anyhow::Result<LegacyState> {
     let local = local_registry_id(connection)?;
-    let mut machines = vec![LegacyMachine { session_id: local.clone(), title: None }];
+    let mut local_title = None;
+    let mut others = Vec::new();
     // Only the id and name: the full reader fails on a bad transport or
     // capabilities blob, and this runs at registry open.
     let sessions: Vec<(String, Option<String>)> = {
@@ -67,11 +68,15 @@ fn read_state(connection: &Connection) -> anyhow::Result<LegacyState> {
     };
     for (session_id, machine_name) in sessions {
         if session_id == local {
-            machines[0].title = machine_name;
+            local_title = machine_name;
         } else {
-            machines.push(LegacyMachine { session_id, title: machine_name });
+            others.push(LegacyMachine { session_id, title: machine_name });
         }
     }
+    let machines: Vec<LegacyMachine> =
+        std::iter::once(LegacyMachine { session_id: local.clone(), title: local_title })
+            .chain(others)
+            .collect();
     let rows = read_workspaces(connection)?;
     let groups = read_groups(connection)?;
     let known: HashSet<&str> = groups.iter().map(|group| group.id.as_str()).collect();
@@ -119,7 +124,7 @@ fn read_state(connection: &Connection) -> anyhow::Result<LegacyState> {
             .collect()
     };
     let mut entries = Vec::new();
-    for (index, row) in rows.iter().enumerate() {
+    for (index, (row, workspace)) in rows.iter().zip(&workspaces).enumerate() {
         for group in groups.iter().filter(|group| group.top_index == Some(index)) {
             entries.push(LegacyEntry::Group {
                 group: legacy_group(group),
@@ -127,7 +132,7 @@ fn read_state(connection: &Connection) -> anyhow::Result<LegacyState> {
             });
         }
         if row.group.as_deref().is_none_or(|group| !known.contains(group))
-            && let Some(workspace) = &workspaces[index]
+            && let Some(workspace) = workspace
         {
             entries.push(LegacyEntry::Workspace { workspace: workspace.clone() });
         }

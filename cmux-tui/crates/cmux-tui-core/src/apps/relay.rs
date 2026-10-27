@@ -40,6 +40,7 @@ use super::provider::{
     self, Ending, MAX_OUTSTANDING, MAX_PARAMS_BYTES, ProviderCall, Target, deadline_ms,
 };
 use super::supervisor::{Inner, Out, Supervisor};
+use crate::panic_free::JsonFields;
 
 /// The server scope that allows relay lines.
 pub(super) const RELAY_SCOPE_OP: &str = "cmux.credential.relay";
@@ -102,7 +103,7 @@ fn provider_call(line: &Value) -> Result<(&'static str, Value), Value> {
     match line.get("idempotency_key") {
         None | Some(Value::Null) => {}
         Some(Value::String(key)) if !key.is_empty() && key.len() <= MAX_KEY => {
-            forwarded["idempotency_key"] = json!(key);
+            forwarded.insert("idempotency_key", json!(key));
         }
         Some(_) => {
             return Err(invalid("relay.op idempotency_key must be a string of 1 to 256 bytes"));
@@ -111,7 +112,7 @@ fn provider_call(line: &Value) -> Result<(&'static str, Value), Value> {
     match line.get("origin") {
         None | Some(Value::Null) => {}
         Some(Value::String(origin)) if ORIGINS.contains(&origin.as_str()) => {
-            forwarded["origin"] = json!(origin);
+            forwarded.insert("origin", json!(origin));
         }
         Some(_) => return Err(invalid("relay.op origin is not a known origin")),
     }
@@ -127,21 +128,21 @@ pub(super) fn relay_reply(id: &Value, session: bool, ending: Ending) -> Value {
         }
         Ending::Gone => return relay_error(id, "unavailable", "needs the cmux Mac app connected"),
     };
-    if !ok && body["code"] == "not_signed_in" {
-        let message = body["message"].as_str().unwrap_or("sign in to cmux");
+    if !ok && body.field("code") == "not_signed_in" {
+        let message = body.field("message").as_str().unwrap_or("sign in to cmux");
         return relay_error(id, "not_signed_in", message);
     }
     match (session, ok) {
         (true, true) => json!({
             "type": "relay.session",
             "id": id,
-            "signed_in": body["signed_in"].as_bool().unwrap_or(false),
-            "team": body["team"].as_str(),
+            "signed_in": body.field("signed_in").as_bool().unwrap_or(false),
+            "team": body.field("team").as_str(),
         }),
         (true, false) => relay_error(
             id,
             "unavailable",
-            body["message"].as_str().unwrap_or("the cmux app could not read its session"),
+            body.field("message").as_str().unwrap_or("the cmux app could not read its session"),
         ),
         (false, true) => {
             let mut reply = json!({
@@ -149,10 +150,10 @@ pub(super) fn relay_reply(id: &Value, session: bool, ending: Ending) -> Value {
                 "value": body.get("value").cloned().unwrap_or(Value::Null),
             });
             if let Some(revision) = body.get("revision").filter(|r| r.is_string()) {
-                reply["revision"] = revision.clone();
+                reply.insert("revision", revision.clone());
             }
             if let Some(replayed) = body.get("replayed").filter(|r| r.is_boolean()) {
-                reply["replayed"] = replayed.clone();
+                reply.insert("replayed", replayed.clone());
             }
             reply
         }
@@ -182,7 +183,7 @@ impl Supervisor {
         // A server echoes the origin the supervisor stamped on its op line;
         // it may claim user only while a call admitted with origin user is
         // in flight (never a silent downgrade).
-        if params["origin"] == "user" {
+        if params.field("origin") == "user" {
             let user_run = inner
                 .servers
                 .get(app)
@@ -260,8 +261,8 @@ impl Supervisor {
         });
         // Only a relay.op that carries an origin has one (relay.session and
         // reads have none).
-        if let Some(origin) = event["params"].get("origin").cloned() {
-            event["origin"] = origin;
+        if let Some(origin) = event.field("params").get("origin").cloned() {
+            event.insert("origin", origin);
         }
         Ok(vec![Out::Provider(client, request_id, event)])
     }

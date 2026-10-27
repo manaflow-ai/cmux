@@ -137,12 +137,14 @@ pub(crate) fn validate_kept_tabs(tabs: &[KeptTab]) -> anyhow::Result<()> {
 
 /// A title cut to [`MAX_KEPT_TAB_TITLE_BYTES`]; an empty one is none.
 pub(crate) fn kept_title(title: &str) -> Option<String> {
-    let mut end = title.len().min(MAX_KEPT_TAB_TITLE_BYTES);
-    while !title.is_char_boundary(end) {
-        end -= 1;
+    let mut kept = String::new();
+    for character in title.chars() {
+        if character.len_utf8() > MAX_KEPT_TAB_TITLE_BYTES.saturating_sub(kept.len()) {
+            break;
+        }
+        kept.push(character);
     }
-    let title = &title[..end];
-    (!title.is_empty()).then(|| title.to_owned())
+    (!kept.is_empty()).then_some(kept)
 }
 
 /// Record `tabs` as kept, replacing an earlier row of the same tab and

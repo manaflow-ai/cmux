@@ -27,6 +27,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::Mux;
+use crate::panic_free::JsonFields;
 use crate::process_trace::TraceReport;
 
 /// The bytes of recording rings one `trace-start` may have mapped across the
@@ -326,8 +327,8 @@ pub(super) fn run(call: Call, targets: &dyn TraceTargets) -> Value {
         "total_cap_bytes": TOTAL_CAP_BYTES,
     });
     if let Call::Start { categories, keys } = call {
-        reply["categories"] = json!(category_names(categories));
-        reply["keys"] = json!(keys);
+        reply.insert("categories", json!(category_names(categories)));
+        reply.insert("keys", json!(keys));
     }
     reply
 }
@@ -343,7 +344,7 @@ fn category_names(categories: u64) -> Vec<&'static str> {
 
 fn report_json(role: Role, report: &TraceReport) -> Value {
     let mut fields = report.json_fields();
-    fields["role"] = json!(role.as_str());
+    fields.insert("role", json!(role.as_str()));
     fields
 }
 
