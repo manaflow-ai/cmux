@@ -435,7 +435,7 @@ User decision: "we should default to chrome browser from now on." Owner: `CmuxNe
 
 ## Chromium diagnostics
 
-Debug builds of development bundles (`com.cmuxterm.app.debug.*`) read `CMUX_NEXT_CEF_EXTRA_SWITCHES`, a colon-separated list of Chromium switches (leading dashes optional), for example `enable-ui-devtools=9311` (Views tree over the DevTools protocol, `ws://127.0.0.1:9311/0`) or `show-browser-frame-regions`. Release builds ignore it (`#if DEBUG` in `CEFSwitches.current`). Bench builds (`reload.sh --config bench`) ignore it too: they read only `CMUX_NEXT_BENCH_CEF_SWITCHES`, one `name=value` switch per line, and keep only `host-resolver-rules` and `ignore-certificate-errors-spki-list` (`CEFSwitches.benchSwitchNames`, the pair Web Page Replay needs), so a bench measures the engine Release runs.
+Debug builds of development bundles (`com.cmuxterm.app.debug.*`) read `CMUX_NEXT_CEF_EXTRA_SWITCHES`, a colon-separated list of Chromium switches (leading dashes optional), for example `enable-ui-devtools=9311` (Views tree over the DevTools protocol, `ws://127.0.0.1:9311/0`) or `show-browser-frame-regions`. Release builds ignore it (`#if DEBUG` in `CEFSwitches.current`). Bench builds (`reload.sh --config bench`) ignore it too: they read only `CMUX_NEXT_BENCH_CEF_SWITCHES`, one `name=value` switch per line, and keep only `host-resolver-rules` and `ignore-certificate-errors-spki-list` (`CEFSwitches.benchSwitchNames`, the pair Web Page Replay needs) and the shared-renderer memory caps `cmux-shared-renderer-memory-limit` and `cmux-shared-renderer-subframe-memory-limit` (a value Release reads from the app's budget; bench_renderer_sharing `--memory-cap-mb` lowers it), so a bench measures the engine Release runs.
 
 ## CEF shim ABI identity (2026-09-30)
 

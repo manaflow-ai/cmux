@@ -42,6 +42,23 @@ import Testing
         #expect(seen.started == [.restoredTab])
     }
 
+    /// p01-process-086: Chromium as the default engine starts the host at the first frame, before startup
+    /// completes, and never before the first frame.
+    @Test func chromiumAsTheDefaultEngineStartsTheHostAtTheFirstFrame() {
+        let f = StartupTestScheduler()
+        let seen = SlotSeen(ChromiumHostLaunchStart(showsChromiumPane: false, defaultIsChromium: true, hasChromiumTab: false))
+        let slot = seen.slot(on: f)
+
+        slot.restored()
+        f.hand.drain()
+        f.fire()
+        #expect(seen.started.isEmpty, "the host started before the first frame")
+        f.startup.firstFrameCommitted()
+        f.fire()
+        #expect(seen.started == [.launch], "it waited for startup to complete")
+        #expect(f.startup.completion == nil)
+    }
+
     /// Before the restore no pane shows its Chromium tab yet: the slot reads the panes only once it finished.
     @Test func theDecisionWaitsForTheRestore() {
         let f = StartupTestScheduler()

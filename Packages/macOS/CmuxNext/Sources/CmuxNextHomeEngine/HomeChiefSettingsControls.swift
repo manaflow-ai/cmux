@@ -81,7 +81,6 @@ final class HomeChiefLinkButton: NSButton {
     var textFont: NSFont = Typography.caption { didSet { applyTitle() } }
     private var text = ""
     private var isHovering = false { didSet { applyTitle() } }
-    private var tracking: NSTrackingArea?
 
     init(title: String, target: AnyObject, action: Selector) {
         super.init(frame: .zero)
@@ -92,6 +91,8 @@ final class HomeChiefLinkButton: NSButton {
         bezelStyle = .regularSquare
         setButtonType(.momentaryChange)
         setAccessibilityLabel(title)
+        // Hover in the active app; the pointing hand has its own area (below).
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self))
         applyTitle()
         addCursorUpdateArea()
     }
@@ -100,15 +101,6 @@ final class HomeChiefLinkButton: NSButton {
     required init?(coder: NSCoder) { nil }
 
     override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        // Hover in the active app; the pointing hand has its own area (init).
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
 
     override func mouseEntered(with event: NSEvent) { isHovering = true }
     override func mouseExited(with event: NSEvent) { isHovering = false }

@@ -162,13 +162,15 @@ extension UpdaterService {
         }
     }
 
-    /// Follows Sparkle's flow through observation (no polling).
+    /// Follows Sparkle's flow through observation (no polling): a `visible` ``ServiceObservation`` (the
+    /// gate it feeds is a model, and the card it moves shows on screen); a check the person asked for
+    /// lands as their cause's class.
     func observeFlowPhase() {
         guard phaseObservation == nil else { return }
-        phaseObservation = Task { [weak self] in
-            for await _ in ObservationStream({ [weak self] in self?.indicatorPhase }) {
-                self?.syncFlowPhase()
-            }
+        phaseObservation = ServiceObservation(.visible, owner: "UpdaterService.flowPhase", on: mainWork) { [weak self] in
+            self?.indicatorPhase
+        } apply: { [weak self] _ in
+            self?.syncFlowPhase()
         }
     }
 }
@@ -237,13 +239,16 @@ extension UpdaterService {
         log.append("automatic downloads \(downloads ? "on" : "deferred") (setting \(downloadSetting.enabled), required \(required), off managed channel \(isOffManagedChannel), constrained \(network.constrained), expensive \(network.expensive))")
     }
 
-    /// Follows the link's Low Data Mode and cost (path events, no polling).
+    /// Follows the link's Low Data Mode and cost (path events, no polling). Each change lands as one
+    /// `background` task on ``mainWork``: nobody sees whether downloads wait.
     func followNetwork() {
         guard pathMonitor == nil else { return }
         let monitor = NWPathMonitor()
+        let mainWork = mainWork
+        let owner = mainWork.board.owner("UpdaterService.network")
         monitor.pathUpdateHandler = { [weak self] path in
             let state = (constrained: path.isConstrained, expensive: path.isExpensive)
-            Task { @MainActor in
+            mainWork.postFromAnyThread(.background, owner: owner) { [weak self] in
                 guard let self, self.network != state else { return }
                 self.network = state
                 self.applyDownloadPolicy()
