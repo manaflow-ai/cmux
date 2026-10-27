@@ -368,6 +368,7 @@ pub mod method {
     pub const MUX_FILE_PUT_CHUNK: &str = "_acpmux/file_put_chunk";
     pub const MUX_FILE_PUT_FINISH: &str = "_acpmux/file_put_finish";
     pub const MUX_FILE_PUT_CANCEL: &str = "_acpmux/file_put_cancel";
+    pub const MUX_FILE_PUT_STATUS: &str = "_acpmux/file_put_status";
     pub const MUX_DISPATCH: &str = "_acpmux/dispatch";
     pub const MUX_STEER: &str = "_acpmux/steer";
     pub const MUX_BRIEFS: &str = "_acpmux/briefs";
