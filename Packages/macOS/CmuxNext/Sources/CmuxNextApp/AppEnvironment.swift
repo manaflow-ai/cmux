@@ -3,6 +3,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import CmuxNextTerminal
+import CmuxNextUpdater
 import Foundation
 
 /// How this process was launched. Identity (bundle, tag, control socket)
@@ -22,6 +23,10 @@ struct AppEnvironment: Sendable {
     /// Mark this run for crash recovery (`AppRunMarker`): only the real app
     /// process, never tests that build `AppServices`.
     var marksRun = false
+    /// This launch is the relaunch into an update nobody clicked, in an app the user was not in
+    /// (`UpdateRelaunchFocus`): it starts behind the user's app (`InputVerificationService.startNoActivateGuard`). Only the
+    /// real app process reads it.
+    var relaunchBehind: UpdateRelaunchFocus?
     /// What every local terminal of this app gets on top of its filtered
     /// login environment: the launch identity (`LaunchIdentity`) and the
     /// terminal identity Ghostty gives its shells (`TerminalEnvironment.instance.ghostty`),

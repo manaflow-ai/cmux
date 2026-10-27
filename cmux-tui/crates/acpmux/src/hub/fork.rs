@@ -312,6 +312,9 @@ impl Hub {
             // A fork is the person's new chat, never a sub-session of the parent's parent.
             subsession: None,
             subsession_limits: Default::default(),
+            // A fork is the person's branch of the chat, never a spawn (`lineage.rs`).
+            lineage: None,
+            subagent_retry_open: false,
         };
         let new = self.make_session(meta);
         match made {
@@ -328,6 +331,8 @@ impl Hub {
             sessions.insert(id.clone(), new.clone());
             super::admission::claim(&id);
         }
+        // Indexed again once published (`transfer.rs` `import_into`).
+        self.child_tags.note(&new);
         // Copy the transcript-relevant history so attach replays it.
         // Read one record at a time; only these kinds are parsed.
         const COPIED: &[&str] = &[
