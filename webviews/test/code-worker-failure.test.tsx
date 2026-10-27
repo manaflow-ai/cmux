@@ -10,7 +10,8 @@ import { WatchedWorker } from "../src/agent-session/acpmux/conversation/highligh
 let creates = 0;
 let renders = 0;
 let cleanups = 0;
-const pool = {};
+let poolWorks = true;
+const pool = { isWorkingPool: () => poolWorks };
 mock.module("../src/agent-session/acpmux/conversation/highlightPool", () => ({
   paneHighlightPool: () => pool,
   onHighlightTimeout: () => () => {},
@@ -79,6 +80,7 @@ afterEach(() => {
   delete document.documentElement.dataset.cmuxHighlightWorker;
   delete document.documentElement.dataset.agentMotion;
   creates = renders = cleanups = 0;
+  poolWorks = true;
 });
 afterAll(() => {
   mock.restore();
@@ -109,8 +111,7 @@ async function failWorker() {
 }
 
 test("a mounted highlighted card drops Pierre on worker failure and can recover on ready", async () => {
-  const { HighlightedCode } =
-    await import("../src/agent-session/acpmux/conversation/HighlightedCode");
+  const { HighlightedCode } = await import("../src/agent-session/acpmux/conversation/HighlightedCode");
   await draw(<HighlightedCode code="const first = 1;" lang="ts" />);
   expect(creates).toBe(1);
   expect(renders).toBe(1);
@@ -136,17 +137,28 @@ test("a mounted highlighted card drops Pierre on worker failure and can recover 
 });
 
 test("a streaming handoff stays readable when its eager worker fails after mount", async () => {
-  const { CodeHandoff } = await import("../src/agent-session/acpmux/conversation/StreamingCode");
-  const { loadHighlightedCode } =
-    await import("../src/agent-session/acpmux/conversation/CodeBlock");
+  const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
+  const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/CodeBlock");
   await loadHighlightedCode();
   document.documentElement.dataset.agentMotion = "off";
-  await draw(<CodeHandoff code="const value = 3;" lang="ts" streaming />);
+  await draw(<Markdown streaming>{"```ts\nconst value = 3;\n```\n\nStill arriving"}</Markdown>);
   expect(creates).toBe(1);
   await failWorker();
   expect(host.querySelector("diffs-container")).toBeNull();
   expect(host.textContent).toContain("const value = 3;");
   expect(cleanups).toBe(1);
-  await draw(<CodeHandoff code="const value = 3;" lang="ts" streaming={false} />);
+  await draw(<Markdown>{"```ts\nconst value = 3;\n```\n\nStill arriving"}</Markdown>);
+  expect(renders).toBe(1);
+});
+
+test("another worker's ready marker never reuses a failed pool", async () => {
+  const { HighlightedCode } = await import("../src/agent-session/acpmux/conversation/HighlightedCode");
+  await draw(<HighlightedCode code="const value = 4;" lang="ts" />);
+  poolWorks = false;
+  await failWorker();
+  await act(async () => {
+    document.documentElement.dataset.cmuxHighlightWorker = "ready";
+  });
+  expect(host.querySelector("diffs-container")).toBeNull();
   expect(renders).toBe(1);
 });

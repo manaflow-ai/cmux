@@ -764,7 +764,6 @@ function Block({
   enter = false,
   code = "final",
   tail,
-  streaming = false,
 }: {
   block: MdBlock;
   opts: InlineOptions;
@@ -774,8 +773,6 @@ function Block({
   /** A code block's stage: still open (plain lines), closed while streaming (highlighted once,
    * faded in), or drawn finished (highlighted). */
   code?: "open" | "handoff" | "final" | "plain";
-  /** The parent reply is still receiving text; defer decorative code highlighting until it settles. */
-  streaming?: boolean;
   /** The reply's newest characters, which fade in at the end of this, its last block. */
   tail?: FreshTail;
 }): ReactNode {
@@ -864,7 +861,7 @@ function Block({
       // A page in a closed ```cmux-render fence runs in the render frame; the dev server has none.
       const render = canRender() && !block.open ? renderFence(block.lang, block.code) : undefined;
       if (render) return <RenderCard call={render} />;
-      if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} streaming={streaming} />;
+      if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} />;
       return <CodeBlock code={block.code} lang={block.lang} />;
     }
     case "math":
@@ -1038,7 +1035,6 @@ export function Markdown({
         depth={0}
         enter={streaming && live && !awayBlocks.current.has(entry.key)}
         code={open ? "open" : plainCode ? "plain" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
-        streaming={streaming}
         tail={index === blocks.length - 1 ? freshTail : undefined}
       />
     );
