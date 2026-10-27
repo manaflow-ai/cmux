@@ -222,3 +222,52 @@ pub fn snapshot(dir: &Path, key: &str) -> Result<(), String> {
     }
     git(dir, &["commit", "-q", "-m", key]).map(|_| ())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    use optchat_core::Kind;
+    use optchat_host::db::{Db, NewMessage};
+
+    /// The host drops its persister when the brain stops, then shuts the
+    /// supervisor down (host.rs `run`): the last turn's export and commit
+    /// finish before shutdown returns.
+    #[test]
+    fn a_pending_turn_is_exported_and_committed_before_shutdown_returns() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("chat");
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = tmp.path().join("memory.sqlite3");
+        let mut db = Db::open(&db_path).unwrap();
+        db.append(&[NewMessage::new(Kind::User, "the last words")], |_| {
+            Vec::new()
+        })
+        .unwrap();
+        let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = Arc::clone(&lines);
+        let log: crate::brain::Log = Arc::new(move |line: &str| {
+            sink.lock().unwrap().push(line.to_owned());
+        });
+        let supervisor = crate::supervisor::exiting();
+        let persister =
+            Persister::start(&supervisor, dir.clone(), db_path, None, None, log).unwrap();
+        persister.turn_ended("turn-last");
+        drop(persister);
+
+        let report = supervisor.shutdown();
+
+        assert!(report.late.is_empty(), "{report:?}");
+        assert!(supervisor.live_workers().is_empty());
+        assert!(
+            lines.lock().unwrap().is_empty(),
+            "{:?}",
+            lines.lock().unwrap()
+        );
+        let subjects = git(&dir, &["log", "--format=%s"]).unwrap();
+        assert_eq!(subjects.trim(), "turn-last");
+        let tracked = git(&dir, &["grep", "-l", "the last words", "HEAD"]).unwrap();
+        assert!(tracked.contains(".jsonl"), "{tracked}");
+    }
+}

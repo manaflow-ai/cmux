@@ -1,6 +1,7 @@
 //! Every thread the Chief starts runs under one [`Supervisor`]
 //! (`cmux_panic_log::supervise`), built by the process's composition root
 //! (`host::run`, a CLI command) and passed to the code that starts threads.
+//! The host's stop path alone has a second one, which is never shut down.
 //!
 //! The policy is [`Fatal`], Chromium's: a thread that crashes takes the
 //! process down (`content/browser/browser_main_loop.cc`), and its host

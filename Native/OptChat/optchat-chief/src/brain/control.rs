@@ -1209,8 +1209,14 @@ mod tests {
         assert_eq!(supervisor.live_workers(), vec!["test-tick".to_owned()]);
         let report = supervisor.shutdown();
         assert!(report.late.is_empty(), "{report:?}");
-        // Its sender drops when the thread ends: the channel closes.
+        // Its sender drops when its body returns: the channel closes.
         while rx.recv_timeout(Duration::from_secs(10)).is_ok() {}
+        // The registry entry goes a moment later, when the thread itself
+        // ends (a Skip worker: shutdown does not wait for it).
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !supervisor.live_workers().is_empty() && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(1));
+        }
         assert!(supervisor.live_workers().is_empty());
     }
 

@@ -575,10 +575,14 @@ fn agent_launch_disabled() -> bool {
 }
 
 /// Runs the host; returns the exit code. Every thread it starts runs under
-/// `supervisor` (supervisor.rs).
+/// `supervisor` (supervisor.rs), which it shuts down before it returns;
+/// the stop path's threads run under their own.
 pub fn run(flags: &Flags, started_ms: u64, supervisor: &Supervisor) -> i32 {
+    // The stop path has its own supervisor, never shut down: a stop signal
+    // during the drain at the end of `run` can still end this Chief's acpmux.
+    let stop_path = crate::supervisor::exiting();
     // SIGTERM, SIGINT and SIGHUP stop the host and what it started (E20).
-    watch_stop_signals(supervisor);
+    watch_stop_signals(&stop_path);
     let Some(daemon_socket) = flags
         .value("daemon-socket")
         .map(str::to_owned)
@@ -643,15 +647,37 @@ pub fn run(flags: &Flags, started_ms: u64, supervisor: &Supervisor) -> i32 {
     // The start-up probe says again when the compactor cannot work.
     settle.compactor_fault(None);
     let started = start(&paths, &home, &daemon_socket, source, supervisor);
-    if STOPPING.load(std::sync::atomic::Ordering::SeqCst) {
+    let code = if STOPPING.load(std::sync::atomic::Ordering::SeqCst) {
         // A stop signal: whatever `start` returned (its acpmux connection
         // may close under it), stop what this host started and exit 0.
         if let Err(e) = &started {
             log(format!("while stopping: {e}"));
         }
-        stop_started_acpmux(supervisor);
-        return 0;
+        stop_started_acpmux(&stop_path);
+        0
+    } else {
+        exit_code(started)
+    };
+    // `start` has returned, so the brain and the persister's sender are
+    // gone: the persister finishes its last export and commit while this
+    // host still holds its lock, and every other worker is asked to stop.
+    shut_down(supervisor);
+    code
+}
+
+/// Stops the host's workers and waits for the ones whose work must not be
+/// cut short (`ShutdownBehavior::Block`: the persister); host.log names
+/// each that did not end within its deadline.
+fn shut_down(supervisor: &Supervisor) {
+    for name in supervisor.shutdown().late {
+        log(format!(
+            "WARN {name} did not end within its shutdown deadline; exiting without it"
+        ));
     }
+}
+
+/// The exit code of a host whose brain stopped without a stop signal.
+fn exit_code(started: Result<String, String>) -> i32 {
     match started {
         Ok(fatal) if fatal.starts_with(crate::brain::HANDOFF_WHEN_IDLE) => {
             // The app hands acpmux off and starts the next host.
