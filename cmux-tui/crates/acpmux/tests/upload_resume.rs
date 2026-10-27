@@ -132,9 +132,12 @@ async fn an_upload_resumes_from_its_status_and_its_finish_is_checked() {
     let done = c.call(method::MUX_FILE_PUT_FINISH, finish.clone()).await;
     let path = done["result"]["path"].as_str().unwrap_or_else(|| panic!("{done}")).to_owned();
     assert_eq!(sha(&std::fs::read(&path).unwrap()), sha(&file));
+    // What a sender needs to call it finished: the size and the upload it was.
+    assert_eq!(done["result"]["size"], json!(file.len()), "{done}");
+    assert_eq!(done["result"]["uploadId"], json!(upload), "{done}");
     // A finish whose answer was lost is answered again, and status says it is done.
     let again = c.call(method::MUX_FILE_PUT_FINISH, finish.clone()).await;
-    assert_eq!(again["result"]["path"], json!(path), "{again}");
+    assert_eq!(again["result"], done["result"], "{again}");
     // A repeated finish with another sha256 is checked against the finished file's bytes.
     let mut wrong = finish;
     wrong["sha256"] = json!(sha(b"other"));
