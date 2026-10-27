@@ -424,12 +424,8 @@ test("a started chat with a folder action keeps the chip actionable", async () =
     onNewChat: (cwd: string) => folders.push(cwd),
   });
   await openPicker();
-  expect(machineRows().map(rowText)).toEqual([
-    expect.stringContaining("cosmic-gray"),
-    expect.stringContaining("gpu-box"),
-    expect.stringContaining("cloud-1"),
-    expect.stringContaining("build-cloud"),
-  ]);
+  // Only where the chat runs: a started chat cannot be picked onto another machine.
+  expect(machineRows().map(rowText)).toEqual([expect.stringContaining("cosmic-gray")]);
   expect(newRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toContain(
     t("composer.chooseFolderMenu"),
   );

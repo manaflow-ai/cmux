@@ -12,6 +12,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { chat, noChat, summary, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { translate as t } from "../src/agent-session/acpmux/i18n";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -77,7 +78,7 @@ function Chips() {
   return null;
 }
 
-async function render(snapshot: AcpmuxSnapshot) {
+async function render(snapshot: AcpmuxSnapshot, extra: Record<string, unknown> = {}) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   root ??= createRoot(host);
@@ -93,6 +94,7 @@ async function render(snapshot: AcpmuxSnapshot) {
         onNewChat={() => {}}
         localName="studio"
         projectChoices={[{ cwd: "/Users/you/src/app", label: "app" }]}
+        {...extra}
       />,
     ),
   );
@@ -201,4 +203,59 @@ test("a prompt queued before the first turn hides the strip: it runs where the c
   await render({ ...paused, summary: { ...paused.summary!, queuePaused: true } });
   expect(strip()).toBeNull();
   expect(placeholder()).toBeNull();
+});
+
+/// A chat with one finished turn, its summary known.
+function startedChat(fields: Partial<AcpmuxSnapshot> = {}): AcpmuxSnapshot {
+  const started = newChat({ rows: [user("Add retries", 1), summary(1, { status: "completed" })], ...fields });
+  return { ...started, summary: { ...started.summary!, hostKind: "local", turnCount: 1 } };
+}
+
+const environmentButton = () =>
+  [...host.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find((button) =>
+    (button.getAttribute("aria-label") ?? "").startsWith(t("composer.environment") + ":"),
+  );
+const actionRow = (label: string) =>
+  [...dom.window.document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (row) => row.querySelector(".acpmux-menu-label")?.textContent === label,
+  );
+async function openEnvironment() {
+  const button = environmentButton();
+  expect(button, "no environment chip").toBeTruthy();
+  await act(async () => {
+    button!.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+    button!.click();
+  });
+}
+
+test("a started chat the host can move keeps its chip, whose picker runs the move", async () => {
+  const moves: string[] = [];
+  await render(startedChat(), { onOffload: (kind: string) => moves.push(kind), offloads: ["move"] });
+  expect(strip()).not.toBeNull();
+  await openEnvironment();
+  await act(async () => actionRow(t("composer.moveToCloud"))!.click());
+  expect(moves).toEqual(["move"]);
+});
+
+test("a started chat with Choose folder… keeps its chip; the folder picked starts a new chat there", async () => {
+  const chats: string[] = [];
+  await render(startedChat(), {
+    onBrowseFolder: async () => "/Users/you/src/other",
+    onNewChat: (cwd: string) => chats.push(cwd),
+  });
+  expect(strip()).not.toBeNull();
+  await openEnvironment();
+  await act(async () => actionRow(t("composer.chooseFolderMenu"))!.click());
+  expect(chats).toEqual(["/Users/you/src/other"]);
+});
+
+test("a started chat with nothing to offer, or with its queue heading the card, has no strip", async () => {
+  // No move from the host (none listed), and no folder panel.
+  await render(startedChat(), { onOffload: () => {}, offloads: [] });
+  expect(strip()).toBeNull();
+  await render(startedChat({ queue: [{ id: "q1", prompt: "Then add a test" }] }), {
+    onOffload: () => {},
+    offloads: ["move"],
+  });
+  expect(strip()).toBeNull();
 });

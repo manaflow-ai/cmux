@@ -359,7 +359,7 @@ export function ComposerContext({
                   chevron
                 />
               }
-              environments={offload && currentComputer ? [currentComputer] : computers}
+              environments={started && currentComputer ? [currentComputer] : computers}
               current={selectedComputer}
               onPick={pickEnvironment}
               {...(offload && onOffload ? { offload, onOffload } : {})}
