@@ -71,14 +71,14 @@ public final class MainPaneChromeShadeView: NSView {
         if Metrics.floatingPanes, let paneCards {
             let cut = paneCards.paneCardsInWindow.reduce(CGMutablePath()) { union, card in
                 let rect = convert(card.rect, from: nil), corner = min(card.radius, rect.width / 2, rect.height / 2)
-                let path = CGPath(roundedRect: rect, cornerWidth: corner, cornerHeight: corner, transform: nil)
+                let path = CGPath.roundedRect(rect, cornerWidth: corner, cornerHeight: corner)
                 return (union.isEmpty ? path : union.union(path)).mutableCopy() ?? union
             }
             // The card clips its panes: one held wider than the card through a sidebar slide
             // (`MainPaneCardView.contentHold`) cuts no shade past the card's edge.
             let corner = min(radius, card.width / 2, card.height / 2)
-            let visible = cut.intersection(CGPath(roundedRect: card, cornerWidth: corner, cornerHeight: corner, transform: nil))
-            shade.path = CGPath(rect: bounds, transform: nil).subtracting(visible)
+            let visible = cut.intersection(CGPath.roundedRect(card, cornerWidth: corner, cornerHeight: corner))
+            shade.path = CGPath.rect(bounds).subtracting(visible)
         } else {
             let path = CGMutablePath()
             path.addRect(bounds)

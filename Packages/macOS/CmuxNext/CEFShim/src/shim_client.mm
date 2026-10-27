@@ -8,6 +8,7 @@
 #include "include/cef_auth_callback.h"
 #include "include/cef_devtools_message_observer.h"
 #include "include/cef_drag_handler.h"
+#include "include/cef_frame_handler.h"
 #include "include/cef_image.h"
 #include "include/cef_jsdialog_handler.h"
 #include "include/cef_parser.h"
@@ -86,6 +87,10 @@
     case CMUX_SHIM_POPUP_MENU:
     case CMUX_SHIM_POPUP_MENU_HIDE:
     case CMUX_SHIM_SUGGESTIONS:
+    case CMUX_SHIM_COLOR_CHOOSER:
+    case CMUX_SHIM_DEVICE_CHOOSER:
+    case CMUX_SHIM_DESKTOP_MEDIA:
+    case CMUX_SHIM_SUBFRAME_RENDERER:
     case CMUX_SHIM_JS_DIALOG:
     case CMUX_SHIM_JS_DIALOG_DISMISSED:
     case CMUX_SHIM_AUTH:
@@ -337,6 +342,15 @@ int ReportRendererEnd(CefRefPtr<CefBrowser> browser) {
   return report;
 }
 
+// SUBFRAME_RENDERER for `frame` of `browser` gaining (1) or losing (0) its renderer; the main frame's
+// renderer end is RENDER_TERMINATED.
+void EmitSubframeRenderer(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, int attached) {
+  if (!browser || !frame || frame->IsMain()) return;
+  const std::string identifier = frame->GetIdentifier().ToString();
+  const int client = RendererClientIdOf(identifier);
+  if (client > 0) Emit(CMUX_SHIM_SUBFRAME_RENDERER, browser->GetIdentifier(), client, attached, 0, identifier);
+}
+
 class Client : public CefClient,
                public CefDisplayHandler,
                public CefLoadHandler,
@@ -349,6 +363,7 @@ class Client : public CefClient,
                public CefFocusHandler,
                public CefJSDialogHandler,
                public CefDragHandler,
+               public CefFrameHandler,
                public CefDevToolsMessageObserver {
  public:
   explicit Client(int request) : request_(request) {}
@@ -365,6 +380,7 @@ class Client : public CefClient,
   // beforeunload always; alert, confirm and prompt after cmux_shim_set_page_dialogs(1).
   CefRefPtr<CefJSDialogHandler> GetJSDialogHandler() override { return this; }
   CefRefPtr<CefDragHandler> GetDragHandler() override { return this; }
+  CefRefPtr<CefFrameHandler> GetFrameHandler() override { return this; }
   // File choosers go to the host app (shim_file_dialog.mm).
   CefRefPtr<CefDialogHandler> GetDialogHandler() override { return FileDialogHandlerInstance(); }
   // Every download waits for the host's path (shim_downloads.mm).
@@ -385,6 +401,18 @@ class Client : public CefClient,
   // focus to its omnibar.
   void OnTakeFocus(CefRefPtr<CefBrowser> browser, bool next) override {
     Emit(CMUX_SHIM_TAKE_FOCUS, browser->GetIdentifier(), 0, next ? 1 : 0);
+  }
+
+  // MARK: Frames
+
+  // Which renderer hosts each frame but the main one (SUBFRAME_RENDERER), so the app knows the pages a
+  // renderer's crash leaves a sad frame in. A frame back from the back-forward cache attaches again.
+  void OnFrameAttached(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, bool) override {
+    EmitSubframeRenderer(browser, frame, 1);
+  }
+
+  void OnFrameDetached(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame) override {
+    EmitSubframeRenderer(browser, frame, 0);
   }
 
   // MARK: Drags

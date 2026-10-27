@@ -248,17 +248,27 @@ typedef enum {
   CMUX_SHIM_COLOR_CHOOSER = 61,
   CMUX_SHIM_DEVICE_CHOOSER = 62,
   CMUX_SHIM_DESKTOP_MEDIA = 63,
+  // A frame other than a browser's main frame gained or lost its renderer
+  // (CefFrameHandler::OnFrameAttached and OnFrameDetached): browser_id;
+  // request = the frame's renderer client id (its render process host id, the
+  // renderer's --renderer-client-id); a = 1 attached, 0 detached; s1 = the
+  // frame's identifier (CefFrame::GetIdentifier). A renderer's
+  // death detaches its frames too (WebContentsObserver::RenderFrameDeleted),
+  // before or after the app sees the process end. The app names the pages a
+  // renderer's crash leaves a sad frame in from it (Chrome's
+  // DiscardPageWithCrashedSubframePolicy reads the dead process's frame nodes).
+  CMUX_SHIM_SUBFRAME_RENDERER = 64,
   // A page's alert, confirm or prompt (CefJSDialogHandler::OnJSDialog), only
   // after cmux_shim_set_page_dialogs(1); Chromium shows no dialog of its own.
   // request = the question's token; a = 0 alert, 1 confirm, 2 prompt
   // (cef_jsdialog_type_t); s1 = the message; s2 = the URL of the frame that
   // asks, a newline, then the prompt's default text ("" for the others). The
   // page waits for cmux_shim_js_dialog_reply (during the event or later).
-  CMUX_SHIM_JS_DIALOG = 64,
+  CMUX_SHIM_JS_DIALOG = 65,
   // Chromium ended the browser's waiting JS_DIALOG questions itself (a
   // navigation, the renderer ended, DevTools answered). Not sent after the
   // host's answer.
-  CMUX_SHIM_JS_DIALOG_DISMISSED = 65,
+  CMUX_SHIM_JS_DIALOG_DISMISSED = 66,
   // A server or a proxy asks for a user name and password
   // (CefRequestHandler::GetAuthCredentials), only after
   // cmux_shim_set_page_dialogs(1); Chromium shows no sign-in dialog of its
@@ -267,10 +277,10 @@ typedef enum {
   // scheme ("basic", "digest", "ntlm", "negotiate"), a newline, then the
   // realm ("" when the server sends none). The request waits for
   // cmux_shim_auth_reply.
-  CMUX_SHIM_AUTH = 66,
+  CMUX_SHIM_AUTH = 67,
   // The browser's waiting AUTH questions are gone (a new main-frame
   // navigation started). Not sent after the host's answer.
-  CMUX_SHIM_AUTH_DISMISSED = 67,
+  CMUX_SHIM_AUTH_DISMISSED = 68,
 } cmux_shim_event_kind_t;
 
 typedef enum {

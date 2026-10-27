@@ -6,6 +6,12 @@ import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
 
 extension CEFTab {
+    /// The file URLs of a PAGE_DRAG_ENTER event's JSON array of absolute paths.
+    nonisolated static func dragPaths(_ json: String) -> [URL] {
+        guard let paths = try? JSONSerialization.blockingJSONObject(with: Data(json.utf8)) as? [String] else { return [] }
+        return paths.filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) }
+    }
+
     /// Translates shim events into `BrowserNavigationEvent`s.
     ///
     /// CEF order for a navigation: OnLoadingStateChange(loading) ->
@@ -134,12 +140,6 @@ extension CEFTab {
         default:
             break
         }
-    }
-
-    /// The file URLs of a PAGE_DRAG_ENTER event's JSON array of absolute paths.
-    nonisolated static func dragPaths(_ json: String) -> [URL] {
-        guard let paths = try? JSONSerialization.blockingJSONObject(with: Data(json.utf8)) as? [String] else { return [] }
-        return paths.filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) }
     }
 
     /// Chromium net error codes; -3 (ERR_ABORTED) is a cancelled load (Stop,

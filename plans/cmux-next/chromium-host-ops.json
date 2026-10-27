@@ -4918,25 +4918,31 @@
       "reason": "Host mode only (task 228): the host's fork screen-share picker handler (getDisplayMedia, chrome.desktopCapture), installed while cmux's client has cmux_shim_set_desktop_media_handler set. request = CMUX_SHIM_DESKTOP_MEDIA_OPEN or _CLOSE, a = token, s1 = OPEN's request as bytes (HOST/src/host_choosers.h); the remote shim calls the app's fn with the fork's cmux_desktop_media_request_t rebuilt from it."
     },
     {
-      "kind": "CMUX_SHIM_JS_DIALOG",
+      "kind": "CMUX_SHIM_SUBFRAME_RENDERER",
       "value": 64,
+      "refreshes": [],
+      "reason": "A frame other than the main one gained (a = 1) or lost (a = 0) its renderer, request = its renderer client id, s1 = its frame identifier (CefFrameHandler, task p07-memory-106): the app's child monitor names the pages a renderer's crash leaves a sad frame in. The host's renderers are not the app's children, so in host mode the app reads none of them."
+    },
+    {
+      "kind": "CMUX_SHIM_JS_DIALOG",
+      "value": 65,
       "refreshes": [],
       "reason": "A page's alert, confirm or prompt (OnJSDialog, task 063), answered by js_dialog_reply: cmux asks in a CmuxDialogSpec over the tab, as Chrome's TabModalDialogManager asks in a tab-modal dialog."
     },
     {
       "kind": "CMUX_SHIM_JS_DIALOG_DISMISSED",
-      "value": 65,
+      "value": 66,
       "refreshes": []
     },
     {
       "kind": "CMUX_SHIM_AUTH",
-      "value": 66,
+      "value": 67,
       "refreshes": [],
       "reason": "HTTP authentication (GetAuthCredentials on the IO thread, posted to the UI thread, task 063), answered by auth_reply: cmux's sign-in dialog, as Chrome's LoginHandler shows its LoginView."
     },
     {
       "kind": "CMUX_SHIM_AUTH_DISMISSED",
-      "value": 67,
+      "value": 68,
       "refreshes": []
     }
   ],

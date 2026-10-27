@@ -85,6 +85,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// move it to another renderer) or its renderer ended (``publishRenderers(as:into:while:)``, p14-energy-124).
     /// In process only: with the Chromium Host on, those shim calls are wire replies (p14-energy-124a).
     @ObservationIgnored var onRenderersMayChange: (() -> Void)?
+    /// Runs each time a frame of this page outside its main frame's renderer crashes (`BrowserSubframeCrashReporting`).
+    @ObservationIgnored public var onSubframeCrash: (@MainActor () -> Void)?
     /// Shows the crash page in the turn this page's process or its host ended (``BrowserCrashPageHosting``).
     @ObservationIgnored weak var crashPagePresenter: (any BrowserCrashPagePresenter)?
     /// The page plays unmuted media (`BrowserAudibleReporting`): `state.media?.isAudible`, kept
@@ -159,6 +161,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// A real mouse down or key down reached the page, at this `systemUptime` (a cmux page backs its
     /// calls with it as the person's gesture); nil ignores it.
     @ObservationIgnored public var pageUserInput: (@MainActor (TimeInterval) -> Void)?
+
     /// URL of the last main-frame load that committed (Chromium's current
     /// entry). Renderer debug URLs (chrome://crash) never commit.
     @ObservationIgnored var committedURL: URL?
@@ -355,6 +358,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
             runtime.shim?.loadURL(browserID, url.absoluteString)
         } else {
             pendingURL = url
+            hostRestoreNavigated()
         }
     }
 
@@ -374,7 +378,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         (reloadWhenShown, isDiscardedInPlace) = (false, false)
         if runtime.awaitsHostRestart { return runtime.reloadAfterHostRestart(self) }
         guard let browserID else {
-            if let url = pendingURL ?? state.url { load(url) }
+            // A page its host restore brings back loads with its saved navigation (``hostRestoreShown()``).
+            if !hasHostRestore, let url = pendingURL ?? state.url { load(url) }
             return
         }
         switch reloadPlan {

@@ -53,6 +53,10 @@ pub struct SurfaceOptions {
     /// template's own registry was wiped with the snapshot, so its name is
     /// not recoverable from the host record. `None` uses the default name.
     pub template_workspace_name: Option<String>,
+    /// The owner's panic log, where a terminal host's panic (its `.crash`
+    /// sidecar) goes as one line before the owner removes the sidecar.
+    /// `None` keeps host panics in the loss log only.
+    pub host_panic_log: Option<crate::terminal_host_runtime::HostPanicLog>,
 }
 
 /// Default TERM for child shells.
@@ -102,6 +106,7 @@ impl Default for SurfaceOptions {
             adopt_template_terminal: false,
             template_bound_file: None,
             template_workspace_name: None,
+            host_panic_log: None,
         }
     }
 }

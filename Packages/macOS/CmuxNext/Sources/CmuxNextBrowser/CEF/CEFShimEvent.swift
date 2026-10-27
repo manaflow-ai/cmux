@@ -107,6 +107,10 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case pageResource(browser: Int32, token: Int32, url: String)
     /// A drag of files from outside entered a page (PAGE_DRAG_ENTER): their paths, as JSON.
     case pageDragEnter(browser: Int32, pathsJSON: String)
+    /// Frame `frame` (its identifier) of a page, not its main frame, attached to (or detached from) renderer
+    /// `client`, its `--renderer-client-id` (SUBFRAME_RENDERER): ``CEFChildProcessMonitor`` names the page in
+    /// that renderer's end.
+    case subframeRenderer(browser: Int32, frame: String, client: Int32, attached: Bool)
     /// A page opened a file chooser (FILE_DIALOG; only after `setFileDialogs(1)`): answer it once with
     /// `fileDialogAnswer(dialogID, ...)`. `mode` 0 open one, 1 open several, 2 folder, 3 save;
     /// `acceptTypes` are MIME types and ".ext" entries; `defaultPath` may be empty.
@@ -216,10 +220,11 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 58: self = .popupMenu(browser: browser, token: a, popup: ChromiumHostPopupMenu(json: s1))
         case 59: self = .popupMenuHidden(browser: browser, token: a)
         case 60: self = ChromiumHostSuggestionEvent(request: request, a: a, b: b, s1: s1).map { Self.pageView(browser: browser, .suggestions($0)) } ?? .unknown(kind: kind)
-        case 64: self = .jsDialog(browser: browser, token: request, dialog: CEFJSDialog(wireKind: a, message: s1, details: s2))
-        case 65: self = .jsDialogsDismissed(browser: browser)
-        case 66: self = .auth(browser: browser, token: request, challenge: CEFAuthChallenge(host: s1, port: a, flags: b, details: s2))
-        case 67: self = .authDismissed(browser: browser)
+        case 64: self = .subframeRenderer(browser: browser, frame: s1, client: request, attached: a != 0)
+        case 65: self = .jsDialog(browser: browser, token: request, dialog: CEFJSDialog(wireKind: a, message: s1, details: s2))
+        case 66: self = .jsDialogsDismissed(browser: browser)
+        case 67: self = .auth(browser: browser, token: request, challenge: CEFAuthChallenge(host: s1, port: a, flags: b, details: s2))
+        case 68: self = .authDismissed(browser: browser)
         default: self = .unknown(kind: kind)
         }
     }
@@ -239,7 +244,7 @@ extension CEFShimEvent {
              .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .keyUnhandledChord(let b, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
              .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
              .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _), .pageDragEnter(let b, _),
-             .fileDialog(let b, _, _, _, _), .pageView(let b, _),
+             .subframeRenderer(let b, _, _, _), .fileDialog(let b, _, _, _, _), .pageView(let b, _),
              .pageMessage(let b, _, _, _), .widgetGone(let b, _), .popupMenu(let b, _, _), .popupMenuHidden(let b, _),
              .jsDialog(let b, _, _), .jsDialogsDismissed(let b), .auth(let b, _, _), .authDismissed(let b):
             b

@@ -120,7 +120,7 @@ struct PageWebKitAbsenceTests {
         let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [], route: "#/c")))
         defer { host.close(view) }
         view.fileDrop = PageFileDrop(accepts: { _ in true }) { _ in }
-        let window = PageHostPoolLaunchWindowTests.shownWindow()
+        let window = PagePreloadPageTests.shownWindow()
         defer { window.close() }
         window.contentView?.addSubview(view)
         view.focusPage()
